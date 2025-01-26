@@ -13,7 +13,7 @@ from sentence_transformers import SentenceTransformer
 import logging
 from typing import List, Dict, Any, Tuple, Set, Optional
 from datetime import datetime, date
-
+import time
 from .base import MemoryStorage
 from ..models.memory import Memory, MemoryQueryResult
 from ..utils.hashing import generate_content_hash
@@ -63,7 +63,7 @@ class ChromaMemoryStorage(MemoryStorage):
             tags = [str(tag).strip() for tag in tags if str(tag).strip()]
         else:
             return json.dumps([])
-                
+        
         # Return JSON string representation of the array
         return json.dumps(tags)
 
@@ -76,25 +76,29 @@ class ChromaMemoryStorage(MemoryStorage):
             )
             if existing["ids"]:
                 return False, "Duplicate content detected"
-            
+        
+            # Ensure timestamp is properly set before this point
+            # memory.timestamp = memory.timestamp if isinstance(memory.timestamp, (int, float)) else memory.timestamp.timestamp()
+            memory.timestamp = float(memory.timestamp)  # Ensure float
+        
             # Format metadata properly
             metadata = self._format_metadata_for_chroma(memory)
-            
+        
             # Add additional metadata
             metadata.update(memory.metadata)
 
             # Generate ID based on content hash
             memory_id = memory.content_hash
-            
+        
             # Add to collection - embedding will be automatically generated
             self.collection.add(
                 documents=[memory.content],
                 metadatas=[metadata],
                 ids=[memory_id]
             )
-            
+        
             return True, f"Successfully stored memory with ID: {memory_id}"
-            
+    
         except Exception as e:
             logger.error(f"Error storing memory: {str(e)}")
             return False
@@ -134,6 +138,9 @@ class ChromaMemoryStorage(MemoryStorage):
             
         except Exception as e:
             logger.error(f"Error searching by tags: {e}")
+            logger.error(f"No results found. Query: {query}, Start: {start_timestamp}, End: {end_timestamp}")
+            results = self.collection.get()
+            logger.error(f"Available timestamps: {[m.get('timestamp') for m in results['metadatas'] if 'timestamp' in m]}")
             return []
 
     async def delete_by_tag(self, tag: str) -> Tuple[int, str]:
@@ -226,48 +233,6 @@ class ChromaMemoryStorage(MemoryStorage):
             logger.error(f"Error cleaning up duplicates: {str(e)}")
             return 0, f"Error cleaning up duplicates: {str(e)}"
 
-    async def recall(self, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None) -> List[MemoryQueryResult]:
-        """Retrieve memories within a timestamp range."""
-        try:
-            where_clause = {}
-            if start_timestamp is not None and end_timestamp is not None:
-                where_clause = {
-                    "$and": [
-                        {"timestamp": {"$gte": start_timestamp}},
-                        {"timestamp": {"$lte": end_timestamp}}
-                    ]
-                }
-
-            results = self.collection.get(
-                where=where_clause,
-                limit=n_results,
-                include=["metadatas", "documents"]
-            )
-
-            memory_results = []
-            for i in range(len(results["ids"])):
-                metadata = results["metadatas"][i]
-                try:
-                    retrieved_tags = json.loads(metadata.get("tags", "[]"))
-                except json.JSONDecodeError:
-                    retrieved_tags = []
-
-                memory = Memory(
-                    content=results["documents"][i],
-                    content_hash=metadata["content_hash"],
-                    tags=retrieved_tags,
-                    memory_type=metadata.get("type", ""),
-                    timestamp=metadata.get("timestamp"),
-                    metadata={k: v for k, v in metadata.items() if k not in ["type", "content_hash", "tags", "timestamp"]}
-                )
-                memory_results.append(MemoryQueryResult(memory))
-
-            return memory_results
-
-        except Exception as e:
-            logger.error(f"Error retrieving memories: {str(e)}")
-            return []
-
     async def delete_by_timeframe(self, start_date: date, end_date: Optional[date] = None, tag: Optional[str] = None) -> Tuple[int, str]:
         """Delete memories within a timeframe and optionally filtered by tag."""
         try:
@@ -341,36 +306,23 @@ class ChromaMemoryStorage(MemoryStorage):
             logger.exception("Error deleting memories before date:")
             return 0, str(e)
 
-
     def _format_metadata_for_chroma(self, memory: Memory) -> Dict[str, Any]:
-        """Format metadata to be compatible with ChromaDB requirements."""
         metadata = {
             "content_hash": memory.content_hash,
             "memory_type": memory.memory_type if memory.memory_type else "",
-            "timestamp": str(memory.timestamp.timestamp())
+            "timestamp": float(memory.timestamp),
+            "tags": json.dumps(memory.tags if isinstance(memory.tags, list) else [])
         }
         
-        # Properly serialize tags
-        if memory.tags:
-            if isinstance(memory.tags, list):
-                metadata["tags"] = json.dumps([str(tag).strip() for tag in memory.tags if str(tag).strip()])
-            elif isinstance(memory.tags, str):
-                tags = [tag.strip() for tag in memory.tags.split(",") if tag.strip()]
-                metadata["tags"] = json.dumps(tags)
-        else:
-            metadata["tags"] = "[]"
-        
-        # Add any additional metadata
-        for key, value in memory.metadata.items():
-            if isinstance(value, (str, int, float, bool)):
-                metadata[key] = value
-        
+        # Add additional metadata
+        for k, v in memory.metadata.items():
+            if k not in ["content_hash", "memory_type", "timestamp", "tags"]:
+                metadata[k] = v
+                
         return metadata
 
     async def retrieve(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
-        """Retrieve memories using semantic search."""
         try:
-            # Query using the embedding function
             results = self.collection.query(
                 query_texts=[query],
                 n_results=n_results,
@@ -384,22 +336,176 @@ class ChromaMemoryStorage(MemoryStorage):
             for i in range(len(results["ids"][0])):
                 metadata = results["metadatas"][0][i]
                 
-                # Reconstruct memory object
+                # Parse tags from JSON string
+                try:
+                    tags = json.loads(metadata.get("tags", "[]"))
+                except json.JSONDecodeError:
+                    tags = []
+                
                 memory = Memory(
                     content=results["documents"][0][i],
                     content_hash=metadata["content_hash"],
-                    tags=metadata.get("tags", []),
+                    tags=tags,
                     memory_type=metadata.get("memory_type", ""),
+                    timestamp=float(metadata.get("timestamp", time.time())),
+                    metadata={k: v for k, v in metadata.items() 
+                            if k not in ["content_hash", "tags", "memory_type", "timestamp"]}
                 )
                 
-                # Calculate cosine similarity from distance
-                distance = results["distances"][0][i]
-                similarity = 1 - distance
+                # Convert distance to similarity score
+                similarity = 1 - results["distances"][0][i]
                 
-                memory_results.append(MemoryQueryResult(memory, similarity))
+                memory_results.append(MemoryQueryResult(memory=memory, similarity=similarity))
             
             return memory_results
             
         except Exception as e:
             logger.error(f"Error retrieving memories: {str(e)}")
             return []
+
+    async def recall(self, query: str, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None) -> List["MemoryQueryResult"]:
+        try:
+            # Build where clause
+            where_clause = {}
+            if start_timestamp is not None or end_timestamp is not None:
+                where_clause = {"$and": []}
+                if start_timestamp is not None:
+                    normalized_start = self._normalize_timestamp(start_timestamp)
+                    logger.debug(f"Normalized start timestamp: {normalized_start}")
+                    where_clause["$and"].append({"timestamp": {"$gte": normalized_start}})
+                if end_timestamp is not None:
+                    normalized_end = self._normalize_timestamp(end_timestamp)
+                    logger.debug(f"Normalized end timestamp: {normalized_end}")
+                    where_clause["$and"].append({"timestamp": {"$lte": normalized_end}})
+                logger.debug(f"Using where clause: {where_clause}")
+                
+                # Convert to SQL-like filtering
+                where_clause = {
+                    "$and": [
+                        {"CAST(string_value AS DECIMAL)": {"$gte": normalized_start}},
+                        {"CAST(string_value AS DECIMAL)": {"$lte": normalized_end}}
+                    ]
+                }
+            # Execute query
+            results = self.collection.query(
+                query_texts=[query] if query else None,
+                n_results=n_results,
+                where=where_clause if where_clause.get("$and") else None,
+                include=["metadatas", "documents", "distances"]
+            )
+            
+            if not results["ids"] or not results["ids"][0]:
+                return []
+            
+            memory_results = []
+            for i in range(len(results["ids"][0])):
+                metadata = results["metadatas"][0][i]
+                
+                # Parse tags safely
+                tags = self._parse_tags(metadata.get("tags"))
+                
+                memory = Memory(
+                    content=results["documents"][0][i],
+                    content_hash=metadata["content_hash"],
+                    tags=tags,
+                    memory_type=metadata.get("memory_type", ""),
+                    timestamp=float(metadata.get("timestamp", time.time())),
+                    metadata={k: v for k, v in metadata.items() 
+                            if k not in ["content_hash", "tags", "memory_type", "timestamp"]}
+                )
+                
+                similarity = 1 - results["distances"][0][i]
+                memory_results.append(MemoryQueryResult(memory=memory, similarity=similarity))
+            
+            return memory_results
+            
+        except Exception as e:
+            logger.error(f"Error in recall: {str(e)}")
+            return []
+
+    def create_memory(self, doc: str, metadata: dict, similarity: float) -> Memory:
+        """
+        Create a Memory object from document and metadata.
+        
+        Args:
+            doc (str): The document content.
+            metadata (dict): Metadata associated with the memory.
+            similarity (float): Similarity score of the memory.
+        
+        Returns:
+            Memory: A structured Memory object.
+        """
+        # Input validation
+        if not isinstance(doc, str) or not doc:
+            logger.error("Invalid document: must be a non-empty string.")
+            raise ValueError("Document content cannot be empty.")
+        if not isinstance(metadata, dict):
+            logger.error("Invalid metadata: must be a dictionary.")
+            raise ValueError("Metadata must be a dictionary.")
+        
+        # Extract content_hash and ensure it is valid
+        content_hash = metadata.get("content_hash")
+        if not content_hash:
+            logger.error("Invalid metadata: missing content_hash.")
+            raise ValueError("Content hash is required.")
+        
+        # Handle tags with error handling
+        try:
+            tags = json.loads(metadata.get("tags", "[]"))
+        except json.JSONDecodeError:
+            logger.warning(f"Invalid JSON in tags metadata: {metadata.get('tags')}")
+            tags = []  # Default to an empty list if parsing fails
+        
+        # Create and return the Memory object
+        return Memory(
+            content=doc,
+            content_hash=content_hash,
+            tags=tags,
+            memory_type=metadata.get("type", ""),
+            timestamp=metadata.get("timestamp"),
+            metadata={k: v for k, v in metadata.items() 
+                    if k not in ["type", "content_hash", "tags", "timestamp"]}
+        )
+
+    def _parse_tags(self, tags_data: Optional[Any]) -> List[str]:
+        """Parse tags from various formats into a list of strings."""
+        if not tags_data:
+            return []
+        try:
+            if isinstance(tags_data, str):
+                # Handle JSON string
+                tags = json.loads(tags_data)
+            elif isinstance(tags_data, list):
+                tags = tags_data
+            else:
+                return []
+            return [str(tag).strip() for tag in tags if str(tag).strip()]
+        except json.JSONDecodeError:
+            logger.warning(f"Invalid tags format: {tags_data}")
+            return []
+
+    def _build_where_clause(self, filters: Dict[str, Any]) -> Dict[str, Any]:
+        """Build ChromaDB where clause from filters."""
+        clause = {"$and": []}
+        if filters.get("start_timestamp"):
+            clause["$and"].append({"timestamp": {"$gte": filters["start_timestamp"]}})
+        if filters.get("end_timestamp"):
+            clause["$and"].append({"timestamp": {"$lte": filters["end_timestamp"]}})
+        return clause if clause["$and"] else {}
+
+    def _extract_metadata(self, raw_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract and clean metadata from raw ChromaDB response."""
+        exclude_keys = {"content_hash", "tags", "memory_type", "timestamp"}
+        return {k: v for k, v in raw_metadata.items() if k not in exclude_keys}
+
+    def _calculate_similarity(self, distance: float) -> float:
+        """Convert ChromaDB distance to similarity score."""
+        return 1.0 - float(distance)
+
+    def _normalize_timestamp(self, timestamp: Any) -> float:
+        """Convert timestamp to float with microsecond precision."""
+        if isinstance(timestamp, (int, float)):
+            return float(f"{float(timestamp):.6f}")
+        if isinstance(timestamp, datetime):
+            return float(f"{timestamp.timestamp():.6f}")
+        return float(f"{time.time():.6f}")

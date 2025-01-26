@@ -66,3 +66,14 @@ changelog_sections = [
     ["refactor", "Code Refactoring"],
     ["test", "Tests"]
 ]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0"
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "src"
+]

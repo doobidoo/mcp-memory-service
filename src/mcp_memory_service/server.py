@@ -11,6 +11,8 @@ import argparse
 import sys
 import json
 from typing import List
+import time
+from datetime import datetime
 
 from mcp.server.models import InitializationOptions
 import mcp.types as types
@@ -37,6 +39,11 @@ logger = logging.getLogger(__name__)
 # Set environment variable for PyTorch MPS
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
+logger.info("Environment variables:")
+logger.info(f"MCP_MEMORY_CHROMA_PATH: {os.getenv('MCP_MEMORY_CHROMA_PATH')}")
+logger.info(f"MCP_MEMORY_BACKUPS_PATH: {os.getenv('MCP_MEMORY_BACKUPS_PATH')}")
+
+
 class MemoryServer:
     def __init__(self):
         """Initialize the server."""
@@ -49,8 +56,12 @@ class MemoryServer:
             os.makedirs(BACKUPS_PATH, exist_ok=True)
             
             # Initialize storage - this part is synchronous
-            self.storage = ChromaMemoryStorage(CHROMA_PATH)
-
+            try:
+                self.storage = ChromaMemoryStorage(CHROMA_PATH)
+            except Exception as e:
+                logger.error(f"Error initializing storage: {str(e)}")
+                raise
+        
         except Exception as e:
             logger.error(f"Initialization error: {str(e)}")
             raise
@@ -93,258 +104,261 @@ class MemoryServer:
         @self.server.list_tools()
         async def handle_list_tools() -> List[types.Tool]:
             return [
-                types.Tool(
-                    name="store_memory",
-                    description="""Store new information with optional tags.
-
-                    Accepts two tag formats in metadata:
-                    - Array: ["tag1", "tag2"]
-                    - String: "tag1,tag2"
-
-                   Examples:
-                    # Using array format:
-                    {
-                        "content": "Memory content",
-                        "metadata": {
-                            "tags": ["important", "reference"],
-                            "type": "note"
-                        }
-                    }
-
-                    # Using string format(preferred):
-                    {
-                        "content": "Memory content",
-                        "metadata": {
-                            "tags": "important,reference",
-                            "type": "note"
-                        }
-                    }""",
+                types.Tool(name="retrieve_memory",
+                    description="Basic semantic search for memories",
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "content": {"type": "string"},
+                            "query": {
+                                "type": "string",
+                                "description": "Semantic search query to find relevant memories"
+                            },
+                            "n_results": {
+                                "type": "number",
+                                "description": "Maximum number of results to return",
+                                "default": 5
+                            }
+                        },
+                        "required": ["query"]
+                    },
+                    examples=[
+                        {
+                            "prompt": "What do we know about the machine learning implementation?",
+                            "args": {
+                                "query": "machine learning implementation details",
+                                "n_results": 5
+                            }
+                        },
+                        {
+                            "prompt": "Find all memories related to database configuration",
+                            "args": {
+                                "query": "database configuration setup",
+                                "n_results": 3
+                            }
+                        }
+                    ]
+                ),
+
+                types.Tool(name="recall_memory",
+                    description="Advanced memory retrieval using semantic search and/or time filtering",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Optional semantic search query"
+                            },
+                            "n_results": {
+                                "type": "number",
+                                "description": "Maximum number of results to return",
+                                "default": 5
+                            },
+                            "start_timestamp": {
+                                "type": "number",
+                                "description": "Optional start timestamp for filtering"
+                            },
+                            "end_timestamp": {
+                                "type": "number",
+                                "description": "Optional end timestamp for filtering"
+                            }
+                        }
+                    },
+                    examples=[
+                        {
+                            "prompt": "What can you tell me about our machine learning project based on stored memories?",
+                            "args": {
+                                "query": "machine learning project updates progress",
+                                "n_results": 5
+                            }
+                        },
+                        {
+                            "prompt": "What happened in our project last week?",
+                            "args": {
+                                "start_timestamp": 1704067200,
+                                "end_timestamp": 1704672000,
+                                "n_results": 10
+                            }
+                        },
+                        {
+                            "prompt": "What discussions did we have about the database architecture in the past month?",
+                            "args": {
+                                "query": "database architecture design discussion",
+                                "start_timestamp": 1701907200,
+                                "end_timestamp": 1704672000,
+                                "n_results": 5
+                            }
+                        }
+                    ]
+                ),
+
+                types.Tool(name="store_memory",
+                    description="Store new information with associated metadata",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "content": {
+                                "type": "string",
+                                "description": "Content to store in memory"
+                            },
                             "metadata": {
                                 "type": "object",
+                                "description": "Optional metadata for the memory",
                                 "properties": {
                                     "tags": {
                                         "oneOf": [
                                             {"type": "array", "items": {"type": "string"}},
                                             {"type": "string"}
-                                        ]
+                                        ],
+                                        "description": "Tags for categorizing the memory"
                                     },
-                                    "type": {"type": "string"}
+                                    "type": {
+                                        "type": "string",
+                                        "description": "Type of memory (e.g., 'note', 'document', 'code')"
+                                    }
                                 }
                             }
                         },
                         "required": ["content"]
-                    }
-                ),
-                types.Tool(
-                    name="retrieve_memory",
-                    description="""Find relevant memories based on query.
-
-                    Example:
-                    {
-                        "query": "find this memory",
-                        "n_results": 5
-                    }""",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "query": {"type": "string"},
-                            "n_results": {"type": "number", "default": 5}
+                    },
+                    examples=[
+                        {
+                            "prompt": "Store this meeting summary about the new feature implementation",
+                            "args": {
+                                "content": "Team discussed implementation timeline for vector search feature. Agreed on two-week sprint.",
+                                "metadata": {
+                                    "tags": ["meeting", "feature-planning", "timeline"],
+                                    "type": "meeting-notes"
+                                }
+                            }
                         },
-                        "required": ["query"]
-                    }
+                        {
+                            "prompt": "Remember this important configuration detail",
+                            "args": {
+                                "content": "ChromaDB requires minimum 16GB RAM for optimal performance with large datasets",
+                                "metadata": {
+                                    "tags": "technical,configuration,requirements",
+                                    "type": "technical-note"
+                                }
+                            }
+                        }
+                    ]
                 ),
-                types.Tool(
-                    name="search_by_tag",
-                    description="""Search memories by tags. Must use array format.
-                    Returns memories matching ANY of the specified tags.
 
-                    Example:
-                    {
-                        "tags": ["important", "reference"]
-                    }""",
+                types.Tool(name="search_by_tag",
+                    description="Retrieve memories matching specific tags",
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "tags": {"type": "array", "items": {"type": "string"}}
+                            "tags": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Array of tags to search for"
+                            }
                         },
                         "required": ["tags"]
-                    }
+                    },
+                    examples=[
+                        {
+                            "prompt": "Show me all technical documentation memories",
+                            "args": {
+                                "tags": ["technical", "documentation"]
+                            }
+                        },
+                        {
+                            "prompt": "Find all meeting notes from planning sessions",
+                            "args": {
+                                "tags": ["meeting-notes", "planning"]
+                            }
+                        }
+                    ]
                 ),
-                types.Tool(
-                    name="delete_memory",
-                    description="""Delete a specific memory by its hash.
 
-                    Example:
-                    {
-                        "content_hash": "a1b2c3d4..."
-                    }""",
-                                inputSchema={
-                                    "type": "object",
-                                    "properties": {
-                                        "content_hash": {"type": "string"}
-                                    },
-                                    "required": ["content_hash"]
-                                }
-                            ),
-                types.Tool(
-                    name="delete_by_tag",
-                    description="""Delete all memories with a specific tag.
-                    WARNING: Deletes ALL memories containing the specified tag.
-
-                    Example:
-                    {
-                        "tag": "temporary"
-                    }""",
+                types.Tool(name="delete_memory",
+                    description="Delete a specific memory by its content hash",
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "tag": {"type": "string"}
+                            "content_hash": {
+                                "type": "string",
+                                "description": "Hash identifier of the memory to delete"
+                            }
+                        },
+                        "required": ["content_hash"]
+                    },
+                    examples=[
+                        {
+                            "prompt": "Remove the memory with hash abc123",
+                            "args": {
+                                "content_hash": "abc123def456"
+                            }
+                        }
+                    ]
+                ),
+
+                types.Tool(name="delete_by_tag",
+                    description="Delete all memories with a specific tag",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "tag": {
+                                "type": "string",
+                                "description": "Tag to delete memories by"
+                            }
                         },
                         "required": ["tag"]
-                    }
-                ),
-                types.Tool(
-                    name="cleanup_duplicates",
-                    description="Find and remove duplicate entries",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {}
-                    }
-                ),
-                types.Tool(
-                    name="get_embedding",
-                    description="""Get raw embedding vector for content.
-
-                    Example:
-                    {
-                        "content": "text to embed"
-                    }""",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "content": {"type": "string"}
+                    },
+                    examples=[
+                        {
+                            "prompt": "Remove all temporary debug logs",
+                            "args": {
+                                "tag": "debug"
+                            }
                         },
-                        "required": ["content"]
-                    }
+                        {
+                            "prompt": "Delete all draft memories",
+                            "args": {
+                                "tag": "draft"
+                            }
+                        }
+                    ]
                 ),
-                types.Tool(
-                    name="check_embedding_model",
-                    description="Check if embedding model is loaded and working",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {}
-                    }
-                ),
-                types.Tool(
-                    name="debug_retrieve",
-                    description="""Retrieve memories with debug information.
 
-                    Example:
-                    {
-                        "query": "debug this",
-                        "n_results": 5,
-                        "similarity_threshold": 0.0
-                    }""",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "query": {"type": "string"},
-                            "n_results": {"type": "number", "default": 5},
-                            "similarity_threshold": {"type": "number", "default": 0.0}
-                        },
-                        "required": ["query"]
-                    }
-                ),
-                types.Tool(
-                    name="exact_match_retrieve",
-                    description="""Retrieve memories using exact content match.
-
-                    Example:
-                    {
-                        "content": "find exactly this"
-                    }""",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "content": {"type": "string"}
-                        },
-                        "required": ["content"]
-                    }
-                ),
-                types.Tool(
-                    name="check_database_health",
+                types.Tool(name="check_database_health",
                     description="Check database health and get statistics",
                     inputSchema={
                         "type": "object",
                         "properties": {}
-                    }
+                    },
+                    examples=[
+                        {
+                            "prompt": "How healthy is our memory database?",
+                            "args": {}
+                        },
+                        {
+                            "prompt": "Show me the current database statistics",
+                            "args": {}
+                        }
+                    ]
                 ),
-                types.Tool(
-                    name="recall_by_timeframe",
-                    description="""Retrieve memories within a specific timeframe.
 
-                    Example:
-                    {
-                        "start_date": "2024-01-01",
-                        "end_date": "2024-01-31",
-                        "n_results": 5
-                    }""",
+                types.Tool(name="check_embedding_model",
+                    description="Verify embedding model status and functionality",
                     inputSchema={
                         "type": "object",
-                        "properties": {
-                            "start_date": {"type": "string", "format": "date"},
-                            "end_date": {"type": "string", "format": "date"},
-                            "n_results": {"type": "number", "default": 5}
+                        "properties": {}
+                    },
+                    examples=[
+                        {
+                            "prompt": "Is our embedding model working correctly?",
+                            "args": {}
                         },
-                        "required": ["start_date"]
-                    }
-                ),
-                types.Tool(
-                    name="delete_by_timeframe",
-                    description="""Delete memories within a specific timeframe.
-                    Optional tag parameter to filter deletions.
-
-                    Example:
-                    {
-                        "start_date": "2024-01-01",
-                        "end_date": "2024-01-31",
-                        "tag": "temporary"
-                    }""",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "start_date": {"type": "string", "format": "date"},
-                            "end_date": {"type": "string", "format": "date"},
-                            "tag": {"type": "string"}
-                        },
-                        "required": ["start_date"]
-                    }
-                ),
-                types.Tool(
-                    name="delete_before_date",
-                    description="""Delete memories before a specific date.
-                    Optional tag parameter to filter deletions.
-
-                    Example:
-                    {
-                        "before_date": "2024-01-01",
-                        "tag": "temporary"
-                    }""",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "before_date": {"type": "string", "format": "date"},
-                            "tag": {"type": "string"}
-                        },
-                        "required": ["before_date"]
-                    }
+                        {
+                            "prompt": "Check if there are any issues with the embedding model",
+                            "args": {}
+                        }
+                    ]
                 )
             ]
-        
         @self.server.call_tool()
         async def handle_call_tool(name: str, arguments: dict | None) -> List[types.TextContent]:
             try:
@@ -356,6 +370,8 @@ class MemoryServer:
                     return await self.handle_store_memory(arguments)
                 elif name == "retrieve_memory":
                     return await self.handle_retrieve_memory(arguments)
+                elif name == "recall_memory":
+                    return await self.handle_recall_memory(arguments)
                 elif name == "search_by_tag":
                     return await self.handle_search_by_tag(arguments)
                 elif name == "delete_memory":
@@ -424,6 +440,7 @@ class MemoryServer:
                 content_hash=content_hash,
                 tags=tags,  # keep as a list for easier use in other methods
                 memory_type=metadata.get("type"),
+                timestamp=time.time(),  # Add current timestamp
                 metadata = {**metadata, "tags":sanitized_tags}  # include the stringified tags in the meta data
             )
             
@@ -449,29 +466,70 @@ class MemoryServer:
             
             formatted_results = []
             for i, result in enumerate(results):
+                timestamp_str = datetime.fromtimestamp(float(result.memory.timestamp)).strftime('%Y-%m-%d %H:%M:%S')    
+
                 memory_info = [
                     f"Memory {i+1}:",
+                    f"Timestamp: {timestamp_str}",
                     f"Content: {result.memory.content}",
                     f"Hash: {result.memory.content_hash}",
-                    f"Relevance Score: {result.relevance_score:.2f}"
+                    f"Relevance Score: {result.similarity:.2f}"
                 ]
                 if result.memory.tags:
                     memory_info.append(f"Tags: {', '.join(result.memory.tags)}")
                 memory_info.append("---")
-                formatted_results.append("\
-".join(memory_info))
+                formatted_results.append("\n".join(memory_info))
             
             return [types.TextContent(
                 type="text",
-                text="Found the following memories:\
-\
-" + "\
-".join(formatted_results)
+                text="Found the following memories:\n\n" + "\n".join(formatted_results)
             )]
         except Exception as e:
-            logger.error(f"Error retrieving memories: {str(e)}\
-{traceback.format_exc()}")
+            logger.error(f"Error retrieving memories: {str(e)}\n{traceback.format_exc()}")
             return [types.TextContent(type="text", text=f"Error retrieving memories: {str(e)}")]
+
+    async def handle_recall_memory(self, arguments: dict) -> List[types.TextContent]:
+        """
+        Handle memory retrieval requests with optional semantic search and time filtering.
+        
+        Args:
+            arguments: Dictionary containing:
+                - query: Optional semantic search query
+                - n_results: Maximum number of results (default: 5)
+                - start_timestamp: Optional start time for filtering
+                - end_timestamp: Optional end time for filtering
+        
+        Returns:
+            List containing a TextContent object with formatted results
+        """
+        try:
+            # Validate and normalize timestamps
+            start_timestamp = self._normalize_timestamp(arguments.get('start_timestamp'))
+            end_timestamp = self._normalize_timestamp(arguments.get('end_timestamp'))
+            
+            # Call the recall method with normalized timestamps
+            results = await self.storage.recall(
+                query=arguments.get('query', ''),
+                n_results=arguments.get('n_results', 5),
+                start_timestamp=start_timestamp,
+                end_timestamp=end_timestamp
+            )
+            
+            formatted_results = []
+            for result in results:
+                memory_info = [f"Content: {result.memory.content}"]
+                if result.memory.tags:
+                    memory_info.append(f"Tags: {', '.join(result.memory.tags)}")
+                memory_info.append("---")
+                formatted_results.append("\n".join(memory_info))
+            
+            return [types.TextContent(
+                type="text",
+                text="Found the following memories:\n\n" + "\n".join(formatted_results)
+            )]
+        except Exception as e:
+            logger.error(f"Error in recall_memory: {str(e)}")
+            return [types.TextContent(type="text", text=f"Error in recall_memory: {str(e)}")]
 
     async def handle_search_by_tag(self, arguments: dict) -> List[types.TextContent]:
         tags = arguments.get("tags", [])
@@ -490,8 +548,11 @@ class MemoryServer:
             
             formatted_results = []
             for i, memory in enumerate(memories):
+                timestamp_str = datetime.fromtimestamp(float(result.memory.timestamp)).strftime('%Y-%m-%d %H:%M:%S')    
+
                 memory_info = [
                     f"Memory {i+1}:",
+                    f"Timestamp: {timestamp_str}", 
                     f"Content: {memory.content}",
                     f"Hash: {memory.content_hash}",
                     f"Tags: {', '.join(memory.tags)}"
@@ -533,8 +594,7 @@ class MemoryServer:
             result = get_raw_embedding(self.storage, content)
             return [types.TextContent(
                 type="text",
-                text=f"Embedding results:\
-{json.dumps(result, indent=2)}"
+                text=f"Embedding results:\n{json.dumps(result, indent=2)}"
             )]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error getting embedding: {str(e)}")]
@@ -545,8 +605,7 @@ class MemoryServer:
             result = check_embedding_model(self.storage)
             return [types.TextContent(
                 type="text",
-                text=f"Embedding model status:\
-{json.dumps(result, indent=2)}"
+                text=f"Embedding model status:\n{json.dumps(result, indent=2)}"
             )]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error checking model: {str(e)}")]
@@ -573,8 +632,11 @@ class MemoryServer:
             
             formatted_results = []
             for i, result in enumerate(results):
+                timestamp_str = datetime.fromtimestamp(float(result.memory.timestamp)).strftime('%Y-%m-%d %H:%M:%S')
+
                 memory_info = [
                     f"Memory {i+1}:",
+                    f"Timestamp: {timestamp_str}", 
                     f"Content: {result.memory.content}",
                     f"Hash: {result.memory.content_hash}",
                     f"Raw Similarity Score: {result.debug_info['raw_similarity']:.4f}",
@@ -584,15 +646,11 @@ class MemoryServer:
                 if result.memory.tags:
                     memory_info.append(f"Tags: {', '.join(result.memory.tags)}")
                 memory_info.append("---")
-                formatted_results.append("\
-".join(memory_info))
+                formatted_results.append("\n".join(memory_info))
             
             return [types.TextContent(
                 type="text",
-                text="Found the following memories:\
-\
-" + "\
-".join(formatted_results)
+                text="Found the following memories:\n\n" + "\n".join(formatted_results)
             )]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error in debug retrieve: {str(e)}")]
@@ -680,8 +738,11 @@ class MemoryServer:
             
             formatted_results = []
             for i, result in enumerate(results):
+                timestamp_str = datetime.fromtimestamp(float(result.memory.timestamp)).strftime('%Y-%m-%d %H:%M:%S')
+
                 memory_info = [
                     f"Memory {i+1}:",
+                    f"Timestamp: {timestamp_str}", 
                     f"Content: {result.memory.content}",
                     f"Hash: {result.memory.content_hash}",
                     f"Relevance Score: {result.similarity:.2f}"
@@ -742,6 +803,14 @@ class MemoryServer:
                 type="text",
                 text=f"Error deleting memories: {str(e)}"
             )]
+
+    def _normalize_timestamp(self, timestamp):
+        if timestamp is None:
+            return None
+        try:
+            return float(timestamp)
+        except ValueError:
+            raise ValueError("Invalid timestamp format. Please use a numeric timestamp.")
 
 def parse_args():
     parser = argparse.ArgumentParser(

@@ -19,7 +19,33 @@ class MemoryStorage(ABC):
     async def retrieve(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
         """Retrieve memories by semantic search."""
         pass
-    
+
+    @abstractmethod
+    async def recall(
+        self,
+        query: Optional[str] = None,
+        n_results: int = 5,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None
+    ) -> List[MemoryQueryResult]:
+        """
+        Retrieve memories using semantic search and/or time filtering.
+        
+        Args:
+            query: Optional semantic search query. If None, returns most recent memories
+            n_results: Maximum number of results to return
+            start_timestamp: Optional start time for filtering (inclusive)
+            end_timestamp: Optional end time for filtering (inclusive)
+            
+        Returns:
+            List of MemoryQueryResult objects sorted by relevance (if query provided) 
+            or timestamp (if no query)
+            
+        Raises:
+            ValueError: If invalid timestamp range is provided
+        """
+        pass
+
     @abstractmethod
     async def search_by_tag(self, tags: List[str]) -> List[Memory]:
         """Search memories by tags."""

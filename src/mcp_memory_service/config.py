@@ -37,7 +37,7 @@ def validate_and_create_path(path: str) -> str:
 def get_base_directory() -> str:
     """Get base directory for storage, with fallback options."""
     # First choice: Environment variable
-    if base_dir := os.getenv('MCP_MEMORY_BASE_DIR'):
+    if base_dir := os.getenv('MCP_MEMORY_CHROMA_PATH'):
         return validate_and_create_path(base_dir)
     
     # Second choice: Local app data directory
@@ -57,8 +57,8 @@ try:
     CHROMA_PATH = validate_and_create_path(os.path.join(BASE_DIR, 'chroma_db'))
     BACKUPS_PATH = validate_and_create_path(os.path.join(BASE_DIR, 'backups'))
 except Exception as e:
-    logger.error(f"Fatal error initializing paths: {str(e)}")
-    sys.exit(1)
+    logger.error(f"Error initializing paths: {str(e)}")
+    raise
 
 # Server settings
 SERVER_NAME = "memory"
