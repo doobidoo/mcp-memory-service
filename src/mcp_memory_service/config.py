@@ -12,26 +12,66 @@ import logging
 logger = logging.getLogger(__name__)
 
 def validate_and_create_path(path: str) -> str:
-    """Validate and create a directory path, ensuring it's writable."""
+    """Validate and create a directory path, ensuring it's writable.
+    
+    This function ensures that the specified directory path exists and is writable.
+    It performs several checks and has a retry mechanism to handle potential race
+    conditions, especially when running in environments like Claude Desktop where
+    file system operations might be more restricted.
+    """
     try:
-        # Convert to absolute path
-        abs_path = os.path.abspath(path)
+        # Convert to absolute path and expand user directory if present (e.g. ~)
+        abs_path = os.path.abspath(os.path.expanduser(path))
+        logger.debug(f"Validating path: {abs_path}")
         
-        # Create directory if it doesn't exist
-        os.makedirs(abs_path, exist_ok=True)
-
-        # Add small delay to prevent potential race condition on macOS during initial write test
+        # Create directory and all parents if they don't exist
+        try:
+            os.makedirs(abs_path, exist_ok=True)
+            logger.debug(f"Created directory (or already exists): {abs_path}")
+        except Exception as e:
+            logger.error(f"Error creating directory {abs_path}: {str(e)}")
+            raise PermissionError(f"Cannot create directory {abs_path}: {str(e)}")
+            
+        # Add small delay to prevent potential race conditions on macOS during initial write test
         time.sleep(0.1)
         
-        # Check if directory is writable
+        # Verify that the path exists and is a directory
+        if not os.path.exists(abs_path):
+            logger.error(f"Path does not exist after creation attempt: {abs_path}")
+            raise PermissionError(f"Path does not exist: {abs_path}")
+        
+        if not os.path.isdir(abs_path):
+            logger.error(f"Path is not a directory: {abs_path}")
+            raise PermissionError(f"Path is not a directory: {abs_path}")
+        
+        # Write test with retry mechanism
+        max_retries = 3
+        retry_delay = 0.5
         test_file = os.path.join(abs_path, '.write_test')
-        try:
-            with open(test_file, 'w') as f:
-                f.write('test')
-            os.remove(test_file)
-        except Exception as e:
-            raise PermissionError(f"Directory {abs_path} is not writable: {str(e)}")
-        logger.info(f"Directory {abs_path} is writable.")
+        
+        for attempt in range(max_retries):
+            try:
+                logger.debug(f"Testing write permissions (attempt {attempt+1}/{max_retries}): {test_file}")
+                with open(test_file, 'w') as f:
+                    f.write('test')
+                
+                if os.path.exists(test_file):
+                    logger.debug(f"Successfully wrote test file: {test_file}")
+                    os.remove(test_file)
+                    logger.debug(f"Successfully removed test file: {test_file}")
+                    logger.info(f"Directory {abs_path} is writable.")
+                    return abs_path
+                else:
+                    logger.warning(f"Test file was not created: {test_file}")
+            except Exception as e:
+                logger.warning(f"Error during write test (attempt {attempt+1}/{max_retries}): {str(e)}")
+                if attempt < max_retries - 1:
+                    logger.debug(f"Retrying after {retry_delay}s...")
+                    time.sleep(retry_delay)
+                else:
+                    logger.error(f"All write test attempts failed for {abs_path}")
+                    raise PermissionError(f"Directory {abs_path} is not writable: {str(e)}")
+        
         return abs_path
     except Exception as e:
         logger.error(f"Error validating path {path}: {str(e)}")
