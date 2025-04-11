@@ -1,0 +1,14 @@
+# Changelog
+
+{% for version in changelog %}
+## {{ version.version }} ({{ version.date }})
+
+{% for section, changes in version.sections.items() %}
+### {{ section }}
+
+{% for change in changes %}
+* {{ change.commit.message }}{% if change.commit.breaking %} [BREAKING]{% endif %}
+{% endfor %}
+
+{% endfor %}
+{% endfor %} 

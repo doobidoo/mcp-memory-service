@@ -419,6 +419,76 @@ def install_pytorch_windows(gpu_info):
         return False
 
 def install_package(args):
+    """Install the package with the appropriate dependencies, supporting pip or uv."""
+    print_step("3", "Installing MCP Memory Service")
+
+    # Determine installation mode
+    install_mode = []
+    if args.dev:
+        install_mode = ['-e']
+        print_info("Installing in development mode")
+
+    # Set environment variables for installation
+    env = os.environ.copy()
+
+    # Detect if pip is available
+    pip_available = False
+    try:
+        subprocess.check_call([sys.executable, '-m', 'pip', '--version'],
+                              stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL)
+        pip_available = True
+    except subprocess.SubprocessError:
+        pip_available = False
+
+    # Detect if uv is available
+    uv_path = shutil.which("uv")
+    uv_available = uv_path is not None
+
+    # Decide installer command prefix
+    if pip_available:
+        installer_cmd = [sys.executable, '-m', 'pip']
+    elif uv_available:
+        installer_cmd = ['uv', 'pip']
+        print_warning("pip not found, but uv detected. Using 'uv pip' for installation.")
+    else:
+        print_error("Neither pip nor uv detected. Cannot install packages.")
+        return False
+
+    # Get system and GPU info
+    system_info = detect_system()
+    gpu_info = detect_gpu()
+
+    # Set environment variables based on detected GPU
+    if gpu_info.get("has_cuda"):
+        print_info("Configuring for CUDA installation")
+    elif gpu_info.get("has_rocm"):
+        print_info("Configuring for ROCm installation")
+        env['MCP_MEMORY_USE_ROCM'] = '1'
+    elif gpu_info.get("has_mps"):
+        print_info("Configuring for Apple Silicon MPS installation")
+        env['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+    elif gpu_info.get("has_directml"):
+        print_info("Configuring for DirectML installation")
+        env['MCP_MEMORY_USE_DIRECTML'] = '1'
+    else:
+        print_info("Configuring for CPU-only installation")
+        env['MCP_MEMORY_USE_ONNX'] = '1'
+
+    # Handle platform-specific PyTorch installation
+    pytorch_installed = install_pytorch_platform_specific(system_info, gpu_info)
+    if not pytorch_installed:
+        print_warning("Platform-specific PyTorch installation failed, but will continue with package installation")
+
+    try:
+        cmd = installer_cmd + ['install'] + install_mode + ['.']
+        print_info(f"Running: {' '.join(cmd)}")
+        subprocess.check_call(cmd, env=env)
+        print_success("MCP Memory Service installed successfully")
+        return True
+    except subprocess.SubprocessError as e:
+        print_error(f"Failed to install MCP Memory Service: {e}")
+        return False
     """Install the package with the appropriate dependencies."""
     print_step("3", "Installing MCP Memory Service")
     

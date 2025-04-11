@@ -276,17 +276,25 @@ class MemoryServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "content": {"type": "string"},
+                            "content": {
+                                "type": "string",
+                                "description": "The memory content to store, such as a fact, note, or piece of information."
+                            },
                             "metadata": {
                                 "type": "object",
+                                "description": "Optional metadata about the memory, including tags and type.",
                                 "properties": {
                                     "tags": {
                                         "oneOf": [
                                             {"type": "array", "items": {"type": "string"}},
                                             {"type": "string"}
-                                        ]
+                                        ],
+                                        "description": "Tags to categorize the memory. Can be a comma-separated string or an array of strings."
                                     },
-                                    "type": {"type": "string"}
+                                    "type": {
+                                        "type": "string",
+                                        "description": "Optional type or category label for the memory, e.g., 'note', 'fact', 'reminder'."
+                                    }
                                 }
                             }
                         },
@@ -316,8 +324,15 @@ class MemoryServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "query": {"type": "string"},
-                            "n_results": {"type": "number", "default": 5}
+                            "query": {
+                                "type": "string",
+                                "description": "Natural language query specifying the time frame or content to recall, e.g., 'last week', 'yesterday afternoon', or a topic."
+                            },
+                            "n_results": {
+                                "type": "number",
+                                "default": 5,
+                                "description": "Maximum number of results to return."
+                            }
                         },
                         "required": ["query"]
                     }
@@ -334,8 +349,15 @@ class MemoryServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "query": {"type": "string"},
-                            "n_results": {"type": "number", "default": 5}
+                            "query": {
+                                "type": "string",
+                                "description": "Search query to find relevant memories based on content."
+                            },
+                            "n_results": {
+                                "type": "number",
+                                "default": 5,
+                                "description": "Maximum number of results to return."
+                            }
                         },
                         "required": ["query"]
                     }
@@ -352,7 +374,11 @@ class MemoryServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "tags": {"type": "array", "items": {"type": "string"}}
+                            "tags": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "List of tags to search for. Returns memories matching ANY of these tags."
+                            }
                         },
                         "required": ["tags"]
                     }
@@ -368,7 +394,10 @@ class MemoryServer:
                                 inputSchema={
                                     "type": "object",
                                     "properties": {
-                                        "content_hash": {"type": "string"}
+                                        "content_hash": {
+                                            "type": "string",
+                                            "description": "Hash of the memory content to delete. Obtainable from memory metadata."
+                                        }
                                     },
                                     "required": ["content_hash"]
                                 }
@@ -385,7 +414,10 @@ class MemoryServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "tag": {"type": "string"}
+                            "tag": {
+                                "type": "string",
+                                "description": "Tag label. All memories containing this tag will be deleted."
+                            }
                         },
                         "required": ["tag"]
                     }
@@ -409,7 +441,10 @@ class MemoryServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "content": {"type": "string"}
+                            "content": {
+                                "type": "string",
+                                "description": "Text content to generate an embedding vector for."
+                            }
                         },
                         "required": ["content"]
                     }
@@ -435,9 +470,20 @@ class MemoryServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "query": {"type": "string"},
-                            "n_results": {"type": "number", "default": 5},
-                            "similarity_threshold": {"type": "number", "default": 0.0}
+                            "query": {
+                                "type": "string",
+                                "description": "Search query for debugging retrieval, e.g., a phrase or keyword."
+                            },
+                            "n_results": {
+                                "type": "number",
+                                "default": 5,
+                                "description": "Maximum number of results to return."
+                            },
+                            "similarity_threshold": {
+                                "type": "number",
+                                "default": 0.0,
+                                "description": "Minimum similarity score threshold for results (0.0 to 1.0)."
+                            }
                         },
                         "required": ["query"]
                     }
@@ -453,7 +499,10 @@ class MemoryServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "content": {"type": "string"}
+                            "content": {
+                                "type": "string",
+                                "description": "Exact content string to match against stored memories."
+                            }
                         },
                         "required": ["content"]
                     }
@@ -479,9 +528,21 @@ class MemoryServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "start_date": {"type": "string", "format": "date"},
-                            "end_date": {"type": "string", "format": "date"},
-                            "n_results": {"type": "number", "default": 5}
+                            "start_date": {
+                                "type": "string",
+                                "format": "date",
+                                "description": "Start date (inclusive) in YYYY-MM-DD format."
+                            },
+                            "end_date": {
+                                "type": "string",
+                                "format": "date",
+                                "description": "End date (inclusive) in YYYY-MM-DD format."
+                            },
+                            "n_results": {
+                                "type": "number",
+                                "default": 5,
+                                "description": "Maximum number of results to return."
+                            }
                         },
                         "required": ["start_date"]
                     }
@@ -500,9 +561,20 @@ class MemoryServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "start_date": {"type": "string", "format": "date"},
-                            "end_date": {"type": "string", "format": "date"},
-                            "tag": {"type": "string"}
+                            "start_date": {
+                                "type": "string",
+                                "format": "date",
+                                "description": "Start date (inclusive) in YYYY-MM-DD format."
+                            },
+                            "end_date": {
+                                "type": "string",
+                                "format": "date",
+                                "description": "End date (inclusive) in YYYY-MM-DD format."
+                            },
+                            "tag": {
+                                "type": "string",
+                                "description": "Optional tag to filter deletions. Only memories with this tag will be deleted."
+                            }
                         },
                         "required": ["start_date"]
                     }

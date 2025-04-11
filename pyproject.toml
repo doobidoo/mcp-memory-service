@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-memory-service"
-version = "0.1.0"  # Remove dynamic and set explicit version
+version = "0.2.1"  
 description = "A semantic memory service using ChromaDB and sentence-transformers"
 readme = "README.md"
 requires-python = ">=3.10"

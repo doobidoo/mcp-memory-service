@@ -1,0 +1,19 @@
+name = "mcp-memory-cloudflare"
+main = "src/index.ts"
+compatibility_date = "2025-04-09"
+
+[[d1_databases]]
+binding = "DB"
+database_id = "YOUR_DATABASE_ID_HERE"
+database_name = "mcp_memory_service"
+
+[ai]
+binding = "AI"
+
+[observability]
+enabled = true
+head_sampling_rate = 1 # optional. default = 1.
+
+# Environment variables
+[vars]
+DEBUG = "0" # Set to "1" to enable debug output

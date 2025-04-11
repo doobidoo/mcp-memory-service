@@ -2,5 +2,20 @@
   "mcp-memory": {
     "chroma_db": "C:\\Users\\heinrich.krupp\\AppData\\Local\\mcp-memory\\chroma_db",
     "backup_path": "C:\\Users\\heinrich.krupp\\AppData\\Local\\mcp-memory\\backups"
+  },
+  "mcpServers": {
+    "memory": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/workspaces/mcp-memory-service",
+        "run",
+        "memory"
+      ],
+      "env": {
+        "MCP_MEMORY_CHROMA_PATH": "/home/codespace/.local/share/mcp-memory/chroma_db",
+        "MCP_MEMORY_BACKUPS_PATH": "/home/codespace/.local/share/mcp-memory/backups"
+      }
+    }
   }
 }
