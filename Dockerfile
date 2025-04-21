@@ -48,5 +48,9 @@ VOLUME ["/app/chroma_db", "/app/backups"]
 # Expose the port (if needed)
 EXPOSE 8000
 
+# Install mcp-proxy
+RUN python -m uv pip install mcp-proxy
+
 # Run the memory service using UV
-ENTRYPOINT ["python", "-u", "uv_wrapper.py"]
+ENV PYTHONUNBUFFERED=1
+ENTRYPOINT ["mcp-proxy", "--sse-host", "0.0.0.0", "--sse-port", "8000", "--", "python", "uv_wrapper.py"]
