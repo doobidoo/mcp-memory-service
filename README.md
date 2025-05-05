@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/doobidoo-mcp-memory-service-badge.png)](https://mseep.ai/app/doobidoo-mcp-memory-service)
+
 # MCP Memory Service
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
