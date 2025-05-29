@@ -1,0 +1,31 @@
+{
+  "name": "mcp-memory-service",
+  "version": "0.2.0",
+  "description": "A semantic memory service using ChromaDB and sentence-transformers",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "python -m src.mcp_memory_service.server"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doobidoo/mcp-memory-service.git"
+  },
+  "keywords": [
+    "mcp",
+    "memory",
+    "claude",
+    "vector",
+    "database"
+  ],
+  "author": "Heinrich Krupp",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/doobidoo/mcp-memory-service/issues"
+  },
+  "homepage": "https://github.com/doobidoo/mcp-memory-service#readme",
+  "dependencies": {
+    "asyncpg": "^0.29.0",
+    "qdrant-client": "^1.8.0"
+  }
+}
