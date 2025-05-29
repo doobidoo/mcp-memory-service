@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "python -m src.mcp_memory_service.server"
+    "dev": "python -m mcp_memory_service.server"
   },
   "repository": {
     "type": "git",
