@@ -3,6 +3,7 @@ chromadb==0.5.23
 tokenizers==0.20.3
 websockets>=11.0.3
 mcp>=1.0.0,<2.0.0
+python-dateutil>=2.8.2
 
 # Platform-specific recommendations (DO NOT UNCOMMENT - handled by install.py)
 

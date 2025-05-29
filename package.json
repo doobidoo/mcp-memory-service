@@ -25,7 +25,5 @@
   },
   "homepage": "https://github.com/doobidoo/mcp-memory-service#readme",
   "dependencies": {
-    "asyncpg": "^0.29.0",
-    "qdrant-client": "^1.8.0"
   }
 }
