@@ -1,0 +1,61 @@
+# Database Migrations
+
+This directory contains the database migration files for the EchoVault Memory Service, using Alembic.
+
+## Structure
+
+- `alembic.ini`: Configuration file for Alembic
+- `env.py`: Environment configuration for the migrations
+- `versions/`: Directory containing the migration scripts
+
+## Creating a new migration
+
+To create a new migration, run:
+
+```
+alembic revision --autogenerate -m "description of the migration"
+```
+
+## Running migrations
+
+To run all pending migrations, run:
+
+```
+alembic upgrade head
+```
+
+To run migrations up to a specific revision, run:
+
+```
+alembic upgrade <revision>
+```
+
+## Rolling back migrations
+
+To roll back the last migration, run:
+
+```
+alembic downgrade -1
+```
+
+To roll back to a specific revision, run:
+
+```
+alembic downgrade <revision>
+```
+
+## Getting the current revision
+
+To see the current revision, run:
+
+```
+alembic current
+```
+
+## Viewing migration history
+
+To see the migration history, run:
+
+```
+alembic history
+```

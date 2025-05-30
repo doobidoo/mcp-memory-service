@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Enhanced Wrapper script for MCP Memory Service on Windows.
+Enhanced Wrapper script for MCP Memory Service with UV integration.
 This script ensures that PyTorch is properly installed before running the memory server,
-with improved debugging, error handling, and dependency management.
+with improved debugging, error handling, and dependency management using UV.
 """
 # Disable sitecustomize.py and other import hooks to prevent recursion issues
 # These must be set before importing any other modules
@@ -25,12 +25,13 @@ DEBUG = False
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="MCP Memory Service Wrapper")
+    parser = argparse.ArgumentParser(description="MCP Memory Service Wrapper with UV")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     parser.add_argument("--no-auto-install", action="store_true", help="Disable automatic PyTorch installation")
     parser.add_argument("--force-cpu", action="store_true", help="Force CPU-only mode even if GPU is available")
     parser.add_argument("--chroma-path", type=str, help="Path to ChromaDB storage")
     parser.add_argument("--backups-path", type=str, help="Path to backups storage")
+    parser.add_argument("--use-echovault", action="store_true", help="Enable EchoVault features")
     return parser.parse_args()
 
 def print_debug(text):
@@ -73,7 +74,7 @@ def print_environment_info():
     # Print environment variables
     print_debug("Environment variables:")
     for key, value in os.environ.items():
-        if key.startswith("PYTHON") or key.startswith("PATH") or key.startswith("MCP") or "TORCH" in key:
+        if key.startswith("PYTHON") or key.startswith("PATH") or key.startswith("MCP") or "TORCH" in key or "UV" in key:
             print_debug(f"  - {key}={value}")
     
     # Check if running in virtual environment
@@ -82,21 +83,82 @@ def print_environment_info():
     if in_venv:
         print_debug(f"Virtual environment path: {sys.prefix}")
 
-def check_installed_packages():
-    """Check and print information about installed packages."""
-    print_debug("=== Installed Packages ===")
+def check_uv():
+    """Check if UV is installed and properly configured."""
+    print_info("Checking UV installation")
     try:
-        import pkg_resources
-        for package in pkg_resources.working_set:
-            if package.key in ["torch", "torchvision", "torchaudio", "sentence-transformers",
-                              "transformers", "chromadb", "mcp", "mcp-memory-service"]:
-                print_debug(f"  - {package.key}=={package.version}")
-    except ImportError:
-        print_debug("Could not import pkg_resources to check installed packages")
+        subprocess.check_call([sys.executable, '-m', 'uv', '--version'], 
+                             stdout=subprocess.DEVNULL, 
+                             stderr=subprocess.DEVNULL)
+        print_success("UV is installed")
+        return True
+    except subprocess.SubprocessError:
+        print_error("UV is not installed")
+        return False
+
+def install_uv():
+    """Install UV package manager."""
+    print_info("Installing UV package manager")
+    try:
+        subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'uv'])
+        print_success("UV installed successfully")
+        return True
+    except subprocess.SubprocessError as e:
+        print_error(f"Failed to install UV: {e}")
+        return False
+
+def check_installed_packages():
+    """Check and print information about installed packages using UV."""
+    print_debug("=== Installed Packages ===")
+    
+    try:
+        # First try with UV if available
+        if check_uv():
+            print_debug("Checking installed packages with UV")
+            try:
+                result = subprocess.check_output([sys.executable, '-m', 'uv', 'pip', 'list'], 
+                                               universal_newlines=True)
+                
+                for line in result.splitlines():
+                    if any(pkg in line.lower() for pkg in ["torch", "torchvision", "torchaudio", 
+                                                          "sentence-transformers", "chromadb", "mcp"]):
+                        print_debug(f"  - {line.strip()}")
+                return
+            except subprocess.SubprocessError:
+                print_debug("Failed to list packages with UV, falling back to pip")
+        
+        # Fallback to pip
+        try:
+            import pkg_resources
+            for package in pkg_resources.working_set:
+                if package.key in ["torch", "torchvision", "torchaudio", "sentence-transformers",
+                                  "transformers", "chromadb", "mcp", "mcp-memory-service"]:
+                    print_debug(f"  - {package.key}=={package.version}")
+        except ImportError:
+            print_debug("Could not import pkg_resources to check installed packages")
+    except Exception as e:
+        print_debug(f"Error checking installed packages: {e}")
 
 def check_pytorch():
     """Check if PyTorch is installed and properly configured."""
     print_info("Checking PyTorch installation")
+    
+    # First attempt to check using UV if available
+    if check_uv():
+        try:
+            # Check if torch is installed using UV
+            result = subprocess.check_output([sys.executable, '-m', 'uv', 'pip', 'list'], 
+                                           universal_newlines=True)
+            if "torch" in result:
+                print_success("PyTorch is installed (verified by UV)")
+                
+                # Continue with regular check to get version details
+                pass
+            else:
+                print_warning("PyTorch not found in UV package list")
+                return False
+        except subprocess.SubprocessError:
+            print_debug("Failed to verify PyTorch with UV, continuing with direct import check")
     
     # Save original sys.path
     original_sys_path = sys.path.copy()
@@ -247,56 +309,49 @@ def check_mcp():
         print_debug(traceback.format_exc())
         return False
 
-def prevent_pip_auto_install():
-    """Prevent pip from automatically installing packages."""
-    print_debug("Setting up environment variables to prevent automatic PyTorch installation")
+def check_echovault_dependencies():
+    """Check if EchoVault dependencies are installed."""
+    print_info("Checking EchoVault dependencies")
     
-    # Set environment variables to prevent pip from installing dependencies
-    os.environ["PIP_NO_DEPENDENCIES"] = "1"
-    os.environ["PIP_NO_INSTALL"] = "1"
+    # List of required packages
+    echovault_packages = [
+        "asyncpg",
+        "qdrant_client",
+        "boto3",
+        "opentelemetry.api",
+        "prometheus_client"
+    ]
     
-    # Create a .pth file in site-packages to prevent automatic installation
-    try:
-        site_packages = site.getsitepackages()[0]
-        pth_path = os.path.join(site_packages, 'no_auto_install.pth')
-        
-        if not os.path.exists(pth_path):
-            with open(pth_path, 'w') as f:
-                f.write("""
-# Prevent automatic installation of packages
-import os
-os.environ["PIP_NO_DEPENDENCIES"] = "1"
-os.environ["PIP_NO_INSTALL"] = "1"
-""")
-            print_debug(f"Created .pth file at {pth_path}")
-    except Exception as e:
-        print_debug(f"Could not create .pth file: {e}")
+    missing_packages = []
     
-    # Monkey patch pip to prevent automatic installation
-    try:
-        # Try to import pip without triggering auto-installation
-        pip_spec = importlib.util.find_spec("pip")
-        if pip_spec:
-            import pip._internal.resolve
-            original_get_requirement = pip._internal.resolve.Resolver.get_installation_candidate
-            
-            def patched_get_installation_candidate(self, requirement_set, candidate):
-                # Block torch installations from PyPI
-                if candidate.name in ['torch', 'torchvision', 'torchaudio'] and 'pypi.org' in str(candidate.link):
-                    print_warning(f"Blocked automatic installation attempt for {candidate.name} from {candidate.link}")
-                    return None
-                return original_get_requirement(self, requirement_set, candidate)
-            
-            pip._internal.resolve.Resolver.get_installation_candidate = patched_get_installation_candidate
-            print_debug("Successfully patched pip to prevent automatic PyTorch installation")
-    except (ImportError, AttributeError) as e:
-        print_debug(f"Could not patch pip: {e}")
+    for package in echovault_packages:
+        try:
+            # Try to import the package
+            __import__(package.split('.')[0])
+            print_success(f"{package} is installed")
+        except ImportError:
+            print_warning(f"{package} is not installed")
+            missing_packages.append(package)
+    
+    if missing_packages:
+        print_error(f"Missing EchoVault dependencies: {', '.join(missing_packages)}")
+        print_info("Install with: pip install -r requirements-echovault.txt")
+        return False
+    
+    return True
 
-def install_pytorch(no_auto_install=False):
-    """Install PyTorch using the platform-specific installation method."""
+def install_pytorch_with_uv(no_auto_install=False):
+    """Install PyTorch using UV with the platform-specific installation method."""
     if no_auto_install:
         print_warning("Automatic PyTorch installation is disabled")
         return False
+    
+    # Check if UV is installed, install it if not
+    if not check_uv():
+        print_info("UV is not installed. Installing UV...")
+        if not install_uv():
+            print_error("Failed to install UV, falling back to pip for PyTorch installation")
+            return False
     
     # Get the system information
     system = platform.system().lower()
@@ -304,79 +359,81 @@ def install_pytorch(no_auto_install=False):
     
     # Determine the appropriate installation method based on the platform
     if system == "windows":
-        print_info("Installing PyTorch using the Windows-specific installation script")
+        print_info("Installing PyTorch for Windows using UV")
         
-        # Get the directory of this script
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        # Run the Windows-specific installation script
-        install_script = os.path.join(script_dir, "scripts", "install_windows.py")
-        if os.path.exists(install_script):
+        # Check for CUDA
+        has_cuda = False
+        cuda_path = os.environ.get('CUDA_PATH')
+        if cuda_path and os.path.exists(cuda_path):
+            has_cuda = True
+            print_info("CUDA detected, installing PyTorch with CUDA support")
+            
+            # Install PyTorch with CUDA support
             try:
-                print_debug(f"Running installation script: {install_script}")
-                subprocess.check_call([sys.executable, install_script])
-                print_success("PyTorch installed successfully")
-                
-                # Reload sys.path to include newly installed packages
-                print_debug("Reloading sys.path to include newly installed packages")
-                site.main()
-                
+                subprocess.check_call([
+                    sys.executable, '-m', 'uv', 'pip', 'install', 
+                    'torch==2.1.0', 'torchvision==2.1.0', 'torchaudio==2.1.0',
+                    '--extra-index-url', 'https://download.pytorch.org/whl/cu118'
+                ])
+                print_success("PyTorch installed successfully with CUDA support")
                 return True
             except subprocess.SubprocessError as e:
-                print_error(f"Failed to install PyTorch: {e}")
-                return False
-        else:
-            print_error(f"Installation script not found: {install_script}")
+                print_error(f"Failed to install PyTorch with CUDA: {e}")
+                print_info("Falling back to CPU-only installation")
+        
+        # Install PyTorch CPU-only version
+        try:
+            subprocess.check_call([
+                sys.executable, '-m', 'uv', 'pip', 'install',
+                'torch==2.1.0', 'torchvision==2.1.0', 'torchaudio==2.1.0',
+                '--extra-index-url', 'https://download.pytorch.org/whl/cpu'
+            ])
+            print_success("PyTorch installed successfully (CPU-only)")
+            return True
+        except subprocess.SubprocessError as e:
+            print_error(f"Failed to install PyTorch with UV: {e}")
             return False
+            
     elif system == "darwin":  # macOS
-        print_info("Installing PyTorch for macOS")
+        print_info("Installing PyTorch for macOS using UV")
         try:
             # Install PyTorch for macOS - Use the specific versions you need
-            print_debug("Installing PyTorch for macOS using pip")
+            print_debug("Installing PyTorch for macOS using UV")
             subprocess.check_call([
-                sys.executable, '-m', 'pip', 'install',
+                sys.executable, '-m', 'uv', 'pip', 'install',
                 "torch==1.13.1",
                 "torchvision==0.14.1",
                 "torchaudio==0.13.1"
             ])
             
-            # Reload sys.path to include newly installed packages
-            print_debug("Reloading sys.path to include newly installed packages")
-            site.main()
-            
             print_success("PyTorch installed successfully for macOS")
             return True
         except subprocess.SubprocessError as e:
-            print_error(f"Failed to install PyTorch for macOS: {e}")
+            print_error(f"Failed to install PyTorch for macOS with UV: {e}")
             return False
     else:  # Linux or other platforms
-        print_info("Installing PyTorch for Linux/other platform")
+        print_info("Installing PyTorch for Linux/other platform using UV")
         try:
             # Generic PyTorch installation for Linux
             subprocess.check_call([
-                sys.executable, '-m', 'pip', 'install',
+                sys.executable, '-m', 'uv', 'pip', 'install',
                 "torch==1.13.1",
                 "torchvision==0.14.1", 
                 "torchaudio==0.13.1"
             ])
             
-            # Reload sys.path to include newly installed packages
-            print_debug("Reloading sys.path to include newly installed packages")
-            site.main()
-            
-            print_success("PyTorch installed successfully")
+            print_success("PyTorch installed successfully with UV")
             return True
         except subprocess.SubprocessError as e:
-            print_error(f"Failed to install PyTorch: {e}")
+            print_error(f"Failed to install PyTorch with UV: {e}")
             return False
 
 def setup_environment(args):
     """Set up environment variables for the memory server."""
     print_info("Setting up environment variables")
     
-    # Set environment variables to prevent PyTorch from trying to update
-    os.environ["PIP_NO_DEPENDENCIES"] = "1"
-    os.environ["PIP_NO_INSTALL"] = "1"
+    # Mark that we're using UV
+    os.environ["UV_ACTIVE"] = "1"
     
     # Set environment variables for better cross-platform compatibility
     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -401,16 +458,49 @@ def setup_environment(args):
         print_info(f"Using custom backups path: {args.backups_path}")
         os.environ["MCP_MEMORY_BACKUPS_PATH"] = args.backups_path
     
+    # Enable EchoVault if requested
+    if args.use_echovault:
+        print_info("Enabling EchoVault features")
+        os.environ["USE_ECHOVAULT"] = "true"
+    
     # Print all environment variables for debugging
     if DEBUG:
         print_debug("Environment variables after setup:")
         for key, value in sorted(os.environ.items()):
-            if key.startswith("PYTHON") or key.startswith("PATH") or key.startswith("MCP") or "TORCH" in key:
+            if key.startswith("PYTHON") or key.startswith("PATH") or key.startswith("MCP") or "TORCH" in key or "UV" in key:
                 print_debug(f"  - {key}={value}")
 
-def run_memory_server():
-    """Run the MCP Memory Service with enhanced error handling."""
-    print_info("Starting MCP Memory Service")
+def run_memory_server_with_uv():
+    """Run the MCP Memory Service with UV."""
+    print_info("Starting MCP Memory Service with UV")
+    
+    try:
+        # Get the directory of this script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Run memory server using UV
+        uv_cmd = [sys.executable, '-m', 'uv', 'run', 'memory']
+        
+        if DEBUG:
+            uv_cmd.append('--debug')
+            
+        print_debug(f"Running command: {' '.join(uv_cmd)}")
+        subprocess.run(uv_cmd, check=True)
+    except subprocess.SubprocessError as e:
+        print_error(f"Error running memory server with UV: {e}")
+        print_debug(traceback.format_exc())
+        
+        # Fallback to classic run method
+        print_warning("Falling back to classic run method without UV")
+        run_memory_server_classic()
+    except Exception as e:
+        print_error(f"Unexpected error running memory server: {e}")
+        print_debug(traceback.format_exc())
+        sys.exit(1)
+
+def run_memory_server_classic():
+    """Run the MCP Memory Service with classic method (fallback)."""
+    print_info("Starting MCP Memory Service (fallback method)")
     
     # Save original sys.path and meta_path
     original_sys_path = sys.path.copy()
@@ -488,7 +578,7 @@ def main():
     global DEBUG
     DEBUG = args.debug
     
-    print_info("Enhanced Memory wrapper script starting")
+    print_info("Enhanced Memory wrapper script with UV starting")
     
     # Print detailed environment information for debugging
     if DEBUG:
@@ -498,17 +588,24 @@ def main():
     # Set up environment variables
     setup_environment(args)
     
-    # Prevent automatic PyTorch installation
-    prevent_pip_auto_install()
+    # Check if UV is installed, install it if not
+    if not check_uv():
+        print_info("UV is not installed. Installing UV...")
+        if not install_uv():
+            print_error("Failed to install UV, falling back to classic mode")
+            
+            # Import and run the classic memory wrapper
+            from memory_wrapper import main as classic_main
+            return classic_main()
     
     # Check if PyTorch is installed
     pytorch_ok = check_pytorch()
     if not pytorch_ok:
         print_info("PyTorch is not installed or not working properly")
         if not args.no_auto_install:
-            print_info("Attempting to install PyTorch")
-            if not install_pytorch(args.no_auto_install):
-                print_error("Failed to install PyTorch, cannot continue")
+            print_info("Attempting to install PyTorch with UV")
+            if not install_pytorch_with_uv(args.no_auto_install):
+                print_error("Failed to install PyTorch with UV, cannot continue")
                 sys.exit(1)
         else:
             print_error("Automatic PyTorch installation is disabled, cannot continue")
@@ -523,12 +620,19 @@ def main():
         print_warning("Some dependencies are missing or not working properly")
         print_warning("Will attempt to continue anyway, but errors may occur")
     
+    # Check EchoVault dependencies if enabled
+    if args.use_echovault:
+        echovault_ok = check_echovault_dependencies()
+        if not echovault_ok:
+            print_warning("EchoVault dependencies are missing")
+            print_warning("Will continue with standard memory service")
+    
     # Add a small delay to ensure all imports are properly initialized
     print_debug("Waiting 1 second before starting the memory server")
     time.sleep(1)
     
-    # Run the memory server
-    run_memory_server()
+    # Run the memory server with UV
+    run_memory_server_with_uv()
 
 if __name__ == "__main__":
     try:
