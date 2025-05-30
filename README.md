@@ -11,8 +11,10 @@ An MCP server providing semantic memory and persistent storage capabilities for 
 
 ## Help
 Talk to the Repo with [TalkToGitHub](https://talktogithub.com/doobidoo/mcp-memory-service)!
+
 ## Features
 
+### Core Features
 - Semantic search using sentence transformers
 - **Natural language time-based recall** (e.g., "last week", "yesterday morning")
 - Tag-based memory retrieval system
@@ -27,6 +29,16 @@ Talk to the Repo with [TalkToGitHub](https://talktogithub.com/doobidoo/mcp-memor
 - **Cross-platform compatibility** (Apple Silicon, Intel, Windows, Linux)
 - **Hardware-aware optimizations** for different environments
 - **Graceful fallbacks** for limited hardware resources
+
+### EchoVault Extension Features
+- **Durable Storage**: PostgreSQL with pgvector for reliable, persistent storage
+- **High-Performance Search**: Qdrant for fast approximate nearest neighbor (ANN) search
+- **Large Content Support**: Cloudflare R2 for efficient blob storage
+- **Observability**: OpenTelemetry and Prometheus integration
+- **Memory Lifecycle Management**: Automatic summarization of old memories
+- **Enterprise Security**: JWT authentication support
+- **Cloud-Native**: Designed to work with managed cloud services
+- **Docker Ready**: Comprehensive Docker setup for production deployment
 
 ## Installation
 
@@ -53,6 +65,20 @@ The `install.py` script will:
 3. Configure the optimal settings for your environment
 4. Verify the installation and provide diagnostics if needed
 
+### EchoVault Installation (Enterprise Features)
+
+To install EchoVault with its enterprise-grade features:
+
+```bash
+# After installing the base package
+python install-echovault.py
+```
+
+This will:
+1. Install additional dependencies for EchoVault
+2. Create a default .env file for configuration
+3. Verify the EchoVault environment
+
 ### Docker Installation
 
 You can run the Memory Service using Docker:
@@ -60,21 +86,11 @@ You can run the Memory Service using Docker:
 ```bash
 # Using Docker Compose (recommended)
 docker-compose up
-
-# Using Docker directly
-docker build -t mcp-memory-service .
-docker run -p 8000:8000 -v /path/to/data:/app/chroma_db -v /path/to/backups:/app/backups mcp-memory-service
 ```
 
-We provide multiple Docker Compose configurations for different scenarios:
-- `docker-compose.yml` - Standard configuration using pip install
-- `docker-compose.uv.yml` - Alternative configuration using UV package manager
-- `docker-compose.pythonpath.yml` - Configuration with explicit PYTHONPATH settings
-
-To use an alternative configuration:
-```bash
-docker-compose -f docker-compose.uv.yml up
-```
+We provide multiple Docker Compose configurations:
+- `docker-compose.yml` - Standard configuration with ChromaDB
+- `docker-compose-echovault.yml` - Full EchoVault stack with PostgreSQL, Qdrant, and observability tools
 
 ### Windows Installation (Special Case)
 
@@ -84,12 +100,6 @@ Windows users may encounter PyTorch installation issues due to platform-specific
 # After activating your virtual environment
 python scripts/install_windows.py
 ```
-
-This script handles:
-1. Detecting CUDA availability and version
-2. Installing the appropriate PyTorch version from the correct index URL
-3. Installing other dependencies without conflicting with PyTorch
-4. Verifying the installation
 
 ### Installing via Smithery
 
@@ -127,6 +137,35 @@ Add the following to your `claude_desktop_config.json` file:
 }
 ```
 
+### EchoVault Configuration
+
+For using the advanced EchoVault features, configure Claude Desktop with:
+
+```json
+{
+  "memory": {
+    "command": "python",
+    "args": [
+      "memory_wrapper.py",
+      "--use-echovault"
+    ],
+    "env": {
+      "MCP_MEMORY_CHROMA_PATH": "your_chroma_db_path",
+      "MCP_MEMORY_BACKUPS_PATH": "your_backups_path",
+      "USE_ECHOVAULT": "true",
+      "NEON_DSN": "your-neon-dsn",
+      "USE_QDRANT": "true",
+      "QDRANT_URL": "your-qdrant-url",
+      "QDRANT_API_KEY": "your-qdrant-api-key",
+      "R2_ENDPOINT": "your-r2-endpoint",
+      "R2_ACCESS_KEY_ID": "your-r2-access-key",
+      "R2_SECRET_ACCESS_KEY": "your-r2-secret-key",
+      "R2_BUCKET": "your-r2-bucket"
+    }
+  }
+}
+```
+
 ### Windows-Specific Configuration (Recommended)
 
 For Windows users, we recommend using the wrapper script to ensure PyTorch is properly installed:
@@ -157,6 +196,7 @@ For detailed instructions on how to interact with the memory service in Claude D
 
 - [Invocation Guide](docs/guides/invocation_guide.md) - Learn the specific keywords and phrases that trigger memory operations in Claude
 - [Installation Guide](docs/guides/installation.md) - Detailed setup instructions
+- [EchoVault Setup Guide](docs/ECHOVAULT_SETUP.md) - Setup guide for EchoVault features
 
 The memory service is invoked through natural language commands in your conversations with Claude. For example:
 - To store: "Please remember that my project deadline is May 15th."
@@ -192,6 +232,14 @@ The memory service provides the following operations through the MCP server:
 13. `delete_by_tag` - Delete all memories with specific tag
 14. `cleanup_duplicates` - Remove duplicate entries
 
+### EchoVault Enhanced Operations
+
+15. `summarize_old_memories` - Summarize and archive old memories
+16. `get_memory_with_trace` - Retrieve memories with telemetry data
+17. `get_memory_stats_detailed` - Get detailed memory storage statistics
+18. `verify_blob_storage` - Verify blob storage connectivity
+19. `verify_vector_store` - Verify vector store connectivity
+
 ## Configuration Options
 
 Configure through environment variables:
@@ -212,6 +260,20 @@ MCP_MEMORY_USE_ONNX: Use ONNX Runtime for CPU-only deployments (default: 0)
 MCP_MEMORY_USE_DIRECTML: Use DirectML for Windows acceleration (default: 0)
 MCP_MEMORY_MODEL_NAME: Override the default embedding model
 MCP_MEMORY_BATCH_SIZE: Override the default batch size
+
+# EchoVault environment variables
+USE_ECHOVAULT: Enable EchoVault features (default: false)
+NEON_DSN: Connection string for Neon PostgreSQL
+NEON_POOL_SIZE: Connection pool size (default: 5)
+USE_QDRANT: Enable Qdrant vector search (default: false)
+QDRANT_URL: Qdrant server URL
+QDRANT_API_KEY: Qdrant API key
+R2_ENDPOINT: Cloudflare R2 endpoint URL
+R2_ACCESS_KEY_ID: R2 access key ID
+R2_SECRET_ACCESS_KEY: R2 secret access key
+R2_BUCKET: R2 bucket name
+BLOB_THRESHOLD: Size threshold for blob storage in bytes (default: 32768)
+JWT_SECRET: Secret key for JWT authentication
 ```
 
 ## Hardware Compatibility
@@ -243,6 +305,12 @@ pytest tests/test_memory_ops.py
 pytest tests/test_semantic_search.py
 pytest tests/test_database.py
 
+# Run EchoVault tests (requires cloud credentials)
+pytest tests/test_neon_client.py
+pytest tests/test_vector_store.py
+pytest tests/test_blob_store.py
+pytest tests/test_echovault_integration.py
+
 # Verify environment compatibility
 python scripts/verify_environment_enhanced.py
 
@@ -266,6 +334,7 @@ See the [Installation Guide](docs/guides/installation.md#troubleshooting-common-
 - **Memory issues**: Set `MCP_MEMORY_BATCH_SIZE=4` and try a smaller model
 - **Apple Silicon**: Ensure Python 3.10+ built for ARM64, set `PYTORCH_ENABLE_MPS_FALLBACK=1`
 - **Installation testing**: Run `python scripts/test_installation.py`
+- **EchoVault connectivity**: Run `python -m src.mcp_memory_service.test_connectivity`
 
 ## Project Structure
 
@@ -276,11 +345,24 @@ mcp-memory-service/
 │   ├── config.py                # Configuration utilities
 │   ├── models/                  # Data models
 │   ├── storage/                 # Storage implementations
+│   │   ├── base.py              # Abstract storage interface
+│   │   ├── chroma.py            # ChromaDB implementation
+│   │   ├── echovault.py         # EchoVault implementation
+│   │   ├── neon_client.py       # Neon PostgreSQL client
+│   │   ├── vector_store.py      # Vector store (Qdrant/pgvector)
+│   │   ├── blob_store.py        # Blob storage (R2)
+│   │   └── factory.py           # Storage factory
 │   ├── utils/                   # Utility functions
+│   │   ├── otel_prom.py         # OpenTelemetry + Prometheus
+│   │   ├── auth.py              # JWT authentication
+│   │   └── observability.py     # Observability utilities
 │   └── server.py                # Main MCP server
 ├── scripts/                     # Helper scripts
-├── memory_wrapper.py            # Windows wrapper script
+│   └── summarise_old_events.py  # Memory summarization
+├── migrations/                  # Alembic database migrations
+├── memory_wrapper.py            # Multi-platform wrapper script
 ├── install.py                   # Enhanced installation script
+├── install-echovault.py         # EchoVault installation script
 └── tests/                       # Test suite
 ```
 

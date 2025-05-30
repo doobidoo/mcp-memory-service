@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "echovault"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["echovault:8000"]
+    honor_labels: true
+
+  - job_name: "prometheus"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["localhost:9090"]

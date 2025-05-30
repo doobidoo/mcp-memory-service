@@ -1,0 +1,10 @@
+apiVersion: 1
+
+providers:
+  - name: 'EchoVault Dashboards'
+    orgId: 1
+    folder: 'EchoVault'
+    folderUid: ''
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards

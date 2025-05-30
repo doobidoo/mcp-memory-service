@@ -1,72 +1,78 @@
-# MCP Memory Service Documentation
+# EchoVault Documentation
 
-Welcome to the MCP Memory Service documentation. This directory contains comprehensive guides for installing, using, and troubleshooting the service.
+Welcome to the EchoVault documentation! This directory contains guides for installing, configuring, and using the EchoVault Memory Service.
 
-## Guides
+## Getting Started
 
-- [Installation Guide](guides/installation.md) - Comprehensive installation instructions for all platforms
-- [Troubleshooting Guide](guides/troubleshooting.md) - Solutions for common issues and debugging procedures
-- [Migration Guide](guides/migration.md) - Instructions for migrating memories between different ChromaDB instances
+- [EchoVault Setup Guide](ECHOVAULT_SETUP.md): Comprehensive installation and configuration instructions
+- [EchoVault Architecture](ECHOVAULT_ARCHITECTURE.md): Overview of the EchoVault architecture and how it works
+
+## Original MCP Memory Service Guides
+
+- [Installation Guide](guides/installation.md): Installation instructions for the standard MCP Memory Service
+- [Troubleshooting Guide](guides/troubleshooting.md): Solutions for common issues
+- [Migration Guide](guides/migration.md): Instructions for migrating between ChromaDB instances
+- [Docker Guide](guides/docker.md): Docker deployment instructions
+- [Invocation Guide](guides/invocation_guide.md): Keywords and phrases for memory operations
 
 ## Technical Documentation
 
-- [Tag Storage Procedure](technical/tag-storage.md) - Technical details about tag storage and migration
-- [Memory Migration](technical/memory-migration.md) - Technical details about memory migration process
+- [Memory Migration](technical/memory-migration.md): Technical details about memory migration
+- [Development Guidelines](technical/development.md): Development guidelines for contributing
 
-## Quick Links
+## Overview of EchoVault Features
 
-- [Main README](../README.md) - Overview of the service and its features
-- [Hardware Compatibility](../README.md#hardware-compatibility) - Supported platforms and accelerators
-- [Configuration Options](../README.md#configuration-options) - Available environment variables and settings
+EchoVault extends the MCP Memory Service with:
 
-## Platform-Specific Notes
+1. **Durable Storage**: PostgreSQL with pgvector for reliable, persistent storage
+2. **High-Performance Search**: Qdrant for fast approximate nearest neighbor (ANN) search
+3. **Large Content Support**: Cloudflare R2 for efficient blob storage
+4. **Observability**: OpenTelemetry and Prometheus integration
+5. **Enterprise Security**: JWT authentication support
+6. **Memory Lifecycle Management**: Automatic summarization of old memories
 
-### Windows
-- Uses Windows-specific installation script
-- Requires PyTorch wheels from specific index URL
-- See [Windows Installation Guide](guides/installation.md#windows)
+## Compatibility
 
-### macOS
-- Intel x86_64: Uses specific PyTorch versions for compatibility
-- Apple Silicon: Supports MPS acceleration with fallbacks
-- See [macOS Installation Guide](guides/installation.md#macos)
+EchoVault is fully compatible with the standard MCP Memory Service and integrates seamlessly with Claude Desktop. It can be enabled with a simple configuration change, and all existing memories will continue to work.
 
-## Available Scripts
+## Cloud Service Requirements
 
-The `scripts/` directory contains several useful tools:
+EchoVault leverages the following managed services:
 
-### Core Scripts
-- `run_memory_server.py` - Direct runner for MCP Memory Service
-- `verify_environment.py` - Enhanced environment compatibility verification
-- `fix_sitecustomize.py` - Fix for recursion issues with enhanced platform support
-- `mcp-migration.py` - Memory migration tool supporting local and remote migrations
+- **Neon PostgreSQL**: Serverless PostgreSQL with pgvector extension
+- **Qdrant Cloud**: Vector database optimized for semantic search
+- **Cloudflare R2**: S3-compatible object storage
 
-### Platform-Specific Scripts
-- `install_windows.py` - Windows-specific installation
-- `verify_pytorch_windows.py` - Windows PyTorch verification
+All of these services offer free tiers that are sufficient for personal use.
 
-## Script Usage Examples
+## Monitoring and Observability
 
-### Environment Verification
-```bash
-python scripts/verify_environment.py
-```
+EchoVault includes comprehensive monitoring and observability features:
 
-### Memory Migration
-```bash
-# Local to Remote Migration
-python scripts/mcp-migration.py --source-type local --source-config /path/to/local/chroma --target-type remote --target-config '{"host": "remote-host", "port": 8000}'
+- **Prometheus Metrics**: Performance and health metrics
+- **OpenTelemetry Tracing**: Distributed tracing across all components
+- **Grafana Dashboards**: Pre-configured dashboards for monitoring
 
-# Remote to Local Migration
-python scripts/mcp-migration.py --source-type remote --source-config '{"host": "remote-host", "port": 8000}' --target-type local --target-config /path/to/local/chroma
-```
+## Docker Deployment
 
-### Site Customization Fix
-```bash
-python scripts/fix_sitecustomize.py
-```
+EchoVault can be deployed using Docker and Docker Compose. The docker-compose.yml file includes:
 
-## Configuration
+- The EchoVault Memory Service
+- Local PostgreSQL with pgvector (for development)
+- Qdrant vector database
+- MinIO S3-compatible storage (for development)
+- Jaeger for distributed tracing
+- Prometheus for metrics collection
+- Grafana for visualization
 
-- See [Claude MCP Configuration](../README.md#claude-mcp-configuration) for configuration options
-- Sample configuration templates are available in the `claude_config/` directory
+## Memory Summarization
+
+EchoVault includes a memory summarization feature that automatically summarizes old memories to reduce database size while preserving semantic information. This process is configurable and can be scheduled to run regularly.
+
+## Need Help?
+
+If you have any questions or need assistance, please:
+
+- Check the [EchoVault Setup Guide](ECHOVAULT_SETUP.md)
+- Join our community support channel
+- Open an issue on the GitHub repository

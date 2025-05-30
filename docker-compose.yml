@@ -1,28 +1,189 @@
+# Docker Compose configuration for EchoVault Memory Service
+version: '3.8'
+
 services:
-  memory-service:
-    image: python:3.10-slim
-    working_dir: /app
+  # EchoVault Memory Service
+  echovault:
+    build:
+      context: .
+      target: production
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
-      - ${CHROMA_DB_PATH:-$HOME/mcp-memory/chroma_db}:/app/chroma_db
-      - ${BACKUPS_PATH:-$HOME/mcp-memory/backups}:/app/backups
+      - ./data/chroma_db:/data/chroma_db
+      - ./data/backups:/data/backups
+      - ./.env:/app/.env
     environment:
-      - MCP_MEMORY_CHROMA_PATH=/app/chroma_db
-      - MCP_MEMORY_BACKUPS_PATH=/app/backups
-      - LOG_LEVEL=INFO
-      - MAX_RESULTS_PER_QUERY=10
-      - SIMILARITY_THRESHOLD=0.7
-      - PYTHONPATH=/app
-      - PYTHONUNBUFFERED=1
+      # Core settings
+      - MCP_MEMORY_CHROMA_PATH=/data/chroma_db
+      - MCP_MEMORY_BACKUPS_PATH=/data/backups
+      - USE_ECHOVAULT=true
+      - PROMETHEUS_METRICS=true
+      - BLOB_THRESHOLD=32768
+      - JWT_SECRET=${JWT_SECRET:-development-secret-key}
+      
+      # Neon settings (using local PostgreSQL for development)
+      - NEON_DSN=postgresql://postgres:postgres@postgres:5432/echovault
+      - NEON_POOL_SIZE=5
+      
+      # Qdrant settings
+      - USE_QDRANT=true
+      - QDRANT_URL=http://qdrant:6333
+      
+      # R2 settings (use MinIO as R2 compatible service for development)
+      - R2_ENDPOINT=http://minio:9000
+      - R2_ACCESS_KEY_ID=${MINIO_ACCESS_KEY:-minioadmin}
+      - R2_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      - R2_BUCKET=echovault-events
+      
+      # Observability
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+    depends_on:
+      - postgres
+      - qdrant
+      - minio
+      - jaeger
+    networks:
+      - echovault-network
     restart: unless-stopped
-    command: >
-      bash -c "
-        apt-get update && 
-        apt-get install -y --no-install-recommends build-essential gcc g++ &&
-        rm -rf /var/lib/apt/lists/* &&
-        pip install -e . &&
-        chmod a+rw /dev/stdin /dev/stdout /dev/stderr &&
-        python -u -m mcp_memory_service.server
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL (local replacement for Neon)
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=echovault
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Initialize pgvector extension
+      - ./docker/postgres/init-pgvector.sql:/docker-entrypoint-initdb.d/init-pgvector.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - echovault-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:v1.7.4
+    volumes:
+      - qdrant-data:/qdrant/storage
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    networks:
+      - echovault-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # MinIO (S3-compatible storage for development, replacement for R2)
+  minio:
+    image: minio/minio
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+    command: server /data --console-address ":9001"
+    networks:
+      - echovault-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # MinIO setup (creates buckets and policies)
+  minio-setup:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 10;
+      /usr/bin/mc config host add myminio http://minio:9000 ${MINIO_ACCESS_KEY:-minioadmin} ${MINIO_SECRET_KEY:-minioadmin};
+      /usr/bin/mc mb --ignore-existing myminio/echovault-events;
+      /usr/bin/mc policy set download myminio/echovault-events;
+      exit 0;
       "
+    networks:
+      - echovault-network
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:1.45
+    ports:
+      - "16686:16686" # UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - echovault-network
+    restart: unless-stopped
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - echovault-network
+    restart: unless-stopped
+    depends_on:
+      - echovault
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:10.0.3
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "3000:3000"
+    networks:
+      - echovault-network
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+      - jaeger
+
+networks:
+  echovault-network:
+
+volumes:
+  postgres-data:
+  qdrant-data:
+  minio-data:
+  prometheus-data:
+  grafana-data:

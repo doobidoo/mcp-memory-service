@@ -1,14 +1,6 @@
-# Platform-agnostic Docker support with UV integration
-FROM python:3.10-slim
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    MCP_MEMORY_CHROMA_PATH=/app/chroma_db \
-    MCP_MEMORY_BACKUPS_PATH=/app/backups \
-    PYTHONPATH=/app
-
-# Set the working directory
-WORKDIR /app
+# Multi-stage build for EchoVault Memory Service
+# Stage 1: Base image with dependencies
+FROM python:3.10-slim as base
 
 # Install system dependencies
 RUN apt-get update && \
@@ -16,37 +8,63 @@ RUN apt-get update && \
     build-essential \
     gcc \
     g++ \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy essential files
-COPY requirements.txt .
-COPY setup.py .
-COPY pyproject.toml .
-COPY uv.lock .
-COPY README.md .
-COPY scripts/install_uv.py .
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install UV
-RUN python install_uv.py
+# Create app directory
+WORKDIR /app
 
-# Create directories for data persistence
-RUN mkdir -p /app/chroma_db /app/backups
+# Install base dependencies
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Stage 2: Build with EchoVault overlay
+FROM base as build
+
+# Install EchoVault dependencies
+COPY requirements_overlay.txt ./
+RUN pip install --no-cache-dir -r requirements_overlay.txt
 
 # Copy source code
-COPY src/ /app/src/
-COPY uv_wrapper.py memory_wrapper_uv.py ./
+COPY . .
 
-# Install the package with UV
-RUN python -m uv pip install -e .
+# Stage 3: Production image
+FROM build as production
 
-# Configure stdio for MCP communication
-RUN chmod a+rw /dev/stdin /dev/stdout /dev/stderr
+# Set environment variables for production
+ENV PROMETHEUS_METRICS=true \
+    USE_ECHOVAULT=true
 
-# Add volume mount points for data persistence
-VOLUME ["/app/chroma_db", "/app/backups"]
+# Create data directories
+RUN mkdir -p /data/chroma_db /data/backups
 
-# Expose the port (if needed)
+# Copy scripts and configuration
+COPY scripts /app/scripts
+COPY migrations /app/migrations
+
+# Set volume mount points
+VOLUME ["/data/chroma_db", "/data/backups", "/app/config"]
+
+# Expose ports
 EXPOSE 8000
 
-# Run the memory service using UV
-ENTRYPOINT ["python", "-u", "uv_wrapper.py"]
+# Set entrypoint
+ENTRYPOINT ["python", "-m", "src.mcp_memory_service.server"]
+
+# Stage 4: Development image
+FROM build as development
+
+# Install development dependencies
+RUN pip install --no-cache-dir pytest pytest-asyncio pytest-cov
+
+# Copy development configuration
+COPY .env.example /app/.env.example
+
+# Set entrypoint
+ENTRYPOINT ["python", "-m", "src.mcp_memory_service.server"]
