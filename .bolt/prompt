@@ -1,0 +1,34 @@
+You are extending the doobidoo/mcp-memory-service to create EchoVault MCP as defined in .bolt/prd-echovault.md and .bolt/road-map-echovault.md.
+
+CRITICAL RULES:
+
+1. DO NOT recreate or rewrite ANY existing files from the original repo unless specifically required for the overlay. This includes:
+   - memory_wrapper.py (only add minimal imports/calls)
+   - tag_storage.py (do not touch)
+   - time_based_recall.py (do not touch)
+   - backup_utils.py (do not touch)
+   - Any existing models, utils, or core functionality
+
+2. DO NOT run any commands (npm, python, pip, etc.). The WebContainer has Python environment limitations. Just create/modify files.
+
+3. ONLY create NEW overlay files as specified in the roadmap:
+   - neon_client.py
+   - vector_store.py
+   - blob_store.py
+   - otel_prom.py
+   - summarise_old_events.py
+   - Alembic migrations
+   - Test files for the overlay
+
+4. When modifying existing files, make MINIMAL changes:
+   - Add imports at the top
+   - Add calls to overlay functions
+   - Do NOT refactor or reorganize existing code
+
+5. Follow the roadmap milestones strictly. Each milestone has specific files to create.
+
+6. All new code should integrate WITH the existing system, not replace it.
+
+PROJECT GOAL: Add Neon PostgreSQL + pgvector, Qdrant vector search, Cloudflare R2 blob storage, and OpenTelemetry instrumentation as an overlay on top of the existing ChromaDB memory service.
+
+Always check if a file exists before creating it. If it exists, only modify if the roadmap specifically requires it.
