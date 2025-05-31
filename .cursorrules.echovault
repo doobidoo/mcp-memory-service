@@ -1,0 +1,128 @@
+# ECHOVAULT PROJECT-SPECIFIC CURSOR RULES
+
+## 🎯 PROJECT CONTEXT
+This is EchoVault - an OVERLAY extension to the original doobidoo/mcp-memory-service.
+We ADD functionality without modifying the original codebase.
+
+## 🚫 CRITICAL PROJECT RULES
+
+### 1. NEVER MODIFY ORIGINAL CODE
+- **NEVER** edit files from the original mcp-memory-service
+- **NEVER** change the base memory_wrapper.py functionality
+- **NEVER** alter ChromaDB implementation
+- **ONLY** add new files in designated overlay directories
+
+### 2. OVERLAY ARCHITECTURE RULES
+Allowed modification areas:
+- `/src/mcp_memory_service/storage/` - New storage implementations only
+- `/migrations/` - Database migrations for EchoVault
+- `/tests/` - New tests for EchoVault features
+- `/scripts/` - Maintenance and utility scripts
+- `/docs/` - Documentation additions
+
+### 3. FILE NAMING CONVENTIONS
+- EchoVault files should include 'echovault' in the name when possible
+- Example: `echovault.py`, `test_echovault_integration.py`
+- This helps distinguish overlay code from original code
+
+### 4. IMPORT RULES
+- **ALWAYS** import from original modules when using base functionality
+- **NEVER** duplicate original code - extend it
+- Example:
+  ```python
+  from mcp_memory_service.storage import MemoryStorage  # Original
+  from .echovault import EchoVaultStorage  # Our overlay
+  ```
+
+### 5. FEATURE FLAG REQUIREMENT
+- All EchoVault features MUST be behind the `--use-echovault` flag
+- Default behavior MUST remain ChromaDB
+- Users should be able to disable EchoVault completely
+
+### 6. BACKWARDS COMPATIBILITY
+- **NEVER** break existing MCP Memory Service functionality
+- **ALWAYS** ensure ChromaDB mode works perfectly
+- **TEST** both modes (with and without --use-echovault)
+
+### 7. TESTING REQUIREMENTS
+Before ANY commit:
+1. Test ChromaDB mode: `python memory_wrapper.py`
+2. Test EchoVault mode: `python memory_wrapper.py --use-echovault`
+3. Run overlay tests: `pytest tests/test_echovault_*.py`
+4. Verify no original tests are broken
+
+### 8. ENVIRONMENT VARIABLES
+EchoVault-specific variables:
+- USE_ECHOVAULT - Enable overlay features
+- NEON_DSN - PostgreSQL connection
+- QDRANT_URL, QDRANT_API_KEY - Vector search
+- R2_* - Blob storage credentials
+
+### 9. BRANCH NAMING FOR ECHOVAULT
+- `feature/echovault-<feature>` - New EchoVault features
+- `fix/echovault-<issue>` - EchoVault bug fixes
+- `docs/echovault-<topic>` - Documentation updates
+- Never use generic branch names that could confuse with upstream
+
+### 10. MERGE STRATEGY
+1. **ALWAYS** create feature branches from main
+2. **NEVER** merge without human approval
+3. **TEST** both ChromaDB and EchoVault modes
+4. **DOCUMENT** changes in CHANGELOG.md
+5. **UPDATE** README-EchoVault.md if needed
+
+## 📁 PROJECT STRUCTURE RULES
+
+### Core Overlay Files (DO NOT DELETE):
+```
+/src/mcp_memory_service/storage/
+  ├── echovault.py        # Main overlay integration
+  ├── neon_client.py      # PostgreSQL client
+  ├── vector_store.py     # Qdrant integration
+  └── blob_store.py       # R2 storage
+
+/migrations/              # Alembic migrations
+/scripts/                 # Maintenance scripts
+  └── summarise_old_events.py
+```
+
+### Configuration Files:
+```
+.env                     # Local only - NEVER commit
+.env.example             # Template with placeholders
+requirements-echovault.txt  # Overlay dependencies
+docker-compose.yml       # Must support both modes
+```
+
+## 🧪 TESTING CHECKLIST
+Before pushing any changes:
+- [ ] ChromaDB mode works unchanged
+- [ ] EchoVault mode activates with flag
+- [ ] All original tests pass
+- [ ] New overlay tests pass
+- [ ] No secrets in code
+- [ ] Documentation updated
+
+## 🚨 FORBIDDEN ACTIONS
+1. **NEVER** remove or modify ChromaDB functionality
+2. **NEVER** make EchoVault the default
+3. **NEVER** break the original API contract
+4. **NEVER** add dependencies to requirements.txt (use requirements-echovault.txt)
+5. **NEVER** modify the original server startup
+
+## 💡 DEVELOPMENT WORKFLOW
+1. Create feature branch: `git checkout -b feature/echovault-your-feature`
+2. Make changes ONLY in overlay areas
+3. Test both modes thoroughly
+4. Run security scan: `python scan_secrets.py .`
+5. Commit with clear message: `feat(echovault): add your feature`
+6. Push and create PR for human review
+
+## 🔍 QUICK CHECKS
+Ask yourself before ANY change:
+1. Am I modifying original MCP Memory Service code? (Should be NO)
+2. Will this work with `--use-echovault` flag disabled? (Should be YES)
+3. Have I tested both ChromaDB and EchoVault modes? (Should be YES)
+4. Are all my changes in overlay-designated areas? (Should be YES)
+
+Remember: EchoVault EXTENDS, never REPLACES!

@@ -1,0 +1,110 @@
+# CURSOR GLOBAL RULES - GitHub Security & Best Practices
+
+## 🚨 CRITICAL SECURITY RULES - NEVER VIOLATE
+
+### 1. SECRET PROTECTION - ABSOLUTE PRIORITY
+- **NEVER** commit any real credentials, API keys, tokens, or passwords
+- **ALWAYS** use environment variables from .env files
+- **ALWAYS** check git status before committing
+- **ALWAYS** run secret scanner before any commit
+- **NEVER** bypass or disable secret scanning
+- **NEVER** use real values in examples - use <PLACEHOLDER> format
+
+### 2. BRANCH PROTECTION RULES
+- **NEVER** commit directly to main/master branch
+- **ALWAYS** create feature branches: `feature/description`
+- **ALWAYS** create bugfix branches: `bugfix/description`
+- **ALWAYS** ask for human approval before merging to main
+- **NEVER** force push to any branch others are using
+
+### 3. PRE-COMMIT CHECKLIST
+Before EVERY commit, you MUST:
+1. Run `git status` and verify files
+2. Run `python scan_secrets.py .` or equivalent
+3. Review `git diff --cached` output
+4. Ensure .env is NOT being committed
+5. Verify all tests pass
+6. Check that documentation is updated
+
+### 4. COMMIT MESSAGE STANDARDS
+Use conventional commits format:
+- `feat:` - New features
+- `fix:` - Bug fixes
+- `docs:` - Documentation only
+- `style:` - Code style changes (formatting)
+- `refactor:` - Code changes without fixing bugs or adding features
+- `test:` - Adding or updating tests
+- `chore:` - Maintenance tasks
+
+Example: `feat: add PostgreSQL connection pooling`
+
+### 5. FILE SAFETY RULES
+NEVER modify or commit:
+- .env files (except .env.example with placeholders)
+- Files containing credentials
+- Binary files with embedded secrets
+- Log files that might contain sensitive data
+- Backup files (.bak, .backup, .old)
+
+### 6. ENVIRONMENT VARIABLES
+- **CREATE** .env.example with all required variables as placeholders
+- **USE** descriptive placeholder names: <YOUR_API_KEY_HERE>
+- **DOCUMENT** what each environment variable does
+- **VALIDATE** that .env is in .gitignore
+
+### 7. CODE REVIEW REQUIREMENTS
+Before merging any branch:
+- All tests must pass
+- No secrets in code
+- Documentation updated
+- Human approval obtained
+- Conflicts resolved
+
+### 8. EMERGENCY PROCEDURES
+If you accidentally commit a secret:
+1. **STOP** - Do not push
+2. **ALERT** - Notify the human immediately
+3. **RESET** - Use `git reset HEAD~1` to undo
+4. **CLEAN** - Remove the secret from all files
+5. **ROTATE** - Tell human to rotate the exposed credential
+
+### 9. REPOSITORY HYGIENE
+- Keep commits atomic and focused
+- Write clear, descriptive commit messages
+- Update documentation with code changes
+- Remove commented-out code before committing
+- Clean up debugging statements
+
+### 10. COLLABORATION RULES
+- **ALWAYS** pull before starting new work
+- **NEVER** rewrite published history
+- **ALWAYS** communicate before major changes
+- **RESPECT** other contributors' work
+- **DOCUMENT** your decisions
+
+## 🛡️ SECURITY SCANNING COMMANDS
+Run these before EVERY commit:
+```bash
+# Check for secrets
+python scan_secrets.py .
+
+# Verify git status
+git status
+
+# Review staged changes
+git diff --cached
+
+# Check commit history
+git log --oneline -5
+```
+
+## ⚠️ RED FLAGS - STOP AND ASK
+Stop and ask for human guidance if you see:
+- Hardcoded credentials in any file
+- .env file being staged for commit
+- Merge conflicts you're unsure about
+- Force push suggestions
+- Requests to disable security features
+- Unusual git commands you don't recognize
+
+Remember: It's always better to ask for clarification than to compromise security!
