@@ -1,58 +1,99 @@
 # Real Connection Test Results
 
-## Test Date: 2025-06-01 16:47:36 UTC
+## Test Date: 2025-06-01 22:45:41 UTC
 
-### Neon PostgreSQL
+### Environment
+- **Platform**: Windows 10 ARM64
+- **Python**: 3.12.6
+- **Test Method**: Windows .venv environment
+
+### Service Connection Results
+
+#### Neon PostgreSQL
+- **Status**: ✅ PASS
+- **Connection**: Successfully connected
+- **Memory Count**: 0
+- **Vector Count**: 0
+- **Pgvector Version**: 0.8.0
+- **Fix Applied**: Changed `ARRAY_LENGTH(embedding, 1)` to `AVG(vector_dims(embedding::vector))`
+
+#### Qdrant Cloud
 - **Status**: ❌ FAIL
-- **Issue**: SQL function error - `array_length(vector, integer) does not exist`
-- **Connection**: ✅ Successfully established connection pool
-- **Error Type**: Schema/Function mismatch
-- **Action Required**: Database schema needs pgvector extension or function updates
+- **Error**: 403 Forbidden - `{"error":"forbidden"}`
+- **Error Type**: UnexpectedResponse
+- **Likely Cause**: API key authentication issue or permissions not configured
 
-### Qdrant Cloud  
-- **Status**: ✅ PASS (Skipped)
-- **Reason**: USE_QDRANT not set to true in environment
-- **Note**: Credentials were valid but test was bypassed by design
-- **Action Required**: Set USE_QDRANT=true to enable testing
-
-### Cloudflare R2
+#### Cloudflare R2
 - **Status**: ❌ FAIL
-- **Issue**: 400 Bad Request when calling HeadBucket operation
-- **Error**: Bucket configuration or permissions issue
-- **Connection Time**: ~10 seconds (timeout)
-- **Action Required**: Verify bucket name and permissions
+- **Error**: 400 Bad Request when calling HeadBucket operation
+- **Likely Cause**: Bucket doesn't exist or region mismatch
 
-### Vector Store Client
-- **Status**: ✅ Initialized Successfully
-- **Neon Connection**: ✅ Pool created with 5 connections
-- **Providers**: Neon (Qdrant disabled)
-- **Vector Count**: 0 (due to SQL function error)
+#### Vector Store Client
+- **Status**: ✅ PASS
+- **Initialized**: Successfully
+- **Stats**: Successfully retrieved stats from Neon provider
+- **Active Providers**: ['Neon', 'Qdrant'] (Qdrant failed to initialize due to 403 error)
 
-## Summary
+### MCP Server Testing
 
-### What Works:
-- ✅ Neon PostgreSQL connection established successfully
-- ✅ Connection pooling working (5 connections)
-- ✅ Vector store client initializes
-- ✅ All credentials are valid format
+#### ChromaDB Mode (Standard)
+- **Status**: ✅ PASS
+- **Log**: Server initialized successfully
+- **System Info**: 
+  - OS: windows arm64
+  - Memory: 15.61 GB
+  - Accelerator: CPU
+  - Optimal Model: all-MiniLM-L6-v2
+  - ChromaDB Path: Created successfully
 
-### What Needs Fixing:
-1. **Neon Database Schema**:
-   - Missing pgvector extension or functions
-   - Need to run migrations or install extensions
-   
-2. **R2 Bucket Configuration**:
-   - Bucket name or permissions issue
-   - May need to create bucket or adjust CORS
+#### EchoVault Mode
+- **Status**: ⚠️ PARTIAL SUCCESS
+- **Progress**: Server.py updated to use storage factory
+- **Current Issues**: 
+  - EchoVaultStorage is correctly loaded when `USE_ECHOVAULT=true`
+  - Database validation fails because `db_utils.py` expects ChromaDB-specific attributes
+  - Error: `'EchoVaultStorage' object has no attribute 'collection'`
+  - The validation utilities need to be updated to support both storage backends
 
-3. **Qdrant Testing**:
-   - Need to set USE_QDRANT=true to actually test
+### Summary
 
-## Recommendations
+#### What Works:
+- ✅ Neon PostgreSQL connection and pgvector operations
+- ✅ Vector Store Client initialization
+- ✅ ChromaDB mode runs without errors
+- ✅ All dependencies properly installed
 
-1. **For Neon**: Run database migrations to install pgvector extension
-2. **For R2**: Verify bucket exists and has proper permissions
-3. **For Qdrant**: Enable in configuration to test connection
+#### What Needs Fixing:
+1. **Qdrant Authentication**: Verify API key in .env file - current key returns 403 Forbidden
+2. **R2 Bucket**: Create bucket in Cloudflare dashboard or fix endpoint configuration
+3. **Database Validation**: Update `db_utils.py` to support both ChromaDB and EchoVault storage backends
+4. **EchoVault Compatibility**: Make the server work with EchoVault's different interface
+
+### Bug Fix Applied
+
+Fixed Neon PostgreSQL error by updating the SQL query in `neon_client.py` line 572:
+```sql
+-- Old (incorrect for pgvector):
+SELECT AVG(ARRAY_LENGTH(embedding, 1)) FROM memories
+
+-- New (correct for pgvector):
+SELECT AVG(vector_dims(embedding::vector)) FROM memories
+```
+
+### Next Steps
+
+1. **Enable EchoVault Mode**: 
+   - Modify `server.py` to import and use `create_storage` from `storage.factory`
+   - This will automatically enable EchoVault when `USE_ECHOVAULT=true`
+
+2. **Fix External Services**:
+   - Verify Qdrant API key has correct permissions
+   - Create R2 bucket or update configuration
+
+3. **Test Full Pipeline**:
+   - Once server.py is updated, test with `USE_ECHOVAULT=true`
+   - Verify vector storage works through Neon/pgvector
+   - Test metadata storage and retrieval
 
 ## Security Note
-All credentials were temporarily used for testing only and have been removed from the system. No credentials are stored in any committed files. 
+All test credentials are in .env file and properly secured. No credentials are committed to the repository.

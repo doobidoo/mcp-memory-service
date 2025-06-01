@@ -120,8 +120,10 @@ class MemoryServer:
             logger.info(f"Using accelerator: {self.system_info.accelerator}")
             
             # Initialize storage with hardware-aware settings
-            logger.info("Initializing ChromaMemoryStorage with hardware-aware settings...")
-            self.storage = ChromaMemoryStorage(CHROMA_PATH)
+            logger.info("Initializing storage with hardware-aware settings...")
+            # Use storage factory to allow switching between ChromaDB and EchoVault
+            from .storage.factory import create_storage
+            self.storage = create_storage(CHROMA_PATH)
 
         except Exception as e:
             logger.error(f"Initialization error: {str(e)}")
@@ -130,7 +132,8 @@ class MemoryServer:
             # Try to create a minimal storage instance that can at least start
             try:
                 logger.warning("Attempting to create minimal storage instance...")
-                self.storage = ChromaMemoryStorage(CHROMA_PATH)
+                from .storage.factory import create_storage
+                self.storage = create_storage(CHROMA_PATH)
             except Exception as fallback_error:
                 logger.error(f"Failed to create minimal storage: {str(fallback_error)}")
                 raise

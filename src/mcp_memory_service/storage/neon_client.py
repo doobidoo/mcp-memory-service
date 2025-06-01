@@ -602,7 +602,7 @@ class NeonClient:
                 
                 # Get average vector size
                 avg_vector_size = await conn.fetchval("""
-                    SELECT AVG(ARRAY_LENGTH(embedding, 1)) FROM memories 
+                    SELECT AVG(vector_dims(embedding::vector)) FROM memories 
                     WHERE embedding IS NOT NULL
                 """)
                 
