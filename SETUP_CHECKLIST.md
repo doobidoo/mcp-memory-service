@@ -2,6 +2,32 @@
 
 ## 🔧 Immediate Setup Tasks
 
+### 0. Virtual Environment Setup
+- [ ] Check Python version (3.11+ recommended)
+  ```
+  python --version
+  ```
+- [ ] Create virtual environment
+  ```
+  python -m venv .venv
+  # OR for conda users
+  conda create -n echovault python=3.11
+  ```
+- [ ] Activate virtual environment
+  ```
+  # Windows
+  .venv\Scripts\activate
+  # Linux/Mac
+  source .venv/bin/activate
+  # Conda
+  conda activate echovault
+  ```
+- [ ] Verify activation
+  ```
+  # Should show .venv path
+  pip --version
+  ```
+
 ### 1. Environment Configuration
 - [ ] Navigate to project directory
   ```
@@ -22,11 +48,6 @@
   - [ ] `JWT_SECRET=<YOUR_SECURE_JWT_SECRET>`
 
 ### 2. Python Environment Setup
-- [ ] Create virtual environment (recommended)
-  ```
-  python -m venv venv
-  venv\Scripts\activate
-  ```
 - [ ] Install overlay dependencies
   ```
   pip install -r requirements_overlay.txt

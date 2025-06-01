@@ -1,0 +1,26 @@
+# Development dependencies for EchoVault
+
+# Testing
+pytest>=8.3.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+
+# Database migrations
+alembic>=1.13.0
+
+# Code quality
+black>=24.0.0
+flake8>=7.0.0
+mypy>=1.8.0
+
+# Documentation
+mkdocs>=1.5.0
+mkdocs-material>=9.5.0
+
+# Development tools
+ipython>=8.18.0
+ipdb>=0.13.0
+
+# Security scanning
+bandit>=1.7.0
+safety>=3.0.0 

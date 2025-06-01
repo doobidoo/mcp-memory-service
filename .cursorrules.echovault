@@ -126,3 +126,27 @@ Ask yourself before ANY change:
 4. Are all my changes in overlay-designated areas? (Should be YES)
 
 Remember: EchoVault EXTENDS, never REPLACES!
+
+## 📋 TESTING REQUIREMENTS
+- **ALWAYS** test both modes before committing:
+  1. Test ChromaDB mode: `python memory_wrapper.py`
+  2. Test EchoVault mode: `python memory_wrapper.py --use-echovault`
+- **DOCUMENT** any test failures with full error messages
+- **FIX** any mode-specific issues before proceeding
+
+## 🐍 VIRTUAL ENVIRONMENT REQUIREMENT
+- **ALWAYS** work within a virtual environment
+- **CHECK** for active venv before running commands
+- **STANDARD ACTIVATION**:
+  - Windows: `.venv\Scripts\activate`
+  - Linux/Mac: `source .venv/bin/activate`
+  - Conda: `conda activate echovault`
+- **IF NO VENV EXISTS**, create one:
+  - `python -m venv .venv` OR
+  - `conda create -n echovault python=3.11`
+- **VERIFY** Python version compatibility (3.11+ recommended)
+- **INSTALL** requirements after activation:
+  - `pip install -r requirements.txt`
+  - `pip install -r requirements-echovault.txt`
+
+## 🔧 CONFIGURATION
