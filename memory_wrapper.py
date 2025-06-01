@@ -346,6 +346,15 @@ def install_pytorch_with_uv(no_auto_install=False):
         print_warning("Automatic PyTorch installation is disabled")
         return False
     
+    # First check if PyTorch is already installed
+    try:
+        import torch
+        print_success(f"PyTorch is already installed (version {torch.__version__})")
+        print_info("Skipping PyTorch installation")
+        return True
+    except ImportError:
+        print_info("PyTorch not found, proceeding with installation")
+    
     # Check if UV is installed, install it if not
     if not check_uv():
         print_info("UV is not installed. Installing UV...")
@@ -372,7 +381,7 @@ def install_pytorch_with_uv(no_auto_install=False):
             try:
                 subprocess.check_call([
                     sys.executable, '-m', 'uv', 'pip', 'install', 
-                    'torch==2.1.0', 'torchvision==2.1.0', 'torchaudio==2.1.0',
+                    'torch>=2.1.0', 'torchvision>=0.16.0', 'torchaudio>=2.1.0',
                     '--extra-index-url', 'https://download.pytorch.org/whl/cu118'
                 ])
                 print_success("PyTorch installed successfully with CUDA support")
@@ -385,7 +394,7 @@ def install_pytorch_with_uv(no_auto_install=False):
         try:
             subprocess.check_call([
                 sys.executable, '-m', 'uv', 'pip', 'install',
-                'torch==2.1.0', 'torchvision==2.1.0', 'torchaudio==2.1.0',
+                'torch>=2.1.0', 'torchvision>=0.16.0', 'torchaudio>=2.1.0',
                 '--extra-index-url', 'https://download.pytorch.org/whl/cpu'
             ])
             print_success("PyTorch installed successfully (CPU-only)")
@@ -397,13 +406,13 @@ def install_pytorch_with_uv(no_auto_install=False):
     elif system == "darwin":  # macOS
         print_info("Installing PyTorch for macOS using UV")
         try:
-            # Install PyTorch for macOS - Use the specific versions you need
+            # Install PyTorch for macOS - Use flexible versions
             print_debug("Installing PyTorch for macOS using UV")
             subprocess.check_call([
                 sys.executable, '-m', 'uv', 'pip', 'install',
-                "torch==1.13.1",
-                "torchvision==0.14.1",
-                "torchaudio==0.13.1"
+                "torch>=2.0.0",
+                "torchvision>=0.15.0",
+                "torchaudio>=2.0.0"
             ])
             
             print_success("PyTorch installed successfully for macOS")
@@ -417,9 +426,9 @@ def install_pytorch_with_uv(no_auto_install=False):
             # Generic PyTorch installation for Linux
             subprocess.check_call([
                 sys.executable, '-m', 'uv', 'pip', 'install',
-                "torch==1.13.1",
-                "torchvision==0.14.1", 
-                "torchaudio==0.13.1"
+                "torch>=2.0.0",
+                "torchvision>=0.15.0", 
+                "torchaudio>=2.0.0"
             ])
             
             print_success("PyTorch installed successfully with UV")
