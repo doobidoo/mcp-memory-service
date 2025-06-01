@@ -83,3 +83,4 @@ nosetests.xml
 coverage.xml
 *.cover
 .hypothesis/
+test_real_connections.py
