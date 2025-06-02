@@ -19,10 +19,10 @@ from .neon_client import NeonClient
 from .vector_store import VectorStoreClient
 from .blob_store import BlobStoreClient
 from ..models.memory import Memory, MemoryQueryResult
-from ..utils.hashing import generate_content_hash
-from ..utils import otel_prom
+from ..utils.hashing import generate_content_hash # generate_content_hash is not used in this file, but keeping it just in case.
+from ..utils import otel_prom # Ensure otel_prom is correctly imported
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__) # Define logger at module level
 
 class EchoVaultStorage(MemoryStorage):
     """
@@ -31,17 +31,39 @@ class EchoVaultStorage(MemoryStorage):
     """
     
     def __init__(self, path: Optional[str] = None):
-        """Initialize the EchoVault storage."""
-        self.path = path
+        logger.debug(f"EchoVaultStorage __init__ called with path: {path}")
+        self.path = path 
+
         self.neon_client = NeonClient()
         self.vector_store = VectorStoreClient()
         self.blob_store = BlobStoreClient()
-        self.model = None  # Will be initialized on demand
+        self.model = None 
         self._is_initialized = False
         
-        # Initialize OpenTelemetry and Prometheus metrics
-        otel_prom.initialize("echovault-memory-service")
-    
+        if hasattr(otel_prom, 'initialize') and callable(otel_prom.initialize):
+             if not getattr(otel_prom, '_otel_initialized_echovault', False):
+                logger.info("Initializing OpenTelemetry for echovault-memory-service via EchoVaultStorage.")
+                otel_prom.initialize("echovault-memory-service")
+                setattr(otel_prom, '_otel_initialized_echovault', True)
+             else:
+                logger.debug("OpenTelemetry for echovault-memory-service already initialized.")
+        else:
+            logger.warning("otel_prom.initialize not available or not callable.")
+
+        logger.info("EchoVaultStorage instance created.")
+
+    @property
+    def collection(self):
+        """ChromaDB compatibility attribute. Returns None."""
+        logger.debug("Access to compatibility property EchoVaultStorage.collection (returns None)")
+        return None
+
+    @property
+    def client(self):
+        """ChromaDB compatibility attribute. Returns None."""
+        logger.debug("Access to compatibility property EchoVaultStorage.client (returns None)")
+        return None
+
     async def initialize(self):
         """Initialize all clients and connections."""
         if self._is_initialized:

@@ -55,21 +55,32 @@ class VectorStoreClient:
                     qdrant_url = os.environ.get("QDRANT_URL")
                     qdrant_api_key = os.environ.get("QDRANT_API_KEY")
                     
+                    logger.info(f"Attempting to initialize Qdrant client.")
+                    logger.info(f"QDRANT_URL: {qdrant_url}")
+                    if qdrant_api_key:
+                        logger.info("QDRANT_API_KEY is set (not logging the key itself).")
+                    else:
+                        logger.warning("QDRANT_API_KEY is NOT set. This might be an issue if your Qdrant instance requires authentication.")
+                    
                     if not qdrant_url:
-                        logger.error("QDRANT_URL environment variable is not set")
+                        logger.error("QDRANT_URL environment variable is not set. Qdrant initialization aborted.")
                         self.use_qdrant = False
                     else:
-                        # Connect to Qdrant
+                        logger.info(f"Connecting to Qdrant at URL: {qdrant_url}...")
                         self.qdrant_client = QdrantClient(
                             url=qdrant_url,
                             api_key=qdrant_api_key
+                            # timeout=10 # Optional: add a timeout
                         )
                         
-                        # Create collection if it doesn't exist
+                        logger.info("Qdrant client instantiated. Checking collections...")
+                        # The following call can be the first to trigger auth errors
                         collections = self.qdrant_client.get_collections().collections
                         collection_names = [c.name for c in collections]
+                        logger.info(f"Existing Qdrant collections: {collection_names}")
                         
                         if self.collection_name not in collection_names:
+                            logger.info(f"Collection '{self.collection_name}' not found in Qdrant. Attempting to create it.")
                             self.qdrant_client.create_collection(
                                 collection_name=self.collection_name,
                                 vectors_config=models.VectorParams(
@@ -77,16 +88,23 @@ class VectorStoreClient:
                                     distance=models.Distance.COSINE
                                 )
                             )
+                            logger.info(f"Successfully created collection '{self.collection_name}' in Qdrant.")
+                        else:
+                            logger.info(f"Collection '{self.collection_name}' already exists in Qdrant.")
                         
-                        logger.info(f"Initialized Qdrant client at {qdrant_url}")
+                        logger.info(f"Successfully initialized Qdrant client and confirmed collection '{self.collection_name}'.")
+
                 except ImportError:
-                    logger.warning("Qdrant client not available, falling back to pgvector")
+                    logger.warning("Qdrant client library ('qdrant_client') not installed. Falling back to pgvector if available.")
                     self.use_qdrant = False
                 except Exception as e:
-                    logger.error(f"Failed to initialize Qdrant client: {e}")
-                    self.use_qdrant = False
+                    # Log the full exception details
+                    logger.error(f"Failed to initialize Qdrant client or verify collection: {type(e).__name__} - {e}", exc_info=True)
+                    logger.error("This could be due to incorrect QDRANT_URL, invalid QDRANT_API_KEY, network issues, or insufficient permissions for the API key.")
+                    logger.error("Please verify your Qdrant URL, API key (ensure it has permissions to list/create collections), and network connectivity from the service environment.")
+                    self.use_qdrant = False # Disable Qdrant use on initialization failure
             
-            self._is_initialized = True
+            self._is_initialized = True # Ensure this is set even if Qdrant fails but Neon is okay
             
         except Exception as e:
             logger.error(f"Failed to initialize vector store client: {e}")
@@ -131,10 +149,10 @@ class VectorStoreClient:
                 from qdrant_client.http import models
                 
                 # Prepare payload with all metadata
-                payload = {
-                    "content": content,
-                    **metadata
-                }
+                payload = {"content": content, **metadata}
+                
+                logger.debug(f"Attempting to upsert point with ID '{id}' into Qdrant collection '{self.collection_name}'.")
+                # logger.debug(f"Qdrant upsert payload (excluding vector): {payload}") # Potentially verbose
                 
                 # Insert into Qdrant
                 self.qdrant_client.upsert(
@@ -147,10 +165,9 @@ class VectorStoreClient:
                         )
                     ]
                 )
-                
-                logger.debug(f"Inserted vector into Qdrant with ID: {id}")
+                logger.debug(f"Successfully upserted vector into Qdrant with ID: {id}")
             except Exception as e:
-                logger.error(f"Failed to insert vector into Qdrant: {e}")
+                logger.error(f"Failed to upsert vector into Qdrant (ID: {id}): {type(e).__name__} - {e}", exc_info=True)
                 success = False
         
         # Always insert into Neon for durability
