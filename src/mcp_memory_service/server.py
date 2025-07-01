@@ -1495,7 +1495,7 @@ class MemoryServer:
             return [types.TextContent(type="text", text=message)]
         except Exception as e:
             logger.error(f"Error deleting by tag: {str(e)}\n{traceback.format_exc()}")
-            return [types.TextContent(type="text", text=f"Error deleting by tag: {str(e)}")]]
+            return [types.TextContent(type="text", text=f"Error deleting by tag: {str(e)}")]
 
     async def handle_delete_by_tags(self, arguments: dict) -> List[types.TextContent]:
         """Handler for explicit multiple tag deletion."""
