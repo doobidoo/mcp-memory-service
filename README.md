@@ -300,6 +300,24 @@ python scripts/verify_pytorch_windows.py
 python scripts/test_installation.py
 ```
 
+## FAQ
+
+### Can I run the MCP Memory Service in both Claude Desktop and Claude Code simultaneously?
+
+**Yes!** The MCP Memory Service is designed to support concurrent access from multiple clients. Both Claude Desktop and Claude Code can safely use the same memory service instance simultaneously, and they will share the same memory store.
+
+**Key benefits:**
+- Shared memory across both applications
+- No file conflicts or locking issues
+- Seamless experience when switching between clients
+
+**Technical details:**
+- ChromaDB uses SQLite which handles concurrent database access safely
+- No application-level file locking that would prevent multiple instances
+- Each client creates its own connection but accesses the same shared database
+
+**Configuration tip:** Ensure both clients use the same database paths by setting identical `MCP_MEMORY_CHROMA_PATH` and `MCP_MEMORY_BACKUPS_PATH` environment variables.
+
 ## Troubleshooting
 
 See the [Installation Guide](docs/guides/installation.md#troubleshooting-common-installation-issues) for detailed troubleshooting steps.

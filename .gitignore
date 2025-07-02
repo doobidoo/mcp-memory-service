@@ -84,3 +84,4 @@ coverage.xml
 *.cover
 .hypothesis/
 claude_config/claude_desktop_config.json
+.claude/mcp_config.json

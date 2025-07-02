@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo $HOME)",
+      "Bash(python:*)",
+      "Bash(timeout 10s python -m src.mcp_memory_service.server:*)",
+      "Bash(uv:*)",
+      "Bash(GTK_IM_MODULE=\"\" python -m src.mcp_memory_service.server --debug)",
+      "Bash(cat:*)"
+    ],
+    "deny": []
+  }
+}
