@@ -5,7 +5,10 @@ FROM python:3.10-slim
 ENV PYTHONUNBUFFERED=1 \
     MCP_MEMORY_CHROMA_PATH=/app/chroma_db \
     MCP_MEMORY_BACKUPS_PATH=/app/backups \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    LOG_LEVEL=DEGUG \
+    MAX_RESULTS_PER_QUERY=10 \
+    SIMILARITY_THRESHOLD=0.7
 
 # Set the working directory
 WORKDIR /app
@@ -24,20 +27,16 @@ COPY setup.py .
 COPY pyproject.toml .
 COPY uv.lock .
 COPY README.md .
-COPY scripts/install_uv.py .
-
-# Install UV
-RUN python install_uv.py
+COPY install.py .
 
 # Create directories for data persistence
 RUN mkdir -p /app/chroma_db /app/backups
 
 # Copy source code
 COPY src/ /app/src/
-COPY uv_wrapper.py memory_wrapper_uv.py ./
 
 # Install the package with UV
-RUN python -m uv pip install -e .
+RUN pip install -e .
 
 # Configure stdio for MCP communication
 RUN chmod a+rw /dev/stdin /dev/stdout /dev/stderr
@@ -49,4 +48,4 @@ VOLUME ["/app/chroma_db", "/app/backups"]
 EXPOSE 8000
 
 # Run the memory service using UV
-ENTRYPOINT ["python", "-u", "uv_wrapper.py"]
+ENTRYPOINT ["python", "-u", "-m", "mcp_memory_service.server"]
