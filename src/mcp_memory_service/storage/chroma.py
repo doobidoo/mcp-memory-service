@@ -491,45 +491,66 @@ class ChromaMemoryStorage(MemoryStorage):
         """Search memories by tags with optimized performance.
         Handles both new comma-separated and old JSON array tag formats."""
         try:
+            # Check if collection is initialized
+            if self.collection is None:
+                logger.error("Collection not initialized, cannot search by tags")
+                return []
+                
+            # Validate input
+            if not tags or not isinstance(tags, list):
+                logger.warning(f"Invalid tags input: {tags}")
+                return []
+                
             results = self.collection.get(
                 include=["metadatas", "documents"]
             )
 
             memories = []
-            if results["ids"]:
-                # Normalize search tags once
-                search_tags = [str(tag).strip() for tag in tags if str(tag).strip()]
+            if results.get("ids"):
+                # Normalize search tags once - convert to lowercase for case-insensitive search
+                search_tags = [str(tag).strip().lower() for tag in tags if str(tag).strip()]
+                
+                if not search_tags:
+                    logger.warning("No valid search tags provided after normalization")
+                    return []
                 
                 for i, doc in enumerate(results["documents"]):
                     memory_meta = results["metadatas"][i]
                     
-                    # Use enhanced tag parsing that handles both formats
-                    stored_tags = self._parse_tags_fast(memory_meta.get("tags", ""))
-                    
-                    # Fast tag matching
-                    if any(search_tag in stored_tags for search_tag in search_tags):
-                        # Use stored timestamps or fall back to legacy timestamp field
-                        created_at = memory_meta.get("created_at") or memory_meta.get("timestamp_float") or memory_meta.get("timestamp")
-                        created_at_iso = memory_meta.get("created_at_iso") or memory_meta.get("timestamp_str")
-                        updated_at = memory_meta.get("updated_at") or created_at
-                        updated_at_iso = memory_meta.get("updated_at_iso") or created_at_iso
+                    try:
+                        # Use enhanced tag parsing that handles both formats
+                        stored_tags_raw = self._parse_tags_fast(memory_meta.get("tags", ""))
+                        # Normalize stored tags to lowercase for case-insensitive comparison
+                        stored_tags = [tag.lower() for tag in stored_tags_raw] if stored_tags_raw else []
                         
-                        memory = Memory(
-                            content=doc,
-                            content_hash=memory_meta["content_hash"],
-                            tags=stored_tags,
-                            memory_type=memory_meta.get("type"),
-                            # Restore timestamps with fallback logic
-                            created_at=created_at,
-                            created_at_iso=created_at_iso,
-                            updated_at=updated_at,
-                            updated_at_iso=updated_at_iso,
-                            # Include additional metadata
-                            metadata={k: v for k, v in memory_meta.items() 
-                                     if k not in ["content_hash", "tags", "type", "created_at", "created_at_iso", "updated_at", "updated_at_iso", "timestamp", "timestamp_float", "timestamp_str"]}
-                        )
-                        memories.append(memory)
+                        # Fast tag matching - check if any search tag matches any stored tag
+                        if any(search_tag in stored_tags for search_tag in search_tags):
+                            # Use stored timestamps or fall back to legacy timestamp field
+                            created_at = memory_meta.get("created_at") or memory_meta.get("timestamp_float") or memory_meta.get("timestamp")
+                            created_at_iso = memory_meta.get("created_at_iso") or memory_meta.get("timestamp_str")
+                            updated_at = memory_meta.get("updated_at") or created_at
+                            updated_at_iso = memory_meta.get("updated_at_iso") or created_at_iso
+                            
+                            memory = Memory(
+                                content=doc,
+                                content_hash=memory_meta["content_hash"],
+                                tags=stored_tags_raw,  # Use original case for tags
+                                memory_type=memory_meta.get("type"),
+                                # Restore timestamps with fallback logic
+                                created_at=created_at,
+                                created_at_iso=created_at_iso,
+                                updated_at=updated_at,
+                                updated_at_iso=updated_at_iso,
+                                # Include additional metadata
+                                metadata={k: v for k, v in memory_meta.items() 
+                                         if k not in ["content_hash", "tags", "type", "created_at", "created_at_iso", "updated_at", "updated_at_iso", "timestamp", "timestamp_float", "timestamp_str"]}
+                            )
+                            memories.append(memory)
+                    except Exception as parse_error:
+                        logger.warning(f"Failed to parse memory {i}: {parse_error}")
+                        continue
             
+            logger.info(f"Found {len(memories)} memories matching tags: {tags}")
             return memories
             
         except Exception as e:
@@ -1000,18 +1021,28 @@ class ChromaMemoryStorage(MemoryStorage):
         
         Provides backward compatibility with both storage formats.
         """
-        if not tag_string:
+        if not tag_string or tag_string == "":
+            return []
+            
+        # Handle None or non-string values
+        if not isinstance(tag_string, str):
             return []
             
         # Try to parse as JSON first (old format)
         if tag_string.startswith("[") and tag_string.endswith("]"):
             try:
-                return json.loads(tag_string)
-            except json.JSONDecodeError:
+                parsed = json.loads(tag_string)
+                if isinstance(parsed, list):
+                    return [str(tag).strip() for tag in parsed if str(tag).strip()]
+                else:
+                    return []
+            except (json.JSONDecodeError, TypeError):
                 pass
                 
         # If not JSON or parsing fails, treat as comma-separated (new format)
-        return [tag.strip() for tag in tag_string.split(",") if tag.strip()]
+        # Split by comma and clean up each tag
+        tags = [tag.strip() for tag in tag_string.split(",") if tag.strip()]
+        return tags
 
     async def retrieve(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
         """Retrieve memories using semantic search with performance optimizations."""
