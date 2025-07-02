@@ -399,11 +399,9 @@ class MemoryServer:
                                     "description": "Optional metadata about the memory, including tags and type.",
                                     "properties": {
                                         "tags": {
-                                            "oneOf": [
-                                                {"type": "array", "items": {"type": "string"}},
-                                                {"type": "string"}
-                                            ],
-                                            "description": "Tags to categorize the memory. Can be a comma-separated string or an array of strings."
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "description": "Tags to categorize the memory as an array of strings. If you have a comma-separated string, convert it to an array before calling."
                                         },
                                         "type": {
                                             "type": "string",
@@ -518,34 +516,21 @@ class MemoryServer:
                     ),
                     types.Tool(
                         name="delete_by_tag",
-                        description="""Delete all memories with a specific tag or tags.
-                        ENHANCED: Now supports both single tag (string) and multiple tags (array).
-                        WARNING: Deletes ALL memories containing any of the specified tag(s).
+                        description="""Delete all memories with specific tags.
+                        WARNING: Deletes ALL memories containing any of the specified tags.
 
-                        Examples:
-                        Single tag: {"tag": "temporary"}
-                        Multiple tags: {"tag": ["temporary", "outdated"]}
-                        Or use explicit format: {"tags": ["temporary", "outdated"]}""",
+                        Example:
+                        {"tags": ["temporary", "outdated"]}""",
                         inputSchema={
                             "type": "object",
                             "properties": {
-                                "tag": {
-                                    "oneOf": [
-                                        {"type": "string"},
-                                        {"type": "array", "items": {"type": "string"}}
-                                    ],
-                                    "description": "Tag label or array of tag labels. Memories containing any of these tags will be deleted."
-                                },
                                 "tags": {
                                     "type": "array", 
                                     "items": {"type": "string"},
-                                    "description": "Alternative: Array of tag labels for multiple tag deletion."
+                                    "description": "Array of tag labels. Memories containing any of these tags will be deleted."
                                 }
                             },
-                            "anyOf": [
-                                {"required": ["tag"]},
-                                {"required": ["tags"]}
-                            ]
+                            "required": ["tags"]
                         }
                     ),
                     types.Tool(
@@ -1493,17 +1478,20 @@ class MemoryServer:
             return [types.TextContent(type="text", text=f"Error deleting memory: {str(e)}")]
 
     async def handle_delete_by_tag(self, arguments: dict) -> List[types.TextContent]:
-        """Enhanced handler supporting both single tag and multiple tags."""
-        # Support both 'tag' and 'tags' parameters for flexibility
-        tag_or_tags = arguments.get("tag") or arguments.get("tags")
+        """Handler for deleting memories by tags."""
+        tags = arguments.get("tags", [])
         
-        if not tag_or_tags:
-            return [types.TextContent(type="text", text="Error: Either 'tag' or 'tags' parameter is required")]
+        if not tags:
+            return [types.TextContent(type="text", text="Error: Tags array is required")]
+        
+        # Convert single string to array if needed for backward compatibility
+        if isinstance(tags, str):
+            tags = [tags]
         
         try:
             # Initialize storage lazily when needed
             storage = await self._ensure_storage_initialized()
-            count, message = await storage.delete_by_tag(tag_or_tags)
+            count, message = await storage.delete_by_tag(tags)
             return [types.TextContent(type="text", text=message)]
         except Exception as e:
             logger.error(f"Error deleting by tag: {str(e)}\n{traceback.format_exc()}")
