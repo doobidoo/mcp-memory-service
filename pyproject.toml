@@ -14,11 +14,21 @@ authors = [
 license = { text = "MIT" }
 dependencies = [
     "chromadb==0.5.23",
-    # Looser constraint for sentence-transformers to allow for platform-specific versions
-    # Actual version will be managed by install.py based on platform
-    "sentence-transformers",
     "tokenizers==0.20.3",
-    "mcp>=1.0.0,<2.0.0"
+    "mcp>=1.0.0,<2.0.0",
+    "sqlite-vec>=0.1.0"
+]
+
+[project.optional-dependencies]
+ml = [
+    "sentence-transformers>=2.2.2",
+    "torch>=1.6.0"
+]
+chromadb = [
+    "chromadb==0.5.23"
+]
+sqlite = [
+    "sqlite-vec>=0.1.0"
 ]
 
 [project.scripts]

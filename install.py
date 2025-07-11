@@ -305,26 +305,62 @@ def install_pytorch_macos_intel():
     """Install PyTorch specifically for macOS with Intel CPUs."""
     print_step("3a", "Installing PyTorch for macOS Intel CPU")
     
-    # Use the versions known to work well on macOS Intel
+    # Use the versions known to work well on macOS Intel and with Python 3.13+
     try:
-        # Install specific versions that are known to be compatible with Intel macOS
-        torch_version = "1.13.1"
-        torch_vision_version = "0.14.1"
-        torch_audio_version = "0.13.1"
-        st_version = "2.2.2"
+        # For Python 3.13+, we need newer PyTorch versions
+        python_version = sys.version_info
         
-        print_info(f"Installing PyTorch {torch_version} for macOS Intel...")
-        
-        # Install PyTorch first with compatible version
-        cmd = [
-            sys.executable, '-m', 'pip', 'install',
-            f"torch=={torch_version}",
-            f"torchvision=={torch_vision_version}",
-            f"torchaudio=={torch_audio_version}"
-        ]
-        
-        print_info(f"Running: {' '.join(cmd)}")
-        subprocess.check_call(cmd)
+        if python_version >= (3, 13):
+            # For Python 3.13+, try to install latest compatible version
+            print_info(f"Installing PyTorch for macOS Intel (Python {python_version.major}.{python_version.minor})...")
+            print_info("Attempting to install latest PyTorch compatible with Python 3.13...")
+            
+            try:
+                # Try to install without version specifiers to get latest compatible version
+                cmd = [
+                    sys.executable, '-m', 'pip', 'install',
+                    "torch", "torchvision", "torchaudio"
+                ]
+                print_info(f"Running: {' '.join(cmd)}")
+                subprocess.check_call(cmd)
+                st_version = "3.0.0"  # Newer sentence-transformers for newer PyTorch
+            except subprocess.SubprocessError as e:
+                print_warning(f"Failed to install latest PyTorch: {e}")
+                # Fallback to a specific version
+                torch_version = "2.1.0"
+                torch_vision_version = "0.16.0"
+                torch_audio_version = "2.1.0"
+                st_version = "3.0.0"
+                
+                print_info(f"Trying fallback to PyTorch {torch_version}...")
+                
+                cmd = [
+                    sys.executable, '-m', 'pip', 'install',
+                    f"torch=={torch_version}",
+                    f"torchvision=={torch_vision_version}",
+                    f"torchaudio=={torch_audio_version}"
+                ]
+                print_info(f"Running: {' '.join(cmd)}")
+                subprocess.check_call(cmd)
+        else:
+            # Use traditional versions for older Python
+            torch_version = "1.13.1"
+            torch_vision_version = "0.14.1"
+            torch_audio_version = "0.13.1"
+            st_version = "2.2.2"
+            
+            print_info(f"Installing PyTorch {torch_version} for macOS Intel (Python {python_version.major}.{python_version.minor})...")
+            
+            # Install PyTorch first with compatible version
+            cmd = [
+                sys.executable, '-m', 'pip', 'install',
+                f"torch=={torch_version}",
+                f"torchvision=={torch_vision_version}",
+                f"torchaudio=={torch_audio_version}"
+            ]
+            
+            print_info(f"Running: {' '.join(cmd)}")
+            subprocess.check_call(cmd)
         
         # Install a compatible version of sentence-transformers
         print_info(f"Installing sentence-transformers {st_version}...")
@@ -343,9 +379,14 @@ def install_pytorch_macos_intel():
         print_error(f"Failed to install PyTorch for macOS Intel: {e}")
         
         # Provide fallback instructions
-        print_warning("You may need to manually install compatible versions for Intel macOS:")
-        print_info("pip install torch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1")
-        print_info("pip install sentence-transformers==2.2.2")
+        if python_version >= (3, 13):
+            print_warning("You may need to manually install compatible versions for Python 3.13+ on Intel macOS:")
+            print_info("pip install torch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0")
+            print_info("pip install sentence-transformers==3.0.0")
+        else:
+            print_warning("You may need to manually install compatible versions for Intel macOS:")
+            print_info("pip install torch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1")
+            print_info("pip install sentence-transformers==2.2.2")
         
         return False
 
@@ -676,6 +717,40 @@ def install_package(args):
         print_warning("Platform-specific PyTorch installation failed, but will continue with package installation")
 
     try:
+        # For Python 3.13+ on macOS Intel, use a special installation approach
+        if system_info["is_macos"] and system_info["is_x86"] and sys.version_info >= (3, 13):
+            print_info("Using Python 3.13+ on macOS Intel - trying ONNX-based installation")
+            
+            # First try to install without ML dependencies
+            try:
+                cmd = installer_cmd + ['install', '--no-deps'] + install_mode + ['.']
+                print_info(f"Running: {' '.join(cmd)}")
+                subprocess.check_call(cmd, env=env)
+                
+                # Install core dependencies except torch/sentence-transformers
+                print_info("Installing core dependencies except ML libraries...")
+                subprocess.check_call([
+                    sys.executable, '-m', 'pip', 'install',
+                    "chromadb==0.5.23",
+                    "tokenizers==0.20.3",
+                    "mcp>=1.0.0,<2.0.0",
+                    "onnxruntime>=1.14.1"  # ONNX runtime is required
+                ])
+                
+                # Set environment variables for ONNX
+                print_info("Configuring to use ONNX runtime for inference without PyTorch...")
+                env['MCP_MEMORY_USE_ONNX'] = '1'
+                env['MCP_MEMORY_STORAGE_BACKEND'] = 'sqlite_vec'  # Force SQLite backend
+                
+                print_success("MCP Memory Service installed successfully (ONNX-based)")
+                print_warning("ML libraries (PyTorch/sentence-transformers) were not installed due to compatibility issues")
+                print_info("The service will use ONNX runtime for inference instead")
+                return True
+            except subprocess.SubprocessError as e:
+                print_error(f"Failed to install with ONNX approach: {e}")
+                # Fall through to try standard installation
+        
+        # Standard installation
         cmd = installer_cmd + ['install'] + install_mode + ['.']
         print_info(f"Running: {' '.join(cmd)}")
         subprocess.check_call(cmd, env=env)
@@ -683,135 +758,15 @@ def install_package(args):
         return True
     except subprocess.SubprocessError as e:
         print_error(f"Failed to install MCP Memory Service: {e}")
-        return False
-    """Install the package with the appropriate dependencies."""
-    print_step("3", "Installing MCP Memory Service")
-    
-    # Determine installation mode
-    install_mode = []
-    if args.dev:
-        install_mode = ['-e']
-        print_info("Installing in development mode")
-    
-    # Set environment variables for installation
-    env = os.environ.copy()
-    
-    # Get system and GPU info
-    system_info = detect_system()
-    gpu_info = detect_gpu()
-    
-    # Set environment variables based on detected GPU
-    if gpu_info["has_cuda"]:
-        print_info("Configuring for CUDA installation")
-    elif gpu_info["has_rocm"]:
-        print_info("Configuring for ROCm installation")
-        env['MCP_MEMORY_USE_ROCM'] = '1'
-    elif gpu_info["has_mps"]:
-        print_info("Configuring for Apple Silicon MPS installation")
-        env['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
-    elif gpu_info["has_directml"]:
-        print_info("Configuring for DirectML installation")
-        env['MCP_MEMORY_USE_DIRECTML'] = '1'
-    else:
-        print_info("Configuring for CPU-only installation")
-        env['MCP_MEMORY_USE_ONNX'] = '1'
-    
-    # Handle platform-specific PyTorch installation
-    pytorch_installed = install_pytorch_platform_specific(system_info, gpu_info)
-    if not pytorch_installed:
-        print_warning("Platform-specific PyTorch installation failed, but will continue with package installation")
         
-        # If we're on macOS with Intel, we'll try a different approach to install
-        if system_info["is_macos"] and system_info["is_x86"]:
-            try:
-                # Try installing with --no-dependencies to avoid the version conflict
-                print_info("Trying to install with --no-dependencies...")
-                
-                # Install PyTorch first
-                subprocess.check_call([
-                    sys.executable, '-m', 'pip', 'install',
-                    "torch==1.13.1",
-                    "torchvision==0.14.1",
-                    "torchaudio==0.13.1"
-                ])
-                
-                # Install other dependencies except sentence-transformers
-                subprocess.check_call([
-                    sys.executable, '-m', 'pip', 'install',
-                    "chromadb==0.5.23",
-                    "tokenizers==0.20.3",
-                    "mcp>=1.0.0,<2.0.0"
-                ])
-                
-                # Install sentence-transformers with a compatible version
-                subprocess.check_call([
-                    sys.executable, '-m', 'pip', 'install',
-                    "sentence-transformers==2.2.2"
-                ])
-                
-                # Try to install the package with no dependencies
-                print_info("Installing MCP Memory Service with --no-dependencies...")
-                cmd = [sys.executable, '-m', 'pip', 'install', '--no-dependencies'] + install_mode + ['.']
-                subprocess.check_call(cmd, env=env)
-                print_success("MCP Memory Service installed successfully")
-                return True
-            except subprocess.SubprocessError as fallback_e:
-                print_error(f"Fallback installation also failed: {fallback_e}")
-    
-    # Install the package if platform-specific installation wasn't needed or was successful
-    try:
-        # For macOS Intel, we need to install the package with --no-deps to avoid dependency resolution
-        if system_info["is_macos"] and system_info["is_x86"]:
-            print_info("Installing package with --no-deps for macOS Intel")
-            cmd = [sys.executable, '-m', 'pip', 'install', '--no-deps'] + install_mode + ['.']
-            print_info(f"Running: {' '.join(cmd)}")
-            subprocess.check_call(cmd, env=env)
-            
-            # Now install missing dependencies manually (if any)
-            print_info("Installing any remaining required dependencies...")
-            required_deps = [
-                "chromadb==0.5.23",
-                "tokenizers==0.20.3", 
-                "mcp>=1.0.0,<2.0.0",
-                "websockets>=11.0.3"
-            ]
-            for dep in required_deps:
-                try:
-                    subprocess.check_call([sys.executable, '-m', 'pip', 'install', dep])
-                except subprocess.SubprocessError:
-                    print_warning(f"Could not install {dep}, but continuing anyway")
-                    
-            print_success("MCP Memory Service installed successfully")
-            return True
-            
-        # Standard installation for other platforms
-        cmd = [sys.executable, '-m', 'pip', 'install'] + install_mode + ['.']
-        print_info(f"Running: {' '.join(cmd)}")
-        subprocess.check_call(cmd, env=env)
-        print_success("MCP Memory Service installed successfully")
-        return True
-    except subprocess.SubprocessError as e:
-        print_error(f"Failed to install MCP Memory Service: {e}")
-        
-        # Platform-specific error handling
-        error_str = str(e).lower()
-        
-        if system_info["is_windows"] and "torch" in error_str:
-            print_warning("The error appears to be related to PyTorch installation on Windows.")
-            print_info("You can try manually installing PyTorch first using:")
-            print_info("pip install torch==2.1.0 torchvision==2.1.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118")
-            print_info("Then run this installation script again.")
-        elif system_info["is_macos"] and system_info["is_x86"] and ("torch" in error_str or "sentence-transformers" in error_str):
-            print_warning("The error appears to be related to PyTorch/sentence-transformers installation on macOS Intel.")
-            print_info("You can try manually installing compatible versions:")
-            print_info("pip install torch==2.0.1 torchvision==2.0.1 torchaudio==2.0.1")
-            print_info("pip install sentence-transformers==2.2.2")
-            print_info("pip install --no-dependencies mcp-memory-service")
-        elif "conflicting dependencies" in error_str:
-            print_warning("Dependency conflict detected. You can try installing with looser version constraints:")
-            print_info("pip install torch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1")
-            print_info("pip install sentence-transformers==2.2.2")
-            print_info("pip install --no-dependencies mcp-memory-service")
+        # Special handling for Python 3.13+ on macOS Intel
+        if system_info["is_macos"] and system_info["is_x86"] and sys.version_info >= (3, 13):
+            print_warning("Installation on Python 3.13+ for macOS Intel is challenging")
+            print_info("Try manually installing with:")
+            print_info("1. pip install --no-deps .")
+            print_info("2. pip install chromadb==0.5.23 tokenizers==0.20.3 mcp>=1.0.0,<2.0.0 onnxruntime>=1.14.1")
+            print_info("3. export MCP_MEMORY_USE_ONNX=1")
+            print_info("4. export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec")
             
         return False
 
@@ -976,9 +931,29 @@ def verify_installation():
     else:
         print_warning("Memory command is not available in PATH")
     
-    # Check if PyTorch is installed correctly
+    # Check storage backend installation
+    storage_backend = os.environ.get('MCP_MEMORY_STORAGE_BACKEND', 'sqlite_vec')
+    
+    if storage_backend == 'sqlite_vec':
+        try:
+            import sqlite_vec
+            print_success(f"SQLite-vec is installed: {sqlite_vec.__version__}")
+        except ImportError:
+            print_error("SQLite-vec is not installed correctly")
+            return False
+    elif storage_backend == 'chromadb':
+        try:
+            import chromadb
+            print_success(f"ChromaDB is installed: {chromadb.__version__}")
+        except ImportError:
+            print_error("ChromaDB is not installed correctly")
+            return False
+    
+    # Check ML dependencies as optional
+    pytorch_installed = False
     try:
         import torch
+        pytorch_installed = True
         print_info(f"PyTorch is installed: {torch.__version__}")
         
         # Check for CUDA
@@ -1009,86 +984,50 @@ def verify_installation():
                 print_info("If you encounter issues, try downgrading to torch 2.0.1")
             
     except ImportError:
-        print_error("PyTorch is not installed correctly")
-        return False
+        print_warning("PyTorch is not installed. This is okay for basic operation with SQLite-vec backend.")
+        print_info("For full functionality including embedding generation, install with: pip install 'mcp-memory-service[ml]'")
+        pytorch_installed = False
     
-    # Check if sentence-transformers is installed correctly
-    try:
-        import sentence_transformers
-        print_success(f"sentence-transformers is installed: {sentence_transformers.__version__}")
-        
-        # Verify compatibility between torch and sentence-transformers
-        st_version = sentence_transformers.__version__.split('.')
-        torch_version = torch.__version__.split('.')
-        
-        st_major, st_minor = int(st_version[0]), int(st_version[1])
-        torch_major, torch_minor = int(torch_version[0]), int(torch_version[1])
-        
-        # Specific compatibility check for macOS Intel
-        if system_info["is_macos"] and system_info["is_x86"]:
-            if st_major >= 3 and (torch_major < 1 or (torch_major == 1 and torch_minor < 11)):
-                print_warning(f"sentence-transformers {sentence_transformers.__version__} requires torch>=1.11.0")
-                print_info("This may cause runtime issues - consider downgrading sentence-transformers to 2.2.2")
-        
-        # Verify by trying to load a model (minimal test)
+    # Check if sentence-transformers is installed correctly (only if PyTorch is installed)
+    if pytorch_installed:
         try:
-            print_info("Testing sentence-transformers model loading...")
-            test_model = sentence_transformers.SentenceTransformer('paraphrase-MiniLM-L3-v2')
-            print_success("Successfully loaded test model")
-        except Exception as e:
-            print_warning(f"Model loading test failed: {e}")
-            print_warning("There may be compatibility issues between PyTorch and sentence-transformers")
+            import sentence_transformers
+            print_success(f"sentence-transformers is installed: {sentence_transformers.__version__}")
             
-    except ImportError:
-        print_error("sentence-transformers is not installed correctly")
-        return False
-    
-    # Check storage backend installation
-    storage_backend = os.environ.get('MCP_MEMORY_STORAGE_BACKEND', 'chromadb')
-    
-    if storage_backend == 'sqlite_vec':
-        try:
-            import sqlite_vec
-            print_success(f"SQLite-vec is installed: {sqlite_vec.__version__}")
+            # Verify compatibility between torch and sentence-transformers
+            st_version = sentence_transformers.__version__.split('.')
+            torch_version = torch.__version__.split('.')
+            
+            st_major, st_minor = int(st_version[0]), int(st_version[1])
+            torch_major, torch_minor = int(torch_version[0]), int(torch_version[1])
+            
+            # Specific compatibility check for macOS Intel
+            if system_info["is_macos"] and system_info["is_x86"]:
+                if st_major >= 3 and (torch_major < 1 or (torch_major == 1 and torch_minor < 11)):
+                    print_warning(f"sentence-transformers {sentence_transformers.__version__} requires torch>=1.11.0")
+                    print_info("This may cause runtime issues - consider downgrading sentence-transformers to 2.2.2")
+            
+            # Verify by trying to load a model (minimal test)
+            try:
+                print_info("Testing sentence-transformers model loading...")
+                test_model = sentence_transformers.SentenceTransformer('paraphrase-MiniLM-L3-v2')
+                print_success("Successfully loaded test model")
+            except Exception as e:
+                print_warning(f"Model loading test failed: {e}")
+                print_warning("There may be compatibility issues between PyTorch and sentence-transformers")
+                
         except ImportError:
-            print_error("SQLite-vec is not installed correctly")
-            return False
-    else:
-        try:
-            import chromadb
-            print_success(f"ChromaDB is installed: {chromadb.__version__}")
-        except ImportError:
-            print_error("ChromaDB is not installed correctly")
-            return False
-    
+            print_warning("sentence-transformers is not installed. This is okay for basic operation with SQLite-vec backend.")
+            print_info("For full functionality including embedding generation, install with: pip install 'mcp-memory-service[ml]'")
+            
     # Check if MCP Memory Service package is installed correctly
     try:
         import mcp_memory_service
-        print_success(f"MCP Memory Service is installed: {mcp_memory_service.__version__}")
+        print_success(f"MCP Memory Service is installed correctly")
+        return True
     except ImportError:
         print_error("MCP Memory Service is not installed correctly")
         return False
-    
-    # Additional checks for macOS Intel
-    if system_info["is_macos"] and system_info["is_x86"]:
-        print_info("Performing additional compatibility checks for macOS Intel...")
-        
-        # Check for common issues with macOS Intel and sentence-transformers
-        try:
-            import torch.nn as nn
-            print_success("PyTorch neural network module loaded successfully")
-        except ImportError as e:
-            print_warning(f"PyTorch neural network module import issue: {e}")
-            
-        # Check tokenizers version which can also cause issues
-        try:
-            import tokenizers
-            print_success(f"tokenizers is installed: {tokenizers.__version__}")
-        except ImportError:
-            print_warning("tokenizers package is not installed correctly")
-    
-    print_success("Installation verification completed successfully")
-    return True
 
 def main():
     """Main installation function."""
@@ -1114,12 +1053,26 @@ def main():
     if args.force_compatible_deps:
         if system_info["is_macos"] and system_info["is_x86"]:
             print_info("Installing compatible dependencies as requested...")
-            # Install PyTorch 2.0.1 + sentence-transformers 2.2.2
+            # Select versions based on Python version
+            python_version = sys.version_info
+            if python_version >= (3, 13):
+                # Python 3.13+ compatible versions
+                torch_version = "2.3.0"
+                torch_vision_version = "0.18.0"
+                torch_audio_version = "2.3.0"
+                st_version = "3.0.0"
+            else:
+                # Older Python versions
+                torch_version = "2.0.1"
+                torch_vision_version = "2.0.1"
+                torch_audio_version = "2.0.1"
+                st_version = "2.2.2"
+                
             try:
                 subprocess.check_call([
                     sys.executable, '-m', 'pip', 'install',
-                    "torch==2.0.1", "torchvision==2.0.1", "torchaudio==2.0.1",
-                    "sentence-transformers==2.2.2"
+                    f"torch=={torch_version}", f"torchvision=={torch_vision_version}", f"torchaudio=={torch_audio_version}",
+                    f"sentence-transformers=={st_version}"
                 ])
                 print_success("Compatible dependencies installed successfully")
             except subprocess.SubprocessError as e:
@@ -1130,12 +1083,26 @@ def main():
     # Check if user requested fallback dependencies for troubleshooting
     if args.fallback_deps:
         print_info("Installing fallback dependencies as requested...")
-        # Install older versions known to be compatible across platforms
+        # Select versions based on Python version
+        python_version = sys.version_info
+        if python_version >= (3, 13):
+            # Python 3.13+ compatible fallback versions
+            torch_version = "2.3.0"
+            torch_vision_version = "0.18.0"
+            torch_audio_version = "2.3.0"
+            st_version = "3.0.0"
+        else:
+            # Older Python fallback versions
+            torch_version = "1.13.1"
+            torch_vision_version = "0.14.1"
+            torch_audio_version = "0.13.1"
+            st_version = "2.2.2"
+            
         try:
             subprocess.check_call([
                 sys.executable, '-m', 'pip', 'install',
-                "torch==1.13.1", "torchvision==0.14.1", "torchaudio==0.13.1",
-                "sentence-transformers==2.2.2"
+                f"torch=={torch_version}", f"torchvision=={torch_vision_version}", f"torchaudio=={torch_audio_version}",
+                f"sentence-transformers=={st_version}"
             ])
             print_success("Fallback dependencies installed successfully")
         except subprocess.SubprocessError as e:
@@ -1163,9 +1130,15 @@ def main():
         print_warning("Installation verification failed, but installation may still work")
         # If verification fails and we're on macOS Intel, suggest using the force-compatible-deps option
         if system_info["is_macos"] and system_info["is_x86"]:
+            python_version = sys.version_info
             print_info("For macOS Intel compatibility issues, try these steps:")
             print_info("1. First uninstall current packages: pip uninstall -y torch torchvision torchaudio sentence-transformers")
             print_info("2. Then reinstall with compatible versions: python install.py --force-compatible-deps")
+            
+            if python_version >= (3, 13):
+                print_info("For Python 3.13+, you may need to manually install the following:")
+                print_info("pip install torch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0")
+                print_info("pip install sentence-transformers==3.0.0")
     
     print_header("Installation Complete")
     
@@ -1189,9 +1162,16 @@ def main():
     if system_info["is_macos"] and system_info["is_x86"]:
         print_info("\nMacOS Intel Notes:")
         print_info("- If you encounter issues, try the --force-compatible-deps option")
-        print_info("- For optimal performance on Intel Macs, torch==2.0.1 and sentence-transformers==2.2.2 are recommended")
-        print_info("- You can manually install these versions with:")
-        print_info("  pip install torch==2.0.1 torchvision==2.0.1 torchaudio==2.0.1 sentence-transformers==2.2.2")
+        
+        python_version = sys.version_info
+        if python_version >= (3, 13):
+            print_info("- For optimal performance on Intel Macs with Python 3.13+, torch==2.3.0 and sentence-transformers==3.0.0 are recommended")
+            print_info("- You can manually install these versions with:")
+            print_info("  pip install torch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 sentence-transformers==3.0.0")
+        else:
+            print_info("- For optimal performance on Intel Macs, torch==2.0.1 and sentence-transformers==2.2.2 are recommended")
+            print_info("- You can manually install these versions with:")
+            print_info("  pip install torch==2.0.1 torchvision==2.0.1 torchaudio==2.0.1 sentence-transformers==2.2.2")
 
 if __name__ == "__main__":
     main()
