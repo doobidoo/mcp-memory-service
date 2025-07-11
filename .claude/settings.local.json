@@ -26,7 +26,8 @@
       "Bash(export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec)",
       "Bash(./start_sqlite_vec.sh:*)",
       "Bash(timeout:*)",
-      "Bash(./setup_claude_mcp.sh:*)"
+      "Bash(./setup_claude_mcp.sh:*)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }
