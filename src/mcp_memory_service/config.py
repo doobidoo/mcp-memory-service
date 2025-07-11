@@ -140,6 +140,46 @@ except Exception as e:
 SERVER_NAME = "memory"
 SERVER_VERSION = "0.2.0"
 
+# Storage backend configuration
+SUPPORTED_BACKENDS = ['chroma', 'sqlite_vec', 'sqlite-vec']
+STORAGE_BACKEND = os.getenv('MCP_MEMORY_STORAGE_BACKEND', 'chroma').lower()
+
+# Normalize backend names (sqlite-vec -> sqlite_vec)
+if STORAGE_BACKEND == 'sqlite-vec':
+    STORAGE_BACKEND = 'sqlite_vec'
+
+# Validate backend selection
+if STORAGE_BACKEND not in SUPPORTED_BACKENDS:
+    logger.warning(f"Unknown storage backend: {STORAGE_BACKEND}, falling back to chroma")
+    STORAGE_BACKEND = 'chroma'
+
+logger.info(f"Using storage backend: {STORAGE_BACKEND}")
+
+# SQLite-vec specific configuration
+if STORAGE_BACKEND == 'sqlite_vec':
+    # Try multiple environment variable names for SQLite-vec path
+    sqlite_vec_path = None
+    for env_var in ['MCP_MEMORY_SQLITE_PATH', 'MCP_MEMORY_SQLITEVEC_PATH']:
+        if path := os.getenv(env_var):
+            sqlite_vec_path = path
+            logger.info(f"Using {env_var}={path} for SQLite-vec database path")
+            break
+    
+    # If no environment variable is set, use the default path
+    if not sqlite_vec_path:
+        sqlite_vec_path = os.path.join(BASE_DIR, 'sqlite_vec.db')
+        logger.info(f"No SQLite-vec path environment variable found, using default: {sqlite_vec_path}")
+    
+    # Ensure directory exists for SQLite database
+    sqlite_dir = os.path.dirname(sqlite_vec_path)
+    if sqlite_dir:
+        os.makedirs(sqlite_dir, exist_ok=True)
+    
+    SQLITE_VEC_PATH = sqlite_vec_path
+    logger.info(f"Using SQLite-vec database path: {SQLITE_VEC_PATH}")
+else:
+    SQLITE_VEC_PATH = None
+
 # ChromaDB settings with performance optimizations
 CHROMA_SETTINGS = {
     "anonymized_telemetry": False,
