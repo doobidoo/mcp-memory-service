@@ -15,18 +15,24 @@ async def validate_database(storage) -> Tuple[bool, str]:
         if storage is None:
             return False, "Storage is not initialized"
         
-        # Determine storage type
+        # Special case for direct access without checking for attribute 'collection'
+        # This fixes compatibility issues with both ChromaDB and SQLite-vec backends
         storage_type = storage.__class__.__name__
         
-        # Use the new initialization check method if available
-        if hasattr(storage, 'is_initialized'):
-            if not storage.is_initialized():
-                # Get detailed status for debugging
-                if hasattr(storage, 'get_initialization_status'):
-                    status = storage.get_initialization_status()
-                    return False, f"Storage not fully initialized: {status}"
-                else:
-                    return False, "Storage initialization incomplete"
+        # First, use the 'is_initialized' method if available (preferred)
+        if hasattr(storage, 'is_initialized') and callable(storage.is_initialized):
+            try:
+                init_status = storage.is_initialized()
+                if not init_status:
+                    # Get detailed status for debugging
+                    if hasattr(storage, 'get_initialization_status') and callable(storage.get_initialization_status):
+                        status = storage.get_initialization_status()
+                        return False, f"Storage not fully initialized: {status}"
+                    else:
+                        return False, "Storage initialization incomplete"
+            except Exception as init_error:
+                logger.warning(f"Error checking initialization status: {init_error}")
+                # Continue with alternative checks
         
         # SQLite-vec backend validation
         if storage_type == "SqliteVecMemoryStorage":

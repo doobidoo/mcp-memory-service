@@ -1933,15 +1933,47 @@ class MemoryServer:
             
             from .utils.db_utils import validate_database, get_database_stats
             
-            # Get validation status
-            is_valid, message = await validate_database(storage)
+            # Get storage type for backend-specific handling
+            storage_type = storage.__class__.__name__
             
-            # Get database stats
-            stats = get_database_stats(storage)
+            # Get validation status - with error handling
+            try:
+                is_valid, message = await validate_database(storage)
+            except Exception as val_error:
+                logger.error(f"Validation error: {val_error}")
+                is_valid = False
+                message = f"Validation error: {str(val_error)}"
+            
+            # Get database stats - with error handling
+            try:
+                stats = get_database_stats(storage)
+            except Exception as stats_error:
+                logger.error(f"Stats error: {stats_error}")
+                stats = {
+                    "status": "error",
+                    "error": f"Failed to get database stats: {str(stats_error)}",
+                    "backend": storage_type
+                }
+                
+                # Fall back to direct stats gathering for SQLite-vec
+                if storage_type == "SqliteVecMemoryStorage":
+                    try:
+                        # Basic stats directly from SQLite
+                        cursor = storage.conn.execute('SELECT COUNT(*) FROM memories')
+                        memory_count = cursor.fetchone()[0]
+                        
+                        stats = {
+                            "status": "healthy",
+                            "backend": "sqlite-vec",
+                            "total_memories": memory_count,
+                            "embedding_model": storage.embedding_model_name if hasattr(storage, 'embedding_model_name') else "unknown"
+                        }
+                    except Exception as direct_error:
+                        logger.error(f"Direct stats error: {direct_error}")
             
             # Get performance stats from optimized storage
             performance_stats = {}
-            if hasattr(storage, 'get_performance_stats'):
+            if hasattr(storage, 'get_performance_stats') and callable(storage.get_performance_stats):
                 try:
                     performance_stats = storage.get_performance_stats()
                 except Exception as perf_error:
@@ -1954,9 +1986,15 @@ class MemoryServer:
                 "total_queries": len(self.query_times)
             }
             
+            # Add storage type for debugging
+            server_stats["storage_type"] = storage_type
+            
             # Add storage initialization status for debugging
-            if hasattr(storage, 'get_initialization_status'):
-                server_stats["storage_initialization"] = storage.get_initialization_status()
+            if hasattr(storage, 'get_initialization_status') and callable(storage.get_initialization_status):
+                try:
+                    server_stats["storage_initialization"] = storage.get_initialization_status()
+                except Exception:
+                    pass
             
             # Combine results with performance data
             result = {
