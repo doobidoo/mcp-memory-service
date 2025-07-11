@@ -92,12 +92,12 @@ class SqliteVecMemoryStorage(MemoryStorage):
             sqlite_vec.load(self.conn)
             self.conn.enable_load_extension(False)
             
-            # Create the memories table using vec0 virtual table
-            self.conn.execute(f'''
-                CREATE VIRTUAL TABLE IF NOT EXISTS memories USING vec0(
-                    content_embedding FLOAT[{self.embedding_dimension}],
-                    content_hash TEXT,
-                    content TEXT,
+            # Create regular table for memory data
+            self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    content_hash TEXT UNIQUE NOT NULL,
+                    content TEXT NOT NULL,
                     tags TEXT,
                     memory_type TEXT,
                     metadata TEXT,
@@ -105,6 +105,13 @@ class SqliteVecMemoryStorage(MemoryStorage):
                     updated_at REAL,
                     created_at_iso TEXT,
                     updated_at_iso TEXT
+                )
+            ''')
+            
+            # Create virtual table for vector embeddings
+            self.conn.execute(f'''
+                CREATE VIRTUAL TABLE IF NOT EXISTS memory_embeddings USING vec0(
+                    content_embedding FLOAT[{self.embedding_dimension}]
                 )
             ''')
             
@@ -216,14 +223,13 @@ class SqliteVecMemoryStorage(MemoryStorage):
             if not memory.created_at:
                 memory.touch()
             
-            # Insert into database
-            self.conn.execute('''
+            # Insert into memories table (metadata)
+            cursor = self.conn.execute('''
                 INSERT INTO memories (
-                    content_embedding, content_hash, content, tags, memory_type,
+                    content_hash, content, tags, memory_type,
                     metadata, created_at, updated_at, created_at_iso, updated_at_iso
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                serialize_float32(embedding),
                 memory.content_hash,
                 memory.content,
                 tags_str,
@@ -233,6 +239,18 @@ class SqliteVecMemoryStorage(MemoryStorage):
                 memory.updated_at,
                 memory.created_at_iso,
                 memory.updated_at_iso
+            ))
+            
+            # Get the rowid to use as reference for the embedding
+            memory_rowid = cursor.lastrowid
+            
+            # Insert into embeddings table
+            self.conn.execute('''
+                INSERT INTO memory_embeddings (rowid, content_embedding)
+                VALUES (?, ?)
+            ''', (
+                memory_rowid,
+                serialize_float32(embedding)
             ))
             
             self.conn.commit()
@@ -260,14 +278,20 @@ class SqliteVecMemoryStorage(MemoryStorage):
             # Generate query embedding
             query_embedding = self._generate_embedding(query)
             
-            # Perform vector similarity search
+            # Perform vector similarity search using JOIN
             cursor = self.conn.execute('''
-                SELECT content_hash, content, tags, memory_type, metadata,
-                       created_at, updated_at, created_at_iso, updated_at_iso, distance
-                FROM memories
-                WHERE content_embedding MATCH ?
-                ORDER BY distance
-                LIMIT ?
+                SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
+                       m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso, 
+                       e.distance
+                FROM memories m
+                JOIN (
+                    SELECT rowid, distance 
+                    FROM memory_embeddings 
+                    WHERE content_embedding MATCH ?
+                    ORDER BY distance
+                    LIMIT ?
+                ) e ON m.id = e.rowid
+                ORDER BY e.distance
             ''', (serialize_float32(query_embedding), n_results))
             
             results = []
@@ -379,8 +403,18 @@ class SqliteVecMemoryStorage(MemoryStorage):
             if not self.conn:
                 return False, "Database not initialized"
             
-            cursor = self.conn.execute('DELETE FROM memories WHERE content_hash = ?', (content_hash,))
-            self.conn.commit()
+            # Get the id first to delete corresponding embedding
+            cursor = self.conn.execute('SELECT id FROM memories WHERE content_hash = ?', (content_hash,))
+            row = cursor.fetchone()
+            
+            if row:
+                memory_id = row[0]
+                # Delete from both tables
+                self.conn.execute('DELETE FROM memory_embeddings WHERE rowid = ?', (memory_id,))
+                cursor = self.conn.execute('DELETE FROM memories WHERE content_hash = ?', (content_hash,))
+                self.conn.commit()
+            else:
+                return False, f"Memory with hash {content_hash} not found"
             
             if cursor.rowcount > 0:
                 logger.info(f"Deleted memory: {content_hash}")
@@ -398,6 +432,14 @@ class SqliteVecMemoryStorage(MemoryStorage):
         try:
             if not self.conn:
                 return 0, "Database not initialized"
+            
+            # Get the ids first to delete corresponding embeddings
+            cursor = self.conn.execute('SELECT id FROM memories WHERE tags LIKE ?', (f"%{tag}%",))
+            memory_ids = [row[0] for row in cursor.fetchall()]
+            
+            # Delete from both tables
+            for memory_id in memory_ids:
+                self.conn.execute('DELETE FROM memory_embeddings WHERE rowid = ?', (memory_id,))
             
             cursor = self.conn.execute('DELETE FROM memories WHERE tags LIKE ?', (f"%{tag}%",))
             self.conn.commit()
