@@ -31,6 +31,10 @@ Talk to the Repo with [TalkToGitHub](https://talktogithub.com/doobidoo/mcp-memor
 
 ### Recent Enhancements
 
+- ✅ **PyTorch Optional**: Now works without PyTorch for basic functionality when using SQLite-vec backend
+- ✅ **Improved SQLite-vec**: Robust error handling and validation for the lightweight backend
+- ✅ **Intelligent Health Checks**: Backend-specific health monitoring with detailed diagnostics
+- ✅ **Comprehensive Testing**: Added test scripts for all critical functions
 - ✅ **API Consistency**: Enhanced `delete_by_tag` to support both single and multiple tags
 - ✅ **New Delete Methods**: Added `delete_by_tags` (OR logic) and `delete_by_all_tags` (AND logic)
 - ✅ **Backward Compatibility**: All existing code continues to work unchanged
@@ -201,6 +205,27 @@ For Windows users, we recommend using the wrapper script to ensure PyTorch is pr
 }
 ```
 
+### SQLite-vec Configuration (Lightweight)
+
+For a lighter-weight configuration that doesn't require PyTorch:
+
+```json
+{
+  "memory": {
+    "command": "python",
+    "args": ["-m", "mcp_memory_service.server"],
+    "cwd": "/path/to/mcp-memory-service",
+    "env": {
+      "MCP_MEMORY_STORAGE_BACKEND": "sqlite_vec",
+      "MCP_MEMORY_SQLITE_PATH": "/path/to/mcp-memory/sqlite_vec.db",
+      "MCP_MEMORY_BACKUPS_PATH": "/path/to/mcp-memory/backups",
+      "MCP_MEMORY_USE_ONNX": "1",
+      "PYTHONPATH": "/path/to/mcp-memory-service"
+    }
+  }
+}
+```
+
 The wrapper script will:
 1. Check if PyTorch is installed and properly configured
 2. Install PyTorch with the correct index URL if needed
@@ -239,13 +264,31 @@ The MCP Memory Service supports multiple storage backends to suit different use 
 #### Quick Setup for SQLite-vec
 
 ```bash
-# Install sqlite-vec
+# Install sqlite-vec (if using installation script, this is handled automatically)
 pip install sqlite-vec
 
 # Configure the backend
 export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
+export MCP_MEMORY_SQLITE_PATH=/path/to/sqlite_vec.db
+
+# Optional: For CPU-only mode without PyTorch (much lighter resource usage)
+export MCP_MEMORY_USE_ONNX=1
 
 # Restart Claude Desktop
+```
+
+#### SQLite-vec with Optional PyTorch
+
+The SQLite-vec backend now works with or without PyTorch installed:
+
+- **With PyTorch**: Full functionality including embedding generation
+- **Without PyTorch**: Basic functionality using pre-computed embeddings and ONNX runtime
+  
+To install optional machine learning dependencies:
+
+```bash
+# Add ML dependencies for embedding generation
+pip install 'mcp-memory-service[ml]'
 ```
 
 #### Migration Between Backends
@@ -342,7 +385,9 @@ MAX_RESULTS_PER_QUERY: Maximum results per query (default: 10)
 BACKUP_RETENTION_DAYS: Number of days to keep backups (default: 7)
 LOG_LEVEL: Logging level (default: INFO)
 
-# Hardware-specific environment variables
+# Hardware and backend configuration
+MCP_MEMORY_STORAGE_BACKEND: Storage backend to use (chromadb or sqlite_vec)
+MCP_MEMORY_SQLITE_PATH: Path to SQLite-vec database file
 PYTORCH_ENABLE_MPS_FALLBACK: Enable MPS fallback for Apple Silicon (default: 1)
 MCP_MEMORY_USE_ONNX: Use ONNX Runtime for CPU-only deployments (default: 0)
 MCP_MEMORY_USE_DIRECTML: Use DirectML for Windows acceleration (default: 0)
@@ -352,18 +397,19 @@ MCP_MEMORY_BATCH_SIZE: Override the default batch size
 
 ## Hardware Compatibility
 
-| Platform | Architecture | Accelerator | Status |
-|----------|--------------|-------------|--------|
-| macOS | Apple Silicon (M1/M2/M3) | MPS | ✅ Fully supported |
-| macOS | Apple Silicon under Rosetta 2 | CPU | ✅ Supported with fallbacks |
-| macOS | Intel | CPU | ✅ Fully supported |
-| Windows | x86_64 | CUDA | ✅ Fully supported |
-| Windows | x86_64 | DirectML | ✅ Supported |
-| Windows | x86_64 | CPU | ✅ Supported with fallbacks |
-| Linux | x86_64 | CUDA | ✅ Fully supported |
-| Linux | x86_64 | ROCm | ✅ Supported |
-| Linux | x86_64 | CPU | ✅ Supported with fallbacks |
-| Linux | ARM64 | CPU | ✅ Supported with fallbacks |
+| Platform | Architecture | Accelerator | Status | Notes |
+|----------|--------------|-------------|--------|-------|
+| macOS | Apple Silicon (M1/M2/M3) | MPS | ✅ Fully supported | Best performance |
+| macOS | Apple Silicon under Rosetta 2 | CPU | ✅ Supported with fallbacks | Good performance |
+| macOS | Intel | CPU | ✅ Fully supported | Good with optimized settings |
+| Windows | x86_64 | CUDA | ✅ Fully supported | Best performance |
+| Windows | x86_64 | DirectML | ✅ Supported | Good performance |
+| Windows | x86_64 | CPU | ✅ Supported with fallbacks | Slower but works |
+| Linux | x86_64 | CUDA | ✅ Fully supported | Best performance |
+| Linux | x86_64 | ROCm | ✅ Supported | Good performance |
+| Linux | x86_64 | CPU | ✅ Supported with fallbacks | Slower but works |
+| Linux | ARM64 | CPU | ✅ Supported with fallbacks | Slower but works |
+| Any | Any | No PyTorch | ✅ Supported with SQLite-vec | Limited functionality, very lightweight |
 
 ## Testing
 
