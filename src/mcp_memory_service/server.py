@@ -31,7 +31,9 @@ from .config import (
     CHROMA_PATH,
     BACKUPS_PATH,
     SERVER_NAME,
-    SERVER_VERSION
+    SERVER_VERSION,
+    STORAGE_BACKEND,
+    SQLITE_VEC_PATH
 )
 from .storage.chroma import ChromaMemoryStorage
 from .models.memory import Memory
@@ -152,8 +154,8 @@ class MemoryServer:
             
             # DEFER CHROMADB INITIALIZATION - Initialize storage lazily when needed
             # This prevents hanging during server startup due to embedding model loading
-            logger.info("Deferring ChromaMemoryStorage initialization to prevent hanging")
-            print("Deferring ChromaDB initialization to prevent startup hanging", file=sys.stderr, flush=True)
+            logger.info(f"Deferring {STORAGE_BACKEND} storage initialization to prevent hanging")
+            print(f"Deferring {STORAGE_BACKEND} storage initialization to prevent startup hanging", file=sys.stderr, flush=True)
             self.storage = None
             self._storage_initialized = False
 
@@ -199,11 +201,20 @@ class MemoryServer:
     async def _initialize_storage_with_timeout(self):
         """Initialize storage with timeout and caching optimization."""
         try:
-            logger.info("Attempting eager ChromaMemoryStorage initialization...")
-            # Initialize with preload_model=True for caching
-            self.storage = ChromaMemoryStorage(CHROMA_PATH, preload_model=True)
+            logger.info(f"Attempting eager {STORAGE_BACKEND} storage initialization...")
+            
+            if STORAGE_BACKEND == 'sqlite_vec':
+                # Import and initialize sqlite-vec storage
+                from .storage.sqlite_vec import SqliteVecMemoryStorage
+                self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH)
+            else:
+                # Initialize ChromaDB with preload_model=True for caching
+                self.storage = ChromaMemoryStorage(CHROMA_PATH, preload_model=True)
+            
+            # Initialize the storage backend
+            await self.storage.initialize()
             self._storage_initialized = True
-            logger.info("Eager ChromaMemoryStorage initialization successful")
+            logger.info(f"Eager {STORAGE_BACKEND} storage initialization successful")
             return True
         except Exception as e:
             logger.error(f"Eager storage initialization failed: {str(e)}")
@@ -211,11 +222,23 @@ class MemoryServer:
             return False
 
     async def _ensure_storage_initialized(self):
-        """Lazily initialize ChromaMemoryStorage when needed (fallback)."""
+        """Lazily initialize storage backend when needed."""
         if not self._storage_initialized:
             try:
-                logger.info("Lazy ChromaMemoryStorage initialization (fallback)...")
-                self.storage = ChromaMemoryStorage(CHROMA_PATH, preload_model=False)
+                logger.info(f"Initializing {STORAGE_BACKEND} storage backend...")
+                
+                if STORAGE_BACKEND == 'sqlite_vec':
+                    # Import sqlite-vec storage
+                    from .storage.sqlite_vec import SqliteVecMemoryStorage
+                    self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH)
+                    logger.info(f"Created SQLite-vec storage at: {SQLITE_VEC_PATH}")
+                else:
+                    # Default to ChromaDB
+                    self.storage = ChromaMemoryStorage(CHROMA_PATH, preload_model=False)
+                    logger.info(f"Created ChromaDB storage at: {CHROMA_PATH}")
+                
+                # Initialize the storage backend
+                await self.storage.initialize()
                 
                 # Verify the storage is properly initialized
                 if hasattr(self.storage, 'is_initialized') and not self.storage.is_initialized():
@@ -226,9 +249,10 @@ class MemoryServer:
                     raise RuntimeError("Storage initialization incomplete")
                 
                 self._storage_initialized = True
-                logger.info("Lazy ChromaMemoryStorage initialization successful")
+                logger.info(f"Storage backend ({STORAGE_BACKEND}) initialization successful")
+                
             except Exception as e:
-                logger.error(f"Failed to initialize ChromaMemoryStorage: {str(e)}")
+                logger.error(f"Failed to initialize {STORAGE_BACKEND} storage: {str(e)}")
                 logger.error(traceback.format_exc())
                 # Set storage to None to indicate failure
                 self.storage = None
