@@ -35,7 +35,7 @@ from .config import (
     STORAGE_BACKEND,
     SQLITE_VEC_PATH
 )
-from .storage.chroma import ChromaMemoryStorage
+# Storage imports will be done conditionally in the server class
 from .models.memory import Memory
 from .utils.hashing import generate_content_hash
 from .utils.system_detection import (
@@ -209,6 +209,7 @@ class MemoryServer:
                 self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH)
             else:
                 # Initialize ChromaDB with preload_model=True for caching
+                from .storage.chroma import ChromaMemoryStorage
                 self.storage = ChromaMemoryStorage(CHROMA_PATH, preload_model=True)
             
             # Initialize the storage backend
@@ -234,6 +235,7 @@ class MemoryServer:
                     logger.info(f"Created SQLite-vec storage at: {SQLITE_VEC_PATH}")
                 else:
                     # Default to ChromaDB
+                    from .storage.chroma import ChromaMemoryStorage
                     self.storage = ChromaMemoryStorage(CHROMA_PATH, preload_model=False)
                     logger.info(f"Created ChromaDB storage at: {CHROMA_PATH}")
                 
