@@ -17,7 +17,7 @@ Talk to the Repo with [TalkToGitHub](https://talktogithub.com/doobidoo/mcp-memor
 - **Natural language time-based recall** (e.g., "last week", "yesterday morning")
 - **Enhanced tag deletion system** with flexible multi-tag support
 - Tag-based memory retrieval system
-- Persistent storage using ChromaDB
+- **Multiple storage backends**: ChromaDB (default) and SQLite-vec (lightweight alternative)
 - Automatic database backups
 - Memory optimization tools
 - Exact match retrieval
@@ -219,6 +219,48 @@ The memory service is invoked through natural language commands in your conversa
 - To delete: "Please forget what I told you about my address."
 
 See the [Invocation Guide](docs/guides/invocation_guide.md) for a complete list of commands and detailed usage examples.
+
+## Storage Backends
+
+The MCP Memory Service supports multiple storage backends to suit different use cases:
+
+### ChromaDB (Default)
+- **Best for**: Large memory collections (>100K entries), high-performance requirements
+- **Features**: Advanced vector indexing, excellent query performance, rich ecosystem
+- **Memory usage**: Higher (~200MB for 1K memories)
+- **Setup**: Automatically configured, no additional dependencies
+
+### SQLite-vec (Lightweight Alternative)
+- **Best for**: Smaller collections (<100K entries), resource-constrained environments
+- **Features**: Single-file database, 75% lower memory usage, better portability
+- **Memory usage**: Lower (~50MB for 1K memories)
+- **Setup**: Requires `sqlite-vec` package
+
+#### Quick Setup for SQLite-vec
+
+```bash
+# Install sqlite-vec
+pip install sqlite-vec
+
+# Configure the backend
+export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
+
+# Restart Claude Desktop
+```
+
+#### Migration Between Backends
+
+```bash
+# Migrate from ChromaDB to SQLite-vec
+python migrate_to_sqlite_vec.py
+
+# Full migration with backup
+python scripts/migrate_storage.py \
+  --from chroma --to sqlite_vec \
+  --backup --backup-path backup.json
+```
+
+For detailed SQLite-vec setup, migration, and troubleshooting, see the [SQLite-vec Backend Guide](docs/sqlite-vec-backend.md).
 
 ## Memory Operations
 
