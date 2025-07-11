@@ -418,6 +418,178 @@ def install_pytorch_windows(gpu_info):
         print_warning("You may need to manually install PyTorch using instructions from https://pytorch.org/get-started/locally/")
         return False
 
+def detect_storage_backend_compatibility(system_info, gpu_info):
+    """Detect which storage backends are compatible with the current environment."""
+    print_step("3a", "Analyzing storage backend compatibility")
+    
+    compatibility = {
+        "chromadb": {"supported": True, "issues": [], "recommendation": "default"},
+        "sqlite_vec": {"supported": True, "issues": [], "recommendation": "lightweight"}
+    }
+    
+    # Check ChromaDB compatibility issues
+    chromadb_issues = []
+    
+    # macOS Intel compatibility issues
+    if system_info["is_macos"] and system_info["is_x86"]:
+        chromadb_issues.append("ChromaDB has known installation issues on older macOS Intel systems")
+        chromadb_issues.append("May require specific dependency versions")
+        compatibility["chromadb"]["recommendation"] = "problematic"
+        compatibility["sqlite_vec"]["recommendation"] = "recommended"
+    
+    # Memory constraints
+    total_memory_gb = 0
+    try:
+        import psutil
+        total_memory_gb = psutil.virtual_memory().total / (1024**3)
+    except ImportError:
+        # Fallback memory detection
+        try:
+            with open('/proc/meminfo', 'r') as f:
+                for line in f:
+                    if line.startswith('MemTotal:'):
+                        total_memory_gb = int(line.split()[1]) / (1024**2)
+                        break
+        except (FileNotFoundError, IOError):
+            pass
+    
+    if total_memory_gb > 0 and total_memory_gb < 4:
+        chromadb_issues.append(f"System has {total_memory_gb:.1f}GB RAM - ChromaDB may consume significant memory")
+        compatibility["sqlite_vec"]["recommendation"] = "recommended"
+    
+    # Older Python versions
+    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if sys.version_info < (3, 9):
+        chromadb_issues.append(f"Python {python_version} may have ChromaDB compatibility issues")
+    
+    # ARM architecture considerations
+    if system_info["is_arm"]:
+        print_info("ARM architecture detected - both backends should work well")
+    
+    compatibility["chromadb"]["issues"] = chromadb_issues
+    
+    # Print compatibility analysis
+    print_info("Storage Backend Compatibility Analysis:")
+    
+    for backend, info in compatibility.items():
+        status = "✅" if info["supported"] else "❌"
+        rec_text = {
+            "recommended": "🌟 RECOMMENDED",
+            "default": "📦 Standard",
+            "problematic": "⚠️  May have issues",
+            "lightweight": "🪶 Lightweight"
+        }.get(info["recommendation"], "")
+        
+        print_info(f"  {status} {backend.upper()}: {rec_text}")
+        
+        if info["issues"]:
+            for issue in info["issues"]:
+                print_info(f"    • {issue}")
+    
+    return compatibility
+
+def choose_storage_backend(system_info, gpu_info, args):
+    """Choose storage backend based on environment and user preferences."""
+    compatibility = detect_storage_backend_compatibility(system_info, gpu_info)
+    
+    # Check if user specified a backend via environment
+    env_backend = os.environ.get('MCP_MEMORY_STORAGE_BACKEND')
+    if env_backend:
+        print_info(f"Using storage backend from environment: {env_backend}")
+        return env_backend
+    
+    # Check for command line argument (we'll add this)
+    if hasattr(args, 'storage_backend') and args.storage_backend:
+        print_info(f"Using storage backend from command line: {args.storage_backend}")
+        return args.storage_backend
+    
+    # Auto-select based on compatibility
+    recommended_backend = None
+    for backend, info in compatibility.items():
+        if info["recommendation"] == "recommended":
+            recommended_backend = backend
+            break
+    
+    if not recommended_backend:
+        recommended_backend = "chromadb"  # Default fallback
+    
+    # Interactive selection if no auto-recommendation is clear
+    if compatibility["chromadb"]["recommendation"] == "problematic":
+        print_step("3b", "Storage Backend Selection")
+        print_info("Based on your system, ChromaDB may have installation issues.")
+        print_info("SQLite-vec is recommended as a lightweight, compatible alternative.")
+        print_info("")
+        print_info("Available options:")
+        print_info("  1. SQLite-vec (Recommended) - Lightweight, fast, minimal dependencies")
+        print_info("  2. ChromaDB (Standard) - Full-featured but may have issues on your system")
+        print_info("  3. Auto-detect - Try ChromaDB first, fallback to SQLite-vec if it fails")
+        print_info("")
+        
+        while True:
+            try:
+                choice = input("Choose storage backend [1-3] (default: 1): ").strip()
+                if not choice:
+                    choice = "1"
+                
+                if choice == "1":
+                    return "sqlite_vec"
+                elif choice == "2":
+                    return "chromadb"
+                elif choice == "3":
+                    return "auto_detect"
+                else:
+                    print_error("Please enter 1, 2, or 3")
+            except (EOFError, KeyboardInterrupt):
+                print_info("\nUsing recommended backend: sqlite_vec")
+                return "sqlite_vec"
+    
+    return recommended_backend
+
+def install_storage_backend(backend, system_info):
+    """Install the chosen storage backend."""
+    print_step("3c", f"Installing {backend} storage backend")
+    
+    if backend == "sqlite_vec":
+        try:
+            print_info("Installing SQLite-vec...")
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'sqlite-vec'])
+            print_success("SQLite-vec installed successfully")
+            return True
+        except subprocess.SubprocessError as e:
+            print_error(f"Failed to install SQLite-vec: {e}")
+            return False
+            
+    elif backend == "chromadb":
+        try:
+            print_info("Installing ChromaDB...")
+            chromadb_version = "0.5.23"
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', f'chromadb=={chromadb_version}'])
+            print_success(f"ChromaDB {chromadb_version} installed successfully")
+            return True
+        except subprocess.SubprocessError as e:
+            print_error(f"Failed to install ChromaDB: {e}")
+            print_info("This is a known issue on some systems (especially older macOS Intel)")
+            return False
+            
+    elif backend == "auto_detect":
+        print_info("Attempting auto-detection...")
+        
+        # Try ChromaDB first
+        print_info("Trying ChromaDB installation...")
+        if install_storage_backend("chromadb", system_info):
+            print_success("ChromaDB installed successfully")
+            return "chromadb"
+        
+        print_warning("ChromaDB installation failed, falling back to SQLite-vec...")
+        if install_storage_backend("sqlite_vec", system_info):
+            print_success("SQLite-vec installed successfully as fallback")
+            return "sqlite_vec"
+        
+        print_error("Both storage backends failed to install")
+        return False
+    
+    return False
+
 def install_package(args):
     """Install the package with the appropriate dependencies, supporting pip or uv."""
     print_step("3", "Installing MCP Memory Service")
@@ -458,6 +630,29 @@ def install_package(args):
     # Get system and GPU info
     system_info = detect_system()
     gpu_info = detect_gpu()
+
+    # Choose and install storage backend
+    chosen_backend = choose_storage_backend(system_info, gpu_info, args)
+    if chosen_backend == "auto_detect":
+        # Handle auto-detection case
+        actual_backend = install_storage_backend(chosen_backend, system_info)
+        if not actual_backend:
+            print_error("Failed to install any storage backend")
+            return False
+        chosen_backend = actual_backend
+    else:
+        # Install the chosen backend
+        if not install_storage_backend(chosen_backend, system_info):
+            print_error(f"Failed to install {chosen_backend} storage backend")
+            return False
+
+    # Set environment variable for chosen backend
+    if chosen_backend == "sqlite_vec":
+        env['MCP_MEMORY_STORAGE_BACKEND'] = 'sqlite_vec'
+        print_info("Configured to use SQLite-vec storage backend")
+    else:
+        env['MCP_MEMORY_STORAGE_BACKEND'] = 'chromadb'
+        print_info("Configured to use ChromaDB storage backend")
 
     # Set environment variables based on detected GPU
     if gpu_info.get("has_cuda"):
@@ -638,28 +833,60 @@ def configure_paths(args):
     else:  # Linux and others
         base_dir = home_dir / '.local' / 'share' / 'mcp-memory'
     
-    # Create directories
-    chroma_path = args.chroma_path or (base_dir / 'chroma_db')
-    backups_path = args.backups_path or (base_dir / 'backups')
+    # Create directories based on storage backend
+    storage_backend = os.environ.get('MCP_MEMORY_STORAGE_BACKEND', 'chromadb')
     
+    if storage_backend == 'sqlite_vec':
+        # For sqlite-vec, we need a database file path
+        storage_path = args.chroma_path or (base_dir / 'sqlite_vec.db')
+        storage_dir = storage_path.parent if storage_path.name.endswith('.db') else storage_path
+        backups_path = args.backups_path or (base_dir / 'backups')
+        
+        try:
+            os.makedirs(storage_dir, exist_ok=True)
+            os.makedirs(backups_path, exist_ok=True)
+            print_info(f"SQLite-vec database: {storage_path}")
+            print_info(f"Backups path: {backups_path}")
+            
+            # Test if directory is writable
+            test_file = os.path.join(storage_dir, '.write_test')
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+        except Exception as e:
+            print_error(f"Failed to configure SQLite-vec paths: {e}")
+            return False
+    else:
+        # ChromaDB configuration
+        chroma_path = args.chroma_path or (base_dir / 'chroma_db')
+        backups_path = args.backups_path or (base_dir / 'backups')
+        storage_path = chroma_path
+        
+        try:
+            os.makedirs(chroma_path, exist_ok=True)
+            os.makedirs(backups_path, exist_ok=True)
+            print_info(f"ChromaDB path: {chroma_path}")
+            print_info(f"Backups path: {backups_path}")
+            
+            # Test if directories are writable
+            test_file = os.path.join(chroma_path, '.write_test')
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+        except Exception as e:
+            print_error(f"Failed to configure ChromaDB paths: {e}")
+            return False
+    
+    # Test backups directory for both backends
     try:
-        os.makedirs(chroma_path, exist_ok=True)
-        os.makedirs(backups_path, exist_ok=True)
-        print_info(f"ChromaDB path: {chroma_path}")
-        print_info(f"Backups path: {backups_path}")
-        
-        # Test if directories are writable
-        test_file = os.path.join(chroma_path, '.write_test')
-        with open(test_file, 'w') as f:
-            f.write('test')
-        os.remove(test_file)
-        
         test_file = os.path.join(backups_path, '.write_test')
         with open(test_file, 'w') as f:
             f.write('test')
         os.remove(test_file)
-        
-        print_success("Directories created and are writable")
+        print_success("Storage directories created and are writable")
+    except Exception as e:
+        print_error(f"Failed to test backups directory: {e}")
+        return False
         
         # Configure Claude Desktop if available
         claude_config_paths = [
@@ -680,6 +907,17 @@ def configure_paths(args):
                     if 'mcpServers' not in config:
                         config['mcpServers'] = {}
                     
+                    # Create environment configuration based on storage backend
+                    env_config = {
+                        "MCP_MEMORY_BACKUPS_PATH": str(backups_path),
+                        "MCP_MEMORY_STORAGE_BACKEND": storage_backend
+                    }
+                    
+                    if storage_backend == 'sqlite_vec':
+                        env_config["MCP_MEMORY_SQLITE_PATH"] = str(storage_path)
+                    else:
+                        env_config["MCP_MEMORY_CHROMA_PATH"] = str(storage_path)
+                    
                     # Create or update the memory server configuration
                     if system_info["is_windows"]:
                         # Use the memory_wrapper.py script for Windows
@@ -687,10 +925,7 @@ def configure_paths(args):
                         config['mcpServers']['memory'] = {
                             "command": "python",
                             "args": [script_path],
-                            "env": {
-                                "MCP_MEMORY_CHROMA_PATH": str(chroma_path),
-                                "MCP_MEMORY_BACKUPS_PATH": str(backups_path)
-                            }
+                            "env": env_config
                         }
                         print_info("Configured Claude Desktop to use memory_wrapper.py for Windows")
                     else:
@@ -703,10 +938,7 @@ def configure_paths(args):
                                 "run",
                                 "memory"
                             ],
-                            "env": {
-                                "MCP_MEMORY_CHROMA_PATH": str(chroma_path),
-                                "MCP_MEMORY_BACKUPS_PATH": str(backups_path)
-                            }
+                            "env": env_config
                         }
                     
                     with open(config_path, 'w') as f:
@@ -811,13 +1043,23 @@ def verify_installation():
         print_error("sentence-transformers is not installed correctly")
         return False
     
-    # Check if ChromaDB is installed correctly
-    try:
-        import chromadb
-        print_success(f"ChromaDB is installed: {chromadb.__version__}")
-    except ImportError:
-        print_error("ChromaDB is not installed correctly")
-        return False
+    # Check storage backend installation
+    storage_backend = os.environ.get('MCP_MEMORY_STORAGE_BACKEND', 'chromadb')
+    
+    if storage_backend == 'sqlite_vec':
+        try:
+            import sqlite_vec
+            print_success(f"SQLite-vec is installed: {sqlite_vec.__version__}")
+        except ImportError:
+            print_error("SQLite-vec is not installed correctly")
+            return False
+    else:
+        try:
+            import chromadb
+            print_success(f"ChromaDB is installed: {chromadb.__version__}")
+        except ImportError:
+            print_error("ChromaDB is not installed correctly")
+            return False
     
     # Check if MCP Memory Service package is installed correctly
     try:
@@ -858,6 +1100,8 @@ def main():
                         help='Force compatible versions of PyTorch (2.0.1) and sentence-transformers (2.2.2)')
     parser.add_argument('--fallback-deps', action='store_true',
                         help='Use fallback versions of PyTorch (1.13.1) and sentence-transformers (2.2.2)')
+    parser.add_argument('--storage-backend', choices=['chromadb', 'sqlite_vec', 'auto_detect'],
+                        help='Choose storage backend: chromadb (default), sqlite_vec (lightweight), or auto_detect (try chromadb, fallback to sqlite_vec)')
     args = parser.parse_args()
     
     print_header("MCP Memory Service Installation")
@@ -924,7 +1168,21 @@ def main():
             print_info("2. Then reinstall with compatible versions: python install.py --force-compatible-deps")
     
     print_header("Installation Complete")
+    
+    # Get final storage backend info
+    final_backend = os.environ.get('MCP_MEMORY_STORAGE_BACKEND', 'chromadb')
+    
     print_info("You can now run the MCP Memory Service using the 'memory' command")
+    print_info(f"Storage Backend: {final_backend.upper()}")
+    
+    if final_backend == 'sqlite_vec':
+        print_info("✅ Using SQLite-vec - lightweight, fast, minimal dependencies")
+        print_info("   • No complex dependencies or build issues")
+        print_info("   • Excellent performance for typical use cases")
+    else:
+        print_info("✅ Using ChromaDB - full-featured vector database")
+        print_info("   • Advanced features and extensive ecosystem")
+    
     print_info("For more information, see the README.md file")
     
     # Print macOS Intel specific information if applicable
