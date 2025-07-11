@@ -1931,45 +1931,132 @@ class MemoryServer:
                     text=f"Database Health Check Results:\n{json.dumps(result, indent=2)}"
                 )]
             
-            from .utils.db_utils import validate_database, get_database_stats
-            
+            # Skip db_utils completely for health check - implement directly here
             # Get storage type for backend-specific handling
             storage_type = storage.__class__.__name__
             
-            # Get validation status - with error handling
-            try:
-                is_valid, message = await validate_database(storage)
-            except Exception as val_error:
-                logger.error(f"Validation error: {val_error}")
-                is_valid = False
-                message = f"Validation error: {str(val_error)}"
+            # Direct health check implementation based on storage type
+            is_valid = False
+            message = ""
+            stats = {}
             
-            # Get database stats - with error handling
-            try:
-                stats = get_database_stats(storage)
-            except Exception as stats_error:
-                logger.error(f"Stats error: {stats_error}")
-                stats = {
-                    "status": "error",
-                    "error": f"Failed to get database stats: {str(stats_error)}",
-                    "backend": storage_type
-                }
-                
-                # Fall back to direct stats gathering for SQLite-vec
-                if storage_type == "SqliteVecMemoryStorage":
+            if storage_type == "SqliteVecMemoryStorage":
+                # Direct SQLite-vec validation
+                if not hasattr(storage, 'conn') or storage.conn is None:
+                    is_valid = False
+                    message = "SQLite database connection is not initialized"
+                else:
                     try:
-                        # Basic stats directly from SQLite
-                        cursor = storage.conn.execute('SELECT COUNT(*) FROM memories')
-                        memory_count = cursor.fetchone()[0]
+                        # Check for required tables
+                        cursor = storage.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memories'")
+                        if not cursor.fetchone():
+                            is_valid = False
+                            message = "SQLite database is missing required tables"
+                        else:
+                            # Count memories
+                            cursor = storage.conn.execute('SELECT COUNT(*) FROM memories')
+                            memory_count = cursor.fetchone()[0]
+                            
+                            # Check if embedding tables exist
+                            cursor = storage.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_embeddings'")
+                            has_embeddings = cursor.fetchone() is not None
+                            
+                            # Check embedding model
+                            has_model = hasattr(storage, 'embedding_model') and storage.embedding_model is not None
+                            
+                            # Collect stats
+                            stats = {
+                                "status": "healthy",
+                                "backend": "sqlite-vec",
+                                "total_memories": memory_count,
+                                "has_embedding_tables": has_embeddings,
+                                "has_embedding_model": has_model,
+                                "embedding_model": storage.embedding_model_name if hasattr(storage, 'embedding_model_name') else "none"
+                            }
+                            
+                            # Get database file size
+                            db_path = storage.db_path if hasattr(storage, 'db_path') else None
+                            if db_path and os.path.exists(db_path):
+                                file_size = os.path.getsize(db_path)
+                                stats["database_size_bytes"] = file_size
+                                stats["database_size_mb"] = round(file_size / (1024 * 1024), 2)
+                            
+                            is_valid = True
+                            message = "SQLite-vec database validation successful"
+                    except Exception as e:
+                        is_valid = False
+                        message = f"SQLite database validation error: {str(e)}"
+                        stats = {
+                            "status": "error",
+                            "error": str(e),
+                            "backend": "sqlite-vec" 
+                        }
+            
+            elif hasattr(storage, 'collection'):
+                # Standard ChromaDB validation
+                if storage.collection is None:
+                    is_valid = False
+                    message = "Collection is not initialized"
+                    stats = {
+                        "status": "error",
+                        "error": "Collection is not initialized",
+                        "backend": "chromadb"
+                    }
+                else:
+                    try:
+                        # Count documents
+                        collection_count = storage.collection.count()
                         
+                        # Get collection metadata
+                        metadata = {}
+                        if hasattr(storage.collection, 'metadata'):
+                            metadata = storage.collection.metadata
+                        
+                        # Get embedding function info
+                        embedding_function = "none"
+                        if hasattr(storage, 'embedding_function') and storage.embedding_function:
+                            embedding_function = storage.embedding_function.__class__.__name__
+                        
+                        # Collect stats
                         stats = {
                             "status": "healthy",
-                            "backend": "sqlite-vec",
-                            "total_memories": memory_count,
-                            "embedding_model": storage.embedding_model_name if hasattr(storage, 'embedding_model_name') else "unknown"
+                            "backend": "chromadb",
+                            "total_memories": collection_count,
+                            "embedding_function": embedding_function,
+                            "metadata": metadata
                         }
-                    except Exception as direct_error:
-                        logger.error(f"Direct stats error: {direct_error}")
+                        
+                        # Check database path and size
+                        if hasattr(storage, 'path'):
+                            db_path = storage.path
+                            if os.path.exists(db_path):
+                                total_size = 0
+                                for dirpath, _, filenames in os.walk(db_path):
+                                    for f in filenames:
+                                        fp = os.path.join(dirpath, f)
+                                        total_size += os.path.getsize(fp)
+                                
+                                stats["database_size_bytes"] = total_size
+                                stats["database_size_mb"] = round(total_size / (1024 * 1024), 2)
+                        
+                        is_valid = True
+                        message = "ChromaDB validation successful"
+                    except Exception as e:
+                        is_valid = False
+                        message = f"ChromaDB validation error: {str(e)}"
+                        stats = {
+                            "status": "error",
+                            "error": str(e),
+                            "backend": "chromadb"
+                        }
+            else:
+                is_valid = False
+                message = f"Unknown storage type: {storage_type}"
+                stats = {
+                    "status": "error",
+                    "error": f"Unknown storage type: {storage_type}",
+                    "backend": "unknown"
+                }
             
             # Get performance stats from optimized storage
             performance_stats = {}
