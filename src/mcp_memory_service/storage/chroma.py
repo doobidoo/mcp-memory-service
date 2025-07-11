@@ -4,7 +4,7 @@ Copyright (c) 2024 Heinrich Krupp
 Licensed under the MIT License. See LICENSE file in the project root for full license text.
 """
 
-from mcp_memory_service.models.memory import Memory
+from ..models.memory import Memory
 
 import chromadb
 import json

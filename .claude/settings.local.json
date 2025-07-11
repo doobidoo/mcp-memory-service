@@ -17,7 +17,16 @@
       "Bash(gh issue comment:*)",
       "WebFetch(domain:glama.ai)",
       "WebFetch(domain:alexgarcia.xyz)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(echo:*)",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec)",
+      "Bash(./start_sqlite_vec.sh:*)",
+      "Bash(timeout:*)",
+      "Bash(./setup_claude_mcp.sh:*)"
     ],
     "deny": []
   }
