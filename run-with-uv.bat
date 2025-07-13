@@ -1,3 +1,0 @@
-@echo off
-echo Running MCP Memory Service with UV...
-python uv_wrapper.py %*
