@@ -1,0 +1,29 @@
+services:
+  memory-service:
+    image: python:3.10-slim
+    working_dir: /app
+    stdin_open: true
+    tty: true
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - ${CHROMA_DB_PATH:-$HOME/mcp-memory/chroma_db}:/app/chroma_db
+      - ${BACKUPS_PATH:-$HOME/mcp-memory/backups}:/app/backups
+    environment:
+      - MCP_MEMORY_CHROMA_PATH=/app/chroma_db
+      - MCP_MEMORY_BACKUPS_PATH=/app/backups
+      - LOG_LEVEL=INFO
+      - MAX_RESULTS_PER_QUERY=10
+      - SIMILARITY_THRESHOLD=0.7
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - UV_ACTIVE=1
+      - MCP_STANDALONE_MODE=1
+      - CHROMA_TELEMETRY_IMPL=none
+      - ANONYMIZED_TELEMETRY=false
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: ["/usr/local/bin/docker-entrypoint-persistent.sh"]
