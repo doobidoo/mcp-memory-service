@@ -617,6 +617,26 @@ class SqliteVecMemoryStorage(MemoryStorage):
             logger.error(f"Failed to get stats: {str(e)}")
             return {"error": str(e)}
     
+    def sanitized(self, tags):
+        """Sanitize and normalize tags to a JSON string.
+        
+        This method provides compatibility with the ChromaMemoryStorage interface.
+        """
+        if tags is None:
+            return json.dumps([])
+        
+        # If we get a string, split it into an array
+        if isinstance(tags, str):
+            tags = [tag.strip() for tag in tags.split(",") if tag.strip()]
+        # If we get an array, use it directly
+        elif isinstance(tags, list):
+            tags = [str(tag).strip() for tag in tags if str(tag).strip()]
+        else:
+            return json.dumps([])
+                
+        # Return JSON string representation of the array
+        return json.dumps(tags)
+    
     def close(self):
         """Close the database connection."""
         if self.conn:

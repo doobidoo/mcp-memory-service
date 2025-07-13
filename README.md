@@ -283,6 +283,7 @@ The SQLite-vec backend now works with or without PyTorch installed:
 
 - **With PyTorch**: Full functionality including embedding generation
 - **Without PyTorch**: Basic functionality using pre-computed embeddings and ONNX runtime
+- **With Homebrew PyTorch**: Integration with macOS Homebrew PyTorch installation
   
 To install optional machine learning dependencies:
 
@@ -290,6 +291,29 @@ To install optional machine learning dependencies:
 # Add ML dependencies for embedding generation
 pip install 'mcp-memory-service[ml]'
 ```
+
+#### Homebrew PyTorch Integration
+
+For macOS users who prefer to use Homebrew's PyTorch installation:
+
+```bash
+# Install PyTorch via Homebrew
+brew install pytorch
+
+# Run MCP Memory Service with Homebrew PyTorch integration
+./run_with_homebrew.sh
+```
+
+This integration offers several benefits:
+- Uses Homebrew's isolated Python environment for PyTorch
+- Avoids dependency conflicts with Claude Desktop
+- Reduces memory usage in the main process
+- Provides better stability in resource-constrained environments
+
+For detailed documentation on the Homebrew PyTorch integration:
+- [HOMEBREW_INTEGRATION_LESSONS.md](HOMEBREW_INTEGRATION_LESSONS.md) - Technical journey and solution architecture
+- [TECHNICAL_PATTERNS.md](TECHNICAL_PATTERNS.md) - Code patterns and implementation details
+- [TROUBLESHOOTING_GUIDE.md](TROUBLESHOOTING_GUIDE.md) - Diagnostic commands and common solutions
 
 #### Migration Between Backends
 

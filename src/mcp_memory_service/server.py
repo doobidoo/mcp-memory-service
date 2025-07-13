@@ -204,8 +204,11 @@ class MemoryServer:
             logger.info(f"Attempting eager {STORAGE_BACKEND} storage initialization...")
             
             if STORAGE_BACKEND == 'sqlite_vec':
-                # Import and initialize sqlite-vec storage
-                from .storage.sqlite_vec import SqliteVecMemoryStorage
+                # Import sqlite-vec storage module (supports dynamic class replacement)
+                from . import storage
+                import importlib
+                storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
+                SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
                 self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH)
             else:
                 # Initialize ChromaDB with preload_model=True for caching
@@ -229,8 +232,10 @@ class MemoryServer:
                 logger.info(f"Initializing {STORAGE_BACKEND} storage backend...")
                 
                 if STORAGE_BACKEND == 'sqlite_vec':
-                    # Import sqlite-vec storage
-                    from .storage.sqlite_vec import SqliteVecMemoryStorage
+                    # Import sqlite-vec storage (supports dynamic class replacement)
+                    import importlib
+                    storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
+                    SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
                     self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH)
                     logger.info(f"Created SQLite-vec storage at: {SQLITE_VEC_PATH}")
                 else:

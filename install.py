@@ -61,6 +61,26 @@ def detect_system():
     else:
         print_info(f"Virtual environment: {sys.prefix}")
     
+    # Check for Homebrew PyTorch installation
+    has_homebrew_pytorch = False
+    homebrew_pytorch_version = None
+    if is_macos:
+        try:
+            # Check if pytorch is installed via brew
+            result = subprocess.run(
+                ['brew', 'list', 'pytorch', '--version'],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                has_homebrew_pytorch = True
+                # Extract version from output
+                version_line = result.stdout.strip()
+                homebrew_pytorch_version = version_line.split()[1] if len(version_line.split()) > 1 else "Unknown"
+                print_info(f"Detected Homebrew PyTorch installation: {homebrew_pytorch_version}")
+        except (subprocess.SubprocessError, FileNotFoundError):
+            pass
+    
     return {
         "system": system,
         "machine": machine,
@@ -70,7 +90,9 @@ def detect_system():
         "is_linux": is_linux,
         "is_arm": is_arm,
         "is_x86": is_x86,
-        "in_venv": in_venv
+        "in_venv": in_venv,
+        "has_homebrew_pytorch": has_homebrew_pytorch,
+        "homebrew_pytorch_version": homebrew_pytorch_version
     }
 
 def detect_gpu():
@@ -711,15 +733,32 @@ def install_package(args):
         print_info("Configuring for CPU-only installation")
         env['MCP_MEMORY_USE_ONNX'] = '1'
 
-    # Handle platform-specific PyTorch installation
-    pytorch_installed = install_pytorch_platform_specific(system_info, gpu_info)
-    if not pytorch_installed:
-        print_warning("Platform-specific PyTorch installation failed, but will continue with package installation")
+    # Check for Homebrew PyTorch installation
+    using_homebrew_pytorch = False
+    if system_info.get("has_homebrew_pytorch"):
+        print_info(f"Using existing Homebrew PyTorch installation (version: {system_info.get('homebrew_pytorch_version')})")
+        using_homebrew_pytorch = True
+        # Set the environment variable to use ONNX for embeddings
+        env['MCP_MEMORY_USE_ONNX'] = '1'
+        # Skip the PyTorch installation step
+        pytorch_installed = True
+    else:
+        # Handle platform-specific PyTorch installation
+        pytorch_installed = install_pytorch_platform_specific(system_info, gpu_info)
+        if not pytorch_installed:
+            print_warning("Platform-specific PyTorch installation failed, but will continue with package installation")
 
     try:
-        # For Python 3.13+ on macOS Intel, use a special installation approach
-        if system_info["is_macos"] and system_info["is_x86"] and sys.version_info >= (3, 13):
-            print_info("Using Python 3.13+ on macOS Intel - trying ONNX-based installation")
+        # SQLite-vec with ONNX for macOS with homebrew PyTorch or compatibility issues
+        if (system_info["is_macos"] and system_info["is_x86"] and 
+            (sys.version_info >= (3, 13) or using_homebrew_pytorch or args.skip_pytorch)):
+            
+            if using_homebrew_pytorch:
+                print_info("Using Homebrew PyTorch - installing with SQLite-vec + ONNX configuration")
+            elif args.skip_pytorch:
+                print_info("Skipping PyTorch installation - using SQLite-vec + ONNX configuration")
+            else:
+                print_info("Using Python 3.13+ on macOS Intel - using SQLite-vec + ONNX configuration")
             
             # First try to install without ML dependencies
             try:
@@ -729,22 +768,41 @@ def install_package(args):
                 
                 # Install core dependencies except torch/sentence-transformers
                 print_info("Installing core dependencies except ML libraries...")
-                subprocess.check_call([
-                    sys.executable, '-m', 'pip', 'install',
-                    "chromadb==0.5.23",
-                    "tokenizers==0.20.3",
+                
+                # Create a list of dependencies to install
+                dependencies = [
                     "mcp>=1.0.0,<2.0.0",
                     "onnxruntime>=1.14.1"  # ONNX runtime is required
-                ])
+                ]
+                
+                # Add backend-specific dependencies
+                if chosen_backend == "sqlite_vec":
+                    dependencies.append("sqlite-vec>=0.1.0")
+                else:
+                    dependencies.append("chromadb==0.5.23")
+                    dependencies.append("tokenizers==0.20.3")
+                
+                # Install dependencies
+                subprocess.check_call(
+                    [sys.executable, '-m', 'pip', 'install'] + dependencies
+                )
                 
                 # Set environment variables for ONNX
                 print_info("Configuring to use ONNX runtime for inference without PyTorch...")
                 env['MCP_MEMORY_USE_ONNX'] = '1'
-                env['MCP_MEMORY_STORAGE_BACKEND'] = 'sqlite_vec'  # Force SQLite backend
+                if chosen_backend != "sqlite_vec":
+                    print_info("Switching to SQLite-vec backend for better compatibility")
+                    env['MCP_MEMORY_STORAGE_BACKEND'] = 'sqlite_vec'
                 
-                print_success("MCP Memory Service installed successfully (ONNX-based)")
-                print_warning("ML libraries (PyTorch/sentence-transformers) were not installed due to compatibility issues")
-                print_info("The service will use ONNX runtime for inference instead")
+                print_success("MCP Memory Service installed successfully (SQLite-vec + ONNX)")
+                
+                if using_homebrew_pytorch:
+                    print_info("Using Homebrew PyTorch installation for embedding generation")
+                    print_info("Environment configured to use SQLite-vec backend and ONNX runtime")
+                else:
+                    print_warning("ML libraries (PyTorch/sentence-transformers) were not installed due to compatibility issues")
+                    print_info("The service will use ONNX runtime for inference instead")
+                
                 return True
             except subprocess.SubprocessError as e:
                 print_error(f"Failed to install with ONNX approach: {e}")
@@ -759,14 +817,18 @@ def install_package(args):
     except subprocess.SubprocessError as e:
         print_error(f"Failed to install MCP Memory Service: {e}")
         
-        # Special handling for Python 3.13+ on macOS Intel
-        if system_info["is_macos"] and system_info["is_x86"] and sys.version_info >= (3, 13):
-            print_warning("Installation on Python 3.13+ for macOS Intel is challenging")
+        # Special handling for macOS with compatibility issues
+        if system_info["is_macos"] and system_info["is_x86"]:
+            print_warning("Installation on macOS Intel is challenging")
             print_info("Try manually installing with:")
             print_info("1. pip install --no-deps .")
-            print_info("2. pip install chromadb==0.5.23 tokenizers==0.20.3 mcp>=1.0.0,<2.0.0 onnxruntime>=1.14.1")
+            print_info("2. pip install sqlite-vec>=0.1.0 mcp>=1.0.0,<2.0.0 onnxruntime>=1.14.1")
             print_info("3. export MCP_MEMORY_USE_ONNX=1")
             print_info("4. export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec")
+            
+            if system_info.get("has_homebrew_pytorch"):
+                print_info("Homebrew PyTorch was detected but installation still failed.")
+                print_info("Try running: python install.py --storage-backend sqlite_vec --skip-pytorch")
             
         return False
 
@@ -949,6 +1011,24 @@ def verify_installation():
             print_error("ChromaDB is not installed correctly")
             return False
     
+    # Check for ONNX runtime
+    try:
+        import onnxruntime
+        print_success(f"ONNX Runtime is installed: {onnxruntime.__version__}")
+        use_onnx = os.environ.get('MCP_MEMORY_USE_ONNX', '').lower() in ('1', 'true', 'yes')
+        if use_onnx:
+            print_info("Environment configured to use ONNX runtime for inference")
+    except ImportError:
+        print_warning("ONNX Runtime is not installed. This is recommended for CPU-only operation.")
+        print_info("Install with: pip install onnxruntime>=1.14.1")
+    
+    # Check for Homebrew PyTorch
+    homebrew_pytorch = False
+    if system_info.get("has_homebrew_pytorch"):
+        homebrew_pytorch = True
+        print_success(f"Homebrew PyTorch detected: {system_info.get('homebrew_pytorch_version')}")
+        print_info("Using system-installed PyTorch instead of pip version")
+    
     # Check ML dependencies as optional
     pytorch_installed = False
     try:
@@ -984,28 +1064,32 @@ def verify_installation():
                 print_info("If you encounter issues, try downgrading to torch 2.0.1")
             
     except ImportError:
-        print_warning("PyTorch is not installed. This is okay for basic operation with SQLite-vec backend.")
-        print_info("For full functionality including embedding generation, install with: pip install 'mcp-memory-service[ml]'")
+        print_warning("PyTorch is not installed via pip. This is okay for basic operation with SQLite-vec backend.")
+        if homebrew_pytorch:
+            print_info("Using Homebrew PyTorch installation instead of pip version")
+        else:
+            print_info("For full functionality including embedding generation, install with: pip install 'mcp-memory-service[ml]'")
         pytorch_installed = False
     
     # Check if sentence-transformers is installed correctly (only if PyTorch is installed)
-    if pytorch_installed:
+    if pytorch_installed or homebrew_pytorch:
         try:
             import sentence_transformers
             print_success(f"sentence-transformers is installed: {sentence_transformers.__version__}")
             
-            # Verify compatibility between torch and sentence-transformers
-            st_version = sentence_transformers.__version__.split('.')
-            torch_version = torch.__version__.split('.')
-            
-            st_major, st_minor = int(st_version[0]), int(st_version[1])
-            torch_major, torch_minor = int(torch_version[0]), int(torch_version[1])
-            
-            # Specific compatibility check for macOS Intel
-            if system_info["is_macos"] and system_info["is_x86"]:
-                if st_major >= 3 and (torch_major < 1 or (torch_major == 1 and torch_minor < 11)):
-                    print_warning(f"sentence-transformers {sentence_transformers.__version__} requires torch>=1.11.0")
-                    print_info("This may cause runtime issues - consider downgrading sentence-transformers to 2.2.2")
+            if pytorch_installed:
+                # Verify compatibility between torch and sentence-transformers
+                st_version = sentence_transformers.__version__.split('.')
+                torch_version = torch.__version__.split('.')
+                
+                st_major, st_minor = int(st_version[0]), int(st_version[1])
+                torch_major, torch_minor = int(torch_version[0]), int(torch_version[1])
+                
+                # Specific compatibility check for macOS Intel
+                if system_info["is_macos"] and system_info["is_x86"]:
+                    if st_major >= 3 and (torch_major < 1 or (torch_major == 1 and torch_minor < 11)):
+                        print_warning(f"sentence-transformers {sentence_transformers.__version__} requires torch>=1.11.0")
+                        print_info("This may cause runtime issues - consider downgrading sentence-transformers to 2.2.2")
             
             # Verify by trying to load a model (minimal test)
             try:
@@ -1019,6 +1103,34 @@ def verify_installation():
         except ImportError:
             print_warning("sentence-transformers is not installed. This is okay for basic operation with SQLite-vec backend.")
             print_info("For full functionality including embedding generation, install with: pip install 'mcp-memory-service[ml]'")
+    
+    # Check for SQLite-vec + ONNX configuration
+    if storage_backend == 'sqlite_vec' and os.environ.get('MCP_MEMORY_USE_ONNX', '').lower() in ('1', 'true', 'yes'):
+        print_success("SQLite-vec + ONNX configuration is set up correctly")
+        print_info("This configuration can run without PyTorch dependency")
+        
+        try:
+            # Import the key components to verify installation
+            from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+            from mcp_memory_service.models.memory import Memory
+            print_success("SQLite-vec + ONNX components loaded successfully")
+            
+            # Check paths
+            sqlite_path = os.environ.get('MCP_MEMORY_SQLITE_PATH', '')
+            if sqlite_path:
+                print_info(f"SQLite-vec database path: {sqlite_path}")
+            else:
+                print_warning("MCP_MEMORY_SQLITE_PATH is not set")
+            
+            backups_path = os.environ.get('MCP_MEMORY_BACKUPS_PATH', '')
+            if backups_path:
+                print_info(f"Backups path: {backups_path}")
+            else:
+                print_warning("MCP_MEMORY_BACKUPS_PATH is not set")
+            
+        except ImportError as e:
+            print_error(f"Failed to import SQLite-vec components: {e}")
+            return False
             
     # Check if MCP Memory Service package is installed correctly
     try:
@@ -1041,6 +1153,10 @@ def main():
                         help='Use fallback versions of PyTorch (1.13.1) and sentence-transformers (2.2.2)')
     parser.add_argument('--storage-backend', choices=['chromadb', 'sqlite_vec', 'auto_detect'],
                         help='Choose storage backend: chromadb (default), sqlite_vec (lightweight), or auto_detect (try chromadb, fallback to sqlite_vec)')
+    parser.add_argument('--skip-pytorch', action='store_true',
+                        help='Skip PyTorch installation and use ONNX runtime with SQLite-vec backend instead')
+    parser.add_argument('--use-homebrew-pytorch', action='store_true',
+                        help='Use existing Homebrew PyTorch installation instead of pip version')
     args = parser.parse_args()
     
     print_header("MCP Memory Service Installation")
@@ -1144,6 +1260,7 @@ def main():
     
     # Get final storage backend info
     final_backend = os.environ.get('MCP_MEMORY_STORAGE_BACKEND', 'chromadb')
+    use_onnx = os.environ.get('MCP_MEMORY_USE_ONNX', '').lower() in ('1', 'true', 'yes')
     
     print_info("You can now run the MCP Memory Service using the 'memory' command")
     print_info(f"Storage Backend: {final_backend.upper()}")
@@ -1156,22 +1273,42 @@ def main():
         print_info("✅ Using ChromaDB - full-featured vector database")
         print_info("   • Advanced features and extensive ecosystem")
     
+    if use_onnx:
+        print_info("✅ Using ONNX Runtime for inference")
+        print_info("   • Compatible with Homebrew PyTorch")
+        print_info("   • Reduced dependencies for better compatibility")
+    
     print_info("For more information, see the README.md file")
     
     # Print macOS Intel specific information if applicable
     if system_info["is_macos"] and system_info["is_x86"]:
         print_info("\nMacOS Intel Notes:")
-        print_info("- If you encounter issues, try the --force-compatible-deps option")
         
-        python_version = sys.version_info
-        if python_version >= (3, 13):
-            print_info("- For optimal performance on Intel Macs with Python 3.13+, torch==2.3.0 and sentence-transformers==3.0.0 are recommended")
-            print_info("- You can manually install these versions with:")
-            print_info("  pip install torch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 sentence-transformers==3.0.0")
+        if system_info.get("has_homebrew_pytorch"):
+            print_info("- Using Homebrew PyTorch installation: " + system_info.get("homebrew_pytorch_version", "Unknown"))
+            print_info("- The MCP Memory Service is configured to use SQLite-vec + ONNX runtime")
+            print_info("- To start the memory service, use:")
+            print_info("  export MCP_MEMORY_USE_ONNX=1")
+            print_info("  export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec")
+            print_info("  memory")
         else:
-            print_info("- For optimal performance on Intel Macs, torch==2.0.1 and sentence-transformers==2.2.2 are recommended")
-            print_info("- You can manually install these versions with:")
-            print_info("  pip install torch==2.0.1 torchvision==2.0.1 torchaudio==2.0.1 sentence-transformers==2.2.2")
+            print_info("- If you encounter issues, try the --force-compatible-deps option")
+            
+            python_version = sys.version_info
+            if python_version >= (3, 13):
+                print_info("- For optimal performance on Intel Macs with Python 3.13+, torch==2.3.0 and sentence-transformers==3.0.0 are recommended")
+                print_info("- You can manually install these versions with:")
+                print_info("  pip install torch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 sentence-transformers==3.0.0")
+            else:
+                print_info("- For optimal performance on Intel Macs, torch==2.0.1 and sentence-transformers==2.2.2 are recommended")
+                print_info("- You can manually install these versions with:")
+                print_info("  pip install torch==2.0.1 torchvision==2.0.1 torchaudio==2.0.1 sentence-transformers==2.2.2")
+                
+        print_info("\nTroubleshooting Tips:")
+        print_info("- If you have a Homebrew PyTorch installation, use: --use-homebrew-pytorch")
+        print_info("- To completely skip PyTorch installation, use: --skip-pytorch")
+        print_info("- To force the SQLite-vec backend, use: --storage-backend sqlite_vec")
+        print_info("- For a quick test, try running: python test_memory.py")
 
 if __name__ == "__main__":
     main()
