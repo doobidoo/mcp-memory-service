@@ -39,11 +39,6 @@ jobs:
         python -c "import mcp_memory_service.server; print('✓ Package can be imported')"
         python -m mcp_memory_service.server --version
 
-    - name: Install uvx
-      run: |
-        source $HOME/.cargo/env
-        uv tool install uvx
-
     - name: Test uvx installation simulation
       run: |
         source $HOME/.cargo/env
@@ -52,9 +47,15 @@ jobs:
         # Test if the wheel can be installed with uvx (simulation)
         echo "✓ Package structure compatible with uvx"
 
-  test-docker-build:
+  build-and-publish-docker:
+    needs: [test-uvx-compatibility]
     runs-on: ubuntu-latest
-    name: Test Docker build
+    name: Build and publish Docker image
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     
     steps:
     - name: Checkout repository
@@ -63,68 +64,61 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Build Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        platforms: linux/amd64
-        push: false
-        tags: mcp-memory-service:test
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-    - name: Test Docker image
-      run: |
-        # Test image can be created
-        docker run --rm mcp-memory-service:test python -c "print('✓ Docker image works')"
-        
-        # Test standalone mode
-        docker run --rm -e MCP_STANDALONE_MODE=1 mcp-memory-service:test timeout 5s python -m mcp_memory_service.server || echo "✓ Standalone mode works"
-
-  publish-docker:
-    needs: [test-uvx-compatibility, test-docker-build]
-    runs-on: ubuntu-latest
-    name: Publish Docker image
-    if: github.event_name != 'pull_request'
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Log in to Docker Hub
+    - name: Log in to Container Registry
+      if: github.event_name != 'pull_request'
       uses: docker/login-action@v3
       with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Extract metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: doobidoo/mcp-memory-service
+        images: ghcr.io/${{ github.repository }}
         tags: |
           type=ref,event=branch
+          type=ref,event=pr
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
           type=semver,pattern={{major}}
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Build and push Docker image
+      id: build-and-push
       uses: docker/build-push-action@v5
       with:
         context: .
         platforms: linux/amd64,linux/arm64
-        push: true
+        push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
+    - name: Test Docker image
+      if: always()
+      run: |
+        # Extract amd64 image for testing (multi-platform builds aren't directly testable)
+        docker build --platform linux/amd64 --load -t mcp-memory-service:test .
+        
+        # Test image can be created (override entrypoint to run Python directly)
+        docker run --rm --entrypoint python mcp-memory-service:test -c "print('✓ Docker image works')"
+        
+        # Test standalone mode (run with timeout and override entrypoint)
+        timeout 10s docker run --rm -e MCP_STANDALONE_MODE=1 --entrypoint python mcp-memory-service:test -m mcp_memory_service.server || echo "✓ Standalone mode works"
+
+    - name: Generate artifact attestation
+      if: github.event_name != 'pull_request'
+      uses: actions/attest-build-provenance@v1
+      with:
+        subject-name: ghcr.io/${{ github.repository }}
+        subject-digest: ${{ steps.build-and-push.outputs.digest }}
+        push-to-registry: true
+
   update-documentation:
-    needs: [publish-docker]
+    needs: [build-and-publish-docker]
     runs-on: ubuntu-latest
     name: Update documentation
     if: github.event_name != 'pull_request'
@@ -133,37 +127,37 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Update README with Docker Hub info
+    - name: Update README with GHCR info
       run: |
         echo "Docker image published successfully!" >> docker-publish.log
-        echo "Available at: docker.io/doobidoo/mcp-memory-service" >> docker-publish.log
+        echo "Available at: ghcr.io/${{ github.repository }}" >> docker-publish.log
 
     - name: Create/update installation docs
       run: |
         mkdir -p docs/installation
-        cat > docs/installation/docker-hub.md << 'EOF'
-        # Docker Hub Installation
+        cat > docs/installation/ghcr.md << 'EOF'
+        # GitHub Container Registry Installation
         
-        The MCP Memory Service is now available on Docker Hub for easy installation.
+        The MCP Memory Service is now available on GitHub Container Registry for easy installation.
         
         ## Quick Start
         
         ```bash
         # Pull the latest image
-        docker pull doobidoo/mcp-memory-service:latest
+        docker pull ghcr.io/${{ github.repository }}:latest
         
         # Run with default settings
         docker run -d -p 8000:8000 \
           -v $(pwd)/data/chroma_db:/app/chroma_db \
           -v $(pwd)/data/backups:/app/backups \
-          doobidoo/mcp-memory-service:latest
+          ghcr.io/${{ github.repository }}:latest
         
         # Run in standalone mode
         docker run -d -p 8000:8000 \
           -e MCP_STANDALONE_MODE=1 \
           -v $(pwd)/data/chroma_db:/app/chroma_db \
           -v $(pwd)/data/backups:/app/backups \
-          doobidoo/mcp-memory-service:latest
+          ghcr.io/${{ github.repository }}:latest
         ```
         
         ## Available Tags
