@@ -4,6 +4,8 @@ This directory contains conversational Claude Code commands that integrate memor
 
 ## Available Commands
 
+### MCP-Based Commands (Traditional)
+
 ### `/memory-store` - Store Current Context
 Store information in your MCP Memory Service with proper context and tagging. Automatically detects project context and applies relevant tags.
 
@@ -48,6 +50,66 @@ Check the health and status of your MCP Memory Service, providing diagnostics an
 claude /memory-health
 claude /memory-health --detailed
 ```
+
+### Direct API Commands (No MCP Required)
+
+### `/memory-api-store` - Direct API Storage
+Store memories directly via HTTP API, bypassing MCP entirely. Maximum reliability and simplicity.
+
+**Usage:**
+```bash
+claude /memory-api-store "Remote memory bridge implementation completed"
+claude /memory-api-store --tags "implementation,bridge" --server "https://memory.local/api"
+```
+
+### `/memory-api-search` - Direct API Search
+Search memories using direct HTTP API calls. Uses reliable tag-based search as primary method.
+
+**Usage:**
+```bash
+claude /memory-api-search "remote memory bridge"
+claude /memory-api-search --tags "implementation,July 30 2025"
+claude /memory-api-search --semantic "database optimization"
+```
+
+### `/memory-api-health` - Direct API Health Check
+Comprehensive health diagnostics via direct API access. No MCP dependencies required.
+
+**Usage:**
+```bash
+claude /memory-api-health
+claude /memory-api-health --detailed --server "https://memory.local/api"
+```
+
+## Command Types Comparison
+
+| Feature | MCP Commands | Direct API Commands |
+|---------|--------------|-------------------|
+| **Setup Complexity** | Requires MCP server + bridge | Just HTTP API endpoint |
+| **Dependencies** | Node.js, MCP bridge, protocol | Only curl (built-in) |
+| **Reliability** | Multiple layers, potential failures | Direct HTTP, fewer failure points |
+| **Performance** | Protocol overhead, JSON-RPC | Direct REST API calls |
+| **Debugging** | Complex (MCP logs, bridge logs) | Simple (HTTP status codes) |
+| **Network** | MCP protocol over stdio/network | Standard HTTPS |
+| **Authentication** | MCP protocol auth | Standard Bearer tokens |
+| **Error Handling** | MCP error codes | HTTP status codes |
+| **Compatibility** | Requires MCP client | Works anywhere |
+
+## When to Use Each Type
+
+### Use MCP Commands When:
+- You have a local MCP Memory Service running
+- You want full MCP protocol integration
+- You need advanced features like auto-discovery
+- You're already using other MCP services
+
+### Use Direct API Commands When:
+- Connecting to remote memory servers
+- Maximum reliability is required
+- You want to bypass MCP complexity  
+- You need to debug connection issues
+- Working with self-signed certificates
+- Cross-platform compatibility is important
 
 ## Installation
 
