@@ -22,6 +22,12 @@ MCP Memory Service is a Model Context Protocol server that provides semantic mem
 - **Build package**: `python -m build`
 - **Install locally**: `pip install -e .`
 
+### Remote Memory Connection
+- **Setup remote connection**: Copy `examples/claude-desktop-memory-config.json` to Claude Desktop config directory
+- **Test remote connection**: `node examples/http-mcp-bridge-robust.js` (with proper environment variables)
+- **Test remote API**: `curl -k -H "Authorization: Bearer API_KEY" https://server/api/health`
+- **Debug bridge connection**: Check Claude Desktop logs at `~/Library/Logs/Claude/mcp-server-memory.log`
+
 ## Architecture
 
 ### Core Components

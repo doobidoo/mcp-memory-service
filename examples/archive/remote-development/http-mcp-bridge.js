@@ -237,7 +237,7 @@ class HTTPMCPBridge {
      */
     async testEndpoint(endpoint) {
         try {
-            const healthUrl = `${endpoint}/health`;
+            const healthUrl = `${endpoint}/api/health`;
             const response = await this.makeRequestInternal(healthUrl, 'GET', null, 3000); // 3 second timeout
             return response.statusCode === 200;
         } catch (error) {
@@ -325,7 +325,7 @@ class HTTPMCPBridge {
      */
     async storeMemory(params) {
         try {
-            const response = await this.makeRequest('/memories', 'POST', {
+            const response = await this.makeRequest('/api/memories', 'POST', {
                 content: params.content,
                 tags: params.metadata?.tags || [],
                 memory_type: params.metadata?.type || 'note',
@@ -352,7 +352,7 @@ class HTTPMCPBridge {
                 n_results: params.n_results || 5
             });
 
-            const response = await this.makeRequest(`/search?${queryParams}`, 'GET');
+            const response = await this.makeRequest(`/api/search?${queryParams}`, 'GET');
 
             if (response.statusCode === 200) {
                 return {
@@ -386,7 +386,7 @@ class HTTPMCPBridge {
                 queryParams.append('tags', params.tags);
             }
 
-            const response = await this.makeRequest(`/memories/search/tags?${queryParams}`, 'GET');
+            const response = await this.makeRequest(`/api/memories/search/tags?${queryParams}`, 'GET');
 
             if (response.statusCode === 200) {
                 return {
@@ -412,7 +412,7 @@ class HTTPMCPBridge {
      */
     async deleteMemory(params) {
         try {
-            const response = await this.makeRequest(`/memories/${params.content_hash}`, 'DELETE');
+            const response = await this.makeRequest(`/api/memories/${params.content_hash}`, 'DELETE');
 
             if (response.statusCode === 200) {
                 return { success: true, message: 'Memory deleted successfully' };
@@ -429,16 +429,19 @@ class HTTPMCPBridge {
      */
     async checkHealth(params = {}) {
         try {
-            const response = await this.makeRequest('/health', 'GET');
+            const response = await this.makeRequest('/api/health', 'GET');
 
             if (response.statusCode === 200) {
                 return {
-                    status: response.data.status,
-                    backend: response.data.storage_type,
-                    statistics: response.data.statistics || {}
+                    status: response.data.status || 'healthy',
+                    backend: response.data.storage_type || 'remote',
+                    statistics: response.data.statistics || {
+                        memory_count: 0,
+                        uptime_seconds: response.data.uptime_seconds || 0
+                    }
                 };
             } else {
-                return { status: 'unhealthy', backend: 'unknown', statistics: {} };
+                return { status: 'unhealthy', backend: 'remote', statistics: {} };
             }
         } catch (error) {
             return { status: 'error', backend: 'unknown', statistics: {}, error: error.message };
@@ -446,14 +449,44 @@ class HTTPMCPBridge {
     }
 
     /**
+     * Handle MCP initialize operation
+     */
+    async initialize(params) {
+        return {
+            capabilities: {
+                operations: [
+                    "store_memory",
+                    "retrieve_memory",
+                    "search_by_tag",
+                    "delete_memory",
+                    "check_database_health"
+                ]
+            },
+            serverInfo: {
+                name: "mcp-memory-http-bridge",
+                version: "1.0.0"
+            }
+        };
+    }
+
+    /**
      * Process MCP JSON-RPC request
      */
     async processRequest(request) {
         const { method, params, id } = request;
+        console.error(`Received request method: ${method}`);
 
         let result;
         try {
             switch (method) {
+                case 'initialize':
+                    result = await this.initialize(params);
+                    console.error('Initialized MCP bridge successfully');
+                    break;
+                case 'shutdown':
+                    console.error('Received shutdown request, will continue running');
+                    result = {};
+                    break;
                 case 'store_memory':
                     result = await this.storeMemory(params);
                     break;
@@ -470,6 +503,7 @@ class HTTPMCPBridge {
                     result = await this.checkHealth(params);
                     break;
                 default:
+                    console.error(`Unknown method: ${method}`);
                     throw new Error(`Unknown method: ${method}`);
             }
 
@@ -550,13 +584,26 @@ class HTTPMCPBridge {
         // Handle graceful shutdown
         process.on('SIGINT', () => {
             console.error('Shutting down HTTP Bridge...');
-            process.exit(0);
+            // Don't exit immediately to handle pending requests
+            setTimeout(() => {
+                console.error('HTTP Bridge shutdown complete');
+                process.exit(0);
+            }, 1000);
         });
 
         process.on('SIGTERM', () => {
             console.error('Shutting down HTTP Bridge...');
-            process.exit(0);
+            // Don't exit immediately to handle pending requests
+            setTimeout(() => {
+                console.error('HTTP Bridge shutdown complete');
+                process.exit(0);
+            }, 1000);
         });
+        
+        // Keep the process alive
+        setInterval(() => {
+            // Heartbeat to prevent the process from exiting
+        }, 10000);
     }
 }
 

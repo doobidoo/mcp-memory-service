@@ -16,25 +16,45 @@ This directory contains example configurations, scripts, and setup utilities for
 
 ## Core Files
 
-### `http-mcp-bridge.js`
-A Node.js script that bridges MCP JSON-RPC protocol to HTTP REST API calls. This allows MCP clients like Claude Desktop to connect to a remote HTTP server instead of running a local instance.
+### `http-mcp-bridge-robust.js`
+Production-ready Node.js bridge that connects MCP clients to remote HTTP memory services. Features retry logic, timeout handling, and comprehensive error management.
 
-**Usage:**
-1. Configure your server endpoint and API key as environment variables
-2. Use this script as the MCP server command in your client configuration
+**Key Features:**
+- Automatic retry with exponential backoff
+- Health check verification
+- Certificate validation bypass for self-signed certificates
+- Support for both semantic search and tag-based search
+- Comprehensive logging and error handling
 
-### `claude-desktop-http-config.json`
-Example Claude Desktop configuration for connecting to a remote MCP Memory Service HTTP server via the bridge script.
+### `README-remote-memory.md`
+Complete setup guide for connecting Claude Desktop to remote memory services, including troubleshooting and configuration options.
 
-**Setup:**
-1. Update the path to `http-mcp-bridge.js`
-2. Set your server endpoint URL
-3. Add your API key (if authentication is enabled)
-4. Copy this configuration to your Claude Desktop config file
+### Configuration Templates
+- `claude-desktop-memory-config.json` - Production Claude Desktop configuration
+- `memory_local_config.json` - Local server configuration example  
+- `custom-memory-config.json` - Customizable template for various setups
+
+### Development Archive
+- `archive/remote-development/` - Development artifacts and test files from remote memory implementation
 
 ## Quick Start
 
-### 1. Server Setup
+### Remote Memory Connection
+For connecting to an existing remote memory server:
+
+```bash
+# 1. Copy the configuration template
+cp examples/claude-desktop-memory-config.json ~/Library/Application\ Support/Claude/claude_desktop_config.json
+
+# 2. Update configuration with your server details
+# Edit the endpoint URL and API key in the configuration file
+
+# 3. Restart Claude Desktop
+```
+
+### Local Server Setup
+For setting up your own memory server:
+
 ```bash
 # On your server machine
 cd mcp-memory-service
@@ -44,17 +64,11 @@ export MCP_API_KEY="your-secure-key"
 python scripts/run_http_server.py
 ```
 
-### 2. Client Configuration
-```bash
-# Update the bridge script path and server details
-cp examples/claude-desktop-http-config.json ~/.config/claude-desktop/
-```
-
-### 3. Test Connection
+### Test Connection
 ```bash
 # Test the HTTP API directly
-curl -H "Authorization: Bearer your-secure-key" \
-  http://your-server:8000/api/health
+curl -k -H "Authorization: Bearer your-api-key" \
+  https://your-server/api/health
 ```
 
 ## Advanced Usage
