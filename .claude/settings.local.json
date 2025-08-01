@@ -1,7 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(MCP_MEMORY_HTTP_ENDPOINT=\"https://memory.local/api\" MCP_MEMORY_API_KEY=\"mcp-0b1ccbde2197a08dcb12d41af4044be6\" node examples/http-mcp-bridge.js)",
       "Bash(chmod:*)",
       "Bash(git stash:*)",
       "Bash(ls:*)",
