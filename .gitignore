@@ -101,3 +101,4 @@ claude_config/claude_desktop_config.json
 # Personalized setup guides (generated locally)
 YOUR_PERSONALIZED_SETUP_GUIDE.md
 .mcp.json
+examples/claude-desktop-http-config.json
