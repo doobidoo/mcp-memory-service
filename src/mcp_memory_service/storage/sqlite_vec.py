@@ -24,7 +24,7 @@ import traceback
 import time
 import os
 from typing import List, Dict, Any, Tuple, Optional, Set, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 import random
 
@@ -690,7 +690,7 @@ class SqliteVecMemoryStorage(MemoryStorage):
             
             # Update timestamps
             now = time.time()
-            now_iso = datetime.utcfromtimestamp(now).isoformat() + "Z"
+            now_iso = datetime.fromtimestamp(now, tz=timezone.utc).isoformat().replace("+00:00", "Z")
             
             if not preserve_timestamps:
                 created_at = now

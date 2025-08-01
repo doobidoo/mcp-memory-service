@@ -29,7 +29,7 @@ import traceback
 from chromadb.utils import embedding_functions
 import logging
 from typing import List, Dict, Any, Tuple, Set, Optional
-from datetime import datetime, date
+from datetime import datetime, timezone, date
 
 # Try to import SentenceTransformer, but don't fail if it's not available
 try:
@@ -815,7 +815,7 @@ class ChromaMemoryStorage(MemoryStorage):
             # Update timestamps
             import time
             now = time.time()
-            now_iso = datetime.utcfromtimestamp(now).isoformat() + "Z"
+            now_iso = datetime.fromtimestamp(now, tz=timezone.utc).isoformat().replace("+00:00", "Z")
             
             # Always update the updated_at timestamp
             updated_metadata["updated_at"] = now

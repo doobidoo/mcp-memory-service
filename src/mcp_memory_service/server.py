@@ -32,7 +32,7 @@ import json
 import platform
 from collections import deque
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from mcp.server.models import InitializationOptions
 import mcp.types as types
@@ -1781,7 +1781,7 @@ class MemoryServer:
                 memory_type=metadata.get("type"),
                 metadata = {**metadata, "tags":sanitized_tags},  # include the stringified tags in the meta data
                 created_at=now,
-                created_at_iso=datetime.utcfromtimestamp(now).isoformat() + "Z"
+                created_at_iso=datetime.fromtimestamp(now, tz=timezone.utc).isoformat().replace("+00:00", "Z")
             )
             
             # Store memory

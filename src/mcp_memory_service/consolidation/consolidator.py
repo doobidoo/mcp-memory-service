@@ -16,7 +16,7 @@
 
 import asyncio
 from typing import List, Dict, Any, Optional, Protocol
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import logging
 import time
 
@@ -212,7 +212,7 @@ class DreamInspiredConsolidator:
                 cutoff_date = now - time_ranges[time_horizon]
                 memories = [
                     m for m in memories 
-                    if m.created_at and datetime.utcfromtimestamp(m.created_at) < cutoff_date
+                    if m.created_at and datetime.fromtimestamp(m.created_at, tz=timezone.utc) < cutoff_date
                 ]
         
         return memories
@@ -427,7 +427,7 @@ class DreamInspiredConsolidator:
                 total_size += len(memory.content)
                 
                 if memory.created_at:
-                    age_days = (now - datetime.utcfromtimestamp(memory.created_at)).days
+                    age_days = (now - datetime.fromtimestamp(memory.created_at, tz=timezone.utc)).days
                     if age_days > 30:
                         old_memories += 1
             
