@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
       "Bash(echo $HOME)",
@@ -83,7 +84,9 @@
       "Bash(git tag:*)",
       "Bash(avahi-browse:*)",
       "Bash(avahi-resolve-host-name:*)",
-      "Bash(systemctl status:*)"
+      "Bash(systemctl status:*)",
+      "mcp__tavily-mcp__tavily-crawl",
+      "mcp__tavily-mcp__tavily-extract"
     ],
     "deny": []
   },
