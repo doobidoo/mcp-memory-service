@@ -139,7 +139,11 @@ async def lifespan(app: FastAPI):
     logger.info("SSE Manager stopped")
     
     if storage:
-        await storage.close()
+        if hasattr(storage, 'close'):
+            await storage.close()
+        elif hasattr(storage, '_client'):
+            # ChromaDB cleanup if needed
+            storage._client = None
 
 
 def create_app() -> FastAPI:
