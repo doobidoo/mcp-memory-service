@@ -249,7 +249,12 @@ def check_mcp_protocol():
         from mcp.types import TextContent
         from mcp.server import Server
         
-        print_info(f"MCP version: {mcp.__version__}")
+        # Try to get version, handle case where it doesn't exist
+        try:
+            version = mcp.__version__
+            print_info(f"MCP version: {version}")
+        except AttributeError:
+            print_info("MCP version: (version attribute not available)")
         
         # Basic protocol functionality check
         server = Server("test_server")

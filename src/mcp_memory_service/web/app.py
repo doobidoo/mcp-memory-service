@@ -36,9 +36,10 @@ from ..config import (
     DATABASE_PATH,
     EMBEDDING_MODEL_NAME,
     MDNS_ENABLED,
-    HTTPS_ENABLED
+    HTTPS_ENABLED,
+    STORAGE_BACKEND,
+    CHROMA_PATH
 )
-from ..storage.sqlite_vec import SqliteVecMemoryStorage
 from .dependencies import set_storage, get_storage
 from .api.health import router as health_router
 from .api.memories import router as memories_router
@@ -48,8 +49,24 @@ from .sse import sse_manager
 
 logger = logging.getLogger(__name__)
 
+def create_storage():
+    """Create storage instance based on configured backend."""
+    if STORAGE_BACKEND == 'sqlite_vec':
+        from ..storage.sqlite_vec import SqliteVecMemoryStorage
+        return SqliteVecMemoryStorage(
+            db_path=DATABASE_PATH,
+            embedding_model=EMBEDDING_MODEL_NAME
+        )
+    elif STORAGE_BACKEND == 'chroma':
+        from ..storage.chroma import ChromaMemoryStorage
+        return ChromaMemoryStorage(
+            path=CHROMA_PATH
+        )
+    else:
+        raise ValueError(f"Unsupported storage backend: {STORAGE_BACKEND}")
+
 # Global storage instance
-storage: Optional[SqliteVecMemoryStorage] = None
+storage: Optional[Any] = None
 
 # Global mDNS advertiser instance
 mdns_advertiser: Optional[Any] = None
@@ -62,14 +79,15 @@ async def lifespan(app: FastAPI):
     
     # Startup
     logger.info("Starting MCP Memory Service HTTP interface...")
+    logger.info(f"Using storage backend: {STORAGE_BACKEND}")
     try:
-        storage = SqliteVecMemoryStorage(
-            db_path=DATABASE_PATH,
-            embedding_model=EMBEDDING_MODEL_NAME
-        )
+        storage = create_storage()
         await storage.initialize()
         set_storage(storage)  # Set the global storage instance
-        logger.info(f"SQLite-vec storage initialized at {DATABASE_PATH}")
+        if STORAGE_BACKEND == 'sqlite_vec':
+            logger.info(f"SQLite-vec storage initialized at {DATABASE_PATH}")
+        else:
+            logger.info(f"Chroma storage initialized at {CHROMA_PATH}")
         
         # Start SSE manager
         await sse_manager.start()
@@ -121,7 +139,11 @@ async def lifespan(app: FastAPI):
     logger.info("SSE Manager stopped")
     
     if storage:
-        await storage.close()
+        if hasattr(storage, 'close'):
+            await storage.close()
+        elif hasattr(storage, '_client'):
+            # ChromaDB cleanup if needed
+            storage._client = None
 
 
 def create_app() -> FastAPI:

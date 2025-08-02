@@ -25,7 +25,7 @@ from typing import Dict, Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from ...storage.sqlite_vec import SqliteVecMemoryStorage
+from ...config import STORAGE_BACKEND
 from ..dependencies import get_storage
 
 router = APIRouter()
@@ -86,13 +86,22 @@ async def detailed_health_check(storage: SqliteVecMemoryStorage = Depends(get_st
     
     # Get storage information
     try:
-        # Get basic storage stats
+        # Get basic storage stats (backend-agnostic)
         storage_info = {
-            "backend": "sqlite-vec",
-            "database_path": storage.db_path,
-            "embedding_model": storage.embedding_model_name,
+            "backend": STORAGE_BACKEND,
             "status": "connected"
         }
+        
+        # Add backend-specific information
+        if hasattr(storage, 'db_path'):
+            storage_info["database_path"] = storage.db_path
+        elif hasattr(storage, 'path'):
+            storage_info["database_path"] = storage.path
+            
+        if hasattr(storage, 'embedding_model_name'):
+            storage_info["embedding_model"] = storage.embedding_model_name
+        elif hasattr(storage, 'model_name'):
+            storage_info["embedding_model"] = storage.model_name
         
         # Try to get detailed statistics from storage
         try:
@@ -109,7 +118,7 @@ async def detailed_health_check(storage: SqliteVecMemoryStorage = Depends(get_st
             
     except Exception as e:
         storage_info = {
-            "backend": "sqlite-vec",
+            "backend": STORAGE_BACKEND,
             "status": "error",
             "error": str(e)
         }
