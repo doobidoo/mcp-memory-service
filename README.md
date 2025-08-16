@@ -20,6 +20,7 @@
 [![Cross Platform](https://img.shields.io/badge/Platform-Cross--Platform-success?style=flat&logo=windows&logoColor=white)](https://github.com/doobidoo/mcp-memory-service#hardware-compatibility)
 [![Production Ready](https://img.shields.io/badge/Production-Ready-brightgreen?style=flat&logo=checkmark)](https://github.com/doobidoo/mcp-memory-service#-in-production)
 [![SQLite-vec](https://img.shields.io/badge/Storage-SQLite--vec-336791?style=flat&logo=sqlite&logoColor=white)](https://github.com/doobidoo/mcp-memory-service#storage-backends)
+[![Cloudflare](https://img.shields.io/badge/Storage-Cloudflare-f38020?style=flat&logo=cloudflare&logoColor=white)](https://github.com/doobidoo/mcp-memory-service#storage-backends)
 
 A **universal MCP memory service** providing **semantic memory search**, persistent storage, and **autonomous memory consolidation** for **AI assistants** and development environments. This **Model Context Protocol server** works with **Claude Desktop, VS Code, Cursor, Continue, WindSurf, LM Studio, Zed, and 13+ AI applications**, featuring **vector database storage** with SQLite-vec for **fast semantic search** and a revolutionary **dream-inspired consolidation system** that automatically organizes, compresses, and manages your **AI conversation history** over time, creating a **self-evolving knowledge base** for enhanced **AI productivity**.
 
@@ -784,17 +785,24 @@ See the [Invocation Guide](docs/guides/invocation_guide.md) for a complete list 
 The MCP Memory Service supports multiple storage backends to suit different use cases:
 
 ### SQLite-vec (Default - Recommended)
-- **Best for**: All use cases - from personal to production deployments
+- **Best for**: Local development, personal use, single-user deployments
 - **Features**: Single-file database, 75% lower memory usage, zero network dependencies
 - **Memory usage**: Minimal (~50MB for 1K memories)
 - **Setup**: Automatically configured, works offline immediately
 
+### Cloudflare (NEW - Cloud-Native) 🚀
+- **Best for**: Production deployments, global scale, multi-user applications
+- **Features**: Global edge network, serverless scaling, zero infrastructure management
+- **Storage**: Vectorize + D1 + R2, Workers AI embeddings
+- **Memory usage**: Minimal local footprint, cloud-based storage
+- **Setup**: [Cloudflare Setup Guide](docs/cloudflare-setup.md)
+
 ### ChromaDB (Legacy - Deprecated)
-⚠️ **DEPRECATED**: Will be removed in v6.0.0. Please migrate to SQLite-vec.
+⚠️ **DEPRECATED**: Will be removed in v6.0.0. Please migrate to SQLite-vec or Cloudflare.
 - **Previous use cases**: Large memory collections, advanced vector metrics
 - **Issues**: Network dependencies, Hugging Face download failures, high resource usage
 - **Memory usage**: Higher (~200MB for 1K memories)
-- **Migration**: Run `python scripts/migrate_to_sqlite_vec.py` to migrate your data
+- **Migration**: Run `python scripts/migrate_to_sqlite_vec.py` or `python scripts/migrate_to_cloudflare.py`
 
 #### Quick Setup for SQLite-vec
 
@@ -826,6 +834,32 @@ To install optional machine learning dependencies:
 # Add ML dependencies for embedding generation
 pip install 'mcp-memory-service[ml]'
 ```
+
+#### Quick Setup for Cloudflare Backend
+
+```bash
+# Install additional dependencies
+pip install -r requirements-cloudflare.txt
+
+# Create Cloudflare resources (using Wrangler CLI)
+wrangler vectorize create mcp-memory-index --dimensions=768 --metric=cosine
+wrangler d1 create mcp-memory-db
+
+# Configure environment variables
+export MCP_MEMORY_STORAGE_BACKEND=cloudflare
+export CLOUDFLARE_API_TOKEN="your-api-token"
+export CLOUDFLARE_ACCOUNT_ID="your-account-id" 
+export CLOUDFLARE_VECTORIZE_INDEX="mcp-memory-index"
+export CLOUDFLARE_D1_DATABASE_ID="your-d1-database-id"
+
+# Optional: R2 bucket for large content
+export CLOUDFLARE_R2_BUCKET="mcp-memory-content"
+
+# Start the service
+python -m src.mcp_memory_service.server
+```
+
+📖 **[Complete Cloudflare Setup Guide](docs/cloudflare-setup.md)**
 
 #### Homebrew PyTorch Integration
 
