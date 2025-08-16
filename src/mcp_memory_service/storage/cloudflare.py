@@ -71,7 +71,7 @@ class CloudflareStorage(MemoryStorage):
         
         # API endpoints
         self.base_url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}"
-        self.vectorize_url = f"{self.base_url}/vectorize/indexes/{vectorize_index}"
+        self.vectorize_url = f"{self.base_url}/vectorize/v2/indexes/{vectorize_index}"
         self.d1_url = f"{self.base_url}/d1/database/{d1_database_id}"
         self.ai_url = f"{self.base_url}/ai/run/{embedding_model}"
         
@@ -314,20 +314,53 @@ class CloudflareStorage(MemoryStorage):
     
     async def _store_vectorize_vector(self, vector_id: str, embedding: List[float], metadata: Dict[str, Any]) -> None:
         """Store vector in Vectorize."""
-        payload = {
-            "vectors": [{
-                "id": vector_id,
-                "values": embedding,
-                "metadata": metadata,
-                "namespace": "mcp-memory"
-            }]
+        # Try without namespace first to isolate the issue
+        vector_data = {
+            "id": vector_id,
+            "values": embedding,
+            "metadata": metadata
         }
         
-        response = await self._retry_request("POST", f"{self.vectorize_url}/insert", json=payload)
-        result = response.json()
+        # Convert to NDJSON format as required by the HTTP API
+        import json
+        ndjson_content = json.dumps(vector_data) + "\n"
         
-        if not result.get("success"):
-            raise ValueError(f"Failed to store vector: {result}")
+        try:
+            # Send as raw NDJSON data with correct Content-Type header
+            client = await self._get_client()
+            
+            # Override headers for this specific request
+            headers = {
+                "Authorization": f"Bearer {self.api_token}",
+                "Content-Type": "application/x-ndjson"
+            }
+            
+            response = await client.post(
+                f"{self.vectorize_url}/upsert",
+                content=ndjson_content.encode("utf-8"),
+                headers=headers
+            )
+            
+            # Log the full response for debugging
+            logger.info(f"Vectorize response status: {response.status_code}")
+            logger.info(f"Vectorize response headers: {dict(response.headers)}")
+            response_text = response.text
+            logger.info(f"Vectorize response body: {response_text}")
+            
+            if response.status_code != 200:
+                raise ValueError(f"HTTP {response.status_code}: {response_text}")
+            
+            result = response.json()
+            if not result.get("success"):
+                raise ValueError(f"Failed to store vector: {result}")
+                
+        except Exception as e:
+            # Add more detailed error logging
+            logger.error(f"Vectorize insert failed: {e}")
+            logger.error(f"Vector data was: {vector_data}")
+            logger.error(f"NDJSON content: {ndjson_content.strip()}")
+            logger.error(f"URL was: {self.vectorize_url}/upsert")
+            raise ValueError(f"Failed to store vector: {e}")
     
     async def _store_d1_memory(self, memory: Memory, vector_id: str, content_size: int, r2_key: Optional[str], stored_content: str) -> None:
         """Store memory metadata in D1."""
@@ -402,13 +435,12 @@ class CloudflareStorage(MemoryStorage):
             # Generate query embedding
             query_embedding = await self._generate_embedding(query)
             
-            # Search Vectorize
+            # Search Vectorize (without namespace for now)
             search_payload = {
                 "vector": query_embedding,
                 "topK": n_results,
                 "returnMetadata": "all",
-                "returnValues": False,
-                "namespace": "mcp-memory"
+                "returnValues": False
             }
             
             response = await self._retry_request("POST", f"{self.vectorize_url}/query", json=search_payload)
@@ -617,12 +649,10 @@ class CloudflareStorage(MemoryStorage):
     
     async def _delete_vectorize_vector(self, vector_id: str) -> None:
         """Delete vector from Vectorize."""
-        payload = {
-            "ids": [vector_id],
-            "namespace": "mcp-memory"
-        }
+        # Send IDs directly in the payload
+        payload = [vector_id]
         
-        response = await self._retry_request("POST", f"{self.vectorize_url}/delete", json=payload)
+        response = await self._retry_request("POST", f"{self.vectorize_url}/delete-by-ids", json=payload)
         result = response.json()
         
         if not result.get("success"):

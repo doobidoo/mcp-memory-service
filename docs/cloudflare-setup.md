@@ -2,12 +2,49 @@
 
 ## Overview
 
-The MCP Memory Service now supports Cloudflare as a native backend, leveraging Cloudflare's edge computing platform for global scalability and performance. This backend uses:
+The MCP Memory Service supports native Cloudflare integration using Vectorize for vector storage, D1 for metadata, and optional R2 for large content. This provides:
 
-- **Vectorize**: For storing and searching vector embeddings
-- **D1**: For metadata, tags, and relationships
-- **R2**: For large content storage (optional)
-- **Workers AI**: For embedding generation
+- **Vectorize**: Vector database for semantic search (768-dimensional embeddings)
+- **D1**: SQLite database for metadata storage
+- **Workers AI**: Embedding generation (@cf/baai/bge-base-en-v1.5)
+- **R2** (optional): Object storage for large content
+
+This setup provides global distribution, automatic scaling, and cost-effective pay-per-use pricing.
+
+## 🚀 Quick Start
+
+For users who want to get started immediately:
+
+### Prerequisites
+1. **Cloudflare Account**: You need a Cloudflare account with Workers/D1/Vectorize access
+2. **API Token**: Create an API token with these permissions:
+   - **Vectorize Edit** (for creating and managing vector indexes)
+   - **D1 Edit** (for creating and managing databases)
+   - **R2 Edit** (optional, for large content storage)
+   - **Workers AI Edit** (for embedding generation)
+
+### Quick Setup Commands
+
+```bash
+# 1. Install dependencies
+pip install httpx>=0.24.0
+
+# 2. Create Cloudflare resources (requires wrangler CLI)
+wrangler vectorize create mcp-memory-index --dimensions=768 --metric=cosine
+wrangler d1 create mcp-memory-db
+wrangler r2 bucket create mcp-memory-content  # Optional
+
+# 3. Configure environment
+export MCP_MEMORY_STORAGE_BACKEND=cloudflare
+export CLOUDFLARE_API_TOKEN="your-api-token"
+export CLOUDFLARE_ACCOUNT_ID="your-account-id"
+export CLOUDFLARE_VECTORIZE_INDEX="mcp-memory-index"
+export CLOUDFLARE_D1_DATABASE_ID="your-d1-database-id"
+export CLOUDFLARE_R2_BUCKET="mcp-memory-content"  # Optional
+
+# 4. Test and start
+python -m src.mcp_memory_service.server
+```
 
 ## Prerequisites
 
@@ -65,6 +102,60 @@ wrangler r2 bucket create mcp-memory-content
 1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com/)
 2. Select your domain or go to overview
 3. Copy the Account ID from the right sidebar
+
+### 2.3 Manual Resource Creation (Alternative)
+
+If you prefer manual creation via the Cloudflare Dashboard or encounter authentication issues:
+
+**Create Vectorize Index via Dashboard:**
+1. Go to [Cloudflare Dashboard → Vectorize](https://dash.cloudflare.com/vectorize)
+2. Click "Create Index"
+3. Name: `mcp-memory-index`
+4. Dimensions: `768`
+5. Metric: `cosine`
+
+**Create D1 Database via Dashboard:**
+1. Go to [Cloudflare Dashboard → D1](https://dash.cloudflare.com/d1)
+2. Click "Create Database"
+3. Name: `mcp-memory-db`
+4. Copy the Database ID from the overview page
+
+**Create R2 Bucket via Dashboard (Optional):**
+1. Go to [Cloudflare Dashboard → R2](https://dash.cloudflare.com/r2)
+2. Click "Create Bucket"
+3. Name: `mcp-memory-content`
+4. Choose region closest to your location
+
+**Alternative API Creation:**
+```bash
+# Create Vectorize index via API
+curl -X POST "https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/vectorize/indexes" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "mcp-memory-index",
+    "config": {
+      "dimensions": 768,
+      "metric": "cosine"
+    }
+  }'
+
+# Create D1 database via API
+curl -X POST "https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/d1/database" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "mcp-memory-db"
+  }'
+
+# Create R2 bucket via API (optional)
+curl -X POST "https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/r2/buckets" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "mcp-memory-content"
+  }'
+```
 
 ## Step 3: Configure Environment Variables
 
@@ -150,6 +241,13 @@ INFO:mcp_memory_service.storage.cloudflare:Cloudflare storage backend initialize
 
 ### 5.3 Test Basic Operations
 
+**Option A: Comprehensive Test Suite**
+```bash
+# Run comprehensive automated tests
+python scripts/test_cloudflare_backend.py
+```
+
+**Option B: Manual API Testing**
 ```bash
 # Store a test memory
 curl -X POST http://localhost:8000/api/memories \
@@ -169,6 +267,12 @@ curl -X POST http://localhost:8000/api/memories/search \
 
 # Get statistics
 curl http://localhost:8000/api/stats
+```
+
+**Option C: Automated Resource Setup**
+```bash
+# Set up Cloudflare resources automatically
+python scripts/setup_cloudflare_resources.py
 ```
 
 ## Architecture Details
@@ -236,37 +340,69 @@ python scripts/import_to_cloudflare.py --input cloudflare_export.json
 
 ### Common Issues
 
-#### 1. Authentication Errors
+#### 1. Authentication Errors (401)
 
 ```
 ERROR: Missing required environment variables for Cloudflare backend: CLOUDFLARE_API_TOKEN
+ERROR: Unauthorized - Invalid API token
 ```
 
-**Solution**: Verify all required environment variables are set and API token has correct permissions.
+**Solution**: 
+- Verify all required environment variables are set
+- Check API token has correct permissions (Vectorize:Edit, D1:Edit, Workers AI:Edit)
+- Ensure token is not expired
+- Verify account ID is correct
 
-#### 2. Vectorize Index Not Found
+#### 2. Resource Not Found (404)
 
 ```
 ValueError: Vectorize index 'mcp-memory-index' not found
+ValueError: D1 database not found
 ```
 
-**Solution**: Create the Vectorize index or verify the index name is correct.
+**Solution**: 
+- Create the Vectorize index or verify the index name is correct
+- Check that resources were created in the correct account
+- Confirm resource IDs/names match exactly
+- Verify resource names match exactly
 
-#### 3. D1 Database Access Issues
+#### 3. Vector Storage Errors (400)
+
+```
+ValueError: Failed to store vector data
+HTTP 400: Invalid vector data format
+```
+
+**Solution**: 
+- Check vector dimensions (must be 768)
+- Verify NDJSON format for vector data
+- Ensure metadata values are properly serialized
+- Validate input data types
+
+#### 4. D1 Database Access Issues
 
 ```
 ValueError: Failed to initialize D1 schema
+HTTP 403: Insufficient permissions
 ```
 
-**Solution**: Verify D1 database ID and API token permissions.
+**Solution**: 
+- Verify D1 database ID and API token permissions
+- Ensure database exists and is accessible
+- Check API token has D1:Edit permissions
 
-#### 4. Rate Limiting
+#### 5. API Rate Limits (429)
 
 ```
 Rate limited after 3 retries
+HTTP 429: Too Many Requests
 ```
 
-**Solution**: Increase `CLOUDFLARE_MAX_RETRIES` or `CLOUDFLARE_BASE_DELAY` for more conservative retry behavior.
+**Solution**: 
+- Increase `CLOUDFLARE_MAX_RETRIES` or `CLOUDFLARE_BASE_DELAY` for more conservative retry behavior
+- Implement exponential backoff (already included)
+- Monitor API usage through Cloudflare dashboard
+- Consider implementing request caching for high-volume usage
 
 ### Debug Mode
 

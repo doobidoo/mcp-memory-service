@@ -36,7 +36,10 @@ from mcp.types import TextContent
 # Import existing memory service components
 from .config import (
     CHROMA_PATH, COLLECTION_METADATA, STORAGE_BACKEND, 
-    CONSOLIDATION_ENABLED, EMBEDDING_MODEL_NAME, INCLUDE_HOSTNAME
+    CONSOLIDATION_ENABLED, EMBEDDING_MODEL_NAME, INCLUDE_HOSTNAME,
+    CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_VECTORIZE_INDEX,
+    CLOUDFLARE_D1_DATABASE_ID, CLOUDFLARE_R2_BUCKET, CLOUDFLARE_EMBEDDING_MODEL,
+    CLOUDFLARE_LARGE_CONTENT_THRESHOLD, CLOUDFLARE_MAX_RETRIES, CLOUDFLARE_BASE_DELAY
 )
 from .storage.base import MemoryStorage
 
@@ -63,6 +66,13 @@ def get_storage_backend():
             except ImportError as e:
                 logger.error(f"Failed to import fallback SQLite-vec storage: {e}")
                 raise
+    elif backend == "cloudflare":
+        try:
+            from .storage.cloudflare import CloudflareStorage
+            return CloudflareStorage
+        except ImportError as e:
+            logger.error(f"Failed to import Cloudflare storage: {e}")
+            raise
     else:
         logger.warning(f"Unknown storage backend '{backend}', defaulting to SQLite-vec")
         try:
@@ -94,6 +104,18 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
         storage = StorageClass(
             db_path=CHROMA_PATH / "memory.db",
             embedding_manager=None  # Will be set after creation
+        )
+    elif StorageClass.__name__ == "CloudflareStorage":
+        storage = StorageClass(
+            api_token=CLOUDFLARE_API_TOKEN,
+            account_id=CLOUDFLARE_ACCOUNT_ID,
+            vectorize_index=CLOUDFLARE_VECTORIZE_INDEX,
+            d1_database_id=CLOUDFLARE_D1_DATABASE_ID,
+            r2_bucket=CLOUDFLARE_R2_BUCKET,
+            embedding_model=CLOUDFLARE_EMBEDDING_MODEL,
+            large_content_threshold=CLOUDFLARE_LARGE_CONTENT_THRESHOLD,
+            max_retries=CLOUDFLARE_MAX_RETRIES,
+            base_delay=CLOUDFLARE_BASE_DELAY
         )
     else:  # ChromaStorage
         storage = StorageClass(

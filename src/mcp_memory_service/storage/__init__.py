@@ -28,3 +28,9 @@ try:
     __all__.append('SqliteVecMemoryStorage')
 except ImportError:
     SqliteVecMemoryStorage = None
+
+try:
+    from .cloudflare import CloudflareStorage
+    __all__.append('CloudflareStorage')
+except ImportError:
+    CloudflareStorage = None

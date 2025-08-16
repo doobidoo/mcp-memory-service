@@ -116,7 +116,16 @@
       "mcp__cloudflare-bindings__workers_list",
       "mcp__cloudflare-bindings__accounts_list",
       "Bash(/memory-store \"Started Cloudflare native integration project. Phase 1: Core backend implementation using Vectorize for vectors, D1 for metadata, optional R2 for large content. Architecture maintains full backward compatibility.\")",
-      "Bash(/memory-store:*)"
+      "Bash(/memory-store:*)",
+      "Bash(wrangler:*)",
+      "mcp__cloudflare-bindings__set_active_account",
+      "mcp__cloudflare-bindings__r2_bucket_create",
+      "Bash(MCP_MEMORY_STORAGE_BACKEND=cloudflare )",
+      "Bash(CLOUDFLARE_VECTORIZE_INDEX=\"mcp-memory-index\" )",
+      "WebFetch(domain:developers.cloudflare.com)",
+      "Bash(MCP_MEMORY_STORAGE_BACKEND=cloudflare python test_cloudflare_backend.py)",
+      "mcp__cloudflare-bindings__d1_databases_list",
+      "Bash(unset:*)"
     ],
     "deny": [],
     "additionalDirectories": [

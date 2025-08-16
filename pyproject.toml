@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-memory-service"
-version = "6.1.1"  
+version = "6.2.0"
 description = "Universal MCP memory service with semantic search, multi-client support, and autonomous consolidation for Claude Desktop, VS Code, and 13+ AI applications"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -49,9 +49,13 @@ dependencies = [
     "aiofiles>=23.2.1",
     "psutil>=5.9.0",
     "zeroconf>=0.130.0",
+<<<<<<< HEAD
     "PyPDF2>=3.0.0",
     "chardet>=5.0.0",
     "click>=8.0.0"
+=======
+    "httpx>=0.24.0"
+>>>>>>> 479bd82 (feat: Native Cloudflare backend integration (v5.1.0))
 ]
 
 [project.optional-dependencies]
