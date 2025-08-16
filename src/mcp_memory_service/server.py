@@ -187,7 +187,17 @@ from .config import (
     CONSOLIDATION_ENABLED,
     CONSOLIDATION_CONFIG,
     CONSOLIDATION_SCHEDULE,
-    INCLUDE_HOSTNAME
+    INCLUDE_HOSTNAME,
+    # Cloudflare configuration
+    CLOUDFLARE_API_TOKEN,
+    CLOUDFLARE_ACCOUNT_ID,
+    CLOUDFLARE_VECTORIZE_INDEX,
+    CLOUDFLARE_D1_DATABASE_ID,
+    CLOUDFLARE_R2_BUCKET,
+    CLOUDFLARE_EMBEDDING_MODEL,
+    CLOUDFLARE_LARGE_CONTENT_THRESHOLD,
+    CLOUDFLARE_MAX_RETRIES,
+    CLOUDFLARE_BASE_DELAY
 )
 # Storage imports will be done conditionally in the server class
 from .models.memory import Memory
@@ -508,6 +518,21 @@ class MemoryServer:
                         SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
                         self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH)
                         logger.info(f"Created SQLite-vec storage at: {SQLITE_VEC_PATH}")
+                elif STORAGE_BACKEND == 'cloudflare':
+                    # Cloudflare backend using Vectorize, D1, and R2
+                    from .storage.cloudflare import CloudflareStorage
+                    self.storage = CloudflareStorage(
+                        api_token=CLOUDFLARE_API_TOKEN,
+                        account_id=CLOUDFLARE_ACCOUNT_ID,
+                        vectorize_index=CLOUDFLARE_VECTORIZE_INDEX,
+                        d1_database_id=CLOUDFLARE_D1_DATABASE_ID,
+                        r2_bucket=CLOUDFLARE_R2_BUCKET,
+                        embedding_model=CLOUDFLARE_EMBEDDING_MODEL,
+                        large_content_threshold=CLOUDFLARE_LARGE_CONTENT_THRESHOLD,
+                        max_retries=CLOUDFLARE_MAX_RETRIES,
+                        base_delay=CLOUDFLARE_BASE_DELAY
+                    )
+                    logger.info(f"Created Cloudflare storage with Vectorize index: {CLOUDFLARE_VECTORIZE_INDEX}")
                 else:
                     # ChromaDB backend (deprecated) - Check for migration
                     logger.warning("=" * 70)

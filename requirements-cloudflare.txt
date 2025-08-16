@@ -1,0 +1,8 @@
+# Additional dependencies for Cloudflare backend support
+# These are installed automatically when using the cloudflare backend
+
+# HTTP client for Cloudflare API calls
+httpx>=0.24.0
+
+# Optional: Cloudflare Python SDK (if available)
+# cloudflare>=2.15.0

@@ -167,7 +167,7 @@ SERVER_NAME = "memory"
 SERVER_VERSION = "0.2.2"
 
 # Storage backend configuration
-SUPPORTED_BACKENDS = ['chroma', 'sqlite_vec', 'sqlite-vec']
+SUPPORTED_BACKENDS = ['chroma', 'sqlite_vec', 'sqlite-vec', 'cloudflare']
 STORAGE_BACKEND = os.getenv('MCP_MEMORY_STORAGE_BACKEND', 'sqlite_vec').lower()
 
 # Normalize backend names (sqlite-vec -> sqlite_vec)
@@ -213,6 +213,55 @@ if USE_ONNX:
     # ONNX model cache directory
     ONNX_MODEL_CACHE = os.path.join(BASE_DIR, 'onnx_models')
     os.makedirs(ONNX_MODEL_CACHE, exist_ok=True)
+
+# Cloudflare specific configuration
+if STORAGE_BACKEND == 'cloudflare':
+    # Required Cloudflare settings
+    CLOUDFLARE_API_TOKEN = os.getenv('CLOUDFLARE_API_TOKEN')
+    CLOUDFLARE_ACCOUNT_ID = os.getenv('CLOUDFLARE_ACCOUNT_ID')
+    CLOUDFLARE_VECTORIZE_INDEX = os.getenv('CLOUDFLARE_VECTORIZE_INDEX')
+    CLOUDFLARE_D1_DATABASE_ID = os.getenv('CLOUDFLARE_D1_DATABASE_ID')
+    
+    # Optional Cloudflare settings
+    CLOUDFLARE_R2_BUCKET = os.getenv('CLOUDFLARE_R2_BUCKET')  # For large content storage
+    CLOUDFLARE_EMBEDDING_MODEL = os.getenv('CLOUDFLARE_EMBEDDING_MODEL', '@cf/baai/bge-base-en-v1.5')
+    CLOUDFLARE_LARGE_CONTENT_THRESHOLD = int(os.getenv('CLOUDFLARE_LARGE_CONTENT_THRESHOLD', '1048576'))  # 1MB
+    CLOUDFLARE_MAX_RETRIES = int(os.getenv('CLOUDFLARE_MAX_RETRIES', '3'))
+    CLOUDFLARE_BASE_DELAY = float(os.getenv('CLOUDFLARE_BASE_DELAY', '1.0'))
+    
+    # Validate required settings
+    missing_vars = []
+    if not CLOUDFLARE_API_TOKEN:
+        missing_vars.append('CLOUDFLARE_API_TOKEN')
+    if not CLOUDFLARE_ACCOUNT_ID:
+        missing_vars.append('CLOUDFLARE_ACCOUNT_ID')
+    if not CLOUDFLARE_VECTORIZE_INDEX:
+        missing_vars.append('CLOUDFLARE_VECTORIZE_INDEX')
+    if not CLOUDFLARE_D1_DATABASE_ID:
+        missing_vars.append('CLOUDFLARE_D1_DATABASE_ID')
+    
+    if missing_vars:
+        logger.error(f"Missing required environment variables for Cloudflare backend: {', '.join(missing_vars)}")
+        logger.error("Please set the required variables or switch to a different backend")
+        sys.exit(1)
+    
+    logger.info(f"Using Cloudflare backend with:")
+    logger.info(f"  Vectorize Index: {CLOUDFLARE_VECTORIZE_INDEX}")
+    logger.info(f"  D1 Database: {CLOUDFLARE_D1_DATABASE_ID}")
+    logger.info(f"  R2 Bucket: {CLOUDFLARE_R2_BUCKET or 'Not configured'}")
+    logger.info(f"  Embedding Model: {CLOUDFLARE_EMBEDDING_MODEL}")
+    logger.info(f"  Large Content Threshold: {CLOUDFLARE_LARGE_CONTENT_THRESHOLD} bytes")
+else:
+    # Set Cloudflare variables to None when not using Cloudflare backend
+    CLOUDFLARE_API_TOKEN = None
+    CLOUDFLARE_ACCOUNT_ID = None
+    CLOUDFLARE_VECTORIZE_INDEX = None
+    CLOUDFLARE_D1_DATABASE_ID = None
+    CLOUDFLARE_R2_BUCKET = None
+    CLOUDFLARE_EMBEDDING_MODEL = None
+    CLOUDFLARE_LARGE_CONTENT_THRESHOLD = None
+    CLOUDFLARE_MAX_RETRIES = None
+    CLOUDFLARE_BASE_DELAY = None
 
 # ChromaDB settings with performance optimizations
 CHROMA_SETTINGS = {

@@ -99,8 +99,11 @@
       "Bash(git stash:*)",
       "Bash(git log:*)",
       "Bash(git branch:*)",
-      "Bash(git stash:*)",
       "Bash(sed:*)",
+      "Bash(git remote add:*)",
+      "Bash(gh auth:*)",
+      "Bash(gh pr close:*)",
+      "Bash(gh repo fork:*)",
       "WebSearch",
       "WebFetch(domain:hub.docker.com)",
       "mcp__terminator-mcp-agent__get_focused_window_tree",
@@ -108,7 +111,12 @@
       "WebFetch(domain:10.0.1.30)",
       "WebFetch(domain:api.github.com)",
       "Bash(git describe:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "mcp__cloudflare-bindings__search_cloudflare_documentation",
+      "mcp__cloudflare-bindings__workers_list",
+      "mcp__cloudflare-bindings__accounts_list",
+      "Bash(/memory-store \"Started Cloudflare native integration project. Phase 1: Core backend implementation using Vectorize for vectors, D1 for metadata, optional R2 for large content. Architecture maintains full backward compatibility.\")",
+      "Bash(/memory-store:*)"
     ],
     "deny": [],
     "additionalDirectories": [

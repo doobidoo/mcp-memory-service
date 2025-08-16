@@ -1,6 +1,10 @@
-# Awesome List Submission Content
+# Awesome List Submission Guide
 
 ## MCP Memory Service - Universal Memory Service for AI Applications
+
+> **Ready-to-use submission templates for awesome lists and community directories**
+
+This guide provides optimized submission content for promoting MCP Memory Service across various awesome lists and community platforms. Each template is tailored for specific communities while highlighting our unique value propositions.
 
 ### One-Line Description
 **[MCP Memory Service](https://github.com/doobidoo/mcp-memory-service)** - Universal MCP memory service with semantic search, multi-client support, and autonomous consolidation for Claude Desktop, VS Code, and 13+ AI applications.
