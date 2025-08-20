@@ -349,7 +349,7 @@ ERROR: Unauthorized - Invalid API token
 
 **Solution**: 
 - Verify all required environment variables are set
-- Check API token has correct permissions (Vectorize:Edit, D1:Edit, Workers AI:Edit)
+- Check API token has correct permissions (Vectorize:Edit, D1:Edit, Workers AI:Read)
 - Ensure token is not expired
 - Verify account ID is correct
 
