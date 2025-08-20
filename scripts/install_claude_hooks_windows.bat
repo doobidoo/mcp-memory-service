@@ -56,12 +56,8 @@ if not exist "%PS_SCRIPT%" (
     exit /b 1
 )
 
-REM Build PowerShell command based on arguments
-set PS_ARGS=
-if "%1"=="-uninstall" set PS_ARGS=-Uninstall
-if "%1"=="--uninstall" set PS_ARGS=-Uninstall
-if "%1"=="-test" set PS_ARGS=-Test
-if "%1"=="--test" set PS_ARGS=-Test
+REM Forward all arguments to PowerShell script for robust argument handling
+set "PS_ARGS=%*"
 
 REM Check PowerShell execution policy
 powershell -Command "Get-ExecutionPolicy" >nul 2>nul

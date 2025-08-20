@@ -8,7 +8,7 @@ set -e
 REMOTE_HOST="${REMOTE_HOST:-10.0.1.30}"
 REMOTE_USER="${REMOTE_USER:-hkr}"
 # Auto-detect the mcp-memory-service repository location
-REMOTE_PATH=$(ssh ${REMOTE_USER}@${REMOTE_HOST} "find /home/${REMOTE_USER} -name 'mcp-memory-service' -type d -exec test -f {}/pyproject.toml \; -print 2>/dev/null | head -n1")
+REMOTE_PATH=$(ssh ${REMOTE_USER}@${REMOTE_HOST} "find /home/${REMOTE_USER} -iname 'mcp-memory-service' -type d -exec test -f {}/pyproject.toml \; -print 2>/dev/null | head -n1")
 REMOTE_PATH="${REMOTE_PATH:-/home/${REMOTE_USER}/repositories/mcp-memory-service}"
 
 # Colors for output
@@ -142,7 +142,7 @@ for item in "${FILES[@]}"; do
         
         # Run ingestion on remote
         print_info "Running remote ingestion..."
-        ssh ${REMOTE_USER}@${REMOTE_HOST} "cd ${REMOTE_PATH} && \
+        ssh ${REMOTE_USER}@${REMOTE_HOST} "cd \"${REMOTE_PATH}\" && \
             .venv/bin/python -m mcp_memory_service.cli.main ingest-document \
             ${REMOTE_TEMP}/${ITEM_NAME} \
             --tags '${TAGS}' \
@@ -166,7 +166,7 @@ for item in "${FILES[@]}"; do
         
         # Run ingestion on remote
         print_info "Running remote directory ingestion..."
-        ssh ${REMOTE_USER}@${REMOTE_HOST} "cd ${REMOTE_PATH} && \
+        ssh ${REMOTE_USER}@${REMOTE_HOST} "cd \"${REMOTE_PATH}\" && \
             .venv/bin/python -m mcp_memory_service.cli.main ingest-directory \
             ${REMOTE_TEMP}/${ITEM_NAME} \
             --tags '${TAGS}' \
