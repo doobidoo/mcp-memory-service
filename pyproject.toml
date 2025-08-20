@@ -49,13 +49,10 @@ dependencies = [
     "aiofiles>=23.2.1",
     "psutil>=5.9.0",
     "zeroconf>=0.130.0",
-<<<<<<< HEAD
     "PyPDF2>=3.0.0",
     "chardet>=5.0.0",
-    "click>=8.0.0"
-=======
+    "click>=8.0.0",
     "httpx>=0.24.0"
->>>>>>> 479bd82 (feat: Native Cloudflare backend integration (v5.1.0))
 ]
 
 [project.optional-dependencies]

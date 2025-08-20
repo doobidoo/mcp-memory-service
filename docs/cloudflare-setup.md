@@ -21,7 +21,7 @@ For users who want to get started immediately:
    - **Vectorize Edit** (for creating and managing vector indexes)
    - **D1 Edit** (for creating and managing databases)
    - **R2 Edit** (optional, for large content storage)
-   - **Workers AI Edit** (for embedding generation)
+   - **Workers AI Read** (for embedding generation)
 
 ### Quick Setup Commands
 
