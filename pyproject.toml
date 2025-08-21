@@ -4,10 +4,31 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-memory-service"
-version = "5.0.0"  
-description = "An intelligent semantic memory service with dream-inspired autonomous consolidation using SQLite-vec for efficient local storage"
+version = "6.2.4"
+description = "Universal MCP memory service with semantic search, multi-client support, and autonomous consolidation for Claude Desktop, VS Code, and 13+ AI applications"
 readme = "README.md"
 requires-python = ">=3.10"
+keywords = [
+    "mcp", "model-context-protocol", "claude-desktop", "semantic-memory", 
+    "vector-database", "ai-assistant", "sqlite-vec", "multi-client",
+    "semantic-search", "memory-consolidation", "ai-productivity", "vs-code",
+    "cursor", "continue", "fastapi", "developer-tools", "cross-platform"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Database :: Database Engines/Servers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11", 
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+    "Framework :: FastAPI"
+]
 authors = [
     { name = "Heinrich Krupp", email = "heinrich.krupp@gmail.com" }
 ]
@@ -27,7 +48,11 @@ dependencies = [
     "sse-starlette>=2.1.0",
     "aiofiles>=23.2.1",
     "psutil>=5.9.0",
-    "zeroconf>=0.130.0"
+    "zeroconf>=0.130.0",
+    "PyPDF2>=3.0.0",
+    "chardet>=5.0.0",
+    "click>=8.0.0",
+    "httpx>=0.24.0"
 ]
 
 [project.optional-dependencies]
@@ -43,7 +68,8 @@ sqlite = [
 ]
 
 [project.scripts]
-memory = "mcp_memory_service.server:main"
+memory = "mcp_memory_service.cli.main:main"
+memory-server = "mcp_memory_service.server:main"
 mcp-memory-server = "mcp_memory_service.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]

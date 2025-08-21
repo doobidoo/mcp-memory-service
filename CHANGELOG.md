@@ -4,6 +4,838 @@ All notable changes to the MCP Memory Service project will be documented in this
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.2.4] - 2025-08-21
+
+### 🐛 **CRITICAL BUG FIXES: Claude Code Hooks Compatibility**
+
+This release fixes critical compatibility issues with Claude Code hooks that prevented automatic memory injection at session start.
+
+#### Fixed
+- **Claude Code Hooks API Parameters**: Fixed incorrect API parameters in `claude-hooks/core/session-start.js`
+  - Replaced invalid `tags`, `limit`, `time_filter` parameters with correct `n_results` for `retrieve_memory` API
+  - Hooks now work correctly with MCP Memory Service API without parameter errors
+  
+- **Python Dict Response Parsing**: Fixed critical parsing bug where hooks couldn't process MCP service responses
+  - Added proper Python dictionary format to JavaScript object conversion 
+  - Implemented fallback parsing for different response formats
+  - Hooks now successfully parse memory service responses and inject context
+
+- **Memory Export Security**: Enhanced security for memory export files
+  - Added `local_export*.json` to .gitignore to prevent accidental commits of sensitive data
+  - Created safe template files in `examples/` directory for documentation and testing
+
+#### Added
+- **Memory Export Templates**: New example files showing export format structure
+  - `examples/memory_export_template.json`: Basic example with 3 sample memories
+  - Clean, sanitized examples safe for sharing and documentation
+
+#### Technical Details
+- **Response Format Handling**: Hooks now handle Python dict format responses with proper conversion to JavaScript objects
+- **Error Handling**: Added multiple fallback mechanisms for response parsing
+- **API Compatibility**: Updated to use correct MCP protocol parameters for memory retrieval
+
+#### Impact
+- Claude Code hooks will now work out-of-the-box without manual fixes
+- Memory context injection at session start now functions correctly
+- Users can install hooks directly from repository without encountering parsing errors
+- Enhanced security prevents accidental exposure of sensitive data in exports
+
+## [6.2.3] - 2025-08-20
+
+### 🛠️ **Cross-Platform Path Detection & Claude Code Integration**
+
+This release provides comprehensive cross-platform fixes for path detection issues and complete Claude Code hooks integration across Linux, macOS, and Windows.
+
+#### Fixed
+- **Linux Path Detection**: Enhanced `scripts/remote_ingest.sh` to auto-detect mcp-memory-service repository location anywhere in user's home directory
+  - Resolves path case sensitivity issues (Repositories vs repositories)
+  - Works regardless of where users clone the repository
+  - Validates found directory contains pyproject.toml to ensure correct repository
+
+- **Windows Path Detection**: Added comprehensive Windows support with PowerShell and batch scripts
+  - New: `scripts/install_claude_hooks_windows.ps1` - Full-featured PowerShell installation
+  - New: `scripts/install_claude_hooks_windows.bat` - Batch wrapper for easy execution
+  - Dynamic repository location detection using PSScriptRoot resolution
+  - Comprehensive Claude Code hooks directory detection with fallbacks
+  - Improved error handling and validation for source/target directories
+  - Resolves hardcoded Unix path issues (`\home\hkr\...`) on Windows systems
+  - Tested with 100% success rate across Windows environments
+
+- **Claude Code Commands Documentation**: Fixed and enhanced memory commands documentation
+  - Updated command usage from `/memory-store` to `claude /memory-store`
+  - Added comprehensive troubleshooting section for command installation issues
+  - Documented both Claude Code commands and direct API alternatives
+  - Added installation instructions and quick fixes for common problems
+
+#### Technical Improvements
+- Repository detection now works on any platform and directory structure
+- Claude Code hooks installation handles Windows-specific path formats
+- Improved error messages and debug output across all platforms
+- Consistent behavior across Windows, Linux, and macOS platforms
+
+## [6.2.2] - 2025-08-20
+
+### 🔧 Fixed  
+- **Remote Ingestion Script Path Detection**: Enhanced `scripts/remote_ingest.sh` to auto-detect mcp-memory-service repository location anywhere in user's home directory instead of hardcoded path assumptions
+  - Resolves path case sensitivity issues (Repositories vs repositories)
+  - Works regardless of where users clone the repository  
+  - Validates found directory contains pyproject.toml to ensure correct repository
+
+## [6.2.1] - 2025-08-20
+
+### 🐛 **CRITICAL BUG FIXES: Memory Listing and Search Index**
+
+This patch release resolves critical issues with memory pagination and search functionality that were preventing users from accessing the full dataset.
+
+#### Fixed
+- **Memory API Pagination**: Fixed `/api/memories` endpoint returning only 82 of 904 total memories
+  - **Root Cause**: API was using semantic search fallback instead of proper chronological listing
+  - **Solution**: Implemented dedicated `get_all_memories()` method with SQL-based LIMIT/OFFSET pagination
+  - **Impact**: Web dashboard and API clients now see accurate memory counts and can access complete dataset
+
+- **Missing Storage Backend Methods**: Added missing pagination methods in SqliteVecMemoryStorage
+  - `get_all_memories(limit, offset)` - Chronological memory listing with pagination support
+  - `get_recent_memories(n)` - Get n most recent memories efficiently
+  - `count_all_memories()` - Accurate total count for pagination calculations
+  - `_row_to_memory(row)` - Proper database row to Memory object conversion with JSON parsing
+
+- **Search Index Issues**: Resolved problems with recently stored memories not appearing in searches
+  - **Tag Search**: Newly stored memories now immediately appear in tag-based filtering
+  - **Semantic Search**: MCP protocol semantic search verified working with similarity scoring
+  - **Memory Context**: `/memory-context` command functionality confirmed end-to-end
+
+#### Technical Details
+- **Files Modified**: 
+  - `src/mcp_memory_service/storage/sqlite_vec.py` - Added 75+ lines of pagination methods
+  - `src/mcp_memory_service/web/api/memories.py` - Fixed pagination logic to use proper SQL queries
+- **Database Access**: Replaced unreliable semantic search with direct SQL `ORDER BY created_at DESC`
+- **Error Handling**: Added comprehensive JSON parsing for tags and metadata with graceful fallbacks
+- **Verification**: All 904 memories now accessible via REST API with proper page navigation
+
+#### Verification Results
+- ✅ **API Pagination**: Returns accurate 904 total count (was showing 82)
+- ✅ **Search Functionality**: Tag searches work immediately after storage
+- ✅ **Memory Context**: Session storage and retrieval verified end-to-end
+- ✅ **Semantic Search**: MCP protocol search confirmed functional with similarity scoring
+- ✅ **Performance**: No performance degradation despite handling full dataset
+
+This release ensures reliable access to the complete memory dataset with proper pagination and search capabilities.
+
+---
+
+## [6.2.0] - 2025-08-20
+
+### 🚀 **MAJOR FEATURE: Native Cloudflare Backend Integration**
+
+This major release introduces native Cloudflare integration as a third storage backend option alongside SQLite-vec and ChromaDB, providing global distribution, automatic scaling, and enterprise-grade infrastructure, integrated with the existing Memory Awareness system.
+
+#### Added
+- **Native Cloudflare Backend Support**: Complete implementation using Cloudflare's edge computing platform
+  - **Vectorize**: 768-dimensional vector storage with cosine similarity for semantic search
+  - **D1 Database**: SQLite-compatible database for metadata storage
+  - **Workers AI**: Embedding generation using @cf/baai/bge-base-en-v1.5 model
+  - **R2 Storage** (optional): Object storage for large content exceeding 1MB threshold
+  
+- **Implementation Files**:
+  - `src/mcp_memory_service/storage/cloudflare.py` - Complete CloudflareStorage implementation (740 lines)
+  - `scripts/migrate_to_cloudflare.py` - Migration tool for existing SQLite-vec and ChromaDB users
+  - `scripts/test_cloudflare_backend.py` - Comprehensive test suite with automated validation
+  - `scripts/setup_cloudflare_resources.py` - Automated Cloudflare resource provisioning
+  - `docs/cloudflare-setup.md` - Complete setup, configuration, and troubleshooting guide
+  - `tests/unit/test_cloudflare_storage.py` - 15 unit tests for CloudflareStorage class
+
+- **Features**:
+  - Automatic retry logic with exponential backoff for API rate limiting
+  - Connection pooling for optimal HTTP performance
+  - NDJSON format support for Vectorize v2 API endpoints
+  - LRU caching (1000 entries) for embedding deduplication
+  - Batch operations support for efficient data processing
+  - Global distribution with <100ms latency from most locations
+  - Pay-per-use pricing model with no upfront costs
+
+#### Changed
+- Updated `config.py` to include 'cloudflare' in SUPPORTED_BACKENDS
+- Enhanced server initialization in `mcp_server.py` to support Cloudflare backend
+- Updated storage factory in `storage/__init__.py` to create CloudflareStorage instances
+- Consolidated documentation, removing redundant setup files
+
+#### Technical Details
+- **Environment Variables**:
+  - `MCP_MEMORY_STORAGE_BACKEND=cloudflare` - Activate Cloudflare backend
+  - `CLOUDFLARE_API_TOKEN` - API token with Vectorize, D1, Workers AI permissions
+  - `CLOUDFLARE_ACCOUNT_ID` - Cloudflare account identifier
+  - `CLOUDFLARE_VECTORIZE_INDEX` - Name of Vectorize index (768 dimensions)
+  - `CLOUDFLARE_D1_DATABASE_ID` - D1 database UUID
+  - `CLOUDFLARE_R2_BUCKET` (optional) - R2 bucket for large content
+  
+- **Performance Characteristics**:
+  - Storage: ~200ms per memory (including embedding generation)
+  - Search: ~100ms for semantic search (5 results)
+  - Batch operations: ~50ms per memory in batches of 100
+  - Global latency: <100ms from most global locations
+
+#### Migration Path
+Users can migrate from existing backends using provided scripts:
+```bash
+# From SQLite-vec
+python scripts/migrate_to_cloudflare.py --source sqlite
+
+# From ChromaDB  
+python scripts/migrate_to_cloudflare.py --source chroma
+```
+
+#### Memory Awareness Integration
+- **Full Compatibility**: Cloudflare backend works seamlessly with Phase 1 and Phase 2 Memory Awareness
+- **Cross-Session Intelligence**: Session tracking and conversation threading supported
+- **Dynamic Context Updates**: Real-time memory loading during conversations
+- **Global Performance**: Enhances Memory Awareness with <100ms global response times
+
+#### Compatibility
+- Fully backward compatible with existing SQLite-vec and ChromaDB backends
+- No breaking changes to existing APIs or configurations
+- Supports all existing MCP operations and features
+- Compatible with all existing Memory Awareness hooks and functionality
+
+## [6.1.1] - 2025-08-20
+
+### 🐛 **CRITICAL BUG FIX: Memory Retrieval by Hash**
+
+#### Fixed
+- **Memory Retrieval 404 Issue**: Fixed HTTP API returning 404 errors for valid memory hashes
+- **Direct Hash Lookup**: Added `get_by_hash()` method to `SqliteVecMemoryStorage` for proper content hash retrieval
+- **API Endpoint Correction**: Updated `/api/memories/{content_hash}` to use direct hash lookup instead of semantic search
+- **Production Deployment**: Successfully deployed fix to production servers and verified functionality
+
+#### Technical Details
+- **Root Cause**: HTTP API was incorrectly using `storage.retrieve()` (semantic search) instead of direct hash-based lookup
+- **Solution**: Implemented dedicated hash lookup method that queries database directly using content hash as primary key
+- **Impact**: Web dashboard memory retrieval by hash now works correctly without SSL certificate issues or false 404 responses
+- **Testing**: Verified with multiple memory hashes including previously failing hash `812d361cbfd1b79a49737e6ea34e24459b4d064908e222d98af6a504aa09ff19`
+
+#### Deployment
+- Version 6.1.1 deployed to production server `10.0.1.30:8443`
+- Service restart completed successfully
+- Health check confirmed: Version 6.1.1 running with full functionality
+
+## [6.1.0] - 2025-08-20
+
+### 🚀 **MAJOR FEATURE: Intelligent Context Updates (Phase 2)**
+
+#### Conversation-Aware Dynamic Memory Loading
+This release introduces **Phase 2 of Claude Code Memory Awareness** - transforming the system from static memory injection to intelligent, real-time conversation analysis with dynamic context updates during active coding sessions.
+
+#### Added
+
+##### 🧠 **Dynamic Memory Loading System**
+- **Real-time Topic Detection**: Analyzes conversation flow to detect significant topic shifts
+- **Automatic Context Updates**: Injects relevant memories as conversations evolve naturally
+- **Smart Deduplication**: Prevents re-injection of already loaded memories
+- **Intelligent Rate Limiting**: 30-second cooldown and session limits prevent context overload
+- **Cross-Session Intelligence**: Links related conversations across different sessions
+
+##### 🔍 **Advanced Conversation Analysis Engine** 
+- **Natural Language Processing**: Extracts topics, entities, intent, and code context from conversations
+- **15+ Technical Topic Categories**: database, debugging, architecture, testing, deployment, etc.
+- **Entity Recognition**: Technologies, frameworks, languages, tools (JavaScript, Python, React, etc.)
+- **Intent Classification**: learning, problem-solving, development, optimization, review, planning
+- **Code Context Detection**: Identifies code blocks, file paths, error messages, commands
+
+##### 📊 **Enhanced Memory Scoring with Conversation Context**
+- **Multi-Factor Relevance Algorithm**: 5-factor scoring system including conversation context (25% weight)
+- **Dynamic Weight Adjustment**: Adapts scoring based on conversation analysis
+- **Topic Alignment Matching**: Prioritizes memories matching current conversation topics
+- **Intent-Based Scoring**: Aligns memory relevance with conversation purpose
+- **Semantic Content Analysis**: Advanced content matching with conversation context
+
+##### 🔗 **Cross-Session Intelligence & Conversation Threading**
+- **Session Tracking**: Links related sessions across time with unique thread IDs  
+- **Conversation Continuity**: Builds conversation threads over multiple sessions
+- **Progress Context**: Connects outcomes from previous sessions to current work
+- **Pattern Recognition**: Identifies recurring topics and workflow patterns
+- **Historical Context**: Includes insights from recent related sessions (up to 3 sessions, 7 days back)
+
+##### ⚡ **Performance & Reliability**
+- **Efficient Processing**: <500ms response time for topic detection and memory queries
+- **Scalable Architecture**: Handles 100+ active memories per session
+- **Smart Debouncing**: 5-second debounce prevents rapid-fire updates
+- **Resource Optimization**: Intelligent memory management and context deduplication
+- **Comprehensive Testing**: 100% test pass rate (15/15 tests) with full integration coverage
+
+#### Technical Implementation
+
+##### Core Phase 2 Components
+- **conversation-analyzer.js**: NLP engine for topic/entity/intent detection
+- **topic-change.js**: Monitors conversation flow and triggers dynamic updates
+- **memory-scorer.js**: Enhanced scoring with conversation context awareness  
+- **session-tracker.js**: Cross-session intelligence and conversation threading
+- **dynamic-context-updater.js**: Orchestrates all Phase 2 components with rate limiting
+
+##### Configuration Enhancements
+- **Phase 2 Settings**: New configuration sections for conversation analysis, dynamic updates, session tracking
+- **Flexible Thresholds**: Configurable significance scores, update limits, and confidence levels
+- **Feature Toggles**: Independent enable/disable for each Phase 2 capability
+
+#### User Experience Improvements
+- **Zero Cognitive Load**: Context updates happen automatically during conversations
+- **Perfect Timing**: Memories appear exactly when relevant to current discussion  
+- **Seamless Integration**: Works transparently during normal coding sessions
+- **Progressive Learning**: Each conversation builds upon previous knowledge intelligently
+
+#### Migration from Phase 1
+- **Backward Compatible**: Phase 1 features remain fully functional
+- **Additive Enhancement**: Phase 2 builds upon Phase 1 session-start memory injection
+- **Unified Configuration**: Single config.json manages both Phase 1 and Phase 2 settings
+
+## [6.0.0] - 2025-08-19
+
+### 🧠 **MAJOR FEATURE: Claude Code Memory Awareness (Phase 1)**
+
+#### Revolutionary Memory-Aware Development Experience
+This major release introduces **automatic memory awareness for Claude Code** - a sophisticated hook system that transforms how developers interact with their project knowledge and conversation history.
+
+#### Added
+
+##### 🔄 **Session Lifecycle Hooks**
+- **Session-Start Hook**: Automatically injects relevant memories when starting Claude Code sessions
+  - Intelligent project detection supporting JavaScript, Python, Rust, Go, Java, C++, and more
+  - Multi-factor memory relevance scoring with time decay, tag matching, and content analysis
+  - Context-aware memory selection (up to 8 most relevant memories per session)
+  - Beautiful markdown formatting for seamless context integration
+  
+- **Session-End Hook**: Captures and consolidates session outcomes automatically
+  - Conversation analysis and intelligent summarization
+  - Automatic tagging with project context and session insights
+  - Long-term knowledge building through outcome storage
+  - Session relationship tracking for continuity
+
+##### 🎯 **Advanced Project Detection System**
+- **Multi-Language Support**: Detects 15+ project types and frameworks
+  - Package managers: `package.json`, `Cargo.toml`, `go.mod`, `requirements.txt`, `pom.xml`
+  - Build systems: `Makefile`, `CMakeLists.txt`, `build.gradle`, `setup.py`
+  - Configuration files: `tsconfig.json`, `pyproject.toml`, `.gitignore`
+- **Git Integration**: Repository context analysis with branch and commit information
+- **Framework Detection**: React, Vue, Angular, Django, Flask, Express, and more
+- **Technology Stack Analysis**: Automatic identification of languages, databases, and tools
+
+##### 🧮 **Intelligent Memory Scoring System**
+- **Time Decay Algorithm**: Recent memories weighted higher with configurable decay curves
+- **Tag Relevance Matching**: Project-specific and technology-specific tag scoring
+- **Content Similarity Analysis**: Semantic matching with current project context
+- **Memory Type Bonuses**: Prioritizes decisions, insights, and architecture notes
+- **Relevance Threshold**: Only injects memories above significance threshold (>0.3)
+
+##### 🎨 **Context Formatting & Presentation**
+- **Categorized Memory Display**: Organized by Recent Insights, Key Decisions, and Project Context
+- **Markdown-Rich Formatting**: Beautiful presentation with metadata, timestamps, and tags
+- **Configurable Limits**: Prevents context overload with smart memory selection
+- **Source Attribution**: Clear memory source tracking with content hashes
+
+##### 💻 **Complete Installation & Testing System**
+- **One-Command Installation**: `./install.sh` deploys entire system to Claude Code hooks
+- **Comprehensive Test Suite**: 10 integration tests with 100% pass rate
+  - Project detection testing across multiple languages
+  - Memory scoring algorithm validation
+  - Context formatting verification
+  - Hook structure and configuration validation
+  - MCP service connectivity testing
+- **Configuration Management**: Production-ready config with memory service endpoints
+- **Backup and Recovery**: Automatic backup of existing hooks during installation
+
+#### Technical Architecture
+
+##### 🏗️ **Claude Code Hooks System**
+```javascript
+claude-hooks/
+├── core/
+│   ├── session-start.js    # Automatic memory injection hook
+│   └── session-end.js      # Session consolidation hook
+├── utilities/
+│   ├── project-detector.js  # Multi-language project detection
+│   ├── memory-scorer.js     # Relevance scoring algorithms
+│   └── context-formatter.js # Memory presentation utilities
+├── tests/
+│   └── integration-test.js  # Complete test suite (100% pass)
+├── config.json             # Production configuration
+└── install.sh             # One-command installation
+```
+
+##### 🔗 **MCP Memory Service Integration**
+- **JSON-RPC Protocol**: Direct communication with MCP Memory Service
+- **Error Handling**: Graceful degradation when memory service unavailable
+- **Performance Optimization**: Efficient memory querying with result caching
+- **Security**: Content hash verification and safe JSON parsing
+
+##### 📊 **Memory Selection Algorithm**
+```javascript
+// Multi-factor scoring system
+const relevanceScore = (
+  timeDecayScore * 0.4 +         // Recent memories preferred
+  tagRelevanceScore * 0.3 +      // Project-specific tags
+  contentSimilarityScore * 0.2 + // Semantic matching
+  memoryTypeBonusScore * 0.1     // Decision/insight bonus
+);
+```
+
+#### Usage Examples
+
+##### Automatic Session Context
+```markdown
+# 🧠 Relevant Memory Context
+
+## Recent Insights (Last 7 days)
+- **Database Performance Issue** - Resolved SQLite-vec query optimization (yesterday)
+- **Authentication Flow** - Implemented JWT token validation in API (3 days ago)
+
+## Key Decisions
+- **Architecture Decision** - Chose React over Vue for frontend consistency (1 week ago)
+- **Database Choice** - Selected PostgreSQL for production scalability (2 weeks ago)
+
+## Project Context: mcp-memory-service
+- **Language**: JavaScript, Python
+- **Frameworks**: Node.js, FastAPI
+- **Recent Activity**: Bug fixes, feature implementation
+```
+
+##### Session Outcome Storage
+```markdown
+Session consolidated and stored with tags:
+- mcp-memory-service, claude-code-session
+- bug-fix, performance-optimization
+- javascript, api-development
+Content hash: abc123...def456
+```
+
+#### Benefits & Impact
+
+##### 🚀 **Productivity Enhancements**
+- **Zero Cognitive Load**: Memory context appears automatically without user intervention
+- **Perfect Continuity**: Never lose track of decisions, insights, or architectural choices
+- **Intelligent Context**: Only relevant memories shown, preventing information overload
+- **Session Learning**: Each coding session builds upon previous knowledge automatically
+
+##### 🧠 **Memory-Aware Development**
+- **Decision Tracking**: Automatic capture of technical decisions and rationale
+- **Knowledge Building**: Progressive accumulation of project understanding
+- **Context Preservation**: Important insights never get lost between sessions
+- **Team Knowledge Sharing**: Shareable memory context across team members
+
+##### ⚡ **Performance Optimized**
+- **Fast Startup**: Memory injection adds <2 seconds to session startup
+- **Smart Caching**: Efficient memory retrieval with minimal API calls
+- **Configurable Limits**: Prevents memory service overload with request throttling
+- **Graceful Fallback**: Works with or without memory service availability
+
+#### Migration & Compatibility
+
+##### 🔄 **Seamless Integration**
+- **Non-Intrusive**: Works alongside existing Claude Code workflows
+- **Backward Compatible**: No changes required to existing development processes
+- **Optional Feature**: Can be enabled/disabled per project or globally
+- **Multi-Environment**: Works with local, remote, and distributed memory services
+
+##### 📋 **Installation Requirements**
+- Claude Code CLI installed and configured
+- MCP Memory Service running (local or remote)
+- Node.js environment for hook execution
+- Git repository for optimal project detection
+
+#### Roadmap Integration
+
+This release completes **Phase 1** of the Memory Awareness Enhancement Roadmap (Issue #14):
+- ✅ Session startup hooks with automatic memory injection
+- ✅ Project-aware memory selection algorithms  
+- ✅ Context formatting and injection utilities
+- ✅ Comprehensive testing and installation system
+- ✅ Production-ready configuration and deployment
+
+**Next Phase**: Dynamic memory loading, cross-session intelligence, and advanced consolidation features.
+
+#### Breaking Changes
+None - This is a purely additive feature that enhances existing Claude Code functionality.
+
+---
+
+## [5.2.0] - 2025-08-18
+
+### 🚀 **New Features**
+
+#### Command Line Interface (CLI)
+- **Comprehensive CLI**: Added `memory` command with subcommands for document ingestion and management
+- **Document Ingestion Commands**: 
+  - `memory ingest-document <file>` - Ingest single documents with customizable chunking
+  - `memory ingest-directory <path>` - Batch process entire directories 
+  - `memory list-formats` - Show all supported document formats
+- **Management Commands**:
+  - `memory server` - Start the MCP server (replaces old `memory` command)
+  - `memory status` - Show service status and statistics
+- **Advanced Options**: Tags, chunk sizing, storage backend selection, verbose output, dry-run mode
+- **Progress Tracking**: Real-time progress bars and detailed error reporting
+- **Cross-Platform**: Works on Windows, macOS, and Linux with proper path handling
+
+#### Enhanced Document Processing
+- **Click Framework**: Professional CLI with help system and tab completion support
+- **Async Operations**: Non-blocking document processing with proper resource management
+- **Error Recovery**: Graceful handling of processing errors with detailed diagnostics
+- **Batch Limits**: Configurable file limits and extension filtering for large directories
+
+**New Dependencies**: `click>=8.0.0` for CLI framework
+
+**Examples**:
+```bash
+memory ingest-document manual.pdf --tags documentation,manual --verbose
+memory ingest-directory ./docs --recursive --max-files 50
+memory list-formats
+memory status
+```
+
+**Backward Compatibility**: Old `memory` server command now available as `memory server` and `memory-server`
+
+## [5.1.0] - 2025-08-18
+
+### 🚀 **New Features**
+
+#### Remote ChromaDB Support
+- **Enterprise-Ready**: Connect to remote ChromaDB servers, Chroma Cloud, or self-hosted instances
+- **HttpClient Implementation**: Full support for remote ChromaDB connectivity
+- **Authentication**: API key authentication via `X_CHROMA_TOKEN` header
+- **SSL/HTTPS Support**: Secure connections to remote ChromaDB servers
+- **Custom Collections**: Specify collection names for multi-tenant deployments
+
+**New Environment Variables:**
+- `MCP_MEMORY_CHROMADB_HOST`: Remote server hostname (enables remote mode)
+- `MCP_MEMORY_CHROMADB_PORT`: Server port (default: 8000)
+- `MCP_MEMORY_CHROMADB_SSL`: Use HTTPS ('true'/'false')
+- `MCP_MEMORY_CHROMADB_API_KEY`: Authentication token
+- `MCP_MEMORY_COLLECTION_NAME`: Custom collection name (default: 'memory_collection')
+
+**Perfect Timing**: Arrives just as Chroma Cloud launches Q1 2025 (early access available)
+
+**Resolves**: #36 (Remote ChromaDB support request)
+
+## [5.0.5] - 2025-08-18
+
+### 🐛 **Bug Fixes**
+
+#### Code Quality & Future Compatibility
+- **Fixed datetime deprecation warnings**: Replaced all `datetime.utcnow()` usage with `datetime.now(timezone.utc)`
+  - Updated `src/mcp_memory_service/web/api/health.py` (2 occurrences)
+  - Updated `src/mcp_memory_service/web/sse.py` (3 occurrences)
+  - Eliminates deprecation warnings in Python 3.12+
+  - Future-proof timezone-aware datetime handling
+
+### 🎨 **UI Improvements**
+
+#### Dashboard Mobile Responsiveness
+- **Enhanced mobile UX**: Added responsive design for action buttons
+  - Buttons now stack vertically on screens < 768px width
+  - Improved touch-friendly spacing and sizing
+  - Better mobile experience for API documentation links
+  - Maintains desktop horizontal layout on larger screens
+
+**Issues Resolved**: #68 (Code Quality & Deprecation Fixes), #80 (Dashboard Mobile Responsiveness)
+
+## [5.0.4] - 2025-08-18
+
+### 🐛 **Critical Bug Fixes**
+
+#### SQLite-vec Embedding Model Loading
+- **Fixed UnboundLocalError**: Removed redundant `import os` statement at line 285 in `sqlite_vec.py`
+  - Variable shadowing prevented ONNX embedding model initialization
+  - Caused "cannot access local variable 'os'" error in production
+  - Restored full embedding functionality for memory storage
+
+#### Docker HTTP Server Support
+- **Fixed Missing Files**: Added `run_server.py` to Docker image (reported by Joe Esposito)
+  - HTTP server wouldn't start without this critical file
+  - Now properly copied in Dockerfile for HTTP/API mode
+- **Fixed Python Path**: Corrected `PYTHONPATH` from `/app` to `/app/src`
+  - Modules couldn't be found with incorrect path
+  - Essential for both MCP and HTTP modes
+
+### 🚀 **Major Docker Improvements**
+
+#### Simplified Docker Architecture
+- **Reduced Complexity by 60%**: Consolidated from 4 confusing compose files to 2 clear options
+  - `docker-compose.yml` for MCP protocol mode (Claude Desktop, VS Code)
+  - `docker-compose.http.yml` for HTTP/API mode (REST API, Web Dashboard)
+- **Unified Entrypoint**: Created single smart entrypoint script
+  - Auto-detects mode from `MCP_MODE` environment variable
+  - Eliminates confusion about which script to use
+- **Pre-download Models**: Embedding models now downloaded during Docker build
+  - Prevents runtime failures from network/DNS issues
+  - Makes containers fully self-contained
+  - Faster startup times
+
+#### Deprecated Docker Files
+- Marked 4 redundant Docker files as deprecated:
+  - `docker-compose.standalone.yml` → Use `docker-compose.http.yml`
+  - `docker-compose.uv.yml` → UV now built into main Dockerfile
+  - `docker-compose.pythonpath.yml` → Fix applied to main Dockerfile
+  - `docker-entrypoint-persistent.sh` → Replaced by unified entrypoint
+
+### 📝 **Documentation**
+
+#### Docker Documentation Overhaul
+- **Added Docker README**: Clear instructions for both MCP and HTTP modes
+- **Created DEPRECATED.md**: Migration guide for old Docker setups
+- **Added Test Script**: `test-docker-modes.sh` to verify both modes work
+- **Troubleshooting Guide**: Added comprehensive debugging section to CLAUDE.md
+  - Web frontend debugging (CSS/format string conflicts)
+  - Cache clearing procedures
+  - Environment reset steps
+  - Backend method compatibility
+
+### 🙏 **Credits**
+- Special thanks to **Joe Esposito** for identifying and helping fix critical Docker issues
+
+## [5.0.3] - 2025-08-17
+
+### 🐛 **Bug Fixes**
+
+#### SQLite-vec Backend Method Support
+- **Fixed Missing Method**: Added `search_by_tags` method to SQLite-vec backend
+  - Web API was calling `search_by_tags` (plural) but backend only had `search_by_tag` (singular)
+  - This caused 500 errors when using tag-based search via HTTP/MCP endpoints
+  - New method supports both AND/OR operations for tag matching
+  - Fixes network distribution and memory retrieval functionality
+
+### 🚀 **Enhancements**
+
+#### Version Information in Health Checks
+- **Added Version Field**: All health endpoints now return service version
+  - Basic health endpoint (`/api/health`) includes version field
+  - Detailed health endpoint (`/api/health/detailed`) includes version field
+  - MCP `check_database_health` tool returns version in response
+  - Enables easier debugging and version tracking across deployments
+
+### 🚀 **New Features**
+
+#### Memory Distribution and Network Sharing
+- **Export Tool**: Added `scripts/export_distributable_memories.sh` for memory export
+  - Export memories tagged with `distributable-reference` for team sharing
+  - JSON format for easy import to other MCP instances
+  - Support for cross-network memory synchronization
+- **Personalized CLAUDE.md Generator**: Added `scripts/generate_personalized_claude_md.sh`
+  - Generate CLAUDE.md with embedded memory service endpoints
+  - Customize for different network deployments
+  - Include memory retrieval commands for each environment
+- **Memory Context Templates**: Added `prompts/load_memory_context.md`
+  - Ready-to-use prompts for loading project context
+  - Quick retrieval commands for Claude Code sessions
+  - Network distribution instructions
+
+### 📝 **Documentation**
+
+#### Network Distribution Updates
+- **Fixed Memory Retrieval Commands**: Updated scripts to use working API methods
+  - Changed from non-existent `search_by_tag` to `retrieve_memory` for current deployments
+  - Updated prompt templates and distribution scripts
+  - Improved error handling for memory context loading
+- **CLAUDE.md Enhancements**: Added optional memory context section
+  - Instructions for setting up local memory service integration
+  - Guidelines for creating CLAUDE_MEMORY.md (git-ignored) for local configurations
+  - Best practices for memory management and quarterly reviews
+
+## [5.0.2] - 2025-08-17
+
+### 🚀 **New Features**
+
+#### ONNX Runtime Support
+- **PyTorch-free operation**: True PyTorch-free embedding generation using ONNX Runtime
+  - Reduced dependencies (~500MB less disk space without PyTorch)
+  - Faster startup with pre-optimized ONNX models  
+  - Automatic fallback to SentenceTransformers when needed
+  - Compatible with the same `all-MiniLM-L6-v2` model embeddings
+  - Enable with `export MCP_MEMORY_USE_ONNX=true`
+
+### 🐛 **Bug Fixes**
+
+#### SQLite-vec Consolidation Support (Issue #84)
+- **Missing Methods Fixed**: Added all required methods for consolidation support
+  - Implemented `get_memories_by_time_range()` for time-based queries
+  - Added `get_memory_connections()` for relationship tracking statistics
+  - Added `get_access_patterns()` for access pattern analysis
+  - Added `get_all_memories()` method with proper SQL implementation
+
+#### Installer Accuracy  
+- **False ONNX Claims**: Fixed misleading installer messages about ONNX support
+  - Removed false claims about "ONNX runtime for embeddings" when no implementation existed
+  - Updated installer messages to accurately reflect capabilities
+  - Now actually implements the ONNX support that was previously claimed
+
+#### Docker Configuration
+- **SQLite-vec Defaults**: Updated Docker configuration to reflect SQLite-vec as default backend
+  - Updated `Dockerfile` environment variables to use `MCP_MEMORY_STORAGE_BACKEND=sqlite_vec`
+  - Changed paths from `/app/chroma_db` to `/app/sqlite_db` 
+  - Updated `docker-compose.yml` with SQLite-vec configuration
+  - Fixed volume mounts and environment variables
+
+### 📝 **Documentation**
+
+#### Enhanced README
+- **ONNX Feature Documentation**: Added comprehensive ONNX Runtime feature section
+- **Installation Updates**: Updated installation instructions with ONNX dependencies
+- **Feature Visibility**: Highlighted ONNX support in main features list
+
+#### Technical Implementation
+- **New Module**: Created `src/mcp_memory_service/embeddings/onnx_embeddings.py`
+  - Complete ONNX embedding implementation based on ChromaDB's ONNXMiniLM_L6_V2
+  - Automatic model downloading and caching
+  - Hardware-aware provider selection (CPU, CUDA, DirectML, CoreML)
+  - Error handling with graceful fallbacks
+
+- **Enhanced Configuration**: Added ONNX configuration support in `config.py`
+  - `USE_ONNX` configuration option  
+  - ONNX model cache directory management
+  - Environment variable support for `MCP_MEMORY_USE_ONNX`
+
+### Technical Notes
+- Full backward compatibility maintained for existing SQLite-vec users
+- ONNX support is optional and falls back gracefully to SentenceTransformers
+- All consolidation methods implemented with proper error handling
+- Docker images now correctly reflect the SQLite-vec default backend
+
+This release resolves all issues reported in GitHub issue #84, implementing true ONNX support and completing the SQLite-vec consolidation feature set.
+## [6.2.0] - 2025-08-20
+
+### 🚀 **MAJOR FEATURE: Native Cloudflare Backend Integration**
+
+This major release introduces native Cloudflare integration as a third storage backend option alongside SQLite-vec and ChromaDB, providing global distribution, automatic scaling, and enterprise-grade infrastructure, integrated with the existing Memory Awareness system.
+
+#### Added
+- **Native Cloudflare Backend Support**: Complete implementation using Cloudflare's edge computing platform
+  - **Vectorize**: 768-dimensional vector storage with cosine similarity for semantic search
+  - **D1 Database**: SQLite-compatible database for metadata storage
+  - **Workers AI**: Embedding generation using @cf/baai/bge-base-en-v1.5 model
+  - **R2 Storage** (optional): Object storage for large content exceeding 1MB threshold
+  
+- **Implementation Files**:
+  - `src/mcp_memory_service/storage/cloudflare.py` - Complete CloudflareStorage implementation (740 lines)
+  - `scripts/migrate_to_cloudflare.py` - Migration tool for existing SQLite-vec and ChromaDB users
+  - `scripts/test_cloudflare_backend.py` - Comprehensive test suite with automated validation
+  - `scripts/setup_cloudflare_resources.py` - Automated Cloudflare resource provisioning
+  - `docs/cloudflare-setup.md` - Complete setup, configuration, and troubleshooting guide
+  - `tests/unit/test_cloudflare_storage.py` - 15 unit tests for CloudflareStorage class
+
+- **Features**:
+  - Automatic retry logic with exponential backoff for API rate limiting
+  - Connection pooling for optimal HTTP performance
+  - NDJSON format support for Vectorize v2 API endpoints
+  - LRU caching (1000 entries) for embedding deduplication
+  - Batch operations support for efficient data processing
+  - Global distribution with <100ms latency from most locations
+  - Pay-per-use pricing model with no upfront costs
+
+#### Changed
+- Updated `config.py` to include 'cloudflare' in SUPPORTED_BACKENDS
+- Enhanced server initialization in `mcp_server.py` to support Cloudflare backend
+- Updated storage factory in `storage/__init__.py` to create CloudflareStorage instances
+- Consolidated documentation, removing redundant setup files
+
+#### Technical Details
+- **Environment Variables**:
+  - `MCP_MEMORY_STORAGE_BACKEND=cloudflare` - Activate Cloudflare backend
+  - `CLOUDFLARE_API_TOKEN` - API token with Vectorize, D1, Workers AI permissions
+  - `CLOUDFLARE_ACCOUNT_ID` - Cloudflare account identifier
+  - `CLOUDFLARE_VECTORIZE_INDEX` - Name of Vectorize index (768 dimensions)
+  - `CLOUDFLARE_D1_DATABASE_ID` - D1 database UUID
+  - `CLOUDFLARE_R2_BUCKET` (optional) - R2 bucket for large content
+  
+- **Performance Characteristics**:
+  - Storage: ~200ms per memory (including embedding generation)
+  - Search: ~100ms for semantic search (5 results)
+  - Batch operations: ~50ms per memory in batches of 100
+  - Global latency: <100ms from most global locations
+
+#### Migration Path
+Users can migrate from existing backends using provided scripts:
+```bash
+# From SQLite-vec
+python scripts/migrate_to_cloudflare.py --source sqlite
+
+# From ChromaDB  
+python scripts/migrate_to_cloudflare.py --source chroma
+```
+
+#### Memory Awareness Integration
+- **Full Compatibility**: Cloudflare backend works seamlessly with Phase 1 and Phase 2 Memory Awareness
+- **Cross-Session Intelligence**: Session tracking and conversation threading supported
+- **Dynamic Context Updates**: Real-time memory loading during conversations
+- **Global Performance**: Enhances Memory Awareness with <100ms global response times
+
+#### Compatibility
+- Fully backward compatible with existing SQLite-vec and ChromaDB backends
+- No breaking changes to existing APIs or configurations
+- Supports all existing MCP operations and features
+- Compatible with all existing Memory Awareness hooks and functionality
+
+## [5.0.1] - 2025-08-15
+
+### 🐛 **Critical Migration Fixes**
+
+This patch release addresses critical issues in the v5.0.0 ChromaDB to SQLite-vec migration process reported in [Issue #83](https://github.com/doobidoo/mcp-memory-service/issues/83).
+
+#### Fixed
+- **Custom Data Paths**: Migration scripts now properly support custom ChromaDB locations via CLI arguments and environment variables
+  - Added `--chroma-path` and `--sqlite-path` arguments to migration scripts
+  - Support for `MCP_MEMORY_CHROMA_PATH` and `MCP_MEMORY_SQLITE_PATH` environment variables
+  - Fixed hardcoded path assumptions that ignored user configurations
+
+- **Content Hash Generation**: Fixed critical bug where ChromaDB document IDs were used instead of proper SHA256 hashes
+  - Now generates correct content hashes using SHA256 algorithm
+  - Prevents "NOT NULL constraint failed" errors during migration
+  - Ensures data integrity and proper deduplication
+
+- **Tag Format Corruption**: Fixed issue where 60% of tags became malformed during migration
+  - Improved tag validation and format conversion
+  - Handles comma-separated strings, arrays, and single tags correctly
+  - Prevents array syntax from being stored as strings
+
+- **Migration Progress**: Added progress indicators and better error reporting
+  - Shows percentage completion during migration
+  - Batch processing with configurable batch size
+  - Verbose mode for detailed debugging
+  - Clear error messages for troubleshooting
+
+#### Added
+- **Enhanced Migration Script** (`scripts/migrate_v5_enhanced.py`):
+  - Comprehensive migration tool with all fixes
+  - Dry-run mode for testing migrations
+  - Transaction-based migration with rollback support
+  - Progress bars with `tqdm` support
+  - JSON backup creation
+  - Automatic path detection for common installations
+
+- **Migration Validator** (`scripts/validate_migration.py`):
+  - Validates migrated SQLite database integrity
+  - Checks for missing fields and corrupted data
+  - Compares with original ChromaDB data
+  - Generates detailed validation report
+  - Identifies specific issues like hash mismatches and tag corruption
+
+- **Comprehensive Documentation**:
+  - Updated migration guide with troubleshooting section
+  - Documented all known v5.0.0 issues and solutions
+  - Added recovery procedures for failed migrations
+  - Migration best practices and validation steps
+
+#### Enhanced
+- **Original Migration Script** (`scripts/migrate_chroma_to_sqlite.py`):
+  - Added CLI argument support for custom paths
+  - Fixed content hash generation
+  - Improved tag handling
+  - Better duplicate detection
+  - Progress percentage display
+
+#### Documentation
+- **Migration Troubleshooting Guide**: Added comprehensive troubleshooting section covering:
+  - Custom data location issues
+  - Content hash errors
+  - Tag corruption problems
+  - Migration hangs
+  - Dependency conflicts
+  - Recovery procedures
+
 ## [5.0.0] - 2025-08-15
 
 ### ⚠️ **BREAKING CHANGES**

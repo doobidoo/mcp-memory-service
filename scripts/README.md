@@ -11,6 +11,46 @@ This directory contains utility scripts for maintaining and managing the MCP Mem
 
 ## Maintenance Scripts
 
+### Database Cleanup and Maintenance
+
+**`cleanup_corrupted_encoding.py`** - Removes memories with corrupted emoji encoding
+
+```bash
+# Dry run - preview what would be deleted
+python scripts/cleanup_corrupted_encoding.py
+
+# Execute actual cleanup
+python scripts/cleanup_corrupted_encoding.py --execute
+```
+
+**`find_duplicates.py`** - Comprehensive tool for identifying and removing duplicate memories from the database
+
+```bash
+# Dry run - preview what would be deleted
+python scripts/find_duplicates.py
+
+# Execute actual removal of duplicates  
+python scripts/find_duplicates.py --execute
+
+# Custom database path
+python scripts/find_duplicates.py --db-path /path/to/sqlite_vec.db --execute
+```
+
+**Features:**
+- ✅ Detects exact duplicates using content hash comparison
+- ✅ Identifies similar content using normalized text analysis
+- ✅ Prioritizes UTF8-fixed versions over corrupted ones
+- ✅ Keeps newest versions when no other criteria apply
+- ✅ Supports dry-run mode to preview deletions
+- ✅ Detailed reporting of duplicate groups and reasons for retention
+- ✅ Safe deletion with comprehensive error handling
+
+**Use Cases:**
+- Database maintenance after encoding fixes
+- Cleanup after re-ingestion of documents
+- Regular database optimization
+- Resolving duplicate entries from multiple sources
+
 ### Documentation Link Checker
 
 **`check_documentation_links.py`** - Comprehensive tool for validating internal documentation links

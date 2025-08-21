@@ -1,0 +1,112 @@
+# Virtual Environments
+.venv/
+venv/
+py310_venv/
+venv_py310/
+env/
+.env
+.Python
+
+# Python Cache Files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.tox/
+.coverage
+coverage.*
+.cache/
+.hypothesis/
+
+# Git Repository
+.git/
+.gitignore
+
+# Build Artifacts
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+__pypackages__/
+
+# Development Files
+*.log
+*.bak
+*.tmp
+*.old
+*.swp
+*.swo
+test_output.txt
+dxdiag_output.txt
+dxdiag.txt
+development_notes.md
+migration_*.log
+deploy_test*.sh
+
+# IDE and Editor Files
+.vscode/
+.idea/
+.codegpt/
+
+# OS Specific Files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+
+# Database and Storage Directories
+chroma_db/
+.mcp_memory_chroma/
+.mcp_memory_sqlite/
+*.sqlite
+*.sqlite-*
+*.sqlite3
+backups/
+
+# Configuration Files (may contain sensitive data)
+claude_desktop_config_updated.json
+claude_config/
+.claude/
+.mcp.json
+CLAUDE_MEMORY.md
+*_reference_memories_*.json
+
+# Test Artifacts
+tests/test_db/
+/tmp/test_mcp*.py
+test_mcp*.py
+debug_mcp*.py
+*_test.py.old
+test_*.py.backup
+*.cover
+nosetests.xml
+coverage.xml
+
+# Temporary and Personal Files
+YOUR_PERSONALIZED_SETUP_GUIDE.md
+CLAUDE_PERSONALIZED.md
+*_old
+*_backup
+
+# Aider and AI Tools
+.aider.*
+
+# Documentation Build Artifacts
+docs/_build/
+docs/site/
+
+# Archive Directories
+archive/

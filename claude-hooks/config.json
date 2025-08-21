@@ -1,0 +1,102 @@
+{
+  "memoryService": {
+    "endpoint": "https://narrowbox.local:8443",
+    "apiKey": "test-key-123",
+    "defaultTags": ["claude-code", "auto-generated"],
+    "maxMemoriesPerSession": 8,
+    "enableSessionConsolidation": true
+  },
+  "projectDetection": {
+    "gitRepository": true,
+    "packageFiles": ["package.json", "pyproject.toml", "Cargo.toml", "go.mod", "pom.xml"],
+    "frameworkDetection": true,
+    "languageDetection": true,
+    "confidenceThreshold": 0.3
+  },
+  "memoryScoring": {
+    "weights": {
+      "timeDecay": 0.25,
+      "tagRelevance": 0.35,
+      "contentRelevance": 0.15,
+      "conversationRelevance": 0.25
+    },
+    "minRelevanceScore": 0.3,
+    "timeDecayRate": 0.1,
+    "enableConversationContext": true
+  },
+  "contextFormatting": {
+    "includeProjectSummary": true,
+    "includeRelevanceScores": false,
+    "groupByCategory": true,
+    "maxContentLength": 200,
+    "includeTimestamps": true
+  },
+  "sessionAnalysis": {
+    "extractTopics": true,
+    "extractDecisions": true,
+    "extractInsights": true,
+    "extractCodeChanges": true,
+    "extractNextSteps": true,
+    "minSessionLength": 100,
+    "minConfidence": 0.1
+  },
+  "hooks": {
+    "sessionStart": {
+      "enabled": true,
+      "timeout": 10000,
+      "priority": "high"
+    },
+    "sessionEnd": {
+      "enabled": true,
+      "timeout": 15000,
+      "priority": "normal"
+    },
+    "topicChange": {
+      "enabled": true,
+      "timeout": 5000,
+      "priority": "low",
+      "minSignificanceScore": 0.3,
+      "maxMemoriesPerUpdate": 3
+    }
+  },
+  "conversationAnalysis": {
+    "enableTopicDetection": true,
+    "enableEntityExtraction": true,
+    "enableIntentDetection": true,
+    "enableCodeContextDetection": true,
+    "minTopicConfidence": 0.3,
+    "maxTopicsPerAnalysis": 10,
+    "analysisDebounceMs": 2000
+  },
+  "dynamicContextUpdate": {
+    "enabled": true,
+    "updateThreshold": 0.3,
+    "maxMemoriesPerUpdate": 3,
+    "updateCooldownMs": 30000,
+    "maxUpdatesPerSession": 10,
+    "debounceMs": 5000,
+    "enableCrossSessionContext": true
+  },
+  "sessionTracking": {
+    "enabled": true,
+    "maxSessionHistory": 50,
+    "maxConversationDepth": 10,
+    "sessionExpiryDays": 30,
+    "enableConversationThreads": true,
+    "enableProgressTracking": true
+  },
+  "crossSessionIntelligence": {
+    "enabled": true,
+    "maxPreviousSessions": 3,
+    "maxDaysBack": 7,
+    "enableRecurringTopicDetection": true,
+    "enableProgressPatternAnalysis": true,
+    "enableUncompletedTaskTracking": true
+  },
+  "logging": {
+    "level": "info",
+    "enableDebug": false,
+    "logToFile": false,
+    "logFilePath": "./claude-hooks.log"
+  }
+}

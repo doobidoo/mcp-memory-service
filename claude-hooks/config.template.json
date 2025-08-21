@@ -1,0 +1,65 @@
+{
+  "memoryService": {
+    "endpoint": "https://your-server:8443",
+    "apiKey": "your-api-key-here",
+    "defaultTags": ["claude-code", "auto-generated"],
+    "maxMemoriesPerSession": 8,
+    "enableSessionConsolidation": true
+  },
+  "projectDetection": {
+    "gitRepository": true,
+    "packageFiles": ["package.json", "pyproject.toml", "Cargo.toml", "go.mod", "pom.xml"],
+    "frameworkDetection": true,
+    "languageDetection": true,
+    "confidenceThreshold": 0.3
+  },
+  "memoryScoring": {
+    "weights": {
+      "timeDecay": 0.3,
+      "tagRelevance": 0.4,
+      "contentRelevance": 0.2,
+      "typeBonus": 0.1
+    },
+    "minRelevanceScore": 0.3,
+    "timeDecayRate": 0.1
+  },
+  "contextFormatting": {
+    "includeProjectSummary": true,
+    "includeRelevanceScores": false,
+    "groupByCategory": true,
+    "maxContentLength": 200,
+    "includeTimestamps": true
+  },
+  "sessionAnalysis": {
+    "extractTopics": true,
+    "extractDecisions": true,
+    "extractInsights": true,
+    "extractCodeChanges": true,
+    "extractNextSteps": true,
+    "minSessionLength": 100,
+    "minConfidence": 0.1
+  },
+  "hooks": {
+    "sessionStart": {
+      "enabled": true,
+      "timeout": 10000,
+      "priority": "high"
+    },
+    "sessionEnd": {
+      "enabled": true,
+      "timeout": 15000,
+      "priority": "normal"
+    },
+    "topicChange": {
+      "enabled": false,
+      "timeout": 5000,
+      "priority": "low"
+    }
+  },
+  "logging": {
+    "level": "info",
+    "enableDebug": false,
+    "logToFile": false,
+    "logFilePath": "./claude-hooks.log"
+  }
+}

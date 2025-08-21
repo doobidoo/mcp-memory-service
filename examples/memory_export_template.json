@@ -1,0 +1,51 @@
+{
+  "export_metadata": {
+    "source_machine": "example-hostname",
+    "export_timestamp": "2025-08-21T12:00:00.000000",
+    "total_memories": 3,
+    "database_path": "/path/to/sqlite_vec.db",
+    "platform": "Linux",
+    "python_version": "3.11.0",
+    "include_embeddings": false,
+    "filter_tags": null,
+    "exporter_version": "6.2.4"
+  },
+  "memories": [
+    {
+      "content": "MCP Memory Service is a Model Context Protocol server that provides semantic memory and persistent storage capabilities for Claude Desktop using SQLite-vec and sentence transformers.",
+      "content_hash": "example-hash-1234567890abcdef",
+      "tags": ["documentation", "project-overview"],
+      "created_at": 1692633600.0,
+      "updated_at": 1692633600.0,
+      "memory_type": "note",
+      "metadata": {
+        "source": "example-machine",
+        "project": "mcp-memory-service"
+      }
+    },
+    {
+      "content": "Key development commands: `uv run memory` to start server, `pytest tests/` for testing, `python install.py` for setup.",
+      "content_hash": "example-hash-abcdef1234567890",
+      "tags": ["commands", "development"],
+      "created_at": 1692634200.0,
+      "updated_at": 1692634200.0,
+      "memory_type": "reference",
+      "metadata": {
+        "source": "example-machine",
+        "category": "quick-reference"
+      }
+    },
+    {
+      "content": "SQLite-vec backend is now the default storage backend (v6.0+) offering fast performance and single-file database storage.",
+      "content_hash": "example-hash-fedcba0987654321",
+      "tags": ["architecture", "backend", "sqlite-vec"],
+      "created_at": 1692634800.0,
+      "updated_at": 1692634800.0,
+      "memory_type": "architectural-decision",
+      "metadata": {
+        "source": "example-machine",
+        "version": "v6.0.0"
+      }
+    }
+  ]
+}

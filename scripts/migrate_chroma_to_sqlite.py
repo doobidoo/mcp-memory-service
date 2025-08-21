@@ -38,6 +38,7 @@ from mcp_memory_service.storage.chroma import ChromaMemoryStorage
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.config import CHROMA_PATH, EMBEDDING_MODEL_NAME
+from mcp_memory_service.utils.hashing import generate_content_hash
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +89,20 @@ def extract_memory_data_directly(chroma_storage) -> List[Dict[str, Any]]:
                 content = results['documents'][i] if i < len(results['documents']) else ""
                 metadata = results['metadatas'][i] if i < len(results['metadatas']) else {}
                 
-                # Extract tags from metadata
-                tags = metadata.get('tags', [])
-                if isinstance(tags, str):
-                    # Handle tags stored as comma-separated string
-                    tags = [tag.strip() for tag in tags.split(',') if tag.strip()]
-                elif not isinstance(tags, list):
+                # Extract and validate tags from metadata
+                raw_tags = metadata.get('tags', metadata.get('tags_str', []))
+                tags = []
+                if isinstance(raw_tags, str):
+                    # Handle comma-separated string or single tag
+                    if ',' in raw_tags:
+                        tags = [tag.strip() for tag in raw_tags.split(',') if tag.strip()]
+                    elif raw_tags.strip():
+                        tags = [raw_tags.strip()]
+                elif isinstance(raw_tags, list):
+                    # Validate each tag in list
+                    tags = [str(tag).strip() for tag in raw_tags if tag and str(tag).strip()]
+                else:
+                    logger.warning(f"Unknown tag format for memory {i}: {type(raw_tags)}")
                     tags = []
                 
                 # Extract timestamps with flexible conversion
@@ -107,6 +116,9 @@ def extract_memory_data_directly(chroma_storage) -> List[Dict[str, Any]]:
                 clean_metadata = {k: v for k, v in metadata.items() 
                                 if k not in ['tags', 'created_at', 'updated_at', 'memory_type']}
                 
+                # Generate proper content hash instead of using ChromaDB ID
+                proper_content_hash = generate_content_hash(content)
+                
                 memory_data = {
                     'content': content,
                     'tags': tags,
@@ -114,7 +126,7 @@ def extract_memory_data_directly(chroma_storage) -> List[Dict[str, Any]]:
                     'metadata': clean_metadata,
                     'created_at': created_at,
                     'updated_at': updated_at,
-                    'content_hash': doc_id  # Use ChromaDB ID as content hash
+                    'content_hash': proper_content_hash  # Use proper SHA256 hash
                 }
                 
                 memories.append(memory_data)
@@ -237,10 +249,21 @@ async def migrate_memories(
                 try:
                     # Check if memory already exists in SQLite-vec (if skipping duplicates)
                     if skip_duplicates:
-                        existing = await sqlite_storage.retrieve(memory_data['content_hash'], n_results=1)
-                        if existing and existing[0].memory.content_hash == memory_data['content_hash']:
-                            stats.duplicates_skipped += 1
-                            continue
+                        try:
+                            # Use a more efficient duplicate check
+                            cursor = sqlite_storage.conn.execute(
+                                "SELECT 1 FROM memories WHERE content_hash = ? LIMIT 1",
+                                (memory_data['content_hash'],)
+                            )
+                            if cursor.fetchone():
+                                stats.duplicates_skipped += 1
+                                continue
+                        except Exception:
+                            # Fallback to retrieve method if direct query fails
+                            existing = await sqlite_storage.retrieve(memory_data['content'], n_results=1)
+                            if existing and any(m.memory.content_hash == memory_data['content_hash'] for m in existing):
+                                stats.duplicates_skipped += 1
+                                continue
                     
                     # Create Memory object for SQLite-vec storage
                     memory_obj = Memory(
@@ -263,9 +286,10 @@ async def migrate_memories(
                     stats.add_error(error_msg)
                     logger.error(error_msg)
             
-            # Progress update
-            migrated_so_far = stats.migrated_successfully + stats.duplicates_skipped
-            print(f"Batch {batch_num} complete. Progress: {migrated_so_far}/{stats.total_memories}")
+            # Progress update with percentage
+            migrated_so_far = stats.migrated_successfully + stats.duplicates_skipped + stats.failed_migrations
+            percentage = (migrated_so_far / stats.total_memories * 100) if stats.total_memories > 0 else 0
+            print(f"Batch {batch_num}/{total_batches} complete. Progress: {migrated_so_far}/{stats.total_memories} ({percentage:.1f}%)")
         
         return True
         
@@ -326,15 +350,34 @@ async def main():
     """Main migration function."""
     print_banner()
     
+    # Parse command-line arguments
+    import argparse
+    parser = argparse.ArgumentParser(description='Migrate ChromaDB to SQLite-vec')
+    parser.add_argument('--chroma-path', help='Path to ChromaDB data directory')
+    parser.add_argument('--sqlite-path', help='Path for SQLite-vec database')
+    parser.add_argument('--batch-size', type=int, default=50, help='Batch size for migration')
+    parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
+    args = parser.parse_args()
+    
     # Setup logging
+    log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
-        level=logging.INFO,
+        level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    # Configuration
-    chroma_path = CHROMA_PATH
-    sqlite_path = os.path.join(os.path.dirname(chroma_path), 'memory_migrated.db')
+    # Configuration with environment variable and argument support
+    chroma_path = args.chroma_path or os.environ.get('MCP_MEMORY_CHROMA_PATH', CHROMA_PATH)
+    
+    # Allow custom SQLite path via argument or environment variable
+    sqlite_path = args.sqlite_path or os.environ.get('MCP_MEMORY_SQLITE_PATH')
+    if not sqlite_path:
+        # Default to same directory as ChromaDB
+        chroma_dir = os.path.dirname(chroma_path) if os.path.dirname(chroma_path) else os.getcwd()
+        sqlite_path = os.path.join(chroma_dir, 'sqlite_vec_migrated.db')
+    
+    # Use batch size from arguments
+    batch_size = args.batch_size
     
     print(f"ChromaDB source: {chroma_path}")
     print(f"SQLite-vec destination: {sqlite_path}")
@@ -365,7 +408,7 @@ async def main():
     
     # Perform migration
     stats = MigrationStats()
-    success = await migrate_memories(chroma_path, sqlite_path, stats)
+    success = await migrate_memories(chroma_path, sqlite_path, stats, batch_size=batch_size)
     
     if success:
         # Verify migration

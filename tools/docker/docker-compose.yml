@@ -1,26 +1,42 @@
+version: '3.8'
+
+# Docker Compose configuration for MCP protocol mode
+# For use with MCP clients (Claude Desktop, VS Code extension, etc.)
+# For HTTP/API mode, use docker-compose.http.yml instead
+
 services:
-  memory-service:
-    image: python:3.10-slim
-    working_dir: /app
+  mcp-memory-service:
+    build:
+      context: ../..
+      dockerfile: tools/docker/Dockerfile
+    
+    # Required for MCP protocol communication
     stdin_open: true
     tty: true
-    ports:
-      - "8000:8000"
+    
     volumes:
-      - .:/app
-      - ${CHROMA_DB_PATH:-$HOME/mcp-memory/chroma_db}:/app/chroma_db
-      - ${BACKUPS_PATH:-$HOME/mcp-memory/backups}:/app/backups
+      # Single data directory for all storage
+      - ./data:/app/data
+    
     environment:
-      - MCP_MEMORY_CHROMA_PATH=/app/chroma_db
-      - MCP_MEMORY_BACKUPS_PATH=/app/backups
-      - LOG_LEVEL=INFO
+      # Mode selection
+      - MCP_MODE=mcp
+      
+      # Storage configuration
+      - MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
+      - MCP_MEMORY_SQLITE_PATH=/app/data/sqlite_vec.db
+      - MCP_MEMORY_BACKUPS_PATH=/app/data/backups
+      
+      # Performance tuning
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - MAX_RESULTS_PER_QUERY=10
       - SIMILARITY_THRESHOLD=0.7
-      - PYTHONPATH=/app
+      
+      # Python configuration
       - PYTHONUNBUFFERED=1
-      - CHROMA_TELEMETRY_IMPL=none
-      - ANONYMIZED_TELEMETRY=false
+      - PYTHONPATH=/app/src
+    
+    # Use the unified entrypoint
+    entrypoint: ["/usr/local/bin/docker-entrypoint-unified.sh"]
+    
     restart: unless-stopped
-    build:
-      context: .
-      dockerfile: Dockerfile

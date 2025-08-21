@@ -278,6 +278,10 @@ export MCP_MEMORY_USE_ONNX=1  # Optional: CPU-only inference
 ```
 
 ### ChromaDB Configuration
+
+#### Local ChromaDB (Deprecated)
+⚠️ **Note**: Local ChromaDB is deprecated. Consider migrating to SQLite-vec for better performance.
+
 ```bash
 # Environment variables
 export MCP_MEMORY_STORAGE_BACKEND=chromadb
@@ -296,6 +300,63 @@ export MCP_MEMORY_CHROMA_PATH="$HOME/.mcp-memory/chroma_db"
     }
   }
 }
+```
+
+#### Remote ChromaDB (Hosted/Enterprise)
+🌐 **New**: Connect to remote ChromaDB servers, Chroma Cloud, or self-hosted instances.
+
+```bash
+# Environment variables for remote ChromaDB
+export MCP_MEMORY_STORAGE_BACKEND=chromadb
+export MCP_MEMORY_CHROMADB_HOST="chroma.example.com"
+export MCP_MEMORY_CHROMADB_PORT="8000"
+export MCP_MEMORY_CHROMADB_SSL="true"
+export MCP_MEMORY_CHROMADB_API_KEY="your-api-key-here"
+export MCP_MEMORY_COLLECTION_NAME="my-collection"
+
+# Claude Desktop config for remote ChromaDB
+{
+  "mcpServers": {
+    "memory": {
+      "command": "uv",
+      "args": ["--directory", "/path/to/mcp-memory-service", "run", "memory"],
+      "env": {
+        "MCP_MEMORY_STORAGE_BACKEND": "chromadb",
+        "MCP_MEMORY_CHROMADB_HOST": "chroma.example.com",
+        "MCP_MEMORY_CHROMADB_PORT": "8000",
+        "MCP_MEMORY_CHROMADB_SSL": "true",
+        "MCP_MEMORY_CHROMADB_API_KEY": "your-api-key-here",
+        "MCP_MEMORY_COLLECTION_NAME": "my-collection"
+      }
+    }
+  }
+}
+```
+
+#### Remote ChromaDB Hosting Options
+
+**Chroma Cloud (Early Access)**
+- Official hosted service by ChromaDB
+- Early access available, full launch Q1 2025
+- $5 free credits to start
+- Visit: [trychroma.com](https://trychroma.com)
+
+**Self-Hosted Options**
+- **Elest.io**: Fully managed ChromaDB deployment
+- **AWS**: Use CloudFormation template (requires 2GB+ RAM)
+- **Google Cloud Run**: Container-based deployment
+- **Docker**: Self-hosted with authentication
+
+**Example Docker Configuration**
+```bash
+# Start ChromaDB server with authentication
+docker run -p 8000:8000 \
+  -e CHROMA_SERVER_AUTH_CREDENTIALS_PROVIDER="chromadb.auth.token.TokenConfigServerAuthCredentialsProvider" \
+  -e CHROMA_SERVER_AUTH_PROVIDER="chromadb.auth.token.TokenAuthServerProvider" \
+  -e CHROMA_SERVER_AUTH_TOKEN_TRANSPORT_HEADER="X_CHROMA_TOKEN" \
+  -e CHROMA_SERVER_AUTH_CREDENTIALS="test-token" \
+  -v /path/to/chroma-data:/chroma/chroma \
+  chromadb/chroma
 ```
 
 ## Decision Flowchart

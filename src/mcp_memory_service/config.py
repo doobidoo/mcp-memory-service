@@ -13,9 +13,21 @@
 # limitations under the License.
 
 """
-MCP Memory Service
+MCP Memory Service Configuration
+
+Environment Variables:
+- MCP_MEMORY_STORAGE_BACKEND: Storage backend ('sqlite_vec' or 'chromadb')
+- MCP_MEMORY_CHROMA_PATH: Local ChromaDB storage directory
+- MCP_MEMORY_CHROMADB_HOST: Remote ChromaDB server hostname (enables remote mode)
+- MCP_MEMORY_CHROMADB_PORT: Remote ChromaDB server port (default: 8000)
+- MCP_MEMORY_CHROMADB_SSL: Use HTTPS for remote connection ('true'/'false')
+- MCP_MEMORY_CHROMADB_API_KEY: API key for remote ChromaDB authentication
+- MCP_MEMORY_COLLECTION_NAME: ChromaDB collection name (default: 'memory_collection')
+- MCP_MEMORY_SQLITE_PATH: SQLite-vec database file path
+- MCP_MEMORY_USE_ONNX: Use ONNX embeddings ('true'/'false')
+
 Copyright (c) 2024 Heinrich Krupp
-Licensed under the MIT License. See LICENSE file in the project root for full license text.
+Licensed under the Apache License, Version 2.0
 """
 import os
 import sys
@@ -155,7 +167,7 @@ SERVER_NAME = "memory"
 SERVER_VERSION = "0.2.2"
 
 # Storage backend configuration
-SUPPORTED_BACKENDS = ['chroma', 'sqlite_vec', 'sqlite-vec']
+SUPPORTED_BACKENDS = ['chroma', 'sqlite_vec', 'sqlite-vec', 'cloudflare']
 STORAGE_BACKEND = os.getenv('MCP_MEMORY_STORAGE_BACKEND', 'sqlite_vec').lower()
 
 # Normalize backend names (sqlite-vec -> sqlite_vec)
@@ -193,6 +205,63 @@ if STORAGE_BACKEND == 'sqlite_vec':
     logger.info(f"Using SQLite-vec database path: {SQLITE_VEC_PATH}")
 else:
     SQLITE_VEC_PATH = None
+
+# ONNX Configuration
+USE_ONNX = os.getenv('MCP_MEMORY_USE_ONNX', '').lower() in ('1', 'true', 'yes')
+if USE_ONNX:
+    logger.info("ONNX embeddings enabled - using PyTorch-free embedding generation")
+    # ONNX model cache directory
+    ONNX_MODEL_CACHE = os.path.join(BASE_DIR, 'onnx_models')
+    os.makedirs(ONNX_MODEL_CACHE, exist_ok=True)
+
+# Cloudflare specific configuration
+if STORAGE_BACKEND == 'cloudflare':
+    # Required Cloudflare settings
+    CLOUDFLARE_API_TOKEN = os.getenv('CLOUDFLARE_API_TOKEN')
+    CLOUDFLARE_ACCOUNT_ID = os.getenv('CLOUDFLARE_ACCOUNT_ID')
+    CLOUDFLARE_VECTORIZE_INDEX = os.getenv('CLOUDFLARE_VECTORIZE_INDEX')
+    CLOUDFLARE_D1_DATABASE_ID = os.getenv('CLOUDFLARE_D1_DATABASE_ID')
+    
+    # Optional Cloudflare settings
+    CLOUDFLARE_R2_BUCKET = os.getenv('CLOUDFLARE_R2_BUCKET')  # For large content storage
+    CLOUDFLARE_EMBEDDING_MODEL = os.getenv('CLOUDFLARE_EMBEDDING_MODEL', '@cf/baai/bge-base-en-v1.5')
+    CLOUDFLARE_LARGE_CONTENT_THRESHOLD = int(os.getenv('CLOUDFLARE_LARGE_CONTENT_THRESHOLD', '1048576'))  # 1MB
+    CLOUDFLARE_MAX_RETRIES = int(os.getenv('CLOUDFLARE_MAX_RETRIES', '3'))
+    CLOUDFLARE_BASE_DELAY = float(os.getenv('CLOUDFLARE_BASE_DELAY', '1.0'))
+    
+    # Validate required settings
+    missing_vars = []
+    if not CLOUDFLARE_API_TOKEN:
+        missing_vars.append('CLOUDFLARE_API_TOKEN')
+    if not CLOUDFLARE_ACCOUNT_ID:
+        missing_vars.append('CLOUDFLARE_ACCOUNT_ID')
+    if not CLOUDFLARE_VECTORIZE_INDEX:
+        missing_vars.append('CLOUDFLARE_VECTORIZE_INDEX')
+    if not CLOUDFLARE_D1_DATABASE_ID:
+        missing_vars.append('CLOUDFLARE_D1_DATABASE_ID')
+    
+    if missing_vars:
+        logger.error(f"Missing required environment variables for Cloudflare backend: {', '.join(missing_vars)}")
+        logger.error("Please set the required variables or switch to a different backend")
+        sys.exit(1)
+    
+    logger.info(f"Using Cloudflare backend with:")
+    logger.info(f"  Vectorize Index: {CLOUDFLARE_VECTORIZE_INDEX}")
+    logger.info(f"  D1 Database: {CLOUDFLARE_D1_DATABASE_ID}")
+    logger.info(f"  R2 Bucket: {CLOUDFLARE_R2_BUCKET or 'Not configured'}")
+    logger.info(f"  Embedding Model: {CLOUDFLARE_EMBEDDING_MODEL}")
+    logger.info(f"  Large Content Threshold: {CLOUDFLARE_LARGE_CONTENT_THRESHOLD} bytes")
+else:
+    # Set Cloudflare variables to None when not using Cloudflare backend
+    CLOUDFLARE_API_TOKEN = None
+    CLOUDFLARE_ACCOUNT_ID = None
+    CLOUDFLARE_VECTORIZE_INDEX = None
+    CLOUDFLARE_D1_DATABASE_ID = None
+    CLOUDFLARE_R2_BUCKET = None
+    CLOUDFLARE_EMBEDDING_MODEL = None
+    CLOUDFLARE_LARGE_CONTENT_THRESHOLD = None
+    CLOUDFLARE_MAX_RETRIES = None
+    CLOUDFLARE_BASE_DELAY = None
 
 # ChromaDB settings with performance optimizations
 CHROMA_SETTINGS = {

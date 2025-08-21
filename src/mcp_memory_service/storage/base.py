@@ -19,6 +19,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 """
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any, Tuple
+from datetime import datetime
 from ..models.memory import Memory, MemoryQueryResult
 
 class MemoryStorage(ABC):
@@ -105,3 +106,19 @@ class MemoryStorage(ABC):
     async def search(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
         """Search memories. Default implementation uses retrieve."""
         return await self.retrieve(query, n_results)
+    
+    async def get_all_memories(self) -> List[Memory]:
+        """Get all memories in storage. Override for specific implementations."""
+        return []
+    
+    async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
+        """Get memories within a time range. Override for specific implementations."""
+        return []
+    
+    async def get_memory_connections(self) -> Dict[str, int]:
+        """Get memory connection statistics. Override for specific implementations."""
+        return {}
+    
+    async def get_access_patterns(self) -> Dict[str, datetime]:
+        """Get memory access pattern statistics. Override for specific implementations."""
+        return {}

@@ -174,6 +174,7 @@ from mcp.server import NotificationOptions, Server
 import mcp.server.stdio
 from mcp.types import Resource, Prompt
 
+from . import __version__
 from .lm_studio_compat import patch_mcp_for_lm_studio, add_windows_timeout_handling
 from .dependency_check import run_dependency_check, get_recommended_timeout
 from .config import (
@@ -186,7 +187,17 @@ from .config import (
     CONSOLIDATION_ENABLED,
     CONSOLIDATION_CONFIG,
     CONSOLIDATION_SCHEDULE,
-    INCLUDE_HOSTNAME
+    INCLUDE_HOSTNAME,
+    # Cloudflare configuration
+    CLOUDFLARE_API_TOKEN,
+    CLOUDFLARE_ACCOUNT_ID,
+    CLOUDFLARE_VECTORIZE_INDEX,
+    CLOUDFLARE_D1_DATABASE_ID,
+    CLOUDFLARE_R2_BUCKET,
+    CLOUDFLARE_EMBEDDING_MODEL,
+    CLOUDFLARE_LARGE_CONTENT_THRESHOLD,
+    CLOUDFLARE_MAX_RETRIES,
+    CLOUDFLARE_BASE_DELAY
 )
 # Storage imports will be done conditionally in the server class
 from .models.memory import Memory
@@ -507,6 +518,21 @@ class MemoryServer:
                         SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
                         self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH)
                         logger.info(f"Created SQLite-vec storage at: {SQLITE_VEC_PATH}")
+                elif STORAGE_BACKEND == 'cloudflare':
+                    # Cloudflare backend using Vectorize, D1, and R2
+                    from .storage.cloudflare import CloudflareStorage
+                    self.storage = CloudflareStorage(
+                        api_token=CLOUDFLARE_API_TOKEN,
+                        account_id=CLOUDFLARE_ACCOUNT_ID,
+                        vectorize_index=CLOUDFLARE_VECTORIZE_INDEX,
+                        d1_database_id=CLOUDFLARE_D1_DATABASE_ID,
+                        r2_bucket=CLOUDFLARE_R2_BUCKET,
+                        embedding_model=CLOUDFLARE_EMBEDDING_MODEL,
+                        large_content_threshold=CLOUDFLARE_LARGE_CONTENT_THRESHOLD,
+                        max_retries=CLOUDFLARE_MAX_RETRIES,
+                        base_delay=CLOUDFLARE_BASE_DELAY
+                    )
+                    logger.info(f"Created Cloudflare storage with Vectorize index: {CLOUDFLARE_VECTORIZE_INDEX}")
                 else:
                     # ChromaDB backend (deprecated) - Check for migration
                     logger.warning("=" * 70)
@@ -1803,6 +1829,116 @@ class MemoryServer:
                     tools.extend(consolidation_tools)
                     logger.info(f"Added {len(consolidation_tools)} consolidation tools")
                 
+                # Add document ingestion tools
+                ingestion_tools = [
+                    types.Tool(
+                        name="ingest_document",
+                        description="""Ingest a single document file into the memory database.
+                        
+                        Supports multiple formats:
+                        - PDF files (.pdf)
+                        - Text files (.txt, .md, .markdown, .rst)
+                        - JSON files (.json)
+                        
+                        The document will be parsed, chunked intelligently, and stored
+                        as multiple memories with appropriate metadata.
+                        
+                        Example:
+                        {
+                            "file_path": "/path/to/document.pdf",
+                            "tags": ["documentation", "manual"],
+                            "chunk_size": 1000
+                        }""",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "file_path": {
+                                    "type": "string",
+                                    "description": "Path to the document file to ingest."
+                                },
+                                "tags": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Optional tags to apply to all memories created from this document.",
+                                    "default": []
+                                },
+                                "chunk_size": {
+                                    "type": "number",
+                                    "description": "Target size for text chunks in characters (default: 1000).",
+                                    "default": 1000
+                                },
+                                "chunk_overlap": {
+                                    "type": "number",
+                                    "description": "Characters to overlap between chunks (default: 200).",
+                                    "default": 200
+                                },
+                                "memory_type": {
+                                    "type": "string",
+                                    "description": "Type label for created memories (default: 'document').",
+                                    "default": "document"
+                                }
+                            },
+                            "required": ["file_path"]
+                        }
+                    ),
+                    types.Tool(
+                        name="ingest_directory",
+                        description="""Batch ingest all supported documents from a directory.
+                        
+                        Recursively processes all supported file types in the directory,
+                        creating memories with consistent tagging and metadata.
+                        
+                        Supported formats: PDF, TXT, MD, JSON
+                        
+                        Example:
+                        {
+                            "directory_path": "/path/to/documents",
+                            "tags": ["knowledge-base"],
+                            "recursive": true,
+                            "file_extensions": ["pdf", "md", "txt"]
+                        }""",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "directory_path": {
+                                    "type": "string",
+                                    "description": "Path to the directory containing documents to ingest."
+                                },
+                                "tags": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Optional tags to apply to all memories created.",
+                                    "default": []
+                                },
+                                "recursive": {
+                                    "type": "boolean",
+                                    "description": "Whether to process subdirectories recursively (default: true).",
+                                    "default": True
+                                },
+                                "file_extensions": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "File extensions to process (default: all supported).",
+                                    "default": ["pdf", "txt", "md", "json"]
+                                },
+                                "chunk_size": {
+                                    "type": "number",
+                                    "description": "Target size for text chunks in characters (default: 1000).",
+                                    "default": 1000
+                                },
+                                "max_files": {
+                                    "type": "number",
+                                    "description": "Maximum number of files to process (default: 100).",
+                                    "default": 100
+                                }
+                            },
+                            "required": ["directory_path"]
+                        }
+                    )
+                ]
+                tools.extend(ingestion_tools)
+                logger.info(f"Added {len(ingestion_tools)} ingestion tools")
+                
                 logger.info(f"Returning {len(tools)} tools")
                 return tools
             except Exception as e:
@@ -1910,6 +2046,12 @@ class MemoryServer:
                 elif name == "resume_consolidation":
                     logger.info("Calling handle_resume_consolidation")
                     return await self.handle_resume_consolidation(arguments)
+                elif name == "ingest_document":
+                    logger.info("Calling handle_ingest_document")
+                    return await self.handle_ingest_document(arguments)
+                elif name == "ingest_directory":
+                    logger.info("Calling handle_ingest_directory")
+                    return await self.handle_ingest_directory(arguments)
                 else:
                     logger.warning(f"Unknown tool requested: {name}")
                     raise ValueError(f"Unknown tool: {name}")
@@ -3344,6 +3486,7 @@ Memories Archived: {report.memories_archived}"""
             
             # Combine results with performance data
             result = {
+                "version": __version__,
                 "validation": {
                     "status": "healthy" if is_valid else "unhealthy",
                     "message": message
@@ -3478,6 +3621,261 @@ Memories Archived: {report.memories_archived}"""
             return [types.TextContent(
                 type="text",
                 text=f"Error deleting memories: {str(e)}"
+            )]
+
+    async def handle_ingest_document(self, arguments: dict) -> List[types.TextContent]:
+        """Handle document ingestion requests."""
+        try:
+            from pathlib import Path
+            from .ingestion import get_loader_for_file
+            from .models.memory import Memory
+            from .utils import generate_content_hash
+            import time
+            
+            # Initialize storage lazily when needed
+            storage = await self._ensure_storage_initialized()
+            
+            file_path = Path(arguments["file_path"])
+            tags = arguments.get("tags", [])
+            chunk_size = arguments.get("chunk_size", 1000)
+            chunk_overlap = arguments.get("chunk_overlap", 200)
+            memory_type = arguments.get("memory_type", "document")
+            
+            logger.info(f"Starting document ingestion: {file_path}")
+            start_time = time.time()
+            
+            # Get appropriate document loader
+            loader = get_loader_for_file(file_path)
+            if loader is None:
+                return [types.TextContent(
+                    type="text",
+                    text=f"Error: Unsupported file format: {file_path.suffix}"
+                )]
+            
+            # Configure loader
+            loader.chunk_size = chunk_size
+            loader.chunk_overlap = chunk_overlap
+            
+            chunks_processed = 0
+            chunks_stored = 0
+            errors = []
+            
+            # Extract and store chunks
+            async for chunk in loader.extract_chunks(file_path):
+                chunks_processed += 1
+                
+                try:
+                    # Combine document tags with chunk metadata tags
+                    all_tags = tags.copy()
+                    if chunk.metadata.get('tags'):
+                        all_tags.extend(chunk.metadata['tags'])
+                    
+                    # Create memory object
+                    memory = Memory(
+                        content=chunk.content,
+                        content_hash=generate_content_hash(chunk.content, chunk.metadata),
+                        tags=list(set(all_tags)),  # Remove duplicates
+                        memory_type=memory_type,
+                        metadata=chunk.metadata
+                    )
+                    
+                    # Store the memory
+                    success, error = await storage.store(memory)
+                    if success:
+                        chunks_stored += 1
+                    else:
+                        errors.append(f"Chunk {chunk.chunk_index}: {error}")
+                        
+                except Exception as e:
+                    errors.append(f"Chunk {chunk.chunk_index}: {str(e)}")
+            
+            processing_time = time.time() - start_time
+            success_rate = (chunks_stored / chunks_processed * 100) if chunks_processed > 0 else 0
+            
+            # Prepare result message
+            result_lines = [
+                f"✅ Document ingestion completed: {file_path.name}",
+                f"📄 Chunks processed: {chunks_processed}",
+                f"💾 Chunks stored: {chunks_stored}",
+                f"⚡ Success rate: {success_rate:.1f}%",
+                f"⏱️  Processing time: {processing_time:.2f} seconds"
+            ]
+            
+            if errors:
+                result_lines.append(f"⚠️  Errors encountered: {len(errors)}")
+                if len(errors) <= 5:  # Show first few errors
+                    result_lines.extend([f"   - {error}" for error in errors[:5]])
+                else:
+                    result_lines.extend([f"   - {error}" for error in errors[:3]])
+                    result_lines.append(f"   ... and {len(errors) - 3} more errors")
+            
+            logger.info(f"Document ingestion completed: {chunks_stored}/{chunks_processed} chunks stored")
+            return [types.TextContent(type="text", text="\n".join(result_lines))]
+            
+        except Exception as e:
+            logger.error(f"Error in document ingestion: {str(e)}")
+            return [types.TextContent(
+                type="text",
+                text=f"Error ingesting document: {str(e)}"
+            )]
+
+    async def handle_ingest_directory(self, arguments: dict) -> List[types.TextContent]:
+        """Handle directory ingestion requests."""
+        try:
+            from pathlib import Path
+            from .ingestion import get_loader_for_file, is_supported_file
+            from .models.memory import Memory
+            from .utils import generate_content_hash
+            import time
+            
+            # Initialize storage lazily when needed
+            storage = await self._ensure_storage_initialized()
+            
+            directory_path = Path(arguments["directory_path"])
+            tags = arguments.get("tags", [])
+            recursive = arguments.get("recursive", True)
+            file_extensions = arguments.get("file_extensions", ["pdf", "txt", "md", "json"])
+            chunk_size = arguments.get("chunk_size", 1000)
+            max_files = arguments.get("max_files", 100)
+            
+            if not directory_path.exists() or not directory_path.is_dir():
+                return [types.TextContent(
+                    type="text",
+                    text=f"Error: Directory not found: {directory_path}"
+                )]
+            
+            logger.info(f"Starting directory ingestion: {directory_path}")
+            start_time = time.time()
+            
+            # Find all supported files
+            pattern = "**/*" if recursive else "*"
+            all_files = []
+            
+            for ext in file_extensions:
+                ext_pattern = f"*.{ext.lstrip('.')}"
+                if recursive:
+                    files = list(directory_path.rglob(ext_pattern))
+                else:
+                    files = list(directory_path.glob(ext_pattern))
+                all_files.extend(files)
+            
+            # Remove duplicates and filter supported files
+            unique_files = []
+            seen = set()
+            for file_path in all_files:
+                if file_path not in seen and is_supported_file(file_path):
+                    unique_files.append(file_path)
+                    seen.add(file_path)
+            
+            # Limit number of files
+            files_to_process = unique_files[:max_files]
+            
+            if not files_to_process:
+                return [types.TextContent(
+                    type="text",
+                    text=f"No supported files found in directory: {directory_path}"
+                )]
+            
+            total_chunks_processed = 0
+            total_chunks_stored = 0
+            files_processed = 0
+            files_failed = 0
+            all_errors = []
+            
+            # Process each file
+            for file_path in files_to_process:
+                try:
+                    logger.info(f"Processing file {files_processed + 1}/{len(files_to_process)}: {file_path.name}")
+                    
+                    # Get appropriate document loader
+                    loader = get_loader_for_file(file_path)
+                    if loader is None:
+                        all_errors.append(f"{file_path.name}: Unsupported format")
+                        files_failed += 1
+                        continue
+                    
+                    # Configure loader
+                    loader.chunk_size = chunk_size
+                    
+                    file_chunks_processed = 0
+                    file_chunks_stored = 0
+                    
+                    # Extract and store chunks from this file
+                    async for chunk in loader.extract_chunks(file_path):
+                        file_chunks_processed += 1
+                        total_chunks_processed += 1
+                        
+                        try:
+                            # Add directory-level tags and file-specific tags
+                            all_tags = tags.copy()
+                            all_tags.append(f"source_dir:{directory_path.name}")
+                            all_tags.append(f"file_type:{file_path.suffix.lstrip('.')}")
+                            
+                            if chunk.metadata.get('tags'):
+                                all_tags.extend(chunk.metadata['tags'])
+                            
+                            # Create memory object
+                            memory = Memory(
+                                content=chunk.content,
+                                content_hash=generate_content_hash(chunk.content, chunk.metadata),
+                                tags=list(set(all_tags)),  # Remove duplicates
+                                memory_type="document",
+                                metadata=chunk.metadata
+                            )
+                            
+                            # Store the memory
+                            success, error = await storage.store(memory)
+                            if success:
+                                file_chunks_stored += 1
+                                total_chunks_stored += 1
+                            else:
+                                all_errors.append(f"{file_path.name} chunk {chunk.chunk_index}: {error}")
+                                
+                        except Exception as e:
+                            all_errors.append(f"{file_path.name} chunk {chunk.chunk_index}: {str(e)}")
+                    
+                    if file_chunks_stored > 0:
+                        files_processed += 1
+                    else:
+                        files_failed += 1
+                        
+                except Exception as e:
+                    files_failed += 1
+                    all_errors.append(f"{file_path.name}: {str(e)}")
+            
+            processing_time = time.time() - start_time
+            success_rate = (total_chunks_stored / total_chunks_processed * 100) if total_chunks_processed > 0 else 0
+            
+            # Prepare result message
+            result_lines = [
+                f"✅ Directory ingestion completed: {directory_path.name}",
+                f"📁 Files processed: {files_processed}/{len(files_to_process)}",
+                f"📄 Total chunks processed: {total_chunks_processed}",
+                f"💾 Total chunks stored: {total_chunks_stored}",
+                f"⚡ Success rate: {success_rate:.1f}%",
+                f"⏱️  Processing time: {processing_time:.2f} seconds"
+            ]
+            
+            if files_failed > 0:
+                result_lines.append(f"❌ Files failed: {files_failed}")
+            
+            if all_errors:
+                result_lines.append(f"⚠️  Total errors: {len(all_errors)}")
+                # Show first few errors
+                error_limit = 5
+                for error in all_errors[:error_limit]:
+                    result_lines.append(f"   - {error}")
+                if len(all_errors) > error_limit:
+                    result_lines.append(f"   ... and {len(all_errors) - error_limit} more errors")
+            
+            logger.info(f"Directory ingestion completed: {total_chunks_stored}/{total_chunks_processed} chunks from {files_processed} files")
+            return [types.TextContent(type="text", text="\n".join(result_lines))]
+            
+        except Exception as e:
+            logger.error(f"Error in directory ingestion: {str(e)}")
+            return [types.TextContent(
+                type="text",
+                text=f"Error ingesting directory: {str(e)}"
             )]
 
 def parse_args():

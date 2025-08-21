@@ -1,6 +1,12 @@
 # Aider files
 .aider.*
 
+# Private/sensitive documents
+docs/saas-monetization-strategy.md
+
+# Local memory exports (contain sensitive data)
+local_export*.json
+
 # Python
 __pycache__/
 *.py[cod]
@@ -110,3 +116,7 @@ claude_config/claude_desktop_config.json
 # Personalized setup guides (generated locally)
 YOUR_PERSONALIZED_SETUP_GUIDE.md
 .mcp.json
+
+# Local memory service configuration (contains private endpoints/keys)
+CLAUDE_MEMORY.md
+*_reference_memories_*.json

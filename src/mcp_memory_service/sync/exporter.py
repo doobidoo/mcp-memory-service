@@ -91,7 +91,7 @@ class MemoryExporter:
             "python_version": platform.python_version(),
             "include_embeddings": include_embeddings,
             "filter_tags": filter_tags,
-            "exporter_version": "5.0.0"
+            "exporter_version": "5.0.1"
         }
         
         # Convert memories to exportable format

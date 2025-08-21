@@ -1230,7 +1230,9 @@ def install_package(args):
                 # Create a list of dependencies to install
                 dependencies = [
                     "mcp>=1.0.0,<2.0.0",
-                    "onnxruntime>=1.14.1",  # ONNX runtime is required
+                    "onnxruntime>=1.14.1",  # ONNX runtime for embeddings
+                    "tokenizers>=0.20.0",  # Required for ONNX tokenization
+                    "httpx>=0.24.0",  # For downloading ONNX models
                     "aiohttp>=3.8.0"  # Required for MCP server functionality
                 ]
                 
@@ -1481,10 +1483,17 @@ def verify_installation():
         print_success(f"ONNX Runtime is installed: {onnxruntime.__version__}")
         use_onnx = os.environ.get('MCP_MEMORY_USE_ONNX', '').lower() in ('1', 'true', 'yes')
         if use_onnx:
-            print_info("Environment configured to use ONNX runtime for inference")
+            print_info("Environment configured to use ONNX runtime for embeddings")
+            # Check for tokenizers (required for ONNX)
+            try:
+                import tokenizers
+                print_success(f"Tokenizers is installed: {tokenizers.__version__}")
+            except ImportError:
+                print_warning("Tokenizers not installed but required for ONNX embeddings")
+                print_info("Install with: pip install tokenizers>=0.20.0")
     except ImportError:
-        print_warning("ONNX Runtime is not installed. This is recommended for CPU-only operation.")
-        print_info("Install with: pip install onnxruntime>=1.14.1")
+        print_warning("ONNX Runtime is not installed. This is recommended for PyTorch-free operation.")
+        print_info("Install with: pip install onnxruntime>=1.14.1 tokenizers>=0.20.0")
     
     # Check for Homebrew PyTorch
     homebrew_pytorch = False
@@ -2724,9 +2733,10 @@ def main():
         print_step("1d", "Optimizing for SQLite-vec setup")
         args.skip_pytorch = True
         print_success("Auto-skipping PyTorch installation for SQLite-vec backend")
-        print_info("• Using ONNX runtime for embeddings (faster, fewer dependencies)")
-        print_info("• SQLite-vec works perfectly without PyTorch")
-        print_info("• Add --force-pytorch if you specifically need PyTorch")
+        print_info("• SQLite-vec uses SQLite for vector storage (lighter than ChromaDB)")
+        print_info("• Note: Embedding models still require PyTorch/SentenceTransformers")
+        print_info("• Add --force-pytorch if you want PyTorch installed here")
+        print_warning("• You'll need PyTorch available for embedding functionality")
     
     # Step 2: Check dependencies
     if not check_dependencies():

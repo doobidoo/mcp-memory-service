@@ -29,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 
+from .. import __version__
 from ..config import (
     HTTP_PORT,
     HTTP_HOST,
@@ -163,11 +164,11 @@ def create_app() -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     async def dashboard():
         """Serve the dashboard homepage."""
-        return """
+        html_template = """
         <!DOCTYPE html>
         <html lang="en">
         <head>
-            <title>MCP Memory Service v3.2.0</title>
+            <title>MCP Memory Service v""" + __version__ + """</title>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
@@ -473,6 +474,16 @@ def create_app() -> FastAPI:
                     h1 { font-size: 2rem; }
                     .endpoint-grid { grid-template-columns: 1fr; }
                     .stats { grid-template-columns: 1fr; }
+                    .action-buttons {
+                        flex-direction: column;
+                        align-items: center;
+                        gap: 0.75rem;
+                    }
+                    .btn {
+                        width: 100%;
+                        max-width: 300px;
+                        justify-content: center;
+                    }
                 }
             </style>
         </head>
@@ -487,7 +498,7 @@ def create_app() -> FastAPI:
                         </div>
                     </div>
                     <div class="version-badge">
-                        <span>✅</span> v3.3.1 - Latest Release
+                        <span>✅</span> v""" + __version__ + """ - Latest Release
                     </div>
                 </header>
                 
@@ -703,6 +714,7 @@ def create_app() -> FastAPI:
         </body>
         </html>
         """
+        return html_template
     
     return app
 

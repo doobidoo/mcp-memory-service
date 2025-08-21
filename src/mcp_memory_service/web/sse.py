@@ -24,7 +24,7 @@ import json
 import time
 import uuid
 from typing import Dict, List, Any, Optional, Set
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, asdict
 from contextlib import asynccontextmanager
 
@@ -51,7 +51,7 @@ class SSEEvent:
         if self.event_id is None:
             self.event_id = str(uuid.uuid4())
         if self.timestamp is None:
-            self.timestamp = datetime.utcnow().isoformat()
+            self.timestamp = datetime.now(timezone.utc).isoformat()
 
 
 class SSEManager:
@@ -174,7 +174,7 @@ class SSEManager:
                     heartbeat_event = SSEEvent(
                         event_type="heartbeat",
                         data={
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                             "active_connections": len(self.connections),
                             "server_status": "healthy"
                         }
@@ -257,7 +257,7 @@ async def create_event_stream(request: Request):
                     yield {
                         "event": "ping",
                         "data": json.dumps({
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                             "message": "Connection alive"
                         })
                     }

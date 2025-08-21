@@ -271,9 +271,32 @@ class ChromaMemoryStorage(MemoryStorage):
     def _initialize_chromadb_optimized(self):
         """Initialize ChromaDB with performance optimizations."""
         try:
-            # Use PersistentClient to properly load existing databases
-            logger.info(f"Initializing ChromaDB persistent client at path: {self.path}")
-            self.client = chromadb.PersistentClient(path=self.path)
+            # Check if remote ChromaDB configuration is provided
+            remote_host = os.getenv('MCP_MEMORY_CHROMADB_HOST')
+            remote_port = os.getenv('MCP_MEMORY_CHROMADB_PORT', '8000')
+            use_ssl = os.getenv('MCP_MEMORY_CHROMADB_SSL', 'false').lower() == 'true'
+            api_key = os.getenv('MCP_MEMORY_CHROMADB_API_KEY')
+            
+            if remote_host:
+                # Use HttpClient for remote ChromaDB server
+                logger.info(f"Initializing ChromaDB HTTP client: {remote_host}:{remote_port} (SSL: {use_ssl})")
+                
+                # Prepare headers for authentication
+                headers = {}
+                if api_key:
+                    headers['X_CHROMA_TOKEN'] = api_key
+                    logger.info("Using API key authentication for remote ChromaDB")
+                
+                self.client = chromadb.HttpClient(
+                    host=remote_host,
+                    port=int(remote_port),
+                    ssl=use_ssl,
+                    headers=headers if headers else None
+                )
+            else:
+                # Use PersistentClient for local ChromaDB (existing behavior)
+                logger.info(f"Initializing ChromaDB persistent client at path: {self.path}")
+                self.client = chromadb.PersistentClient(path=self.path)
             
             # Create collection with optimized HNSW settings
             collection_metadata = {
@@ -289,8 +312,12 @@ class ChromaMemoryStorage(MemoryStorage):
                 from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
                 self.embedding_function = DefaultEmbeddingFunction()
             
+            # Allow custom collection name for remote ChromaDB deployments
+            collection_name = os.getenv('MCP_MEMORY_COLLECTION_NAME', 'memory_collection')
+            logger.info(f"Using ChromaDB collection: {collection_name}")
+            
             self.collection = self.client.get_or_create_collection(
-                name="memory_collection",
+                name=collection_name,
                 metadata=collection_metadata,
                 embedding_function=self.embedding_function
             )

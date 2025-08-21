@@ -2,6 +2,8 @@
 
 This guide walks you through migrating your existing ChromaDB memories to the new SQLite-vec backend.
 
+> **⚠️ Important Update (v5.0.1):** We've identified and fixed critical migration issues. If you experienced problems with v5.0.0 migration, please use the enhanced migration script or update to v5.0.1.
+
 ## Why Migrate?
 
 SQLite-vec offers several advantages over ChromaDB for the MCP Memory Service:
@@ -180,16 +182,149 @@ Update your `claude_desktop_config.json`:
 
 ## Troubleshooting
 
-### Migration Issues
+### Common Migration Issues (v5.0.0)
 
-**"No memories found in ChromaDB"**
-- Check that `MCP_MEMORY_CHROMA_PATH` points to correct directory
-- Verify ChromaDB data exists: `ls -la ~/.mcp_memory_chroma`
+> **If you're experiencing issues with v5.0.0 migration, please use the enhanced migration script:**
+> ```bash
+> python scripts/migrate_v5_enhanced.py --help
+> ```
 
-**"Failed to migrate memory"**
-- Migration continues with other memories
-- Check logs for specific error details
-- Re-run migration script (duplicates will be skipped)
+#### Issue 1: Custom Data Locations Not Recognized
+
+**Problem:** Migration script uses hardcoded paths and ignores custom ChromaDB locations.
+
+**Solution:**
+```bash
+# Specify custom paths explicitly
+python scripts/migrate_chroma_to_sqlite.py \
+  --chroma-path /your/custom/chroma/path \
+  --sqlite-path /your/custom/sqlite.db
+
+# Or use environment variables
+export MCP_MEMORY_CHROMA_PATH=/your/custom/chroma/path
+export MCP_MEMORY_SQLITE_PATH=/your/custom/sqlite.db
+python scripts/migrate_chroma_to_sqlite.py
+```
+
+#### Issue 2: Content Hash Errors
+
+**Problem:** Migration fails with "NOT NULL constraint failed: memories.content_hash"
+
+**Solution:** This has been fixed in v5.0.1. The migration script now generates proper SHA256 hashes. If you encounter this:
+1. Update to latest version: `git pull`
+2. Use the enhanced migration script: `python scripts/migrate_v5_enhanced.py`
+
+#### Issue 3: Malformed Tags (60% Corruption)
+
+**Problem:** Tags become corrupted during migration, appearing as `['tag1', 'tag2']` instead of `tag1,tag2`
+
+**Solution:** The enhanced migration script includes tag validation and correction:
+```bash
+# Validate existing migration
+python scripts/validate_migration.py /path/to/sqlite.db
+
+# Re-migrate with fix
+python scripts/migrate_v5_enhanced.py --force
+```
+
+#### Issue 4: Migration Hangs
+
+**Problem:** Migration appears to hang with no progress indication
+
+**Solution:** Use verbose mode and batch size control:
+```bash
+# Run with progress indicators
+pip install tqdm  # For progress bars
+python scripts/migrate_v5_enhanced.py --verbose --batch-size 10
+```
+
+#### Issue 5: Dependency Conflicts
+
+**Problem:** SSL certificate errors, version conflicts with ChromaDB/sentence-transformers
+
+**Solution:**
+```bash
+# Clean install dependencies
+pip uninstall chromadb sentence-transformers -y
+pip install --upgrade chromadb sentence-transformers
+
+# If SSL issues persist
+export REQUESTS_CA_BUNDLE=""
+export SSL_CERT_FILE=""
+```
+
+### Validation and Recovery
+
+#### Validate Your Migration
+
+After migration, always validate the data:
+```bash
+# Basic validation
+python scripts/validate_migration.py
+
+# Compare with original ChromaDB
+python scripts/validate_migration.py --compare --chroma-path ~/.mcp_memory_chroma
+```
+
+#### Recovery Options
+
+If migration failed or corrupted data:
+
+1. **Restore from backup:**
+   ```bash
+   # If you created a backup
+   python scripts/restore_memories.py migration_backup.json
+   ```
+
+2. **Rollback to ChromaDB:**
+   ```bash
+   # Temporarily switch back
+   export MCP_MEMORY_STORAGE_BACKEND=chroma
+   # Your ChromaDB data is unchanged
+   ```
+
+3. **Re-migrate with enhanced script:**
+   ```bash
+   # Clean the target database
+   rm /path/to/sqlite_vec.db
+   
+   # Use enhanced migration
+   python scripts/migrate_v5_enhanced.py \
+     --chroma-path /path/to/chroma \
+     --sqlite-path /path/to/new.db \
+     --backup backup.json
+   ```
+
+### Getting Help
+
+If you continue to experience issues:
+
+1. **Check logs:** Add `--verbose` flag for detailed output
+2. **Validate data:** Use `scripts/validate_migration.py`
+3. **Report issues:** [GitHub Issues](https://github.com/doobidoo/mcp-memory-service/issues)
+4. **Emergency rollback:** Your ChromaDB data remains untouched
+
+### Migration Best Practices
+
+1. **Always backup first:**
+   ```bash
+   cp -r ~/.mcp_memory_chroma ~/.mcp_memory_chroma_backup
+   ```
+
+2. **Test with dry-run:**
+   ```bash
+   python scripts/migrate_v5_enhanced.py --dry-run
+   ```
+
+3. **Validate after migration:**
+   ```bash
+   python scripts/validate_migration.py
+   ```
+
+4. **Keep ChromaDB data until confirmed:**
+   - Don't delete ChromaDB data immediately
+   - Test the migrated database thoroughly
+   - Keep backups for at least a week
 
 **"Migration verification failed"**
 - Some memories may have failed to migrate
