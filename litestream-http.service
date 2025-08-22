@@ -1,0 +1,18 @@
+[Unit]
+Description=Litestream HTTP server for replica distribution
+After=network.target litestream.service
+Requires=litestream.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/litestream
+ExecStart=/usr/bin/python3 -m http.server 8080 --directory /var/www/litestream
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=Litestream replication service
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=root
+ExecStart=/usr/local/bin/litestream replicate -config /etc/litestream.yml
+
+[Install]
+WantedBy=multi-user.target

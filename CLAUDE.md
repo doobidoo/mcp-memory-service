@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [Overview](#overview) - Project description and purpose
 - [Key Commands](#key-commands) - Development, testing, and build commands
 - [Architecture](#architecture) - Core components and design patterns
+- [CLI Migration Guide](#cli-migration-guide) - Migrating from legacy commands
 - [Environment Variables](#environment-variables) - Configuration options
 - [Memory Storage Commands](#memory-storage-commands) - Claude Code integration
 - [Development Tips](#development-tips) - Best practices and workflows
@@ -56,11 +57,11 @@ MCP Memory Service is a Model Context Protocol server that provides semantic mem
 
 ### Development
 - **Install dependencies**: `python install.py` (platform-aware installation)
-- **Run server**: `python scripts/run_memory_server.py` or `uv run memory`
+- **Run server**: `uv run memory server`
 - **Run tests**: `pytest tests/`
 - **Run specific test**: `pytest tests/unit/test_memory_models.py::TestMemoryModel::test_memory_creation`
 - **Check environment**: `python scripts/verify_environment.py`
-- **Debug with MCP Inspector**: `npx @modelcontextprotocol/inspector uv --directory /path/to/repo run memory`
+- **Debug with MCP Inspector**: `npx @modelcontextprotocol/inspector uv --directory /path/to/repo run memory server`
 - **Check documentation links**: `python scripts/check_documentation_links.py` (validates all internal markdown links)
 - **Test Docker functionality**: `python scripts/test_docker_functionality.py` (comprehensive Docker container verification)
 - **Find and remove duplicates**: `python scripts/find_duplicates.py --execute` (removes duplicate memories from database)
@@ -150,6 +151,54 @@ Tests are organized by type:
 - `tests/performance/`: Performance benchmarks
 
 Run tests with coverage: `pytest --cov=src/mcp_memory_service tests/`
+
+## CLI Migration Guide
+
+### Migrating from Legacy Commands (v6.3.0+)
+
+The MCP Memory Service CLI has been consolidated to provide a consistent interface. Here's how to migrate from legacy patterns:
+
+#### ✅ Recommended (Current)
+```bash
+# Primary server command
+uv run memory server
+
+# With options
+uv run memory server --debug --chroma-path ./custom-path
+
+# Other commands
+uv run memory status
+uv run memory ingest-directory ./docs
+```
+
+#### ⚠️ Deprecated (Still Works with Warnings)
+```bash
+# Legacy server command (shows deprecation warning)
+uv run memory-server --debug
+
+# This will continue to work but shows:
+# "DeprecationWarning: The 'memory-server' command is deprecated. 
+#  Please use 'memory server' instead."
+```
+
+#### ❌ No Longer Supported
+```bash
+# These patterns have been removed/updated:
+uv run memory                    # Now: uv run memory server
+python scripts/run_memory_server.py  # Now: uv run memory server
+```
+
+#### Migration Checklist
+1. **Update scripts**: Replace `memory-server` with `memory server`
+2. **Update documentation**: Use `uv run memory server` as the standard pattern
+3. **Check CI/CD**: Update deployment scripts to use new commands
+4. **Remove legacy patterns**: Phase out deprecated commands before they're removed
+
+#### Backward Compatibility
+- The `memory-server` command still works but shows deprecation warnings
+- All existing arguments (`--debug`, `--chroma-path`) are supported
+- No breaking changes to core functionality
+- Migration period allows gradual transition
 
 ### Environment Variables
 
@@ -574,7 +623,7 @@ export MCP_MDNS_ENABLED=true
 export MCP_CONSOLIDATION_ENABLED=true
 
 # Start production server
-uv run memory --production
+uv run memory server
 ```
 
 #### Load Balancing
@@ -848,7 +897,7 @@ python scripts/sync/import_memories.py --source production
 ```bash
 # Setup
 python install.py
-uv run memory
+uv run memory server
 
 # Memory Operations
 claude /memory-store "content"
@@ -859,7 +908,7 @@ claude /memory-health
 pytest tests/
 
 # Development
-python scripts/run_memory_server.py
+uv run memory server
 ```
 
 ### Key Endpoints

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>io.litestream.replication</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/litestream</string>
+        <string>replicate</string>
+        <string>-config</string>
+        <string>/usr/local/etc/litestream.yml</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/var/log/litestream.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/litestream.log</string>
+</dict>
+</plist>

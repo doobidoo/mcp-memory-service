@@ -4,6 +4,151 @@ All notable changes to the MCP Memory Service project will be documented in this
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.3.2] - 2025-08-22
+
+### 🚨 **Critical Fix: Claude Desktop Compatibility Regression**
+
+#### Fixed
+- **Claude Desktop Integration**: Restored backward compatibility for `uv run memory` command
+- **MCP Protocol Errors**: Fixed JSON parsing errors when Claude Desktop tried to parse CLI help text as MCP messages
+- **Regression from v6.3.1**: CLI consolidation accidentally broke existing Claude Desktop configurations
+
+#### Technical Details
+- **Root Cause**: CLI consolidation removed ability to start MCP server with `uv run memory` (without `server` subcommand)
+- **Impact**: Claude Desktop configurations calling `uv run memory` received help text instead of MCP server
+- **Solution**: Added backward compatibility logic to default to `server` command when no subcommand provided
+
+#### Added
+- **Backward Compatibility**: `uv run memory` now starts MCP server automatically for existing integrations
+- **Deprecation Warning**: Informative warning guides users to explicit `memory server` syntax
+- **Integration Test**: New test case verifies backward compatibility warning functionality
+- **MCP Protocol Validation**: Confirmed proper JSON-RPC responses instead of help text parsing errors
+
+#### For Users
+- **Claude Desktop works again**: Existing configurations continue working without changes
+- **Migration Encouraged**: Warning message guides users toward preferred `memory server` syntax
+- **No Breaking Changes**: All existing usage patterns maintained while encouraging modern syntax
+
+## [6.3.1] - 2025-08-22
+
+### 🔧 **Major Enhancement: CLI Architecture Consolidation**
+
+#### Fixed
+- **CLI Conflicts Eliminated**: Resolved installation conflicts between argparse and Click CLI implementations
+- **Command Consistency**: Established `uv run memory server` as the single, reliable server start pattern
+- **Installation Issues**: Fixed stale entry point problems that caused "command not found" errors
+
+#### Enhanced  
+- **Unified CLI Interface**: All server commands now route through Click-based CLI for consistency
+- **Deprecation Warnings**: Added graceful migration path with informative deprecation warnings for `memory-server`
+- **Error Handling**: Improved error messages and graceful failure handling across all CLI commands
+- **Documentation**: Added comprehensive CLI Migration Guide with clear upgrade paths
+
+#### Added
+- **CLI Integration Tests**: 16 comprehensive test cases covering all CLI interfaces and edge cases
+- **Performance Testing**: CLI startup time validation and version command performance monitoring
+- **Backward Compatibility**: `memory-server` command maintained with deprecation warnings
+- **Migration Guide**: Complete documentation for transitioning from legacy commands
+
+#### Technical Improvements
+- **Environment Variable Integration**: Seamless config passing via MCP_MEMORY_CHROMA_PATH
+- **Code Cleanup**: Removed duplicate argparse implementation from server.py
+- **Entry Point Simplification**: Streamlined from 3 conflicting implementations to 1 clear interface
+- **Robustness Testing**: Added error handling, argument parity, and isolation testing
+
+#### Benefits for Users
+- **Eliminates MCP startup failures** that were caused by CLI conflicts
+- **Clear command interface**: `uv run memory server` works reliably every time
+- **Better error messages** when something goes wrong
+- **Smooth migration path** from legacy patterns
+- **Full Claude Code compatibility** confirmed and tested
+
+## [6.3.0] - 2025-08-22
+
+### 🚀 **Major Feature: Distributed Memory Synchronization**
+
+#### Added
+- **Git-like Sync Workflow**: Complete distributed synchronization system with offline capabilities
+  - `memory_sync.sh` - Main orchestrator for sync operations with colored output and status reporting
+  - **Stash → Pull → Apply → Push** workflow similar to Git's distributed version control
+  - Intelligent conflict detection and resolution with user control
+  - Remote-first architecture with automatic fallback to local staging
+
+- **Enhanced Memory Store**: `enhanced_memory_store.sh` with hybrid remote-first approach
+  - **Primary**: Direct storage to remote API (`https://narrowbox.local:8443/api/memories`)
+  - **Fallback**: Automatic local staging when remote is unavailable
+  - Smart context detection (project, git branch, hostname, tags)
+  - Seamless offline-to-online transition with automatic sync
+
+- **Real-time Database Replication**: Litestream-based synchronization infrastructure
+  - **Master/Replica Setup**: Remote server as master with HTTP-served replica data
+  - **Automatic Replication**: 10-second sync intervals for near real-time updates
+  - **Lightweight HTTP Server**: Python built-in server for serving replica files
+  - **Cross-platform Compatibility**: macOS LaunchDaemon and Linux systemd services
+
+- **Staging Database System**: SQLite-based local change tracking
+  - `staging_db_init.sql` - Complete schema with triggers and status tracking
+  - **Conflict Detection**: Content hash-based duplicate detection
+  - **Operation Tracking**: INSERT/UPDATE/DELETE operation logging
+  - **Source Attribution**: Machine hostname and timestamp tracking
+
+- **Comprehensive Sync Scripts**: Complete workflow automation
+  - `stash_local_changes.sh` - Capture local changes before remote sync
+  - `pull_remote_changes.sh` - Download remote changes with conflict awareness  
+  - `apply_local_changes.sh` - Intelligent merge of staged changes
+  - `push_to_remote.sh` - Upload changes via HTTPS API with retry logic
+  - `resolve_conflicts.sh` - Interactive conflict resolution helper
+
+- **Litestream Integration**: Production-ready replication setup
+  - **Automated Setup Scripts**: `setup_remote_litestream.sh` and `setup_local_litestream.sh`
+  - **Service Configurations**: systemd and LaunchDaemon service files
+  - **Master/Replica Configs**: Complete Litestream YAML configurations
+  - **Comprehensive Documentation**: `LITESTREAM_SETUP_GUIDE.md` with troubleshooting
+
+#### Enhanced
+- **Claude Commands**: Updated `memory-store.md` to document remote-first approach
+  - **Hybrid Strategy**: Remote API primary, local staging fallback
+  - **Sync Status**: Integration with `./memory_sync.sh status` for pending changes
+  - **Automatic Context**: Git branch, project, and hostname detection
+
+#### Architecture
+- **Remote-first Design**: Single source of truth on remote server with local caching
+- **Conflict Resolution**: Last-write-wins with comprehensive logging and user notification
+- **Network Resilience**: Graceful degradation from online → staging → read-only local
+- **Git-like Workflow**: Familiar distributed workflow for developers
+
+#### Technical Details
+- **Database Schema**: New staging database with triggers for change counting
+- **HTTP Integration**: Secure HTTPS API communication with bearer token auth
+- **Platform Support**: Cross-platform service management (systemd/LaunchDaemon)
+- **Performance**: Lz4 compression for efficient snapshot transfers
+- **Security**: Content hash verification and source machine tracking
+
+This release transforms MCP Memory Service from a local-only system into a fully distributed memory platform, enabling seamless synchronization across multiple devices while maintaining robust offline capabilities.
+
+## [6.2.5] - 2025-08-21
+
+### 🐛 **Bug Fix: SQLite-Vec Backend Debug Utilities**
+
+This release fixes a critical AttributeError in debug utilities when using the SQLite-Vec storage backend.
+
+#### Fixed
+- **Debug Utilities Compatibility** ([#89](https://github.com/doobidoo/mcp-memory-service/issues/89)): Fixed `'SqliteVecMemoryStorage' object has no attribute 'model'` error
+  - Added compatibility helper `_get_embedding_model()` to handle different attribute names between storage backends
+  - ChromaDB backend uses `storage.model` while SQLite-Vec uses `storage.embedding_model`
+  - Updated all debug functions (`get_raw_embedding`, `check_embedding_model`, `debug_retrieve_memory`) to use the compatibility helper
+  
+#### Technical Details
+- **Affected Functions**: 
+  - `get_raw_embedding()` - Now works with both backends
+  - `check_embedding_model()` - Properly detects model regardless of backend
+  - `debug_retrieve_memory()` - Semantic search debugging works for SQLite-Vec users
+  
+#### Impact
+- Users with SQLite-Vec backend can now use all MCP debug operations
+- Semantic search and embedding inspection features work correctly
+- No breaking changes for ChromaDB backend users
+
 ## [6.2.4] - 2025-08-21
 
 ### 🐛 **CRITICAL BUG FIXES: Claude Code Hooks Compatibility**

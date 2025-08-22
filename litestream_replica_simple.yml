@@ -1,0 +1,5 @@
+# Simple Litestream replica configuration 
+# Note: Litestream replicas typically push TO destinations, not pull FROM them
+# For pulling from HTTP, we'll use restore commands instead
+dbs:
+  - path: /Users/hkr/Library/Application Support/mcp-memory/sqlite_vec.db

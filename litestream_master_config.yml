@@ -1,0 +1,18 @@
+# Litestream Master Configuration for narrowbox.local
+# This configuration sets up the remote server as the master database
+dbs:
+  - path: /home/user/.local/share/mcp-memory/sqlite_vec.db
+    replicas:
+      # Local file replica for serving via HTTP
+      - type: file
+        path: /var/www/litestream/mcp-memory
+        sync-interval: 10s
+      
+      # Local backup
+      - type: file
+        path: /backup/litestream/mcp-memory
+        sync-interval: 1m
+    
+    # Performance settings
+    checkpoint-interval: 30s
+    wal-retention: 10m

@@ -41,6 +41,7 @@ A **universal MCP memory service** providing **semantic memory search**, persist
 - [🧠 Claude Code Memory Awareness (v6.0.0)](#-new-claude-code-memory-awareness-v600)
 - [🎯 Claude Code Commands (v2.2.0)](#-new-claude-code-commands-v220)
 - [🚀 Remote MCP Memory Service (v4.0.0)](#-new-remote-mcp-memory-service-v400)
+- [🔄 Distributed Memory Synchronization (v6.3.0)](#-new-distributed-memory-synchronization-v630)
 - [📦 Installation Methods](#installation-methods)
 - [⚙️ Claude MCP Configuration](#claude-mcp-configuration)
 
@@ -256,6 +257,140 @@ curl -X POST http://your-server:8000/mcp \
 
 ---
 
+## 🔄 NEW: Distributed Memory Synchronization (v6.3.0)
+
+**Git-like workflow for distributed memory systems with automatic conflict resolution!**
+
+Transform your memory service into a distributed system with seamless synchronization between local development and remote production servers. Features intelligent conflict detection, offline capability, and real-time replication.
+
+### ✨ Key Features
+
+🌐 **Remote-First Architecture**: Direct API communication with local staging fallback  
+⚡ **Real-Time Replication**: Litestream integration for live SQLite synchronization  
+🔄 **Git-like Workflow**: Stage → Pull → Apply → Push with automatic conflict resolution  
+🏠 **Offline Capability**: Local staging database for offline development  
+🔍 **Content Hash Detection**: Intelligent deduplication and conflict prevention  
+📡 **Cross-Platform Service**: Works on Linux, macOS, and Windows servers  
+🎯 **Zero Configuration**: Automatic service discovery via mDNS/hostname resolution  
+
+### 🚀 Quick Setup
+
+```bash
+# Install distributed sync system
+./scripts/memory_sync.sh install
+
+# Configure remote server (one-time setup)
+export REMOTE_MEMORY_HOST="narrowbox.local"
+export REMOTE_MEMORY_PORT="8443"
+
+# Initialize sync with remote server
+./scripts/memory_sync.sh init
+```
+
+### 🔧 Git-like Commands
+
+```bash
+# Stage memories locally (offline mode)
+./scripts/enhanced_memory_store.sh "Important development decision"
+
+# Pull latest changes from remote
+./scripts/memory_sync.sh pull
+
+# Push local changes to remote
+./scripts/memory_sync.sh push
+
+# Full synchronization workflow
+./scripts/memory_sync.sh sync
+
+# Check sync status with colored output
+./scripts/memory_sync.sh status
+```
+
+### 🏗️ Architecture Overview
+
+```mermaid
+graph TB
+    A[Local Client] -->|1. Try Direct API| B[Remote Server]
+    A -->|2. Fallback if Offline| C[Staging DB]
+    B -->|Real-time Sync| D[Production SQLite]
+    C -->|Batch Sync| E[Sync Engine]
+    E -->|Content Hash Check| B
+    F[Litestream] -->|Continuous Replication| G[Backup Storage]
+    D --> F
+```
+
+### 💾 Components
+
+#### Core Sync Engine
+- **`memory_sync.sh`**: Main orchestrator with colored status output
+- **`enhanced_memory_store.sh`**: Remote-first storage with intelligent fallback
+- **`pull_remote_changes.sh`**: Conflict-aware remote synchronization
+- **`manual_sync.sh`**: HTTP-based sync with content hash validation
+
+#### Database Infrastructure
+- **`staging_db_init.sql`**: Complete SQLite staging schema with triggers
+- **`litestream.yml`**: Master/replica configuration for real-time sync
+- **Service files**: Cross-platform systemd/LaunchDaemon integration
+
+#### Advanced Features
+- **Content hash-based deduplication**: Prevents duplicate memories across sync
+- **Staging database system**: Full offline capability with background sync
+- **HTTP replica serving**: Lightweight Python server for cross-network access
+- **Service management**: Native integration with system service managers
+
+### 🔧 Advanced Configuration
+
+```bash
+# Fine-tune sync behavior
+export SYNC_CONFLICT_RESOLUTION="merge"      # merge, local, remote
+export SYNC_BATCH_SIZE="100"                # Memories per sync batch
+export SYNC_RETRY_ATTEMPTS="3"              # Network retry count
+export SYNC_OFFLINE_THRESHOLD="5"           # Seconds before offline mode
+
+# Litestream replication settings
+export LITESTREAM_REPLICA_PATH="/backup/sqlite_vec.db"
+export LITESTREAM_SYNC_INTERVAL="1s"        # Real-time replication
+export LITESTREAM_RETENTION="72h"           # Backup retention period
+```
+
+### 📊 Status Dashboard
+
+The sync system provides comprehensive status reporting:
+
+```bash
+./scripts/memory_sync.sh status
+```
+
+**Output includes:**
+- 🟢 **Remote connectivity** status with response time
+- 📊 **Memory counts** (local vs remote) with sync diff
+- ⏰ **Last sync** timestamp and success rate
+- 🔄 **Replication status** via Litestream integration
+- 🎯 **Conflict detection** and resolution recommendations
+
+### 🛠️ Service Integration
+
+Install as system service for automatic sync:
+
+```bash
+# Install sync service (auto-detects OS)
+./scripts/memory_sync.sh install-service
+
+# Enable automatic background sync
+systemctl enable mcp-memory-sync    # Linux
+launchctl load ~/Library/LaunchAgents/com.mcp.memory.sync.plist    # macOS
+```
+
+**Benefits:**
+- ✅ **Automatic startup** on boot/login
+- ✅ **Background synchronization** every 15 minutes  
+- ✅ **Service health monitoring** with restart on failure
+- ✅ **Cross-platform compatibility** (systemd, LaunchAgent, Windows Service)
+
+➡️ **[Complete Sync Documentation](docs/guides/distributed-sync.md)** | **[Installation Guide](docs/installation/distributed-sync.md)** | **[Troubleshooting](docs/troubleshooting/sync-issues.md)**
+
+---
+
 ## Features
 
 ### 🌟 Universal AI Client Compatibility
@@ -341,12 +476,12 @@ curl -X POST http://your-server:8000/mcp \
 ### Recent Highlights
 
 #### 🚀 Latest Features
+- **v6.3.0**: 🔄 **Distributed Memory Synchronization** - Git-like workflow, real-time Litestream replication, offline capability
 - **v6.2.0**: 🌍 **Native Cloudflare Backend Integration** - Global edge distribution, serverless scaling, Vectorize + D1 + R2 storage
 - **v6.1.0**: 🧠 **Intelligent Context Updates (Phase 2)** - Real-time conversation analysis with dynamic memory loading
 - **v6.0.0**: 🧠 **Claude Code Memory Awareness (Phase 1)** - Automatic memory injection for coding sessions
 - **v5.0.2**: ONNX Runtime support for PyTorch-free embeddings and SQLite-vec consolidation fixes
 - **v5.0.0**: SQLite-vec is now the default backend - 10x faster startup, 75% less memory
-- **v4.5.0**: Database synchronization for distributed memory access across multiple machines
 
 ➡️ **[View Full Changelog](CHANGELOG.md)** for complete version history and detailed release notes
 
@@ -857,7 +992,7 @@ export CLOUDFLARE_D1_DATABASE_ID="your-d1-database-id"
 export CLOUDFLARE_R2_BUCKET="mcp-memory-content"
 
 # Start the service
-python -m src.mcp_memory_service.server
+uv run memory server
 ```
 
 📖 **[Complete Cloudflare Setup Guide](docs/cloudflare-setup.md)**

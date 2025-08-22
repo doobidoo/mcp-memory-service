@@ -1,0 +1,8 @@
+# Litestream Replica Configuration for local macOS machine
+# This configuration syncs from the remote master at narrowbox.local
+dbs:
+  - path: /Users/hkr/Library/Application Support/mcp-memory/sqlite_vec.db
+    replicas:
+      - type: file
+        url: http://10.0.1.30:8080/mcp-memory
+        sync-interval: 10s

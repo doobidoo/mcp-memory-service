@@ -31,7 +31,25 @@ claude /memory-store --type "note" "Remember to update the Docker configuration 
 
 ## Implementation:
 
-I'll store the memory directly to your MCP Memory Service at `https://memory.local:8443/`. The memory will be saved automatically without confirmation prompts.
+I'll use a **hybrid remote-first approach** with local fallback for reliability:
+
+### Primary: Remote API Storage
+- **Try remote first**: `https://narrowbox.local:8443/api/memories` 
+- **Real-time sync**: Changes immediately available across all clients
+- **Single source of truth**: Consolidated database on remote server
+
+### Fallback: Local Staging
+- **If remote fails**: Store locally in staging database for later sync
+- **Offline capability**: Continue working when remote is unreachable  
+- **Auto-sync**: Changes pushed to remote when connectivity returns
+
+### Smart Sync Workflow
+```
+1. Try remote API directly (fastest path)
+2. If offline/failed: Stage locally + notify user  
+3. On reconnect: ./memory_sync.sh automatically syncs
+4. Conflict resolution: Remote wins, with user notification
+```
 
 The content will be stored with automatic context detection:
 - **Machine Context**: Hostname automatically added as tag (e.g., "source:your-machine-name")
@@ -40,9 +58,10 @@ The content will be stored with automatic context detection:
 - **Technical Context**: Programming language, frameworks, and tools in use
 - **Temporal Context**: Date, time, and relationship to recent activities
 
-The service endpoint is configured at:
-- **Main endpoint**: `https://memory.local:8443/`
-- **API endpoint**: `https://memory.local:8443/api/memories`
+### Service Endpoints:
+- **Primary API**: `https://narrowbox.local:8443/api/memories`
+- **Sync Status**: Use `./memory_sync.sh status` to check pending changes
+- **Manual Sync**: Use `./memory_sync.sh sync` for full synchronization
 
 I'll use the correct curl syntax with `-k` flag for HTTPS, proper JSON payload formatting, and automatic client hostname detection using the `X-Client-Hostname` header.
 
