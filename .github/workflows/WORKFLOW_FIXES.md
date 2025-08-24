@@ -59,7 +59,7 @@ username: ${{ matrix.username_secret == '_github_actor' && github.actor || secre
 
 # After
 - name: Log in to Docker Hub
-  if: matrix.registry == 'docker.io' && secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != ''
+  if: matrix.registry == 'docker.io' && secrets.DOCKER_USERNAME && secrets.DOCKER_PASSWORD
 - name: Log in to GitHub Container Registry
   if: matrix.registry == 'ghcr.io'
 ```

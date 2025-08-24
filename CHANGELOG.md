@@ -4,6 +4,26 @@ All notable changes to the MCP Memory Service project will be documented in this
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.6.1] - 2025-08-24
+
+### 🐛 **Bug Fixes**
+
+#### HTTP-MCP Bridge Health Check Endpoint
+- **Fixed Health Check URLs**: Corrected incorrect endpoint paths in `examples/http-mcp-bridge.js`
+  - `testEndpoint()` method: Fixed `/health` → `/api/health` path (line 241)
+  - `checkHealth()` method: Fixed `/health` → `/api/health` path (line 501)
+  - **Impact**: Health checks now return "healthy" status instead of 404 errors
+  - **Root Cause**: Bridge was requesting wrong endpoint causing false "unhealthy" status
+  - **Verification**: Remote memory service connectivity confirmed working correctly
+
+#### Technical Details
+- Fixed endpoint inconsistencies that caused health checks to fail
+- Remote memory service functionality was working correctly - issue was purely endpoint path mismatch
+- All memory operations (store/retrieve) continue to work without changes
+- Health check now properly reports service status to MCP clients
+
+**Files Modified**: `examples/http-mcp-bridge.js`
+
 ## [6.6.0] - 2025-08-23
 
 ### 🔧 **Memory Awareness Hooks: Fully Functional Installation**

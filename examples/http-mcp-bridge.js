@@ -238,7 +238,7 @@ class HTTPMCPBridge {
      */
     async testEndpoint(endpoint) {
         try {
-            const healthUrl = `${endpoint}/health`;
+            const healthUrl = `${endpoint}/api/health`;
             const response = await this.makeRequestInternal(healthUrl, 'GET', null, 3000); // 3 second timeout
             return response.statusCode === 200;
         } catch (error) {
@@ -498,7 +498,7 @@ class HTTPMCPBridge {
      */
     async checkHealth(params = {}) {
         try {
-            const response = await this.makeRequest('/health', 'GET');
+            const response = await this.makeRequest('/api/health', 'GET');
 
             if (response.statusCode === 200) {
                 return {
