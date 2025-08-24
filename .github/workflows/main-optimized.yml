@@ -36,6 +36,7 @@ jobs:
       with:
         python-version: '3.11'  # Updated to match other workflows
         cache: 'pip'
+        cache-dependency-path: '**/pyproject.toml'
 
     - name: Install dependencies
       run: |
@@ -113,6 +114,7 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
         cache: 'pip'
+        cache-dependency-path: '**/pyproject.toml'
 
     - name: Debug environment
       run: |
