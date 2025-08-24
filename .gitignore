@@ -20,6 +20,7 @@ env/
 venv/
 py310_venv/
 venv_py310/
+.uv/
 build/
 develop-eggs/
 dist/
@@ -120,3 +121,13 @@ YOUR_PERSONALIZED_SETUP_GUIDE.md
 # Local memory service configuration (contains private endpoints/keys)
 CLAUDE_MEMORY.md
 *_reference_memories_*.json
+
+# Personal files
+CLAUDE_PERSONALIZED.md
+SESSION_MEMORY_2025-08-11.md
+
+# Context crystallizer artifacts
+.context-crystallizer/
+
+# Git tools
+.git-rewrite/

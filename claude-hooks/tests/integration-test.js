@@ -367,7 +367,88 @@ async function runTests() {
         return { success: true };
     });
     
-    // Test 10: Memory Service Protocol
+    // Test 10: Claude Code Settings Validation
+    results.test('Claude Code Settings Configuration', () => {
+        const settingsPath = path.join(process.env.HOME, '.claude', 'settings.json');
+        
+        if (!fs.existsSync(settingsPath)) {
+            return { success: false, error: 'Claude Code settings.json not found' };
+        }
+        
+        try {
+            const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+            
+            // Check for hooks configuration
+            if (!settings.hooks) {
+                return { success: false, error: 'No hooks configuration found in settings' };
+            }
+            
+            // Check for SessionStart hook
+            if (!settings.hooks.SessionStart || !Array.isArray(settings.hooks.SessionStart)) {
+                return { success: false, error: 'SessionStart hooks not configured' };
+            }
+            
+            // Check for SessionEnd hook
+            if (!settings.hooks.SessionEnd || !Array.isArray(settings.hooks.SessionEnd)) {
+                return { success: false, error: 'SessionEnd hooks not configured' };
+            }
+            
+            // Check hook command paths
+            const startHook = JSON.stringify(settings.hooks.SessionStart);
+            const endHook = JSON.stringify(settings.hooks.SessionEnd);
+            
+            if (!startHook.includes('session-start.js')) {
+                return { success: false, error: 'SessionStart hook command not configured correctly' };
+            }
+            
+            if (!endHook.includes('session-end.js')) {
+                return { success: false, error: 'SessionEnd hook command not configured correctly' };
+            }
+            
+            console.log('  Claude Code settings configured correctly');
+            return { success: true, settings };
+            
+        } catch (parseError) {
+            return { success: false, error: `Settings parse error: ${parseError.message}` };
+        }
+    });
+    
+    // Test 11: Hook Files Location Validation
+    results.test('Hook Files in Correct Location', () => {
+        const hookDir = path.join(process.env.HOME, '.claude', 'hooks');
+        const requiredHooks = [
+            'core/session-start.js',
+            'core/session-end.js', 
+            'utilities/project-detector.js',
+            'utilities/memory-scorer.js',
+            'utilities/context-formatter.js'
+        ];
+        
+        for (const hookFile of requiredHooks) {
+            const fullPath = path.join(hookDir, hookFile);
+            if (!fs.existsSync(fullPath)) {
+                return { success: false, error: `Hook file missing: ${hookFile}` };
+            }
+        }
+        
+        console.log(`  All hooks installed in ${hookDir}`);
+        return { success: true };
+    });
+    
+    // Test 12: Claude Code CLI Availability
+    results.test('Claude Code CLI Availability', () => {
+        const { execSync } = require('child_process');
+        
+        try {
+            execSync('which claude', { stdio: 'pipe' });
+            console.log('  Claude Code CLI available');
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: 'Claude Code CLI not found in PATH' };
+        }
+    });
+    
+    // Test 13: Memory Service Protocol
     results.test('Memory Service Protocol Compatibility', () => {
         // Test that we're generating the correct MCP JSON-RPC calls
         const testCall = {
@@ -397,6 +478,63 @@ async function runTests() {
         
         console.log(`  MCP protocol structure valid`);
         return { success: true };
+    });
+    
+    // Test 14: Memory Service Connectivity
+    await results.asyncTest('Memory Service Connectivity', async () => {
+        const configPath = path.join(__dirname, '../config.json');
+        
+        if (!fs.existsSync(configPath)) {
+            return { success: false, error: 'Configuration file not found for connectivity test' };
+        }
+        
+        try {
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            const endpoint = config.memoryService?.endpoint;
+            const apiKey = config.memoryService?.apiKey;
+            
+            if (!endpoint) {
+                return { success: false, error: 'No memory service endpoint configured' };
+            }
+            
+            // Test basic connectivity (simplified test)
+            const https = require('https');
+            const url = new URL('/api/health', endpoint);
+            
+            return new Promise((resolve) => {
+                const options = {
+                    hostname: url.hostname,
+                    port: url.port || 8443,
+                    path: url.pathname,
+                    method: 'GET',
+                    timeout: 5000,
+                    rejectUnauthorized: false
+                };
+                
+                const req = https.request(options, (res) => {
+                    console.log(`  Memory service responded with status: ${res.statusCode}`);
+                    if (res.statusCode === 200 || res.statusCode === 401) {
+                        // 401 is expected without API key, but service is running
+                        resolve({ success: true });
+                    } else {
+                        resolve({ success: false, error: `Service returned status: ${res.statusCode}` });
+                    }
+                });
+                
+                req.on('error', (error) => {
+                    resolve({ success: false, error: `Network error: ${error.message}` });
+                });
+                
+                req.on('timeout', () => {
+                    resolve({ success: false, error: 'Connection timeout - service may not be running' });
+                });
+                
+                req.end();
+            });
+            
+        } catch (parseError) {
+            return { success: false, error: `Configuration parse error: ${parseError.message}` };
+        }
     });
     
     // Display summary

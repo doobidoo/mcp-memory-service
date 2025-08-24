@@ -9,9 +9,9 @@ echo "🚀 Claude Code Memory Awareness Hooks Installation"
 echo "================================================="
 
 # Configuration
-CLAUDE_HOOKS_DIR="${HOME}/.claude-code/hooks"
+CLAUDE_HOOKS_DIR="${HOME}/.claude/hooks"
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKUP_DIR="${HOME}/.claude-code/hooks-backup-$(date +%Y%m%d-%H%M%S)"
+BACKUP_DIR="${HOME}/.claude/hooks-backup-$(date +%Y%m%d-%H%M%S)"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -125,6 +125,71 @@ install_config() {
     fi
 }
 
+# Configure Claude Code settings
+configure_claude_settings() {
+    local settings_file="${HOME}/.claude/settings.json"
+    local local_settings_file="${HOME}/.claude/settings.local.json"
+    
+    info "Configuring Claude Code settings for hook integration..."
+    
+    # Create .claude directory if it doesn't exist
+    mkdir -p "${HOME}/.claude"
+    
+    # Hook configuration for Claude Code
+    local hook_config='{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/core/session-start.js",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/core/session-end.js",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}'
+    
+    # Check if settings file exists and merge configuration
+    if [ -f "$settings_file" ]; then
+        # Backup existing settings
+        cp "$settings_file" "${settings_file}.backup-$(date +%Y%m%d-%H%M%S)"
+        info "Backed up existing settings.json"
+        
+        # Merge with existing settings (basic merge - overwrites hooks section)
+        # In a production script, we'd use a proper JSON merger
+        echo "$hook_config" > "$settings_file"
+        warn "⚠️  Existing settings.json hooks section has been replaced"
+        warn "   Please manually merge if you had other hooks configured"
+        warn "   Backup available: ${settings_file}.backup-*"
+    else
+        # Create new settings file
+        echo "$hook_config" > "$settings_file"
+        info "✅ Created new settings.json with hook configuration"
+    fi
+    
+    # Also update local settings if it exists (common pattern)
+    if [ -f "$local_settings_file" ]; then
+        # Don't overwrite local settings, just inform user
+        info "Found settings.local.json - you may need to manually add hook configuration"
+    fi
+    
+    info "✅ Claude Code settings configured for memory awareness hooks"
+}
+
 # Test installation
 test_installation() {
     info "Testing installation..."
@@ -163,6 +228,18 @@ test_installation() {
         info "✅ Node.js available: $(node --version)"
     fi
     
+    # Test Claude Code settings configuration
+    local settings_file="${HOME}/.claude/settings.json"
+    if [ -f "$settings_file" ]; then
+        if grep -q "session-start.js" "$settings_file" && grep -q "session-end.js" "$settings_file"; then
+            info "✅ Claude Code settings configured correctly"
+        else
+            warn "⚠️  Claude Code settings may not be configured correctly"
+        fi
+    else
+        warn "⚠️  Claude Code settings.json not found"
+    fi
+    
     # Run integration test
     if [ -f "$CLAUDE_HOOKS_DIR/tests/integration-test.js" ]; then
         info "Running integration tests..."
@@ -172,6 +249,17 @@ test_installation() {
             info "✅ Integration tests passed"
         else
             warn "⚠️  Some integration tests failed - check configuration"
+        fi
+    fi
+    
+    # Test hook detection by Claude Code (if available)
+    if command -v claude &> /dev/null; then
+        info "Testing Claude Code hook detection..."
+        if claude --debug hooks --help &> /dev/null; then
+            # This would require a more sophisticated test
+            info "✅ Claude Code is available for hook testing"
+        else
+            warn "⚠️  Could not test Claude Code hook detection"
         fi
     fi
 }
@@ -214,6 +302,7 @@ main() {
     backup_existing_hooks
     install_hooks
     install_config
+    configure_claude_settings
     test_installation
     show_post_install_instructions
 }

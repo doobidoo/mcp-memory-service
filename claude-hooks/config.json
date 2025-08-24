@@ -1,7 +1,7 @@
 {
   "memoryService": {
-    "endpoint": "https://narrowbox.local:8443",
-    "apiKey": "test-key-123",
+    "endpoint": "https://your-memory-service:8443",
+    "apiKey": "your-api-key-here",
     "defaultTags": ["claude-code", "auto-generated"],
     "maxMemoriesPerSession": 8,
     "enableSessionConsolidation": true

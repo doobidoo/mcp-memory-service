@@ -12,7 +12,7 @@ fi
 # Get current user and working directory
 CURRENT_USER=$(whoami)
 CURRENT_DIR=$(pwd)
-SERVICE_FILE="mcp-memory.service"
+SERVICE_FILE="deployment/mcp-memory.service"
 
 echo "User: $CURRENT_USER"
 echo "Working directory: $CURRENT_DIR"

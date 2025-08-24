@@ -1,130 +1,96 @@
 # Claude Code Memory Awareness Hooks
 
-This directory contains Claude Code hooks that implement automatic memory awareness and intelligent context injection for the MCP Memory Service.
+Automatic memory awareness and intelligent context injection for Claude Code using the MCP Memory Service.
 
-## Architecture
+## Quick Start
 
-The memory awareness system consists of three main components:
+```bash
+cd claude-hooks
+./install.sh
+```
 
-### Core Hooks
-- `session-start.js` - Automatic memory injection at session initialization
-- `session-end.js` - Memory consolidation and outcome storage
-- `topic-change.js` - Dynamic memory loading based on conversation evolution
+This installs hooks that automatically:
+- Load relevant project memories when Claude Code starts
+- Inject contextual information based on your current project
+- Store session insights and decisions for future reference
 
-### Utilities
-- `project-detector.js` - Project context detection and analysis
-- `memory-scorer.js` - Relevance scoring algorithms for memory selection
-- `context-formatter.js` - Memory formatting for Claude Code injection
+## Components
 
-### Configuration
-- `config.json` - Hook configuration and memory service endpoints
-- `memory-filters.json` - Memory filtering rules and preferences
+- **Core Hooks**: `session-start.js`, `session-end.js` - Automatic memory injection and consolidation
+- **Utilities**: Project detection, memory scoring, context formatting
+- **Tests**: Comprehensive integration test suite (14 tests)
 
 ## Features
 
-### Automatic Memory Injection
-- **Session Startup**: Automatically loads relevant project memories
-- **Dynamic Updates**: Real-time memory injection based on conversation topics
-- **Cross-Session Continuity**: Links conversations across different sessions
-
-### Intelligent Memory Selection  
-- **Project Awareness**: Detects current project and loads relevant context
-- **Relevance Scoring**: AI-powered memory selection based on conversation topics
-- **Time Decay**: Prioritizes recent memories while maintaining historical context
-
-### Memory Consolidation
-- **Session Outcomes**: Automatically stores conversation insights
-- **Auto-Tagging**: Intelligent categorization of memory content
-- **Knowledge Building**: Progressive memory organization and linking
+- **Automatic Memory Injection**: Load relevant memories at session start
+- **Project Awareness**: Detect current project context and frameworks  
+- **Memory Consolidation**: Store session outcomes and insights
+- **Intelligent Selection**: AI-powered relevance scoring and time decay
 
 ## Installation
 
-1. Copy hooks to Claude Code hooks directory:
+### Automated (Recommended)
 ```bash
-cp claude-hooks/* ~/.claude-code/hooks/
+cd claude-hooks
+./install.sh
 ```
 
-2. Configure memory service endpoint:
+### Manual
 ```bash
-cd ~/.claude-code/hooks
-cp config.template.json config.json
-# Edit config.json with your memory service details
+cp -r claude-hooks/* ~/.claude/hooks/
+# Edit ~/.claude/settings.json and ~/.claude/hooks/config.json
 ```
 
-3. Test hook installation:
+## Verification
+
+After installation:
 ```bash
-claude-hooks test memory-awareness
+claude --debug hooks  # Should show "Found 1 hook matchers in settings"
+cd ~/.claude/hooks && node tests/integration-test.js  # Run 14 integration tests
 ```
 
 ## Configuration
 
-### Memory Service Setup
+Edit `~/.claude/hooks/config.json`:
 ```json
 {
   "memoryService": {
     "endpoint": "https://your-server:8443",
     "apiKey": "your-api-key",
-    "defaultTags": ["claude-code", "auto-generated"],
     "maxMemoriesPerSession": 10
-  }
-}
-```
-
-### Project Detection Rules
-```json
-{
-  "projectDetection": {
-    "gitRepository": true,
-    "packageFiles": ["package.json", "pyproject.toml", "Cargo.toml"],
-    "frameworkDetection": true,
-    "languageDetection": true
   }
 }
 ```
 
 ## Usage
 
-Once installed, the hooks work automatically:
+Once installed, hooks work automatically:
+- **Session start**: Load relevant project memories
+- **Session end**: Store insights and decisions
+- No manual intervention required
 
-1. **Starting a Claude Code session** triggers automatic memory loading
-2. **Conversation topic changes** dynamically inject additional relevant memories  
-3. **Ending a session** consolidates outcomes and stores new insights
+## Troubleshooting
 
-No manual intervention required - the system learns and adapts to your development patterns.
+### Quick Fixes
+- **Hooks not detected**: `ls ~/.claude/settings.json` → Reinstall if missing
+- **JSON parse errors**: Update to latest version (includes Python dict conversion)
+- **Connection failed**: Check `curl -k https://your-endpoint:8443/api/health`
+- **Wrong directory**: Move `~/.claude-code/hooks/*` to `~/.claude/hooks/`
 
-## Development
-
-### Testing Hooks
+### Debug Mode
 ```bash
-# Test individual hooks
-npm test claude-hooks/tests/session-start.test.js
-
-# Test full workflow
-npm test claude-hooks/tests/integration.test.js
+claude --debug hooks  # Shows hook execution details
+node ~/.claude/hooks/core/session-start.js  # Test individual hooks
 ```
 
-### Debugging
-Set environment variable for verbose logging:
-```bash
-export CLAUDE_HOOKS_DEBUG=true
-claude
-```
+## Documentation
 
-## Architecture Diagrams
+For comprehensive documentation including detailed troubleshooting, advanced configuration, and development guides, see:
 
-### Memory Injection Flow
-```
-Session Start → Project Detection → Memory Query → Relevance Scoring → Context Injection
-```
+**[📖 Memory Awareness Hooks - Detailed Guide](https://github.com/doobidoo/mcp-memory-service/wiki/Memory-Awareness-Hooks-Detailed-Guide)**
 
-### Dynamic Updates Flow  
-```
-Topic Change → Semantic Analysis → Additional Memory Query → Context Update
-```
-
-### Consolidation Flow
-```
-Session End → Conversation Analysis → Auto-Tagging → Memory Storage → Cross-Linking
-```
-
-This system transforms Claude Code into a memory-aware development assistant that maintains perfect context across all interactions.
+This guide covers:
+- Advanced installation methods and configuration options
+- Comprehensive troubleshooting with solutions
+- Custom hook development and architecture diagrams
+- Memory service integration and testing frameworks

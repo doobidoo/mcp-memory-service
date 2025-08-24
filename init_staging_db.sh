@@ -2,7 +2,7 @@
 # Initialize staging database for offline memory changes
 
 STAGING_DB="/Users/hkr/Library/Application Support/mcp-memory/sqlite_vec_staging.db"
-INIT_SQL="$(dirname "$0")/staging_db_init.sql"
+INIT_SQL="$(dirname "$0")/deployment/staging_db_init.sql"
 
 echo "$(date): Initializing staging database..."
 

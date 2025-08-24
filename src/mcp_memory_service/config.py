@@ -164,7 +164,8 @@ except Exception as e:
 
 # Server settings
 SERVER_NAME = "memory"
-SERVER_VERSION = "0.2.2"
+# Import version from main package for consistency
+from . import __version__ as SERVER_VERSION
 
 # Storage backend configuration
 SUPPORTED_BACKENDS = ['chroma', 'sqlite_vec', 'sqlite-vec', 'cloudflare']

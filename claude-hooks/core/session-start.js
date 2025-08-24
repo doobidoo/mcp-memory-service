@@ -84,25 +84,19 @@ async function queryMemoryService(endpoint, apiKey, query) {
                         let textData = response.result.content[0].text;
                         
                         try {
-                            // Replace Python literals with JS equivalents 
-                            const jsCode = textData
-                                .replace(/True/g, 'true')
-                                .replace(/False/g, 'false')
-                                .replace(/None/g, 'null');
+                            // Convert Python dict format to JSON format safely
+                            textData = textData
+                                .replace(/'/g, '"')  // Replace single quotes with double quotes
+                                .replace(/True/g, 'true')  // Convert Python True to JSON true
+                                .replace(/False/g, 'false')  // Convert Python False to JSON false
+                                .replace(/None/g, 'null');  // Convert Python None to JSON null
                             
-                            // Use Function constructor for safe evaluation
-                            const memoriesData = new Function('return ' + jsCode)();
-                            resolve(memoriesData.results || []);
+                            const memories = JSON.parse(textData);
+                            resolve(memories.results || memories.memories || []);
                         } catch (conversionError) {
-                            console.warn('[Memory Hook] Response format conversion error:', conversionError.message);
-                            // Fallback: try direct JSON parsing
-                            try {
-                                const memoriesData = JSON.parse(textData);
-                                resolve(memoriesData.results || memoriesData.memories || []);
-                            } catch (jsonError) {
-                                console.warn('[Memory Hook] JSON fallback failed:', jsonError.message);
-                                resolve([]);
-                            }
+                            console.warn('[Memory Hook] Could not parse memory response:', conversionError.message);
+                            console.warn('[Memory Hook] Raw text preview:', textData.substring(0, 200) + '...');
+                            resolve([]);
                         }
                     } else {
                         resolve([]);

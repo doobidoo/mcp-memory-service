@@ -133,7 +133,7 @@ EOF
         echo -e "${YELLOW}✓ Stored locally (staged for sync)${NC}"
         echo -e "${YELLOW}  Content hash: ${content_hash:0:16}...${NC}"
         echo -e "${YELLOW}  Tags applied: $auto_tags${NC}"
-        echo -e "${YELLOW}  Run './memory_sync.sh sync' to push to remote${NC}"
+        echo -e "${YELLOW}  Run './sync/memory_sync.sh sync' to push to remote${NC}"
         
         # Show current staging status
         local staged_count=$(sqlite3 "$STAGING_DB" "SELECT COUNT(*) FROM staged_memories WHERE conflict_status = 'none';" 2>/dev/null || echo "0")
@@ -168,7 +168,7 @@ show_help() {
     echo "Storage Strategy:"
     echo "  1. Try remote API first (https://narrowbox.local:8443/api/memories)"
     echo "  2. Fallback to local staging if remote fails"
-    echo "  3. Use './memory_sync.sh sync' to sync staged changes"
+    echo "  3. Use './sync/memory_sync.sh sync' to sync staged changes"
 }
 
 # Parse arguments

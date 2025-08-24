@@ -18,22 +18,22 @@ Before troubleshooting specific issues, use these commands to gather information
 ### System Status Check
 ```bash
 # Overall sync system health
-./scripts/memory_sync.sh status
+./sync/memory_sync.sh status
 
 # Detailed system information
-./scripts/memory_sync.sh system-info
+./sync/memory_sync.sh system-info
 
 # Full diagnostic report
-./scripts/memory_sync.sh diagnose
+./sync/memory_sync.sh diagnose
 ```
 
 ### Component Testing
 ```bash
 # Test individual components
-./scripts/memory_sync.sh test-connectivity    # Network tests
-./scripts/memory_sync.sh test-database       # Database integrity
-./scripts/memory_sync.sh test-sync           # Sync functionality
-./scripts/memory_sync.sh test-all            # Complete test suite
+./sync/memory_sync.sh test-connectivity    # Network tests
+./sync/memory_sync.sh test-database       # Database integrity
+./sync/memory_sync.sh test-sync           # Sync functionality
+./sync/memory_sync.sh test-all            # Complete test suite
 ```
 
 ### Enable Debug Mode
@@ -43,7 +43,7 @@ export SYNC_DEBUG=1
 export SYNC_VERBOSE=1
 
 # Run commands with detailed output
-./scripts/memory_sync.sh sync
+./sync/memory_sync.sh sync
 ```
 
 ## Network Connectivity Issues
@@ -58,13 +58,13 @@ export SYNC_VERBOSE=1
 **Diagnostic Steps:**
 ```bash
 # Test basic network connectivity
-ping narrowbox.local
+ping your-remote-server
 
 # Test specific port
-telnet narrowbox.local 8443
+telnet your-remote-server 8443
 
 # Test HTTP/HTTPS endpoint
-curl -v -k https://narrowbox.local:8443/api/health
+curl -v -k https://your-remote-server:8443/api/health
 ```
 
 **Solutions:**
@@ -72,17 +72,17 @@ curl -v -k https://narrowbox.local:8443/api/health
 #### DNS Resolution Issues
 ```bash
 # Try with IP address instead of hostname
-export REMOTE_MEMORY_HOST="10.0.1.30"
-./scripts/memory_sync.sh status
+export REMOTE_MEMORY_HOST="your-server-ip"
+./sync/memory_sync.sh status
 
 # Add to /etc/hosts if DNS fails
-echo "10.0.1.30 narrowbox.local" | sudo tee -a /etc/hosts
+echo "your-server-ip your-remote-server" | sudo tee -a /etc/hosts
 ```
 
 #### Firewall/Port Issues
 ```bash
 # Check if port is open
-nmap -p 8443 narrowbox.local
+nmap -p 8443 your-remote-server
 
 # Test alternative ports
 export REMOTE_MEMORY_PORT="8000"  # Try HTTP port
@@ -92,10 +92,10 @@ export REMOTE_MEMORY_PROTOCOL="http"
 #### SSL/TLS Certificate Issues
 ```bash
 # Bypass SSL verification (testing only)
-curl -k https://narrowbox.local:8443/api/health
+curl -k https://your-remote-server:8443/api/health
 
 # Check certificate details
-openssl s_client -connect narrowbox.local:8443 -servername narrowbox.local
+openssl s_client -connect your-remote-server:8443 -servername your-remote-server
 ```
 
 ### Problem: API Authentication Failures
@@ -108,14 +108,14 @@ openssl s_client -connect narrowbox.local:8443 -servername narrowbox.local
 **Solutions:**
 ```bash
 # Check if API key is required
-curl -k https://narrowbox.local:8443/api/health
+curl -k https://your-remote-server:8443/api/health
 
 # Set API key if required
 export REMOTE_MEMORY_API_KEY="your-api-key"
 
 # Test with API key
 curl -k -H "Authorization: Bearer your-api-key" \
-  https://narrowbox.local:8443/api/health
+  https://your-remote-server:8443/api/health
 ```
 
 ### Problem: Slow Network Performance
@@ -135,7 +135,7 @@ export SYNC_TIMEOUT=60
 export SYNC_RETRY_ATTEMPTS=5
 
 # Test network performance
-./scripts/memory_sync.sh benchmark-network
+./sync/memory_sync.sh benchmark-network
 ```
 
 ## Database Problems
@@ -171,7 +171,7 @@ sqlite3 ~/.mcp_memory_staging/staging.db < recovered.sql
 
 # If repair fails, reinitialize
 rm ~/.mcp_memory_staging/staging.db
-./scripts/memory_sync.sh init
+./sync/memory_sync.sh init
 ```
 
 ### Problem: Database Version Mismatch
@@ -187,10 +187,10 @@ rm ~/.mcp_memory_staging/staging.db
 sqlite3 ~/.mcp_memory_staging/staging.db "PRAGMA user_version;"
 
 # Upgrade database schema
-./scripts/memory_sync.sh upgrade-db
+./sync/memory_sync.sh upgrade-db
 
 # Force schema recreation
-./scripts/memory_sync.sh init --force-schema
+./sync/memory_sync.sh init --force-schema
 ```
 
 ### Problem: Insufficient Disk Space
@@ -209,7 +209,7 @@ df -h ~/.mcp_memory_staging/
 find ~/.mcp_memory_staging/ -name "*.log.*" -mtime +30 -delete
 
 # Compact databases
-./scripts/memory_sync.sh optimize
+./sync/memory_sync.sh optimize
 ```
 
 ## Sync Conflicts
@@ -227,14 +227,14 @@ Content hash conflicts occur when the same memory content exists in both local s
 **Resolution Strategies:**
 ```bash
 # View conflict details
-./scripts/memory_sync.sh show-conflicts
+./sync/memory_sync.sh show-conflicts
 
 # Auto-resolve using merge strategy
 export SYNC_CONFLICT_RESOLUTION="merge"
-./scripts/memory_sync.sh sync
+./sync/memory_sync.sh sync
 
 # Manual conflict resolution
-./scripts/memory_sync.sh resolve-conflicts --interactive
+./sync/memory_sync.sh resolve-conflicts --interactive
 ```
 
 ### Problem: Tag Conflicts
@@ -250,10 +250,10 @@ export SYNC_CONFLICT_RESOLUTION="merge"
 export TAG_MERGE_STRATEGY="union"  # union, intersection, local, remote
 
 # Manual tag resolution
-./scripts/memory_sync.sh resolve-tags --memory-hash "abc123..."
+./sync/memory_sync.sh resolve-tags --memory-hash "abc123..."
 
 # Bulk tag cleanup
-./scripts/memory_sync.sh cleanup-tags
+./sync/memory_sync.sh cleanup-tags
 ```
 
 ### Problem: Timestamp Conflicts
@@ -270,7 +270,7 @@ timedatectl status  # Linux
 sntp -sS time.apple.com  # macOS
 
 # Force timestamp update during sync
-./scripts/memory_sync.sh sync --update-timestamps
+./sync/memory_sync.sh sync --update-timestamps
 
 # Configure timestamp handling
 export SYNC_TIMESTAMP_STRATEGY="newest"  # newest, oldest, local, remote
@@ -288,13 +288,13 @@ export SYNC_TIMESTAMP_STRATEGY="newest"  # newest, oldest, local, remote
 **Diagnostic Steps:**
 ```bash
 # Check service status
-./scripts/memory_sync.sh status-service
+./sync/memory_sync.sh status-service
 
 # View service logs
-./scripts/memory_sync.sh logs
+./sync/memory_sync.sh logs
 
 # Test service configuration
-./scripts/memory_sync.sh test-service-config
+./sync/memory_sync.sh test-service-config
 ```
 
 **Linux (systemd) Solutions:**
@@ -335,14 +335,14 @@ tail -f ~/Library/Logs/mcp-memory-sync.log
 **Solutions:**
 ```bash
 # Monitor memory usage
-./scripts/memory_sync.sh monitor-resources
+./sync/memory_sync.sh monitor-resources
 
 # Restart service periodically
-./scripts/memory_sync.sh install-service --restart-interval daily
+./sync/memory_sync.sh install-service --restart-interval daily
 
 # Optimize memory usage
 export SYNC_MEMORY_LIMIT="100MB"
-./scripts/memory_sync.sh restart-service
+./sync/memory_sync.sh restart-service
 ```
 
 ## Performance Problems
@@ -363,10 +363,10 @@ export SYNC_BATCH_SIZE=25
 export SYNC_PARALLEL_JOBS=4
 
 # Optimize database operations
-./scripts/memory_sync.sh optimize
+./sync/memory_sync.sh optimize
 
 # Profile sync performance
-./scripts/memory_sync.sh profile-sync
+./sync/memory_sync.sh profile-sync
 ```
 
 ### Problem: High Resource Usage
@@ -384,7 +384,7 @@ export SYNC_MEMORY_LIMIT=200  # MB
 export SYNC_IO_PRIORITY=3     # Lower priority
 
 # Use nice/ionice for background sync
-nice -n 10 ionice -c 3 ./scripts/memory_sync.sh sync
+nice -n 10 ionice -c 3 ./sync/memory_sync.sh sync
 
 # Schedule sync during off-hours
 crontab -e
@@ -400,19 +400,19 @@ If all else fails, perform a complete reset:
 
 ```bash
 # 1. Stop all sync services
-./scripts/memory_sync.sh stop-service
+./sync/memory_sync.sh stop-service
 
 # 2. Backup important data
 cp -r ~/.mcp_memory_staging ~/.mcp_memory_staging.backup
 
 # 3. Remove sync system
-./scripts/memory_sync.sh uninstall --remove-data
+./sync/memory_sync.sh uninstall --remove-data
 
 # 4. Reinstall from scratch
-./scripts/memory_sync.sh install
+./sync/memory_sync.sh install
 
 # 5. Restore configuration
-./scripts/memory_sync.sh init
+./sync/memory_sync.sh init
 ```
 
 ### Disaster Recovery
@@ -427,10 +427,10 @@ litestream restore -o recovered_sqlite_vec.db /backup/path
 cp ~/.mcp_memory_staging.backup/staging.db ~/.mcp_memory_staging/
 
 # 3. Force sync from remote
-./scripts/memory_sync.sh pull --force
+./sync/memory_sync.sh pull --force
 
 # 4. Verify data integrity
-./scripts/memory_sync.sh verify-integrity
+./sync/memory_sync.sh verify-integrity
 ```
 
 ### Data Migration
@@ -439,16 +439,16 @@ To migrate to a different server:
 
 ```bash
 # 1. Export all local data
-./scripts/memory_sync.sh export --format json --output backup.json
+./sync/memory_sync.sh export --format json --output backup.json
 
 # 2. Update configuration for new server
 export REMOTE_MEMORY_HOST="new-server.local"
 
 # 3. Import data to new server
-./scripts/memory_sync.sh import --input backup.json
+./sync/memory_sync.sh import --input backup.json
 
 # 4. Verify migration
-./scripts/memory_sync.sh status
+./sync/memory_sync.sh status
 ```
 
 ## Logging and Monitoring
@@ -484,13 +484,13 @@ Create monitoring scripts:
 ```bash
 # Health check script
 #!/bin/bash
-if ! ./scripts/memory_sync.sh status | grep -q "healthy"; then
+if ! ./sync/memory_sync.sh status | grep -q "healthy"; then
   echo "Sync system unhealthy" | mail -s "MCP Sync Alert" admin@example.com
 fi
 
 # Performance monitoring
 #!/bin/bash
-SYNC_TIME=$(./scripts/memory_sync.sh sync --dry-run 2>&1 | grep "would take" | awk '{print $3}')
+SYNC_TIME=$(./sync/memory_sync.sh sync --dry-run 2>&1 | grep "would take" | awk '{print $3}')
 if [ "$SYNC_TIME" -gt 300 ]; then
   echo "Sync taking too long: ${SYNC_TIME}s" | mail -s "MCP Sync Performance" admin@example.com
 fi
@@ -502,10 +502,10 @@ fi
 
 ```bash
 # Generate comprehensive support report
-./scripts/memory_sync.sh support-report > support_info.txt
+./sync/memory_sync.sh support-report > support_info.txt
 
 # Include anonymized memory samples
-./scripts/memory_sync.sh support-report --include-samples >> support_info.txt
+./sync/memory_sync.sh support-report --include-samples >> support_info.txt
 ```
 
 ### Community Resources

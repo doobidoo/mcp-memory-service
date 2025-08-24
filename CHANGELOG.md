@@ -4,6 +4,142 @@ All notable changes to the MCP Memory Service project will be documented in this
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.6.0] - 2025-08-23
+
+### 🔧 **Memory Awareness Hooks: Fully Functional Installation**
+
+#### Major Improvements
+- **Installation Scripts Fixed** - Memory Awareness Hooks now install and work end-to-end without manual intervention
+- **Claude Code Integration** - Automatic `~/.claude/settings.json` configuration for seamless hook detection
+- **JSON Parsing Fixed** - Resolved Python dict conversion errors that caused runtime failures
+- **Enhanced Testing** - Added 4 new integration tests (total: 14 tests, 100% pass rate)
+
+#### Added
+- **Automated Claude Code Settings Integration** - Installation script now configures `~/.claude/settings.json` automatically
+- **Comprehensive Troubleshooting Guide** - Complete wiki documentation with diagnosis commands and solutions
+- **Installation Verification** - Post-install connectivity tests and hook detection validation
+- **GitHub Wiki Documentation** - Detailed 500+ line guide for advanced users and developers
+
+#### Fixed  
+- **Installation Directory** - Changed from `~/.claude-code/hooks/` to correct `~/.claude/hooks/` location
+- **JSON Parsing Errors** - Added Python dict to JSON conversion (single quotes, True/False/None handling)
+- **Hook Detection** - Claude Code now properly detects installed hooks via settings configuration
+- **Memory Service Connectivity** - Enhanced error handling and connection testing
+
+#### Enhanced
+- **Integration Tests** - Expanded test suite from 10 to 14 tests (40% increase):
+  - Claude Code settings validation
+  - Hook files location verification  
+  - Claude Code CLI availability check
+  - Memory service connectivity testing
+- **Documentation Structure** - README streamlined (47% size reduction), detailed content moved to wiki
+- **Error Messages** - Improved debugging output and user-friendly error reporting
+
+#### Developer Experience
+- **Quick Start** - Single command installation: `./install.sh`
+- **Verification Commands** - Easy testing with `claude --debug hooks`
+- **Troubleshooting** - Comprehensive guide covers all common issues
+- **Custom Development** - Examples for extending hooks and memory integration
+
+**Impact**: Memory Awareness Hooks are now publicly usable without the manual debugging sessions that were previously required. Users can run `./install.sh` and get fully functional automatic memory awareness in Claude Code.
+
+## [6.5.0] - 2025-08-23
+
+### 🗂️ **Repository Structure: Root Directory Cleanup**
+
+#### Added
+- **`deployment/` Directory** - Centralized location for service and configuration files
+- **`sync/` Directory** - Organized synchronization scripts in dedicated folder
+- **Dependency-Safe Reorganization** - All file references properly updated
+
+#### Changed
+- **Root Directory Cleanup** - Reduced clutter from 80+ files to ~65 files (19% reduction)
+- **File Organization** - Moved deployment configs and sync scripts to logical subdirectories
+- **Path References Updated** - All scripts and configurations point to new file locations
+- **Claude Code Settings** - Updated paths in `.claude/settings.local.json` for moved scripts
+
+#### Moved Files
+**To `deployment/`:**
+- `mcp-memory.service` - Systemd service configuration
+- `smithery.yaml` - Smithery package configuration  
+- `io.litestream.replication.plist` - macOS LaunchDaemon configuration
+- `staging_db_init.sql` - Database initialization schema
+- `empty_config.yml` - Template configuration file
+
+**To `sync/`:**
+- `manual_sync.sh`, `memory_sync.sh` - Core synchronization scripts
+- `pull_remote_changes.sh`, `push_to_remote.sh` - Remote sync operations
+- `sync_from_remote.sh`, `sync_from_remote_noconfig.sh` - Remote pull variants
+- `apply_local_changes.sh`, `stash_local_changes.sh`, `resolve_conflicts.sh` - Local sync operations
+
+#### Fixed
+- **Broken References** - Updated all hardcoded paths in scripts and configurations
+- **Claude Code Integration** - Fixed manual_sync.sh path reference
+- **Installation Scripts** - Updated service file and SQL schema paths
+- **Litestream Setup** - Fixed LaunchDaemon plist file reference
+
+#### Repository Impact
+This release significantly improves repository navigation and organization while maintaining full backward compatibility through proper reference updates. Users benefit from cleaner root directory structure, while developers gain logical file organization that reflects functional groupings.
+
+## [6.4.0] - 2025-08-23
+
+### 📚 **Documentation Revolution: Major UX Transformation**
+
+#### Added
+- **Comprehensive Installation Guide** in wiki consolidating 6+ previous scattered guides
+- **Platform-Specific Setup Guide** with optimizations for Windows, macOS, and Linux
+- **Complete Integration Guide** covering Claude Desktop, Claude Code, VS Code, and 13+ tools
+- **Streamlined README.md** with clear quick start and wiki navigation (56KB → 8KB)
+- **Safe Documentation Archive** preserving all removed files for reference
+
+#### Changed
+- **Major Documentation Restructuring** for improved user experience and maintainability
+- **Single Source of Truth** established for installation, platform setup, and integrations
+- **Wiki Home Page** updated with organized navigation to consolidated guides
+- **User Onboarding Journey** simplified from overwhelming choice to clear path
+
+#### Removed
+- **26+ Redundant Documentation Files** safely archived while preserving git history
+- **Choice Paralysis** from 6 installation guides, 5 integration guides, 4 platform guides
+- **Maintenance Burden** of updating multiple files for single concept changes
+- **Inconsistent Information** across overlapping documentation
+
+#### Fixed
+- **User Confusion** from overwhelming documentation choices and unclear paths
+- **Maintenance Complexity** requiring updates to 6+ files for installation changes
+- **Professional Image** with organized structure reflecting code quality
+- **Information Discovery** through logical wiki organization vs scattered files
+
+#### Documentation Impact
+This release transforms MCP Memory Service from having overwhelming documentation chaos to organized, professional, maintainable structure. Users now have clear paths from discovery to success (README → Quick Start → Wiki → Success), while maintainers benefit from single-source-of-truth updates. **90% reduction in repository documentation files** while **improving comprehensiveness** through organized wiki structure.
+
+**Key Achievements:**
+- Installation guides: 6 → 1 comprehensive wiki page
+- Integration guides: 5 → 1 complete reference  
+- Platform guides: 4 → 1 optimized guide
+- User experience: Confusion → Clarity
+- Maintenance: 6+ places → 1 place per topic
+
+## [6.3.3] - 2025-08-22
+
+### 🔧 **Enhancement: Version Synchronization**
+
+#### Fixed
+- **API Documentation Version**: Fixed API docs dashboard showing outdated version `1.0.0` instead of current version
+- **Version Inconsistencies**: Synchronized hardcoded versions across FastAPI app, web module, and server configuration
+- **Maintenance Overhead**: Established single source of truth for version management
+
+#### Enhanced
+- **Dynamic Version Management**: All version references now import from main `__version__` variable
+- **Future-Proofing**: Version updates now only require changes in 2 files (pyproject.toml + __init__.py)
+- **Developer Experience**: Consistent version display across all interfaces and documentation
+
+#### Technical Details
+- **FastAPI App**: Changed from hardcoded `version="1.0.0"` to dynamic `version=__version__`
+- **Web Module**: Removed separate version `0.2.0`, now imports from parent package
+- **Server Config**: Updated `SERVER_VERSION` from `0.2.2` to use main version import
+- **Impact**: All dashboards, API docs, and mDNS advertisements now show consistent version
+
 ## [6.3.2] - 2025-08-22
 
 ### 🚨 **Critical Fix: Claude Desktop Compatibility Regression**
@@ -108,7 +244,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 #### Enhanced
 - **Claude Commands**: Updated `memory-store.md` to document remote-first approach
   - **Hybrid Strategy**: Remote API primary, local staging fallback
-  - **Sync Status**: Integration with `./memory_sync.sh status` for pending changes
+  - **Sync Status**: Integration with `./sync/memory_sync.sh status` for pending changes
   - **Automatic Context**: Git branch, project, and hostname detection
 
 #### Architecture

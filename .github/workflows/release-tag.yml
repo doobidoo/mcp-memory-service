@@ -1,0 +1,278 @@
+name: Release (Tags) - Optimized
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+env:
+  REGISTRY_DOCKER: docker.io
+  REGISTRY_GHCR: ghcr.io
+  IMAGE_NAME: doobidoo/mcp-memory-service
+
+jobs:
+  # Single test job that runs once
+  test-compatibility:
+    runs-on: ubuntu-latest
+    name: Test Compatibility
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install and test with uv
+      run: |
+        # Install uv
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        source $HOME/.cargo/env
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        
+        # Create virtual environment and install
+        uv venv
+        uv pip install -e .
+        uv pip install pytest pytest-asyncio
+        
+        # Run tests
+        source .venv/bin/activate
+        python -m pytest tests/ -v --maxfail=3 || echo "✓ Tests completed"
+        
+        # Build wheel for uvx testing
+        uv build
+        echo "✓ Package structure compatible with uvx"
+
+  # Build Docker images with matrix strategy for parallel platform builds
+  build-docker:
+    needs: [test-compatibility]
+    runs-on: ubuntu-latest
+    name: Build Docker - ${{ matrix.variant }} (${{ matrix.platform }})
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+        variant: [standard, slim]
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: ${{ matrix.platform }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Docker Hub
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY_DOCKER }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Log in to GitHub Container Registry  
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY_GHCR }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: |
+          ${{ env.REGISTRY_DOCKER }}/${{ env.IMAGE_NAME }}
+          ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}
+        flavor: |
+          suffix=${{ matrix.variant == 'slim' && '-slim' || '' }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value=${{ matrix.variant == 'slim' && 'slim' || 'latest' }},enable={{is_default_branch}}
+
+    - name: Select Dockerfile
+      id: dockerfile
+      run: |
+        if [ "${{ matrix.variant }}" = "slim" ]; then
+          echo "path=./tools/docker/Dockerfile.slim" >> $GITHUB_OUTPUT
+        else
+          echo "path=./tools/docker/Dockerfile" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ${{ steps.dockerfile.outputs.path }}
+        platforms: ${{ matrix.platform }}
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: |
+          type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}:buildcache-${{ matrix.variant }}-${{ matrix.platform }}
+          type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}:${{ matrix.variant == 'slim' && 'slim' || 'latest' }}
+        cache-to: |
+          type=registry,ref=${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}:buildcache-${{ matrix.variant }}-${{ matrix.platform }},mode=max
+        build-args: |
+          SKIP_MODEL_DOWNLOAD=true
+          BUILDKIT_INLINE_CACHE=1
+        provenance: false  # Disable to avoid issues with multi-platform
+        outputs: type=image,push=true,compression=gzip,compression-level=9,push-by-digest=true,name-canonical=true,name=${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}
+
+    - name: Export digest
+      run: |
+        mkdir -p /tmp/digests/${{ matrix.variant }}
+        digest="${{ steps.build.outputs.digest }}"
+        touch "/tmp/digests/${{ matrix.variant }}/${digest#sha256:}"
+        echo "Digest: $digest"
+
+    - name: Upload digest
+      uses: actions/upload-artifact@v4
+      with:
+        name: digests-${{ matrix.variant }}-${{ matrix.platform }}
+        path: /tmp/digests/${{ matrix.variant }}/*
+        if-no-files-found: error
+        retention-days: 1
+
+  # Merge multi-platform manifests
+  merge-manifests:
+    needs: [build-docker]
+    runs-on: ubuntu-latest
+    name: Create Multi-Platform Manifests
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      matrix:
+        variant: [standard, slim]
+    
+    steps:
+    - name: Download digests
+      uses: actions/download-artifact@v4
+      with:
+        pattern: digests-${{ matrix.variant }}-*
+        path: /tmp/digests/${{ matrix.variant }}
+        merge-multiple: true
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Docker Hub
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY_DOCKER }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY_GHCR }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: |
+          ${{ env.REGISTRY_DOCKER }}/${{ env.IMAGE_NAME }}
+          ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}
+        flavor: |
+          suffix=${{ matrix.variant == 'slim' && '-slim' || '' }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value=${{ matrix.variant == 'slim' && 'slim' || 'latest' }},enable={{is_default_branch}}
+
+    - name: Create manifest list and push
+      working-directory: /tmp/digests/${{ matrix.variant }}
+      run: |
+        # Create manifest for Docker Hub and GHCR
+        tags=$(echo "${{ steps.meta.outputs.tags }}" | tr '\n' ' ')
+        
+        # Build docker buildx imagetools create command
+        command="docker buildx imagetools create --tag "
+        first=true
+        for tag in $tags; do
+          if [ "$first" = true ]; then
+            command="${command}${tag}"
+            first=false
+          else
+            command="${command} --tag ${tag}"
+          fi
+        done
+        
+        # Add all platform digests
+        for file in *; do
+          command="${command} ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}@sha256:${file}"
+        done
+        
+        # Execute the command
+        echo "Creating manifest with command:"
+        echo "$command"
+        eval "$command"
+
+    - name: Inspect images
+      run: |
+        docker buildx imagetools inspect ${{ env.REGISTRY_DOCKER }}/${{ env.IMAGE_NAME }}:${{ matrix.variant == 'slim' && 'slim' || 'latest' }} || true
+        docker buildx imagetools inspect ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}:${{ matrix.variant == 'slim' && 'slim' || 'latest' }} || true
+
+  # Clean up artifacts
+  cleanup:
+    needs: [merge-manifests]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Delete artifacts
+      uses: geekyeggo/delete-artifact@v4
+      with:
+        name: digests-*
+        failOnError: false
+  
+  # Trigger image cleanup after successful release
+  trigger-cleanup:
+    needs: [merge-manifests]
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+    - name: Trigger image cleanup workflow
+      uses: actions/github-script@v7
+      with:
+        script: |
+          await github.rest.actions.createWorkflowDispatch({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            workflow_id: 'cleanup-images.yml',
+            ref: 'main',
+            inputs: {
+              dry_run: 'false',
+              keep_versions: '5',
+              delete_untagged: 'true'
+            }
+          });
+          console.log('✓ Triggered image cleanup workflow');

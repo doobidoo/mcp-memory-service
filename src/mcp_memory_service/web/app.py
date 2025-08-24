@@ -132,7 +132,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="MCP Memory Service",
         description="HTTP REST API and SSE interface for semantic memory storage",
-        version="1.0.0",
+        version=__version__,
         lifespan=lifespan,
         docs_url="/api/docs",
         redoc_url="/api/redoc"

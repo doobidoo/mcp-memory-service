@@ -47,7 +47,7 @@ I'll use a **hybrid remote-first approach** with local fallback for reliability:
 ```
 1. Try remote API directly (fastest path)
 2. If offline/failed: Stage locally + notify user  
-3. On reconnect: ./memory_sync.sh automatically syncs
+3. On reconnect: ./sync/memory_sync.sh automatically syncs
 4. Conflict resolution: Remote wins, with user notification
 ```
 
@@ -60,8 +60,8 @@ The content will be stored with automatic context detection:
 
 ### Service Endpoints:
 - **Primary API**: `https://narrowbox.local:8443/api/memories`
-- **Sync Status**: Use `./memory_sync.sh status` to check pending changes
-- **Manual Sync**: Use `./memory_sync.sh sync` for full synchronization
+- **Sync Status**: Use `./sync/memory_sync.sh status` to check pending changes
+- **Manual Sync**: Use `./sync/memory_sync.sh sync` for full synchronization
 
 I'll use the correct curl syntax with `-k` flag for HTTPS, proper JSON payload formatting, and automatic client hostname detection using the `X-Client-Hostname` header.
 

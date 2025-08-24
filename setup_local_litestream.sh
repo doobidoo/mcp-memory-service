@@ -17,7 +17,7 @@ sudo chmod 644 /var/log/litestream.log
 
 # Install LaunchDaemon
 echo "🚀 Installing LaunchDaemon..."
-sudo cp io.litestream.replication.plist /Library/LaunchDaemons/
+sudo cp deployment/io.litestream.replication.plist /Library/LaunchDaemons/
 
 # Set permissions
 sudo chown root:wheel /Library/LaunchDaemons/io.litestream.replication.plist
