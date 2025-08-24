@@ -1,0 +1,18 @@
+{
+  "name": "mcp-integration-tests",
+  "version": "1.0.0", 
+  "description": "Integration tests for HTTP-MCP bridge",
+  "main": "test_bridge_integration.js",
+  "scripts": {
+    "test": "mocha test_bridge_integration.js --reporter spec --timeout 10000",
+    "test:watch": "mocha test_bridge_integration.js --reporter spec --timeout 10000 --watch"
+  },
+  "dependencies": {
+    "mocha": "^10.0.0",
+    "sinon": "^17.0.0"
+  },
+  "devDependencies": {},
+  "keywords": ["mcp", "bridge", "integration", "testing"],
+  "author": "",
+  "license": "Apache-2.0"
+}

@@ -289,7 +289,10 @@ class HTTPMCPBridge {
         console.error(`[${requestId}] Starting ${method} request to ${path}`);
         
         return new Promise((resolve, reject) => {
-            const url = new URL(path, this.endpoint);
+            // Handle relative paths correctly when endpoint has a base path like /api
+            const fullPath = path.startsWith('/') ? path : '/' + path;
+            const baseUrl = this.endpoint.endsWith('/') ? this.endpoint.slice(0, -1) : this.endpoint;
+            const url = new URL(baseUrl + fullPath);
             const protocol = url.protocol === 'https:' ? https : http;
             
             console.error(`[${requestId}] Full URL: ${url.toString()}`);
@@ -401,8 +404,13 @@ class HTTPMCPBridge {
                 metadata: params.metadata || {}
             });
 
-            if (response.statusCode === 201) {
-                return { success: true, message: 'Memory stored successfully' };
+            if (response.statusCode === 200 || response.statusCode === 201) {
+                // Server returns 200 with success field indicating actual result
+                if (response.data.success) {
+                    return { success: true, message: response.data.message || 'Memory stored successfully' };
+                } else {
+                    return { success: false, message: response.data.message || response.data.detail || 'Failed to store memory' };
+                }
             } else {
                 return { success: false, message: response.data.detail || 'Failed to store memory' };
             }

@@ -4,6 +4,122 @@ All notable changes to the MCP Memory Service project will be documented in this
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.6.3] - 2025-08-24
+
+### 🔧 **CI/CD Infrastructure Improvements**
+
+#### GitHub Actions Workflow Fixes
+- **Fixed npm dependency management**: Created proper `package.json` files for test directories
+- **Simplified YAML structure**: Replaced complex multi-line scripts with focused single-step commands
+- **Improved error reporting**: Split validation steps for clearer failure identification
+- **Fixed false positives**: Updated status code validation to avoid flagging legitimate 200/201 handling
+- **Enhanced reliability**: Used `working-directory` instead of embedded `cd` commands
+- **Impact**: GitHub Actions CI/CD now properly installs dependencies and validates bridge fixes
+
+#### Test Infrastructure Enhancements
+- **Added dedicated test packages**: Separate `package.json` for bridge and integration tests
+- **Improved module resolution**: Confirmed correct relative path handling in test files
+- **Better validation coverage**: Enhanced API contract and smoke test verification
+
+## [6.6.2] - 2025-08-24
+
+### 🐛 **Critical Bug Fixes**
+
+#### HTTP-MCP Bridge Complete Repair
+- **Fixed Status Code Handling**: Corrected bridge expectation from HTTP 201 to HTTP 200 with success field check
+  - Server returns HTTP 200 for both successful storage and duplicates
+  - Bridge now properly checks `response.data.success` field to determine actual result
+  - Supports both HTTP 200 and 201 for backward compatibility
+  - **Impact**: Memory storage operations now work correctly instead of always failing
+  
+- **Fixed URL Construction Bug**: Resolved critical path construction issue in `makeRequestInternal`
+  - `new URL(path, baseUrl)` was incorrectly replacing `/api` base path
+  - Now properly concatenates base URL with API paths: `baseUrl + fullPath`
+  - **Impact**: All API operations now reach correct endpoints instead of returning 404
+
+#### Root Cause Analysis
+- **Memory Storage**: Bridge expected HTTP 201 but server returns 200 → always interpreted as failure
+- **All API Calls**: URL construction bug caused `/api` path to be lost → all requests returned 404
+- **Combined Effect**: Made entire bridge non-functional despite server working correctly
+
+### 🧪 **Major Enhancement: Comprehensive Test Infrastructure**
+
+#### Test Suite Addition
+- **Bridge Unit Tests** (`tests/bridge/test_http_mcp_bridge.js`): 20+ test cases covering:
+  - URL construction with various base path scenarios
+  - Status code handling for success, duplicates, and errors
+  - MCP protocol compliance and error conditions
+  - Authentication and retry logic
+  
+- **Integration Tests** (`tests/integration/test_bridge_integration.js`): End-to-end testing with:
+  - Real server connectivity simulation
+  - Complete MCP protocol flow validation
+  - Authentication and error recovery testing
+  - Critical bug scenario reproduction
+
+- **Mock Response System** (`tests/bridge/mock_responses.js`): Accurate server behavior simulation
+  - Matches actual API responses (HTTP 200 with success field)
+  - Covers all edge cases and error conditions
+  - Prevents future assumption-based bugs
+
+#### CI/CD Pipeline Enhancement
+- **Dedicated Bridge Testing** (`.github/workflows/bridge-tests.yml`):
+  - Automated testing on every bridge-related change
+  - Multiple Node.js version compatibility testing
+  - Contract validation against API specification
+  - Blocks merges if bridge tests fail
+
+#### Documentation & Contracts
+- **API Contract Specification** (`tests/contracts/api-specification.yml`):
+  - Documents ACTUAL server behavior vs assumptions
+  - Critical notes about HTTP 200 status codes and success fields
+  - URL path requirements and authentication details
+
+- **Release Process** (`RELEASE_CHECKLIST.md`):
+  - 50+ item checklist preventing critical bugs
+  - Manual and automated testing requirements
+  - Post-release monitoring procedures
+
+### 🔧 **Technical Details**
+
+**Files Modified:**
+- `examples/http-mcp-bridge.js` - Status code and URL construction fixes
+- `src/mcp_memory_service/__init__.py` - Version bump
+- `pyproject.toml` - Version bump
+
+**Files Added:**
+- Complete test infrastructure (6 new files)
+- CI/CD pipeline configuration
+- API contract documentation
+- Release process documentation
+
+**Backward Compatibility**: 
+- All existing configurations continue working
+- Bridge now accepts both HTTP 200 and 201 responses
+- No breaking changes to client interfaces
+
+### 🎯 **Impact**
+
+**Before v6.6.2:**
+- ❌ Health check: "unhealthy" → Fixed in v6.6.1
+- ❌ Memory storage: "Not Found" errors 
+- ❌ Memory retrieval: 404 failures
+- ❌ All bridge operations non-functional
+
+**After v6.6.2:**
+- ✅ Health check: Returns "healthy" status
+- ✅ Memory storage: Works correctly with proper success/duplicate handling
+- ✅ Memory retrieval: Functions normally with semantic search
+- ✅ All bridge operations fully functional
+
+**Future Prevention:**
+- ✅ Comprehensive test coverage prevents regression
+- ✅ API contract validation catches assumption mismatches
+- ✅ Automated CI/CD testing on every change
+- ✅ Detailed release checklist ensures quality
+
+This release completes the HTTP-MCP bridge repair, making it fully functional while establishing comprehensive testing infrastructure to prevent similar critical bugs in the future.
+
 ## [6.6.1] - 2025-08-24
 
 ### 🐛 **Bug Fixes**

@@ -1,0 +1,18 @@
+{
+  "name": "mcp-bridge-tests",
+  "version": "1.0.0",
+  "description": "Unit tests for HTTP-MCP bridge",
+  "main": "test_http_mcp_bridge.js",
+  "scripts": {
+    "test": "mocha test_http_mcp_bridge.js --reporter spec",
+    "test:watch": "mocha test_http_mcp_bridge.js --reporter spec --watch"
+  },
+  "dependencies": {
+    "mocha": "^10.0.0",
+    "sinon": "^17.0.0"
+  },
+  "devDependencies": {},
+  "keywords": ["mcp", "bridge", "testing"],
+  "author": "",
+  "license": "Apache-2.0"
+}

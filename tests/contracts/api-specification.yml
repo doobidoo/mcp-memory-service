@@ -1,0 +1,325 @@
+# MCP Memory Service API Contract Specification
+# This document defines the ACTUAL behavior of the MCP Memory Service API
+# Used by the HTTP-MCP bridge and other clients
+
+openapi: 3.0.3
+info:
+  title: MCP Memory Service API
+  version: "6.6.1"
+  description: |
+    API contract for MCP Memory Service - defines actual response formats
+    and status codes that clients can expect.
+    
+    CRITICAL NOTES:
+    - Server returns HTTP 200 for both success and failure cases
+    - Use the 'success' field in response body to determine actual result
+    - All endpoints use /api prefix
+
+servers:
+  - url: https://memory.local:8443/api
+    description: Default HTTPS server with self-signed certificate
+  - url: http://localhost:8000/api
+    description: Development HTTP server
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Service health check
+      description: Returns current service status and statistics
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - version
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy]
+                  version:
+                    type: string
+                    example: "6.6.1"
+                  timestamp:
+                    type: string
+                    format: date-time
+                  uptime_seconds:
+                    type: number
+                  storage_type:
+                    type: string
+                    enum: [sqlite_vec, chroma, cloudflare]
+                  statistics:
+                    type: object
+                    properties:
+                      total_memories:
+                        type: integer
+                      total_tags:
+                        type: integer
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [unhealthy]
+                  error:
+                    type: string
+
+  /memories:
+    post:
+      summary: Store a memory
+      description: |
+        Store a new memory in the service.
+        
+        CRITICAL: Always returns HTTP 200, regardless of success/failure!
+        Check the 'success' field in response body to determine actual result.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+                  description: Memory content to store
+                tags:
+                  type: array
+                  items:
+                    type: string
+                  default: []
+                memory_type:
+                  type: string
+                  default: "note"
+                metadata:
+                  type: object
+                  default: {}
+      responses:
+        '200':
+          description: Request processed (check success field!)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    title: Success
+                    required:
+                      - success
+                      - message
+                      - content_hash
+                      - memory
+                    properties:
+                      success:
+                        type: boolean
+                        enum: [true]
+                      message:
+                        type: string
+                        example: "Memory stored successfully"
+                      content_hash:
+                        type: string
+                      memory:
+                        $ref: '#/components/schemas/Memory'
+                  - type: object
+                    title: Duplicate
+                    required:
+                      - success
+                      - message
+                      - content_hash
+                    properties:
+                      success:
+                        type: boolean
+                        enum: [false]
+                      message:
+                        type: string
+                        example: "Duplicate content detected"
+                      content_hash:
+                        type: string
+                      memory:
+                        type: 'null'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: "Invalid API key"
+
+  /search:
+    get:
+      summary: Search memories by content
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: n_results
+          in: query
+          schema:
+            type: integer
+            default: 5
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        memory:
+                          $ref: '#/components/schemas/Memory'
+                        relevance_score:
+                          type: number
+                          minimum: 0
+                          maximum: 1
+
+  /memories/search/tags:
+    get:
+      summary: Search memories by tags
+      parameters:
+        - name: tags
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Comma-separated list of tags
+      responses:
+        '200':
+          description: Tag search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  memories:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Memory'
+
+  /memories/{content_hash}:
+    delete:
+      summary: Delete a memory by content hash
+      parameters:
+        - name: content_hash
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '404':
+          description: Memory not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key for authentication
+
+  schemas:
+    Memory:
+      type: object
+      required:
+        - content
+        - content_hash
+        - tags
+        - memory_type
+        - created_at_iso
+      properties:
+        content:
+          type: string
+        content_hash:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        memory_type:
+          type: string
+        metadata:
+          type: object
+        created_at:
+          type: number
+        created_at_iso:
+          type: string
+          format: date-time
+        updated_at:
+          type: number
+        updated_at_iso:
+          type: string
+          format: date-time
+
+# Contract Test Cases
+x-contract-tests:
+  critical-behaviors:
+    - name: "Memory storage returns 200 with success field"
+      description: "Server never returns 201 - always 200 with success boolean"
+      endpoint: "POST /memories"
+      expected:
+        status: 200
+        body_contains: ["success"]
+        
+    - name: "Health check uses /api/health path"
+      description: "Health endpoint is /api/health not /health"
+      endpoint: "GET /health"  
+      expected:
+        status: 200
+        
+    - name: "URL construction preserves /api base path"
+      description: "Bridge must not replace /api when constructing URLs"
+      test: "URL construction"
+      
+    - name: "Duplicate detection returns success=false"
+      description: "Duplicates return 200 with success=false, not error status"
+      endpoint: "POST /memories"
+      scenario: "duplicate_content"
+      expected:
+        status: 200
+        body:
+          success: false
