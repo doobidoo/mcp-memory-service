@@ -1,7 +1,7 @@
 {
   "memoryService": {
-    "endpoint": "https://your-memory-service:8443",
-    "apiKey": "your-api-key-here",
+    "endpoint": "http://localhost:8000",
+    "apiKey": "op://Private/mcp api key/credential",
     "defaultTags": ["claude-code", "auto-generated"],
     "maxMemoriesPerSession": 8,
     "enableSessionConsolidation": true

@@ -52,7 +52,7 @@ dependencies = [
     "PyPDF2>=3.0.0",
     "chardet>=5.0.0",
     "click>=8.0.0",
-    "httpx>=0.24.0"
+    "httpx>=0.24.0",
 ]
 
 [project.optional-dependencies]
