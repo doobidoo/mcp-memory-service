@@ -260,11 +260,12 @@ def detect_system():
     if is_macos:
         try:
             # Check if pytorch is installed via brew
+            print_info("Checking for Homebrew PyTorch installation...")
             result = subprocess.run(
                 ['brew', 'list', 'pytorch', '--version'],
                 capture_output=True,
                 text=True,
-                timeout=10  # 10-second timeout to prevent hanging
+                timeout=30  # Increased timeout to prevent hanging
             )
             if result.returncode == 0:
                 has_homebrew_pytorch = True
@@ -363,10 +364,12 @@ def detect_gpu():
     if system_info["is_macos"] and system_info["is_arm"]:
         try:
             # Check if Metal is supported
+            print_info("Checking Metal GPU support...")
             result = subprocess.run(
                 ['system_profiler', 'SPDisplaysDataType'],
                 capture_output=True,
-                text=True
+                text=True,
+                timeout=30
             )
             has_mps = 'Metal' in result.stdout
         except (subprocess.SubprocessError, FileNotFoundError):
@@ -913,9 +916,17 @@ def choose_storage_backend(system_info, gpu_info, args):
         
         while True:
             try:
-                choice = input("Choose storage backend [1-3] (default: 1): ").strip()
-                if not choice:
+                if args.non_interactive:
+                    print_info("Non-interactive mode: using default storage backend (SQLite-vec)")
                     choice = "1"
+                else:
+                    print("\n" + "=" * 60)
+                    print("⚠️  USER INPUT REQUIRED")
+                    print("=" * 60)
+                    choice = input("Choose storage backend [1-3] (default: 1, press Enter for default): ").strip()
+                    print("=" * 60 + "\n")
+                    if not choice:
+                        choice = "1"
                 
                 if choice == "1":
                     return "sqlite_vec"
@@ -1622,9 +1633,10 @@ def is_legacy_hardware(system_info):
         # This is a heuristic based on common patterns
         try:
             # Try to get more detailed system info
+            print_info("Detecting hardware configuration (this may take a moment)...")
             result = subprocess.run(
                 ['system_profiler', 'SPHardwareDataType'],
-                capture_output=True, text=True, timeout=10
+                capture_output=True, text=True, timeout=30
             )
             if result.returncode == 0:
                 output = result.stdout.lower()
@@ -2569,6 +2581,8 @@ def main():
                         help='Install Claude Code commands for memory operations')
     parser.add_argument('--skip-claude-commands-prompt', action='store_true',
                         help='Skip the interactive prompt for Claude Code commands')
+    parser.add_argument('--non-interactive', action='store_true',
+                        help='Run in non-interactive mode using default values for all prompts')
     
     args = parser.parse_args()
     
@@ -2629,9 +2643,17 @@ def main():
         print_step("1c", "HTTP/SSE API Configuration")
         if args.storage_backend == "chromadb":
             print_warning("HTTP/SSE API works best with SQLite-vec backend")
-            response = input("Switch to SQLite-vec for optimal HTTP API experience? (y/N): ")
-            if response.lower().startswith('y'):
+            if args.non_interactive:
+                print_info("Non-interactive mode: switching to SQLite-vec for HTTP API compatibility")
                 args.storage_backend = "sqlite_vec"
+            else:
+                print("\n" + "=" * 60)
+                print("⚠️  USER INPUT REQUIRED")
+                print("=" * 60)
+                response = input("Switch to SQLite-vec for optimal HTTP API experience? (y/N, press Enter for N): ")
+                print("=" * 60 + "\n")
+                if response.lower().startswith('y'):
+                    args.storage_backend = "sqlite_vec"
     
     # Handle migration
     if args.migrate_from_chromadb:
@@ -2658,14 +2680,22 @@ def main():
             print_info("Migration will run after installation completes")
         else:
             print_warning("No ChromaDB data found at standard locations")
-            manual_path = input("Enter ChromaDB path manually (or press Enter to skip): ").strip()
-            if manual_path and os.path.exists(manual_path):
-                chromadb_found = manual_path
-                args.storage_backend = "sqlite_vec"
-                args.chromadb_found = chromadb_found
-            else:
-                print_info("Skipping migration - no valid ChromaDB path provided")
+            if args.non_interactive:
+                print_info("Non-interactive mode: skipping ChromaDB migration")
                 args.migrate_from_chromadb = False
+            else:
+                print("\n" + "=" * 60)
+                print("⚠️  USER INPUT REQUIRED")
+                print("=" * 60)
+                manual_path = input("Enter ChromaDB path manually (or press Enter to skip): ").strip()
+                print("=" * 60 + "\n")
+                if manual_path and os.path.exists(manual_path):
+                    chromadb_found = manual_path
+                    args.storage_backend = "sqlite_vec"
+                    args.chromadb_found = chromadb_found
+                else:
+                    print_info("Skipping migration - no valid ChromaDB path provided")
+                    args.migrate_from_chromadb = False
     
     # Check if user requested force-compatible dependencies for macOS Intel
     if args.force_compatible_deps:
@@ -2805,8 +2835,16 @@ def main():
                 print_info("Claude Code CLI detected! You can install memory operation commands.")
                 print_info("Commands would include: /memory-store, /memory-recall, /memory-search, /memory-health")
                 
-                response = input("Install Claude Code memory commands? (y/N): ")
-                should_install_commands = response.lower().startswith('y')
+                if args.non_interactive:
+                    print_info("Non-interactive mode: skipping Claude Code commands installation")
+                    should_install_commands = False
+                else:
+                    print("\n" + "=" * 60)
+                    print("⚠️  USER INPUT REQUIRED")
+                    print("=" * 60)
+                    response = input("Install Claude Code memory commands? (y/N, press Enter for N): ")
+                    print("=" * 60 + "\n")
+                    should_install_commands = response.lower().startswith('y')
     
     if should_install_commands:
         if install_claude_commands is not None:
@@ -2861,7 +2899,15 @@ def main():
             print_info("")
             
             try:
-                response = input("Would you like to configure multi-client access? (y/N): ").strip().lower()
+                if args.non_interactive:
+                    print_info("Non-interactive mode: skipping multi-client configuration")
+                    response = 'n'
+                else:
+                    print("\n" + "=" * 60)
+                    print("⚠️  USER INPUT REQUIRED")
+                    print("=" * 60)
+                    response = input("Would you like to configure multi-client access? (y/N, press Enter for N): ").strip().lower()
+                    print("=" * 60 + "\n")
                 if response in ['y', 'yes']:
                     print_info("")
                     try:

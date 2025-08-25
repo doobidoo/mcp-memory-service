@@ -264,7 +264,7 @@ async function detectProjectContext(directory = process.cwd()) {
             metadata: {
                 detectedAt: new Date().toISOString(),
                 analyzer: 'claude-hooks-project-detector',
-                version: '1.0.0'
+                version: '1.1.0'
             }
         };
         

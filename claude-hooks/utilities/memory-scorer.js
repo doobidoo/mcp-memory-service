@@ -92,6 +92,65 @@ function calculateTagRelevance(memoryTags = [], projectContext) {
 }
 
 /**
+ * Calculate content quality score to penalize generic/empty content
+ */
+function calculateContentQuality(memoryContent = '') {
+    try {
+        if (!memoryContent || typeof memoryContent !== 'string') {
+            return 0.1;
+        }
+        
+        const content = memoryContent.trim();
+        
+        // Check for generic session summary patterns
+        const genericPatterns = [
+            /## 🎯 Topics Discussed\s*-\s*implementation\s*-\s*\.\.\.?$/m,
+            /Topics Discussed.*implementation.*\.\.\..*$/s,
+            /Session Summary.*implementation.*\.\.\..*$/s,
+            /^# Session Summary.*Date.*Project.*Topics Discussed.*implementation.*\.\.\..*$/s
+        ];
+        
+        const isGeneric = genericPatterns.some(pattern => pattern.test(content));
+        if (isGeneric) {
+            return 0.05; // Heavily penalize generic content
+        }
+        
+        // Check content length and substance
+        if (content.length < 50) {
+            return 0.2; // Short content gets low score
+        }
+        
+        // Check for meaningful content indicators
+        const meaningfulIndicators = [
+            'decided', 'implemented', 'changed', 'fixed', 'created', 'updated',
+            'because', 'reason', 'approach', 'solution', 'result', 'impact',
+            'learned', 'discovered', 'found', 'issue', 'problem', 'challenge'
+        ];
+        
+        const meaningfulMatches = meaningfulIndicators.filter(indicator => 
+            content.toLowerCase().includes(indicator)
+        ).length;
+        
+        // Calculate information density
+        const words = content.split(/\s+/).filter(w => w.length > 2);
+        const uniqueWords = new Set(words.map(w => w.toLowerCase()));
+        const diversityRatio = uniqueWords.size / Math.max(words.length, 1);
+        
+        // Combine factors
+        const meaningfulnessScore = Math.min(0.4, meaningfulMatches * 0.08);
+        const diversityScore = Math.min(0.3, diversityRatio * 0.5);
+        const lengthScore = Math.min(0.3, content.length / 1000); // Longer content gets bonus
+        
+        const qualityScore = meaningfulnessScore + diversityScore + lengthScore;
+        return Math.max(0.05, Math.min(1.0, qualityScore));
+        
+    } catch (error) {
+        console.warn('[Memory Scorer] Content quality calculation error:', error.message);
+        return 0.3;
+    }
+}
+
+/**
  * Calculate content relevance using simple text analysis
  * Memories with content matching project keywords get higher scores
  */
@@ -249,7 +308,7 @@ function calculateConversationRelevance(memory, conversationAnalysis) {
 }
 
 /**
- * Calculate final relevance score for a memory (Enhanced for Phase 2)
+ * Calculate final relevance score for a memory (Enhanced with quality scoring)
  */
 function calculateRelevanceScore(memory, projectContext, options = {}) {
     try {
@@ -259,18 +318,20 @@ function calculateRelevanceScore(memory, projectContext, options = {}) {
             conversationAnalysis = null
         } = options;
 
-        // Default weights for different scoring factors
+        // Default weights including content quality factor
         const defaultWeights = includeConversationContext ? {
-            timeDecay: 0.25,           // Reduced weight for time when conversation context available
-            tagRelevance: 0.35,        // Tag matching remains important
+            timeDecay: 0.20,           // Reduced weight for time 
+            tagRelevance: 0.30,        // Tag matching remains important
             contentRelevance: 0.15,    // Content matching reduced
-            conversationRelevance: 0.25, // New conversation context factor
-            typeBonus: 0.1             // Memory type provides minor adjustment
+            contentQuality: 0.25,      // New quality factor
+            conversationRelevance: 0.25, // Conversation context factor
+            typeBonus: 0.05            // Memory type provides minor adjustment
         } : {
-            timeDecay: 0.3,            // Original Phase 1 weights
-            tagRelevance: 0.4,
-            contentRelevance: 0.2,
-            typeBonus: 0.1
+            timeDecay: 0.25,           // Reduced time weight
+            tagRelevance: 0.35,        // Tag matching important
+            contentRelevance: 0.15,    // Content matching
+            contentQuality: 0.25,      // Quality factor prioritized
+            typeBonus: 0.05            // Type bonus reduced
         };
         
         const w = { ...defaultWeights, ...weights };
@@ -279,12 +340,14 @@ function calculateRelevanceScore(memory, projectContext, options = {}) {
         const timeScore = calculateTimeDecay(memory.created_at || memory.created_at_iso);
         const tagScore = calculateTagRelevance(memory.tags, projectContext);
         const contentScore = calculateContentRelevance(memory.content, projectContext);
+        const qualityScore = calculateContentQuality(memory.content);
         const typeBonus = calculateTypeBonus(memory.memory_type);
         
         let finalScore = (
             (timeScore * w.timeDecay) +
             (tagScore * w.tagRelevance) +
             (contentScore * w.contentRelevance) +
+            (qualityScore * w.contentQuality) +
             typeBonus // Type bonus is not weighted, acts as adjustment
         );
 
@@ -292,6 +355,7 @@ function calculateRelevanceScore(memory, projectContext, options = {}) {
             timeDecay: timeScore,
             tagRelevance: tagScore,
             contentRelevance: contentScore,
+            contentQuality: qualityScore,
             typeBonus: typeBonus
         };
 
@@ -300,6 +364,11 @@ function calculateRelevanceScore(memory, projectContext, options = {}) {
             const conversationScore = calculateConversationRelevance(memory, conversationAnalysis);
             finalScore += (conversationScore * (w.conversationRelevance || 0));
             breakdown.conversationRelevance = conversationScore;
+        }
+        
+        // Apply quality penalty for very low quality content (multiplicative)
+        if (qualityScore < 0.2) {
+            finalScore *= 0.5; // Heavily penalize low quality content
         }
         
         // Ensure score is between 0 and 1

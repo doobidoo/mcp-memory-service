@@ -8,8 +8,9 @@
 const assert = require('assert');
 const http = require('http');
 const https = require('https');
-const HTTPMCPBridge = require('../../examples/http-mcp-bridge.js');
-const { mockResponses, createMockResponse } = require('../bridge/mock_responses.js');
+const path = require('path');
+const HTTPMCPBridge = require(path.join(__dirname, '../../examples/http-mcp-bridge.js'));
+const { mockResponses, createMockResponse } = require(path.join(__dirname, '../bridge/mock_responses.js'));
 
 describe('Bridge-Server Integration', () => {
     let bridge;

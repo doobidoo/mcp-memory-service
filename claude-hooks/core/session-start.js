@@ -11,6 +11,7 @@ const https = require('https');
 const { detectProjectContext } = require('../utilities/project-detector');
 const { scoreMemoryRelevance } = require('../utilities/memory-scorer');
 const { formatMemoriesForContext } = require('../utilities/context-formatter');
+const { detectContextShift, extractCurrentContext, determineRefreshStrategy } = require('../utilities/context-shift-detector');
 
 /**
  * Load hook configuration
@@ -27,7 +28,8 @@ async function loadConfig() {
                 endpoint: 'https://narrowbox.local:8443',
                 apiKey: 'test-key-123',
                 defaultTags: ['claude-code', 'auto-generated'],
-                maxMemoriesPerSession: 8
+                maxMemoriesPerSession: 8,
+                injectAfterCompacting: false
             },
             projectDetection: {
                 gitRepository: true,
@@ -119,7 +121,7 @@ async function queryMemoryService(endpoint, apiKey, query) {
 }
 
 /**
- * Main session start hook function
+ * Main session start hook function with smart timing
  */
 async function onSessionStart(context) {
     try {
@@ -127,6 +129,32 @@ async function onSessionStart(context) {
         
         // Load configuration
         const config = await loadConfig();
+        
+        // Check if this is triggered by a compacting event and skip if configured to do so
+        if (context.trigger === 'compacting' || context.event === 'memory-compacted') {
+            if (!config.memoryService.injectAfterCompacting) {
+                console.log('[Memory Hook] Skipping memory injection after compacting (disabled in config)');
+                return;
+            }
+            console.log('[Memory Hook] Proceeding with memory injection after compacting (enabled in config)');
+        }
+        
+        // For non-session-start events, use smart timing to decide if refresh is needed
+        if (context.trigger !== 'session-start' && context.trigger !== 'start') {
+            const currentContext = extractCurrentContext(context.conversationState || {}, context.workingDirectory);
+            const previousContext = context.previousContext || context.conversationState?.previousContext;
+            
+            if (previousContext) {
+                const shiftDetection = detectContextShift(currentContext, previousContext);
+                
+                if (!shiftDetection.shouldRefresh) {
+                    console.log(`[Memory Hook] No significant context shift detected (${shiftDetection.reason}), skipping refresh`);
+                    return;
+                }
+                
+                console.log(`[Memory Hook] Context shift detected: ${shiftDetection.description}`);
+            }
+        }
         
         // Detect project context
         const projectContext = await detectProjectContext(context.workingDirectory || process.cwd());
@@ -142,7 +170,9 @@ async function onSessionStart(context) {
                 'recent-insights',
                 'claude-code-reference'
             ].filter(Boolean),
-            semanticQuery: `${projectContext.name} project context decisions architecture`,
+            semanticQuery: context.userMessage ? 
+                `${projectContext.name} ${context.userMessage}` :
+                `${projectContext.name} project context decisions architecture`,
             limit: config.memoryService.maxMemoriesPerSession,
             timeFilter: 'last-2-weeks'
         };
@@ -160,16 +190,33 @@ async function onSessionStart(context) {
             // Score memories for relevance
             const scoredMemories = scoreMemoryRelevance(memories, projectContext);
             
-            // Take top scored memories
-            const topMemories = scoredMemories.slice(0, config.memoryService.maxMemoriesPerSession);
+            // Determine refresh strategy based on context
+            const strategy = context.trigger && context.previousContext ? 
+                determineRefreshStrategy(detectContextShift(
+                    extractCurrentContext(context.conversationState || {}, context.workingDirectory),
+                    context.previousContext
+                )) : {
+                    maxMemories: config.memoryService.maxMemoriesPerSession,
+                    includeScore: false,
+                    message: '🧠 Loading relevant memory context...'
+                };
             
-            // Format memories for context injection
-            const contextMessage = formatMemoriesForContext(topMemories, projectContext);
+            // Take top scored memories based on strategy
+            const maxMemories = Math.min(strategy.maxMemories || config.memoryService.maxMemoriesPerSession, scoredMemories.length);
+            const topMemories = scoredMemories.slice(0, maxMemories);
+            
+            // Format memories for context injection with strategy-based options
+            const contextMessage = formatMemoriesForContext(topMemories, projectContext, {
+                includeScore: strategy.includeScore || false,
+                groupByCategory: maxMemories > 3,
+                maxMemories: maxMemories,
+                includeTimestamp: true
+            });
             
             // Inject context into session
             if (context.injectSystemMessage) {
                 await context.injectSystemMessage(contextMessage);
-                console.log('[Memory Hook] Successfully injected memory context');
+                console.log(`[Memory Hook] Successfully injected memory context (${maxMemories} memories)`);
             } else {
                 // Fallback: log context for manual copying
                 console.log('\n=== MEMORY CONTEXT FOR SESSION ===');
@@ -191,7 +238,7 @@ async function onSessionStart(context) {
  */
 module.exports = {
     name: 'memory-awareness-session-start',
-    version: '1.0.0',
+    version: '2.1.0',
     description: 'Automatically inject relevant memories at session start',
     trigger: 'session-start',
     handler: onSessionStart,

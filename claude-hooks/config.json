@@ -4,7 +4,8 @@
     "apiKey": "op://Private/mcp api key/credential",
     "defaultTags": ["claude-code", "auto-generated"],
     "maxMemoriesPerSession": 8,
-    "enableSessionConsolidation": true
+    "enableSessionConsolidation": true,
+    "injectAfterCompacting": false
   },
   "projectDetection": {
     "gitRepository": true,
@@ -18,6 +19,7 @@
       "timeDecay": 0.25,
       "tagRelevance": 0.35,
       "contentRelevance": 0.15,
+      "contentQuality": 0.25,
       "conversationRelevance": 0.25
     },
     "minRelevanceScore": 0.3,

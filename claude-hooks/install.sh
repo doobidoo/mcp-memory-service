@@ -88,13 +88,15 @@ install_hooks() {
     # Copy core hooks
     cp "$SOURCE_DIR/core/session-start.js" "$CLAUDE_HOOKS_DIR/core/"
     cp "$SOURCE_DIR/core/session-end.js" "$CLAUDE_HOOKS_DIR/core/"
-    info "✅ Installed core hooks (session-start, session-end)"
+    cp "$SOURCE_DIR/core/memory-retrieval.js" "$CLAUDE_HOOKS_DIR/core/"
+    info "✅ Installed core hooks (session-start, session-end, memory-retrieval)"
     
     # Copy utilities
     cp "$SOURCE_DIR/utilities/project-detector.js" "$CLAUDE_HOOKS_DIR/utilities/"
     cp "$SOURCE_DIR/utilities/memory-scorer.js" "$CLAUDE_HOOKS_DIR/utilities/"
     cp "$SOURCE_DIR/utilities/context-formatter.js" "$CLAUDE_HOOKS_DIR/utilities/"
-    info "✅ Installed utility modules (project-detector, memory-scorer, context-formatter)"
+    cp "$SOURCE_DIR/utilities/context-shift-detector.js" "$CLAUDE_HOOKS_DIR/utilities/"
+    info "✅ Installed utility modules (project-detector, memory-scorer, context-formatter, context-shift-detector)"
     
     # Copy tests
     cp "$SOURCE_DIR/tests/integration-test.js" "$CLAUDE_HOOKS_DIR/tests/"

@@ -11,21 +11,29 @@ cd claude-hooks
 
 This installs hooks that automatically:
 - Load relevant project memories when Claude Code starts
-- Inject contextual information based on your current project
+- Inject meaningful contextual information (no more generic fluff!)
 - Store session insights and decisions for future reference
+- Provide on-demand memory retrieval when you need it
 
 ## Components
 
-- **Core Hooks**: `session-start.js`, `session-end.js` - Automatic memory injection and consolidation
-- **Utilities**: Project detection, memory scoring, context formatting
+- **Core Hooks**: `session-start.js` (v2.0), `session-end.js`, `memory-retrieval.js` - Smart memory management
+- **Utilities**: Project detection, quality-aware scoring, intelligent formatting, context shift detection
 - **Tests**: Comprehensive integration test suite (14 tests)
 
 ## Features
 
-- **Automatic Memory Injection**: Load relevant memories at session start
+### ✨ **NEW in v6.7.0**: Smart Memory Context
+- **Quality Content Extraction**: Extracts actual decisions/insights from session summaries instead of "implementation..." fluff
+- **Duplicate Filtering**: Automatically removes repetitive session summaries
+- **Smart Timing**: Only injects memories when contextually appropriate (no more mid-session disruptions)
+- **On-Demand Retrieval**: Manual memory refresh with `memory-retrieval.js` hook
+
+### 🧠 **Core Features**
+- **Automatic Memory Injection**: Load relevant memories at session start with quality filtering
 - **Project Awareness**: Detect current project context and frameworks  
 - **Memory Consolidation**: Store session outcomes and insights
-- **Intelligent Selection**: AI-powered relevance scoring and time decay
+- **Intelligent Selection**: Quality-aware scoring that prioritizes meaningful content over just recency
 
 ## Installation
 
@@ -57,10 +65,24 @@ Edit `~/.claude/hooks/config.json`:
   "memoryService": {
     "endpoint": "https://your-server:8443",
     "apiKey": "your-api-key",
-    "maxMemoriesPerSession": 10
+    "maxMemoriesPerSession": 8,
+    "injectAfterCompacting": false
+  },
+  "memoryScoring": {
+    "weights": {
+      "timeDecay": 0.25,
+      "tagRelevance": 0.35,
+      "contentRelevance": 0.15,
+      "contentQuality": 0.25
+    }
   }
 }
 ```
+
+### ⚙️ **New Configuration Options (v6.7.0)**
+- `injectAfterCompacting`: Controls whether to inject memories after compacting events (default: `false`)
+- `contentQuality`: New scoring weight for content quality assessment (filters generic summaries)
+- Enhanced memory filtering automatically removes "implementation..." fluff
 
 ## Usage
 

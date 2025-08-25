@@ -289,10 +289,10 @@ class HTTPMCPBridge {
         console.error(`[${requestId}] Starting ${method} request to ${path}`);
         
         return new Promise((resolve, reject) => {
-            // Handle relative paths correctly when endpoint has a base path like /api
-            const fullPath = path.startsWith('/') ? path : '/' + path;
-            const baseUrl = this.endpoint.endsWith('/') ? this.endpoint.slice(0, -1) : this.endpoint;
-            const url = new URL(baseUrl + fullPath);
+            // Use URL constructor's built-in path resolution to avoid duplicate base paths
+            // Ensure endpoint has trailing slash for proper relative path resolution
+            const baseUrl = this.endpoint.endsWith('/') ? this.endpoint : this.endpoint + '/';
+            const url = new URL(path, baseUrl);
             const protocol = url.protocol === 'https:' ? https : http;
             
             console.error(`[${requestId}] Full URL: ${url.toString()}`);
@@ -397,7 +397,7 @@ class HTTPMCPBridge {
      */
     async storeMemory(params) {
         try {
-            const response = await this.makeRequest('/memories', 'POST', {
+            const response = await this.makeRequest('memories', 'POST', {
                 content: params.content,
                 tags: params.metadata?.tags || [],
                 memory_type: params.metadata?.type || 'note',
@@ -429,7 +429,7 @@ class HTTPMCPBridge {
                 n_results: params.n_results || 5
             });
 
-            const response = await this.makeRequest(`/search?${queryParams}`, 'GET');
+            const response = await this.makeRequest(`search?${queryParams}`, 'GET');
 
             if (response.statusCode === 200) {
                 return {
@@ -463,7 +463,7 @@ class HTTPMCPBridge {
                 queryParams.append('tags', params.tags);
             }
 
-            const response = await this.makeRequest(`/memories/search/tags?${queryParams}`, 'GET');
+            const response = await this.makeRequest(`memories/search/tags?${queryParams}`, 'GET');
 
             if (response.statusCode === 200) {
                 return {
@@ -489,7 +489,7 @@ class HTTPMCPBridge {
      */
     async deleteMemory(params) {
         try {
-            const response = await this.makeRequest(`/memories/${params.content_hash}`, 'DELETE');
+            const response = await this.makeRequest(`memories/${params.content_hash}`, 'DELETE');
 
             if (response.statusCode === 200) {
                 return { success: true, message: 'Memory deleted successfully' };
@@ -506,7 +506,7 @@ class HTTPMCPBridge {
      */
     async checkHealth(params = {}) {
         try {
-            const response = await this.makeRequest('/api/health', 'GET');
+            const response = await this.makeRequest('health', 'GET');
 
             if (response.statusCode === 200) {
                 return {

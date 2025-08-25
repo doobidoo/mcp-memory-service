@@ -103,7 +103,7 @@ jobs:
         echo "- ✅ Status codes: Handles HTTP 200 correctly" >> contract-report.md
     
     - name: Upload contract report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: api-contract-report

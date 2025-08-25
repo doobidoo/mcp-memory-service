@@ -11,9 +11,79 @@ import sqlite3
 import json
 import sys
 import hashlib
+import urllib.request
+import urllib.parse
+import ssl
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
+
+def load_config():
+    """Load configuration from Claude hooks config file."""
+    config_path = Path.home() / '.claude' / 'hooks' / 'config.json'
+    if config_path.exists():
+        with open(config_path) as f:
+            return json.load(f)
+    return None
+
+def get_memories_from_api(endpoint, api_key):
+    """Retrieve all memories from the API endpoint using pagination."""
+    try:
+        # Create SSL context that allows self-signed certificates
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        
+        all_memories = []
+        page = 1
+        page_size = 100  # Use reasonable page size
+        
+        while True:
+            # Create request for current page
+            url = f"{endpoint}/api/memories?page={page}&page_size={page_size}"
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', f'Bearer {api_key}')
+            
+            # Make request
+            with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
+                if response.status != 200:
+                    print(f"❌ API request failed: {response.status}")
+                    return []
+                
+                data = response.read().decode('utf-8')
+                api_response = json.loads(data)
+            
+            # Extract memories from this page
+            page_memories = api_response.get('memories', [])
+            total = api_response.get('total', 0)
+            has_more = api_response.get('has_more', False)
+            
+            all_memories.extend(page_memories)
+            print(f"Retrieved page {page}: {len(page_memories)} memories (total so far: {len(all_memories)}/{total})")
+            
+            if not has_more:
+                break
+                
+            page += 1
+        
+        print(f"✅ Retrieved all {len(all_memories)} memories from API")
+        
+        # Convert API format to internal format
+        converted_memories = []
+        for mem in all_memories:
+            converted_memories.append((
+                mem.get('content_hash', ''),
+                mem.get('content', ''),
+                json.dumps(mem.get('tags', [])),
+                mem.get('created_at', ''),
+                json.dumps(mem.get('metadata', {}))
+            ))
+        
+        return converted_memories
+        
+    except Exception as e:
+        print(f"❌ Error retrieving memories from API: {e}")
+        return []
 
 def content_similarity_hash(content):
     """Create a hash for content similarity detection."""
@@ -23,30 +93,38 @@ def content_similarity_hash(content):
     normalized = ' '.join(normalized.split())
     return hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:16]
 
-def find_duplicates(db_path, similarity_threshold=0.95):
+def find_duplicates(memories_source, similarity_threshold=0.95):
     """
-    Find duplicate memories in the database.
+    Find duplicate memories from either database or API.
     
     Args:
-        db_path: Path to the SQLite database
+        memories_source: Either a database path (str) or list of memories from API
         similarity_threshold: Threshold for considering memories duplicates (0.0-1.0)
     
     Returns:
         Dict of duplicate groups
     """
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+    if isinstance(memories_source, str):
+        # Database path provided
+        conn = sqlite3.connect(memories_source)
+        cursor = conn.cursor()
+        
+        print("Scanning for duplicate memories...")
+        
+        # Get all memories
+        cursor.execute("""
+            SELECT content_hash, content, tags, created_at, metadata
+            FROM memories 
+            ORDER BY created_at DESC
+        """)
+        
+        all_memories = cursor.fetchall()
+        conn.close()
+    else:
+        # API memories provided
+        print("Analyzing memories from API...")
+        all_memories = memories_source
     
-    print("Scanning for duplicate memories...")
-    
-    # Get all memories
-    cursor.execute("""
-        SELECT content_hash, content, tags, created_at, metadata
-        FROM memories 
-        ORDER BY created_at DESC
-    """)
-    
-    all_memories = cursor.fetchall()
     print(f"Found {len(all_memories)} total memories")
     
     # Group by content similarity
@@ -88,8 +166,6 @@ def find_duplicates(db_path, similarity_threshold=0.95):
             'metadata': metadata,
             'content_length': len(content)
         })
-    
-    conn.close()
     
     # Find actual duplicates (groups with > 1 memory)
     exact_duplicates = {k: v for k, v in exact_content_groups.items() if len(v) > 1}
@@ -239,8 +315,9 @@ def main():
     
     parser = argparse.ArgumentParser(description='Find and remove duplicate memories')
     parser.add_argument('--db-path', type=str,
-                        default='/home/hkr/.local/share/mcp-memory/sqlite_vec.db',
-                        help='Path to SQLite database')
+                        help='Path to SQLite database (if not using API)')
+    parser.add_argument('--use-api', action='store_true',
+                        help='Use API endpoint from config instead of database')
     parser.add_argument('--execute', action='store_true',
                         help='Actually delete the duplicates (default is dry run)')
     parser.add_argument('--similarity-threshold', type=float, default=0.95,
@@ -248,23 +325,68 @@ def main():
     
     args = parser.parse_args()
     
-    if not Path(args.db_path).exists():
-        print(f"❌ Database not found: {args.db_path}")
-        sys.exit(1)
+    # Try to load config first
+    config = load_config()
     
-    # Find duplicates
-    duplicates = find_duplicates(args.db_path, args.similarity_threshold)
-    
-    if not duplicates['exact'] and not duplicates['similar']:
-        print("✅ No duplicates found!")
-        return
-    
-    print(f"\nFound:")
-    print(f"  - {len(duplicates['exact'])} exact duplicate groups")
-    print(f"  - {len(duplicates['similar'])} similar content groups")
-    
-    # Remove duplicates
-    remove_duplicates(args.db_path, duplicates, dry_run=not args.execute)
+    if args.use_api or (not args.db_path and config):
+        if not config:
+            print("❌ No configuration found. Use --db-path for local database or ensure config exists.")
+            sys.exit(1)
+        
+        endpoint = config.get('memoryService', {}).get('endpoint')
+        api_key = config.get('memoryService', {}).get('apiKey')
+        
+        if not endpoint or not api_key:
+            print("❌ API endpoint or key not found in configuration")
+            sys.exit(1)
+        
+        print(f"🌐 Using API endpoint: {endpoint}")
+        
+        # Get memories from API
+        memories = get_memories_from_api(endpoint, api_key)
+        if not memories:
+            print("❌ Failed to retrieve memories from API")
+            sys.exit(1)
+        
+        # Find duplicates
+        duplicates = find_duplicates(memories, args.similarity_threshold)
+        
+        if not duplicates['exact'] and not duplicates['similar']:
+            print("✅ No duplicates found!")
+            return
+        
+        print(f"\nFound:")
+        print(f"  - {len(duplicates['exact'])} exact duplicate groups")
+        print(f"  - {len(duplicates['similar'])} similar content groups")
+        
+        if args.execute:
+            print("⚠️  API-based deletion not yet implemented. Use database path for deletion.")
+        else:
+            # Show analysis only
+            remove_duplicates(None, duplicates, dry_run=True)
+            
+    else:
+        # Use database path
+        db_path = args.db_path or '/home/hkr/.local/share/mcp-memory/sqlite_vec.db'
+        
+        if not Path(db_path).exists():
+            print(f"❌ Database not found: {db_path}")
+            print("💡 Try --use-api to use the API endpoint from config instead")
+            sys.exit(1)
+        
+        # Find duplicates
+        duplicates = find_duplicates(db_path, args.similarity_threshold)
+        
+        if not duplicates['exact'] and not duplicates['similar']:
+            print("✅ No duplicates found!")
+            return
+        
+        print(f"\nFound:")
+        print(f"  - {len(duplicates['exact'])} exact duplicate groups")
+        print(f"  - {len(duplicates['similar'])} similar content groups")
+        
+        # Remove duplicates
+        remove_duplicates(db_path, duplicates, dry_run=not args.execute)
 
 if __name__ == "__main__":
     main()

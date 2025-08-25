@@ -4,6 +4,200 @@ All notable changes to the MCP Memory Service project will be documented in this
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.9.0] - 2025-08-25
+
+### ✨ **New Features**
+
+#### Enhanced Claude Code Hook Visual Output
+- **Professional CLI Formatting**: Completely redesigned hook output with ANSI color coding and clean typography
+  - **ANSI Color Support**: Full color coding with cyan, green, blue, yellow, gray, and red for different components
+  - **Clean Typography**: Removed all markdown syntax (`**`, `#`, `##`) and HTML-like tags from CLI output
+  - **Consistent Visual Pattern**: Standardized `icon component → description` format throughout all hook messages
+  - **Unicode Box Drawing**: Enhanced use of `┌─`, `├─`, `└─`, and `│` characters for better visual structure
+  - **Impact**: Hook output now looks professional and readable in Claude Code terminal sessions
+
+#### Color-Coded Memory Content
+- **Type-Based Coloring**: Different colors for memory types (decisions=yellow, insights=magenta, bugs=green, features=blue)
+- **Visual Hierarchy**: Important information highlighted with bright colors, metadata dimmed with gray
+- **Date Formatting**: Consistent gray coloring for dates and timestamps
+- **Category Icons**: Enhanced category display with colored section headers
+
+#### Improved Console Logging
+- **Structured Messages**: All console output now follows consistent visual patterns
+- **Progress Indicators**: Clear visual feedback for memory search, scoring, and processing steps
+- **Error Handling**: Enhanced error messages with proper color coding and clear descriptions
+- **Success Confirmation**: Prominent success indicators with checkmarks and summary information
+
+#### Enhanced Project Detection
+- **Confidence Visualization**: Color-coded confidence scores (green >80%, yellow >60%, gray <60%)
+- **Clean Project Info**: Streamlined project detection output with proper visual hierarchy
+- **Technology Stack Display**: Clear formatting for detected languages, frameworks, and tools
+
+## [6.8.0] - 2025-08-25
+
+### ✨ **New Features**
+
+#### Enhanced Claude Code CLI Formatting
+- **Beautiful CLI Output**: Claude Code hooks now feature enhanced visual formatting with Unicode box-drawing characters
+  - **Visual Hierarchy**: Clean tree structure using `├─`, `└─`, and `│` characters for better readability
+  - **Contextual Icons**: Memory context (🧠), project info (📂, 📝), and category-specific icons (🏗️, 🐛, ✨)
+  - **Smart Environment Detection**: Automatically switches between Markdown (web) and enhanced CLI formatting
+  - **Improved Categorization**: Visual grouping of memories by type with proper indentation and spacing
+  - **Impact**: Dramatically improved readability of hook output in Claude Code terminal sessions
+
+#### CLI Environment Detection
+- **Automatic Detection**: Uses multiple detection methods including `CLAUDE_CODE_CLI` environment variable
+- **Terminal Compatibility**: Enhanced formatting works seamlessly across different terminal emulators
+- **Fallback Support**: Graceful degradation to standard formatting when enhanced features unavailable
+
+#### Visual Design Improvements
+- **Category Icons**: 🏗️ Architecture & Design, 🐛 Bug Fixes & Issues, ✨ Features & Implementation, 📝 Additional Context
+- **Project Status Display**: Git branch (📂) and commit info (📝) with clean formatting
+- **Memory Count Indicators**: Clear display of loaded memory count with 📚 icon
+- **Empty State Handling**: Elegant display when no memories available
+
+## [6.7.2] - 2025-08-25
+
+### 🔧 **Enhancement**
+
+#### Deduplication Script Configuration-Aware Refactoring
+- **Enhanced API Integration**: Deduplication script now reads Claude Code hooks configuration for seamless integration
+  - **Configuration Auto-Detection**: Automatically reads `~/.claude/hooks/config.json` for memory service endpoint and API key
+  - **API-Based Analysis**: Supports remote memory service analysis via HTTPS API with self-signed certificate support
+  - **Intelligent Pagination**: Handles large memory collections (972+ memories) with automatic page-by-page retrieval
+  - **Backward Compatibility**: Maintains support for direct database access with `--db-path` parameter
+  - **Impact**: Users can now run deduplication on remote memory services without manual configuration
+
+#### New Command-Line Options
+- **`--use-api`**: Force API-based analysis using configuration endpoint
+- **Smart Fallback**: Automatically detects available options and suggests alternatives when paths missing
+- **Enhanced Error Messages**: Clear guidance on configuration requirements and troubleshooting steps
+
+#### Technical Improvements
+- **SSL Context Configuration**: Proper handling of self-signed certificates for secure remote connections
+- **Memory Format Normalization**: Converts API response format to internal analysis format seamlessly
+- **Progress Reporting**: Real-time feedback during multi-page memory retrieval operations
+
+#### Validation Results
+- **✅ 972 Memories Analyzed**: Successfully processed complete memory collection via API
+- **✅ No Duplicates Detected**: Confirms v6.7.0 content quality filters are preventing duplicate creation
+- **✅ Configuration Integration**: Seamless integration with existing Claude Code hooks setup
+- **✅ Performance Maintained**: Efficient pagination and processing of large memory collections
+
+> **Usage**: Run `python scripts/find_duplicates.py --use-api` to analyze memories using your configured remote memory service
+
+## [6.7.1] - 2025-08-25
+
+### 🔧 **Critical Bug Fix**
+
+#### Claude Code Hooks Installation Script Fix
+- **Fixed Missing v6.7.0 Files in Installation**: Resolved critical installation script bug that prevented complete v6.7.0 setup
+  - **Added Missing Core Hook**: `memory-retrieval.js` now properly copied during installation
+  - **Added Missing Utility**: `context-shift-detector.js` now properly copied during installation
+  - **Updated Install Messages**: Installation logs now accurately reflect all installed files
+  - **Impact**: Eliminates "Cannot find module" errors on fresh v6.7.0 installations
+
+#### Problem Resolved
+- **Issue**: Installation script (`install.sh`) used hardcoded file list that was missing new v6.7.0 files
+- **Symptoms**: Users experienced module import errors and incomplete feature sets after installation
+- **Root Cause**: Script copied only `session-start.js`, `session-end.js` but missed `memory-retrieval.js` and `context-shift-detector.js`
+- **Solution**: Added missing file copy commands and updated installation messaging
+
+#### Validation
+- **✅ Complete Installation**: All v6.7.0 files now properly installed
+- **✅ Integration Tests**: 14/14 tests pass immediately after fresh installation 
+- **✅ No Module Errors**: All dependencies resolved correctly
+- **✅ Full Feature Set**: On-demand memory retrieval and smart timing work out-of-the-box
+
+> **Note**: This is a critical patch for v6.7.0 users. If you installed v6.7.0 and experienced module errors, please reinstall using v6.7.1.
+
+## [6.7.0] - 2025-08-25
+
+### 🧠 **Claude Code Memory Awareness - Major Enhancement**
+
+#### Smart Memory Context Presentation ([#Memory-Presentation-Fix](https://github.com/doobidoo/mcp-memory-service/issues/memory-presentation))
+- **Eliminated Generic Content Fluff**: Complete overhaul of session-start hook memory presentation
+  - **Smart Content Extraction**: Extracts meaningful content from session summaries (decisions, insights, code changes) instead of truncating at 200 chars
+  - **Section-Aware Parsing**: Prioritizes showing actual decisions/insights over generic headers like "Topics Discussed - implementation..."
+  - **Deduplication Logic**: Automatically filters out repetitive session summaries with 80% similarity threshold
+  - **Impact**: Users now see actionable memory content instead of truncated generic summaries
+
+#### Enhanced Memory Quality Scoring
+- **Content Quality Factor**: New scoring dimension that heavily penalizes generic/empty content
+  - **Meaningful Indicators**: Detects substantial content using decision words (decided, implemented, fixed, learned)
+  - **Information Density**: Analyzes word diversity and content richness
+  - **Generic Pattern Detection**: Automatically identifies and demotes "implementation..." session summaries
+  - **Impact**: Quality memories now outrank recent-but-empty summaries
+
+#### Smart Context Management
+- **Post-Compacting Control**: Added `injectAfterCompacting: false` configuration option
+  - **Problem Solved**: Stops disruptive mid-session memory injection after compacting events
+  - **User-Controlled**: Can be enabled via `config.json` for users who prefer the old behavior
+- **Context Shift Detection**: Intelligent timing for when to refresh memory context
+  - **Project Change Detection**: Auto-refreshes when switching between projects/directories
+  - **Topic Shift Analysis**: Detects significant conversation topic changes
+  - **User Request Recognition**: Responds to explicit memory requests ("remind me", "what did we decide")
+  - **Impact**: Memory context appears only when contextually appropriate, not disruptively
+
+#### New Features
+- **On-Demand Memory Retrieval**: New `memory-retrieval.js` hook for manual context requests
+  - **User-Triggered**: Allows manual memory refresh when needed
+  - **Query-Based**: Supports semantic search with user-provided queries
+  - **Relevance Scoring**: Shows confidence scores for manual retrieval
+- **Streamlined Presentation**: Cleaner formatting with reduced metadata clutter
+  - **Smart Categorization**: Only groups memories when there's meaningful diverse content
+  - **Relevant Tags Only**: Filters out machine-generated and generic tags
+  - **Concise Dating**: More compact date formatting (Aug 25 vs full timestamps)
+
+#### Technical Improvements
+- **Enhanced Memory Scoring Weights**:
+  ```json
+  {
+    "timeDecay": 0.25,        // Reduced from 0.30
+    "tagRelevance": 0.35,     // Maintained
+    "contentRelevance": 0.15,  // Reduced from 0.20
+    "contentQuality": 0.25,    // NEW quality factor
+    "conversationRelevance": 0.25 // Maintained
+  }
+  ```
+- **New Utility Files**:
+  - `context-shift-detector.js`: Intelligent context change detection
+  - Enhanced `context-formatter.js` with smart content extraction
+  - Quality-aware scoring in `memory-scorer.js`
+
+#### Breaking Changes
+- **Session-Start Hook**: Upgraded to v2.0.0 with smart timing and quality filtering
+- **Configuration Schema**: Added new options for memory quality control and compacting behavior
+- **Memory Filtering**: Generic session summaries are now automatically filtered out
+
+#### Migration Guide
+- **Automatic**: No user action required - existing configurations work with sensible defaults
+- **Optional**: Users can enable `injectAfterCompacting: true` in config.json if they prefer old behavior
+- **Benefit**: Immediate improvement in memory context quality and relevance
+
+## [6.6.4] - 2025-08-25
+
+### 🔧 **Installation Experience Improvements**
+
+#### Universal Installer Bug Fixes ([#92](https://github.com/doobidoo/mcp-memory-service/issues/92))
+- **Fixed "Installer Gets Stuck" Issues**: Resolved multiple causes of installation appearing frozen
+  - Added prominent visual separators (`⚠️ USER INPUT REQUIRED`) around all input prompts
+  - Extended system detection timeouts from 10 to 30 seconds (macOS `system_profiler`, Homebrew checks)
+  - Added progress indicators for long-running operations (package installations, hardware detection)
+  - **Impact**: Users now clearly understand when installer needs input vs. processing in background
+
+#### New Non-Interactive Installation Mode
+- **Added `--non-interactive` Flag**: Enables fully automated installations using sensible defaults
+  - Automatically selects SQLite-vec backend (recommended)
+  - Skips optional components (Claude Code commands, multi-client setup)
+  - Perfect for CI/CD, Docker builds, and scripted deployments
+  - **Usage**: `python install.py --non-interactive`
+
+#### Enhanced User Experience
+- **Better Progress Feedback**: Clear messaging during system detection and package installation phases
+- **Improved Timeout Handling**: More resilient system detection with graceful fallbacks
+- **Log File Visibility**: Prominently displays location of `installation.log` for troubleshooting
+
 ## [6.6.3] - 2025-08-24
 
 ### 🔧 **CI/CD Infrastructure Improvements**
