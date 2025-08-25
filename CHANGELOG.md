@@ -4,6 +4,43 @@ All notable changes to the MCP Memory Service project will be documented in this
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.10.1] - 2025-08-25
+
+### 🐛 **Bug Fixes**
+
+#### Fixed Claude Code Memory Commands
+- **API Key Update**: Updated all Claude Code memory commands with current production API key
+  - Fixed `/memory-context`, `/memory-store`, `/memory-recall`, `/memory-search`, `/memory-health` commands
+  - Replaced outdated `test-key-123` with current production API key
+  - **Impact**: All memory commands now work correctly with remote memory service
+
+#### Enhanced `/memory-context` Command
+- **Dynamic Session Capture**: Removed hardcoded session content, now captures real-time context
+  - **Real-time Info**: Includes current timestamp, working directory, git branch, and recent commits  
+  - **Dynamic Tags**: Automatically includes current project name as tag
+  - **User Context**: Properly captures user-provided session description via `$ARGUMENTS`
+  - **Impact**: `/memory-context` now stores actual session context instead of static placeholder text
+
+## [6.10.0] - 2025-08-25
+
+### ✨ **New Features**
+
+#### Markdown-to-ANSI Conversion for Clean CLI Output
+- **Automatic Markdown Processing**: Memory content with markdown formatting is now automatically converted to ANSI colors
+  - **Headers**: `## Header` → Bold Cyan, `### Subheader` → Bold for visual hierarchy
+  - **Emphasis**: `**bold**` → Bold, `*italic*` → Dim for text emphasis
+  - **Code**: `` `inline code` `` → Gray, code blocks properly formatted with gray text
+  - **Lists**: Markdown bullets (`-`, `*`) → Cyan bullet points (`•`), numbered lists → Cyan arrows (`›`)
+  - **Links**: `[text](url)` → Cyan text without URL clutter
+  - **Blockquotes**: `> quote` → Dimmed with visual indicator (`│`)
+  - **Impact**: Raw markdown syntax no longer appears in CLI output, providing clean and professional display
+
+#### Smart Content Processing
+- **Environment-Aware**: Automatically detects CLI environment and applies appropriate formatting
+- **Configuration Option**: Can be disabled via `CLAUDE_MARKDOWN_TO_ANSI=false` environment variable
+- **Strip-Only Mode**: Option to remove markdown without adding ANSI colors for plain text output
+- **Performance**: Minimal overhead (<5ms) with single-pass regex transformation
+
 ## [6.9.0] - 2025-08-25
 
 ### ✨ **New Features**
