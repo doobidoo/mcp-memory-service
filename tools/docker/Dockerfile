@@ -1,5 +1,6 @@
-# Platform-agnostic Docker support with UV integration
-FROM python:3.10-slim
+## Slim (CPU-only) Docker image optimized for sqlite-vec + ONNX
+## Consolidated as the primary Dockerfile to avoid confusion.
+FROM python:3.12-slim
 
 # Build arguments for conditional features
 ARG SKIP_MODEL_DOWNLOAD=false
@@ -19,13 +20,14 @@ ENV PYTHONUNBUFFERED=1 \
 # Set the working directory
 WORKDIR /app
 
-# Install system dependencies
+# Minimal system packages with security updates
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    build-essential \
-    gcc \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    bash \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Copy essential files
 COPY pyproject.toml .

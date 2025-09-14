@@ -125,14 +125,12 @@ async def detailed_health_check(storage: SqliteVecMemoryStorage = Depends(get_st
     }
     
     # Extract statistics for separate field if available
-    statistics = None
-    if "total_memories" in storage_info:
-        statistics = {
-            "total_memories": storage_info.get("total_memories", 0),
-            "unique_tags": storage_info.get("unique_tags", 0),
-            "database_size_mb": storage_info.get("database_size_mb", 0),
-            "backend": storage_info.get("backend", "sqlite-vec")
-        }
+    statistics = {
+        "total_memories": storage_info.get("total_memories", 0),
+        "unique_tags": storage_info.get("unique_tags", 0),
+        "database_size_mb": storage_info.get("database_size_mb", 0),
+        "backend": storage_info.get("backend", "sqlite-vec")
+    }
     
     return DetailedHealthResponse(
         status="healthy",

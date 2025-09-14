@@ -171,8 +171,29 @@ class SqliteVecMemoryStorage(MemoryStorage):
             if not SQLITE_VEC_AVAILABLE:
                 raise ImportError("sqlite-vec is not available. Install with: pip install sqlite-vec")
             
-            if not SENTENCE_TRANSFORMERS_AVAILABLE:
-                raise ImportError("sentence-transformers is not available. Install with: pip install sentence-transformers torch")
+            # Check if ONNX embeddings are enabled (preferred for Docker)
+            from ..config import USE_ONNX
+            if USE_ONNX:
+                logger.info("ONNX embeddings enabled - skipping sentence-transformers installation")
+                # ONNX embeddings don't require sentence-transformers, but we still need to initialize the database
+                # Continue with database initialization below
+                
+            # Lazy load sentence-transformers - try to install if not available (only if ONNX disabled)
+            if not USE_ONNX:
+                global SENTENCE_TRANSFORMERS_AVAILABLE
+                if not SENTENCE_TRANSFORMERS_AVAILABLE:
+                    logger.info("sentence-transformers not available, attempting to install...")
+                    try:
+                        import subprocess
+                        import sys
+                        subprocess.check_call([sys.executable, "-m", "pip", "install", "sentence-transformers", "torch"])
+                        logger.info("Successfully installed sentence-transformers and torch")
+                        # Re-import after installation
+                        from sentence_transformers import SentenceTransformer
+                        SENTENCE_TRANSFORMERS_AVAILABLE = True
+                    except Exception as e:
+                        logger.error(f"Failed to install sentence-transformers: {e}")
+                        raise ImportError("sentence-transformers is not available and could not be installed automatically. Install with: pip install sentence-transformers torch")
             
             # Check if extension loading is supported
             extension_supported, support_message = self._check_extension_support()
