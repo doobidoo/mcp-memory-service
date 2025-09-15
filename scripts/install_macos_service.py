@@ -231,6 +231,7 @@ def install_service(user_level=True):
         print(f"\n📁 Created management scripts in: {scripts_dir}")
     
     # Print service information
+    paths = get_service_paths()
     platform_info = {
         'Start Service': f'launchctl load -w {plist_file}',
         'Stop Service': f'launchctl unload {plist_file}',
