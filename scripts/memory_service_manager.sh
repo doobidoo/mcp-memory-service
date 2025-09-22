@@ -14,7 +14,7 @@ if [ ! -f "$SQLITE_ENV" ]; then
     cat > "$SQLITE_ENV" << EOF
 # SQLite-vec Configuration for MCP Memory Service (Backup)
 MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
-MCP_MEMORY_SQLITE_PATH=/home/hkr/.local/share/mcp-memory/primary_sqlite_vec.db
+MCP_MEMORY_SQLITE_PATH="$HOME/.local/share/mcp-memory/primary_sqlite_vec.db"
 EOF
     echo "Created SQLite-vec environment configuration: $SQLITE_ENV"
 fi
@@ -62,6 +62,9 @@ start_memory_service() {
     if pgrep -f "memory server" > /dev/null; then
         echo "Memory service started successfully with $backend backend"
         echo "Logs: /tmp/memory-service-$backend.log"
+
+        # Save active backend to state file for reliable detection
+        echo "$backend" > /tmp/memory-service-backend.state
     else
         echo "Failed to start memory service"
         echo "Check logs: /tmp/memory-service-$backend.log"
@@ -76,14 +79,17 @@ show_status() {
     if pgrep -f "memory server" > /dev/null; then
         echo "Service: Running"
 
-        # Check which backend is active
-        if [ -f "$CLOUDFLARE_ENV" ] && grep -q "cloudflare" "$CLOUDFLARE_ENV" 2>/dev/null; then
-            echo "Active Backend: Likely Cloudflare (check logs to confirm)"
+        # Check which backend is active using state file
+        if [ -f "/tmp/memory-service-backend.state" ]; then
+            local active_backend=$(cat /tmp/memory-service-backend.state)
+            echo "Active Backend: $active_backend (from state file)"
         else
-            echo "Active Backend: Likely SQLite-vec (check logs to confirm)"
+            echo "Active Backend: Unknown (no state file found)"
         fi
     else
         echo "Service: Not running"
+        # Clean up state file if service is not running
+        [ -f "/tmp/memory-service-backend.state" ] && rm -f /tmp/memory-service-backend.state
     fi
 
     echo ""
@@ -105,6 +111,8 @@ stop_service() {
     sleep 2
     if ! pgrep -f "memory server" > /dev/null; then
         echo "Memory service stopped"
+        # Clean up state file when service is stopped
+        [ -f "/tmp/memory-service-backend.state" ] && rm -f /tmp/memory-service-backend.state
     else
         echo "Failed to stop memory service"
         return 1

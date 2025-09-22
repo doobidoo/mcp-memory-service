@@ -8,6 +8,7 @@ and identifies any conflicting configurations that could cause issues.
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -16,7 +17,7 @@ def load_json_safe(file_path: Path) -> Optional[Dict]:
     """Load JSON file safely, return None if not found or invalid."""
     try:
         if file_path.exists():
-            with open(file_path, 'r') as f:
+            with open(file_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
     except (json.JSONDecodeError, FileNotFoundError, PermissionError) as e:
         print(f"⚠️  Warning: Could not load {file_path}: {e}")
@@ -30,16 +31,19 @@ def check_environment_conflicts() -> List[str]:
     project_root = Path(__file__).parent.parent
     env_files = list(project_root.glob('.env*'))
 
-    conflicting_files = [f for f in env_files if f.name.endswith('.sqlite') and not f.name.endswith('.backup')]
+    # Exclude .env.sqlite as it's the intended backup configuration, not a conflict
+    conflicting_files = [f for f in env_files if f.name.endswith('.sqlite') and not f.name.endswith('.backup') and f.name != '.env.sqlite']
     if conflicting_files:
         issues.append(f"❌ Conflicting SQLite environment files found: {[str(f) for f in conflicting_files]}")
 
-    # Check if .env has proper Cloudflare config
+    # Check if .env has proper Cloudflare config using regex
     env_file = project_root / '.env'
     if env_file.exists():
-        with open(env_file, 'r') as f:
+        with open(env_file, 'r', encoding='utf-8') as f:
             env_content = f.read()
-            if 'MCP_MEMORY_STORAGE_BACKEND=cloudflare' in env_content:
+            # Use regex to match the exact configuration line
+            cloudflare_pattern = r'^MCP_MEMORY_STORAGE_BACKEND\s*=\s*cloudflare\s*$'
+            if re.search(cloudflare_pattern, env_content, re.MULTILINE):
                 issues.append("✅ .env file has Cloudflare backend configured")
             else:
                 issues.append("❌ .env file does not specify Cloudflare backend")
@@ -121,7 +125,7 @@ def check_cloudflare_credentials() -> List[str]:
     # Check .env file
     env_file = Path('.env')
     if env_file.exists():
-        with open(env_file, 'r') as f:
+        with open(env_file, 'r', encoding='utf-8') as f:
             env_content = f.read()
 
         missing_vars = []

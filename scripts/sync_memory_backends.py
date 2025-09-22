@@ -98,91 +98,69 @@ class MemorySync:
         content_str = f"{content}_{sorted(metadata.items())}"
         return hashlib.sha256(content_str.encode()).hexdigest()[:16]
 
-    async def sync_cloudflare_to_sqlite(self, dry_run: bool = False) -> Tuple[int, int]:
-        """Sync memories from Cloudflare to SQLite-vec."""
-        logger.info("Starting sync from Cloudflare to SQLite-vec...")
+    async def _sync_between_backends(self, source_backend: str, target_backend: str, dry_run: bool = False) -> Tuple[int, int]:
+        """
+        Generic method to sync memories between any two backends.
+
+        Args:
+            source_backend: Backend to sync from ('cloudflare' or 'sqlite_vec')
+            target_backend: Backend to sync to ('cloudflare' or 'sqlite_vec')
+            dry_run: If True, only show what would be synced without making changes
+
+        Returns:
+            Tuple of (added_count, skipped_count)
+        """
+        logger.info(f"Starting sync from {source_backend} to {target_backend}...")
 
         # Get memories from both backends
-        cf_memories = await self.get_all_memories_from_backend('cloudflare')
-        sqlite_memories = await self.get_all_memories_from_backend('sqlite_vec')
+        source_memories = await self.get_all_memories_from_backend(source_backend)
+        target_memories = await self.get_all_memories_from_backend(target_backend)
 
         # Create hash sets for quick lookup
-        sqlite_hashes = {mem['hash'] for mem in sqlite_memories if mem.get('hash')}
-        sqlite_content_hashes = {
+        target_hashes = {mem['hash'] for mem in target_memories if mem.get('hash')}
+        target_content_hashes = {
             self.calculate_content_hash(mem['content'], mem['metadata'])
-            for mem in sqlite_memories
+            for mem in target_memories
         }
 
         added_count = 0
         skipped_count = 0
 
-        for cf_memory in cf_memories:
-            # Check if memory already exists (by hash or content)
-            content_hash = self.calculate_content_hash(cf_memory['content'], cf_memory['metadata'])
+        # Get target backend instance for storing memories
+        target_storage = self.cloudflare if target_backend == 'cloudflare' else self.sqlite_vec
 
-            if (cf_memory.get('hash') in sqlite_hashes or
-                content_hash in sqlite_content_hashes):
+        for source_memory in source_memories:
+            # Check if memory already exists (by hash or content)
+            content_hash = self.calculate_content_hash(source_memory['content'], source_memory['metadata'])
+
+            if (source_memory.get('hash') in target_hashes or
+                content_hash in target_content_hashes):
                 skipped_count += 1
                 continue
 
             if not dry_run:
                 try:
-                    await self.sqlite_vec.store_memory(
-                        content=cf_memory['content'],
-                        metadata=cf_memory['metadata']
+                    await target_storage.store_memory(
+                        content=source_memory['content'],
+                        metadata=source_memory['metadata']
                     )
                     added_count += 1
-                    logger.debug(f"Added memory: {cf_memory['id'][:8]}...")
+                    logger.debug(f"Added memory: {source_memory['id'][:8]}...")
                 except Exception as e:
-                    logger.error(f"Error storing memory {cf_memory['id']}: {e}")
+                    logger.error(f"Error storing memory {source_memory['id']}: {e}")
             else:
                 added_count += 1
 
-        logger.info(f"Cloudflare → SQLite-vec: {added_count} added, {skipped_count} skipped")
+        logger.info(f"{source_backend} → {target_backend}: {added_count} added, {skipped_count} skipped")
         return added_count, skipped_count
+
+    async def sync_cloudflare_to_sqlite(self, dry_run: bool = False) -> Tuple[int, int]:
+        """Sync memories from Cloudflare to SQLite-vec."""
+        return await self._sync_between_backends('cloudflare', 'sqlite_vec', dry_run)
 
     async def sync_sqlite_to_cloudflare(self, dry_run: bool = False) -> Tuple[int, int]:
         """Sync memories from SQLite-vec to Cloudflare."""
-        logger.info("Starting sync from SQLite-vec to Cloudflare...")
-
-        # Get memories from both backends
-        sqlite_memories = await self.get_all_memories_from_backend('sqlite_vec')
-        cf_memories = await self.get_all_memories_from_backend('cloudflare')
-
-        # Create hash sets for quick lookup
-        cf_hashes = {mem['hash'] for mem in cf_memories if mem.get('hash')}
-        cf_content_hashes = {
-            self.calculate_content_hash(mem['content'], mem['metadata'])
-            for mem in cf_memories
-        }
-
-        added_count = 0
-        skipped_count = 0
-
-        for sqlite_memory in sqlite_memories:
-            # Check if memory already exists (by hash or content)
-            content_hash = self.calculate_content_hash(sqlite_memory['content'], sqlite_memory['metadata'])
-
-            if (sqlite_memory.get('hash') in cf_hashes or
-                content_hash in cf_content_hashes):
-                skipped_count += 1
-                continue
-
-            if not dry_run:
-                try:
-                    await self.cloudflare.store_memory(
-                        content=sqlite_memory['content'],
-                        metadata=sqlite_memory['metadata']
-                    )
-                    added_count += 1
-                    logger.debug(f"Added memory: {sqlite_memory['id'][:8]}...")
-                except Exception as e:
-                    logger.error(f"Error storing memory {sqlite_memory['id']}: {e}")
-            else:
-                added_count += 1
-
-        logger.info(f"SQLite-vec → Cloudflare: {added_count} added, {skipped_count} skipped")
-        return added_count, skipped_count
+        return await self._sync_between_backends('sqlite_vec', 'cloudflare', dry_run)
 
     async def bidirectional_sync(self, dry_run: bool = False) -> Dict[str, Tuple[int, int]]:
         """Perform bidirectional sync between backends."""

@@ -1,6 +1,6 @@
 {
   "memoryService": {
-    "endpoint": "https://10.0.1.30:8443",
+    "endpoint": "cloudflare",
     "apiKey": "VhOGAoUOE5_BMzu-phDORdyXHNMcDRBxvndK_Uop",
     "defaultTags": ["claude-code", "auto-generated"],
     "maxMemoriesPerSession": 8,
@@ -13,8 +13,8 @@
     "showStorageSource": true,
     "sourceDisplayMode": "brief",
     "healthCheckTimeout": 3000,
-    "healthCheckEnabled": true,
-    "useDetailedHealthCheck": true
+    "healthCheckEnabled": false,
+    "useDetailedHealthCheck": false
   },
   "projectDetection": {
     "gitRepository": true,

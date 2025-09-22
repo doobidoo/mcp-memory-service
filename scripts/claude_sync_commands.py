@@ -60,29 +60,35 @@ def memory_sync_dry_run():
     print("Dry run - showing what would be synced:")
     return run_sync_command(['--dry-run'])
 
+def show_usage():
+    """Show usage information."""
+    print("Usage: python claude_sync_commands.py <command>")
+    print("Commands:")
+    print("  status      - Show sync status")
+    print("  backup      - Backup Cloudflare → SQLite-vec")
+    print("  restore     - Restore SQLite-vec → Cloudflare")
+    print("  sync        - Bidirectional sync")
+    print("  dry-run     - Show what would be synced")
+
 if __name__ == "__main__":
+    # Dictionary-based command dispatch for better scalability
+    commands = {
+        "status": memory_sync_status,
+        "backup": memory_sync_backup,
+        "restore": memory_sync_restore,
+        "sync": memory_sync_bidirectional,
+        "dry-run": memory_sync_dry_run,
+    }
+
     if len(sys.argv) < 2:
-        print("Usage: python claude_sync_commands.py <command>")
-        print("Commands:")
-        print("  status      - Show sync status")
-        print("  backup      - Backup Cloudflare → SQLite-vec")
-        print("  restore     - Restore SQLite-vec → Cloudflare")
-        print("  sync        - Bidirectional sync")
-        print("  dry-run     - Show what would be synced")
+        show_usage()
         sys.exit(1)
 
     command = sys.argv[1]
 
-    if command == "status":
-        sys.exit(memory_sync_status())
-    elif command == "backup":
-        sys.exit(memory_sync_backup())
-    elif command == "restore":
-        sys.exit(memory_sync_restore())
-    elif command == "sync":
-        sys.exit(memory_sync_bidirectional())
-    elif command == "dry-run":
-        sys.exit(memory_sync_dry_run())
+    if command in commands:
+        sys.exit(commands[command]())
     else:
         print(f"Unknown command: {command}")
+        show_usage()
         sys.exit(1)
