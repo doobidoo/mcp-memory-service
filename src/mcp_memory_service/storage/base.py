@@ -44,6 +44,30 @@ class MemoryStorage(ABC):
     async def search_by_tag(self, tags: List[str]) -> List[Memory]:
         """Search memories by tags."""
         pass
+
+    async def search_by_tag_chronological(self, tags: List[str], limit: int = None, offset: int = 0) -> List[Memory]:
+        """
+        Search memories by tags with chronological ordering (newest first).
+
+        Args:
+            tags: List of tags to search for
+            limit: Maximum number of memories to return (None for all)
+            offset: Number of memories to skip (for pagination)
+
+        Returns:
+            List of Memory objects ordered by created_at DESC
+        """
+        # Default implementation: use search_by_tag then sort
+        memories = await self.search_by_tag(tags)
+        memories.sort(key=lambda m: m.created_at or 0, reverse=True)
+
+        # Apply pagination
+        if offset > 0:
+            memories = memories[offset:]
+        if limit is not None:
+            memories = memories[:limit]
+
+        return memories
     
     @abstractmethod
     async def delete(self, content_hash: str) -> Tuple[bool, str]:
@@ -128,6 +152,20 @@ class MemoryStorage(ABC):
             Total number of memories
         """
         return 0
+
+    async def count_memories_by_tag(self, tags: List[str]) -> int:
+        """
+        Count memories that match any of the given tags.
+
+        Args:
+            tags: List of tags to search for
+
+        Returns:
+            Number of memories matching any tag
+        """
+        # Default implementation: search then count
+        memories = await self.search_by_tag(tags)
+        return len(memories)
 
     async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
         """Get memories within a time range. Override for specific implementations."""
