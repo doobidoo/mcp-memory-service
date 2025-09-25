@@ -15,11 +15,9 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 import os
 
-import sys
-
-# Add the src directory to Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
-
+# Import project modules
+# Note: This assumes the project is installed in editable mode with `pip install -e .`
+# or PYTHONPATH is configured correctly for the test environment
 from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 

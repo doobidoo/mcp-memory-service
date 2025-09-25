@@ -1369,14 +1369,26 @@ class ChromaMemoryStorage(MemoryStorage):
 
         Returns:
             List of Memory objects ordered by created_at DESC
+
+        Warning:
+            This implementation has performance limitations for large datasets.
+            ChromaDB doesn't support server-side sorting by metadata, requiring
+            client-side sorting. For large collections, this may cause high
+            memory usage and slow response times.
         """
         try:
             if self.collection is None:
                 logger.error("Collection not initialized, cannot get memories")
                 return []
 
-            # Get all memories without query (empty query gets all)
-            # ChromaDB doesn't have built-in pagination, so we'll get all and slice
+            # For large datasets, log performance warning
+            total_count = self.collection.count()
+            if total_count > 1000:
+                logger.warning(f"ChromaDB get_all_memories: Processing {total_count} memories. "
+                             f"Consider using a different storage backend for large datasets.")
+
+            # Use ChromaDB's built-in limit/offset if we don't need sorting
+            # Still need to fetch all for sorting by created_at metadata
             results = self.collection.get(include=["documents", "metadatas"])
 
             if not results["ids"]:
@@ -1396,7 +1408,8 @@ class ChromaMemoryStorage(MemoryStorage):
                         tags = []
 
                     # Parse timestamps
-                    created_at = metadata.get("created_at", time.time())
+                    # Default to 0 for missing timestamps to ensure they sort as oldest
+                    created_at = metadata.get("created_at", 0)
                     updated_at = metadata.get("updated_at", created_at)
                     created_at_iso = metadata.get("created_at_iso", "")
                     updated_at_iso = metadata.get("updated_at_iso", "")
@@ -1445,9 +1458,8 @@ class ChromaMemoryStorage(MemoryStorage):
                 logger.error("Collection not initialized, cannot count memories")
                 return 0
 
-            # Get just the IDs to count efficiently
-            results = self.collection.get(include=[])
-            return len(results["ids"]) if results["ids"] else 0
+            # Use ChromaDB's efficient count() method
+            return self.collection.count()
 
         except Exception as e:
             logger.error(f"Error counting memories: {str(e)}")
