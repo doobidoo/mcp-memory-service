@@ -1425,33 +1425,39 @@ SOLUTIONS:
             logger.error(f"Error converting row to memory: {str(e)}")
             return None
 
-    async def get_all_memories(self, limit: int = None, offset: int = 0) -> List[Memory]:
+    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
-        
+
         Args:
             limit: Maximum number of memories to return (None for all)
             offset: Number of memories to skip (for pagination)
-            
+            memory_type: Optional filter by memory type
+
         Returns:
-            List of Memory objects ordered by created_at DESC
+            List of Memory objects ordered by created_at DESC, optionally filtered by type
         """
         try:
             await self.initialize()
-            
-            # Build query with optional limit and offset
+
+            # Build query with optional memory_type filter
             query = '''
                 SELECT content_hash, content, tags, memory_type, metadata,
                        created_at, updated_at, created_at_iso, updated_at_iso
                 FROM memories
-                ORDER BY created_at DESC
             '''
-            
+
             params = []
+            if memory_type is not None:
+                query += ' WHERE memory_type = ?'
+                params.append(memory_type)
+
+            query += ' ORDER BY created_at DESC'
+
             if limit is not None:
                 query += ' LIMIT ?'
                 params.append(limit)
-                
+
             if offset > 0:
                 query += ' OFFSET ?'
                 params.append(offset)
@@ -1482,20 +1488,27 @@ SOLUTIONS:
         """
         return await self.get_all_memories(limit=n, offset=0)
 
-    async def count_all_memories(self) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None) -> int:
         """
         Get total count of memories in storage.
-        
+
+        Args:
+            memory_type: Optional filter by memory type
+
         Returns:
-            Total number of memories
+            Total number of memories, optionally filtered by type
         """
         try:
             await self.initialize()
-            
-            cursor = self.conn.execute('SELECT COUNT(*) FROM memories')
+
+            if memory_type is not None:
+                cursor = self.conn.execute('SELECT COUNT(*) FROM memories WHERE memory_type = ?', (memory_type,))
+            else:
+                cursor = self.conn.execute('SELECT COUNT(*) FROM memories')
+
             result = cursor.fetchone()
             return result[0] if result else 0
-            
+
         except Exception as e:
             logger.error(f"Error counting memories: {str(e)}")
             return 0

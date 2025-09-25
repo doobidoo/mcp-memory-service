@@ -720,13 +720,13 @@ class HybridMemoryStorage(MemoryStorage):
         """Recall memories using natural language time expressions."""
         return self.primary.recall_memory(query, n_results)
 
-    async def get_all_memories(self, limit: int = None, offset: int = 0) -> List[Memory]:
+    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None) -> List[Memory]:
         """Get all memories from primary storage."""
-        return await self.primary.get_all_memories(limit=limit, offset=offset)
+        return await self.primary.get_all_memories(limit=limit, offset=offset, memory_type=memory_type)
 
-    async def count_all_memories(self) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None) -> int:
         """Get total count of memories from primary storage."""
-        return await self.primary.count_all_memories()
+        return await self.primary.count_all_memories(memory_type=memory_type)
 
     async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
         """Get memories within time range from primary storage."""

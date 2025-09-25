@@ -1033,21 +1033,28 @@ class CloudflareStorage(MemoryStorage):
             logger.error(f"Recall failed: {e}")
             return []
 
-    async def get_all_memories(self, limit: int = None, offset: int = 0) -> List[Memory]:
+    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
 
         Args:
             limit: Maximum number of memories to return (None for all)
             offset: Number of memories to skip (for pagination)
+            memory_type: Optional filter by memory type
 
         Returns:
-            List of Memory objects ordered by created_at DESC
+            List of Memory objects ordered by created_at DESC, optionally filtered by type
         """
         try:
-            # Build SQL query with optional limit and offset
-            sql = "SELECT * FROM memories ORDER BY created_at DESC"
+            # Build SQL query with optional memory_type filter
+            sql = "SELECT * FROM memories"
             params = []
+
+            if memory_type is not None:
+                sql += " WHERE memory_type = ?"
+                params.append(memory_type)
+
+            sql += " ORDER BY created_at DESC"
 
             if limit is not None:
                 sql += " LIMIT ?"
@@ -1078,15 +1085,25 @@ class CloudflareStorage(MemoryStorage):
             logger.error(f"Error getting all memories: {str(e)}")
             return []
 
-    async def count_all_memories(self) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None) -> int:
         """
         Get total count of memories in storage.
 
+        Args:
+            memory_type: Optional filter by memory type
+
         Returns:
-            Total number of memories
+            Total number of memories, optionally filtered by type
         """
         try:
-            payload = {"sql": "SELECT COUNT(*) as count FROM memories", "params": []}
+            if memory_type is not None:
+                sql = "SELECT COUNT(*) as count FROM memories WHERE memory_type = ?"
+                params = [memory_type]
+            else:
+                sql = "SELECT COUNT(*) as count FROM memories"
+                params = []
+
+            payload = {"sql": sql, "params": params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
 

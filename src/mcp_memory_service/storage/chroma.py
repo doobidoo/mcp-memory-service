@@ -580,25 +580,14 @@ class ChromaMemoryStorage(MemoryStorage):
                     
                     # Fast tag matching
                     if any(search_tag in stored_tags for search_tag in search_tags):
-                        # Use stored timestamps or fall back to legacy timestamp field
-                        created_at = memory_meta.get("created_at") or memory_meta.get("timestamp_float") or memory_meta.get("timestamp")
-                        created_at_iso = memory_meta.get("created_at_iso") or memory_meta.get("timestamp_str")
-                        updated_at = memory_meta.get("updated_at") or created_at
-                        updated_at_iso = memory_meta.get("updated_at_iso") or created_at_iso
-                        
-                        memory = Memory(
+                        # Update metadata to include tags for helper method
+                        memory_meta_with_tags = memory_meta.copy()
+                        memory_meta_with_tags["tags"] = stored_tags
+
+                        memory = self._create_memory_from_results(
                             content=doc,
                             content_hash=memory_meta["content_hash"],
-                            tags=stored_tags,
-                            memory_type=memory_meta.get("type"),
-                            # Restore timestamps with fallback logic
-                            created_at=created_at,
-                            created_at_iso=created_at_iso,
-                            updated_at=updated_at,
-                            updated_at_iso=updated_at_iso,
-                            # Include additional metadata
-                            metadata={k: v for k, v in memory_meta.items() 
-                                     if k not in ["content_hash", "tags", "type", "created_at", "created_at_iso", "updated_at", "updated_at_iso", "timestamp", "timestamp_float", "timestamp_str"]}
+                            metadata=memory_meta_with_tags
                         )
                         memories.append(memory)
             
@@ -993,29 +982,10 @@ class ChromaMemoryStorage(MemoryStorage):
                     for i in range(len(results["ids"][0])):
                         metadata = results["metadatas"][0][i]
                         
-                        # Parse tags from JSON string or comma-separated format
-                        tags = self._parse_tags_fast(metadata.get("tags", ""))
-                        
-                        # Reconstruct memory object with proper timestamp handling
-                        # Use stored timestamps or fall back to legacy timestamp field
-                        created_at = metadata.get("created_at") or metadata.get("timestamp_float") or metadata.get("timestamp")
-                        created_at_iso = metadata.get("created_at_iso") or metadata.get("timestamp_str")
-                        updated_at = metadata.get("updated_at") or created_at
-                        updated_at_iso = metadata.get("updated_at_iso") or created_at_iso
-                        
-                        memory = Memory(
+                        memory = self._create_memory_from_results(
                             content=results["documents"][0][i],
                             content_hash=metadata["content_hash"],
-                            tags=tags,
-                            memory_type=metadata.get("memory_type", ""),
-                            # Restore timestamps with fallback logic
-                            created_at=created_at,
-                            created_at_iso=created_at_iso,
-                            updated_at=updated_at,
-                            updated_at_iso=updated_at_iso,
-                            # Include additional metadata
-                            metadata={k: v for k, v in metadata.items() 
-                                    if k not in ["content_hash", "tags", "memory_type", "created_at", "created_at_iso", "updated_at", "updated_at_iso", "timestamp", "timestamp_float", "timestamp_str"]}
+                            metadata=metadata
                         )
                         
                         # Calculate cosine similarity from distance
@@ -1042,31 +1012,10 @@ class ChromaMemoryStorage(MemoryStorage):
             memory_results = []
             for i in range(len(results["ids"])):
                 metadata = results["metadatas"][i]
-                try:
-                    tags = self._parse_tags_fast(metadata.get("tags", ""))
-                except Exception:
-                    tags = []
-                
-                # Reconstruct memory object with proper timestamp handling
-                # Use stored timestamps or fall back to legacy timestamp field
-                created_at = metadata.get("created_at") or metadata.get("timestamp_float") or metadata.get("timestamp")
-                created_at_iso = metadata.get("created_at_iso") or metadata.get("timestamp_str")
-                updated_at = metadata.get("updated_at") or created_at
-                updated_at_iso = metadata.get("updated_at_iso") or created_at_iso
-                
-                memory = Memory(
+                memory = self._create_memory_from_results(
                     content=results["documents"][i],
                     content_hash=metadata["content_hash"],
-                    tags=tags,
-                    memory_type=metadata.get("type", ""),
-                    # Restore timestamps with fallback logic
-                    created_at=created_at,
-                    created_at_iso=created_at_iso,
-                    updated_at=updated_at,
-                    updated_at_iso=updated_at_iso,
-                    # Include additional metadata
-                    metadata={k: v for k, v in metadata.items() 
-                             if k not in ["type", "content_hash", "tags", "created_at", "created_at_iso", "updated_at", "updated_at_iso", "timestamp", "timestamp_float", "timestamp_str"]}
+                    metadata=metadata
                 )
                 # For time-based retrieval, we don't have a relevance score
                 memory_results.append(MemoryQueryResult(memory=memory, relevance_score=None))
@@ -1179,7 +1128,38 @@ class ChromaMemoryStorage(MemoryStorage):
             "path": self.path,
             "is_fully_initialized": self.is_initialized()
         }
-    
+
+    def _create_memory_from_results(self, content: str, content_hash: str, metadata: Dict[str, Any]) -> Memory:
+        """
+        Helper method to create Memory objects from ChromaDB results.
+        Consolidates duplicated Memory object creation logic.
+        """
+        # Parse tags from metadata
+        tags = metadata.get("tags", "")
+        if isinstance(tags, str):
+            tags = self._parse_tags_fast(tags)
+        elif not isinstance(tags, list):
+            tags = []
+
+        # Parse timestamps with fallback logic
+        # Default to 0 for missing timestamps to ensure they sort as oldest
+        created_at = metadata.get("created_at", metadata.get("timestamp_float", metadata.get("timestamp", 0)))
+        updated_at = metadata.get("updated_at", created_at)
+        created_at_iso = metadata.get("created_at_iso", metadata.get("timestamp_str", ""))
+        updated_at_iso = metadata.get("updated_at_iso", created_at_iso)
+
+        return Memory(
+            content=content,
+            content_hash=content_hash,
+            tags=tags,
+            memory_type=metadata.get("memory_type", metadata.get("type")),
+            metadata=metadata.get("metadata", {}),
+            created_at=created_at,
+            updated_at=updated_at,
+            created_at_iso=created_at_iso,
+            updated_at_iso=updated_at_iso
+        )
+
     def _optimize_metadata_for_chroma(self, memory: Memory) -> Dict[str, Any]:
         """Optimized metadata formatting with minimal serialization overhead."""
         # Ensure timestamps are properly synchronized
@@ -1322,28 +1302,10 @@ class ChromaMemoryStorage(MemoryStorage):
                 metadata = results["metadatas"][0][i]
                 
                 # Fast tag parsing using optimized method that handles both formats
-                tags = self._parse_tags_fast(metadata.get("tags", ""))
-                
-                # Reconstruct memory object with proper timestamp handling
-                # Use stored timestamps or fall back to legacy timestamp field
-                created_at = metadata.get("created_at") or metadata.get("timestamp_float") or metadata.get("timestamp")
-                created_at_iso = metadata.get("created_at_iso") or metadata.get("timestamp_str")
-                updated_at = metadata.get("updated_at") or created_at
-                updated_at_iso = metadata.get("updated_at_iso") or created_at_iso
-                
-                memory = Memory(
+                memory = self._create_memory_from_results(
                     content=results["documents"][0][i],
                     content_hash=metadata["content_hash"],
-                    tags=tags,
-                    memory_type=metadata.get("memory_type", ""),
-                    # Restore timestamps with fallback logic
-                    created_at=created_at,
-                    created_at_iso=created_at_iso,
-                    updated_at=updated_at,
-                    updated_at_iso=updated_at_iso,
-                    # Include additional metadata
-                    metadata={k: v for k, v in metadata.items() 
-                             if k not in ["content_hash", "tags", "memory_type", "created_at", "created_at_iso", "updated_at", "updated_at_iso", "timestamp", "timestamp_float", "timestamp_str"]}
+                    metadata=metadata
                 )
                 
                 # Calculate cosine similarity from distance
@@ -1359,16 +1321,17 @@ class ChromaMemoryStorage(MemoryStorage):
             logger.error(traceback.format_exc())
             return []
 
-    async def get_all_memories(self, limit: int = None, offset: int = 0) -> List[Memory]:
+    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
 
         Args:
             limit: Maximum number of memories to return (None for all)
             offset: Number of memories to skip (for pagination)
+            memory_type: Optional filter by memory type
 
         Returns:
-            List of Memory objects ordered by created_at DESC
+            List of Memory objects ordered by created_at DESC, optionally filtered by type
 
         Warning:
             This implementation has performance limitations for large datasets.
@@ -1408,31 +1371,16 @@ class ChromaMemoryStorage(MemoryStorage):
                     if metadatas and i < len(metadatas):
                         metadata = metadatas[i] or {}
 
-                    # Parse tags from metadata
-                    tags = metadata.get("tags", "")
-                    if isinstance(tags, str):
-                        tags = self._parse_tags_fast(tags)
-                    elif not isinstance(tags, list):
-                        tags = []
-
-                    # Parse timestamps
-                    # Default to 0 for missing timestamps to ensure they sort as oldest
-                    created_at = metadata.get("created_at", 0)
-                    updated_at = metadata.get("updated_at", created_at)
-                    created_at_iso = metadata.get("created_at_iso", "")
-                    updated_at_iso = metadata.get("updated_at_iso", "")
-
-                    memory = Memory(
+                    memory = self._create_memory_from_results(
                         content=content,
                         content_hash=id_,
-                        tags=tags,
-                        memory_type=metadata.get("memory_type"),
-                        metadata=metadata.get("metadata", {}),
-                        created_at=created_at,
-                        updated_at=updated_at,
-                        created_at_iso=created_at_iso,
-                        updated_at_iso=updated_at_iso
+                        metadata=metadata
                     )
+
+                    # Apply memory_type filter if specified
+                    if memory_type is not None and memory.memory_type != memory_type:
+                        continue
+
                     memories.append(memory)
 
                 except Exception as e:
@@ -1454,20 +1402,33 @@ class ChromaMemoryStorage(MemoryStorage):
             logger.error(f"Error getting all memories: {str(e)}")
             return []
 
-    async def count_all_memories(self) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None) -> int:
         """
         Get total count of memories in storage.
 
+        Args:
+            memory_type: Optional filter by memory type
+
         Returns:
-            Total number of memories
+            Total number of memories, optionally filtered by type
         """
         try:
             if self.collection is None:
                 logger.error("Collection not initialized, cannot count memories")
                 return 0
 
-            # Use ChromaDB's efficient count() method
-            return self.collection.count()
+            if memory_type is not None:
+                # For memory_type filtering, we need to fetch and filter
+                # ChromaDB doesn't support server-side metadata filtering for count
+                results = self.collection.get(include=["metadatas"])
+                count = 0
+                for i, metadata in enumerate(results.get("metadatas", [])):
+                    if metadata and metadata.get("memory_type") == memory_type:
+                        count += 1
+                return count
+            else:
+                # Use ChromaDB's efficient count() method for no filter
+                return self.collection.count()
 
         except Exception as e:
             logger.error(f"Error counting memories: {str(e)}")

@@ -131,25 +131,29 @@ class MemoryStorage(ABC):
         """Search memories. Default implementation uses retrieve."""
         return await self.retrieve(query, n_results)
     
-    async def get_all_memories(self, limit: int = None, offset: int = 0) -> List[Memory]:
+    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
 
         Args:
             limit: Maximum number of memories to return (None for all)
             offset: Number of memories to skip (for pagination)
+            memory_type: Optional filter by memory type
 
         Returns:
-            List of Memory objects ordered by created_at DESC
+            List of Memory objects ordered by created_at DESC, optionally filtered by type
         """
         return []
     
-    async def count_all_memories(self) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None) -> int:
         """
         Get total count of memories in storage.
 
+        Args:
+            memory_type: Optional filter by memory type
+
         Returns:
-            Total number of memories
+            Total number of memories, optionally filtered by type
         """
         return 0
 

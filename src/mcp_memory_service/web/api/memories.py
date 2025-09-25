@@ -218,13 +218,9 @@ async def list_memories(
                 has_more = offset + page_size < total
         else:
             if memory_type:
-                # Memory type filtering without tag - get all, filter, then paginate
-                # This is suboptimal but ensures correct pagination logic
-                all_memories = await storage.get_all_memories()
-                filtered_memories = [m for m in all_memories if m.memory_type == memory_type]
-
-                total = len(filtered_memories)
-                page_memories = filtered_memories[offset:offset + page_size]
+                # Memory type filtering without tag - now efficiently handled at storage layer
+                total = await storage.count_all_memories(memory_type=memory_type)
+                page_memories = await storage.get_all_memories(limit=page_size, offset=offset, memory_type=memory_type)
                 has_more = offset + page_size < total
             else:
                 # No filtering - use efficient server-side pagination
