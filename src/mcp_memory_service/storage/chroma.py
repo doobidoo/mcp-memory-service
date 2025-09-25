@@ -1397,8 +1397,16 @@ class ChromaMemoryStorage(MemoryStorage):
             memories = []
             for i, id_ in enumerate(results["ids"]):
                 try:
-                    content = results["documents"][i] if results["documents"] else ""
-                    metadata = results["metadatas"][i] if results["metadatas"] else {}
+                    # Robust extraction handling None values at both array and item level
+                    documents = results.get("documents")
+                    content = ""
+                    if documents and i < len(documents):
+                        content = documents[i] or ""
+
+                    metadatas = results.get("metadatas")
+                    metadata = {}
+                    if metadatas and i < len(metadatas):
+                        metadata = metadatas[i] or {}
 
                     # Parse tags from metadata
                     tags = metadata.get("tags", "")
