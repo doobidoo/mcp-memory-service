@@ -24,7 +24,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field
 
-from ...storage.sqlite_vec import SqliteVecMemoryStorage
+from ...storage.base import MemoryStorage
 from ...models.memory import Memory
 from ...utils.hashing import generate_content_hash
 from ...config import INCLUDE_HOSTNAME
@@ -101,7 +101,7 @@ def memory_to_response(memory: Memory) -> MemoryResponse:
 async def store_memory(
     request: MemoryCreateRequest,
     http_request: Request,
-    storage: SqliteVecMemoryStorage = Depends(get_storage)
+    storage: MemoryStorage = Depends(get_storage)
 ):
     """
     Store a new memory.
@@ -188,7 +188,7 @@ async def list_memories(
     page_size: int = Query(10, ge=1, le=100, description="Number of memories per page"),
     tag: Optional[str] = Query(None, description="Filter by tag"),
     memory_type: Optional[str] = Query(None, description="Filter by memory type"),
-    storage: SqliteVecMemoryStorage = Depends(get_storage)
+    storage: MemoryStorage = Depends(get_storage)
 ):
     """
     List memories with pagination.
@@ -246,7 +246,7 @@ async def list_memories(
 @router.get("/memories/{content_hash}", response_model=MemoryResponse, tags=["memories"])
 async def get_memory(
     content_hash: str,
-    storage: SqliteVecMemoryStorage = Depends(get_storage)
+    storage: MemoryStorage = Depends(get_storage)
 ):
     """
     Get a specific memory by its content hash.
@@ -271,7 +271,7 @@ async def get_memory(
 @router.delete("/memories/{content_hash}", response_model=MemoryDeleteResponse, tags=["memories"])
 async def delete_memory(
     content_hash: str,
-    storage: SqliteVecMemoryStorage = Depends(get_storage)
+    storage: MemoryStorage = Depends(get_storage)
 ):
     """
     Delete a memory by its content hash.

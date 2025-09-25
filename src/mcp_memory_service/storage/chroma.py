@@ -1358,7 +1358,101 @@ class ChromaMemoryStorage(MemoryStorage):
             logger.error(f"Error retrieving memories: {str(e)}")
             logger.error(traceback.format_exc())
             return []
-    
+
+    async def get_all_memories(self, limit: int = None, offset: int = 0) -> List[Memory]:
+        """
+        Get all memories in storage ordered by creation time (newest first).
+
+        Args:
+            limit: Maximum number of memories to return (None for all)
+            offset: Number of memories to skip (for pagination)
+
+        Returns:
+            List of Memory objects ordered by created_at DESC
+        """
+        try:
+            if self.collection is None:
+                logger.error("Collection not initialized, cannot get memories")
+                return []
+
+            # Get all memories without query (empty query gets all)
+            # ChromaDB doesn't have built-in pagination, so we'll get all and slice
+            results = self.collection.get(include=["documents", "metadatas"])
+
+            if not results["ids"]:
+                return []
+
+            memories = []
+            for i, id_ in enumerate(results["ids"]):
+                try:
+                    content = results["documents"][i] if results["documents"] else ""
+                    metadata = results["metadatas"][i] if results["metadatas"] else {}
+
+                    # Parse tags from metadata
+                    tags = metadata.get("tags", "")
+                    if isinstance(tags, str):
+                        tags = self._parse_tags_fast(tags)
+                    elif not isinstance(tags, list):
+                        tags = []
+
+                    # Parse timestamps
+                    created_at = metadata.get("created_at", time.time())
+                    updated_at = metadata.get("updated_at", created_at)
+                    created_at_iso = metadata.get("created_at_iso", "")
+                    updated_at_iso = metadata.get("updated_at_iso", "")
+
+                    memory = Memory(
+                        content=content,
+                        content_hash=id_,
+                        tags=tags,
+                        memory_type=metadata.get("memory_type"),
+                        metadata=metadata.get("metadata", {}),
+                        created_at=created_at,
+                        updated_at=updated_at,
+                        created_at_iso=created_at_iso,
+                        updated_at_iso=updated_at_iso
+                    )
+                    memories.append(memory)
+
+                except Exception as e:
+                    logger.warning(f"Error parsing memory {id_}: {str(e)}")
+                    continue
+
+            # Sort by created_at descending (newest first)
+            memories.sort(key=lambda m: m.created_at or 0, reverse=True)
+
+            # Apply pagination
+            if offset > 0:
+                memories = memories[offset:]
+            if limit is not None:
+                memories = memories[:limit]
+
+            return memories
+
+        except Exception as e:
+            logger.error(f"Error getting all memories: {str(e)}")
+            return []
+
+    async def count_all_memories(self) -> int:
+        """
+        Get total count of memories in storage.
+
+        Returns:
+            Total number of memories
+        """
+        try:
+            if self.collection is None:
+                logger.error("Collection not initialized, cannot count memories")
+                return 0
+
+            # Get just the IDs to count efficiently
+            results = self.collection.get(include=[])
+            return len(results["ids"]) if results["ids"] else 0
+
+        except Exception as e:
+            logger.error(f"Error counting memories: {str(e)}")
+            return 0
+
     def get_performance_stats(self) -> Dict[str, Any]:
         """Get performance statistics for monitoring."""
         with _CACHE_LOCK:

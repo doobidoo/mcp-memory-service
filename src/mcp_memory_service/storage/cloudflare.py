@@ -1033,6 +1033,76 @@ class CloudflareStorage(MemoryStorage):
             logger.error(f"Recall failed: {e}")
             return []
 
+    async def get_all_memories(self, limit: int = None, offset: int = 0) -> List[Memory]:
+        """
+        Get all memories in storage ordered by creation time (newest first).
+
+        Args:
+            limit: Maximum number of memories to return (None for all)
+            offset: Number of memories to skip (for pagination)
+
+        Returns:
+            List of Memory objects ordered by created_at DESC
+        """
+        try:
+            # Build SQL query with optional limit and offset
+            sql = "SELECT * FROM memories ORDER BY created_at DESC"
+            params = []
+
+            if limit is not None:
+                sql += " LIMIT ?"
+                params.append(limit)
+
+            if offset > 0:
+                sql += " OFFSET ?"
+                params.append(offset)
+
+            payload = {"sql": sql, "params": params}
+            response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+            result = response.json()
+
+            if not result.get("success"):
+                raise ValueError(f"D1 query failed: {result}")
+
+            memories = []
+            if result.get("result", [{}])[0].get("results"):
+                for row in result["result"][0]["results"]:
+                    memory = await self._load_memory_from_row(row)
+                    if memory:
+                        memories.append(memory)
+
+            logger.debug(f"Retrieved {len(memories)} memories from D1")
+            return memories
+
+        except Exception as e:
+            logger.error(f"Error getting all memories: {str(e)}")
+            return []
+
+    async def count_all_memories(self) -> int:
+        """
+        Get total count of memories in storage.
+
+        Returns:
+            Total number of memories
+        """
+        try:
+            payload = {"sql": "SELECT COUNT(*) as count FROM memories", "params": []}
+            response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+            result = response.json()
+
+            if not result.get("success"):
+                raise ValueError(f"D1 query failed: {result}")
+
+            if result.get("result", [{}])[0].get("results"):
+                count = result["result"][0]["results"][0].get("count", 0)
+                return int(count)
+
+            return 0
+
+        except Exception as e:
+            logger.error(f"Error counting memories: {str(e)}")
+            return 0
+
     async def close(self) -> None:
         """Close the storage backend and cleanup resources."""
         if self.client:
