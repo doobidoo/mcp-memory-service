@@ -59,8 +59,14 @@ REM Fix Transformers cache warning
 set HF_HOME=%USERPROFILE%\.cache\huggingface
 set TRANSFORMERS_CACHE=%USERPROFILE%\.cache\huggingface\transformers
 
-REM Optional: Set API key for security (change this!)
-set MCP_API_KEY=debug-api-key-12345
+REM Optional: Set API key for security
+REM To use authentication, set your own API key in the environment variable:
+REM set MCP_API_KEY=your-secure-api-key-here
+REM Or pass it when running this script: set MCP_API_KEY=mykey && start_http_debug.bat
+if "%MCP_API_KEY%"=="" (
+    echo WARNING: No API key set. Running without authentication.
+    echo          To enable auth, set MCP_API_KEY environment variable.
+)
 
 REM Optional: Enable debug logging
 set MCP_DEBUG=true
@@ -71,7 +77,11 @@ echo   HTTP Port: %MCP_HTTP_PORT%
 echo   HTTPS Enabled: %MCP_HTTPS_ENABLED%
 echo   mDNS Enabled: %MCP_MDNS_ENABLED%
 echo   Service Name: %MCP_MDNS_SERVICE_NAME%
-echo   API Key Set: Yes
+if "%MCP_API_KEY%"=="" (
+    echo   API Key Set: No ^(WARNING: No authentication^)
+) else (
+    echo   API Key Set: Yes
+)
 echo   Debug Mode: %MCP_DEBUG%
 echo.
 

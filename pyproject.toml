@@ -62,6 +62,9 @@ ml = [
 sqlite = [
     "sqlite-vec>=0.1.0"
 ]
+chromadb = [
+    "chromadb>=0.5.0"
+]
 
 [project.scripts]
 memory = "mcp_memory_service.cli.main:main"
