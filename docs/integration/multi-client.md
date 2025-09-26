@@ -317,9 +317,9 @@ export MCP_MEMORY_SQLITE_JOURNAL_MODE=WAL
 
 ```bash
 # Adjust for high concurrency
-export MCP_MEMORY_HTTP_WORKERS=4
-export MCP_MEMORY_HTTP_TIMEOUT=30
-export MCP_MEMORY_HTTP_KEEPALIVE=true
+export MCP_HTTP_WORKERS=4
+export MCP_HTTP_TIMEOUT=30
+export MCP_HTTP_KEEPALIVE=true
 ```
 
 ## Troubleshooting

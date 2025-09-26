@@ -66,7 +66,7 @@ That's it! The client will automatically find and connect to available services.
 |---------------------|---------|-------------|
 | `MCP_MEMORY_AUTO_DISCOVER` | `false` | Enable automatic service discovery |
 | `MCP_MEMORY_PREFER_HTTPS` | `true` | Prefer HTTPS services over HTTP |
-| `MCP_MEMORY_HTTP_ENDPOINT` | (none) | Manual fallback endpoint |
+| `MCP_HTTP_ENDPOINT` | (none) | Manual fallback endpoint |
 | `MCP_MEMORY_API_KEY` | (none) | API key for authentication |
 
 ## HTTPS Integration
@@ -210,7 +210,7 @@ Client connects to HTTP instead of HTTPS service.
 2. Use manual endpoint override (client bridge):
    ```bash
    export MCP_MEMORY_AUTO_DISCOVER=false
-   export MCP_MEMORY_HTTP_ENDPOINT="https://preferred-server:8000/api"
+   export MCP_HTTP_ENDPOINT="https://preferred-server:8000/api"
    ```
 
 ### Debug Mode

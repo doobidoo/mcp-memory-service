@@ -255,7 +255,7 @@ Enable automatic HTTP server coordination for optimal multi-client access:
 
 ```bash
 # Enable HTTP server auto-start
-export MCP_MEMORY_HTTP_AUTO_START=true
+export MCP_HTTP_ENABLED=true
 
 # Configure HTTP server settings (optional)
 export MCP_HTTP_PORT=8000
@@ -277,7 +277,7 @@ export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
    ```bash
    # Always connect to existing server (fails if none running)
    export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
-   export MCP_MEMORY_HTTP_AUTO_START=false
+   export MCP_HTTP_ENABLED=false
    # Requires running: python scripts/run_http_server.py
    ```
 
@@ -285,7 +285,7 @@ export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
    ```bash
    # Disable HTTP coordination entirely
    export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
-   export MCP_MEMORY_HTTP_AUTO_START=false
+   export MCP_HTTP_ENABLED=false
    export MCP_HTTP_ENABLED=false
    ```
 
@@ -300,7 +300,7 @@ export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
       "args": ["--directory", "/path/to/mcp-memory-service", "run", "memory"],
       "env": {
         "MCP_MEMORY_STORAGE_BACKEND": "sqlite_vec",
-        "MCP_MEMORY_HTTP_AUTO_START": "true"
+        "MCP_HTTP_ENABLED": "true"
       }
     }
   }
@@ -316,7 +316,7 @@ export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
       "args": ["--directory", "/path/to/mcp-memory-service", "run", "memory"],
       "env": {
         "MCP_MEMORY_STORAGE_BACKEND": "sqlite_vec",
-        "MCP_MEMORY_HTTP_AUTO_START": "false"
+        "MCP_HTTP_ENABLED": "false"
       }
     }
   }
@@ -448,7 +448,7 @@ Failed to initialize HTTP client storage: Connection refused
 ```bash
 # Check if HTTP server auto-start is working
 export LOG_LEVEL=DEBUG
-export MCP_MEMORY_HTTP_AUTO_START=true
+export MCP_HTTP_ENABLED=true
 
 # Check coordination mode detection
 python -c "
@@ -479,7 +479,7 @@ export MCP_HTTP_PORT=8001
 **Fallback to WAL Mode:**
 ```bash
 # Force WAL mode if HTTP coordination fails
-export MCP_MEMORY_HTTP_AUTO_START=false
+export MCP_HTTP_ENABLED=false
 export MCP_HTTP_ENABLED=false
 ```
 
@@ -579,7 +579,7 @@ asyncio.run(health_check())
    ```bash
    # Let the system choose the best coordination method
    export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
-   export MCP_MEMORY_HTTP_AUTO_START=true
+   export MCP_HTTP_ENABLED=true
    ```
 
 2. **Monitoring Coordination Mode**

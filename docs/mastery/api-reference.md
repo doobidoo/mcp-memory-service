@@ -7,7 +7,7 @@ This document catalogs available APIs exposed via the MCP servers and summarizes
 Defined in `src/mcp_memory_service/mcp_server.py` using `@mcp.tool()`:
 
 - `store_memory(content, tags=None, memory_type="note", metadata=None, client_hostname=None)`
-  - Stores a new memory; tags and metadata optional. If `MCP_MEMORY_INCLUDE_HOSTNAME=true`, a `source:<hostname>` tag and `hostname` metadata are added.
+  - Stores a new memory; tags and metadata optional. If `INCLUDE_HOSTNAME=true`, a `source:<hostname>` tag and `hostname` metadata are added.
   - Response: `{ success: bool, message: str, content_hash: str }`.
 
 - `retrieve_memory(query, n_results=5, min_similarity=0.0)`

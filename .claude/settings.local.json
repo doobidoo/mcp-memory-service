@@ -57,7 +57,13 @@
       "Bash(gh pr checkout:*)",
       "Bash(git fetch:*)",
       "Bash(git merge:*)",
-      "Bash(gh run list:*)"
+      "Bash(gh run list:*)",
+      "Bash(git apply:*)",
+      "Bash(git cherry-pick:*)",
+      "Bash(gh pr create:*)",
+      "Bash(git rev-list:*)",
+      "Bash(gh pr comment:*)",
+      "Bash(gh run rerun:*)"
     ],
     "deny": [],
     "ask": [],
