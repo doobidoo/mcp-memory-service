@@ -83,8 +83,8 @@ services:
       - ./data/backups:/app/backups
     environment:
       - MCP_STANDALONE_MODE=1
-      - MCP_MEMORY_HTTP_HOST=0.0.0.0
-      - MCP_MEMORY_HTTP_PORT=8000
+      - MCP_HTTP_HOST=0.0.0.0
+      - MCP_HTTP_PORT=8000
     restart: unless-stopped
 ```
 
@@ -151,8 +151,8 @@ docker run -d -p 8000:8000 --name memory-service \
   -v $(pwd)/data/chroma_db:/app/chroma_db \
   -v $(pwd)/data/backups:/app/backups \
   -e MCP_STANDALONE_MODE=1 \
-  -e MCP_MEMORY_HTTP_HOST=0.0.0.0\
-  -e MCP_MEMORY_HTTP_PORT=8000 \
+  -e MCP_HTTP_HOST=0.0.0.0 \
+  -e MCP_HTTP_PORT=8000 \
   --stdin --tty \
   mcp-memory-service
 ```
@@ -163,7 +163,7 @@ docker run -d -p 8000:8000 --name memory-service \
 # Use pre-built Glama deployment image
 docker run -d -p 8000:8000 \
   -v $(pwd)/data:/app/data \
-  -e MCP_MEMORY_API_KEY=your-api-key \
+  -e MCP_API_KEY=your-api-key \
   --name memory-service \
   mcp-memory-service:glama
 
@@ -182,10 +182,10 @@ docker run -d -p 8000:8000 \
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_MEMORY_STORAGE_BACKEND` | `chromadb` | Storage backend (chromadb, sqlite_vec) |
-| `MCP_MEMORY_HTTP_HOST` | `127.0.0.1` | HTTP server bind address |
-| `MCP_MEMORY_HTTP_PORT` | `8000` | HTTP server port |
+| `MCP_HTTP_HOST` | `0.0.0.0` | HTTP server bind address |
+| `MCP_HTTP_PORT` | `8000` | HTTP server port |
 | `MCP_STANDALONE_MODE` | `false` | Enable standalone HTTP mode |
-| `MCP_MEMORY_API_KEY` | `none` | API key for authentication |
+| `MCP_API_KEY` | `none` | API key for authentication |
 
 ### Docker-Specific Variables
 
@@ -208,7 +208,7 @@ docker run -d \
 # SQLite-vec backend (recommended for containers)
 docker run -d \
   -e MCP_MEMORY_STORAGE_BACKEND=sqlite_vec \
-  -e MCP_MEMORY_SQLITE_VEC_PATH=/app/sqlite_data \
+  -e MCP_MEMORY_SQLITE_PATH=/app/sqlite_data/memory.db \
   -v $(pwd)/data/sqlite_data:/app/sqlite_data \
   mcp-memory-service
 ```
@@ -227,8 +227,8 @@ services:
       - "8000:8000"
     environment:
       - MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
-      - MCP_MEMORY_HTTP_HOST=0.0.0.0
-      - MCP_MEMORY_API_KEY_FILE=/run/secrets/api_key
+      - MCP_HTTP_HOST=0.0.0.0
+      - MCP_API_KEY=REDACTED
     volumes:
       - memory_data:/app/data
     secrets:
@@ -286,9 +286,9 @@ spec:
         env:
         - name: MCP_MEMORY_STORAGE_BACKEND
           value: "sqlite_vec"
-        - name: MCP_MEMORY_HTTP_HOST
+        - name: MCP_HTTP_HOST
           value: "0.0.0.0"
-        - name: MCP_MEMORY_API_KEY
+        - name: MCP_API_KEY
           valueFrom:
             secretKeyRef:
               name: mcp-api-key
@@ -520,7 +520,7 @@ API_KEY=$(openssl rand -hex 32)
 
 # Use with Docker
 docker run -d \
-  -e MCP_MEMORY_API_KEY=$API_KEY \
+  -e MCP_API_KEY=$API_KEY \
   -p 8000:8000 \
   mcp-memory-service
 ```
@@ -532,9 +532,10 @@ docker run -d \
 services:
   mcp-memory-service:
     environment:
-      - MCP_MEMORY_USE_HTTPS=true
-      - MCP_MEMORY_SSL_CERT=/app/certs/cert.pem
-      - MCP_MEMORY_SSL_KEY=/app/certs/key.pem
+      - MCP_HTTPS_ENABLED=true
+      - MCP_HTTP_PORT=8443
+      - MCP_SSL_CERT_FILE=/app/certs/cert.pem
+      - MCP_SSL_KEY_FILE=/app/certs/key.pem
     volumes:
       - ./certs:/app/certs:ro
     ports:

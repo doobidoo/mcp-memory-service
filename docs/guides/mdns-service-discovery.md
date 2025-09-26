@@ -202,12 +202,12 @@ Discovery failed: Request timeout
 Client connects to HTTP instead of HTTPS service.
 
 **Solutions:**
-1. Force HTTPS preference:
+1. Force HTTPS preference (client bridge):
    ```bash
    export MCP_MEMORY_PREFER_HTTPS=true
    ```
 
-2. Use manual endpoint override:
+2. Use manual endpoint override (client bridge):
    ```bash
    export MCP_MEMORY_AUTO_DISCOVER=false
    export MCP_MEMORY_HTTP_ENDPOINT="https://preferred-server:8000/api"
@@ -315,7 +315,7 @@ Always use API keys even with mDNS:
 # Server
 export MCP_API_KEY="$(openssl rand -base64 32)"
 
-# Client
+# Client (Node bridge)
 export MCP_MEMORY_API_KEY="same-key-as-server"
 ```
 
@@ -325,7 +325,7 @@ Enable HTTPS for encrypted communication:
 
 ```bash
 export MCP_HTTPS_ENABLED=true
-export MCP_MEMORY_PREFER_HTTPS=true
+export MCP_MEMORY_PREFER_HTTPS=true  # client bridge preference
 ```
 
 ## Best Practices

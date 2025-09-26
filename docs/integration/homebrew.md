@@ -92,7 +92,7 @@ python install.py --use-homebrew-pytorch --skip-pytorch
 export MCP_MEMORY_USE_HOMEBREW_PYTORCH=true
 export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
 export MCP_MEMORY_USE_ONNX=true
-export MCP_MEMORY_SQLITE_VEC_PATH="$HOME/.mcp_memory_sqlite"
+export MCP_MEMORY_SQLITE_PATH="$HOME/.mcp_memory_sqlite/memory.db"
 ```
 
 ### 4. Test Installation
@@ -311,7 +311,7 @@ echo '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}' | \
 | `MCP_MEMORY_USE_HOMEBREW_PYTORCH` | `false` | Enable Homebrew PyTorch integration |
 | `MCP_MEMORY_STORAGE_BACKEND` | `auto` | Force SQLite-vec backend |
 | `MCP_MEMORY_USE_ONNX` | `false` | Use ONNX runtime for inference |
-| `MCP_MEMORY_SQLITE_VEC_PATH` | `~/.mcp_memory_sqlite` | SQLite-vec database location |
+| `MCP_MEMORY_SQLITE_PATH` | `~/.mcp_memory_sqlite/memory.db` | SQLite-vec database file path |
 | `MCP_MEMORY_HOMEBREW_PYTHON_PATH` | `auto-detect` | Override Homebrew Python path |
 | `MCP_MEMORY_DEBUG` | `false` | Enable debug logging |
 
@@ -349,7 +349,7 @@ For shared access across multiple MCP clients:
 python install.py --use-homebrew-pytorch --multi-client
 
 # Configure shared database location
-export MCP_MEMORY_SQLITE_VEC_PATH="/shared/mcp_memory"
+export MCP_MEMORY_SQLITE_PATH="/shared/mcp_memory/memory.db"
 ```
 
 ## Development and Contributions

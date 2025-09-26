@@ -32,13 +32,24 @@ Example Claude Desktop configuration for connecting to a remote MCP Memory Servi
 3. Add your API key (if authentication is enabled)
 4. Copy this configuration to your Claude Desktop config file
 
+### `codex-mcp-config.json`
+Example Codex configuration using `mcp-proxy` to bridge stdio to the service’s Streamable HTTP endpoint at `/mcp`.
+
+**Setup:**
+1. Install the proxy: `pipx install mcp-proxy` (or `uv tool install mcp-proxy`)
+2. Set server API key on the server: `export MCP_API_KEY=...`
+3. Copy this file and adjust `your-server` and API key
+4. Place it in Codex’s MCP config location (see Codex docs)
+
+Why proxy? Codex does not support HTTP transports natively and requires a stdio bridge.
+
 ## Quick Start
 
 ### 1. Server Setup
 ```bash
 # On your server machine
 cd mcp-memory-service
-python install.py --server-mode --enable-http-api
+python install.py --server-mode --storage-backend sqlite_vec
 export MCP_HTTP_HOST=0.0.0.0
 export MCP_API_KEY="your-secure-key"
 python scripts/run_http_server.py
@@ -59,4 +70,5 @@ curl -H "Authorization: Bearer your-secure-key" \
 
 ## Advanced Usage
 
-See the complete [Multi-Client Deployment Guide](../docs/deployment/multi-client-server.md) for detailed configuration options, security setup, and troubleshooting.
+- See the [Multi-Client Setup Guide](../docs/integration/multi-client.md) for Codex, Cursor, Qwen, and Gemini recipes.
+- For Cursor/Qwen/Gemini direct HTTP usage, prefer the Streamable HTTP endpoint: `http(s)://<host>:8000/mcp` with header `Authorization: Bearer <MCP_API_KEY>`.

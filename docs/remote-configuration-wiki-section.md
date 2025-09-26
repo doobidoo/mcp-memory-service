@@ -100,8 +100,8 @@ The HTTP-to-MCP bridge supports:
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `MCP_MEMORY_HTTP_ENDPOINT` | Remote server API endpoint | `http://localhost:8000/api` | `https://myserver.com:8000/api` |
-| `MCP_MEMORY_API_KEY` | Authentication token | None | `abc123xyz789` |
+| `MCP_MEMORY_HTTP_ENDPOINT` | Remote server API endpoint (Streamable HTTP lives at `/mcp`; REST at `/api`) | `http://localhost:8000/api` | `https://myserver.com:8000/api` |
+| `MCP_MEMORY_API_KEY` | Authentication token for client bridge (server uses `MCP_API_KEY`) | None | `abc123xyz789` |
 | `MCP_MEMORY_AUTO_DISCOVER` | Enable mDNS service discovery | `false` | `true` |
 | `MCP_MEMORY_PREFER_HTTPS` | Prefer HTTPS over HTTP when discovering | `true` | `false` |
 
