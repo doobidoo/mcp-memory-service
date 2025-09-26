@@ -34,7 +34,6 @@ authors = [
 ]
 license = { text = "Apache-2.0" }
 dependencies = [
-    "chromadb==0.5.23",
     "tokenizers==0.20.3",
     "mcp>=1.0.0,<2.0.0",
     "sqlite-vec>=0.1.0",
@@ -49,7 +48,7 @@ dependencies = [
     "aiofiles>=23.2.1",
     "psutil>=5.9.0",
     "zeroconf>=0.130.0",
-    "PyPDF2>=3.0.0",
+    "pypdf2>=3.0.0",
     "chardet>=5.0.0",
     "click>=8.0.0",
     "httpx>=0.24.0",
@@ -59,9 +58,6 @@ dependencies = [
 ml = [
     "sentence-transformers>=2.2.2",
     "torch>=2.0.0"
-]
-chromadb = [
-    "chromadb==0.5.23"
 ]
 sqlite = [
     "sqlite-vec>=0.1.0"
