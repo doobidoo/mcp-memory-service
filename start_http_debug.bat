@@ -24,7 +24,7 @@ echo.
 echo Installing dependencies...
 echo This may take a few minutes on first run...
 echo Installing core dependencies...
-uv sync --active
+uv sync
 
 REM Check if installation was successful
 if %errorlevel% neq 0 (
@@ -85,8 +85,6 @@ if "%MCP_API_KEY%"=="" (
 echo   Debug Mode: %MCP_DEBUG%
 echo.
 
-echo Starting MCP Memory Service...
-echo.
 echo Service will be available at:
 echo   HTTP: http://localhost:%MCP_HTTP_PORT%
 echo   API: http://localhost:%MCP_HTTP_PORT%/api
