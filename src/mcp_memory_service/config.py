@@ -471,7 +471,15 @@ if not OAUTH_SECRET_KEY:
 
 # OAuth server configuration
 def get_oauth_issuer() -> str:
-    """Get the OAuth issuer URL based on server configuration."""
+    """
+    Get the OAuth issuer URL based on server configuration.
+
+    For reverse proxy deployments, set MCP_OAUTH_ISSUER environment variable
+    to override auto-detection (e.g., "https://api.example.com").
+
+    This ensures OAuth discovery endpoints return the correct external URLs
+    that clients can actually reach, rather than internal server addresses.
+    """
     scheme = "https" if HTTPS_ENABLED else "http"
     host = "localhost" if HTTP_HOST == "0.0.0.0" else HTTP_HOST
 
@@ -481,6 +489,9 @@ def get_oauth_issuer() -> str:
     else:
         return f"{scheme}://{host}"
 
+# OAuth issuer URL - CRITICAL for reverse proxy deployments
+# Production: Set MCP_OAUTH_ISSUER to external URL (e.g., "https://api.example.com")
+# Development: Auto-detects from server configuration
 OAUTH_ISSUER = os.getenv('MCP_OAUTH_ISSUER') or get_oauth_issuer()
 
 # OAuth token configuration
@@ -495,3 +506,10 @@ if OAUTH_ENABLED:
     logger.info(f"OAuth issuer: {OAUTH_ISSUER}")
     logger.info(f"OAuth access token expiry: {OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES} minutes")
     logger.info(f"Anonymous access allowed: {ALLOW_ANONYMOUS_ACCESS}")
+
+    # Warn about potential reverse proxy configuration issues
+    if not os.getenv('MCP_OAUTH_ISSUER') and ("localhost" in OAUTH_ISSUER or "127.0.0.1" in OAUTH_ISSUER):
+        logger.warning(
+            "OAuth issuer contains localhost/127.0.0.1. For reverse proxy deployments, "
+            "set MCP_OAUTH_ISSUER to the external URL (e.g., 'https://api.example.com')"
+        )

@@ -70,7 +70,11 @@
       "Bash(claude --version)",
       "Bash(gh pr list:*)",
       "Bash(git branch:*)",
-      "WebFetch(domain:datatracker.ietf.org)"
+      "WebFetch(domain:datatracker.ietf.org)",
+      "Bash(export MCP_OAUTH_ENABLED=true)",
+      "Bash(export MCP_ALLOW_ANONYMOUS_ACCESS=false)",
+      "Bash(export MCP_API_KEY=\"test-key-123\")",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": [],

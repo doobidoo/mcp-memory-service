@@ -28,6 +28,11 @@ from pydantic import BaseModel
 from ...storage.sqlite_vec import SqliteVecMemoryStorage
 from ..dependencies import get_storage
 from ... import __version__
+from ...config import OAUTH_ENABLED
+
+# Import OAuth dependencies only when needed
+if OAUTH_ENABLED:
+    from ..oauth.middleware import require_read_access, AuthenticationResult
 
 router = APIRouter()
 
@@ -68,7 +73,10 @@ async def health_check():
 
 
 @router.get("/health/detailed", response_model=DetailedHealthResponse)
-async def detailed_health_check(storage: SqliteVecMemoryStorage = Depends(get_storage)):
+async def detailed_health_check(
+    storage: SqliteVecMemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+):
     """Detailed health check with system and storage information."""
     
     # Get system information

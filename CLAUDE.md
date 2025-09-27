@@ -255,3 +255,5 @@ tail -50 ~/Library/Logs/Claude/mcp-server-memory.log | grep -E "(🚀|☁️|✅
 ```
 
 > **For detailed troubleshooting, architecture, and deployment guides, retrieve memories tagged with `claude-code-reference` or visit the project wiki.**
+- always use "/gemini review" when commenting on a PR
+- make sure to have commited and pushed every change to the branch before commenting on the PR and before triggering gemini Code Assist

@@ -8,12 +8,17 @@ to directly access memory operations using the MCP standard.
 import asyncio
 import logging
 from typing import Dict, List, Any, Optional, Union
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ..dependencies import get_storage
 from ...utils.hashing import generate_content_hash
+from ...config import OAUTH_ENABLED
+
+# Import OAuth dependencies only when needed
+if OAUTH_ENABLED:
+    from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +127,10 @@ MCP_TOOLS = [
 
 @router.post("/")
 @router.post("")
-async def mcp_endpoint(request: MCPRequest):
+async def mcp_endpoint(
+    request: MCPRequest,
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+):
     """Main MCP protocol endpoint for processing MCP requests."""
     try:
         storage = get_storage()
@@ -340,7 +348,9 @@ async def handle_tool_call(storage, tool_name: str, arguments: Dict[str, Any]) -
 
 
 @router.get("/tools")
-async def list_mcp_tools():
+async def list_mcp_tools(
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+):
     """List available MCP tools for discovery."""
     return {
         "tools": [tool.dict() for tool in MCP_TOOLS],
