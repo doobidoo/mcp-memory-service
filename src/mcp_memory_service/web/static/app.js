@@ -383,11 +383,31 @@ class MemoryDashboard {
      */
     handleAddMemory() {
         const modal = document.getElementById('addMemoryModal');
+
+        // Reset modal for adding new memory
+        this.resetAddMemoryModal();
+
         this.openModal(modal);
+        document.getElementById('memoryContent').focus();
+    }
+
+    /**
+     * Reset add memory modal to default state
+     */
+    resetAddMemoryModal() {
+        const modal = document.getElementById('addMemoryModal');
+        const title = modal.querySelector('.modal-header h3');
+        const saveBtn = document.getElementById('saveMemoryBtn');
+
+        // Reset modal title and button text
+        title.textContent = 'Add New Memory';
+        saveBtn.textContent = 'Save Memory';
 
         // Clear form
         document.getElementById('addMemoryForm').reset();
-        document.getElementById('memoryContent').focus();
+
+        // Clear editing state
+        this.editingMemory = null;
     }
 
     /**
@@ -409,18 +429,42 @@ class MemoryDashboard {
             memory_type: type,
             metadata: {
                 created_via: 'dashboard',
-                user_agent: navigator.userAgent
+                user_agent: navigator.userAgent,
+                updated_via: this.editingMemory ? 'dashboard_edit' : 'dashboard_create'
             }
         };
 
         try {
-            const response = await this.apiCall('/memories', 'POST', payload);
+            let response;
+            let successMessage;
+
+            if (this.editingMemory) {
+                // Update existing memory - delete old and create new (since content hash changes)
+                await this.apiCall(`/memories/${this.editingMemory.content_hash}`, 'DELETE');
+                response = await this.apiCall('/memories', 'POST', payload);
+                successMessage = 'Memory updated successfully';
+            } else {
+                // Create new memory
+                response = await this.apiCall('/memories', 'POST', payload);
+                successMessage = 'Memory saved successfully';
+            }
+
             this.closeModal(document.getElementById('addMemoryModal'));
-            this.showToast('Memory saved successfully', 'success');
+            this.showToast(successMessage, 'success');
+
+            // Reset editing state
+            this.editingMemory = null;
+            this.resetAddMemoryModal();
 
             // Refresh current view if needed
             if (this.currentView === 'dashboard') {
                 this.loadDashboardData();
+            } else if (this.currentView === 'search') {
+                // Refresh search results
+                const query = document.getElementById('quickSearch').value.trim();
+                if (query) {
+                    this.handleSearch(query);
+                }
             }
         } catch (error) {
             console.error('Error saving memory:', error);
@@ -518,6 +562,76 @@ class MemoryDashboard {
             console.error('Error deleting memory:', error);
             this.showToast('Failed to delete memory', 'error');
         }
+    }
+
+    /**
+     * Edit memory
+     */
+    editMemory(memory) {
+        // Close the memory details modal first
+        this.closeModal(document.getElementById('memoryModal'));
+
+        // Open the add memory modal with pre-filled data
+        const modal = document.getElementById('addMemoryModal');
+        const title = modal.querySelector('.modal-header h3');
+        const saveBtn = document.getElementById('saveMemoryBtn');
+
+        // Update modal for editing
+        title.textContent = 'Edit Memory';
+        saveBtn.textContent = 'Update Memory';
+
+        // Pre-fill the form with existing data
+        document.getElementById('memoryContent').value = memory.content;
+        document.getElementById('memoryTags').value = memory.tags ? memory.tags.join(', ') : '';
+        document.getElementById('memoryType').value = memory.memory_type || 'note';
+
+        // Store the memory being edited
+        this.editingMemory = memory;
+
+        this.openModal(modal);
+        document.getElementById('memoryContent').focus();
+    }
+
+    /**
+     * Share memory
+     */
+    shareMemory(memory) {
+        // Create shareable data
+        const shareData = {
+            content: memory.content,
+            tags: memory.tags || [],
+            type: memory.memory_type || 'note',
+            created: new Date(memory.created_at * 1000).toISOString(),
+            id: memory.content_hash
+        };
+
+        // Try to use Web Share API if available
+        if (navigator.share) {
+            navigator.share({
+                title: 'Memory from MCP Memory Service',
+                text: memory.content,
+                url: window.location.href
+            }).catch(err => {
+                console.log('Error sharing:', err);
+                this.fallbackShare(shareData);
+            });
+        } else {
+            this.fallbackShare(shareData);
+        }
+    }
+
+    /**
+     * Fallback share method (copy to clipboard)
+     */
+    fallbackShare(shareData) {
+        const shareText = `Memory Content:\n${shareData.content}\n\nTags: ${shareData.tags.join(', ')}\nType: ${shareData.type}\nCreated: ${shareData.created}`;
+
+        navigator.clipboard.writeText(shareText).then(() => {
+            this.showToast('Memory copied to clipboard', 'success');
+        }).catch(err => {
+            console.error('Could not copy text: ', err);
+            this.showToast('Failed to copy to clipboard', 'error');
+        });
     }
 
     /**
