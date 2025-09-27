@@ -105,6 +105,11 @@ class MemoryDashboard {
             });
         });
 
+        // Settings button
+        document.getElementById('settingsBtn')?.addEventListener('click', () => {
+            this.showToast('Settings functionality not yet implemented.', 'info');
+        });
+
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
