@@ -24,6 +24,8 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional, Any
 
+import aiofiles
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -225,8 +227,8 @@ def create_app() -> FastAPI:
         index_path = os.path.join(static_path, "index.html")
 
         try:
-            with open(index_path, 'r', encoding='utf-8') as f:
-                html_content = f.read()
+            async with aiofiles.open(index_path, 'r', encoding='utf-8') as f:
+                html_content = await f.read()
             return html_content
         except FileNotFoundError:
             # Fallback to basic template if index.html doesn't exist
