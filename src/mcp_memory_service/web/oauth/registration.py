@@ -21,6 +21,7 @@ Implements RFC 7591 - OAuth 2.0 Dynamic Client Registration Protocol.
 import time
 import logging
 from typing import List, Optional
+from urllib.parse import urlparse, ParseResult
 from fastapi import APIRouter, HTTPException, status
 from pydantic import ValidationError
 
@@ -37,32 +38,127 @@ router = APIRouter()
 
 
 def validate_redirect_uris(redirect_uris: Optional[List[str]]) -> None:
-    """Validate redirect URIs according to OAuth 2.1 security requirements."""
+    """
+    Validate redirect URIs according to OAuth 2.1 security requirements.
+
+    Uses proper URL parsing to prevent bypass attacks and validates schemes
+    against a secure whitelist to prevent dangerous scheme injection.
+    """
     if not redirect_uris:
         return
 
+    # Allowed schemes - whitelist approach for security
+    ALLOWED_SCHEMES = {
+        'https',    # HTTPS (preferred)
+        'http',     # HTTP (localhost only)
+        # Native app custom schemes (common patterns)
+        'com.example.app',  # Reverse domain notation
+        'myapp',           # Simple custom scheme
+        # Add more custom schemes as needed, but NEVER allow:
+        # javascript:, data:, file:, vbscript:, about:, chrome:, etc.
+    }
+
+    # Dangerous schemes that must be blocked
+    DANGEROUS_SCHEMES = {
+        'javascript', 'data', 'file', 'vbscript', 'about', 'chrome',
+        'chrome-extension', 'moz-extension', 'ms-appx', 'blob'
+    }
+
     for uri in redirect_uris:
-        uri_str = str(uri)
+        uri_str = str(uri).strip()
 
-        # OAuth 2.1 security requirements
-        if uri_str.startswith("http://"):
-            # Only allow localhost for http in development
-            if not ("localhost" in uri_str or "127.0.0.1" in uri_str):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": "invalid_redirect_uri",
-                        "error_description": "HTTP redirect URIs must use localhost or 127.0.0.1"
-                    }
-                )
-
-        # Check for custom schemes (allowed for native apps)
-        if not (uri_str.startswith("https://") or uri_str.startswith("http://") or "://" in uri_str):
+        if not uri_str:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "error": "invalid_redirect_uri",
-                    "error_description": f"Invalid redirect URI format: {uri_str}"
+                    "error_description": "Empty redirect URI not allowed"
+                }
+            )
+
+        try:
+            # Parse URL using proper URL parser to prevent bypass attacks
+            parsed: ParseResult = urlparse(uri_str)
+
+            if not parsed.scheme:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "invalid_redirect_uri",
+                        "error_description": f"Missing scheme in redirect URI: {uri_str}"
+                    }
+                )
+
+            # Check for dangerous schemes first (security)
+            if parsed.scheme.lower() in DANGEROUS_SCHEMES:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "invalid_redirect_uri",
+                        "error_description": f"Dangerous scheme '{parsed.scheme}' not allowed in redirect URI"
+                    }
+                )
+
+            # For HTTP scheme, enforce strict localhost validation
+            if parsed.scheme.lower() == 'http':
+                if not parsed.netloc:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "error": "invalid_redirect_uri",
+                            "error_description": f"HTTP URI missing host: {uri_str}"
+                        }
+                    )
+
+                # Extract hostname from netloc (handles port numbers correctly)
+                hostname = parsed.hostname
+                if not hostname:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "error": "invalid_redirect_uri",
+                            "error_description": f"Cannot extract hostname from HTTP URI: {uri_str}"
+                        }
+                    )
+
+                # Strict localhost validation - only allow exact matches
+                if hostname.lower() not in ('localhost', '127.0.0.1', '::1'):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "error": "invalid_redirect_uri",
+                            "error_description": f"HTTP redirect URIs must use localhost, 127.0.0.1, or ::1. Got: {hostname}"
+                        }
+                    )
+
+            # For HTTPS, allow any valid hostname (production requirement)
+            elif parsed.scheme.lower() == 'https':
+                if not parsed.netloc:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "error": "invalid_redirect_uri",
+                            "error_description": f"HTTPS URI missing host: {uri_str}"
+                        }
+                    )
+
+            # For custom schemes (native apps), validate they're in allowed list
+            elif parsed.scheme.lower() not in [s.lower() for s in ALLOWED_SCHEMES]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "invalid_redirect_uri",
+                        "error_description": f"Unsupported scheme '{parsed.scheme}'. Allowed: {', '.join(sorted(ALLOWED_SCHEMES))}"
+                    }
+                )
+
+        except ValueError as e:
+            # URL parsing failed
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "invalid_redirect_uri",
+                    "error_description": f"Invalid URL format: {uri_str}. Error: {str(e)}"
                 }
             )
 

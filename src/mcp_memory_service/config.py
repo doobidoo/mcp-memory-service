@@ -49,6 +49,70 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+def safe_get_int_env(env_var: str, default: int, min_value: int = None, max_value: int = None) -> int:
+    """
+    Safely parse an integer environment variable with validation and error handling.
+
+    Args:
+        env_var: Environment variable name
+        default: Default value if not set or invalid
+        min_value: Minimum allowed value (optional)
+        max_value: Maximum allowed value (optional)
+
+    Returns:
+        Parsed and validated integer value
+
+    Raises:
+        ValueError: If the value is outside the specified range
+    """
+    env_value = os.getenv(env_var)
+    if not env_value:
+        return default
+
+    try:
+        value = int(env_value)
+
+        # Validate range if specified
+        if min_value is not None and value < min_value:
+            logger.error(f"Environment variable {env_var}={value} is below minimum {min_value}, using default {default}")
+            return default
+
+        if max_value is not None and value > max_value:
+            logger.error(f"Environment variable {env_var}={value} is above maximum {max_value}, using default {default}")
+            return default
+
+        logger.debug(f"Environment variable {env_var}={value} parsed successfully")
+        return value
+
+    except ValueError as e:
+        logger.error(f"Invalid integer value for {env_var}='{env_value}': {e}. Using default {default}")
+        return default
+
+def safe_get_bool_env(env_var: str, default: bool) -> bool:
+    """
+    Safely parse a boolean environment variable with validation and error handling.
+
+    Args:
+        env_var: Environment variable name
+        default: Default value if not set or invalid
+
+    Returns:
+        Parsed boolean value
+    """
+    env_value = os.getenv(env_var)
+    if not env_value:
+        return default
+
+    env_value_lower = env_value.lower().strip()
+
+    if env_value_lower in ('true', '1', 'yes', 'on', 'enabled'):
+        return True
+    elif env_value_lower in ('false', '0', 'no', 'off', 'disabled'):
+        return False
+    else:
+        logger.error(f"Invalid boolean value for {env_var}='{env_value}'. Expected true/false, 1/0, yes/no, on/off, enabled/disabled. Using default {default}")
+        return default
+
 def validate_and_create_path(path: str) -> str:
     """Validate and create a directory path, ensuring it's writable.
     
@@ -360,10 +424,10 @@ COLLECTION_METADATA = {
 
 # HTTP Server Configuration
 HTTP_ENABLED = os.getenv('MCP_HTTP_ENABLED', 'false').lower() == 'true'
-HTTP_PORT = int(os.getenv('MCP_HTTP_PORT', '8000'))
+HTTP_PORT = safe_get_int_env('MCP_HTTP_PORT', 8000, min_value=1024, max_value=65535)  # Non-privileged ports only
 HTTP_HOST = os.getenv('MCP_HTTP_HOST', '0.0.0.0')
 CORS_ORIGINS = os.getenv('MCP_CORS_ORIGINS', '*').split(',')
-SSE_HEARTBEAT_INTERVAL = int(os.getenv('MCP_SSE_HEARTBEAT', '30'))
+SSE_HEARTBEAT_INTERVAL = safe_get_int_env('MCP_SSE_HEARTBEAT', 30, min_value=5, max_value=300)  # 5 seconds to 5 minutes
 API_KEY = os.getenv('MCP_API_KEY', None)  # Optional authentication
 
 # HTTPS Configuration
@@ -461,7 +525,7 @@ if CONSOLIDATION_ENABLED:
     logger.info(f"Consolidation schedule: {CONSOLIDATION_SCHEDULE}")
 
 # OAuth 2.1 Configuration
-OAUTH_ENABLED = os.getenv('MCP_OAUTH_ENABLED', 'true').lower() == 'true'
+OAUTH_ENABLED = safe_get_bool_env('MCP_OAUTH_ENABLED', True)
 
 # Generate a secure secret key if not provided
 OAUTH_SECRET_KEY = os.getenv('MCP_OAUTH_SECRET_KEY')
@@ -495,11 +559,11 @@ def get_oauth_issuer() -> str:
 OAUTH_ISSUER = os.getenv('MCP_OAUTH_ISSUER') or get_oauth_issuer()
 
 # OAuth token configuration
-OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv('MCP_OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES', '60'))
-OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES = int(os.getenv('MCP_OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES', '10'))
+OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES = safe_get_int_env('MCP_OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES', 60, min_value=1, max_value=1440)  # 1 minute to 24 hours
+OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES = safe_get_int_env('MCP_OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES', 10, min_value=1, max_value=60)  # 1 minute to 1 hour
 
 # OAuth security configuration
-ALLOW_ANONYMOUS_ACCESS = os.getenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'false').lower() == 'true'
+ALLOW_ANONYMOUS_ACCESS = safe_get_bool_env('MCP_ALLOW_ANONYMOUS_ACCESS', False)
 
 logger.info(f"OAuth enabled: {OAUTH_ENABLED}")
 if OAUTH_ENABLED:
