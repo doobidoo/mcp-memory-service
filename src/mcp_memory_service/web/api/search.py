@@ -27,9 +27,14 @@ from pydantic import BaseModel, Field
 
 from ...storage.sqlite_vec import SqliteVecMemoryStorage
 from ...models.memory import Memory, MemoryQueryResult
+from ...config import OAUTH_ENABLED
 from ..dependencies import get_storage
 from .memories import MemoryResponse, memory_to_response
 from ..sse import sse_manager, create_search_completed_event
+
+# OAuth authentication imports (conditional)
+if OAUTH_ENABLED:
+    from ..oauth.middleware import require_read_access, AuthenticationResult
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -93,7 +98,8 @@ def memory_to_search_result(memory: Memory, reason: str = None) -> SearchResult:
 @router.post("/search", response_model=SearchResponse, tags=["search"])
 async def semantic_search(
     request: SemanticSearchRequest,
-    storage: SqliteVecMemoryStorage = Depends(get_storage)
+    storage: SqliteVecMemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
     Perform semantic similarity search on memory content.
@@ -153,7 +159,8 @@ async def semantic_search(
 @router.post("/search/by-tag", response_model=SearchResponse, tags=["search"])
 async def tag_search(
     request: TagSearchRequest,
-    storage: SqliteVecMemoryStorage = Depends(get_storage)
+    storage: SqliteVecMemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
     Search memories by tags.
@@ -222,7 +229,8 @@ async def tag_search(
 @router.post("/search/by-time", response_model=SearchResponse, tags=["search"])
 async def time_search(
     request: TimeSearchRequest,
-    storage: SqliteVecMemoryStorage = Depends(get_storage)
+    storage: SqliteVecMemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
     Search memories by time-based queries.
@@ -291,7 +299,8 @@ async def time_search(
 async def find_similar(
     content_hash: str,
     n_results: int = Query(default=10, ge=1, le=100, description="Number of similar memories to find"),
-    storage: SqliteVecMemoryStorage = Depends(get_storage)
+    storage: SqliteVecMemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
     Find memories similar to a specific memory identified by its content hash.

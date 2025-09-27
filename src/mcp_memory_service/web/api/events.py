@@ -6,8 +6,13 @@ from fastapi import APIRouter, Request, Depends
 from pydantic import BaseModel
 from typing import Dict, Any, List
 
+from ...config import OAUTH_ENABLED
 from ..sse import create_event_stream, sse_manager
 from ..dependencies import get_storage
+
+# OAuth authentication imports (conditional)
+if OAUTH_ENABLED:
+    from ..oauth.middleware import require_read_access, AuthenticationResult
 
 router = APIRouter()
 
@@ -29,7 +34,10 @@ class SSEStatsResponse(BaseModel):
 
 
 @router.get("/events")
-async def events_endpoint(request: Request):
+async def events_endpoint(
+    request: Request,
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+):
     """
     Server-Sent Events endpoint for real-time updates.
     
@@ -45,7 +53,9 @@ async def events_endpoint(request: Request):
 
 
 @router.get("/events/stats")
-async def get_sse_stats():
+async def get_sse_stats(
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+):
     """
     Get statistics about current SSE connections.
     

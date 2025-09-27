@@ -27,9 +27,13 @@ from pydantic import BaseModel, Field
 from ...storage.base import MemoryStorage
 from ...models.memory import Memory
 from ...utils.hashing import generate_content_hash
-from ...config import INCLUDE_HOSTNAME
+from ...config import INCLUDE_HOSTNAME, OAUTH_ENABLED
 from ..dependencies import get_storage
 from ..sse import sse_manager, create_memory_stored_event, create_memory_deleted_event
+
+# OAuth authentication imports (conditional)
+if OAUTH_ENABLED:
+    from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -101,7 +105,8 @@ def memory_to_response(memory: Memory) -> MemoryResponse:
 async def store_memory(
     request: MemoryCreateRequest,
     http_request: Request,
-    storage: MemoryStorage = Depends(get_storage)
+    storage: MemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
 ):
     """
     Store a new memory.
@@ -188,7 +193,8 @@ async def list_memories(
     page_size: int = Query(10, ge=1, le=100, description="Number of memories per page"),
     tag: Optional[str] = Query(None, description="Filter by tag"),
     memory_type: Optional[str] = Query(None, description="Filter by memory type"),
-    storage: MemoryStorage = Depends(get_storage)
+    storage: MemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
     List memories with pagination.
@@ -243,7 +249,8 @@ async def list_memories(
 @router.get("/memories/{content_hash}", response_model=MemoryResponse, tags=["memories"])
 async def get_memory(
     content_hash: str,
-    storage: MemoryStorage = Depends(get_storage)
+    storage: MemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
     Get a specific memory by its content hash.
@@ -268,7 +275,8 @@ async def get_memory(
 @router.delete("/memories/{content_hash}", response_model=MemoryDeleteResponse, tags=["memories"])
 async def delete_memory(
     content_hash: str,
-    storage: MemoryStorage = Depends(get_storage)
+    storage: MemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
 ):
     """
     Delete a memory by its content hash.
