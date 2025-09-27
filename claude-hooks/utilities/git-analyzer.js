@@ -94,7 +94,10 @@ async function parseChangelog(workingDir) {
                     changelogPath = path.join(workingDir, altPath);
                     found = true;
                     break;
-                } catch {}
+                } catch (error) {
+                    // File doesn't exist or access error, continue to next path
+                    console.debug(`[Git Analyzer] Could not access ${altPath}: ${error.message}`);
+                }
             }
             if (!found) return null;
         }

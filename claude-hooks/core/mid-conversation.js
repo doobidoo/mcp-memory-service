@@ -428,8 +428,9 @@ function getHookInstance(config) {
  */
 function resetHookInstance() {
     if (globalHookInstance) {
-        globalHookInstance.cleanup().catch(() => {
-            // Ignore cleanup errors during reset
+        globalHookInstance.cleanup().catch((error) => {
+            // Log cleanup errors during reset but don't throw
+            console.debug('[Mid-Conversation Hook] Cleanup error during reset:', error.message);
         });
         globalHookInstance = null;
         console.log('[Mid-Conversation Hook] Reset hook instance');

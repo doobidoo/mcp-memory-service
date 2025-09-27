@@ -151,6 +151,9 @@ class TieredConversationMonitor {
         // Check cache first
         if (this.semanticCache.has(cacheKey)) {
             const cached = this.semanticCache.get(cacheKey);
+            // Update last used timestamp
+            cached.lastUsed = Date.now();
+            this.semanticCache.set(cacheKey, cached);
             return { ...cached, confidence: 0.9 }; // High confidence for cached results
         }
 
@@ -195,7 +198,8 @@ class TieredConversationMonitor {
         const result = {
             topics: [...new Set(topics)], // Remove duplicates
             triggerProbability,
-            confidence: triggerProbability > 0.5 ? 0.8 : 0.4
+            confidence: triggerProbability > 0.5 ? 0.8 : 0.4,
+            lastUsed: Date.now()
         };
 
         // Cache result

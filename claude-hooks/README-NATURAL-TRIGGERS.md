@@ -321,7 +321,7 @@ Monitor hook performance:
 node claude-hooks/memory-mode-controller.js status
 
 # Run performance tests
-node test-natural-triggers.js
+node claude-hooks/test-natural-triggers.js
 ```
 
 ## Integration with Claude Code
