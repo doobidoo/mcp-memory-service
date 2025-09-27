@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Basic test script for OAuth 2.1 Dynamic Client Registration.
+OAuth 2.1 Dynamic Client Registration integration test.
 
-This script tests the OAuth endpoints to ensure they respond correctly.
-Run this script to verify the OAuth implementation before creating the PR.
+Tests the OAuth endpoints for full flow functionality from client registration
+through token acquisition and API access.
 """
 
 import asyncio

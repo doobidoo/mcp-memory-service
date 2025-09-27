@@ -21,10 +21,10 @@ Implements OAuth 2.1 authorization code flow and token endpoints.
 import time
 import logging
 from typing import Optional
-from urllib.parse import urlencode, urlparse
-from fastapi import APIRouter, HTTPException, status, Form, Query, Depends
+from urllib.parse import urlencode
+from fastapi import APIRouter, HTTPException, status, Form, Query
 from fastapi.responses import RedirectResponse
-from jose import JWTError, jwt
+from jose import jwt
 
 from ...config import (
     OAUTH_SECRET_KEY,
@@ -32,7 +32,7 @@ from ...config import (
     OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES,
     OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES
 )
-from .models import TokenResponse, OAuthError
+from .models import TokenResponse
 from .storage import oauth_storage
 
 logger = logging.getLogger(__name__)
@@ -63,9 +63,9 @@ def create_access_token(client_id: str, scope: Optional[str] = None) -> tuple[st
     return token, expires_in
 
 
-def validate_redirect_uri(client_id: str, redirect_uri: Optional[str]) -> str:
+async def validate_redirect_uri(client_id: str, redirect_uri: Optional[str]) -> str:
     """Validate redirect URI against registered client."""
-    client = oauth_storage.get_client(client_id)
+    client = await oauth_storage.get_client(client_id)
     if not client:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -134,13 +134,13 @@ async def authorize(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_params)
 
         # Validate client and redirect_uri
-        validated_redirect_uri = validate_redirect_uri(client_id, redirect_uri)
+        validated_redirect_uri = await validate_redirect_uri(client_id, redirect_uri)
 
         # Generate authorization code
         auth_code = oauth_storage.generate_authorization_code()
 
         # Store authorization code
-        oauth_storage.store_authorization_code(
+        await oauth_storage.store_authorization_code(
             code=auth_code,
             client_id=client_id,
             redirect_uri=validated_redirect_uri,
@@ -216,7 +216,7 @@ async def token(
                 )
 
             # Authenticate client
-            if not oauth_storage.authenticate_client(client_id, client_secret or ""):
+            if not await oauth_storage.authenticate_client(client_id, client_secret or ""):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail={
@@ -226,7 +226,7 @@ async def token(
                 )
 
             # Get and consume authorization code
-            code_data = oauth_storage.get_authorization_code(code)
+            code_data = await oauth_storage.get_authorization_code(code)
             if not code_data:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -260,7 +260,7 @@ async def token(
             access_token, expires_in = create_access_token(client_id, code_data["scope"])
 
             # Store access token for validation
-            oauth_storage.store_access_token(
+            await oauth_storage.store_access_token(
                 token=access_token,
                 client_id=client_id,
                 scope=code_data["scope"],
@@ -287,7 +287,7 @@ async def token(
                 )
 
             # Authenticate client
-            if not oauth_storage.authenticate_client(client_id, client_secret):
+            if not await oauth_storage.authenticate_client(client_id, client_secret):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail={
@@ -300,7 +300,7 @@ async def token(
             access_token, expires_in = create_access_token(client_id, "read write")
 
             # Store access token
-            oauth_storage.store_access_token(
+            await oauth_storage.store_access_token(
                 token=access_token,
                 client_id=client_id,
                 scope="read write",

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Live test of the hybrid storage backend implementation.
-Demonstrates performance, functionality, and sync capabilities.
+Live performance test of the hybrid storage backend implementation.
+Demonstrates performance, functionality, and sync capabilities under load.
 """
 
 import asyncio
@@ -11,8 +11,8 @@ import tempfile
 import os
 from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, 'src')
+# Add src to path for standalone execution
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
 
 from mcp_memory_service.storage.hybrid import HybridMemoryStorage
 from mcp_memory_service.models.memory import Memory

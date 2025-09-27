@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Test background sync service with mock Cloudflare backend.
-Verifies that the sync queue and processing work correctly.
+Performance test for background sync service with mock Cloudflare backend.
+Verifies that the sync queue and processing work correctly under load.
 """
 
 import asyncio
@@ -12,8 +12,8 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock, AsyncMock
 import time
 
-# Add src to path
-sys.path.insert(0, 'src')
+# Add src to path for standalone execution
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
 
 from mcp_memory_service.storage.hybrid import HybridMemoryStorage, BackgroundSyncService
 from mcp_memory_service.models.memory import Memory

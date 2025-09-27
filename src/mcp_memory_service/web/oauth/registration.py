@@ -27,8 +27,7 @@ from pydantic import ValidationError
 from .models import (
     ClientRegistrationRequest,
     ClientRegistrationResponse,
-    RegisteredClient,
-    OAuthError
+    RegisteredClient
 )
 from .storage import oauth_storage
 
@@ -141,7 +140,7 @@ async def register_client(request: ClientRegistrationRequest) -> ClientRegistrat
         )
 
         # Store the client
-        oauth_storage.store_client(registered_client)
+        await oauth_storage.store_client(registered_client)
 
         # Create response
         response = ClientRegistrationResponse(
@@ -190,7 +189,7 @@ async def get_client_info(client_id: str) -> ClientRegistrationResponse:
     """
     logger.info(f"Client info request for client_id={client_id}")
 
-    client = oauth_storage.get_client(client_id)
+    client = await oauth_storage.get_client(client_id)
     if not client:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -57,11 +57,36 @@ storage: Optional[SqliteVecMemoryStorage] = None
 # Global mDNS advertiser instance
 mdns_advertiser: Optional[Any] = None
 
+# Global OAuth cleanup task
+oauth_cleanup_task: Optional[asyncio.Task] = None
+
+
+async def oauth_cleanup_background_task():
+    """Background task to periodically clean up expired OAuth tokens and codes."""
+    from .oauth.storage import oauth_storage
+
+    while True:
+        try:
+            # Clean up expired tokens every 5 minutes
+            await asyncio.sleep(300)  # 5 minutes
+
+            cleanup_stats = await oauth_storage.cleanup_expired()
+            if cleanup_stats["expired_codes_cleaned"] > 0 or cleanup_stats["expired_tokens_cleaned"] > 0:
+                logger.info(f"OAuth cleanup: removed {cleanup_stats['expired_codes_cleaned']} codes, "
+                           f"{cleanup_stats['expired_tokens_cleaned']} tokens")
+
+        except asyncio.CancelledError:
+            logger.info("OAuth cleanup task cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Error in OAuth cleanup task: {e}")
+            # Continue running even if there's an error
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan management."""
-    global storage, mdns_advertiser
+    global storage, mdns_advertiser, oauth_cleanup_task
     
     # Startup
     logger.info("Starting MCP Memory Service HTTP interface...")
@@ -77,6 +102,11 @@ async def lifespan(app: FastAPI):
         # Start SSE manager
         await sse_manager.start()
         logger.info("SSE Manager started")
+
+        # Start OAuth cleanup task if enabled
+        if OAUTH_ENABLED:
+            oauth_cleanup_task = asyncio.create_task(oauth_cleanup_background_task())
+            logger.info("OAuth cleanup background task started")
         
         # Start mDNS service advertisement if enabled
         if MDNS_ENABLED:
@@ -119,10 +149,21 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Error stopping mDNS advertisement: {e}")
     
+    # Stop OAuth cleanup task
+    if oauth_cleanup_task:
+        try:
+            oauth_cleanup_task.cancel()
+            await oauth_cleanup_task
+            logger.info("OAuth cleanup task stopped")
+        except asyncio.CancelledError:
+            logger.info("OAuth cleanup task cancelled successfully")
+        except Exception as e:
+            logger.error(f"Error stopping OAuth cleanup task: {e}")
+
     # Stop SSE manager
     await sse_manager.stop()
     logger.info("SSE Manager stopped")
-    
+
     if storage:
         await storage.close()
 

@@ -21,7 +21,8 @@ This is an MVP implementation - production deployments should use persistent sto
 
 import time
 import secrets
-from typing import Dict, Optional, Set
+import asyncio
+from typing import Dict, Optional
 from .models import RegisteredClient
 
 
@@ -38,22 +39,27 @@ class OAuthStorage:
         # Active access tokens (token -> client_id, expires_at, scope)
         self._access_tokens: Dict[str, Dict] = {}
 
-    def store_client(self, client: RegisteredClient) -> None:
+        # Thread safety lock for concurrent access
+        self._lock = asyncio.Lock()
+
+    async def store_client(self, client: RegisteredClient) -> None:
         """Store a registered OAuth client."""
-        self._clients[client.client_id] = client
+        async with self._lock:
+            self._clients[client.client_id] = client
 
-    def get_client(self, client_id: str) -> Optional[RegisteredClient]:
+    async def get_client(self, client_id: str) -> Optional[RegisteredClient]:
         """Get a registered OAuth client by ID."""
-        return self._clients.get(client_id)
+        async with self._lock:
+            return self._clients.get(client_id)
 
-    def authenticate_client(self, client_id: str, client_secret: str) -> bool:
+    async def authenticate_client(self, client_id: str, client_secret: str) -> bool:
         """Authenticate a client using client_id and client_secret."""
-        client = self.get_client(client_id)
+        client = await self.get_client(client_id)
         if not client:
             return False
         return client.client_secret == client_secret
 
-    def store_authorization_code(
+    async def store_authorization_code(
         self,
         code: str,
         client_id: str,
@@ -62,23 +68,25 @@ class OAuthStorage:
         expires_in: int = 600  # 10 minutes default
     ) -> None:
         """Store an authorization code."""
-        self._authorization_codes[code] = {
-            "client_id": client_id,
-            "redirect_uri": redirect_uri,
-            "scope": scope,
-            "expires_at": time.time() + expires_in
-        }
+        async with self._lock:
+            self._authorization_codes[code] = {
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "scope": scope,
+                "expires_at": time.time() + expires_in
+            }
 
-    def get_authorization_code(self, code: str) -> Optional[Dict]:
+    async def get_authorization_code(self, code: str) -> Optional[Dict]:
         """Get and consume an authorization code (one-time use)."""
-        code_data = self._authorization_codes.pop(code, None)
+        async with self._lock:
+            code_data = self._authorization_codes.pop(code, None)
 
-        # Check if code exists and hasn't expired
-        if code_data and code_data["expires_at"] > time.time():
-            return code_data
-        return None
+            # Check if code exists and hasn't expired
+            if code_data and code_data["expires_at"] > time.time():
+                return code_data
+            return None
 
-    def store_access_token(
+    async def store_access_token(
         self,
         token: str,
         client_id: str,
@@ -86,45 +94,53 @@ class OAuthStorage:
         expires_in: int = 3600  # 1 hour default
     ) -> None:
         """Store an access token."""
-        self._access_tokens[token] = {
-            "client_id": client_id,
-            "scope": scope,
-            "expires_at": time.time() + expires_in
-        }
+        async with self._lock:
+            self._access_tokens[token] = {
+                "client_id": client_id,
+                "scope": scope,
+                "expires_at": time.time() + expires_in
+            }
 
-    def get_access_token(self, token: str) -> Optional[Dict]:
+    async def get_access_token(self, token: str) -> Optional[Dict]:
         """Get access token information if valid."""
-        token_data = self._access_tokens.get(token)
+        async with self._lock:
+            token_data = self._access_tokens.get(token)
 
-        # Check if token exists and hasn't expired
-        if token_data and token_data["expires_at"] > time.time():
-            return token_data
+            # Check if token exists and hasn't expired
+            if token_data and token_data["expires_at"] > time.time():
+                return token_data
 
-        # Clean up expired token
-        if token_data:
-            self._access_tokens.pop(token, None)
+            # Clean up expired token
+            if token_data:
+                self._access_tokens.pop(token, None)
 
-        return None
+            return None
 
-    def cleanup_expired(self) -> None:
+    async def cleanup_expired(self) -> Dict[str, int]:
         """Clean up expired authorization codes and access tokens."""
-        current_time = time.time()
+        async with self._lock:
+            current_time = time.time()
 
-        # Clean up expired authorization codes
-        expired_codes = [
-            code for code, data in self._authorization_codes.items()
-            if data["expires_at"] <= current_time
-        ]
-        for code in expired_codes:
-            self._authorization_codes.pop(code, None)
+            # Clean up expired authorization codes
+            expired_codes = [
+                code for code, data in self._authorization_codes.items()
+                if data["expires_at"] <= current_time
+            ]
+            for code in expired_codes:
+                self._authorization_codes.pop(code, None)
 
-        # Clean up expired access tokens
-        expired_tokens = [
-            token for token, data in self._access_tokens.items()
-            if data["expires_at"] <= current_time
-        ]
-        for token in expired_tokens:
-            self._access_tokens.pop(token, None)
+            # Clean up expired access tokens
+            expired_tokens = [
+                token for token, data in self._access_tokens.items()
+                if data["expires_at"] <= current_time
+            ]
+            for token in expired_tokens:
+                self._access_tokens.pop(token, None)
+
+            return {
+                "expired_codes_cleaned": len(expired_codes),
+                "expired_tokens_cleaned": len(expired_tokens)
+            }
 
     def generate_client_id(self) -> str:
         """Generate a unique client ID."""
@@ -143,13 +159,14 @@ class OAuthStorage:
         return secrets.token_urlsafe(32)
 
     # Statistics and management methods
-    def get_stats(self) -> Dict:
+    async def get_stats(self) -> Dict:
         """Get storage statistics."""
-        return {
-            "registered_clients": len(self._clients),
-            "active_authorization_codes": len(self._authorization_codes),
-            "active_access_tokens": len(self._access_tokens)
-        }
+        async with self._lock:
+            return {
+                "registered_clients": len(self._clients),
+                "active_authorization_codes": len(self._authorization_codes),
+                "active_access_tokens": len(self._access_tokens)
+            }
 
 
 # Global OAuth storage instance

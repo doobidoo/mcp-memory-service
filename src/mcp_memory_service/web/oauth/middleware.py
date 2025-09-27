@@ -92,7 +92,7 @@ def validate_jwt_token(token: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def authenticate_bearer_token(token: str) -> AuthenticationResult:
+async def authenticate_bearer_token(token: str) -> AuthenticationResult:
     """
     Authenticate using OAuth Bearer token.
 
@@ -114,7 +114,7 @@ def authenticate_bearer_token(token: str) -> AuthenticationResult:
         )
 
     # Fallback: check if token is stored in OAuth storage
-    token_data = oauth_storage.get_access_token(token)
+    token_data = await oauth_storage.get_access_token(token)
     if token_data:
         logger.debug(f"OAuth storage authentication successful: client_id={token_data['client_id']}")
         return AuthenticationResult(
@@ -170,14 +170,21 @@ async def get_current_user(
     Returns:
         AuthenticationResult with authentication details
     """
-    # Try OAuth Bearer token authentication
+    # Try OAuth Bearer token authentication first
     if credentials and credentials.scheme.lower() == "bearer":
-        auth_result = authenticate_bearer_token(credentials.credentials)
+        auth_result = await authenticate_bearer_token(credentials.credentials)
         if auth_result.authenticated:
             return auth_result
 
-        # Bearer token provided but invalid
-        logger.warning("Invalid Bearer token provided")
+        # Bearer token provided but invalid - try API key fallback before giving up
+        if API_KEY:
+            # Some clients might send API key as Bearer token
+            api_key_result = authenticate_api_key(credentials.credentials)
+            if api_key_result.authenticated:
+                return api_key_result
+
+        # Both OAuth and API key failed - raise exception
+        logger.warning("Invalid Bearer token provided and API key fallback failed")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
@@ -186,13 +193,6 @@ async def get_current_user(
             },
             headers={"WWW-Authenticate": "Bearer"}
         )
-
-    # Try API key authentication (check Authorization header for API key)
-    if credentials and credentials.scheme.lower() == "bearer" and API_KEY:
-        # Some clients might send API key as Bearer token
-        auth_result = authenticate_api_key(credentials.credentials)
-        if auth_result.authenticated:
-            return auth_result
 
     # If no API key configured, allow anonymous access
     if not API_KEY:
@@ -204,7 +204,7 @@ async def get_current_user(
             auth_method="none"
         )
 
-    # No valid authentication provided
+    # No credentials provided but API key is configured
     logger.debug("No valid authentication provided")
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

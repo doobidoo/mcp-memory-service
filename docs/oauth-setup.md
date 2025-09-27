@@ -38,7 +38,7 @@ uv run memory server --http
 
 ```bash
 # Test the OAuth implementation
-python test_oauth_basic.py http://localhost:8000
+python tests/integration/test_oauth_flow.py http://localhost:8000
 ```
 
 ## Configuration
@@ -64,7 +64,7 @@ export MCP_HTTPS_ENABLED=true
 
 # Development configuration
 export MCP_OAUTH_ENABLED=true
-export MCP_OAUTH_ISSUER="http://localhost:8000"
+export MCP_OAUTH_ISSUER="http://localhost:8000"  # Match server port
 ```
 
 ## OAuth Endpoints
@@ -105,10 +105,10 @@ If needed, you can manually configure Claude Code:
   "memoryService": {
     "protocol": "http",
     "http": {
-      "endpoint": "https://localhost:8443",
+      "endpoint": "http://localhost:8000",  # Use actual server endpoint
       "oauth": {
         "enabled": true,
-        "discoveryUrl": "https://localhost:8443/.well-known/oauth-authorization-server/mcp"
+        "discoveryUrl": "http://localhost:8000/.well-known/oauth-authorization-server/mcp"
       }
     }
   }
@@ -127,7 +127,7 @@ export ACCESS_TOKEN="your-jwt-access-token"
 
 # Use Bearer token for API requests
 curl -H "Authorization: Bearer $ACCESS_TOKEN" \
-     https://localhost:8443/api/memories
+     http://localhost:8000/api/memories
 ```
 
 ### Scope-Based Authorization
@@ -146,7 +146,7 @@ API key authentication continues to work:
 # Legacy API key authentication
 export MCP_API_KEY="your-api-key"
 curl -H "Authorization: Bearer $MCP_API_KEY" \
-     https://localhost:8443/api/memories
+     http://localhost:8000/api/memories
 ```
 
 ## Security Considerations
@@ -190,10 +190,10 @@ The implementation follows OAuth 2.1 security requirements:
 
 ```bash
 # Test OAuth discovery
-curl https://localhost:8443/.well-known/oauth-authorization-server/mcp
+curl http://localhost:8000/.well-known/oauth-authorization-server/mcp
 
 # Test client registration
-curl -X POST https://localhost:8443/oauth/register \
+curl -X POST http://localhost:8000/oauth/register \
      -H "Content-Type: application/json" \
      -d '{"client_name": "Test Client"}'
 
@@ -245,7 +245,7 @@ tail -f logs/mcp-memory-service.log | grep -i oauth
 
 ```bash
 # Basic OAuth functionality test
-python test_oauth_basic.py
+python tests/integration/test_oauth_flow.py
 
 # Full test suite
 pytest tests/ -k oauth

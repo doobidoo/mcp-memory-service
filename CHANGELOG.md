@@ -538,7 +538,7 @@ Thanks to @ergut for identifying and fixing this critical regression!
   - **Storage type verification**: Confirms final storage backend type after initialization
 - **Diagnostic improvements**: Created comprehensive diagnostic tools for Cloudflare backend issues
   - **Enhanced diagnostic script**: `debug_server_initialization.py` for testing initialization flows
-  - **MCP environment testing**: `test_mcp_environment.py` for testing Claude Desktop integration
+  - **MCP environment testing**: `tests/integration/test_mcp_environment.py` for testing Claude Desktop integration
   - **Fixed test syntax errors**: Corrected f-string and async function issues in test files
 
 #### Technical Improvements

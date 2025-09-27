@@ -19,8 +19,8 @@ Implements .well-known endpoints required for OAuth 2.1 Dynamic Client Registrat
 """
 
 import logging
-from fastapi import APIRouter, Response
-from ...config import HTTP_HOST, HTTP_PORT, HTTPS_ENABLED
+from fastapi import APIRouter
+from ...config import HTTP_HOST, HTTP_PORT, HTTPS_ENABLED, OAUTH_ISSUER
 from .models import OAuthServerMetadata
 
 logger = logging.getLogger(__name__)
@@ -56,10 +56,11 @@ async def oauth_authorization_server_metadata() -> OAuthServerMetadata:
     """
     logger.info("OAuth authorization server metadata requested")
 
+    # Use consistent OAUTH_ISSUER from config to match JWT token validation
     base_url = get_server_base_url()
 
     metadata = OAuthServerMetadata(
-        issuer=base_url,
+        issuer=OAUTH_ISSUER,  # Use consistent issuer from config
         authorization_endpoint=f"{base_url}/oauth/authorize",
         token_endpoint=f"{base_url}/oauth/token",
         registration_endpoint=f"{base_url}/oauth/register",
