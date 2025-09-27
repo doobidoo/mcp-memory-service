@@ -1106,9 +1106,14 @@ SOLUTIONS:
             
             cursor = self.conn.execute('SELECT COUNT(*) FROM memories')
             total_memories = cursor.fetchone()[0]
-            
+
             cursor = self.conn.execute('SELECT COUNT(DISTINCT tags) FROM memories WHERE tags != ""')
             unique_tags = cursor.fetchone()[0]
+
+            # Calculate memories from the last 7 days (week)
+            week_ago_timestamp = time.time() - (7 * 24 * 60 * 60)
+            cursor = self.conn.execute('SELECT COUNT(*) FROM memories WHERE created_at >= ?', (week_ago_timestamp,))
+            weekly_memories = cursor.fetchone()[0]
             
             # Get database file size
             file_size = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
@@ -1117,6 +1122,7 @@ SOLUTIONS:
                 "backend": "sqlite-vec",
                 "total_memories": total_memories,
                 "unique_tags": unique_tags,
+                "weekly_memories": weekly_memories,
                 "database_size_bytes": file_size,
                 "database_size_mb": round(file_size / (1024 * 1024), 2),
                 "embedding_model": self.embedding_model_name,

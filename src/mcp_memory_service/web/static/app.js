@@ -878,13 +878,7 @@ class MemoryDashboard {
      */
     updateDashboardStats(stats) {
         document.getElementById('totalMemories').textContent = stats.total_memories || '0';
-        // Calculate memories from this week by counting memories added in last 7 days
-        const thisWeekCount = this.memories.filter(memory => {
-            const createdDate = new Date(memory.created_at * 1000);
-            const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-            return createdDate >= weekAgo;
-        }).length;
-        document.getElementById('recentMemories').textContent = thisWeekCount.toString();
+        document.getElementById('recentMemories').textContent = stats.weekly_memories || '0';
         document.getElementById('uniqueTags').textContent = stats.unique_tags || '0';
     }
 
