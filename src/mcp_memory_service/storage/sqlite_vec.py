@@ -178,22 +178,11 @@ class SqliteVecMemoryStorage(MemoryStorage):
                 # ONNX embeddings don't require sentence-transformers, but we still need to initialize the database
                 # Continue with database initialization below
                 
-            # Lazy load sentence-transformers - try to install if not available (only if ONNX disabled)
+            # Check sentence-transformers availability (only if ONNX disabled)
             if not USE_ONNX:
                 global SENTENCE_TRANSFORMERS_AVAILABLE
                 if not SENTENCE_TRANSFORMERS_AVAILABLE:
-                    logger.info("sentence-transformers not available, attempting to install...")
-                    try:
-                        import subprocess
-                        import sys
-                        subprocess.check_call([sys.executable, "-m", "pip", "install", "sentence-transformers", "torch"])
-                        logger.info("Successfully installed sentence-transformers and torch")
-                        # Re-import after installation
-                        from sentence_transformers import SentenceTransformer
-                        SENTENCE_TRANSFORMERS_AVAILABLE = True
-                    except Exception as e:
-                        logger.error(f"Failed to install sentence-transformers: {e}")
-                        raise ImportError("sentence-transformers is not available and could not be installed automatically. Install with: pip install sentence-transformers torch")
+                    raise ImportError("sentence-transformers is not available. Install with: pip install sentence-transformers torch")
             
             # Check if extension loading is supported
             extension_supported, support_message = self._check_extension_support()
@@ -1523,7 +1512,7 @@ SOLUTIONS:
             logger.error(f"Error converting row to memory: {str(e)}")
             return None
 
-    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None) -> List[Memory]:
+    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None, tags: Optional[List[str]] = None) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
 
@@ -1531,14 +1520,15 @@ SOLUTIONS:
             limit: Maximum number of memories to return (None for all)
             offset: Number of memories to skip (for pagination)
             memory_type: Optional filter by memory type
+            tags: Optional filter by tags (matches ANY of the provided tags)
 
         Returns:
-            List of Memory objects ordered by created_at DESC, optionally filtered by type
+            List of Memory objects ordered by created_at DESC, optionally filtered by type and tags
         """
         try:
             await self.initialize()
 
-            # Build query with optional memory_type filter
+            # Build query with optional memory_type and tags filters
             query = '''
                 SELECT content_hash, content, tags, memory_type, metadata,
                        created_at, updated_at, created_at_iso, updated_at_iso
@@ -1546,9 +1536,22 @@ SOLUTIONS:
             '''
 
             params = []
+            where_conditions = []
+
+            # Add memory_type filter if specified
             if memory_type is not None:
-                query += ' WHERE memory_type = ?'
+                where_conditions.append('memory_type = ?')
                 params.append(memory_type)
+
+            # Add tags filter if specified (using database-level filtering like search_by_tag_chronological)
+            if tags and len(tags) > 0:
+                tag_conditions = " OR ".join(["tags LIKE ?" for _ in tags])
+                where_conditions.append(f"({tag_conditions})")
+                params.extend([f"%{tag}%" for tag in tags])
+
+            # Apply WHERE clause if we have any conditions
+            if where_conditions:
+                query += ' WHERE ' + ' AND '.join(where_conditions)
 
             query += ' ORDER BY created_at DESC'
 

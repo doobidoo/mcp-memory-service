@@ -1321,7 +1321,7 @@ class ChromaMemoryStorage(MemoryStorage):
             logger.error(traceback.format_exc())
             return []
 
-    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None) -> List[Memory]:
+    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None, tags: Optional[List[str]] = None) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
 
@@ -1329,9 +1329,10 @@ class ChromaMemoryStorage(MemoryStorage):
             limit: Maximum number of memories to return (None for all)
             offset: Number of memories to skip (for pagination)
             memory_type: Optional filter by memory type
+            tags: Optional filter by tags (matches ANY of the provided tags)
 
         Returns:
-            List of Memory objects ordered by created_at DESC, optionally filtered by type
+            List of Memory objects ordered by created_at DESC, optionally filtered by type and tags
 
         Warning:
             This implementation has performance limitations for large datasets.
@@ -1380,6 +1381,11 @@ class ChromaMemoryStorage(MemoryStorage):
                     # Apply memory_type filter if specified
                     if memory_type is not None and memory.memory_type != memory_type:
                         continue
+
+                    # Apply tags filter if specified (matches ANY of the provided tags)
+                    if tags and len(tags) > 0:
+                        if not memory.tags or not any(tag in memory.tags for tag in tags):
+                            continue
 
                     memories.append(memory)
 

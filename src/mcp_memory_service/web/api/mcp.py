@@ -117,30 +117,6 @@ MCP_TOOLS = [
             }
         }
     ),
-    MCPTool(
-        name="search_by_time",
-        description="Search memories by time-based queries using natural language",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Natural language time query (e.g., 'last week', 'yesterday', 'this month')"},
-                "n_results": {"type": "integer", "description": "Maximum number of memories to return", "default": 10, "minimum": 1, "maximum": 100}
-            },
-            "required": ["query"]
-        }
-    ),
-    MCPTool(
-        name="search_similar",
-        description="Search for memories similar to a given memory by content hash",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "content_hash": {"type": "string", "description": "Content hash of the memory to find similar ones for"},
-                "limit": {"type": "integer", "description": "Maximum number of similar memories to return", "default": 5}
-            },
-            "required": ["content_hash"]
-        }
-    )
 ]
 
 
@@ -330,23 +306,15 @@ async def handle_tool_call(storage, tool_name: str, arguments: Dict[str, Any]) -
         
         # Calculate offset
         offset = (page - 1) * page_size
-        
-        # Get memories with pagination
+
+        # Use database-level filtering for better performance
+        tags_list = [tag] if tag else None
         memories = await storage.get_all_memories(
             limit=page_size,
-            offset=offset
+            offset=offset,
+            memory_type=memory_type,
+            tags=tags_list
         )
-        
-        # Apply tag and memory_type filtering if specified
-        if tag or memory_type:
-            filtered_memories = []
-            for memory in memories:
-                if tag and tag not in memory.tags:
-                    continue
-                if memory_type and memory.memory_type != memory_type:
-                    continue
-                filtered_memories.append(memory)
-            memories = filtered_memories
         
         return {
             "memories": [
@@ -366,102 +334,6 @@ async def handle_tool_call(storage, tool_name: str, arguments: Dict[str, Any]) -
             "total_found": len(memories)
         }
     
-    elif tool_name == "search_by_time":
-        query = arguments.get("query")
-        n_results = arguments.get("n_results", 10)
-        
-        # Use the same time parsing logic as the API
-        from datetime import datetime
-        from .search import parse_time_query, is_within_time_range
-        try:
-            time_filter = parse_time_query(query)
-            
-            if not time_filter:
-                return {
-                    "success": False,
-                    "message": f"Could not parse time query: '{query}'. Try 'yesterday', 'last week', 'this month', etc."
-                }
-            
-            # Get memories and filter by time (same as API implementation)
-            query_results = await storage.retrieve("", n_results=1000)  # Get many results to filter
-            
-            # Filter by time (exactly like API - convert float to datetime)
-            filtered_memories = []
-            for result in query_results:
-                memory_time = None
-                if result.memory.created_at:
-                    memory_time = datetime.fromtimestamp(result.memory.created_at)
-                
-                if memory_time and is_within_time_range(memory_time, time_filter):
-                    filtered_memories.append(result)
-            
-            # Limit results
-            results = filtered_memories[:n_results]
-            
-        except Exception as e:
-            return {
-                "success": False,
-                "message": f"Time search failed: {str(e)}"
-            }
-        
-        return {
-            "results": [
-                {
-                    "content": result.memory.content,
-                    "content_hash": result.memory.content_hash,
-                    "tags": result.memory.tags,
-                    "memory_type": result.memory.memory_type,
-                    "created_at": result.memory.created_at_iso,
-                    "updated_at": result.memory.updated_at_iso
-                }
-                for result in results
-            ],
-            "total_found": len(results)
-        }
-    
-    elif tool_name == "search_similar":
-        content_hash = arguments.get("content_hash")
-        limit = arguments.get("limit", 5)
-        
-        # Get the target memory first
-        target_memory = await storage.get_by_hash(content_hash)
-        if not target_memory:
-            return {
-                "success": False,
-                "message": "Memory not found"
-            }
-        
-        # Find similar memories using the target memory's content
-        similar_results = await storage.retrieve(
-            query=target_memory.content,
-            n_results=limit + 1  # +1 because the original will be included
-        )
-        
-        # Filter out the original memory
-        results = [
-            r for r in similar_results 
-            if r.memory.content_hash != content_hash
-        ][:limit]
-        
-        return {
-            "success": True,
-            "target_memory": {
-                "content": target_memory.content,
-                "content_hash": target_memory.content_hash,
-                "tags": target_memory.tags
-            },
-            "similar_memories": [
-                {
-                    "content": r.memory.content,
-                    "content_hash": r.memory.content_hash,
-                    "tags": r.memory.tags,
-                    "similarity_score": r.relevance_score,
-                    "created_at": r.memory.created_at_iso
-                }
-                for r in results
-            ],
-            "total_found": len(results)
-        }
     
     else:
         raise ValueError(f"Unknown tool: {tool_name}")

@@ -1033,7 +1033,7 @@ class CloudflareStorage(MemoryStorage):
             logger.error(f"Recall failed: {e}")
             return []
 
-    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None) -> List[Memory]:
+    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None, tags: Optional[List[str]] = None) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
 
@@ -1041,18 +1041,31 @@ class CloudflareStorage(MemoryStorage):
             limit: Maximum number of memories to return (None for all)
             offset: Number of memories to skip (for pagination)
             memory_type: Optional filter by memory type
+            tags: Optional filter by tags (matches ANY of the provided tags)
 
         Returns:
-            List of Memory objects ordered by created_at DESC, optionally filtered by type
+            List of Memory objects ordered by created_at DESC, optionally filtered by type and tags
         """
         try:
-            # Build SQL query with optional memory_type filter
+            # Build SQL query with optional memory_type and tags filters
             sql = "SELECT * FROM memories"
             params = []
+            where_conditions = []
 
+            # Add memory_type filter if specified
             if memory_type is not None:
-                sql += " WHERE memory_type = ?"
+                where_conditions.append("memory_type = ?")
                 params.append(memory_type)
+
+            # Add tags filter if specified (using LIKE for tag matching)
+            if tags and len(tags) > 0:
+                tag_conditions = " OR ".join(["tags LIKE ?" for _ in tags])
+                where_conditions.append(f"({tag_conditions})")
+                params.extend([f"%{tag}%" for tag in tags])
+
+            # Apply WHERE clause if we have any conditions
+            if where_conditions:
+                sql += " WHERE " + " AND ".join(where_conditions)
 
             sql += " ORDER BY created_at DESC"
 

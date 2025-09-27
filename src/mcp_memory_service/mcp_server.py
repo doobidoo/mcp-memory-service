@@ -444,23 +444,15 @@ async def list_memories(
         
         # Calculate offset
         offset = (page - 1) * page_size
-        
-        # Get memories with pagination
+
+        # Use database-level filtering for better performance
+        tags_list = [tag] if tag else None
         memories = await storage.get_all_memories(
             limit=page_size,
-            offset=offset
+            offset=offset,
+            memory_type=memory_type,
+            tags=tags_list
         )
-        
-        # Apply tag and memory_type filtering if specified
-        if tag or memory_type:
-            filtered_memories = []
-            for memory in memories:
-                if tag and tag not in memory.tags:
-                    continue
-                if memory_type and memory.memory_type != memory_type:
-                    continue
-                filtered_memories.append(memory)
-            memories = filtered_memories
         
         # Format results
         results = []
@@ -491,149 +483,7 @@ async def list_memories(
             "error": f"Failed to list memories: {str(e)}"
         }
 
-@mcp.tool()
-async def search_by_time(
-    query: str,
-    ctx: Context,
-    n_results: int = 10
-) -> Dict[str, Any]:
-    """
-    Search memories by time-based queries using natural language.
-    
-    Args:
-        query: Natural language time query (e.g., 'last week', 'yesterday', 'this month')
-        n_results: Maximum number of memories to return
-    
-    Returns:
-        Dictionary with matching memories
-    """
-    try:
-        storage = ctx.request_context.lifespan_context.storage
-        
-        # Use the same time parsing logic as the API
-        from ..web.api.search import parse_time_query
-        try:
-            time_filter = parse_time_query(query)
-            
-            if not time_filter:
-                return {
-                    "success": False,
-                    "message": f"Could not parse time query: '{query}'. Try 'yesterday', 'last week', 'this month', etc."
-                }
-            
-            # Get memories and filter by time (same as API implementation)
-            query_results = await storage.retrieve("", n_results=1000)  # Get many results to filter
-            
-            # Filter by time range
-            filtered_results = []
-            for result in query_results:
-                memory_time = result.memory.created_at
-                if time_filter['start'] <= memory_time <= time_filter['end']:
-                    filtered_results.append(result)
-            
-            # Sort by creation time (newest first) and limit results
-            filtered_results.sort(key=lambda x: x.memory.created_at, reverse=True)
-            results = filtered_results[:n_results]
-            
-        except Exception as e:
-            return {
-                "success": False,
-                "message": f"Time search failed: {str(e)}"
-            }
-        
-        # Format results
-        memories = []
-        for result in results:
-            memories.append({
-                "content": result.memory.content,
-                "content_hash": result.memory.content_hash,
-                "tags": result.memory.tags,
-                "memory_type": result.memory.memory_type,
-                "created_at": result.memory.created_at_iso,
-                "updated_at": result.memory.updated_at_iso
-            })
-        
-        return {
-            "memories": memories,
-            "query": query,
-            "total_found": len(memories)
-        }
-        
-    except Exception as e:
-        logger.error(f"Error searching by time: {e}")
-        return {
-            "memories": [],
-            "query": query,
-            "error": f"Failed to search by time: {str(e)}"
-        }
 
-@mcp.tool()
-async def search_similar(
-    content_hash: str,
-    ctx: Context,
-    limit: int = 5
-) -> Dict[str, Any]:
-    """
-    Search for memories similar to a given memory by content hash.
-    
-    Args:
-        content_hash: Content hash of the memory to find similar ones for
-        limit: Maximum number of similar memories to return
-    
-    Returns:
-        Dictionary with similar memories
-    """
-    try:
-        storage = ctx.request_context.lifespan_context.storage
-        
-        # Get the target memory first
-        target_memory = await storage.get_by_hash(content_hash)
-        if not target_memory:
-            return {
-                "success": False,
-                "message": "Memory not found"
-            }
-        
-        # Find similar memories using the target memory's content
-        similar_results = await storage.retrieve(
-            query=target_memory.content,
-            n_results=limit + 1  # +1 because the original will be included
-        )
-        
-        # Filter out the original memory
-        results = [
-            r for r in similar_results 
-            if r.memory.content_hash != content_hash
-        ][:limit]
-        
-        # Format results
-        similar_memories = []
-        for result in results:
-            similar_memories.append({
-                "content": result.memory.content,
-                "content_hash": result.memory.content_hash,
-                "tags": result.memory.tags,
-                "similarity_score": result.relevance_score,
-                "created_at": result.memory.created_at_iso
-            })
-        
-        return {
-            "success": True,
-            "target_memory": {
-                "content": target_memory.content,
-                "content_hash": target_memory.content_hash,
-                "tags": target_memory.tags
-            },
-            "similar_memories": similar_memories,
-            "total_found": len(similar_memories)
-        }
-        
-    except Exception as e:
-        logger.error(f"Error searching similar memories: {e}")
-        return {
-            "success": False,
-            "message": f"Failed to search similar memories: {str(e)}"
-        }
 
 # =============================================================================
 # MAIN ENTRY POINT
