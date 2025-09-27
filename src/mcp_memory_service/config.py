@@ -487,7 +487,11 @@ OAUTH_ISSUER = os.getenv('MCP_OAUTH_ISSUER') or get_oauth_issuer()
 OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv('MCP_OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES', '60'))
 OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES = int(os.getenv('MCP_OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES', '10'))
 
+# OAuth security configuration
+ALLOW_ANONYMOUS_ACCESS = os.getenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'false').lower() == 'true'
+
 logger.info(f"OAuth enabled: {OAUTH_ENABLED}")
 if OAUTH_ENABLED:
     logger.info(f"OAuth issuer: {OAUTH_ISSUER}")
     logger.info(f"OAuth access token expiry: {OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES} minutes")
+    logger.info(f"Anonymous access allowed: {ALLOW_ANONYMOUS_ACCESS}")

@@ -24,7 +24,7 @@ from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 
-from ...config import OAUTH_SECRET_KEY, OAUTH_ISSUER, API_KEY
+from ...config import OAUTH_SECRET_KEY, OAUTH_ISSUER, API_KEY, ALLOW_ANONYMOUS_ACCESS
 from .storage import oauth_storage
 
 logger = logging.getLogger(__name__)
@@ -194,23 +194,29 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"}
         )
 
-    # If no API key configured, allow anonymous access
-    if not API_KEY:
-        logger.debug("No authentication configured, allowing anonymous access")
+    # Allow anonymous access only if explicitly enabled
+    if not API_KEY and ALLOW_ANONYMOUS_ACCESS:
+        logger.debug("Anonymous access explicitly enabled, granting read-only access")
         return AuthenticationResult(
             authenticated=True,
             client_id="anonymous",
-            scope="read write",
+            scope="read",  # Anonymous users get read-only access for security
             auth_method="none"
         )
 
-    # No credentials provided but API key is configured
-    logger.debug("No valid authentication provided")
+    # No credentials provided and anonymous access not allowed
+    if not API_KEY:
+        logger.debug("No authentication configured and anonymous access disabled")
+        error_msg = "Authentication is required. Set MCP_ALLOW_ANONYMOUS_ACCESS=true to enable anonymous access."
+    else:
+        logger.debug("No valid authentication provided")
+        error_msg = "Authorization is required to access this resource"
+
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail={
             "error": "authorization_required",
-            "error_description": "Authorization is required to access this resource"
+            "error_description": error_msg
         },
         headers={"WWW-Authenticate": "Bearer"}
     )

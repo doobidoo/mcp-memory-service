@@ -56,14 +56,13 @@ async def oauth_authorization_server_metadata() -> OAuthServerMetadata:
     """
     logger.info("OAuth authorization server metadata requested")
 
-    # Use consistent OAUTH_ISSUER from config to match JWT token validation
-    base_url = get_server_base_url()
-
+    # Use OAUTH_ISSUER consistently for both issuer field and endpoint URLs
+    # This ensures URL consistency across discovery and JWT token validation
     metadata = OAuthServerMetadata(
-        issuer=OAUTH_ISSUER,  # Use consistent issuer from config
-        authorization_endpoint=f"{base_url}/oauth/authorize",
-        token_endpoint=f"{base_url}/oauth/token",
-        registration_endpoint=f"{base_url}/oauth/register",
+        issuer=OAUTH_ISSUER,
+        authorization_endpoint=f"{OAUTH_ISSUER}/oauth/authorize",
+        token_endpoint=f"{OAUTH_ISSUER}/oauth/token",
+        registration_endpoint=f"{OAUTH_ISSUER}/oauth/register",
         grant_types_supported=["authorization_code", "client_credentials"],
         response_types_supported=["code"],
         token_endpoint_auth_methods_supported=["client_secret_basic", "client_secret_post"],

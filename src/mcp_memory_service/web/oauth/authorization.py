@@ -20,9 +20,10 @@ Implements OAuth 2.1 authorization code flow and token endpoints.
 
 import time
 import logging
-from typing import Optional
+import base64
+from typing import Optional, Tuple
 from urllib.parse import urlencode
-from fastapi import APIRouter, HTTPException, status, Form, Query
+from fastapi import APIRouter, HTTPException, status, Form, Query, Request
 from fastapi.responses import RedirectResponse
 from jose import jwt
 
@@ -38,6 +39,37 @@ from .storage import oauth_storage
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def parse_basic_auth(authorization_header: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Parse HTTP Basic authentication header.
+
+    Returns:
+        Tuple of (client_id, client_secret) or (None, None) if not valid
+    """
+    if not authorization_header:
+        return None, None
+
+    try:
+        # Check if it's Basic authentication
+        if not authorization_header.startswith('Basic '):
+            return None, None
+
+        # Extract and decode the credentials
+        encoded_credentials = authorization_header[6:]  # Remove 'Basic ' prefix
+        decoded_credentials = base64.b64decode(encoded_credentials).decode('utf-8')
+
+        # Split username:password
+        if ':' not in decoded_credentials:
+            return None, None
+
+        client_id, client_secret = decoded_credentials.split(':', 1)
+        return client_id, client_secret
+
+    except Exception as e:
+        logger.debug(f"Failed to parse Basic auth header: {e}")
+        return None, None
 
 
 def create_access_token(client_id: str, scope: Optional[str] = None) -> tuple[str, int]:
@@ -180,6 +212,7 @@ async def authorize(
 
 @router.post("/token", response_model=TokenResponse)
 async def token(
+    request: Request,
     grant_type: str = Form(..., description="OAuth grant type"),
     code: Optional[str] = Form(None, description="Authorization code"),
     redirect_uri: Optional[str] = Form(None, description="Redirection URI"),
@@ -191,8 +224,18 @@ async def token(
 
     Exchanges authorization codes for access tokens.
     Supports both authorization_code and client_credentials grant types.
+    Supports both client_secret_post (form data) and client_secret_basic (HTTP Basic auth).
     """
-    logger.info(f"Token request: grant_type={grant_type}, client_id={client_id}")
+    # Extract client credentials from either HTTP Basic auth or form data
+    auth_header = request.headers.get('authorization')
+    basic_client_id, basic_client_secret = parse_basic_auth(auth_header)
+
+    # Use Basic auth credentials if available, otherwise fall back to form data
+    final_client_id = basic_client_id or client_id
+    final_client_secret = basic_client_secret or client_secret
+
+    auth_method = "client_secret_basic" if basic_client_id else "client_secret_post"
+    logger.info(f"Token request: grant_type={grant_type}, client_id={final_client_id}, auth_method={auth_method}")
 
     try:
         if grant_type == "authorization_code":
@@ -206,7 +249,7 @@ async def token(
                     }
                 )
 
-            if not client_id:
+            if not final_client_id:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail={
@@ -216,7 +259,7 @@ async def token(
                 )
 
             # Authenticate client
-            if not await oauth_storage.authenticate_client(client_id, client_secret or ""):
+            if not await oauth_storage.authenticate_client(final_client_id, final_client_secret or ""):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail={
@@ -237,7 +280,7 @@ async def token(
                 )
 
             # Validate client_id matches
-            if code_data["client_id"] != client_id:
+            if code_data["client_id"] != final_client_id:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail={
@@ -257,17 +300,17 @@ async def token(
                 )
 
             # Create access token
-            access_token, expires_in = create_access_token(client_id, code_data["scope"])
+            access_token, expires_in = create_access_token(final_client_id, code_data["scope"])
 
             # Store access token for validation
             await oauth_storage.store_access_token(
                 token=access_token,
-                client_id=client_id,
+                client_id=final_client_id,
                 scope=code_data["scope"],
                 expires_in=expires_in
             )
 
-            logger.info(f"Access token issued for client_id={client_id}")
+            logger.info(f"Access token issued for client_id={final_client_id}")
             return TokenResponse(
                 access_token=access_token,
                 token_type="Bearer",
@@ -277,7 +320,7 @@ async def token(
 
         elif grant_type == "client_credentials":
             # Client credentials flow for server-to-server authentication
-            if not client_id or not client_secret:
+            if not final_client_id or not final_client_secret:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail={
@@ -287,7 +330,7 @@ async def token(
                 )
 
             # Authenticate client
-            if not await oauth_storage.authenticate_client(client_id, client_secret):
+            if not await oauth_storage.authenticate_client(final_client_id, final_client_secret):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail={
@@ -297,17 +340,17 @@ async def token(
                 )
 
             # Create access token
-            access_token, expires_in = create_access_token(client_id, "read write")
+            access_token, expires_in = create_access_token(final_client_id, "read write")
 
             # Store access token
             await oauth_storage.store_access_token(
                 token=access_token,
-                client_id=client_id,
+                client_id=final_client_id,
                 scope="read write",
                 expires_in=expires_in
             )
 
-            logger.info(f"Client credentials token issued for client_id={client_id}")
+            logger.info(f"Client credentials token issued for client_id={final_client_id}")
             return TokenResponse(
                 access_token=access_token,
                 token_type="Bearer",
