@@ -205,7 +205,7 @@ class MemoryDashboard {
         this.setLoading(true);
 
         try {
-            // Load all memories for stats calculation and recent display
+            // Load recent memories for dashboard display
             const memoriesResponse = await this.apiCall('/memories?limit=100&offset=0');
             if (memoriesResponse.memories) {
                 this.memories = memoriesResponse.memories;
@@ -631,7 +631,7 @@ class MemoryDashboard {
             }
         } catch (error) {
             console.error('Error saving memory:', error);
-            this.showToast('Failed to save memory', 'error');
+            this.showToast(error.message || 'Failed to save memory', 'error');
         }
     }
 

@@ -30,6 +30,9 @@ from datetime import datetime
 import asyncio
 import random
 
+# Constants
+SECONDS_IN_A_WEEK = 7 * 24 * 60 * 60  # 604800 seconds
+
 # Import sqlite-vec with fallback
 try:
     import sqlite_vec
@@ -1111,7 +1114,7 @@ SOLUTIONS:
             unique_tags = cursor.fetchone()[0]
 
             # Calculate memories from the last 7 days (week)
-            week_ago_timestamp = time.time() - (7 * 24 * 60 * 60)
+            week_ago_timestamp = time.time() - SECONDS_IN_A_WEEK
             cursor = self.conn.execute('SELECT COUNT(*) FROM memories WHERE created_at >= ?', (week_ago_timestamp,))
             weekly_memories = cursor.fetchone()[0]
             
