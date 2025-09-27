@@ -220,7 +220,17 @@ def create_app() -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     async def dashboard():
         """Serve the dashboard homepage."""
-        html_template = """
+        # Serve the new interactive dashboard from static files
+        static_path = os.path.join(os.path.dirname(__file__), "static")
+        index_path = os.path.join(static_path, "index.html")
+
+        try:
+            with open(index_path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+            return html_content
+        except FileNotFoundError:
+            # Fallback to basic template if index.html doesn't exist
+            html_template = """
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -770,7 +780,7 @@ def create_app() -> FastAPI:
         </body>
         </html>
         """
-        return html_template
+            return html_template
     
     return app
 
