@@ -125,12 +125,23 @@ MCP_TOOLS = [
 ]
 
 
-@router.post("/")
-@router.post("")
-async def mcp_endpoint(
-    request: MCPRequest,
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
-):
+if OAUTH_ENABLED:
+    @router.post("/")
+    @router.post("")
+    async def mcp_endpoint(
+        request: MCPRequest,
+        user: AuthenticationResult = Depends(require_read_access)
+    ):
+        return await _mcp_endpoint_impl(request)
+else:
+    @router.post("/")
+    @router.post("")
+    async def mcp_endpoint(
+        request: MCPRequest
+    ):
+        return await _mcp_endpoint_impl(request)
+
+async def _mcp_endpoint_impl(request: MCPRequest):
     """Main MCP protocol endpoint for processing MCP requests."""
     try:
         storage = get_storage()
@@ -347,10 +358,18 @@ async def handle_tool_call(storage, tool_name: str, arguments: Dict[str, Any]) -
         raise ValueError(f"Unknown tool: {tool_name}")
 
 
-@router.get("/tools")
-async def list_mcp_tools(
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
-):
+if OAUTH_ENABLED:
+    @router.get("/tools")
+    async def list_mcp_tools(
+        user: AuthenticationResult = Depends(require_read_access)
+    ):
+        return await _list_mcp_tools_impl()
+else:
+    @router.get("/tools")
+    async def list_mcp_tools():
+        return await _list_mcp_tools_impl()
+
+async def _list_mcp_tools_impl():
     """List available MCP tools for discovery."""
     return {
         "tools": [tool.dict() for tool in MCP_TOOLS],

@@ -112,13 +112,25 @@ def memory_to_response(memory: Memory) -> MemoryResponse:
     )
 
 
-@router.post("/memories", response_model=MemoryCreateResponse, tags=["memories"])
-async def store_memory(
-    request: MemoryCreateRequest,
-    http_request: Request,
-    storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
-):
+if OAUTH_ENABLED:
+    @router.post("/memories", response_model=MemoryCreateResponse, tags=["memories"])
+    async def store_memory(
+        request: MemoryCreateRequest,
+        http_request: Request,
+        storage: MemoryStorage = Depends(get_storage),
+        user: AuthenticationResult = Depends(require_write_access)
+    ):
+        return await _store_memory_impl(request, http_request, storage)
+else:
+    @router.post("/memories", response_model=MemoryCreateResponse, tags=["memories"])
+    async def store_memory(
+        request: MemoryCreateRequest,
+        http_request: Request,
+        storage: MemoryStorage = Depends(get_storage)
+    ):
+        return await _store_memory_impl(request, http_request, storage)
+
+async def _store_memory_impl(request: MemoryCreateRequest, http_request: Request, storage: MemoryStorage):
     """
     Store a new memory.
     
@@ -198,25 +210,39 @@ async def store_memory(
         raise HTTPException(status_code=500, detail=f"Failed to store memory: {str(e)}")
 
 
-@router.get("/memories", response_model=MemoryListResponse, tags=["memories"])
-async def list_memories(
-    page: int = Query(1, ge=1, description="Page number (1-based)"),
-    page_size: int = Query(10, ge=1, le=100, description="Number of memories per page"),
-    tag: Optional[str] = Query(None, description="Filter by tag"),
-    memory_type: Optional[str] = Query(None, description="Filter by memory type"),
-    storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
-):
+if OAUTH_ENABLED:
+    @router.get("/memories", response_model=MemoryListResponse, tags=["memories"])
+    async def list_memories(
+        page: int = Query(1, ge=1, description="Page number (1-based)"),
+        page_size: int = Query(10, ge=1, le=100, description="Number of memories per page"),
+        tag: Optional[str] = Query(None, description="Filter by tag"),
+        memory_type: Optional[str] = Query(None, description="Filter by memory type"),
+        storage: MemoryStorage = Depends(get_storage),
+        user: AuthenticationResult = Depends(require_read_access)
+    ):
+        return await _list_memories_impl(page, page_size, tag, memory_type, storage)
+else:
+    @router.get("/memories", response_model=MemoryListResponse, tags=["memories"])
+    async def list_memories(
+        page: int = Query(1, ge=1, description="Page number (1-based)"),
+        page_size: int = Query(10, ge=1, le=100, description="Number of memories per page"),
+        tag: Optional[str] = Query(None, description="Filter by tag"),
+        memory_type: Optional[str] = Query(None, description="Filter by memory type"),
+        storage: MemoryStorage = Depends(get_storage)
+    ):
+        return await _list_memories_impl(page, page_size, tag, memory_type, storage)
+
+async def _list_memories_impl(page: int, page_size: int, tag: Optional[str], memory_type: Optional[str], storage: MemoryStorage):
     """
     List memories with pagination.
-    
+
     Retrieves memories with optional filtering by tag or memory type.
     Results are paginated for better performance.
     """
     try:
         # Calculate offset for pagination
         offset = (page - 1) * page_size
-        
+
         if tag:
             # Filter by tag with proper chronological ordering and pagination
             if memory_type:
@@ -244,7 +270,7 @@ async def list_memories(
                 total = await storage.count_all_memories()
                 page_memories = await storage.get_all_memories(limit=page_size, offset=offset)
                 has_more = offset + page_size < total
-        
+
         return MemoryListResponse(
             memories=[memory_to_response(m) for m in page_memories],
             total=total,
@@ -252,42 +278,63 @@ async def list_memories(
             page_size=page_size,
             has_more=has_more
         )
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list memories: {str(e)}")
 
 
-@router.get("/memories/{content_hash}", response_model=MemoryResponse, tags=["memories"])
-async def get_memory(
-    content_hash: str,
-    storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
-):
+if OAUTH_ENABLED:
+    @router.get("/memories/{content_hash}", response_model=MemoryResponse, tags=["memories"])
+    async def get_memory(
+        content_hash: str,
+        storage: MemoryStorage = Depends(get_storage),
+        user: AuthenticationResult = Depends(require_read_access)
+    ):
+        return await _get_memory_impl(content_hash, storage)
+else:
+    @router.get("/memories/{content_hash}", response_model=MemoryResponse, tags=["memories"])
+    async def get_memory(
+        content_hash: str,
+        storage: MemoryStorage = Depends(get_storage)
+    ):
+        return await _get_memory_impl(content_hash, storage)
+
+async def _get_memory_impl(content_hash: str, storage: MemoryStorage):
     """
     Get a specific memory by its content hash.
-    
+
     Retrieves a single memory entry using its unique content hash identifier.
     """
     try:
         # Use the new get_by_hash method for direct hash lookup
         memory = await storage.get_by_hash(content_hash)
-        
+
         if not memory:
             raise HTTPException(status_code=404, detail="Memory not found")
-        
+
         return memory_to_response(memory)
-        
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get memory: {str(e)}")
 
 
-@router.get("/tags", response_model=TagListResponse, tags=["tags"])
-async def get_tags(
-    storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
-):
+if OAUTH_ENABLED:
+    @router.get("/tags", response_model=TagListResponse, tags=["tags"])
+    async def get_tags(
+        storage: MemoryStorage = Depends(get_storage),
+        user: AuthenticationResult = Depends(require_read_access)
+    ):
+        return await _get_tags_impl(storage)
+else:
+    @router.get("/tags", response_model=TagListResponse, tags=["tags"])
+    async def get_tags(
+        storage: MemoryStorage = Depends(get_storage)
+    ):
+        return await _get_tags_impl(storage)
+
+async def _get_tags_impl(storage: MemoryStorage):
     """
     Get all tags with their usage counts.
 
@@ -310,20 +357,31 @@ async def get_tags(
         raise HTTPException(status_code=500, detail=f"Failed to get tags: {str(e)}")
 
 
-@router.delete("/memories/{content_hash}", response_model=MemoryDeleteResponse, tags=["memories"])
-async def delete_memory(
-    content_hash: str,
-    storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
-):
+if OAUTH_ENABLED:
+    @router.delete("/memories/{content_hash}", response_model=MemoryDeleteResponse, tags=["memories"])
+    async def delete_memory(
+        content_hash: str,
+        storage: MemoryStorage = Depends(get_storage),
+        user: AuthenticationResult = Depends(require_write_access)
+    ):
+        return await _delete_memory_impl(content_hash, storage)
+else:
+    @router.delete("/memories/{content_hash}", response_model=MemoryDeleteResponse, tags=["memories"])
+    async def delete_memory(
+        content_hash: str,
+        storage: MemoryStorage = Depends(get_storage)
+    ):
+        return await _delete_memory_impl(content_hash, storage)
+
+async def _delete_memory_impl(content_hash: str, storage: MemoryStorage):
     """
     Delete a memory by its content hash.
-    
+
     Permanently removes a memory entry from the storage.
     """
     try:
         success, message = await storage.delete(content_hash)
-        
+
         # Broadcast SSE event for memory deletion
         try:
             event = create_memory_deleted_event(content_hash, success)
@@ -331,12 +389,12 @@ async def delete_memory(
         except Exception as e:
             # Don't fail the request if SSE broadcasting fails
             logger.warning(f"Failed to broadcast memory_deleted event: {e}")
-        
+
         return MemoryDeleteResponse(
             success=success,
             message=message,
             content_hash=content_hash
         )
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete memory: {str(e)}")

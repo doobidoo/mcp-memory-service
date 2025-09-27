@@ -95,43 +95,54 @@ def memory_to_search_result(memory: Memory, reason: str = None) -> SearchResult:
     )
 
 
-@router.post("/search", response_model=SearchResponse, tags=["search"])
-async def semantic_search(
-    request: SemanticSearchRequest,
-    storage: SqliteVecMemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
-):
+if OAUTH_ENABLED:
+    @router.post("/search", response_model=SearchResponse, tags=["search"])
+    async def semantic_search(
+        request: SemanticSearchRequest,
+        storage: SqliteVecMemoryStorage = Depends(get_storage),
+        user: AuthenticationResult = Depends(require_read_access)
+    ):
+        return await _semantic_search_impl(request, storage)
+else:
+    @router.post("/search", response_model=SearchResponse, tags=["search"])
+    async def semantic_search(
+        request: SemanticSearchRequest,
+        storage: SqliteVecMemoryStorage = Depends(get_storage)
+    ):
+        return await _semantic_search_impl(request, storage)
+
+async def _semantic_search_impl(request: SemanticSearchRequest, storage: SqliteVecMemoryStorage):
     """
     Perform semantic similarity search on memory content.
-    
+
     Uses vector embeddings to find memories with similar meaning to the query,
     even if they don't share exact keywords.
     """
     import time
     start_time = time.time()
-    
+
     try:
         # Perform semantic search using the storage layer
         query_results = await storage.retrieve(
             query=request.query,
             n_results=request.n_results
         )
-        
+
         # Filter by similarity threshold if specified
         if request.similarity_threshold is not None:
             query_results = [
                 result for result in query_results
                 if result.relevance_score and result.relevance_score >= request.similarity_threshold
             ]
-        
+
         # Convert to search results
         search_results = [
             memory_query_result_to_search_result(result)
             for result in query_results
         ]
-        
+
         processing_time = (time.time() - start_time) * 1000
-        
+
         # Broadcast SSE event for search completion
         try:
             event = create_search_completed_event(
@@ -143,7 +154,7 @@ async def semantic_search(
             await sse_manager.broadcast_event(event)
         except Exception as e:
             logger.warning(f"Failed to broadcast search_completed event: {e}")
-        
+
         return SearchResponse(
             results=search_results,
             total_found=len(search_results),
@@ -151,17 +162,28 @@ async def semantic_search(
             search_type="semantic",
             processing_time_ms=processing_time
         )
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Semantic search failed: {str(e)}")
 
 
-@router.post("/search/by-tag", response_model=SearchResponse, tags=["search"])
-async def tag_search(
-    request: TagSearchRequest,
-    storage: SqliteVecMemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
-):
+if OAUTH_ENABLED:
+    @router.post("/search/by-tag", response_model=SearchResponse, tags=["search"])
+    async def tag_search(
+        request: TagSearchRequest,
+        storage: SqliteVecMemoryStorage = Depends(get_storage),
+        user: AuthenticationResult = Depends(require_read_access)
+    ):
+        return await _tag_search_impl(request, storage)
+else:
+    @router.post("/search/by-tag", response_model=SearchResponse, tags=["search"])
+    async def tag_search(
+        request: TagSearchRequest,
+        storage: SqliteVecMemoryStorage = Depends(get_storage)
+    ):
+        return await _tag_search_impl(request, storage)
+
+async def _tag_search_impl(request: TagSearchRequest, storage: SqliteVecMemoryStorage):
     """
     Search memories by tags.
     
@@ -226,12 +248,23 @@ async def tag_search(
         raise HTTPException(status_code=500, detail=f"Tag search failed: {str(e)}")
 
 
-@router.post("/search/by-time", response_model=SearchResponse, tags=["search"])
-async def time_search(
-    request: TimeSearchRequest,
-    storage: SqliteVecMemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
-):
+if OAUTH_ENABLED:
+    @router.post("/search/by-time", response_model=SearchResponse, tags=["search"])
+    async def time_search(
+        request: TimeSearchRequest,
+        storage: SqliteVecMemoryStorage = Depends(get_storage),
+        user: AuthenticationResult = Depends(require_read_access)
+    ):
+        return await _time_search_impl(request, storage)
+else:
+    @router.post("/search/by-time", response_model=SearchResponse, tags=["search"])
+    async def time_search(
+        request: TimeSearchRequest,
+        storage: SqliteVecMemoryStorage = Depends(get_storage)
+    ):
+        return await _time_search_impl(request, storage)
+
+async def _time_search_impl(request: TimeSearchRequest, storage: SqliteVecMemoryStorage):
     """
     Search memories by time-based queries.
     
@@ -295,13 +328,25 @@ async def time_search(
         raise HTTPException(status_code=500, detail=f"Time search failed: {str(e)}")
 
 
-@router.get("/search/similar/{content_hash}", response_model=SearchResponse, tags=["search"])
-async def find_similar(
-    content_hash: str,
-    n_results: int = Query(default=10, ge=1, le=100, description="Number of similar memories to find"),
-    storage: SqliteVecMemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
-):
+if OAUTH_ENABLED:
+    @router.get("/search/similar/{content_hash}", response_model=SearchResponse, tags=["search"])
+    async def find_similar(
+        content_hash: str,
+        n_results: int = Query(default=10, ge=1, le=100, description="Number of similar memories to find"),
+        storage: SqliteVecMemoryStorage = Depends(get_storage),
+        user: AuthenticationResult = Depends(require_read_access)
+    ):
+        return await _find_similar_impl(content_hash, n_results, storage)
+else:
+    @router.get("/search/similar/{content_hash}", response_model=SearchResponse, tags=["search"])
+    async def find_similar(
+        content_hash: str,
+        n_results: int = Query(default=10, ge=1, le=100, description="Number of similar memories to find"),
+        storage: SqliteVecMemoryStorage = Depends(get_storage)
+    ):
+        return await _find_similar_impl(content_hash, n_results, storage)
+
+async def _find_similar_impl(content_hash: str, n_results: int, storage: SqliteVecMemoryStorage):
     """
     Find memories similar to a specific memory identified by its content hash.
     

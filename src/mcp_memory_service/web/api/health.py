@@ -72,11 +72,21 @@ async def health_check():
     )
 
 
-@router.get("/health/detailed", response_model=DetailedHealthResponse)
-async def detailed_health_check(
-    storage: SqliteVecMemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
-):
+if OAUTH_ENABLED:
+    @router.get("/health/detailed", response_model=DetailedHealthResponse)
+    async def detailed_health_check(
+        storage: SqliteVecMemoryStorage = Depends(get_storage),
+        user: AuthenticationResult = Depends(require_read_access)
+    ):
+        return await _detailed_health_check_impl(storage)
+else:
+    @router.get("/health/detailed", response_model=DetailedHealthResponse)
+    async def detailed_health_check(
+        storage: SqliteVecMemoryStorage = Depends(get_storage)
+    ):
+        return await _detailed_health_check_impl(storage)
+
+async def _detailed_health_check_impl(storage: SqliteVecMemoryStorage):
     """Detailed health check with system and storage information."""
     
     # Get system information
