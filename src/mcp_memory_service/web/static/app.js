@@ -30,8 +30,6 @@ class MemoryDashboard {
         this.setupSSE();
         await this.loadDashboardData();
         this.updateConnectionStatus('connected');
-
-        console.log('MCP Memory Dashboard initialized');
     }
 
     /**
@@ -142,7 +140,6 @@ class MemoryDashboard {
             this.eventSource = new EventSource(`${this.apiBase}/events`);
 
             this.eventSource.onopen = () => {
-                console.log('SSE connection established');
                 this.updateConnectionStatus('connected');
             };
 
@@ -194,7 +191,7 @@ class MemoryDashboard {
                 this.updateDashboardStats(data.stats);
                 break;
             default:
-                console.log('Unknown SSE event type:', data.type);
+                // Unknown event type - ignore silently
         }
     }
 
@@ -558,14 +555,6 @@ class MemoryDashboard {
             }
         };
 
-        // Debug log to check what we're sending
-        console.log('Saving memory:', {
-            isEditing: !!this.editingMemory,
-            rawTags: tags,
-            processedTags: payload.tags,
-            content: content.substring(0, 50) + '...',
-            type: type
-        });
 
         try {
             let response;
@@ -758,13 +747,6 @@ class MemoryDashboard {
 
         document.getElementById('memoryType').value = memory.memory_type || 'note';
 
-        // Debug log to check data
-        console.log('Editing memory:', {
-            content: memory.content,
-            tags: memory.tags,
-            tagsValue: tagsValue,
-            type: memory.memory_type
-        });
 
         // Store the memory being edited
         this.editingMemory = memory;
@@ -797,7 +779,7 @@ class MemoryDashboard {
                 text: memory.content,
                 url: window.location.href
             }).catch(err => {
-                console.log('Error sharing:', err);
+                // Share API failed, fall back to clipboard
                 this.fallbackShare(shareData);
             });
         } else {
