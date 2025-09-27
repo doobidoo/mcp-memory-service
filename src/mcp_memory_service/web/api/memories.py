@@ -112,23 +112,13 @@ def memory_to_response(memory: Memory) -> MemoryResponse:
     )
 
 
-if OAUTH_ENABLED:
-    @router.post("/memories", response_model=MemoryCreateResponse, tags=["memories"])
-    async def store_memory(
-        request: MemoryCreateRequest,
-        http_request: Request,
-        storage: MemoryStorage = Depends(get_storage),
-        user: AuthenticationResult = Depends(require_write_access)
-    ):
-        return await _store_memory_impl(request, http_request, storage)
-else:
-    @router.post("/memories", response_model=MemoryCreateResponse, tags=["memories"])
-    async def store_memory(
-        request: MemoryCreateRequest,
-        http_request: Request,
-        storage: MemoryStorage = Depends(get_storage)
-    ):
-        return await _store_memory_impl(request, http_request, storage)
+@router.post("/memories", response_model=MemoryCreateResponse, tags=["memories"], dependencies=[Depends(require_write_access)] if OAUTH_ENABLED else [])
+async def store_memory(
+    request: MemoryCreateRequest,
+    http_request: Request,
+    storage: MemoryStorage = Depends(get_storage)
+):
+    return await _store_memory_impl(request, http_request, storage)
 
 async def _store_memory_impl(request: MemoryCreateRequest, http_request: Request, storage: MemoryStorage):
     """
@@ -210,27 +200,15 @@ async def _store_memory_impl(request: MemoryCreateRequest, http_request: Request
         raise HTTPException(status_code=500, detail=f"Failed to store memory: {str(e)}")
 
 
-if OAUTH_ENABLED:
-    @router.get("/memories", response_model=MemoryListResponse, tags=["memories"])
-    async def list_memories(
-        page: int = Query(1, ge=1, description="Page number (1-based)"),
-        page_size: int = Query(10, ge=1, le=100, description="Number of memories per page"),
-        tag: Optional[str] = Query(None, description="Filter by tag"),
-        memory_type: Optional[str] = Query(None, description="Filter by memory type"),
-        storage: MemoryStorage = Depends(get_storage),
-        user: AuthenticationResult = Depends(require_read_access)
-    ):
-        return await _list_memories_impl(page, page_size, tag, memory_type, storage)
-else:
-    @router.get("/memories", response_model=MemoryListResponse, tags=["memories"])
-    async def list_memories(
-        page: int = Query(1, ge=1, description="Page number (1-based)"),
-        page_size: int = Query(10, ge=1, le=100, description="Number of memories per page"),
-        tag: Optional[str] = Query(None, description="Filter by tag"),
-        memory_type: Optional[str] = Query(None, description="Filter by memory type"),
-        storage: MemoryStorage = Depends(get_storage)
-    ):
-        return await _list_memories_impl(page, page_size, tag, memory_type, storage)
+@router.get("/memories", response_model=MemoryListResponse, tags=["memories"], dependencies=[Depends(require_read_access)] if OAUTH_ENABLED else [])
+async def list_memories(
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    page_size: int = Query(10, ge=1, le=100, description="Number of memories per page"),
+    tag: Optional[str] = Query(None, description="Filter by tag"),
+    memory_type: Optional[str] = Query(None, description="Filter by memory type"),
+    storage: MemoryStorage = Depends(get_storage)
+):
+    return await _list_memories_impl(page, page_size, tag, memory_type, storage)
 
 async def _list_memories_impl(page: int, page_size: int, tag: Optional[str], memory_type: Optional[str], storage: MemoryStorage):
     """
@@ -283,21 +261,12 @@ async def _list_memories_impl(page: int, page_size: int, tag: Optional[str], mem
         raise HTTPException(status_code=500, detail=f"Failed to list memories: {str(e)}")
 
 
-if OAUTH_ENABLED:
-    @router.get("/memories/{content_hash}", response_model=MemoryResponse, tags=["memories"])
-    async def get_memory(
-        content_hash: str,
-        storage: MemoryStorage = Depends(get_storage),
-        user: AuthenticationResult = Depends(require_read_access)
-    ):
-        return await _get_memory_impl(content_hash, storage)
-else:
-    @router.get("/memories/{content_hash}", response_model=MemoryResponse, tags=["memories"])
-    async def get_memory(
-        content_hash: str,
-        storage: MemoryStorage = Depends(get_storage)
-    ):
-        return await _get_memory_impl(content_hash, storage)
+@router.get("/memories/{content_hash}", response_model=MemoryResponse, tags=["memories"], dependencies=[Depends(require_read_access)] if OAUTH_ENABLED else [])
+async def get_memory(
+    content_hash: str,
+    storage: MemoryStorage = Depends(get_storage)
+):
+    return await _get_memory_impl(content_hash, storage)
 
 async def _get_memory_impl(content_hash: str, storage: MemoryStorage):
     """
@@ -320,19 +289,11 @@ async def _get_memory_impl(content_hash: str, storage: MemoryStorage):
         raise HTTPException(status_code=500, detail=f"Failed to get memory: {str(e)}")
 
 
-if OAUTH_ENABLED:
-    @router.get("/tags", response_model=TagListResponse, tags=["tags"])
-    async def get_tags(
-        storage: MemoryStorage = Depends(get_storage),
-        user: AuthenticationResult = Depends(require_read_access)
-    ):
-        return await _get_tags_impl(storage)
-else:
-    @router.get("/tags", response_model=TagListResponse, tags=["tags"])
-    async def get_tags(
-        storage: MemoryStorage = Depends(get_storage)
-    ):
-        return await _get_tags_impl(storage)
+@router.get("/tags", response_model=TagListResponse, tags=["tags"], dependencies=[Depends(require_read_access)] if OAUTH_ENABLED else [])
+async def get_tags(
+    storage: MemoryStorage = Depends(get_storage)
+):
+    return await _get_tags_impl(storage)
 
 async def _get_tags_impl(storage: MemoryStorage):
     """
@@ -357,21 +318,12 @@ async def _get_tags_impl(storage: MemoryStorage):
         raise HTTPException(status_code=500, detail=f"Failed to get tags: {str(e)}")
 
 
-if OAUTH_ENABLED:
-    @router.delete("/memories/{content_hash}", response_model=MemoryDeleteResponse, tags=["memories"])
-    async def delete_memory(
-        content_hash: str,
-        storage: MemoryStorage = Depends(get_storage),
-        user: AuthenticationResult = Depends(require_write_access)
-    ):
-        return await _delete_memory_impl(content_hash, storage)
-else:
-    @router.delete("/memories/{content_hash}", response_model=MemoryDeleteResponse, tags=["memories"])
-    async def delete_memory(
-        content_hash: str,
-        storage: MemoryStorage = Depends(get_storage)
-    ):
-        return await _delete_memory_impl(content_hash, storage)
+@router.delete("/memories/{content_hash}", response_model=MemoryDeleteResponse, tags=["memories"], dependencies=[Depends(require_write_access)] if OAUTH_ENABLED else [])
+async def delete_memory(
+    content_hash: str,
+    storage: MemoryStorage = Depends(get_storage)
+):
+    return await _delete_memory_impl(content_hash, storage)
 
 async def _delete_memory_impl(content_hash: str, storage: MemoryStorage):
     """

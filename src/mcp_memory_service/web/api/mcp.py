@@ -125,21 +125,12 @@ MCP_TOOLS = [
 ]
 
 
-if OAUTH_ENABLED:
-    @router.post("/")
-    @router.post("")
-    async def mcp_endpoint(
-        request: MCPRequest,
-        user: AuthenticationResult = Depends(require_read_access)
-    ):
-        return await _mcp_endpoint_impl(request)
-else:
-    @router.post("/")
-    @router.post("")
-    async def mcp_endpoint(
-        request: MCPRequest
-    ):
-        return await _mcp_endpoint_impl(request)
+@router.post("/", dependencies=[Depends(require_read_access)] if OAUTH_ENABLED else [])
+@router.post("", dependencies=[Depends(require_read_access)] if OAUTH_ENABLED else [])
+async def mcp_endpoint(
+    request: MCPRequest
+):
+    return await _mcp_endpoint_impl(request)
 
 async def _mcp_endpoint_impl(request: MCPRequest):
     """Main MCP protocol endpoint for processing MCP requests."""
@@ -358,16 +349,9 @@ async def handle_tool_call(storage, tool_name: str, arguments: Dict[str, Any]) -
         raise ValueError(f"Unknown tool: {tool_name}")
 
 
-if OAUTH_ENABLED:
-    @router.get("/tools")
-    async def list_mcp_tools(
-        user: AuthenticationResult = Depends(require_read_access)
-    ):
-        return await _list_mcp_tools_impl()
-else:
-    @router.get("/tools")
-    async def list_mcp_tools():
-        return await _list_mcp_tools_impl()
+@router.get("/tools", dependencies=[Depends(require_read_access)] if OAUTH_ENABLED else [])
+async def list_mcp_tools():
+    return await _list_mcp_tools_impl()
 
 async def _list_mcp_tools_impl():
     """List available MCP tools for discovery."""

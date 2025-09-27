@@ -33,19 +33,11 @@ class SSEStatsResponse(BaseModel):
     connections: List[ConnectionInfo]
 
 
-if OAUTH_ENABLED:
-    @router.get("/events")
-    async def events_endpoint(
-        request: Request,
-        user: AuthenticationResult = Depends(require_read_access)
-    ):
-        return await _events_endpoint_impl(request)
-else:
-    @router.get("/events")
-    async def events_endpoint(
-        request: Request
-    ):
-        return await _events_endpoint_impl(request)
+@router.get("/events", dependencies=[Depends(require_read_access)] if OAUTH_ENABLED else [])
+async def events_endpoint(
+    request: Request
+):
+    return await _events_endpoint_impl(request)
 
 async def _events_endpoint_impl(request: Request):
     """
@@ -62,16 +54,9 @@ async def _events_endpoint_impl(request: Request):
     return await create_event_stream(request)
 
 
-if OAUTH_ENABLED:
-    @router.get("/events/stats")
-    async def get_sse_stats(
-        user: AuthenticationResult = Depends(require_read_access)
-    ):
-        return await _get_sse_stats_impl()
-else:
-    @router.get("/events/stats")
-    async def get_sse_stats():
-        return await _get_sse_stats_impl()
+@router.get("/events/stats", dependencies=[Depends(require_read_access)] if OAUTH_ENABLED else [])
+async def get_sse_stats():
+    return await _get_sse_stats_impl()
 
 async def _get_sse_stats_impl():
     """
