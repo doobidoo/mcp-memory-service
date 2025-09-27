@@ -16,9 +16,26 @@
 OAuth 2.1 Dynamic Client Registration implementation for MCP Memory Service.
 
 Provides OAuth 2.1 DCR endpoints to enable Claude Code HTTP transport integration.
+
+This module implements:
+- RFC 8414: OAuth 2.0 Authorization Server Metadata
+- RFC 7591: OAuth 2.0 Dynamic Client Registration Protocol
+- OAuth 2.1 security requirements and best practices
+
+Key features:
+- Dynamic client registration for automated OAuth client setup
+- JWT-based access tokens with proper validation
+- Authorization code flow with PKCE support
+- Client credentials flow for server-to-server authentication
+- Comprehensive scope-based authorization
+- Backward compatibility with existing API key authentication
 """
 
 __all__ = [
     "discovery",
     "models",
+    "registration",
+    "authorization",
+    "middleware",
+    "storage"
 ]
