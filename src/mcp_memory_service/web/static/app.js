@@ -189,16 +189,17 @@ class MemoryDashboard {
         this.setLoading(true);
 
         try {
-            // Load basic statistics
-            const statsResponse = await this.apiCall('/health/detailed');
-            if (statsResponse.storage_stats) {
-                this.updateDashboardStats(statsResponse.storage_stats);
+            // Load all memories for stats calculation and recent display
+            const memoriesResponse = await this.apiCall('/memories?limit=100&offset=0');
+            if (memoriesResponse.memories) {
+                this.memories = memoriesResponse.memories;
+                this.renderRecentMemories(memoriesResponse.memories.slice(0, 5));
             }
 
-            // Load recent memories
-            const memoriesResponse = await this.apiCall('/memories?limit=5&offset=0');
-            if (memoriesResponse.memories) {
-                this.renderRecentMemories(memoriesResponse.memories);
+            // Load basic statistics
+            const statsResponse = await this.apiCall('/health/detailed');
+            if (statsResponse.storage) {
+                this.updateDashboardStats(statsResponse.storage);
             }
 
         } catch (error) {
@@ -207,6 +208,122 @@ class MemoryDashboard {
         } finally {
             this.setLoading(false);
         }
+    }
+
+    /**
+     * Load browse view data (tags and memories)
+     */
+    async loadBrowseData() {
+        this.setLoading(true);
+        try {
+            // Load all memories to extract tags
+            const memoriesResponse = await this.apiCall('/memories?limit=1000&offset=0');
+            if (memoriesResponse.memories) {
+                this.memories = memoriesResponse.memories;
+                this.renderTagsCloud();
+            }
+        } catch (error) {
+            console.error('Error loading browse data:', error);
+            this.showToast('Failed to load browse data', 'error');
+        } finally {
+            this.setLoading(false);
+        }
+    }
+
+    /**
+     * Render tags cloud from memories
+     */
+    renderTagsCloud() {
+        const container = document.getElementById('tagsCloudContainer');
+        const taggedContainer = document.getElementById('taggedMemoriesContainer');
+
+        // Hide the tagged memories view initially
+        taggedContainer.style.display = 'none';
+
+        // Extract and count tags
+        const tagCounts = {};
+        this.memories.forEach(memory => {
+            if (memory.tags && Array.isArray(memory.tags)) {
+                memory.tags.forEach(tag => {
+                    tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+                });
+            }
+        });
+
+        // Sort tags by count (descending)
+        const sortedTags = Object.entries(tagCounts)
+            .sort(([,a], [,b]) => b - a);
+
+        if (sortedTags.length === 0) {
+            container.innerHTML = '<p class="text-neutral-600">No tags found. Start adding tags to your memories to see them here.</p>';
+            return;
+        }
+
+        // Render tag bubbles
+        container.innerHTML = sortedTags.map(([tag, count]) => `
+            <button class="tag-bubble" onclick="app.filterByTag('${this.escapeHtml(tag)}')">
+                ${this.escapeHtml(tag)}
+                <span class="count">${count}</span>
+            </button>
+        `).join('');
+    }
+
+    /**
+     * Filter memories by selected tag
+     */
+    filterByTag(tag) {
+        const filteredMemories = this.memories.filter(memory =>
+            memory.tags && memory.tags.includes(tag)
+        );
+
+        // Show the tagged memories section
+        const taggedContainer = document.getElementById('taggedMemoriesContainer');
+        const tagNameSpan = document.getElementById('selectedTagName');
+        const memoriesList = document.getElementById('taggedMemoriesList');
+
+        tagNameSpan.textContent = tag;
+        taggedContainer.style.display = 'block';
+
+        // Render filtered memories
+        this.renderMemoriesInContainer(filteredMemories, memoriesList);
+
+        // Add event listener for clear filter button
+        const clearBtn = document.getElementById('clearTagFilter');
+        clearBtn.onclick = () => this.clearTagFilter();
+    }
+
+    /**
+     * Clear tag filter and show all tags
+     */
+    clearTagFilter() {
+        const taggedContainer = document.getElementById('taggedMemoriesContainer');
+        taggedContainer.style.display = 'none';
+    }
+
+    /**
+     * Escape HTML to prevent XSS
+     */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
+     * Render memories in a specific container
+     */
+    renderMemoriesInContainer(memories, container) {
+        if (!memories || memories.length === 0) {
+            container.innerHTML = '<p class="empty-state">No memories found with this tag.</p>';
+            return;
+        }
+
+        container.innerHTML = memories.map(memory => this.renderMemoryCard(memory)).join('');
+
+        // Add click handlers
+        container.querySelectorAll('.memory-card').forEach((card, index) => {
+            card.addEventListener('click', () => this.handleMemoryClick(memories[index]));
+        });
     }
 
     /**
@@ -252,7 +369,7 @@ class MemoryDashboard {
                 // Initialize search view with recent search or empty state
                 break;
             case 'browse':
-                // Load browseable content
+                await this.loadBrowseData();
                 break;
             case 'manage':
                 // Load management tools
@@ -761,7 +878,13 @@ class MemoryDashboard {
      */
     updateDashboardStats(stats) {
         document.getElementById('totalMemories').textContent = stats.total_memories || '0';
-        document.getElementById('recentMemories').textContent = stats.recent_count || '0';
+        // Calculate memories from this week by counting memories added in last 7 days
+        const thisWeekCount = this.memories.filter(memory => {
+            const createdDate = new Date(memory.created_at * 1000);
+            const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+            return createdDate >= weekAgo;
+        }).length;
+        document.getElementById('recentMemories').textContent = thisWeekCount.toString();
         document.getElementById('uniqueTags').textContent = stats.unique_tags || '0';
     }
 

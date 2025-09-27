@@ -207,8 +207,26 @@
 
             <!-- Other views (Browse, Manage, Analytics) will be added in subsequent phases -->
             <div id="browseView" class="view-container">
-                <h2>Browse Memories</h2>
-                <p>Browse functionality coming soon...</p>
+                <div class="view-header">
+                    <h2>Browse by Tags</h2>
+                    <p>Explore your memories organized by tags</p>
+                </div>
+
+                <div class="browse-content">
+                    <div id="tagsCloudContainer" class="tags-cloud">
+                        <!-- Dynamic tags will be loaded here -->
+                    </div>
+
+                    <div id="taggedMemoriesContainer" class="tagged-memories" style="display: none;">
+                        <div class="section-header">
+                            <h3 id="selectedTagTitle">Memories tagged with: <span id="selectedTagName"></span></h3>
+                            <button id="clearTagFilter" class="btn btn-secondary">Show All Tags</button>
+                        </div>
+                        <div id="taggedMemoriesList" class="memory-grid">
+                            <!-- Filtered memories will be shown here -->
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div id="manageView" class="view-container">
