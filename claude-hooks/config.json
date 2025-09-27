@@ -10,12 +10,22 @@
       "useDetailedHealthCheck": true
     },
     "mcp": {
-      "serverCommand": ["uv", "run", "memory", "server", "-s", "cloudflare"],
+      "serverCommand": [
+        "uv",
+        "run",
+        "memory",
+        "server",
+        "-s",
+        "cloudflare"
+      ],
       "serverWorkingDir": "/Users/hkr/Documents/GitHub/mcp-memory-service",
       "connectionTimeout": 5000,
       "toolCallTimeout": 10000
     },
-    "defaultTags": ["claude-code", "auto-generated"],
+    "defaultTags": [
+      "claude-code",
+      "auto-generated"
+    ],
     "maxMemoriesPerSession": 8,
     "enableSessionConsolidation": true,
     "injectAfterCompacting": false,
@@ -28,7 +38,13 @@
   },
   "projectDetection": {
     "gitRepository": true,
-    "packageFiles": ["package.json", "pyproject.toml", "Cargo.toml", "go.mod", "pom.xml"],
+    "packageFiles": [
+      "package.json",
+      "pyproject.toml",
+      "Cargo.toml",
+      "go.mod",
+      "pom.xml"
+    ],
     "frameworkDetection": true,
     "languageDetection": true,
     "confidenceThreshold": 0.3
@@ -71,11 +87,8 @@
       "priority": "high"
     },
     "midConversation": {
-      "enabled": true,
       "timeout": 8000,
-      "priority": "high",
-      "cooldownPeriod": 30000,
-      "triggerThreshold": 0.6
+      "priority": "high"
     },
     "sessionEnd": {
       "enabled": true,
@@ -119,21 +132,30 @@
     "profiles": {
       "speed_focused": {
         "maxLatency": 100,
-        "enabledTiers": ["instant"],
+        "enabledTiers": [
+          "instant"
+        ],
         "backgroundProcessing": false,
         "degradeThreshold": 200,
         "description": "Fastest response, minimal memory awareness"
       },
       "balanced": {
         "maxLatency": 200,
-        "enabledTiers": ["instant", "fast"],
+        "enabledTiers": [
+          "instant",
+          "fast"
+        ],
         "backgroundProcessing": true,
         "degradeThreshold": 400,
         "description": "Moderate latency, smart memory triggers"
       },
       "memory_aware": {
         "maxLatency": 500,
-        "enabledTiers": ["instant", "fast", "intensive"],
+        "enabledTiers": [
+          "instant",
+          "fast",
+          "intensive"
+        ],
         "backgroundProcessing": true,
         "degradeThreshold": 1000,
         "description": "Full memory awareness, accept higher latency"

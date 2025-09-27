@@ -47,10 +47,13 @@ class MidConversationHook {
         // Memory client for queries
         this.memoryClient = null;
 
-        // Hook state
-        this.isEnabled = config.enabled !== false;
+        // Hook state - read from correct nested config paths
+        const midConversationConfig = config.hooks?.midConversation || {};
+        const naturalTriggersConfig = config.naturalTriggers || {};
+
+        this.isEnabled = naturalTriggersConfig.enabled !== false;
         this.lastTriggerTime = 0;
-        this.cooldownPeriod = config.cooldownPeriod || 30000; // 30 seconds between triggers
+        this.cooldownPeriod = naturalTriggersConfig.cooldownPeriod || 30000; // 30 seconds between triggers
 
         // Analytics
         this.analytics = {
@@ -225,7 +228,7 @@ class MidConversationHook {
         }
 
         // Final decision threshold
-        const threshold = this.config.triggerThreshold || 0.6;
+        const threshold = this.config.naturalTriggers?.triggerThreshold || 0.6;
         const shouldTrigger = confidence >= threshold;
 
         return {

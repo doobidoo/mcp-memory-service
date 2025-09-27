@@ -72,7 +72,7 @@ class MemoryModeController {
         console.log(`Current Profile: ${currentProfile}`);
         console.log(`Description: ${profile?.description || 'No description'}`);
         console.log(`Natural Triggers: ${config.naturalTriggers?.enabled ? 'enabled' : 'disabled'}`);
-        console.log(`Sensitivity: ${config.naturalTriggers?.sensitivity || 0.7}`);
+        console.log(`Sensitivity: ${config.patternDetector?.sensitivity || 0.7}`);
         console.log(`Trigger Threshold: ${config.naturalTriggers?.triggerThreshold || 0.6}`);
         console.log(`Cooldown Period: ${(config.naturalTriggers?.cooldownPeriod || 30000) / 1000}s`);
 
@@ -109,11 +109,11 @@ class MemoryModeController {
             throw new Error('Sensitivity must be between 0 and 1');
         }
 
-        if (!config.naturalTriggers) {
-            config.naturalTriggers = {};
+        if (!config.patternDetector) {
+            config.patternDetector = {};
         }
 
-        config.naturalTriggers.sensitivity = sensitivity;
+        config.patternDetector.sensitivity = sensitivity;
         await this.saveConfig(config);
 
         console.log(`✅ Updated sensitivity to ${sensitivity}`);
@@ -171,12 +171,17 @@ class MemoryModeController {
         config.performance.defaultProfile = 'balanced';
         config.naturalTriggers = {
             enabled: true,
-            sensitivity: 0.7,
             triggerThreshold: 0.6,
             cooldownPeriod: 30000,
-            maxMemoriesPerTrigger: 5,
-            adaptiveLearning: true
+            maxMemoriesPerTrigger: 5
         };
+
+        // Pattern detector defaults
+        if (!config.patternDetector) {
+            config.patternDetector = {};
+        }
+        config.patternDetector.sensitivity = 0.7;
+        config.patternDetector.adaptiveLearning = true;
 
         await this.saveConfig(config);
         console.log('✅ Reset to default configuration');
