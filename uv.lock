@@ -937,14 +937,13 @@ wheels = [
 
 [[package]]
 name = "mcp-memory-service"
-version = "6.22.1"
+version = "6.23.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
     { name = "aiohttp" },
     { name = "build" },
     { name = "chardet" },
-    { name = "chromadb" },
     { name = "click" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -979,8 +978,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.8.0" },
     { name = "build", specifier = ">=0.10.0" },
     { name = "chardet", specifier = ">=5.0.0" },
-    { name = "chromadb", specifier = "==0.5.23" },
-    { name = "chromadb", marker = "extra == 'chromadb'", specifier = "==0.5.23" },
+    { name = "chromadb", marker = "extra == 'chromadb'", specifier = ">=0.5.0" },
     { name = "click", specifier = ">=8.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.24.0" },
@@ -999,7 +997,7 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.30.0" },
     { name = "zeroconf", specifier = ">=0.130.0" },
 ]
-provides-extras = ["ml", "chromadb", "sqlite"]
+provides-extras = ["ml", "sqlite", "chromadb"]
 
 [[package]]
 name = "mdurl"

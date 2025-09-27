@@ -63,7 +63,14 @@
       "Bash(gh pr create:*)",
       "Bash(git rev-list:*)",
       "Bash(gh pr comment:*)",
-      "Bash(gh run rerun:*)"
+      "Bash(gh run rerun:*)",
+      "Bash(gh run view:*)",
+      "Bash(claude doctor)",
+      "Bash(npm install:*)",
+      "Bash(claude --version)",
+      "Bash(gh pr list:*)",
+      "Bash(git branch:*)",
+      "WebFetch(domain:datatracker.ietf.org)"
     ],
     "deny": [],
     "ask": [],
