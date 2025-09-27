@@ -939,7 +939,13 @@ class MemoryDashboard {
      */
     renderMemoryCard(memory, searchResult = null) {
         const createdDate = new Date(memory.created_at * 1000).toLocaleDateString();
-        const relevanceScore = searchResult ? (searchResult.relevance_score * 100).toFixed(1) : null;
+        const relevanceScore = searchResult &&
+            searchResult.similarity_score !== null &&
+            searchResult.similarity_score !== undefined &&
+            !isNaN(searchResult.similarity_score) &&
+            searchResult.similarity_score > 0
+            ? (searchResult.similarity_score * 100).toFixed(1)
+            : null;
 
         return `
             <div class="memory-card" data-memory-id="${memory.content_hash}">
