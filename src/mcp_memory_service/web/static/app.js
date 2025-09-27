@@ -110,6 +110,17 @@ class MemoryDashboard {
             this.showToast('Settings functionality not yet implemented.', 'info');
         });
 
+        // Tag cloud event delegation
+        document.getElementById('tagsCloudContainer')?.addEventListener('click', (e) => {
+            if (e.target.classList.contains('tag-bubble') || e.target.closest('.tag-bubble')) {
+                const tagButton = e.target.classList.contains('tag-bubble') ? e.target : e.target.closest('.tag-bubble');
+                const tag = tagButton.dataset.tag;
+                if (tag) {
+                    this.filterByTag(tag);
+                }
+            }
+        });
+
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -266,7 +277,7 @@ class MemoryDashboard {
 
         // Render tag bubbles
         container.innerHTML = sortedTags.map(([tag, count]) => `
-            <button class="tag-bubble" onclick="app.filterByTag('${this.escapeHtml(tag)}')">
+            <button class="tag-bubble" data-tag="${this.escapeHtml(tag)}">
                 ${this.escapeHtml(tag)}
                 <span class="count">${count}</span>
             </button>
