@@ -37,7 +37,8 @@ from ..config import (
     DATABASE_PATH,
     EMBEDDING_MODEL_NAME,
     MDNS_ENABLED,
-    HTTPS_ENABLED
+    HTTPS_ENABLED,
+    OAUTH_ENABLED
 )
 from ..storage.sqlite_vec import SqliteVecMemoryStorage
 from .dependencies import set_storage, get_storage
@@ -155,7 +156,21 @@ def create_app() -> FastAPI:
     
     # Include MCP protocol router
     app.include_router(mcp_router, tags=["mcp-protocol"])
-    
+
+    # Include OAuth routers if enabled
+    if OAUTH_ENABLED:
+        from .oauth.discovery import router as oauth_discovery_router
+        from .oauth.registration import router as oauth_registration_router
+        from .oauth.authorization import router as oauth_authorization_router
+
+        app.include_router(oauth_discovery_router, tags=["oauth-discovery"])
+        app.include_router(oauth_registration_router, prefix="/oauth", tags=["oauth"])
+        app.include_router(oauth_authorization_router, prefix="/oauth", tags=["oauth"])
+
+        logger.info("OAuth 2.1 endpoints enabled")
+    else:
+        logger.info("OAuth 2.1 endpoints disabled")
+
     # Serve static files (dashboard)
     static_path = os.path.join(os.path.dirname(__file__), "static")
     if os.path.exists(static_path):
