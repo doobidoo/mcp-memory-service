@@ -628,6 +628,9 @@ class MemoryDashboard {
                 if (query) {
                     this.handleSearch(query);
                 }
+            } else if (this.currentView === 'browse') {
+                // Refresh browse view (tags cloud)
+                this.loadBrowseData();
             }
         } catch (error) {
             console.error('Error saving memory:', error);
@@ -720,6 +723,9 @@ class MemoryDashboard {
             } else if (this.currentView === 'search') {
                 this.searchResults = this.searchResults.filter(m => m.memory.content_hash !== memory.content_hash);
                 this.renderSearchResults(this.searchResults);
+            } else if (this.currentView === 'browse') {
+                // Refresh browse view (tags cloud)
+                this.loadBrowseData();
             }
         } catch (error) {
             console.error('Error deleting memory:', error);
