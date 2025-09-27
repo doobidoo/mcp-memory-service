@@ -818,11 +818,39 @@ class MemoryDashboard {
      */
     async handleExportData() {
         try {
-            const response = await this.apiCall('/memories?limit=1000');
+            this.showToast('Preparing export...', 'info');
+
+            // Fetch all memories using pagination
+            const allMemories = [];
+            const pageSize = 100; // Reasonable batch size
+            let page = 1;
+            let hasMore = true;
+            let totalMemories = 0;
+
+            while (hasMore) {
+                const response = await this.apiCall(`/memories?page=${page}&page_size=${pageSize}`);
+
+                if (page === 1) {
+                    totalMemories = response.total;
+                }
+
+                if (response.memories && response.memories.length > 0) {
+                    allMemories.push(...response.memories);
+                    hasMore = response.has_more;
+                    page++;
+
+                    // Update progress
+                    this.showToast(`Fetching memories... (${allMemories.length}/${totalMemories})`, 'info');
+                } else {
+                    hasMore = false;
+                }
+            }
+
             const data = {
                 export_date: new Date().toISOString(),
-                total_memories: response.total,
-                memories: response.memories
+                total_memories: totalMemories,
+                exported_memories: allMemories.length,
+                memories: allMemories
             };
 
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -835,7 +863,7 @@ class MemoryDashboard {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
-            this.showToast('Data exported successfully', 'success');
+            this.showToast(`Successfully exported ${allMemories.length} memories`, 'success');
         } catch (error) {
             console.error('Export error:', error);
             this.showToast('Failed to export data', 'error');
