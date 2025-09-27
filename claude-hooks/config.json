@@ -108,11 +108,9 @@
   },
   "naturalTriggers": {
     "enabled": true,
-    "sensitivity": 0.7,
     "triggerThreshold": 0.6,
     "cooldownPeriod": 30000,
-    "maxMemoriesPerTrigger": 5,
-    "adaptiveLearning": true
+    "maxMemoriesPerTrigger": 5
   },
   "performance": {
     "defaultProfile": "balanced",

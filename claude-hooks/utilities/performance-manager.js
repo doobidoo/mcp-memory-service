@@ -36,7 +36,24 @@ class PerformanceManager {
      * Get performance budget for a profile
      */
     getProfileBudget(profileName) {
-        const profiles = {
+        // Use config profiles first, with hardcoded fallbacks
+        const configProfiles = this.config.profiles || {};
+
+        // If profile exists in config, use it (with fallback for missing adaptive calculations)
+        if (configProfiles[profileName]) {
+            const profile = { ...configProfiles[profileName] };
+
+            // Handle adaptive profile calculations if needed
+            if (profileName === 'adaptive') {
+                profile.maxLatency = profile.maxLatency || this.calculateAdaptiveLatency();
+                profile.enabledTiers = profile.enabledTiers || this.calculateAdaptiveTiers();
+            }
+
+            return profile;
+        }
+
+        // Fallback to hardcoded profiles if not found in config
+        const fallbackProfiles = {
             speed_focused: {
                 maxLatency: 100,
                 enabledTiers: ['instant'],
@@ -64,7 +81,7 @@ class PerformanceManager {
             }
         };
 
-        return profiles[profileName] || profiles.balanced;
+        return fallbackProfiles[profileName] || fallbackProfiles.balanced;
     }
 
     /**

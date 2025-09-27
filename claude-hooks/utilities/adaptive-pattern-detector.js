@@ -348,6 +348,14 @@ class AdaptivePatternDetector {
             }
         }
 
+        // Prevent division by zero
+        if (totalTerms === 0) {
+            return {
+                isMatch: false,
+                similarity: 0
+            };
+        }
+
         const similarity = matchCount / totalTerms;
         return {
             isMatch: similarity > 0.3, // Threshold for semantic match

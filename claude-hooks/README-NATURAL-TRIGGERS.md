@@ -160,27 +160,27 @@ Customize performance profiles in the configuration:
 
 ```bash
 # Get current status and configuration
-node memory-mode-controller.js status
+node claude-hooks/memory-mode-controller.js status
 
 # Switch performance profiles
-node memory-mode-controller.js profile <speed_focused|balanced|memory_aware|adaptive>
+node claude-hooks/memory-mode-controller.js profile <speed_focused|balanced|memory_aware|adaptive>
 
 # Adjust sensitivity (0-1, higher = more triggers)
-node memory-mode-controller.js sensitivity 0.8
+node claude-hooks/memory-mode-controller.js sensitivity 0.8
 
 # Adjust trigger threshold (0-1, higher = need more confidence)
-node memory-mode-controller.js threshold 0.7
+node claude-hooks/memory-mode-controller.js threshold 0.7
 
 # Enable/disable natural triggers
-node memory-mode-controller.js enable
-node memory-mode-controller.js disable
-node memory-mode-controller.js toggle
+node claude-hooks/memory-mode-controller.js enable
+node claude-hooks/memory-mode-controller.js disable
+node claude-hooks/memory-mode-controller.js toggle
 
 # List all available profiles
-node memory-mode-controller.js list
+node claude-hooks/memory-mode-controller.js list
 
 # Reset to defaults
-node memory-mode-controller.js reset
+node claude-hooks/memory-mode-controller.js reset
 ```
 
 ## Testing
@@ -269,31 +269,31 @@ The system automatically tracks:
 **Q: Triggers aren't firing when expected**
 ```bash
 # Check if natural triggers are enabled
-node memory-mode-controller.js status
+node claude-hooks/memory-mode-controller.js status
 
 # Lower the trigger threshold
-node memory-mode-controller.js threshold 0.5
+node claude-hooks/memory-mode-controller.js threshold 0.5
 
 # Increase sensitivity
-node memory-mode-controller.js sensitivity 0.8
+node claude-hooks/memory-mode-controller.js sensitivity 0.8
 ```
 
 **Q: Performance is slower than expected**
 ```bash
 # Switch to speed-focused mode
-node memory-mode-controller.js profile speed_focused
+node claude-hooks/memory-mode-controller.js profile speed_focused
 
 # Check current latency
-node memory-mode-controller.js status
+node claude-hooks/memory-mode-controller.js status
 ```
 
 **Q: Too many false positive triggers**
 ```bash
 # Lower sensitivity
-node memory-mode-controller.js sensitivity 0.5
+node claude-hooks/memory-mode-controller.js sensitivity 0.5
 
 # Increase threshold
-node memory-mode-controller.js threshold 0.8
+node claude-hooks/memory-mode-controller.js threshold 0.8
 
 # Increase cooldown period (edit config.json)
 ```
@@ -318,7 +318,7 @@ Monitor hook performance:
 
 ```bash
 # Check status for performance metrics
-node memory-mode-controller.js status
+node claude-hooks/memory-mode-controller.js status
 
 # Run performance tests
 node test-natural-triggers.js

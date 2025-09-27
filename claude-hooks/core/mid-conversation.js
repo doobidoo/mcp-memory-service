@@ -14,6 +14,22 @@ class MidConversationHook {
     constructor(config = {}) {
         this.config = config;
 
+        // Decision weighting constants
+        this.TRIGGER_WEIGHTS = {
+            PATTERN_CONFIDENCE: 0.6,
+            CONVERSATION_CONTEXT: 0.4,
+            SEMANTIC_SHIFT_BOOST: 0.2,
+            QUESTION_PATTERN_BOOST: 0.1,
+            PAST_WORK_BOOST: 0.15
+        };
+
+        this.THRESHOLD_VALUES = {
+            CONVERSATION_PROBABILITY_MIN: 0.3,
+            SEMANTIC_SHIFT_MIN: 0.6,
+            SPEED_MODE_CONFIDENCE_MIN: 0.8,
+            SPEED_MODE_REDUCTION: 0.8
+        };
+
         // Initialize performance management
         this.performanceManager = new PerformanceManager(config.performance);
 
@@ -41,7 +57,8 @@ class MidConversationHook {
             totalAnalyses: 0,
             triggersExecuted: 0,
             userAcceptanceRate: 0,
-            averageLatency: 0
+            averageLatency: 0,
+            totalFeedback: 0
         };
     }
 
@@ -51,7 +68,6 @@ class MidConversationHook {
     async analyzeMessage(userMessage, context = {}) {
         if (!this.isEnabled) return null;
 
-        const analysisStart = Date.now();
         const timing = this.performanceManager.startTiming('mid_conversation_analysis', 'fast');
 
         try {
@@ -106,7 +122,6 @@ class MidConversationHook {
     async executeMemoryTrigger(analysisResult, context = {}) {
         if (!analysisResult.shouldTrigger) return null;
 
-        const executionStart = Date.now();
         const timing = this.performanceManager.startTiming('memory_trigger_execution', 'intensive');
 
         try {
@@ -174,38 +189,38 @@ class MidConversationHook {
 
         // Weight pattern detection heavily for explicit requests
         if (patternResults.triggerRecommendation) {
-            confidence += patternResults.confidence * 0.6;
+            confidence += patternResults.confidence * this.TRIGGER_WEIGHTS.PATTERN_CONFIDENCE;
             reasons.push(`Pattern detection: ${patternResults.confidence.toFixed(2)} confidence`);
         }
 
         // Add conversation context weighting
-        if (conversationAnalysis.triggerProbability > 0.3) {
-            confidence += conversationAnalysis.triggerProbability * 0.4;
+        if (conversationAnalysis.triggerProbability > this.THRESHOLD_VALUES.CONVERSATION_PROBABILITY_MIN) {
+            confidence += conversationAnalysis.triggerProbability * this.TRIGGER_WEIGHTS.CONVERSATION_CONTEXT;
             reasons.push(`Conversation analysis: ${conversationAnalysis.triggerProbability.toFixed(2)} probability`);
         }
 
         // Boost for semantic shift (topic change)
-        if (conversationAnalysis.semanticShift > 0.6) {
-            confidence += 0.2;
+        if (conversationAnalysis.semanticShift > this.THRESHOLD_VALUES.SEMANTIC_SHIFT_MIN) {
+            confidence += this.TRIGGER_WEIGHTS.SEMANTIC_SHIFT_BOOST;
             reasons.push(`Semantic shift detected: ${conversationAnalysis.semanticShift.toFixed(2)}`);
         }
 
         // Context-specific adjustments
         if (context.isQuestionPattern) {
-            confidence += 0.1;
+            confidence += this.TRIGGER_WEIGHTS.QUESTION_PATTERN_BOOST;
             reasons.push('Question pattern detected');
         }
 
         if (context.mentionsPastWork) {
-            confidence += 0.15;
+            confidence += this.TRIGGER_WEIGHTS.PAST_WORK_BOOST;
             reasons.push('References past work');
         }
 
         // Apply performance profile considerations
         const profile = this.performanceManager.performanceBudget;
-        if (profile.maxLatency < 200 && confidence < 0.8) {
+        if (profile.maxLatency < 200 && confidence < this.THRESHOLD_VALUES.SPEED_MODE_CONFIDENCE_MIN) {
             // In speed-focused mode, require higher confidence
-            confidence *= 0.8;
+            confidence *= this.THRESHOLD_VALUES.SPEED_MODE_REDUCTION;
             reasons.push('Speed mode: increased confidence threshold');
         }
 
@@ -360,8 +375,12 @@ class MidConversationHook {
     }
 
     updateAcceptanceRate(wasPositive) {
-        const totalFeedback = this.analytics.triggersExecuted;
-        if (totalFeedback === 0) {
+        // Increment feedback counter
+        this.analytics.totalFeedback++;
+
+        const totalFeedback = this.analytics.totalFeedback;
+        if (totalFeedback === 1) {
+            // First feedback sets the initial rate
             this.analytics.userAcceptanceRate = wasPositive ? 1.0 : 0.0;
         } else {
             // Update running average

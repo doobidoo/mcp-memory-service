@@ -318,6 +318,12 @@ class TieredConversationMonitor {
         const intersection = new Set([...currentTopics].filter(x => this.currentTopics.has(x)));
         const union = new Set([...currentTopics, ...this.currentTopics]);
 
+        // Prevent division by zero when both sets are empty
+        if (union.size === 0) {
+            this.currentTopics = new Set(currentTopics);
+            return 0;
+        }
+
         const similarity = intersection.size / union.size;
         const shift = 1 - similarity;
 
