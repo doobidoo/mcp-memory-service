@@ -49,24 +49,24 @@ This document specifies an enterprise-grade hybrid search enhancement that combi
 class MemoryService:
     # Core hybrid search
     async def enhanced_search(
-        self, query: str, search_mode: str = "hybrid", 
+        self, query: str, search_mode: str = "hybrid",
         consolidate_related: bool = True, **kwargs
-    ) -> Dict[str, Any]
-    
+    ) -> Dict[str, Any]:
+
     # Content relationship building
     async def build_content_relationships(
         self, memories: List[Memory]
-    ) -> Dict[str, Any]
-    
+    ) -> Dict[str, Any]:
+
     # Query intelligence
     async def intelligent_query_expansion(
         self, query: str, user_context: Optional[Dict] = None
-    ) -> Dict[str, Any]
-    
+    ) -> Dict[str, Any]:
+
     # Project consolidation
     async def consolidate_project_content(
         self, project_identifier: str, depth: str = "deep"
-    ) -> Dict[str, Any]
+    ) -> Dict[str, Any]:
 ```
 
 ### 2. Storage Layer Enhancement
@@ -77,16 +77,16 @@ class MemoryService:
 # Add to MemoryStorage base class
 async def keyword_search(
     self, query: str, n_results: int = 10
-) -> List[MemoryQueryResult]
+) -> List[MemoryQueryResult]:
 
 async def combined_search(
-    self, semantic_query: str, keyword_query: str, 
+    self, semantic_query: str, keyword_query: str,
     weights: Dict[str, float]
-) -> List[MemoryQueryResult]
+) -> List[MemoryQueryResult]:
 
 async def get_related_memories(
     self, memory: Memory, relationship_types: List[str]
-) -> Dict[str, List[Memory]]
+) -> Dict[str, List[Memory]]:
 ```
 
 **Implementation by Backend:**
