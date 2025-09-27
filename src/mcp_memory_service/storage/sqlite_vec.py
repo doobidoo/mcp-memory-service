@@ -1136,7 +1136,7 @@ SOLUTIONS:
             logger.error(f"Failed to get stats: {str(e)}")
             return {"error": str(e)}
 
-    def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:
+    async def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:
         """Get all unique tags with their usage counts."""
         try:
             if not self.conn:

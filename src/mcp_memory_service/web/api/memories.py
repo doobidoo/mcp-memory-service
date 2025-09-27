@@ -303,6 +303,9 @@ async def get_tags(
 
         return TagListResponse(tags=tags)
 
+    except AttributeError as e:
+        # Handle case where storage backend doesn't implement get_all_tags_with_counts
+        raise HTTPException(status_code=501, detail=f"Tags endpoint not supported by current storage backend: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get tags: {str(e)}")
 

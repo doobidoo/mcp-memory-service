@@ -183,3 +183,12 @@ class MemoryStorage(ABC):
     async def get_access_patterns(self) -> Dict[str, datetime]:
         """Get memory access pattern statistics. Override for specific implementations."""
         return {}
+
+    async def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:
+        """
+        Get all unique tags with their usage counts.
+
+        Returns:
+            List of dictionaries with 'tag' and 'count' keys, sorted by count descending
+        """
+        return []
