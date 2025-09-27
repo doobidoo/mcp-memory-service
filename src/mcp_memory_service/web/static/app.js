@@ -92,7 +92,13 @@ class MemoryDashboard {
         });
 
         // Filter handlers for search view
-        document.getElementById('tagFilter')?.addEventListener('input', this.handleFilterChange.bind(this));
+        const tagFilterInput = document.getElementById('tagFilter');
+        tagFilterInput?.addEventListener('input', this.handleFilterChange.bind(this));
+        tagFilterInput?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.handleFilterChange();
+            }
+        });
         document.getElementById('dateFilter')?.addEventListener('change', this.handleFilterChange.bind(this));
         document.getElementById('typeFilter')?.addEventListener('change', this.handleFilterChange.bind(this));
 
@@ -428,15 +434,34 @@ class MemoryDashboard {
      * Search memories using the API
      */
     async searchMemories(query, filters = {}) {
-        const payload = {
-            query: query,
-            limit: filters.limit || 20,
-            threshold: filters.threshold || 0.7,
-            ...filters
-        };
+        // Detect tag search patterns: #tag, tag:value, or "tag:value"
+        const tagPattern = /^(#|tag:)(.+)$/i;
+        const tagMatch = query.match(tagPattern);
 
-        const response = await this.apiCall('/search', 'POST', payload);
-        return response.results || [];
+        if (tagMatch) {
+            // Use tag search endpoint
+            const tagValue = tagMatch[2].trim();
+            const payload = {
+                tags: [tagValue],
+                match_all: false // ANY match by default
+            };
+
+            console.log('Using tag search for:', tagValue);
+            const response = await this.apiCall('/search/by-tag', 'POST', payload);
+            return response.results || [];
+        } else {
+            // Use semantic search endpoint
+            const payload = {
+                query: query,
+                n_results: filters.limit || 20,
+                similarity_threshold: filters.threshold || 0.7,
+                ...filters
+            };
+
+            console.log('Using semantic search for:', query);
+            const response = await this.apiCall('/search', 'POST', payload);
+            return response.results || [];
+        }
     }
 
     /**
@@ -446,22 +471,49 @@ class MemoryDashboard {
         const tagFilter = document.getElementById('tagFilter')?.value;
         const dateFilter = document.getElementById('dateFilter')?.value;
         const typeFilter = document.getElementById('typeFilter')?.value;
-
-        const filters = {};
-        if (tagFilter) filters.tags = tagFilter.split(',').map(t => t.trim());
-        if (dateFilter) filters.date_range = dateFilter;
-        if (typeFilter) filters.type = typeFilter;
-
         const query = document.getElementById('quickSearch').value.trim();
-        if (query) {
-            try {
-                const results = await this.searchMemories(query, filters);
-                this.searchResults = results;
-                this.renderSearchResults(results);
-                this.updateResultsCount(results.length);
-            } catch (error) {
-                console.error('Filter search error:', error);
+
+        try {
+            let results = [];
+
+            if (tagFilter && tagFilter.trim()) {
+                // If we have tags, use tag search (works with or without main query)
+                const tags = tagFilter.split(',').map(t => t.trim()).filter(t => t);
+
+                if (tags.length > 0) {
+                    const payload = {
+                        tags: tags,
+                        match_all: false // ANY match by default
+                    };
+
+                    const response = await this.apiCall('/search/by-tag', 'POST', payload);
+                    results = response.results || [];
+
+                    // If we also have a main query, filter results further with semantic search
+                    if (query) {
+                        // TODO: Could implement hybrid search here
+                        // For now, tag search takes precedence
+                    }
+                }
+            } else if (query) {
+                // No tag filter, use semantic search with other filters
+                const filters = {};
+                if (dateFilter) filters.date_range = dateFilter;
+                if (typeFilter) filters.type = typeFilter;
+
+                results = await this.searchMemories(query, filters);
+            } else {
+                // No query or tags, clear results
+                results = [];
             }
+
+            this.searchResults = results;
+            this.renderSearchResults(results);
+            this.updateResultsCount(results.length);
+
+        } catch (error) {
+            console.error('Filter search error:', error);
+            this.showToast('Filter search failed', 'error');
         }
     }
 
