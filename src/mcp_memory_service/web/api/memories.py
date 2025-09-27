@@ -86,6 +86,17 @@ class MemoryDeleteResponse(BaseModel):
     content_hash: str
 
 
+class TagResponse(BaseModel):
+    """Response model for a single tag with its count."""
+    tag: str
+    count: int
+
+
+class TagListResponse(BaseModel):
+    """Response model for tags list."""
+    tags: List[TagResponse]
+
+
 def memory_to_response(memory: Memory) -> MemoryResponse:
     """Convert Memory model to response format."""
     return MemoryResponse(
@@ -270,6 +281,30 @@ async def get_memory(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get memory: {str(e)}")
+
+
+@router.get("/tags", response_model=TagListResponse, tags=["tags"])
+async def get_tags(
+    storage: MemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+):
+    """
+    Get all tags with their usage counts.
+
+    Returns a list of all unique tags along with how many memories use each tag,
+    sorted by count in descending order.
+    """
+    try:
+        # Get tags with counts from storage
+        tag_data = await storage.get_all_tags_with_counts()
+
+        # Convert to response format
+        tags = [TagResponse(tag=item["tag"], count=item["count"]) for item in tag_data]
+
+        return TagListResponse(tags=tags)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get tags: {str(e)}")
 
 
 @router.delete("/memories/{content_hash}", response_model=MemoryDeleteResponse, tags=["memories"])

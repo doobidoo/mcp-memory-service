@@ -1132,7 +1132,36 @@ SOLUTIONS:
         except Exception as e:
             logger.error(f"Failed to get stats: {str(e)}")
             return {"error": str(e)}
-    
+
+    def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:
+        """Get all unique tags with their usage counts."""
+        try:
+            if not self.conn:
+                return []
+
+            # Get all non-empty tag strings from the database
+            cursor = self.conn.execute('SELECT tags FROM memories WHERE tags != "" AND tags IS NOT NULL')
+            tag_rows = cursor.fetchall()
+
+            # Count occurrences of each tag
+            tag_counts = {}
+            for (tag_string,) in tag_rows:
+                if tag_string:
+                    # Split comma-separated tags and count each one
+                    tags = [tag.strip() for tag in tag_string.split(",") if tag.strip()]
+                    for tag in tags:
+                        tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+            # Convert to list of dictionaries sorted by count (descending)
+            result = [{"tag": tag, "count": count} for tag, count in tag_counts.items()]
+            result.sort(key=lambda x: x["count"], reverse=True)
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to get tags with counts: {str(e)}")
+            return []
+
     def sanitized(self, tags):
         """Sanitize and normalize tags to a JSON string.
         

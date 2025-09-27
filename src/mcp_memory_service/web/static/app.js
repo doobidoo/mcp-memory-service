@@ -227,15 +227,15 @@ class MemoryDashboard {
     }
 
     /**
-     * Load browse view data (tags and memories)
+     * Load browse view data (tags)
      */
     async loadBrowseData() {
         this.setLoading(true);
         try {
-            // Load all memories to extract tags
-            const memoriesResponse = await this.apiCall('/memories?limit=1000&offset=0');
-            if (memoriesResponse.memories) {
-                this.memories = memoriesResponse.memories;
+            // Load tags with counts from the dedicated endpoint
+            const tagsResponse = await this.apiCall('/tags');
+            if (tagsResponse.tags) {
+                this.tags = tagsResponse.tags;
                 this.renderTagsCloud();
             }
         } catch (error) {
@@ -247,7 +247,7 @@ class MemoryDashboard {
     }
 
     /**
-     * Render tags cloud from memories
+     * Render tags cloud from API data
      */
     renderTagsCloud() {
         const container = document.getElementById('tagsCloudContainer');
@@ -256,30 +256,16 @@ class MemoryDashboard {
         // Hide the tagged memories view initially
         taggedContainer.style.display = 'none';
 
-        // Extract and count tags
-        const tagCounts = {};
-        this.memories.forEach(memory => {
-            if (memory.tags && Array.isArray(memory.tags)) {
-                memory.tags.forEach(tag => {
-                    tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-                });
-            }
-        });
-
-        // Sort tags by count (descending)
-        const sortedTags = Object.entries(tagCounts)
-            .sort(([,a], [,b]) => b - a);
-
-        if (sortedTags.length === 0) {
+        if (!this.tags || this.tags.length === 0) {
             container.innerHTML = '<p class="text-neutral-600">No tags found. Start adding tags to your memories to see them here.</p>';
             return;
         }
 
-        // Render tag bubbles
-        container.innerHTML = sortedTags.map(([tag, count]) => `
-            <button class="tag-bubble" data-tag="${this.escapeHtml(tag)}">
-                ${this.escapeHtml(tag)}
-                <span class="count">${count}</span>
+        // Render tag bubbles (tags are already sorted by count from backend)
+        container.innerHTML = this.tags.map(tagData => `
+            <button class="tag-bubble" data-tag="${this.escapeHtml(tagData.tag)}">
+                ${this.escapeHtml(tagData.tag)}
+                <span class="count">${tagData.count}</span>
             </button>
         `).join('');
     }
@@ -287,25 +273,30 @@ class MemoryDashboard {
     /**
      * Filter memories by selected tag
      */
-    filterByTag(tag) {
-        const filteredMemories = this.memories.filter(memory =>
-            memory.tags && memory.tags.includes(tag)
-        );
-
-        // Show the tagged memories section
+    async filterByTag(tag) {
         const taggedContainer = document.getElementById('taggedMemoriesContainer');
         const tagNameSpan = document.getElementById('selectedTagName');
         const memoriesList = document.getElementById('taggedMemoriesList');
 
-        tagNameSpan.textContent = tag;
-        taggedContainer.style.display = 'block';
+        try {
+            // Fetch memories for this specific tag
+            const memoriesResponse = await this.apiCall(`/memories?tag=${encodeURIComponent(tag)}&limit=100`);
+            const filteredMemories = memoriesResponse.memories || [];
 
-        // Render filtered memories
-        this.renderMemoriesInContainer(filteredMemories, memoriesList);
+            // Show the tagged memories section
+            tagNameSpan.textContent = tag;
+            taggedContainer.style.display = 'block';
 
-        // Add event listener for clear filter button
-        const clearBtn = document.getElementById('clearTagFilter');
-        clearBtn.onclick = () => this.clearTagFilter();
+            // Render filtered memories
+            this.renderMemoriesInContainer(filteredMemories, memoriesList);
+
+            // Add event listener for clear filter button
+            const clearBtn = document.getElementById('clearTagFilter');
+            clearBtn.onclick = () => this.clearTagFilter();
+        } catch (error) {
+            console.error('Error filtering by tag:', error);
+            this.showToast('Failed to load memories for tag', 'error');
+        }
     }
 
     /**
