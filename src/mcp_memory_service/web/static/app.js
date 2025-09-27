@@ -434,6 +434,15 @@ class MemoryDashboard {
             }
         };
 
+        // Debug log to check what we're sending
+        console.log('Saving memory:', {
+            isEditing: !!this.editingMemory,
+            rawTags: tags,
+            processedTags: payload.tags,
+            content: content.substring(0, 50) + '...',
+            type: type
+        });
+
         try {
             let response;
             let successMessage;
@@ -581,15 +590,31 @@ class MemoryDashboard {
         saveBtn.textContent = 'Update Memory';
 
         // Pre-fill the form with existing data
-        document.getElementById('memoryContent').value = memory.content;
-        document.getElementById('memoryTags').value = memory.tags ? memory.tags.join(', ') : '';
+        document.getElementById('memoryContent').value = memory.content || '';
+
+        // Handle tags - ensure they're displayed correctly
+        const tagsValue = memory.tags && Array.isArray(memory.tags) ? memory.tags.join(', ') : '';
+        document.getElementById('memoryTags').value = tagsValue;
+
         document.getElementById('memoryType').value = memory.memory_type || 'note';
+
+        // Debug log to check data
+        console.log('Editing memory:', {
+            content: memory.content,
+            tags: memory.tags,
+            tagsValue: tagsValue,
+            type: memory.memory_type
+        });
 
         // Store the memory being edited
         this.editingMemory = memory;
 
         this.openModal(modal);
-        document.getElementById('memoryContent').focus();
+
+        // Use setTimeout to ensure modal is fully rendered before setting values
+        setTimeout(() => {
+            document.getElementById('memoryContent').focus();
+        }, 100);
     }
 
     /**
