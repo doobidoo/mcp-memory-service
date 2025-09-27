@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Memory Service - Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+</head>
+<body>
+    <!-- Main Application Container -->
+    <div id="app" class="app-container">
+
+        <!-- Header with Navigation -->
+        <header class="app-header">
+            <div class="header-content">
+                <div class="logo-section">
+                    <h1 class="app-title">🧠 MCP Memory</h1>
+                    <span class="version-badge">v6.18.0</span>
+                </div>
+
+                <!-- Quick Search Bar -->
+                <div class="search-section">
+                    <div class="search-container">
+                        <input type="text"
+                               id="quickSearch"
+                               class="search-input"
+                               placeholder="🔍 Search your memories..."
+                               autocomplete="off">
+                        <button class="search-btn" type="button" aria-label="Search">
+                            <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M21.71 20.29L18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a1 1 0 0 0 1.42-1.42zM11 18a7 7 0 1 1 7-7 7 7 0 0 1-7 7z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="action-buttons">
+                    <button id="addMemoryBtn" class="btn btn-primary" title="Add New Memory">
+                        <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                        </svg>
+                        <span class="btn-text">Add Memory</span>
+                    </button>
+                    <button id="settingsBtn" class="btn btn-secondary" title="Settings">
+                        <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 16a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0-6a2 2 0 1 1-2 2 2 2 0 0 1 2-2z"/>
+                            <path d="M21.14 13.15l-.91-.66a7.89 7.89 0 0 0 0-1l.91-.66a1 1 0 0 0 .4-1.22l-1.8-3.1a1 1 0 0 0-1.23-.4l-1.07.44a7.64 7.64 0 0 0-.86-.5l-.19-1.14a1 1 0 0 0-1-.84h-3.6a1 1 0 0 0-1 .84L9.6 6.61a7.64 7.64 0 0 0-.86.5l-1.07-.44a1 1 0 0 0-1.23.4l-1.8 3.1a1 1 0 0 0 .4 1.22l.91.66a7.89 7.89 0 0 0 0 1l-.91.66a1 1 0 0 0-.4 1.22l1.8 3.1a1 1 0 0 0 1.23.4l1.07-.44a7.64 7.64 0 0 0 .86.5l.19 1.14a1 1 0 0 0 1 .84h3.6a1 1 0 0 0 1-.84l.19-1.14a7.64 7.64 0 0 0 .86-.5l1.07.44a1 1 0 0 0 1.23-.4l1.8-3.1a1 1 0 0 0-.4-1.22z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Navigation -->
+        <nav class="main-nav">
+            <div class="nav-container">
+                <button class="nav-item active" data-view="dashboard">
+                    <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
+                    </svg>
+                    Dashboard
+                </button>
+                <button class="nav-item" data-view="search">
+                    <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M21.71 20.29L18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a1 1 0 0 0 1.42-1.42zM11 18a7 7 0 1 1 7-7 7 7 0 0 1-7 7z"/>
+                    </svg>
+                    Search
+                </button>
+                <button class="nav-item" data-view="browse">
+                    <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/>
+                    </svg>
+                    Browse
+                </button>
+                <button class="nav-item" data-view="manage">
+                    <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                    </svg>
+                    Manage
+                </button>
+                <button class="nav-item" data-view="analytics">
+                    <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/>
+                    </svg>
+                    Analytics
+                </button>
+            </div>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Dashboard View -->
+            <div id="dashboardView" class="view-container active">
+                <div class="dashboard-grid">
+                    <!-- Welcome Section -->
+                    <section class="welcome-card">
+                        <h2>Welcome to your Memory Dashboard</h2>
+                        <p>Manage your AI memories with semantic search, real-time updates, and intelligent organization.</p>
+                        <div class="quick-stats">
+                            <div class="stat-item">
+                                <span class="stat-number" id="totalMemories">—</span>
+                                <span class="stat-label">Total Memories</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-number" id="recentMemories">—</span>
+                                <span class="stat-label">This Week</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-number" id="uniqueTags">—</span>
+                                <span class="stat-label">Tags</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Recent Memories -->
+                    <section class="recent-memories">
+                        <h3>Recent Memories</h3>
+                        <div id="recentMemoriesList" class="memory-list">
+                            <!-- Dynamic content will be loaded here -->
+                        </div>
+                    </section>
+
+                    <!-- Quick Actions -->
+                    <section class="quick-actions">
+                        <h3>Quick Actions</h3>
+                        <div class="action-grid">
+                            <button class="action-card" data-action="quick-search">
+                                <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M21.71 20.29L18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a1 1 0 0 0 1.42-1.42zM11 18a7 7 0 1 1 7-7 7 7 0 0 1-7 7z"/>
+                                </svg>
+                                <span>Advanced Search</span>
+                            </button>
+                            <button class="action-card" data-action="add-memory">
+                                <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                                </svg>
+                                <span>Add Memory</span>
+                            </button>
+                            <button class="action-card" data-action="browse-tags">
+                                <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"/>
+                                </svg>
+                                <span>Browse Tags</span>
+                            </button>
+                            <button class="action-card" data-action="export-data">
+                                <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                                </svg>
+                                <span>Export Data</span>
+                            </button>
+                        </div>
+                    </section>
+                </div>
+            </div>
+
+            <!-- Search View -->
+            <div id="searchView" class="view-container">
+                <div class="search-layout">
+                    <!-- Advanced Search Panel -->
+                    <aside class="search-filters">
+                        <h3>Search Filters</h3>
+                        <div class="filter-section">
+                            <label for="tagFilter">Tags</label>
+                            <input type="text" id="tagFilter" placeholder="Enter tags...">
+                        </div>
+                        <div class="filter-section">
+                            <label for="dateFilter">Date Range</label>
+                            <select id="dateFilter">
+                                <option value="">All time</option>
+                                <option value="today">Today</option>
+                                <option value="week">This week</option>
+                                <option value="month">This month</option>
+                                <option value="year">This year</option>
+                            </select>
+                        </div>
+                        <div class="filter-section">
+                            <label for="typeFilter">Content Type</label>
+                            <select id="typeFilter">
+                                <option value="">All types</option>
+                                <option value="note">Notes</option>
+                                <option value="code">Code</option>
+                                <option value="reference">References</option>
+                            </select>
+                        </div>
+                    </aside>
+
+                    <!-- Search Results -->
+                    <div class="search-results">
+                        <div class="search-header">
+                            <h2>Search Results</h2>
+                            <div class="results-meta">
+                                <span id="resultsCount">0 results</span>
+                                <div class="view-options">
+                                    <button class="view-btn active" data-view="grid">Grid</button>
+                                    <button class="view-btn" data-view="list">List</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="searchResultsList" class="memory-grid">
+                            <!-- Dynamic search results will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Other views (Browse, Manage, Analytics) will be added in subsequent phases -->
+            <div id="browseView" class="view-container">
+                <div class="view-header">
+                    <h2>Browse by Tags</h2>
+                    <p>Explore your memories organized by tags</p>
+                </div>
+
+                <div class="browse-content">
+                    <div id="tagsCloudContainer" class="tags-cloud">
+                        <!-- Dynamic tags will be loaded here -->
+                    </div>
+
+                    <div id="taggedMemoriesContainer" class="tagged-memories" style="display: none;">
+                        <div class="section-header">
+                            <h3 id="selectedTagTitle">Memories tagged with: <span id="selectedTagName"></span></h3>
+                            <button id="clearTagFilter" class="btn btn-secondary">Show All Tags</button>
+                        </div>
+                        <div id="taggedMemoriesList" class="memory-grid">
+                            <!-- Filtered memories will be shown here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="manageView" class="view-container">
+                <h2>Manage Memories</h2>
+                <p>Management tools coming soon...</p>
+            </div>
+
+            <div id="analyticsView" class="view-container">
+                <h2>Analytics Dashboard</h2>
+                <p>Analytics features coming soon...</p>
+            </div>
+        </main>
+
+        <!-- Memory Detail Modal -->
+        <div id="memoryModal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="modalTitle">Memory Details</h3>
+                    <button class="modal-close" aria-label="Close">
+                        <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="modalContent">
+                        <!-- Dynamic memory content -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="editMemoryBtn">Edit</button>
+                    <button class="btn btn-danger" id="deleteMemoryBtn">Delete</button>
+                    <button class="btn btn-primary" id="shareMemoryBtn">Share</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add Memory Modal -->
+        <div id="addMemoryModal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Add New Memory</h3>
+                    <button class="modal-close" aria-label="Close">
+                        <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="addMemoryForm">
+                        <div class="form-group">
+                            <label for="memoryContent">Content</label>
+                            <textarea id="memoryContent" rows="6" placeholder="Enter your memory content..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="memoryTags">Tags (comma-separated)</label>
+                            <input type="text" id="memoryTags" placeholder="e.g., coding, javascript, api">
+                        </div>
+                        <div class="form-group">
+                            <label for="memoryType">Type</label>
+                            <select id="memoryType">
+                                <option value="note">Note</option>
+                                <option value="code">Code</option>
+                                <option value="reference">Reference</option>
+                                <option value="idea">Idea</option>
+                            </select>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="cancelAddBtn">Cancel</button>
+                    <button class="btn btn-primary" id="saveMemoryBtn">Save Memory</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="loading-spinner"></div>
+            <p>Loading...</p>
+        </div>
+
+        <!-- Toast Notifications -->
+        <div id="toastContainer" class="toast-container"></div>
+    </div>
+
+    <!-- Connection Status Indicator -->
+    <div id="connectionStatus" class="connection-status">
+        <div class="status-indicator"></div>
+        <span class="status-text">Connected</span>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

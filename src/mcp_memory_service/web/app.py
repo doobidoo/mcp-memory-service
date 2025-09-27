@@ -24,6 +24,8 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional, Any
 
+import aiofiles
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -220,7 +222,17 @@ def create_app() -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     async def dashboard():
         """Serve the dashboard homepage."""
-        html_template = """
+        # Serve the new interactive dashboard from static files
+        static_path = os.path.join(os.path.dirname(__file__), "static")
+        index_path = os.path.join(static_path, "index.html")
+
+        try:
+            async with aiofiles.open(index_path, 'r', encoding='utf-8') as f:
+                html_content = await f.read()
+            return html_content
+        except FileNotFoundError:
+            # Fallback to basic template if index.html doesn't exist
+            html_template = """
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -770,7 +782,7 @@ def create_app() -> FastAPI:
         </body>
         </html>
         """
-        return html_template
+            return html_template
     
     return app
 
