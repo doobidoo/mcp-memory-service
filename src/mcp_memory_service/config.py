@@ -31,6 +31,7 @@ Licensed under the Apache License, Version 2.0
 """
 import os
 import sys
+import secrets
 from pathlib import Path
 import time
 import logging
@@ -458,3 +459,35 @@ logger.info(f"Consolidation enabled: {CONSOLIDATION_ENABLED}")
 if CONSOLIDATION_ENABLED:
     logger.info(f"Consolidation configuration: {CONSOLIDATION_CONFIG}")
     logger.info(f"Consolidation schedule: {CONSOLIDATION_SCHEDULE}")
+
+# OAuth 2.1 Configuration
+OAUTH_ENABLED = os.getenv('MCP_OAUTH_ENABLED', 'true').lower() == 'true'
+
+# Generate a secure secret key if not provided
+OAUTH_SECRET_KEY = os.getenv('MCP_OAUTH_SECRET_KEY')
+if not OAUTH_SECRET_KEY:
+    OAUTH_SECRET_KEY = secrets.token_urlsafe(32)
+    logger.info("Generated random OAuth secret key (set MCP_OAUTH_SECRET_KEY for persistence)")
+
+# OAuth server configuration
+def get_oauth_issuer() -> str:
+    """Get the OAuth issuer URL based on server configuration."""
+    scheme = "https" if HTTPS_ENABLED else "http"
+    host = "localhost" if HTTP_HOST == "0.0.0.0" else HTTP_HOST
+
+    # Only include port if it's not the standard port for the scheme
+    if (scheme == "https" and HTTP_PORT != 443) or (scheme == "http" and HTTP_PORT != 80):
+        return f"{scheme}://{host}:{HTTP_PORT}"
+    else:
+        return f"{scheme}://{host}"
+
+OAUTH_ISSUER = os.getenv('MCP_OAUTH_ISSUER') or get_oauth_issuer()
+
+# OAuth token configuration
+OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv('MCP_OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES', '60'))
+OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES = int(os.getenv('MCP_OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES', '10'))
+
+logger.info(f"OAuth enabled: {OAUTH_ENABLED}")
+if OAUTH_ENABLED:
+    logger.info(f"OAuth issuer: {OAUTH_ISSUER}")
+    logger.info(f"OAuth access token expiry: {OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES} minutes")

@@ -52,6 +52,8 @@ dependencies = [
     "chardet>=5.0.0",
     "click>=8.0.0",
     "httpx>=0.24.0",
+    "authlib>=1.2.0",
+    "python-jose[cryptography]>=3.3.0",
 ]
 
 [project.optional-dependencies]
