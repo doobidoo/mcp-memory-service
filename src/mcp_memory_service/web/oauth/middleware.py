@@ -29,6 +29,7 @@ from ...config import (
     OAUTH_ISSUER,
     API_KEY,
     ALLOW_ANONYMOUS_ACCESS,
+    OAUTH_ENABLED,
     get_jwt_algorithm,
     get_jwt_verification_key
 )
@@ -295,33 +296,45 @@ async def get_current_user(
     Get current authenticated user with fallback authentication methods.
 
     Tries in order:
-    1. OAuth Bearer token (JWT or stored token)
+    1. OAuth Bearer token (JWT or stored token) - only if OAuth is enabled
     2. Legacy API key authentication
-    3. Anonymous access (if no authentication configured)
+    3. Anonymous access (if explicitly enabled)
 
     Returns:
         AuthenticationResult with authentication details
     """
-    # Try OAuth Bearer token authentication first
+    # Try OAuth Bearer token authentication first (only if OAuth is enabled)
     if credentials and credentials.scheme.lower() == "bearer":
-        auth_result = await authenticate_bearer_token(credentials.credentials)
-        if auth_result.authenticated:
-            return auth_result
+        # OAuth Bearer token validation only if OAuth is enabled
+        if OAUTH_ENABLED:
+            auth_result = await authenticate_bearer_token(credentials.credentials)
+            if auth_result.authenticated:
+                return auth_result
 
-        # Bearer token provided but invalid - try API key fallback before giving up
+            # OAuth token provided but invalid - log the attempt
+            logger.debug(f"OAuth Bearer token validation failed for enabled OAuth system")
+
+        # Try API key authentication as fallback (works regardless of OAuth state)
         if API_KEY:
             # Some clients might send API key as Bearer token
             api_key_result = authenticate_api_key(credentials.credentials)
             if api_key_result.authenticated:
                 return api_key_result
 
-        # Both OAuth and API key failed - raise exception
-        logger.warning("Invalid Bearer token provided and API key fallback failed")
+        # Determine appropriate error message based on OAuth state
+        if OAUTH_ENABLED:
+            error_msg = "The access token provided is expired, revoked, malformed, or invalid"
+            logger.warning("Invalid Bearer token provided and API key fallback failed")
+        else:
+            error_msg = "OAuth is disabled. Use API key authentication or enable anonymous access."
+            logger.debug("Bearer token provided but OAuth is disabled, API key fallback failed")
+
+        # All Bearer token authentication methods failed
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
                 "error": "invalid_token",
-                "error_description": "The access token provided is expired, revoked, malformed, or invalid"
+                "error_description": error_msg
             },
             headers={"WWW-Authenticate": "Bearer"}
         )
@@ -337,9 +350,14 @@ async def get_current_user(
         )
 
     # No credentials provided and anonymous access not allowed
-    if API_KEY:
+    if API_KEY or OAUTH_ENABLED:
         logger.debug("No valid authentication provided")
-        error_msg = "Authorization is required to access this resource"
+        if OAUTH_ENABLED and API_KEY:
+            error_msg = "Authorization required. Provide valid OAuth Bearer token or API key."
+        elif OAUTH_ENABLED:
+            error_msg = "Authorization required. Provide valid OAuth Bearer token."
+        else:
+            error_msg = "Authorization required. Provide valid API key."
     else:
         logger.debug("No authentication configured and anonymous access disabled")
         error_msg = "Authentication is required. Set MCP_ALLOW_ANONYMOUS_ACCESS=true to enable anonymous access."

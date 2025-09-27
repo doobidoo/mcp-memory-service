@@ -659,6 +659,14 @@ def validate_oauth_configuration() -> None:
     if ALLOW_ANONYMOUS_ACCESS:
         warnings.append("Anonymous access is enabled - consider disabling for production")
 
+    # Check for insecure transport in production
+    if OAUTH_ISSUER.startswith('http://') and not ("localhost" in OAUTH_ISSUER or "127.0.0.1" in OAUTH_ISSUER):
+        warnings.append("OAuth issuer uses HTTP (non-encrypted) transport - use HTTPS for production")
+
+    # Check for weak algorithm in production environments
+    if get_jwt_algorithm() == "HS256" and not os.getenv('MCP_OAUTH_SECRET_KEY'):
+        warnings.append("Using auto-generated HS256 secret key - set MCP_OAUTH_SECRET_KEY for production")
+
     # Log validation results
     if errors:
         error_msg = "OAuth configuration validation failed:\n" + "\n".join(f"  - {err}" for err in errors)
