@@ -75,8 +75,8 @@
       "Bash(export MCP_ALLOW_ANONYMOUS_ACCESS=false)",
       "Bash(export MCP_API_KEY=\"test-key-123\")",
       "Bash(curl:*)",
-      "Read(//Users/hkr/mcp-context-provider/contexts/**)",
-      "Read(//Users/hkr/mcp-context-provider/**)"
+      "Read(//${HOME}/mcp-context-provider/contexts/**)",
+      "Read(//${HOME}/mcp-context-provider/**)"
     ],
     "deny": [],
     "ask": [],

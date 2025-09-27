@@ -74,6 +74,11 @@ class MidConversationHook {
             // Phase 3: Combined decision making
             const triggerDecision = this.makeTriggerDecision(conversationAnalysis, patternResults, context);
 
+            // Update last trigger time if we're recommending a trigger
+            if (triggerDecision.shouldTrigger) {
+                this.lastTriggerTime = Date.now();
+            }
+
             // Record performance
             const performanceResult = this.performanceManager.endTiming(timing);
             this.analytics.averageLatency = this.updateAverageLatency(performanceResult.latency);
@@ -140,7 +145,6 @@ class MidConversationHook {
 
             // Record successful trigger
             this.analytics.triggersExecuted++;
-            this.lastTriggerTime = Date.now();
 
             const performanceResult = this.performanceManager.endTiming(timing);
 
@@ -382,13 +386,42 @@ class MidConversationHook {
 }
 
 /**
+ * Global hook instance for state management
+ */
+let globalHookInstance = null;
+
+/**
+ * Get or create the hook instance (singleton pattern)
+ */
+function getHookInstance(config) {
+    if (!globalHookInstance) {
+        globalHookInstance = new MidConversationHook(config || {});
+        console.log('[Mid-Conversation Hook] Created new hook instance');
+    }
+    return globalHookInstance;
+}
+
+/**
+ * Reset hook instance (for testing or config changes)
+ */
+function resetHookInstance() {
+    if (globalHookInstance) {
+        globalHookInstance.cleanup().catch(() => {
+            // Ignore cleanup errors during reset
+        });
+        globalHookInstance = null;
+        console.log('[Mid-Conversation Hook] Reset hook instance');
+    }
+}
+
+/**
  * Hook function for Claude Code integration
  */
 async function onMidConversation(context) {
     // This would be called by Claude Code during conversation flow
     // Implementation depends on how Claude Code exposes mid-conversation hooks
 
-    const hook = new MidConversationHook(context.config || {});
+    const hook = getHookInstance(context.config);
 
     try {
         // Analyze the current message
@@ -406,14 +439,15 @@ async function onMidConversation(context) {
 
     } catch (error) {
         console.error('[Mid-Conversation Hook] Hook execution failed:', error.message);
-    } finally {
-        await hook.cleanup();
+        // Don't cleanup on error - preserve state for next call
     }
 }
 
 module.exports = {
     MidConversationHook,
     onMidConversation,
+    getHookInstance,
+    resetHookInstance,
     name: 'mid-conversation-memory',
     version: '1.0.0',
     description: 'Intelligent mid-conversation memory awareness with performance optimization',

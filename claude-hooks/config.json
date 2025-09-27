@@ -70,6 +70,13 @@
       "timeout": 10000,
       "priority": "high"
     },
+    "midConversation": {
+      "enabled": true,
+      "timeout": 8000,
+      "priority": "high",
+      "cooldownPeriod": 30000,
+      "triggerThreshold": 0.6
+    },
     "sessionEnd": {
       "enabled": true,
       "timeout": 15000,
@@ -150,30 +157,6 @@
     "sensitivity": 0.7,
     "adaptiveLearning": true,
     "learningRate": 0.05
-  },
-  "hooks": {
-    "sessionStart": {
-      "enabled": true,
-      "timeout": 10000,
-      "priority": "high"
-    },
-    "midConversation": {
-      "enabled": true,
-      "timeout": 8000,
-      "priority": "high",
-      "cooldownPeriod": 30000,
-      "triggerThreshold": 0.6
-    },
-    "sessionEnd": {
-      "enabled": true,
-      "timeout": 15000,
-      "priority": "normal"
-    },
-    "topicChange": {
-      "enabled": false,
-      "timeout": 5000,
-      "priority": "low"
-    }
   },
   "logging": {
     "level": "debug",
