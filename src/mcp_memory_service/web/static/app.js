@@ -561,39 +561,25 @@ class MemoryDashboard {
             let successMessage;
 
             if (this.editingMemory) {
-                // Update existing memory - delete old and create new (since content hash changes)
-                // Store original memory for potential rollback
-                const originalMemory = { ...this.editingMemory };
+                // Update existing memory - create new first, then delete old (safer approach)
+                const originalContentHash = this.editingMemory.content_hash;
 
                 try {
-                    // Step 1: Delete original memory
-                    await this.apiCall(`/memories/${this.editingMemory.content_hash}`, 'DELETE');
+                    // Step 1: Create updated memory first (safe - no data loss risk)
+                    response = await this.apiCall('/memories', 'POST', payload);
+                    successMessage = 'Memory updated successfully';
 
                     try {
-                        // Step 2: Create updated memory
-                        response = await this.apiCall('/memories', 'POST', payload);
-                        successMessage = 'Memory updated successfully';
-                    } catch (postError) {
-                        // POST failed after DELETE succeeded - attempt rollback
-                        console.error('POST failed after DELETE, attempting rollback:', postError);
-                        try {
-                            // Restore original memory (without updated_via to avoid infinite loop)
-                            const rollbackPayload = {
-                                content: originalMemory.content,
-                                tags: originalMemory.tags || [],
-                                memory_type: originalMemory.memory_type,
-                                metadata: { ...originalMemory.metadata, restored_via: 'rollback' }
-                            };
-                            await this.apiCall('/memories', 'POST', rollbackPayload);
-                            throw new Error('Update failed but original memory was restored. Please try again.');
-                        } catch (rollbackError) {
-                            console.error('Rollback failed:', rollbackError);
-                            throw new Error('Update failed and memory was lost. Please re-create the memory manually.');
-                        }
+                        // Step 2: Delete original memory (only after successful creation)
+                        await this.apiCall(`/memories/${originalContentHash}`, 'DELETE');
+                    } catch (deleteError) {
+                        // DELETE failed but new memory exists - user has duplicate instead of data loss
+                        console.error('Failed to delete original memory after creating new version:', deleteError);
+                        this.showToast('Memory updated, but original version still exists. You may need to manually delete the duplicate.', 'warning');
                     }
-                } catch (deleteError) {
-                    // DELETE failed - no rollback needed, original memory intact
-                    throw new Error(`Failed to update memory: ${deleteError.message}`);
+                } catch (createError) {
+                    // CREATE failed - original memory intact, no cleanup needed
+                    throw new Error(`Failed to update memory: ${createError.message}`);
                 }
             } else {
                 // Create new memory
