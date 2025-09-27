@@ -112,10 +112,49 @@ POST /api/search/intelligence      # Query analysis and enhancement
     "name": "advanced_memory_search",
     "description": "Enterprise hybrid search with consolidation",
     "inputSchema": {
-        "query": "string",
-        "search_mode": "hybrid|semantic|keyword|auto",
-        "consolidate_related": "boolean",
-        "filters": "object"
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Search query for finding relevant memories"
+            },
+            "search_mode": {
+                "type": "string",
+                "enum": ["hybrid", "semantic", "keyword", "auto"],
+                "description": "Search mode to use",
+                "default": "auto"
+            },
+            "consolidate_related": {
+                "type": "boolean",
+                "description": "Whether to consolidate related memories in results",
+                "default": false
+            },
+            "filters": {
+                "type": "object",
+                "description": "Additional search filters",
+                "properties": {
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter by specific tags"
+                    },
+                    "memory_type": {
+                        "type": "string",
+                        "description": "Filter by memory type"
+                    },
+                    "date_range": {
+                        "type": "object",
+                        "properties": {
+                            "start": {"type": "string", "format": "date-time"},
+                            "end": {"type": "string", "format": "date-time"}
+                        }
+                    }
+                },
+                "additionalProperties": false
+            }
+        },
+        "required": ["query"],
+        "additionalProperties": false
     }
 }
 ```

@@ -92,12 +92,29 @@ Abstract interface that allows multiple storage backend implementations:
 #### Base Interface (`storage/base.py`)
 ```python
 class MemoryStorage(ABC):
-    async def initialize() -> None
-    async def store(memory: Memory) -> Tuple[bool, str]
-    async def retrieve(query: str, n_results: int) -> List[MemoryQueryResult]
-    async def search_by_tag(tags: List[str]) -> List[Memory]
-    async def delete(content_hash: str) -> Tuple[bool, str]
-    async def recall_memory(query: str, n_results: int) -> List[Memory]
+    async def initialize(self) -> None:
+        """Initialize the storage backend."""
+        pass
+
+    async def store(self, memory: Memory) -> Tuple[bool, str]:
+        """Store a memory object."""
+        pass
+
+    async def retrieve(self, query: str, n_results: int) -> List[MemoryQueryResult]:
+        """Retrieve memories based on semantic similarity."""
+        pass
+
+    async def search_by_tag(self, tags: List[str]) -> List[Memory]:
+        """Search memories by tags."""
+        pass
+
+    async def delete(self, content_hash: str) -> Tuple[bool, str]:
+        """Delete a memory by content hash."""
+        pass
+
+    async def recall_memory(self, query: str, n_results: int) -> List[Memory]:
+        """Recall memories using natural language time queries."""
+        pass
 ```
 
 #### ChromaDB Backend (`storage/chroma.py`)
@@ -336,7 +353,22 @@ Add new operations via tool registration:
 types.Tool(
     name="custom_operation",
     description="Custom memory operation",
-    inputSchema={...}
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "param1": {
+                "type": "string",
+                "description": "First parameter"
+            },
+            "param2": {
+                "type": "integer",
+                "description": "Second parameter",
+                "default": 0
+            }
+        },
+        "required": ["param1"],
+        "additionalProperties": false
+    }
 )
 ```
 
