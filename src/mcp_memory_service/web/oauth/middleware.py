@@ -195,7 +195,7 @@ async def get_current_user(
         )
 
     # Allow anonymous access only if explicitly enabled
-    if not API_KEY and ALLOW_ANONYMOUS_ACCESS:
+    if ALLOW_ANONYMOUS_ACCESS:
         logger.debug("Anonymous access explicitly enabled, granting read-only access")
         return AuthenticationResult(
             authenticated=True,
@@ -205,12 +205,12 @@ async def get_current_user(
         )
 
     # No credentials provided and anonymous access not allowed
-    if not API_KEY:
-        logger.debug("No authentication configured and anonymous access disabled")
-        error_msg = "Authentication is required. Set MCP_ALLOW_ANONYMOUS_ACCESS=true to enable anonymous access."
-    else:
+    if API_KEY:
         logger.debug("No valid authentication provided")
         error_msg = "Authorization is required to access this resource"
+    else:
+        logger.debug("No authentication configured and anonymous access disabled")
+        error_msg = "Authentication is required. Set MCP_ALLOW_ANONYMOUS_ACCESS=true to enable anonymous access."
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
