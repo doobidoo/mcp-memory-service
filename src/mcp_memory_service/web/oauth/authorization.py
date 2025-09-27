@@ -28,10 +28,11 @@ from fastapi.responses import RedirectResponse
 from jose import jwt
 
 from ...config import (
-    OAUTH_SECRET_KEY,
     OAUTH_ISSUER,
     OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES,
-    OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES
+    OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES,
+    get_jwt_algorithm,
+    get_jwt_signing_key
 )
 from .models import TokenResponse
 from .storage import oauth_storage
@@ -76,6 +77,8 @@ def create_access_token(client_id: str, scope: Optional[str] = None) -> tuple[st
     """
     Create a JWT access token for the given client.
 
+    Uses RS256 with RSA key pair if available, otherwise falls back to HS256.
+
     Returns:
         Tuple of (token, expires_in_seconds)
     """
@@ -91,7 +94,11 @@ def create_access_token(client_id: str, scope: Optional[str] = None) -> tuple[st
         "scope": scope or "read write"
     }
 
-    token = jwt.encode(payload, OAUTH_SECRET_KEY, algorithm="HS256")
+    algorithm = get_jwt_algorithm()
+    signing_key = get_jwt_signing_key()
+
+    logger.debug(f"Creating JWT token with algorithm: {algorithm}")
+    token = jwt.encode(payload, signing_key, algorithm=algorithm)
     return token, expires_in
 
 

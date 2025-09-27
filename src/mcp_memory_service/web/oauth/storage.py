@@ -24,6 +24,7 @@ import secrets
 import asyncio
 from typing import Dict, Optional
 from .models import RegisteredClient
+from ...config import OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES, OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES
 
 
 class OAuthStorage:
@@ -65,9 +66,11 @@ class OAuthStorage:
         client_id: str,
         redirect_uri: Optional[str] = None,
         scope: Optional[str] = None,
-        expires_in: int = 600  # 10 minutes default
+        expires_in: Optional[int] = None
     ) -> None:
         """Store an authorization code."""
+        if expires_in is None:
+            expires_in = OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES * 60
         async with self._lock:
             self._authorization_codes[code] = {
                 "client_id": client_id,
@@ -91,9 +94,11 @@ class OAuthStorage:
         token: str,
         client_id: str,
         scope: Optional[str] = None,
-        expires_in: int = 3600  # 1 hour default
+        expires_in: Optional[int] = None
     ) -> None:
         """Store an access token."""
+        if expires_in is None:
+            expires_in = OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES * 60
         async with self._lock:
             self._access_tokens[token] = {
                 "client_id": client_id,

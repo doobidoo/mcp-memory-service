@@ -44,6 +44,10 @@ class OAuthServerMetadata(BaseModel):
         default=["read", "write"],
         description="Supported OAuth scopes"
     )
+    id_token_signing_alg_values_supported: Optional[List[str]] = Field(
+        default=None,
+        description="Supported JWT signing algorithms for access tokens"
+    )
 
 
 class ClientRegistrationRequest(BaseModel):

@@ -20,30 +20,13 @@ Implements .well-known endpoints required for OAuth 2.1 Dynamic Client Registrat
 
 import logging
 from fastapi import APIRouter
-from ...config import HTTP_HOST, HTTP_PORT, HTTPS_ENABLED, OAUTH_ISSUER
+from ...config import OAUTH_ISSUER, get_jwt_algorithm
 from .models import OAuthServerMetadata
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-
-def get_server_base_url() -> str:
-    """Get the server base URL based on configuration."""
-    scheme = "https" if HTTPS_ENABLED else "http"
-
-    # Handle different host configurations
-    if HTTP_HOST == "0.0.0.0":
-        # Use localhost for well-known endpoints when bound to all interfaces
-        host = "localhost"
-    else:
-        host = HTTP_HOST
-
-    # Only include port if it's not the standard port for the scheme
-    if (scheme == "https" and HTTP_PORT != 443) or (scheme == "http" and HTTP_PORT != 80):
-        return f"{scheme}://{host}:{HTTP_PORT}"
-    else:
-        return f"{scheme}://{host}"
 
 
 @router.get("/.well-known/oauth-authorization-server/mcp")
@@ -58,6 +41,7 @@ async def oauth_authorization_server_metadata() -> OAuthServerMetadata:
 
     # Use OAUTH_ISSUER consistently for both issuer field and endpoint URLs
     # This ensures URL consistency across discovery and JWT token validation
+    algorithm = get_jwt_algorithm()
     metadata = OAuthServerMetadata(
         issuer=OAUTH_ISSUER,
         authorization_endpoint=f"{OAUTH_ISSUER}/oauth/authorize",
@@ -66,7 +50,8 @@ async def oauth_authorization_server_metadata() -> OAuthServerMetadata:
         grant_types_supported=["authorization_code", "client_credentials"],
         response_types_supported=["code"],
         token_endpoint_auth_methods_supported=["client_secret_basic", "client_secret_post"],
-        scopes_supported=["read", "write", "admin"]
+        scopes_supported=["read", "write", "admin"],
+        id_token_signing_alg_values_supported=[algorithm]
     )
 
     logger.debug(f"Returning OAuth metadata: issuer={metadata.issuer}")

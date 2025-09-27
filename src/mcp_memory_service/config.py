@@ -527,11 +527,149 @@ if CONSOLIDATION_ENABLED:
 # OAuth 2.1 Configuration
 OAUTH_ENABLED = safe_get_bool_env('MCP_OAUTH_ENABLED', True)
 
-# Generate a secure secret key if not provided
-OAUTH_SECRET_KEY = os.getenv('MCP_OAUTH_SECRET_KEY')
-if not OAUTH_SECRET_KEY:
-    OAUTH_SECRET_KEY = secrets.token_urlsafe(32)
-    logger.info("Generated random OAuth secret key (set MCP_OAUTH_SECRET_KEY for persistence)")
+# RSA key pair configuration for JWT signing (RS256)
+# Private key for signing tokens
+OAUTH_PRIVATE_KEY = os.getenv('MCP_OAUTH_PRIVATE_KEY')
+# Public key for verifying tokens
+OAUTH_PUBLIC_KEY = os.getenv('MCP_OAUTH_PUBLIC_KEY')
+
+# Generate RSA key pair if not provided
+if not OAUTH_PRIVATE_KEY or not OAUTH_PUBLIC_KEY:
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.backends import default_backend
+
+        # Generate 2048-bit RSA key pair
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+            backend=default_backend()
+        )
+
+        # Serialize private key to PEM format
+        OAUTH_PRIVATE_KEY = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        ).decode('utf-8')
+
+        # Serialize public key to PEM format
+        public_key = private_key.public_key()
+        OAUTH_PUBLIC_KEY = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode('utf-8')
+
+        logger.info("Generated RSA key pair for OAuth JWT signing (set MCP_OAUTH_PRIVATE_KEY and MCP_OAUTH_PUBLIC_KEY for persistence)")
+
+    except ImportError:
+        logger.warning("cryptography package not available, falling back to HS256 symmetric key")
+        # Fallback to symmetric key for HS256
+        OAUTH_SECRET_KEY = os.getenv('MCP_OAUTH_SECRET_KEY')
+        if not OAUTH_SECRET_KEY:
+            OAUTH_SECRET_KEY = secrets.token_urlsafe(32)
+            logger.info("Generated random OAuth secret key (set MCP_OAUTH_SECRET_KEY for persistence)")
+        OAUTH_PRIVATE_KEY = None
+        OAUTH_PUBLIC_KEY = None
+
+# JWT algorithm and key helper functions
+def get_jwt_algorithm() -> str:
+    """Get the JWT algorithm to use based on available keys."""
+    return "RS256" if OAUTH_PRIVATE_KEY and OAUTH_PUBLIC_KEY else "HS256"
+
+def get_jwt_signing_key() -> str:
+    """Get the appropriate key for JWT signing."""
+    if OAUTH_PRIVATE_KEY and OAUTH_PUBLIC_KEY:
+        return OAUTH_PRIVATE_KEY
+    elif hasattr(globals(), 'OAUTH_SECRET_KEY'):
+        return OAUTH_SECRET_KEY
+    else:
+        raise ValueError("No JWT signing key available")
+
+def get_jwt_verification_key() -> str:
+    """Get the appropriate key for JWT verification."""
+    if OAUTH_PRIVATE_KEY and OAUTH_PUBLIC_KEY:
+        return OAUTH_PUBLIC_KEY
+    elif hasattr(globals(), 'OAUTH_SECRET_KEY'):
+        return OAUTH_SECRET_KEY
+    else:
+        raise ValueError("No JWT verification key available")
+
+def validate_oauth_configuration() -> None:
+    """
+    Validate OAuth configuration at startup.
+
+    Raises:
+        ValueError: If OAuth configuration is invalid
+    """
+    if not OAUTH_ENABLED:
+        logger.info("OAuth validation skipped: OAuth disabled")
+        return
+
+    errors = []
+    warnings = []
+
+    # Validate issuer URL
+    if not OAUTH_ISSUER:
+        errors.append("OAuth issuer URL is not configured")
+    elif not OAUTH_ISSUER.startswith(('http://', 'https://')):
+        errors.append(f"OAuth issuer URL must start with http:// or https://: {OAUTH_ISSUER}")
+
+    # Validate JWT configuration
+    try:
+        algorithm = get_jwt_algorithm()
+        logger.debug(f"OAuth JWT algorithm validation: {algorithm}")
+
+        # Test key access
+        signing_key = get_jwt_signing_key()
+        verification_key = get_jwt_verification_key()
+
+        if algorithm == "RS256":
+            if not OAUTH_PRIVATE_KEY or not OAUTH_PUBLIC_KEY:
+                errors.append("RS256 algorithm selected but RSA keys are missing")
+            elif len(signing_key) < 100:  # Basic length check for PEM format
+                warnings.append("RSA private key appears to be too short")
+        elif algorithm == "HS256":
+            if not hasattr(globals(), 'OAUTH_SECRET_KEY') or not OAUTH_SECRET_KEY:
+                errors.append("HS256 algorithm selected but secret key is missing")
+            elif len(signing_key) < 32:  # Basic length check for symmetric key
+                warnings.append("OAuth secret key is shorter than recommended (32+ characters)")
+
+    except Exception as e:
+        errors.append(f"JWT configuration error: {e}")
+
+    # Validate token expiry settings
+    if OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES <= 0:
+        errors.append(f"OAuth access token expiry must be positive: {OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES}")
+    elif OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES > 1440:  # 24 hours
+        warnings.append(f"OAuth access token expiry is very long: {OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES} minutes")
+
+    if OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES <= 0:
+        errors.append(f"OAuth authorization code expiry must be positive: {OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES}")
+    elif OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES > 60:  # 1 hour
+        warnings.append(f"OAuth authorization code expiry is longer than recommended: {OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES} minutes")
+
+    # Validate security settings
+    if "localhost" in OAUTH_ISSUER or "127.0.0.1" in OAUTH_ISSUER:
+        if not os.getenv('MCP_OAUTH_ISSUER'):
+            warnings.append("OAuth issuer contains localhost/127.0.0.1. For production, set MCP_OAUTH_ISSUER to external URL")
+
+    # Check for production readiness
+    if ALLOW_ANONYMOUS_ACCESS:
+        warnings.append("Anonymous access is enabled - consider disabling for production")
+
+    # Log validation results
+    if errors:
+        error_msg = "OAuth configuration validation failed:\n" + "\n".join(f"  - {err}" for err in errors)
+        logger.error(error_msg)
+        raise ValueError(f"Invalid OAuth configuration: {'; '.join(errors)}")
+
+    if warnings:
+        warning_msg = "OAuth configuration warnings:\n" + "\n".join(f"  - {warn}" for warn in warnings)
+        logger.warning(warning_msg)
+
+    logger.info("OAuth configuration validation successful")
 
 # OAuth server configuration
 def get_oauth_issuer() -> str:
@@ -568,6 +706,7 @@ ALLOW_ANONYMOUS_ACCESS = safe_get_bool_env('MCP_ALLOW_ANONYMOUS_ACCESS', False)
 logger.info(f"OAuth enabled: {OAUTH_ENABLED}")
 if OAUTH_ENABLED:
     logger.info(f"OAuth issuer: {OAUTH_ISSUER}")
+    logger.info(f"OAuth JWT algorithm: {get_jwt_algorithm()}")
     logger.info(f"OAuth access token expiry: {OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES} minutes")
     logger.info(f"Anonymous access allowed: {ALLOW_ANONYMOUS_ACCESS}")
 
@@ -577,3 +716,10 @@ if OAUTH_ENABLED:
             "OAuth issuer contains localhost/127.0.0.1. For reverse proxy deployments, "
             "set MCP_OAUTH_ISSUER to the external URL (e.g., 'https://api.example.com')"
         )
+
+    # Validate OAuth configuration at startup
+    try:
+        validate_oauth_configuration()
+    except ValueError as e:
+        logger.error(f"OAuth configuration validation failed: {e}")
+        raise

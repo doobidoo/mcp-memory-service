@@ -22,9 +22,16 @@ import logging
 from typing import Optional, Dict, Any
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError, jwt
+from jose import JWTError, jwt, ExpiredSignatureError
+from jose.jwt import JWTClaimsError
 
-from ...config import OAUTH_SECRET_KEY, OAUTH_ISSUER, API_KEY, ALLOW_ANONYMOUS_ACCESS
+from ...config import (
+    OAUTH_ISSUER,
+    API_KEY,
+    ALLOW_ANONYMOUS_ACCESS,
+    get_jwt_algorithm,
+    get_jwt_verification_key
+)
 from .storage import oauth_storage
 
 logger = logging.getLogger(__name__)
@@ -73,58 +80,155 @@ class AuthenticationResult:
 
 def validate_jwt_token(token: str) -> Optional[Dict[str, Any]]:
     """
-    Validate a JWT access token.
+    Validate a JWT access token with comprehensive error handling.
+
+    Supports both RS256 and HS256 algorithms based on available keys.
+    Provides detailed error logging for debugging purposes.
 
     Returns:
         JWT payload if valid, None if invalid
     """
+    # Input validation
+    if not token or not isinstance(token, str):
+        logger.debug("Invalid token: empty or non-string token provided")
+        return None
+
+    # Basic token format validation
+    token = token.strip()
+    if not token:
+        logger.debug("Invalid token: empty token after stripping")
+        return None
+
+    # JWT tokens should have 3 parts separated by dots
+    parts = token.split('.')
+    if len(parts) != 3:
+        logger.debug(f"Invalid token format: expected 3 parts, got {len(parts)}")
+        return None
+
     try:
+        algorithm = get_jwt_algorithm()
+        verification_key = get_jwt_verification_key()
+
+        logger.debug(f"Validating JWT token with algorithm: {algorithm}")
         payload = jwt.decode(
             token,
-            OAUTH_SECRET_KEY,
-            algorithms=["HS256"],
+            verification_key,
+            algorithms=[algorithm],
             issuer=OAUTH_ISSUER,
             audience="mcp-memory-service"
         )
+
+        # Additional payload validation
+        required_claims = ['sub', 'iss', 'aud', 'exp', 'iat']
+        missing_claims = [claim for claim in required_claims if claim not in payload]
+        if missing_claims:
+            logger.warning(f"JWT token missing required claims: {missing_claims}")
+            return None
+
+        logger.debug(f"JWT validation successful for subject: {payload.get('sub')}")
         return payload
+
+    except ExpiredSignatureError:
+        logger.debug("JWT validation failed: token has expired")
+        return None
+    except JWTClaimsError as e:
+        logger.debug(f"JWT validation failed: invalid claims - {e}")
+        return None
+    except ValueError as e:
+        logger.debug(f"JWT validation failed: configuration error - {e}")
+        return None
     except JWTError as e:
-        logger.debug(f"JWT validation failed: {e}")
+        # Catch-all for other JWT-related errors
+        error_type = type(e).__name__
+        logger.debug(f"JWT validation failed: {error_type} - {e}")
+        return None
+    except Exception as e:
+        # Unexpected errors should be logged but not crash the system
+        error_type = type(e).__name__
+        logger.error(f"Unexpected error during JWT validation: {error_type} - {e}")
         return None
 
 
 async def authenticate_bearer_token(token: str) -> AuthenticationResult:
     """
-    Authenticate using OAuth Bearer token.
+    Authenticate using OAuth Bearer token with comprehensive error handling.
 
     Returns:
         AuthenticationResult with authentication status and details
     """
-    # First, try JWT validation
-    jwt_payload = validate_jwt_token(token)
-    if jwt_payload:
-        client_id = jwt_payload.get("sub")
-        scope = jwt_payload.get("scope", "")
-
-        logger.debug(f"JWT authentication successful: client_id={client_id}, scope={scope}")
+    # Input validation
+    if not token or not isinstance(token, str):
+        logger.debug("Bearer token authentication failed: invalid token input")
         return AuthenticationResult(
-            authenticated=True,
-            client_id=client_id,
-            scope=scope,
-            auth_method="oauth"
+            authenticated=False,
+            auth_method="oauth",
+            error="invalid_token"
         )
 
-    # Fallback: check if token is stored in OAuth storage
-    token_data = await oauth_storage.get_access_token(token)
-    if token_data:
-        logger.debug(f"OAuth storage authentication successful: client_id={token_data['client_id']}")
+    token = token.strip()
+    if not token:
+        logger.debug("Bearer token authentication failed: empty token")
         return AuthenticationResult(
-            authenticated=True,
-            client_id=token_data["client_id"],
-            scope=token_data.get("scope", ""),
-            auth_method="oauth"
+            authenticated=False,
+            auth_method="oauth",
+            error="invalid_token"
         )
 
-    logger.debug("Bearer token authentication failed")
+    try:
+        # First, try JWT validation
+        jwt_payload = validate_jwt_token(token)
+        if jwt_payload:
+            client_id = jwt_payload.get("sub")
+            scope = jwt_payload.get("scope", "")
+
+            # Validate client_id is present
+            if not client_id:
+                logger.warning("JWT authentication failed: missing client_id in token payload")
+                return AuthenticationResult(
+                    authenticated=False,
+                    auth_method="oauth",
+                    error="invalid_token"
+                )
+
+            logger.debug(f"JWT authentication successful: client_id={client_id}, scope={scope}")
+            return AuthenticationResult(
+                authenticated=True,
+                client_id=client_id,
+                scope=scope,
+                auth_method="oauth"
+            )
+
+        # Fallback: check if token is stored in OAuth storage
+        token_data = await oauth_storage.get_access_token(token)
+        if token_data:
+            client_id = token_data.get("client_id")
+            if not client_id:
+                logger.warning("OAuth storage authentication failed: missing client_id in stored token")
+                return AuthenticationResult(
+                    authenticated=False,
+                    auth_method="oauth",
+                    error="invalid_token"
+                )
+
+            logger.debug(f"OAuth storage authentication successful: client_id={client_id}")
+            return AuthenticationResult(
+                authenticated=True,
+                client_id=client_id,
+                scope=token_data.get("scope", ""),
+                auth_method="oauth"
+            )
+
+    except Exception as e:
+        # Catch any unexpected errors during authentication
+        error_type = type(e).__name__
+        logger.error(f"Unexpected error during bearer token authentication: {error_type} - {e}")
+        return AuthenticationResult(
+            authenticated=False,
+            auth_method="oauth",
+            error="server_error"
+        )
+
+    logger.debug("Bearer token authentication failed: token not found or invalid")
     return AuthenticationResult(
         authenticated=False,
         auth_method="oauth",
@@ -134,12 +238,40 @@ async def authenticate_bearer_token(token: str) -> AuthenticationResult:
 
 def authenticate_api_key(api_key: str) -> AuthenticationResult:
     """
-    Authenticate using legacy API key.
+    Authenticate using legacy API key with enhanced validation.
 
     Returns:
         AuthenticationResult with authentication status
     """
-    if API_KEY and api_key == API_KEY:
+    # Input validation
+    if not api_key or not isinstance(api_key, str):
+        logger.debug("API key authentication failed: invalid input")
+        return AuthenticationResult(
+            authenticated=False,
+            auth_method="api_key",
+            error="invalid_api_key"
+        )
+
+    api_key = api_key.strip()
+    if not api_key:
+        logger.debug("API key authentication failed: empty key")
+        return AuthenticationResult(
+            authenticated=False,
+            auth_method="api_key",
+            error="invalid_api_key"
+        )
+
+    # Check if API key is configured
+    if not API_KEY:
+        logger.debug("API key authentication failed: no API key configured")
+        return AuthenticationResult(
+            authenticated=False,
+            auth_method="api_key",
+            error="api_key_not_configured"
+        )
+
+    # Validate API key
+    if api_key == API_KEY:
         logger.debug("API key authentication successful")
         return AuthenticationResult(
             authenticated=True,
@@ -148,7 +280,7 @@ def authenticate_api_key(api_key: str) -> AuthenticationResult:
             auth_method="api_key"
         )
 
-    logger.debug("API key authentication failed")
+    logger.debug("API key authentication failed: key mismatch")
     return AuthenticationResult(
         authenticated=False,
         auth_method="api_key",
