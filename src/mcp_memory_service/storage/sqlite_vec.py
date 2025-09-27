@@ -1476,15 +1476,10 @@ SOLUTIONS:
         try:
             content_hash, content, tags_str, memory_type, metadata_str, created_at, updated_at, created_at_iso, updated_at_iso = row
             
-            # Parse tags
+            # Parse tags (stored as comma-separated string)
             tags = []
             if tags_str:
-                try:
-                    tags = json.loads(tags_str)
-                    if not isinstance(tags, list):
-                        tags = []
-                except json.JSONDecodeError:
-                    tags = []
+                tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()]
             
             # Parse metadata
             metadata = {}
