@@ -3804,12 +3804,20 @@ Memories Archived: {report.memories_archived}"""
             logger.info(f"Starting document ingestion: {file_path}")
             start_time = time.time()
             
-            # Get appropriate document loader
-            loader = get_loader_for_file(file_path)
-            if loader is None:
+            # Validate file exists and get appropriate document loader
+            if not file_path.exists():
                 return [types.TextContent(
                     type="text",
-                    text=f"Error: Unsupported file format: {file_path.suffix}"
+                    text=f"Error: File not found: {file_path.resolve()}"
+                )]
+
+            loader = get_loader_for_file(file_path)
+            if loader is None:
+                from .ingestion import SUPPORTED_FORMATS
+                supported_exts = ", ".join(f".{ext}" for ext in SUPPORTED_FORMATS.keys())
+                return [types.TextContent(
+                    type="text",
+                    text=f"Error: Unsupported file format: {file_path.suffix}. Supported formats: {supported_exts}"
                 )]
             
             # Configure loader
