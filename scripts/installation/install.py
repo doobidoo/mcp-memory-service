@@ -1331,7 +1331,7 @@ def install_claude_hooks(args, system_info):
         if not claude_available:
             print_warning("Claude Code CLI not found")
             print_info("You can install hooks manually later using:")
-            print_info("  cd claude-hooks && ./install.sh")
+            print_info("  cd claude-hooks && python install_hooks.py --basic")
             return
 
         print_info("Claude Code CLI detected")

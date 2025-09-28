@@ -76,7 +76,16 @@
       "Bash(export MCP_API_KEY=\"test-key-123\")",
       "Bash(curl:*)",
       "Read(${HOME}/mcp-context-provider/contexts/**)",
-      "Read(${HOME}/mcp-context-provider/**)"
+      "Read(${HOME}/mcp-context-provider/**)",
+      "Bash(cat:*)",
+      "Bash(git rebase:*)",
+      "Bash(./install.sh:*)",
+      "Bash(grep:*)",
+      "Bash(for file in /home/hkr/Repositories/mcp-memory-service/install.py /home/hkr/Repositories/mcp-memory-service/scripts/installation/install.py /home/hkr/Repositories/mcp-memory-service/install_service.py)",
+      "Bash(head:*)",
+      "Bash(done)",
+      "Bash(chmod:*)",
+      "Bash(git rm:*)"
     ],
     "deny": [],
     "ask": [],

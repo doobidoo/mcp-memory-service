@@ -6,8 +6,15 @@ Automatic memory awareness and intelligent context injection for Claude Code usi
 
 ```bash
 cd claude-hooks
-./install.sh
+
+# Install Natural Memory Triggers v7.1.3 (recommended)
+python install_hooks.py --natural-triggers
+
+# OR install basic memory awareness hooks
+python install_hooks.py --basic
 ```
+
+> **Note**: The unified Python installer replaces all previous installers and provides cross-platform compatibility with enhanced features. See [MIGRATION.md](MIGRATION.md) for details.
 
 This installs hooks that automatically:
 - Load relevant project memories when Claude Code starts
