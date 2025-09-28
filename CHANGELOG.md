@@ -4,6 +4,60 @@ All notable changes to the MCP Memory Service project will be documented in this
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.1.4] - 2025-09-28
+
+### 🚀 **Major Feature: Unified Cross-Platform Hook Installer**
+
+- **NEW: Single Python installer replaces 4+ platform-specific scripts**
+  - Consolidated `install.sh`, `install-natural-triggers.sh`, `install_claude_hooks_windows.bat` into unified `install_hooks.py`
+  - Full cross-platform compatibility (Windows, macOS, Linux)
+  - Intelligent JSON configuration merging preserves existing Claude Code hooks
+  - Dynamic path resolution eliminates hardcoded developer paths
+  - Atomic installations with automatic rollback on failure
+
+- **Enhanced Safety & User Experience**
+  - Smart settings.json merging prevents configuration loss
+  - Comprehensive backup system with timestamped restore points
+  - Empty directory cleanup for proper uninstall process
+  - Dry-run support for safe testing before installation
+  - Enhanced error handling with detailed user feedback
+
+- **Natural Memory Triggers v7.1.3 Integration**
+  - Advanced trigger detection with 85%+ accuracy
+  - Multi-tier performance optimization (50ms/150ms/500ms)
+  - Mid-conversation memory injection
+  - CLI management tools for real-time configuration
+  - Git-aware context and repository integration
+
+### 🔧 **Installation Commands Updated**
+```bash
+# New unified installation (replaces all previous methods)
+cd claude-hooks
+python install_hooks.py --natural-triggers  # Recommended
+python install_hooks.py --basic             # Basic hooks only
+python install_hooks.py --all              # Everything
+
+# Integrated with main installer
+python scripts/installation/install.py --install-natural-triggers
+```
+
+### 📋 **Migration & Documentation**
+- Added comprehensive `claude-hooks/MIGRATION.md` with transition guide
+- Updated README.md installation instructions
+- Legacy shell scripts removed (eliminates security and compatibility issues)
+- Clear upgrade path for existing users
+
+### 🛠 **Technical Improvements**
+- Addressed all Gemini Code Assist review feedback
+- Enhanced cross-platform path handling with proper quoting
+- Improved integration between main installer and hook installer
+- Professional CLI interface with consistent options across platforms
+
+### ⚠️ **Breaking Changes**
+- Legacy shell installers (`install.sh`, `install-natural-triggers.sh`) removed
+- Installation commands updated - see `claude-hooks/MIGRATION.md` for details
+- Users must switch to unified Python installer for future installations
+
 ## [7.1.3] - 2025-09-28
 
 ### 🚨 **SECURITY FIX**
