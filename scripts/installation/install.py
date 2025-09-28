@@ -1321,6 +1321,85 @@ def verify_installation():
         print_error("MCP Memory Service is not installed correctly")
         return False
 
+def install_claude_hooks(args, system_info):
+    """Install Claude Code memory awareness hooks."""
+    print_step("5", "Installing Claude Code Memory Awareness Hooks")
+
+    try:
+        # Check if Claude Code is available
+        claude_available = shutil.which("claude") is not None
+        if not claude_available:
+            print_warning("Claude Code CLI not found")
+            print_info("You can install hooks manually later using:")
+            print_info("  cd claude-hooks && ./install.sh")
+            return
+
+        print_info("Claude Code CLI detected")
+
+        # Determine which installer to use
+        claude_hooks_dir = Path(__file__).parent.parent.parent / "claude-hooks"
+
+        if args.install_natural_triggers:
+            print_info("Installing Natural Memory Triggers v7.1.3...")
+            installer_script = claude_hooks_dir / "install-natural-triggers.sh"
+
+            if not installer_script.exists():
+                print_error("Natural Memory Triggers installer not found")
+                print_info("Falling back to standard hooks installation")
+                installer_script = claude_hooks_dir / "install.sh"
+        else:
+            print_info("Installing standard memory awareness hooks...")
+            installer_script = claude_hooks_dir / "install.sh"
+
+        if not installer_script.exists():
+            print_error("Hook installer not found at expected location")
+            print_info("Please install hooks manually:")
+            print_info(f"  cd {claude_hooks_dir} && ./install.sh")
+            return
+
+        # Make installer executable
+        installer_script.chmod(0o755)
+
+        # Run the installer
+        print_info(f"Running hook installer: {installer_script}")
+        result = subprocess.run(
+            [str(installer_script)],
+            cwd=str(claude_hooks_dir),
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode == 0:
+            print_success("Claude Code memory awareness hooks installed successfully")
+            if args.install_natural_triggers:
+                print_info("✅ Natural Memory Triggers v7.1.3 enabled")
+                print_info("✅ Intelligent trigger detection with 85%+ accuracy")
+                print_info("✅ Multi-tier performance optimization")
+                print_info("✅ CLI management tools available")
+                print_info("")
+                print_info("Manage Natural Memory Triggers:")
+                print_info("  node ~/.claude/hooks/memory-mode-controller.js status")
+                print_info("  node ~/.claude/hooks/memory-mode-controller.js profile balanced")
+            else:
+                print_info("✅ Standard memory awareness hooks enabled")
+                print_info("✅ Session-start and session-end hooks active")
+        else:
+            print_warning("Hook installation completed with warnings")
+            if result.stdout:
+                print_info("Installer output:")
+                print_info(result.stdout)
+            if result.stderr:
+                print_warning("Installer warnings:")
+                print_warning(result.stderr)
+
+    except Exception as e:
+        print_warning(f"Failed to install hooks automatically: {e}")
+        print_info("You can install hooks manually later using:")
+        print_info("  cd claude-hooks && ./install.sh")
+        if args.install_natural_triggers:
+            print_info("For Natural Memory Triggers:")
+            print_info("  cd claude-hooks && ./install-natural-triggers.sh")
+
 def main():
     """Main installation function."""
     parser = argparse.ArgumentParser(description="Install MCP Memory Service")
@@ -1337,6 +1416,10 @@ def main():
                         help='Skip PyTorch installation and use ONNX runtime with SQLite-vec backend instead')
     parser.add_argument('--use-homebrew-pytorch', action='store_true',
                         help='Use existing Homebrew PyTorch installation instead of pip version')
+    parser.add_argument('--install-hooks', action='store_true',
+                        help='Install Claude Code memory awareness hooks after main installation')
+    parser.add_argument('--install-natural-triggers', action='store_true',
+                        help='Install Natural Memory Triggers v7.1.3 (requires Claude Code)')
     args = parser.parse_args()
     
     print_header("MCP Memory Service Installation")
@@ -1459,6 +1542,10 @@ def main():
         print_info("   • Reduced dependencies for better compatibility")
     
     print_info("For more information, see the README.md file")
+
+    # Install hooks if requested
+    if args.install_hooks or args.install_natural_triggers:
+        install_claude_hooks(args, system_info)
     
     # Print macOS Intel specific information if applicable
     if system_info["is_macos"] and system_info["is_x86"]:
@@ -1489,6 +1576,8 @@ def main():
         print_info("- To completely skip PyTorch installation, use: --skip-pytorch")
         print_info("- To force the SQLite-vec backend, use: --storage-backend sqlite_vec")
         print_info("- For a quick test, try running: python test_memory.py")
+        print_info("- To install Claude Code hooks: --install-hooks")
+        print_info("- To install Natural Memory Triggers: --install-natural-triggers")
 
 if __name__ == "__main__":
     main()

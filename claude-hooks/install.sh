@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Claude Code Memory Awareness Hooks - Installation Script v2.2.0
-# Installs hooks into Claude Code hooks directory for automatic memory awareness
-# Enhanced Output Control and Session Management
+# Claude Code Memory Awareness Hooks - Installation Script v7.1.3
+# Installs v7.1.3 enhanced hooks with Natural Memory Triggers, Mid-conversation hooks, and Performance Profiles
+# Supports automatic memory awareness with intelligent trigger detection
 
 set -e
 
-echo "🚀 Claude Code Memory Awareness Hooks Installation v2.2.0"
+echo "🚀 Claude Code Memory Awareness Hooks Installation v7.1.3"
 echo "========================================================"
 
 # Enhanced Claude Code directory detection
@@ -133,26 +133,64 @@ install_hooks() {
     mkdir -p "$CLAUDE_HOOKS_DIR/utilities"
     mkdir -p "$CLAUDE_HOOKS_DIR/tests"
     
-    # Copy core hooks
+    # Copy core hooks (v7.1.3 enhanced)
     cp "$SOURCE_DIR/core/session-start.js" "$CLAUDE_HOOKS_DIR/core/"
     cp "$SOURCE_DIR/core/session-end.js" "$CLAUDE_HOOKS_DIR/core/"
     cp "$SOURCE_DIR/core/memory-retrieval.js" "$CLAUDE_HOOKS_DIR/core/"
-    info "✅ Installed core hooks (session-start, session-end, memory-retrieval)"
+    cp "$SOURCE_DIR/core/mid-conversation.js" "$CLAUDE_HOOKS_DIR/core/"
+    cp "$SOURCE_DIR/core/topic-change.js" "$CLAUDE_HOOKS_DIR/core/"
+    info "✅ Installed core hooks (session-start, session-end, memory-retrieval, mid-conversation, topic-change)"
     
-    # Copy utilities
+    # Copy utilities (v7.1.3 enhanced)
     cp "$SOURCE_DIR/utilities/project-detector.js" "$CLAUDE_HOOKS_DIR/utilities/"
     cp "$SOURCE_DIR/utilities/memory-scorer.js" "$CLAUDE_HOOKS_DIR/utilities/"
     cp "$SOURCE_DIR/utilities/context-formatter.js" "$CLAUDE_HOOKS_DIR/utilities/"
     cp "$SOURCE_DIR/utilities/context-shift-detector.js" "$CLAUDE_HOOKS_DIR/utilities/"
-    info "✅ Installed utility modules (project-detector, memory-scorer, context-formatter, context-shift-detector)"
+    cp "$SOURCE_DIR/utilities/conversation-analyzer.js" "$CLAUDE_HOOKS_DIR/utilities/"
+    cp "$SOURCE_DIR/utilities/dynamic-context-updater.js" "$CLAUDE_HOOKS_DIR/utilities/"
+    cp "$SOURCE_DIR/utilities/session-tracker.js" "$CLAUDE_HOOKS_DIR/utilities/"
+    cp "$SOURCE_DIR/utilities/git-analyzer.js" "$CLAUDE_HOOKS_DIR/utilities/"
+    info "✅ Installed legacy utility modules"
+
+    # Copy v7.1.3 enhanced utilities
+    cp "$SOURCE_DIR/utilities/adaptive-pattern-detector.js" "$CLAUDE_HOOKS_DIR/utilities/"
+    cp "$SOURCE_DIR/utilities/tiered-conversation-monitor.js" "$CLAUDE_HOOKS_DIR/utilities/"
+    cp "$SOURCE_DIR/utilities/performance-manager.js" "$CLAUDE_HOOKS_DIR/utilities/"
+    cp "$SOURCE_DIR/utilities/mcp-client.js" "$CLAUDE_HOOKS_DIR/utilities/"
+    cp "$SOURCE_DIR/utilities/memory-client.js" "$CLAUDE_HOOKS_DIR/utilities/"
+    info "✅ Installed v7.1.3 enhanced utilities (adaptive-pattern-detector, performance-manager, mcp-client, memory-client)"
     
     # Copy tests
     cp "$SOURCE_DIR/tests/integration-test.js" "$CLAUDE_HOOKS_DIR/tests/"
     info "✅ Installed test suite"
+
+    # Copy v7.1.3 test files
+    if [ -f "$SOURCE_DIR/test-natural-triggers.js" ]; then
+        cp "$SOURCE_DIR/test-natural-triggers.js" "$CLAUDE_HOOKS_DIR/"
+        info "✅ Installed natural triggers test"
+    fi
+    if [ -f "$SOURCE_DIR/test-mcp-hook.js" ]; then
+        cp "$SOURCE_DIR/test-mcp-hook.js" "$CLAUDE_HOOKS_DIR/"
+        info "✅ Installed MCP hook test"
+    fi
+    if [ -f "$SOURCE_DIR/test-dual-protocol-hook.js" ]; then
+        cp "$SOURCE_DIR/test-dual-protocol-hook.js" "$CLAUDE_HOOKS_DIR/"
+        info "✅ Installed dual protocol test"
+    fi
     
     # Copy documentation
     cp "$SOURCE_DIR/README.md" "$CLAUDE_HOOKS_DIR/"
     info "✅ Installed documentation"
+
+    # Copy additional v7.1.3 management tools
+    if [ -f "$SOURCE_DIR/memory-mode-controller.js" ]; then
+        cp "$SOURCE_DIR/memory-mode-controller.js" "$CLAUDE_HOOKS_DIR/"
+        info "✅ Installed memory mode controller (CLI management)"
+    fi
+    if [ -f "$SOURCE_DIR/debug-pattern-test.js" ]; then
+        cp "$SOURCE_DIR/debug-pattern-test.js" "$CLAUDE_HOOKS_DIR/"
+        info "✅ Installed debug pattern test"
+    fi
 }
 
 # Install or update configuration
@@ -185,7 +223,7 @@ configure_claude_settings() {
     # Create .claude directory if it doesn't exist
     mkdir -p "${HOME}/.claude"
     
-    # Hook configuration for Claude Code
+    # Hook configuration for Claude Code v7.1.3
     local hook_config='{
   "hooks": {
     "SessionStart": [
@@ -195,6 +233,17 @@ configure_claude_settings() {
             "type": "command",
             "command": "node ~/.claude/hooks/core/session-start.js",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/core/mid-conversation.js",
+            "timeout": 8
           }
         ]
       }
@@ -244,13 +293,18 @@ configure_claude_settings() {
 test_installation() {
     info "Testing installation..."
     
-    # Check if required files exist
+    # Check if required files exist (v7.1.3)
     local required_files=(
         "core/session-start.js"
         "core/session-end.js"
+        "core/mid-conversation.js"
         "utilities/project-detector.js"
         "utilities/memory-scorer.js"
         "utilities/context-formatter.js"
+        "utilities/adaptive-pattern-detector.js"
+        "utilities/performance-manager.js"
+        "utilities/mcp-client.js"
+        "utilities/memory-client.js"
         "config.json"
         "README.md"
     )
@@ -294,11 +348,23 @@ test_installation() {
     if [ -f "$CLAUDE_HOOKS_DIR/tests/integration-test.js" ]; then
         info "Running integration tests..."
         cd "$CLAUDE_HOOKS_DIR"
-        
+
         if node tests/integration-test.js; then
             info "✅ Integration tests passed"
         else
             warn "⚠️  Some integration tests failed - check configuration"
+        fi
+    fi
+
+    # Run v7.1.3 specific tests
+    if [ -f "$CLAUDE_HOOKS_DIR/test-natural-triggers.js" ]; then
+        info "Running natural triggers tests..."
+        cd "$CLAUDE_HOOKS_DIR"
+
+        if node test-natural-triggers.js; then
+            info "✅ Natural triggers tests passed"
+        else
+            warn "⚠️  Natural triggers tests failed - check v7.1.3 components"
         fi
     fi
     
