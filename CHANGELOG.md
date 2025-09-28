@@ -4,6 +4,16 @@ All notable changes to the MCP Memory Service project will be documented in this
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.1.2] - 2025-09-28
+
+### 🔧 **Improvements**
+
+- **Stop tracking personal Claude settings to prevent merge conflicts** - Added `.claude/settings.local.json*` patterns to `.gitignore`:
+  - Prevents future tracking of personal configuration files
+  - Uses `--skip-worktree` to ignore local changes to existing tracked files
+  - Protects user privacy and eliminates merge conflicts
+  - Preserves existing user configurations while fixing repository hygiene (Fixes #118)
+
 ## [7.1.1] - 2025-09-28
 
 ### 🐛 **Bug Fixes**

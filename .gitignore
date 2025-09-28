@@ -122,6 +122,10 @@ YOUR_PERSONALIZED_SETUP_GUIDE.md
 CLAUDE_MEMORY.md
 *_reference_memories_*.json
 
+# Claude Code local settings (personal configurations)
+.claude/settings.local.json*
+scripts/.claude/settings.local.json*
+
 # Personal files
 CLAUDE_PERSONALIZED.md
 SESSION_MEMORY_2025-08-11.md
