@@ -372,7 +372,7 @@ class HookInstaller:
                             "hooks": [
                                 {
                                     "type": "command",
-                                    "command": f"node {self.claude_hooks_dir}/core/session-start.js",
+                                    "command": f'node "{self.claude_hooks_dir}/core/session-start.js"',
                                     "timeout": 10
                                 }
                             ]
@@ -383,7 +383,7 @@ class HookInstaller:
                             "hooks": [
                                 {
                                     "type": "command",
-                                    "command": f"node {self.claude_hooks_dir}/core/session-end.js",
+                                    "command": f'node "{self.claude_hooks_dir}/core/session-end.js"',
                                     "timeout": 15
                                 }
                             ]
@@ -399,27 +399,81 @@ class HookInstaller:
                         "hooks": [
                             {
                                 "type": "command",
-                                "command": f"node {self.claude_hooks_dir}/core/mid-conversation.js",
+                                "command": f'node "{self.claude_hooks_dir}/core/mid-conversation.js"',
                                 "timeout": 8
                             }
                         ]
                     }
                 ]
 
-            # Handle existing settings
+            # Handle existing settings with intelligent merging
+            final_config = hook_config
             if settings_file.exists():
                 # Backup existing settings
                 backup_settings = settings_file.with_suffix('.json.backup')
                 shutil.copy2(settings_file, backup_settings)
                 self.info("Existing settings.json backed up")
 
-                # For now, replace hooks section (in production, we'd merge properly)
-                self.warn("Existing settings.json hooks section will be replaced")
-                self.warn(f"Backup available: {backup_settings}")
+                try:
+                    # Load existing settings
+                    with open(settings_file, 'r') as f:
+                        existing_settings = json.load(f)
 
-            # Write new settings
+                    # Intelligent merging: preserve existing hooks while adding/updating memory awareness hooks
+                    if 'hooks' not in existing_settings:
+                        existing_settings['hooks'] = {}
+
+                    # Check for conflicts and merge intelligently
+                    memory_hook_types = {'SessionStart', 'SessionEnd', 'UserPromptSubmit'}
+                    conflicts = []
+
+                    for hook_type in memory_hook_types:
+                        if hook_type in existing_settings['hooks'] and hook_type in hook_config['hooks']:
+                            # Check if existing hook is different from our memory awareness hook
+                            existing_commands = [
+                                hook.get('command', '') for hooks_group in existing_settings['hooks'][hook_type]
+                                for hook in hooks_group.get('hooks', [])
+                            ]
+                            memory_commands = [
+                                hook.get('command', '') for hooks_group in hook_config['hooks'][hook_type]
+                                for hook in hooks_group.get('hooks', [])
+                            ]
+
+                            # Check if any existing command contains memory hook
+                            is_memory_hook = any('session-start.js' in cmd or 'session-end.js' in cmd or 'mid-conversation.js' in cmd
+                                               for cmd in existing_commands)
+
+                            if not is_memory_hook:
+                                conflicts.append(hook_type)
+
+                    if conflicts:
+                        self.warn(f"Found existing non-memory hooks for: {', '.join(conflicts)}")
+                        self.warn("Memory awareness hooks will be added alongside existing hooks")
+
+                        # Add memory hooks alongside existing ones
+                        for hook_type in hook_config['hooks']:
+                            if hook_type in existing_settings['hooks']:
+                                existing_settings['hooks'][hook_type].extend(hook_config['hooks'][hook_type])
+                            else:
+                                existing_settings['hooks'][hook_type] = hook_config['hooks'][hook_type]
+                    else:
+                        # No conflicts, safe to update memory awareness hooks
+                        existing_settings['hooks'].update(hook_config['hooks'])
+                        self.info("Updated memory awareness hooks without conflicts")
+
+                    final_config = existing_settings
+                    self.success("Settings merged intelligently, preserving existing configuration")
+
+                except json.JSONDecodeError as e:
+                    self.warn(f"Existing settings.json invalid, using backup and creating new: {e}")
+                    final_config = hook_config
+                except Exception as e:
+                    self.warn(f"Error merging settings, creating new configuration: {e}")
+                    final_config = hook_config
+
+            # Write final configuration
             with open(settings_file, 'w') as f:
-                json.dump(hook_config, f, indent=2)
+                json.dump(final_config, f, indent=2)
 
             self.success("Claude Code settings configured successfully")
             return True
@@ -514,6 +568,51 @@ class HookInstaller:
 
         return success
 
+    def _cleanup_empty_directories(self) -> None:
+        """Remove empty directories after uninstall."""
+        try:
+            # Directories to check for cleanup (in reverse order to handle nested structure)
+            directories_to_check = [
+                self.claude_hooks_dir / "core",
+                self.claude_hooks_dir / "utilities",
+                self.claude_hooks_dir / "tests"
+            ]
+
+            for directory in directories_to_check:
+                if directory.exists() and directory.is_dir():
+                    try:
+                        # Check if directory is empty (no files, only empty subdirectories allowed)
+                        items = list(directory.iterdir())
+                        if not items:
+                            # Directory is completely empty
+                            directory.rmdir()
+                            self.info(f"Removed empty directory: {directory.name}/")
+                        else:
+                            # Check if it only contains empty subdirectories
+                            all_empty = True
+                            for item in items:
+                                if item.is_file():
+                                    all_empty = False
+                                    break
+                                elif item.is_dir() and list(item.iterdir()):
+                                    all_empty = False
+                                    break
+
+                            if all_empty:
+                                # Remove empty subdirectories first
+                                for item in items:
+                                    if item.is_dir():
+                                        item.rmdir()
+                                # Then remove the parent directory
+                                directory.rmdir()
+                                self.info(f"Removed empty directory tree: {directory.name}/")
+                    except OSError:
+                        # Directory not empty or permission issue, skip silently
+                        pass
+
+        except Exception as e:
+            self.warn(f"Could not cleanup empty directories: {e}")
+
     def uninstall(self) -> bool:
         """Remove installed hooks."""
         self.info("Uninstalling Claude Code memory awareness hooks...")
@@ -559,7 +658,10 @@ class HookInstaller:
                 # We'll keep config files by default since they may have user customizations
                 self.info("Configuration files preserved (contains user customizations)")
 
-            self.success(f"Removed {removed_count} hook files")
+            # Clean up empty directories
+            self._cleanup_empty_directories()
+
+            self.success(f"Removed {removed_count} hook files and cleaned up empty directories")
             return True
 
         except Exception as e:

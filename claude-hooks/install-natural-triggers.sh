@@ -187,11 +187,16 @@ configure_natural_triggers() {
         cp "$SOURCE_DIR/config.json" "$config_file"
         success "Installed Natural Memory Triggers configuration"
 
-        # Update paths for current system
+        # Update paths for current system - use dynamic repository root detection
+        REPO_ROOT="$(cd "$(dirname "$SOURCE_DIR")" && pwd)"
         if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            sed -i "s|/Users/hkr/Documents/GitHub/mcp-memory-service|$(dirname "$SOURCE_DIR")|g" "$config_file"
+            sed -i "s|{{REPO_ROOT_PLACEHOLDER}}|$REPO_ROOT|g" "$config_file"
+            # Also handle legacy hardcoded paths for backward compatibility
+            sed -i "s|/Users/hkr/Documents/GitHub/mcp-memory-service|$REPO_ROOT|g" "$config_file"
         elif [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' "s|/Users/hkr/Documents/GitHub/mcp-memory-service|$(dirname "$SOURCE_DIR")|g" "$config_file"
+            sed -i '' "s|{{REPO_ROOT_PLACEHOLDER}}|$REPO_ROOT|g" "$config_file"
+            # Also handle legacy hardcoded paths for backward compatibility
+            sed -i '' "s|/Users/hkr/Documents/GitHub/mcp-memory-service|$REPO_ROOT|g" "$config_file"
         fi
 
         success "Updated configuration paths for current system"

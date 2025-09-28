@@ -18,7 +18,7 @@
         "-s",
         "cloudflare"
       ],
-      "serverWorkingDir": "/Users/hkr/Documents/GitHub/mcp-memory-service",
+      "serverWorkingDir": "{{REPO_ROOT_PLACEHOLDER}}",
       "connectionTimeout": 5000,
       "toolCallTimeout": 10000
     },
