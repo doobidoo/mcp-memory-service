@@ -1336,34 +1336,28 @@ def install_claude_hooks(args, system_info):
 
         print_info("Claude Code CLI detected")
 
-        # Determine which installer to use
+        # Use unified Python installer for cross-platform compatibility
         claude_hooks_dir = Path(__file__).parent.parent.parent / "claude-hooks"
+        unified_installer = claude_hooks_dir / "install_hooks.py"
 
-        if args.install_natural_triggers:
-            print_info("Installing Natural Memory Triggers v7.1.3...")
-            installer_script = claude_hooks_dir / "install-natural-triggers.sh"
-
-            if not installer_script.exists():
-                print_error("Natural Memory Triggers installer not found")
-                print_info("Falling back to standard hooks installation")
-                installer_script = claude_hooks_dir / "install.sh"
-        else:
-            print_info("Installing standard memory awareness hooks...")
-            installer_script = claude_hooks_dir / "install.sh"
-
-        if not installer_script.exists():
-            print_error("Hook installer not found at expected location")
-            print_info("Please install hooks manually:")
-            print_info(f"  cd {claude_hooks_dir} && ./install.sh")
+        if not unified_installer.exists():
+            print_error("Unified hook installer not found at expected location")
+            print_info("Please ensure the unified installer is available:")
+            print_info(f"  Expected: {unified_installer}")
             return
 
-        # Make installer executable
-        installer_script.chmod(0o755)
+        # Prepare installer command with appropriate options
+        if args.install_natural_triggers:
+            print_info("Installing Natural Memory Triggers v7.1.3...")
+            installer_cmd = [sys.executable, str(unified_installer), "--natural-triggers"]
+        else:
+            print_info("Installing standard memory awareness hooks...")
+            installer_cmd = [sys.executable, str(unified_installer), "--basic"]
 
-        # Run the installer
-        print_info(f"Running hook installer: {installer_script}")
+        # Run the unified Python installer
+        print_info(f"Running unified hook installer: {unified_installer.name}")
         result = subprocess.run(
-            [str(installer_script)],
+            installer_cmd,
             cwd=str(claude_hooks_dir),
             capture_output=True,
             text=True
@@ -1394,11 +1388,11 @@ def install_claude_hooks(args, system_info):
 
     except Exception as e:
         print_warning(f"Failed to install hooks automatically: {e}")
-        print_info("You can install hooks manually later using:")
-        print_info("  cd claude-hooks && ./install.sh")
+        print_info("You can install hooks manually later using the unified installer:")
+        print_info("  cd claude-hooks && python install_hooks.py --basic")
         if args.install_natural_triggers:
             print_info("For Natural Memory Triggers:")
-            print_info("  cd claude-hooks && ./install-natural-triggers.sh")
+            print_info("  cd claude-hooks && python install_hooks.py --natural-triggers")
 
 def main():
     """Main installation function."""
