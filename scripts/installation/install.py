@@ -1133,15 +1133,14 @@ def install_package(args):
                 print_info("Installing core dependencies except ML libraries...")
                 
                 # Create a list of dependencies to install
+                # Note: mcp and tokenizers are already in core dependencies
                 dependencies = [
-                    "mcp>=1.0.0,<2.0.0",
-                    "onnxruntime>=1.14.1"  # ONNX runtime is required
+                    "onnxruntime>=1.14.1"  # ONNX runtime for lightweight embeddings
                 ]
-                
-                # Add backend-specific dependencies (sqlite-vec is already in core)
+
+                # Add backend-specific dependencies (sqlite-vec, mcp, tokenizers are already in core)
                 if args.with_chromadb:
                     dependencies.append("chromadb==0.5.23")
-                    dependencies.append("tokenizers==0.20.3")
                 
                 # Install dependencies
                 cmd = [sys.executable, '-m', 'pip', 'install'] + dependencies

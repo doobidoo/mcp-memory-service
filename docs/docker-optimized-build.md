@@ -11,26 +11,26 @@ The MCP Memory Service Docker images have been optimized to use **sqlite_vec** a
 
 ## Building Docker Images
 
-### Standard Build (SQLite-vec with ONNX embeddings)
+### Standard Build (Optimized Default)
 
 ```bash
-# Build the optimized image (default: sqlite-vec + ONNX)
+# Build the optimized image with lightweight embeddings
 docker build -f tools/docker/Dockerfile -t mcp-memory-service:latest .
 
 # Or use docker-compose
 docker-compose -f tools/docker/docker-compose.yml build
 ```
 
-**Includes**: SQLite-vec (core) + ONNX Runtime (~100MB dependencies)
+**Includes**: SQLite-vec + ONNX Runtime for embeddings (~100MB total dependencies)
 
-### Slim Build (Ultra-lightweight, minimal dependencies)
+### Slim Build (Minimal Installation)
 
 ```bash
-# Build the slim image (absolute minimum dependencies)
+# Build the slim image without ML capabilities
 docker build -f tools/docker/Dockerfile.slim -t mcp-memory-service:slim .
 ```
 
-**Includes**: Base dependencies only (~50MB dependencies)
+**Includes**: Core MCP Memory Service without embeddings (~50MB dependencies)
 
 ### Full ML Build (All features)
 
@@ -74,16 +74,16 @@ The Docker images default to **sqlite_vec** for optimal performance. If you need
 ### Option 1: Install ML Dependencies at Runtime
 
 ```dockerfile
-# Default installation includes SQLite-vec (no extra dependencies needed)
+# Base installation (SQLite-vec only, no embeddings)
 RUN pip install -e .
 
-# For lightweight ONNX embeddings (recommended)
+# Add ONNX Runtime for lightweight embeddings (recommended)
 RUN pip install -e .[sqlite]
 
-# For SQLite-vec with full ML capabilities (torch + sentence-transformers)
+# Add full ML capabilities (PyTorch + sentence-transformers)
 RUN pip install -e .[sqlite-ml]
 
-# For ChromaDB support (includes ML automatically)
+# Add ChromaDB backend support (includes full ML stack)
 RUN pip install -e .[chromadb]
 ```
 
