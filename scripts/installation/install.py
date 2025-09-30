@@ -880,10 +880,14 @@ def install_package(args):
     # Check if chromadb was chosen but flag not provided
     if chosen_backend == "chromadb" and not args.with_chromadb:
         print_warning("ChromaDB backend selected but --with-chromadb flag not provided")
-        print_info("ChromaDB requires heavy dependencies (1-2GB).")
+        print_info("ChromaDB requires heavy ML dependencies (~1-2GB).")
         print_info("To use ChromaDB, run: python scripts/installation/install.py --with-chromadb")
         print_info("Switching to SQLite-vec backend instead...")
         chosen_backend = "sqlite_vec"
+
+    # ChromaDB automatically includes ML dependencies
+    if args.with_chromadb:
+        args.with_ml = True
 
     if chosen_backend == "auto_detect":
         # Handle auto-detection case - prefer sqlite_vec if chromadb not explicitly requested
@@ -1001,8 +1005,21 @@ def install_package(args):
                 print_error(f"Failed to install with ONNX approach: {e}")
                 # Fall through to try standard installation
         
-        # Standard installation
-        cmd = installer_cmd + ['install'] + install_mode + ['.']
+        # Standard installation with appropriate optional dependencies
+        install_target = ['.']
+
+        # Determine which optional dependencies to include
+        if args.with_chromadb:
+            install_target = ['.[chromadb]']
+            print_info("Installing with ChromaDB backend support (includes ML dependencies)")
+        elif args.with_ml:
+            install_target = ['.[ml]']
+            print_info("Installing with ML dependencies for semantic search and embeddings")
+        else:
+            print_info("Installing lightweight version (no ML dependencies by default)")
+            print_info("For full functionality, use --with-ml flag or install with: pip install mcp-memory-service[ml]")
+
+        cmd = installer_cmd + ['install'] + install_mode + install_target
         print_info(f"Running: {' '.join(cmd)}")
         subprocess.check_call(cmd, env=env)
         print_success("MCP Memory Service installed successfully")
@@ -1427,8 +1444,10 @@ def main():
                         help='Install Claude Code memory awareness hooks after main installation')
     parser.add_argument('--install-natural-triggers', action='store_true',
                         help='Install Natural Memory Triggers v7.1.3 (requires Claude Code)')
+    parser.add_argument('--with-ml', action='store_true',
+                        help='Include ML dependencies (torch, sentence-transformers) for semantic search and embeddings')
     parser.add_argument('--with-chromadb', action='store_true',
-                        help='Include ChromaDB backend support (adds heavy dependencies)')
+                        help='Include ChromaDB backend support (automatically includes ML dependencies)')
     args = parser.parse_args()
     
     print_header("MCP Memory Service Installation")
@@ -1549,6 +1568,16 @@ def main():
         print_info("✅ Using ONNX Runtime for inference")
         print_info("   • Compatible with Homebrew PyTorch")
         print_info("   • Reduced dependencies for better compatibility")
+
+    # Show ML dependencies status
+    if args.with_ml or args.with_chromadb:
+        print_info("✅ ML Dependencies Installed")
+        print_info("   • Full semantic search and embedding generation enabled")
+        print_info("   • PyTorch and sentence-transformers available")
+    else:
+        print_info("ℹ️  Lightweight Installation (No ML Dependencies)")
+        print_info("   • Basic functionality without semantic search")
+        print_info("   • To enable full features: pip install mcp-memory-service[ml]")
     
     print_info("For more information, see the README.md file")
 
@@ -1584,6 +1613,9 @@ def main():
         print_info("- If you have a Homebrew PyTorch installation, use: --use-homebrew-pytorch")
         print_info("- To completely skip PyTorch installation, use: --skip-pytorch")
         print_info("- To force the SQLite-vec backend, use: --storage-backend sqlite_vec")
+        print_info("- For lightweight installation without ML, use: (default behavior)")
+        print_info("- For full ML capabilities, use: --with-ml")
+        print_info("- For ChromaDB with ML, use: --with-chromadb")
         print_info("- For a quick test, try running: python test_memory.py")
         print_info("- To install Claude Code hooks: --install-hooks")
         print_info("- To install Natural Memory Triggers: --install-natural-triggers")

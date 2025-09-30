@@ -60,7 +60,15 @@ claude mcp add --transport http memory-service http://localhost:8000/mcp
 # Clone and install with automatic platform detection
 git clone https://github.com/doobidoo/mcp-memory-service.git
 cd mcp-memory-service
+
+# Lightweight installation (default - no ML dependencies)
 python install.py
+
+# With ML capabilities for semantic search and embeddings
+python install.py --with-ml
+
+# With ChromaDB support (includes ML automatically)
+python install.py --with-chromadb
 ```
 
 **Docker (Fastest):**
@@ -168,7 +176,7 @@ These warnings disappear after the first successful run. The service is working 
 - **Cloudflare** - Global edge distribution
 - **Automatic backups** and synchronization
 
-> **Note**: ChromaDB is now optional to reduce build times and image sizes. Install with `--with-chromadb` flag if needed.
+> **Note**: All heavy ML dependencies (PyTorch, sentence-transformers, ChromaDB) are now optional to dramatically reduce build times and image sizes. Install with `--with-ml` for semantic search or `--with-chromadb` for full features.
 
 ### 🚀 **Production Ready**
 - **Cross-platform** - Windows, macOS, Linux
