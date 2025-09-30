@@ -1008,13 +1008,21 @@ def install_package(args):
         # Standard installation with appropriate optional dependencies
         install_target = ['.']
 
-        # Determine which optional dependencies to include
+        # Determine which optional dependencies to include based on backend and flags
         if args.with_chromadb:
             install_target = ['.[chromadb]']
             print_info("Installing with ChromaDB backend support (includes ML dependencies)")
         elif args.with_ml:
-            install_target = ['.[ml]']
-            print_info("Installing with ML dependencies for semantic search and embeddings")
+            if chosen_backend == "sqlite_vec":
+                install_target = ['.[sqlite-ml]']
+                print_info("Installing SQLite-vec with full ML capabilities (torch + sentence-transformers)")
+            else:
+                install_target = ['.[ml]']
+                print_info("Installing with ML dependencies for semantic search and embeddings")
+        elif chosen_backend == "sqlite_vec":
+            install_target = ['.[sqlite]']
+            print_info("Installing SQLite-vec with lightweight ONNX embeddings (recommended)")
+            print_info("For full ML capabilities with SQLite-vec, use --with-ml flag")
         else:
             print_info("Installing lightweight version (no ML dependencies by default)")
             print_info("For full functionality, use --with-ml flag or install with: pip install mcp-memory-service[ml]")

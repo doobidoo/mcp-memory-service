@@ -171,12 +171,12 @@ These warnings disappear after the first successful run. The service is working 
 - **13+ AI applications** - REST API compatibility
 
 ### 💾 **Flexible Storage**
-- **SQLite-vec** - Fast local storage (recommended, lightweight)
+- **SQLite-vec** - Fast local storage (recommended, lightweight ONNX embeddings)
 - **ChromaDB** - Multi-client collaboration (optional, heavy dependencies)
 - **Cloudflare** - Global edge distribution
 - **Automatic backups** and synchronization
 
-> **Note**: All heavy ML dependencies (PyTorch, sentence-transformers, ChromaDB) are now optional to dramatically reduce build times and image sizes. Install with `--with-ml` for semantic search or `--with-chromadb` for full features.
+> **Note**: All heavy ML dependencies (PyTorch, sentence-transformers, ChromaDB) are now optional to dramatically reduce build times and image sizes. SQLite-vec uses lightweight ONNX embeddings by default. Install with `--with-ml` for full ML capabilities or `--with-chromadb` for multi-client features.
 
 ### 🚀 **Production Ready**
 - **Cross-platform** - Windows, macOS, Linux

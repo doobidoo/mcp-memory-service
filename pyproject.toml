@@ -60,8 +60,13 @@ ml = [
     "sentence-transformers>=2.2.2",
     "torch>=2.0.0"
 ]
-# SQLite-vec with ML capabilities (recommended for most users)
+# SQLite-vec with lightweight ONNX embeddings (recommended for most users)
 sqlite = [
+    "sqlite-vec>=0.1.0",
+    "onnxruntime>=1.14.1"
+]
+# SQLite-vec with full ML capabilities (for advanced features)
+sqlite-ml = [
     "sqlite-vec>=0.1.0",
     "sentence-transformers>=2.2.2",
     "torch>=2.0.0"
@@ -77,7 +82,8 @@ full = [
     "chromadb>=0.5.0",
     "sentence-transformers>=2.2.2",
     "torch>=2.0.0",
-    "sqlite-vec>=0.1.0"
+    "sqlite-vec>=0.1.0",
+    "onnxruntime>=1.14.1"
 ]
 
 [project.scripts]

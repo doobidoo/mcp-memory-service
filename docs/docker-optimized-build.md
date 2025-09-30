@@ -2,7 +2,7 @@
 
 ## Overview
 
-The MCP Memory Service Docker images have been optimized to use **sqlite_vec** as the default storage backend, removing all heavy ML dependencies (ChromaDB, PyTorch, sentence-transformers). This results in:
+The MCP Memory Service Docker images have been optimized to use **sqlite_vec** as the default storage backend with **lightweight ONNX embeddings**, removing all heavy ML dependencies (ChromaDB, PyTorch, sentence-transformers). This results in:
 
 - **70-80% faster build times**
 - **1-2GB smaller image size**
@@ -60,8 +60,11 @@ The Docker images default to **sqlite_vec** for optimal performance. If you need
 ### Option 1: Install ML Dependencies at Runtime
 
 ```dockerfile
-# For ML capabilities (embeddings, semantic search)
-RUN pip install -e .[ml]
+# For SQLite-vec with lightweight ONNX embeddings (default)
+RUN pip install -e .[sqlite]
+
+# For SQLite-vec with full ML capabilities (torch + sentence-transformers)
+RUN pip install -e .[sqlite-ml]
 
 # For ChromaDB support (includes ML automatically)
 RUN pip install -e .[chromadb]
@@ -70,7 +73,10 @@ RUN pip install -e .[chromadb]
 ### Option 2: Use Full Installation
 
 ```bash
-# Install locally with ML support
+# Install locally with lightweight SQLite-vec (default)
+python scripts/installation/install.py
+
+# Install locally with full ML support for SQLite-vec
 python scripts/installation/install.py --with-ml
 
 # Install locally with ChromaDB support (includes ML)
