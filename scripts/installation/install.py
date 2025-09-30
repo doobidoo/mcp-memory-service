@@ -14,18 +14,46 @@ from pathlib import Path
 import re
 
 def get_package_version():
-    """Get the current package version from pyproject.toml."""
+    """Get the current package version from pyproject.toml.
+
+    Returns:
+        str: The version string from pyproject.toml or fallback version
+    """
+    fallback_version = "7.2.0"
+
     try:
+        # Get path to pyproject.toml relative to this script
         pyproject_path = Path(__file__).parent.parent.parent / "pyproject.toml"
+
+        if not pyproject_path.exists():
+            print_warning(f"pyproject.toml not found at {pyproject_path}, using fallback version {fallback_version}")
+            return fallback_version
+
         with open(pyproject_path, "r", encoding="utf-8") as f:
             content = f.read()
-        # Extract version using regex
-        version_match = re.search(r'version\s*=\s*"([^"]+)"', content)
+
+        # Extract version using regex - matches standard pyproject.toml format
+        version_pattern = r'^version\s*=\s*["\']([^"\'
+]+)["\']'
+        version_match = re.search(version_pattern, content, re.MULTILINE)
+
         if version_match:
-            return version_match.group(1)
-        return "7.2.0"  # Fallback version
-    except Exception:
-        return "7.2.0"  # Fallback version
+            version = version_match.group(1).strip()
+            if version:  # Ensure non-empty version
+                return version
+            else:
+                print_warning("Empty version found in pyproject.toml, using fallback")
+                return fallback_version
+        else:
+            print_warning("Version not found in pyproject.toml, using fallback")
+            return fallback_version
+
+    except (OSError, IOError) as e:
+        print_warning(f"Failed to read pyproject.toml: {e}, using fallback version {fallback_version}")
+        return fallback_version
+    except Exception as e:
+        print_warning(f"Unexpected error parsing version: {e}, using fallback version {fallback_version}")
+        return fallback_version
 
 def print_header(text):
     """Print a formatted header."""
@@ -1090,10 +1118,8 @@ def install_package(args):
                     "onnxruntime>=1.14.1"  # ONNX runtime is required
                 ]
                 
-                # Add backend-specific dependencies
-                if chosen_backend == "sqlite_vec":
-                    dependencies.append("sqlite-vec>=0.1.0")
-                elif args.with_chromadb:
+                # Add backend-specific dependencies (sqlite-vec is already in core)
+                if args.with_chromadb:
                     dependencies.append("chromadb==0.5.23")
                     dependencies.append("tokenizers==0.20.3")
                 

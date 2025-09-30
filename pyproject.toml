@@ -75,7 +75,7 @@ chromadb = [
 ]
 # Full installation including all backends and capabilities
 full = [
-    "mcp-memory-service[sqlite,chromadb,ml]"
+    "mcp-memory-service[sqlite,chromadb]"
 ]
 
 [project.scripts]
