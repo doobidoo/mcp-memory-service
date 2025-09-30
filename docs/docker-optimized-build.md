@@ -11,22 +11,36 @@ The MCP Memory Service Docker images have been optimized to use **sqlite_vec** a
 
 ## Building Docker Images
 
-### Standard Build (SQLite-vec only)
+### Standard Build (SQLite-vec with ONNX embeddings)
 
 ```bash
-# Build the optimized image
+# Build the optimized image (default: sqlite-vec + ONNX)
 docker build -f tools/docker/Dockerfile -t mcp-memory-service:latest .
 
 # Or use docker-compose
 docker-compose -f tools/docker/docker-compose.yml build
 ```
 
-### Slim Build (Ultra-lightweight with ONNX)
+**Includes**: SQLite-vec (core) + ONNX Runtime (~100MB dependencies)
+
+### Slim Build (Ultra-lightweight, minimal dependencies)
 
 ```bash
-# Build the slim image (no PyTorch)
+# Build the slim image (absolute minimum dependencies)
 docker build -f tools/docker/Dockerfile.slim -t mcp-memory-service:slim .
 ```
+
+**Includes**: Base dependencies only (~50MB dependencies)
+
+### Full ML Build (All features)
+
+```bash
+# Build with full ML capabilities (custom build)
+docker build -f tools/docker/Dockerfile -t mcp-memory-service:full \
+  --build-arg INSTALL_EXTRA="[sqlite-ml]" .
+```
+
+**Includes**: SQLite-vec (core) + PyTorch + sentence-transformers + ONNX (~2GB dependencies)
 
 ## Running Containers
 
@@ -60,7 +74,10 @@ The Docker images default to **sqlite_vec** for optimal performance. If you need
 ### Option 1: Install ML Dependencies at Runtime
 
 ```dockerfile
-# For SQLite-vec with lightweight ONNX embeddings (default)
+# Default installation includes SQLite-vec (no extra dependencies needed)
+RUN pip install -e .
+
+# For lightweight ONNX embeddings (recommended)
 RUN pip install -e .[sqlite]
 
 # For SQLite-vec with full ML capabilities (torch + sentence-transformers)

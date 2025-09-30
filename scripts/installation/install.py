@@ -13,6 +13,26 @@ import shutil
 from pathlib import Path
 import re
 
+def is_python_version_at_least(major, minor):
+    """Check if current Python version is at least the specified version.
+
+    Args:
+        major: Major version number
+        minor: Minor version number
+
+    Returns:
+        bool: True if current Python version >= specified version
+    """
+    return sys.version_info >= (major, minor)
+
+def get_python_version_string():
+    """Get Python version as a string (e.g., '3.12').
+
+    Returns:
+        str: Python version string
+    """
+    return f"{sys.version_info.major}.{sys.version_info.minor}"
+
 def get_package_version():
     """Get the current package version from pyproject.toml.
 
@@ -33,8 +53,7 @@ def get_package_version():
             content = f.read()
 
         # Extract version using regex - matches standard pyproject.toml format
-        version_pattern = r'^version\s*=\s*["\']([^"\'
-]+)["\']'
+        version_pattern = r'^version\s*=\s*["\']([^"\'\n]+)["\']'
         version_match = re.search(version_pattern, content, re.MULTILINE)
 
         if version_match:
@@ -138,7 +157,8 @@ def run_command_safe(cmd, success_msg=None, error_msg=None, silent=False,
             if in_venv:
                 fallback_msg = error_msg or "Command failed, but you're in a virtual environment. If you're using an alternative package manager, this may be normal."
                 print_warning(fallback_msg)
-                return True, None  # Proceed anyway in venv
+                print_warning("Note: Installation may not have succeeded. Please verify manually if needed.")
+                return True, None  # Proceed anyway in venv with warning
 
         if error_msg:
             print_error(error_msg)
@@ -169,7 +189,7 @@ def install_package_safe(package, success_msg=None, error_msg=None, fallback_in_
         fallback_in_venv: If True, warn instead of error when in virtual environment
 
     Returns:
-        bool: True if installation succeeded or fallback applied
+        bool: True if installation succeeded OR if fallback was applied (see warning messages)
     """
     cmd = [sys.executable, '-m', 'pip', 'install', package]
     default_success = success_msg or f"{package} installed successfully"
@@ -535,7 +555,7 @@ def install_pytorch_macos_intel():
         
         print_success(f"PyTorch {torch_version} and sentence-transformers {st_version} installed successfully for macOS Intel")
         return True
-    except subprocess.SubprocessError as e:
+    except RuntimeError as e:
         print_error(f"Failed to install PyTorch for macOS Intel: {e}")
         
         # Provide fallback instructions
@@ -623,7 +643,7 @@ def install_pytorch_windows(gpu_info):
             
         print_success("PyTorch installed successfully for Windows")
         return True
-    except subprocess.SubprocessError as e:
+    except RuntimeError as e:
         print_error(f"Failed to install PyTorch for Windows: {e}")
         print_warning("You may need to manually install PyTorch using instructions from https://pytorch.org/get-started/locally/")
         return False
@@ -1151,7 +1171,7 @@ def install_package(args):
                     print_info("The service will use ONNX runtime for inference instead")
                 
                 return True
-            except subprocess.SubprocessError as e:
+            except Exception as e:
                 print_error(f"Failed to install with ONNX approach: {e}")
                 # Fall through to try standard installation
         
