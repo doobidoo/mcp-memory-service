@@ -441,33 +441,43 @@ def install_pytorch_macos_intel():
             print_info(f"Installing PyTorch for macOS Intel (Python {python_version.major}.{python_version.minor})...")
             print_info("Attempting to install latest PyTorch compatible with Python 3.13...")
             
-            try:
-                # Try to install without version specifiers to get latest compatible version
-                cmd = [
-                    sys.executable, '-m', 'pip', 'install',
-                    "torch", "torchvision", "torchaudio"
-                ]
-                print_info(f"Running: {' '.join(cmd)}")
-                subprocess.check_call(cmd)
+            # Try to install without version specifiers to get latest compatible version
+            cmd = [
+                sys.executable, '-m', 'pip', 'install',
+                "torch", "torchvision", "torchaudio"
+            ]
+            success, _ = run_command_safe(
+                cmd,
+                success_msg="Latest PyTorch installed successfully",
+                silent=False
+            )
+
+            if success:
                 st_version = "3.0.0"  # Newer sentence-transformers for newer PyTorch
-            except subprocess.SubprocessError as e:
-                print_warning(f"Failed to install latest PyTorch: {e}")
+            else:
+                print_warning("Failed to install latest PyTorch, trying fallback version...")
                 # Fallback to a specific version
                 torch_version = "2.1.0"
                 torch_vision_version = "0.16.0"
                 torch_audio_version = "2.1.0"
                 st_version = "3.0.0"
-                
+
                 print_info(f"Trying fallback to PyTorch {torch_version}...")
-                
+
                 cmd = [
                     sys.executable, '-m', 'pip', 'install',
                     f"torch=={torch_version}",
                     f"torchvision=={torch_vision_version}",
                     f"torchaudio=={torch_audio_version}"
                 ]
-                print_info(f"Running: {' '.join(cmd)}")
-                subprocess.check_call(cmd)
+                success, _ = run_command_safe(
+                    cmd,
+                    success_msg=f"PyTorch {torch_version} installed successfully",
+                    error_msg="Failed to install PyTorch fallback version",
+                    silent=False
+                )
+                if not success:
+                    return False
         else:
             # Use traditional versions for older Python
             torch_version = "1.13.1"
@@ -564,15 +574,24 @@ def install_pytorch_windows(gpu_info):
             f"--index-url={index_url}"
         ]
         
-        print_info(f"Running: {' '.join(cmd)}")
-        subprocess.check_call(cmd)
+        success, _ = run_command_safe(
+            cmd,
+            success_msg="PyTorch installed successfully for Windows",
+            error_msg="Failed to install PyTorch for Windows",
+            silent=False
+        )
+        if not success:
+            return False
         
         # Check if DirectML is needed
         if gpu_info["has_directml"]:
-            print_info("Installing torch-directml for DirectML support")
-            subprocess.check_call([
-                sys.executable, '-m', 'pip', 'install', 'torch-directml>=0.2.0'
-            ])
+            success = install_package_safe(
+                "torch-directml>=0.2.0",
+                success_msg="torch-directml installed successfully for DirectML support",
+                error_msg="Failed to install torch-directml"
+            )
+            if not success:
+                print_warning("DirectML support may not be available")
             
         print_success("PyTorch installed successfully for Windows")
         return True
@@ -890,26 +909,22 @@ def install_storage_backend(backend, system_info):
                 return install_storage_backend("sqlite_vec", system_info)
 
     elif backend == "sqlite_vec":
-        try:
-            print_info("Installing SQLite-vec...")
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'sqlite-vec'])
-            print_success("SQLite-vec installed successfully")
-            return True
-        except subprocess.SubprocessError as e:
-            print_error(f"Failed to install SQLite-vec: {e}")
-            return False
+        return install_package_safe(
+            "sqlite-vec",
+            success_msg="SQLite-vec installed successfully",
+            error_msg="Failed to install SQLite-vec"
+        )
             
     elif backend == "chromadb":
-        try:
-            print_info("Installing ChromaDB...")
-            chromadb_version = "0.5.23"
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', f'chromadb=={chromadb_version}'])
-            print_success(f"ChromaDB {chromadb_version} installed successfully")
-            return True
-        except subprocess.SubprocessError as e:
-            print_error(f"Failed to install ChromaDB: {e}")
+        chromadb_version = "0.5.23"
+        success = install_package_safe(
+            f"chromadb=={chromadb_version}",
+            success_msg=f"ChromaDB {chromadb_version} installed successfully",
+            error_msg="Failed to install ChromaDB"
+        )
+        if not success:
             print_info("This is a known issue on some systems (especially older macOS Intel)")
-            return False
+        return success
             
     elif backend == "auto_detect":
         print_info("Attempting auto-detection...")
@@ -1584,15 +1599,17 @@ def main():
                 torch_audio_version = "2.0.1"
                 st_version = "2.2.2"
                 
-            try:
-                subprocess.check_call([
-                    sys.executable, '-m', 'pip', 'install',
-                    f"torch=={torch_version}", f"torchvision=={torch_vision_version}", f"torchaudio=={torch_audio_version}",
-                    f"sentence-transformers=={st_version}"
-                ])
-                print_success("Compatible dependencies installed successfully")
-            except subprocess.SubprocessError as e:
-                print_error(f"Failed to install compatible dependencies: {e}")
+            cmd = [
+                sys.executable, '-m', 'pip', 'install',
+                f"torch=={torch_version}", f"torchvision=={torch_vision_version}", f"torchaudio=={torch_audio_version}",
+                f"sentence-transformers=={st_version}"
+            ]
+            success, _ = run_command_safe(
+                cmd,
+                success_msg="Compatible dependencies installed successfully",
+                error_msg="Failed to install compatible dependencies",
+                silent=False
+            )
         else:
             print_warning("--force-compatible-deps is only applicable for macOS with Intel CPUs")
     
@@ -1614,15 +1631,17 @@ def main():
             torch_audio_version = "0.13.1"
             st_version = "2.2.2"
             
-        try:
-            subprocess.check_call([
-                sys.executable, '-m', 'pip', 'install',
-                f"torch=={torch_version}", f"torchvision=={torch_vision_version}", f"torchaudio=={torch_audio_version}",
-                f"sentence-transformers=={st_version}"
-            ])
-            print_success("Fallback dependencies installed successfully")
-        except subprocess.SubprocessError as e:
-            print_error(f"Failed to install fallback dependencies: {e}")
+        cmd = [
+            sys.executable, '-m', 'pip', 'install',
+            f"torch=={torch_version}", f"torchvision=={torch_vision_version}", f"torchaudio=={torch_audio_version}",
+            f"sentence-transformers=={st_version}"
+        ]
+        success, _ = run_command_safe(
+            cmd,
+            success_msg="Fallback dependencies installed successfully",
+            error_msg="Failed to install fallback dependencies",
+            silent=False
+        )
     
     # Step 2: Check dependencies
     if not check_dependencies():
