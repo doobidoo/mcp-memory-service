@@ -101,7 +101,7 @@ These warnings disappear after the first successful run. The service is working 
 **sqlite-vec** may not have pre-built wheels for Python 3.13 yet. If installation fails:
 - The installer will automatically try multiple installation methods
 - Consider using Python 3.12 for the smoothest experience: `brew install python@3.12`
-- Alternative: Use ChromaDB backend with `--storage-backend chromadb`
+- Alternative: Use ChromaDB backend with `--storage-backend chromadb --with-chromadb`
 - See [Troubleshooting Guide](docs/troubleshooting/general.md#python-313-sqlite-vec-issues) for details
 
 ### 🍎 macOS SQLite Extension Support
@@ -110,7 +110,7 @@ These warnings disappear after the first successful run. The service is working 
 - **System Python** on macOS lacks SQLite extension support by default
 - **Solution**: Use Homebrew Python: `brew install python && rehash`
 - **Alternative**: Use pyenv: `PYTHON_CONFIGURE_OPTS='--enable-loadable-sqlite-extensions' pyenv install 3.12.0`
-- **Fallback**: Use ChromaDB backend: `export MCP_MEMORY_STORAGE_BACKEND=chromadb`
+- **Fallback**: Use sqlite_vec backend (default) or install ChromaDB with `--with-chromadb`
 - See [Troubleshooting Guide](docs/troubleshooting/general.md#macos-sqlite-extension-issues) for details
 
 ## 📚 Complete Documentation
@@ -163,10 +163,12 @@ These warnings disappear after the first successful run. The service is working 
 - **13+ AI applications** - REST API compatibility
 
 ### 💾 **Flexible Storage**
-- **SQLite-vec** - Fast local storage (recommended)
-- **ChromaDB** - Multi-client collaboration
+- **SQLite-vec** - Fast local storage (recommended, lightweight)
+- **ChromaDB** - Multi-client collaboration (optional, heavy dependencies)
 - **Cloudflare** - Global edge distribution
 - **Automatic backups** and synchronization
+
+> **Note**: ChromaDB is now optional to reduce build times and image sizes. Install with `--with-chromadb` flag if needed.
 
 ### 🚀 **Production Ready**
 - **Cross-platform** - Windows, macOS, Linux

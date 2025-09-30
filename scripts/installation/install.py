@@ -876,13 +876,26 @@ def install_package(args):
 
     # Choose and install storage backend
     chosen_backend = choose_storage_backend(system_info, gpu_info, args)
+
+    # Check if chromadb was chosen but flag not provided
+    if chosen_backend == "chromadb" and not args.with_chromadb:
+        print_warning("ChromaDB backend selected but --with-chromadb flag not provided")
+        print_info("ChromaDB requires heavy dependencies (1-2GB).")
+        print_info("To use ChromaDB, run: python scripts/installation/install.py --with-chromadb")
+        print_info("Switching to SQLite-vec backend instead...")
+        chosen_backend = "sqlite_vec"
+
     if chosen_backend == "auto_detect":
-        # Handle auto-detection case
-        actual_backend = install_storage_backend(chosen_backend, system_info)
-        if not actual_backend:
-            print_error("Failed to install any storage backend")
-            return False
-        chosen_backend = actual_backend
+        # Handle auto-detection case - prefer sqlite_vec if chromadb not explicitly requested
+        if not args.with_chromadb:
+            print_info("Auto-detection: Using SQLite-vec (lightweight option)")
+            chosen_backend = "sqlite_vec"
+        else:
+            actual_backend = install_storage_backend(chosen_backend, system_info)
+            if not actual_backend:
+                print_error("Failed to install any storage backend")
+                return False
+            chosen_backend = actual_backend
     else:
         # Install the chosen backend
         if not install_storage_backend(chosen_backend, system_info):
@@ -958,7 +971,7 @@ def install_package(args):
                 # Add backend-specific dependencies
                 if chosen_backend == "sqlite_vec":
                     dependencies.append("sqlite-vec>=0.1.0")
-                else:
+                elif args.with_chromadb:
                     dependencies.append("chromadb==0.5.23")
                     dependencies.append("tokenizers==0.20.3")
                 
@@ -1414,6 +1427,8 @@ def main():
                         help='Install Claude Code memory awareness hooks after main installation')
     parser.add_argument('--install-natural-triggers', action='store_true',
                         help='Install Natural Memory Triggers v7.1.3 (requires Claude Code)')
+    parser.add_argument('--with-chromadb', action='store_true',
+                        help='Include ChromaDB backend support (adds heavy dependencies)')
     args = parser.parse_args()
     
     print_header("MCP Memory Service Installation")

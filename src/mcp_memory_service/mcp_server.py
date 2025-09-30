@@ -65,8 +65,10 @@ def get_storage_backend() -> type:
         try:
             from .storage.chroma import ChromaStorage
             return ChromaStorage
-        except ImportError:
-            logger.warning("ChromaDB not available, falling back to SQLite-vec")
+        except ImportError as e:
+            logger.error(f"ChromaDB not installed. Install with: pip install mcp-memory-service[chromadb]")
+            logger.error(f"Import error: {str(e)}")
+            logger.warning("Falling back to SQLite-vec storage")
             return _get_sqlite_vec_storage("Failed to import fallback SQLite-vec storage")
     elif backend == "cloudflare":
         try:

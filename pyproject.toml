@@ -67,6 +67,13 @@ sqlite = [
 chromadb = [
     "chromadb>=0.5.0"
 ]
+# Full installation including all backends
+full = [
+    "chromadb>=0.5.0",
+    "sentence-transformers>=2.2.2",
+    "torch>=2.0.0",
+    "sqlite-vec>=0.1.0"
+]
 
 [project.scripts]
 memory = "mcp_memory_service.cli.main:main"
