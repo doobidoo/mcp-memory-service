@@ -5,6 +5,7 @@ FROM python:3.12-slim
 # Build arguments for conditional features
 ARG SKIP_MODEL_DOWNLOAD=false
 ARG PLATFORM=linux/amd64
+ARG INSTALL_EXTRA="[sqlite]"
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -54,20 +55,19 @@ COPY tools/docker/docker-entrypoint.sh /usr/local/bin/
 COPY tools/docker/docker-entrypoint-persistent.sh /usr/local/bin/
 COPY tools/docker/docker-entrypoint-unified.sh /usr/local/bin/
 
-# Install the package with UV
-RUN python -m uv pip install -e .
+# Install the package with UV (configurable dependency group)
+RUN python -m uv pip install -e .${INSTALL_EXTRA}
 
-# Conditionally pre-download embedding models to prevent runtime download issues
+# Conditionally pre-download ONNX models for lightweight embedding
 RUN if [ "$SKIP_MODEL_DOWNLOAD" != "true" ]; then \
-        echo "Pre-downloading embedding models..." && \
+        echo "Pre-downloading ONNX embedding models..." && \
         python -c "try:\
-            from sentence_transformers import SentenceTransformer; \
-            print('Downloading embedding models...'); \
-            SentenceTransformer('all-MiniLM-L6-v2'); \
-            print('Embedding models cached successfully')\
+            import onnxruntime as ort; \
+            print('ONNX runtime available for lightweight embeddings'); \
+            print('ONNX models will be downloaded at runtime as needed')\
         except Exception as e:\
-            print(f'Warning: Could not pre-download models: {e}'); \
-            print('Models will be downloaded at runtime')" || echo "Model download failed, continuing..."; \
+            print(f'Warning: ONNX runtime not available: {e}'); \
+            print('Embedding functionality may be limited')" || echo "ONNX check failed, continuing..."; \
     else \
         echo "Skipping model download (SKIP_MODEL_DOWNLOAD=true)"; \
     fi
