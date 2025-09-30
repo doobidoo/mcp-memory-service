@@ -53,6 +53,82 @@ def print_warning(text):
     """Print formatted warning text."""
     print(f"  ⚠️  {text}")
 
+def run_command_safe(cmd, success_msg=None, error_msg=None, silent=False,
+                     timeout=None, check_venv_fallback=False):
+    """
+    Run a subprocess command with standardized error handling.
+
+    Args:
+        cmd: Command to run (list of strings)
+        success_msg: Message to print on success
+        error_msg: Custom error message
+        silent: If True, suppress stdout/stderr
+        timeout: Command timeout in seconds
+        check_venv_fallback: If True and command fails, check if we're in venv and warn instead of error
+
+    Returns:
+        tuple: (success: bool, result: subprocess.CompletedProcess or None)
+    """
+    try:
+        kwargs = {}
+        if silent:
+            kwargs.update({'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL})
+        if timeout:
+            kwargs['timeout'] = timeout
+
+        result = subprocess.run(cmd, check=True, **kwargs)
+        if success_msg:
+            print_success(success_msg)
+        return True, result
+    except subprocess.SubprocessError as e:
+        if check_venv_fallback:
+            in_venv = sys.prefix != sys.base_prefix
+            if in_venv:
+                fallback_msg = error_msg or f"Failed to run command, but you're in a virtual environment. If you're using an alternative package manager, this may be normal."
+                print_warning(fallback_msg)
+                return True, None  # Proceed anyway in venv
+
+        if error_msg:
+            print_error(error_msg)
+        else:
+            print_error(f"Command failed: {' '.join(cmd)}")
+        return False, None
+    except FileNotFoundError:
+        if error_msg:
+            print_error(error_msg)
+        else:
+            print_error(f"Command not found: {cmd[0]}")
+        return False, None
+
+def install_package_safe(package, success_msg=None, error_msg=None, check_venv_fallback=True):
+    """
+    Install a Python package with standardized error handling.
+
+    Args:
+        package: Package name or requirement string
+        success_msg: Message to print on success
+        error_msg: Custom error message
+        check_venv_fallback: If True, warn instead of error when in venv
+
+    Returns:
+        bool: True if installation succeeded or fallback applied
+    """
+    cmd = [sys.executable, '-m', 'pip', 'install', package]
+    default_success = success_msg or f"{package} installed successfully"
+    default_error = error_msg or f"Failed to install {package}"
+
+    if check_venv_fallback:
+        default_error += ". If you're using an alternative package manager like uv, please install manually."
+
+    success, _ = run_command_safe(
+        cmd,
+        success_msg=default_success,
+        error_msg=default_error,
+        silent=True,
+        check_venv_fallback=check_venv_fallback
+    )
+    return success
+
 def detect_system():
     """Detect the system architecture and platform."""
     system = platform.system().lower()
@@ -250,13 +326,16 @@ def check_dependencies():
     pip_installed = False
     
     # Try subprocess check first
-    try:
-        subprocess.check_call([sys.executable, '-m', 'pip', '--version'], 
-                             stdout=subprocess.DEVNULL, 
-                             stderr=subprocess.DEVNULL)
+    success, _ = run_command_safe(
+        [sys.executable, '-m', 'pip', '--version'],
+        success_msg="pip is installed",
+        silent=True,
+        check_venv_fallback=True
+    )
+
+    if success:
         pip_installed = True
-        print_info("pip is installed")
-    except subprocess.SubprocessError:
+    else:
         # Fallback to import check
         try:
             import pip
@@ -282,19 +361,9 @@ def check_dependencies():
         print_warning("setuptools is not installed. Will attempt to install it.")
         # If pip is available, use it to install setuptools
         if pip_installed:
-            try:
-                subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'setuptools'], 
-                                    stdout=subprocess.DEVNULL)
-                print_success("setuptools installed successfully")
-            except subprocess.SubprocessError:
-                # Check if in virtual environment
-                in_venv = sys.prefix != sys.base_prefix
-                if in_venv:
-                    print_warning("Failed to install setuptools with pip. If you're using an alternative package manager "
-                                "like uv, please install setuptools manually using that tool (e.g., 'uv pip install setuptools').")
-                else:
-                    print_error("Failed to install setuptools. Please install it manually.")
-                    return False
+            success = install_package_safe("setuptools")
+            if not success:
+                return False
         else:
             # Should be unreachable since pip_installed would only be False if we returned earlier
             print_error("Cannot install setuptools without pip. Please install setuptools manually.")
@@ -308,19 +377,9 @@ def check_dependencies():
         print_warning("wheel is not installed. Will attempt to install it.")
         # If pip is available, use it to install wheel
         if pip_installed:
-            try:
-                subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'wheel'], 
-                                    stdout=subprocess.DEVNULL)
-                print_success("wheel installed successfully")
-            except subprocess.SubprocessError:
-                # Check if in virtual environment
-                in_venv = sys.prefix != sys.base_prefix
-                if in_venv:
-                    print_warning("Failed to install wheel with pip. If you're using an alternative package manager "
-                                "like uv, please install wheel manually using that tool (e.g., 'uv pip install wheel').")
-                else:
-                    print_error("Failed to install wheel. Please install it manually.")
-                    return False
+            success = install_package_safe("wheel")
+            if not success:
+                return False
         else:
             # Should be unreachable since pip_installed would only be False if we returned earlier
             print_error("Cannot install wheel without pip. Please install wheel manually.")
@@ -389,26 +448,22 @@ def install_pytorch_macos_intel():
             print_info(f"Installing PyTorch {torch_version} for macOS Intel (Python {python_version.major}.{python_version.minor})...")
             
             # Install PyTorch first with compatible version
-            cmd = [
-                sys.executable, '-m', 'pip', 'install',
-                f"torch=={torch_version}",
-                f"torchvision=={torch_vision_version}",
-                f"torchaudio=={torch_audio_version}"
-            ]
-            
-            print_info(f"Running: {' '.join(cmd)}")
-            subprocess.check_call(cmd)
+            packages = [f"torch=={torch_version}", f"torchvision=={torch_vision_version}", f"torchaudio=={torch_audio_version}"]
+            success, _ = run_command_safe(
+                [sys.executable, '-m', 'pip', 'install'] + packages,
+                success_msg=f"PyTorch {torch_version} installed successfully"
+            )
+            if not success:
+                raise subprocess.SubprocessError(f"Failed to install PyTorch {torch_version}")
         
         # Install a compatible version of sentence-transformers
         print_info(f"Installing sentence-transformers {st_version}...")
-        
-        cmd = [
-            sys.executable, '-m', 'pip', 'install',
-            f"sentence-transformers=={st_version}"
-        ]
-        
-        print_info(f"Running: {' '.join(cmd)}")
-        subprocess.check_call(cmd)
+        success, _ = run_command_safe(
+            [sys.executable, '-m', 'pip', 'install', f"sentence-transformers=={st_version}"],
+            success_msg=f"sentence-transformers {st_version} installed successfully"
+        )
+        if not success:
+            raise subprocess.SubprocessError(f"Failed to install sentence-transformers {st_version}")
         
         print_success(f"PyTorch {torch_version} and sentence-transformers {st_version} installed successfully for macOS Intel")
         return True
