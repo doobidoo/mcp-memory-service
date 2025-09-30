@@ -54,7 +54,7 @@ def print_warning(text):
     print(f"  ⚠️  {text}")
 
 def run_command_safe(cmd, success_msg=None, error_msg=None, silent=False,
-                     timeout=None, check_venv_fallback=False):
+                     timeout=None, fallback_in_venv=False):
     """
     Run a subprocess command with standardized error handling.
 
@@ -64,13 +64,13 @@ def run_command_safe(cmd, success_msg=None, error_msg=None, silent=False,
         error_msg: Custom error message
         silent: If True, suppress stdout/stderr
         timeout: Command timeout in seconds
-        check_venv_fallback: If True and command fails, check if we're in venv and warn instead of error
+        fallback_in_venv: If True and command fails, warn instead of error when in virtual environment
 
     Returns:
         tuple: (success: bool, result: subprocess.CompletedProcess or None)
     """
     try:
-        kwargs = {}
+        kwargs = {'capture_output': False, 'text': True}
         if silent:
             kwargs.update({'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL})
         if timeout:
@@ -80,18 +80,24 @@ def run_command_safe(cmd, success_msg=None, error_msg=None, silent=False,
         if success_msg:
             print_success(success_msg)
         return True, result
-    except subprocess.SubprocessError as e:
-        if check_venv_fallback:
+    except subprocess.TimeoutExpired:
+        timeout_msg = error_msg or f"Command timed out after {timeout}s"
+        print_error(timeout_msg)
+        return False, None
+    except subprocess.CalledProcessError as e:
+        if fallback_in_venv:
             in_venv = sys.prefix != sys.base_prefix
             if in_venv:
-                fallback_msg = error_msg or f"Failed to run command, but you're in a virtual environment. If you're using an alternative package manager, this may be normal."
+                fallback_msg = error_msg or "Command failed, but you're in a virtual environment. If you're using an alternative package manager, this may be normal."
                 print_warning(fallback_msg)
                 return True, None  # Proceed anyway in venv
 
         if error_msg:
             print_error(error_msg)
         else:
-            print_error(f"Command failed: {' '.join(cmd)}")
+            # Safe command formatting for error messages
+            cmd_str = ' '.join(f'"{arg}"' if ' ' in str(arg) else str(arg) for arg in cmd)
+            print_error(f"Command failed (exit code {e.returncode}): {cmd_str}")
         return False, None
     except FileNotFoundError:
         if error_msg:
@@ -99,8 +105,12 @@ def run_command_safe(cmd, success_msg=None, error_msg=None, silent=False,
         else:
             print_error(f"Command not found: {cmd[0]}")
         return False, None
+    except PermissionError:
+        permission_msg = error_msg or f"Permission denied executing: {cmd[0]}"
+        print_error(permission_msg)
+        return False, None
 
-def install_package_safe(package, success_msg=None, error_msg=None, check_venv_fallback=True):
+def install_package_safe(package, success_msg=None, error_msg=None, fallback_in_venv=True):
     """
     Install a Python package with standardized error handling.
 
@@ -108,7 +118,7 @@ def install_package_safe(package, success_msg=None, error_msg=None, check_venv_f
         package: Package name or requirement string
         success_msg: Message to print on success
         error_msg: Custom error message
-        check_venv_fallback: If True, warn instead of error when in venv
+        fallback_in_venv: If True, warn instead of error when in virtual environment
 
     Returns:
         bool: True if installation succeeded or fallback applied
@@ -117,7 +127,7 @@ def install_package_safe(package, success_msg=None, error_msg=None, check_venv_f
     default_success = success_msg or f"{package} installed successfully"
     default_error = error_msg or f"Failed to install {package}"
 
-    if check_venv_fallback:
+    if fallback_in_venv:
         default_error += ". If you're using an alternative package manager like uv, please install manually."
 
     success, _ = run_command_safe(
@@ -125,7 +135,7 @@ def install_package_safe(package, success_msg=None, error_msg=None, check_venv_f
         success_msg=default_success,
         error_msg=default_error,
         silent=True,
-        check_venv_fallback=check_venv_fallback
+        fallback_in_venv=fallback_in_venv
     )
     return success
 
@@ -330,7 +340,7 @@ def check_dependencies():
         [sys.executable, '-m', 'pip', '--version'],
         success_msg="pip is installed",
         silent=True,
-        check_venv_fallback=True
+        fallback_in_venv=True
     )
 
     if success:
