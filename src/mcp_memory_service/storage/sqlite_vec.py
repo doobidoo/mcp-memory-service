@@ -379,7 +379,7 @@ SOLUTIONS:
         try:
             with open('/proc/self/cgroup', 'r') as f:
                 return any('docker' in line or 'containerd' in line for line in f)
-        except:
+        except (IOError, FileNotFoundError):
             pass
         return False
 
@@ -477,7 +477,7 @@ SOLUTIONS:
                 try:
                     logger.info("Attempting to download model from Hugging Face...")
                     self.embedding_model = SentenceTransformer(self.embedding_model_name, device=device)
-                except (OSError, Exception) as download_error:
+                except OSError as download_error:
                     # Check if this is a network connectivity issue
                     error_msg = str(download_error)
                     if any(phrase in error_msg.lower() for phrase in ['connection', 'network', 'couldn\'t connect', 'huggingface.co']):
@@ -547,7 +547,7 @@ SOLUTIONS:
                     version = f.read().lower()
                     if 'microsoft' in version:
                         docker_platform = "Docker Desktop for Windows"
-            except:
+            except (IOError, FileNotFoundError):
                 pass
 
         return (
