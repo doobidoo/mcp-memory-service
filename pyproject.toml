@@ -67,23 +67,16 @@ sqlite = [
 ]
 # SQLite-vec with full ML capabilities (for advanced features)
 sqlite-ml = [
-    "sqlite-vec>=0.1.0",
-    "sentence-transformers>=2.2.2",
-    "torch>=2.0.0"
+    "mcp-memory-service[sqlite,ml]"
 ]
 # ChromaDB backend with required ML dependencies
 chromadb = [
     "chromadb>=0.5.0",
-    "sentence-transformers>=2.2.2",
-    "torch>=2.0.0"
+    "mcp-memory-service[ml]"
 ]
 # Full installation including all backends and capabilities
 full = [
-    "chromadb>=0.5.0",
-    "sentence-transformers>=2.2.2",
-    "torch>=2.0.0",
-    "sqlite-vec>=0.1.0",
-    "onnxruntime>=1.14.1"
+    "mcp-memory-service[sqlite,chromadb,ml]"
 ]
 
 [project.scripts]

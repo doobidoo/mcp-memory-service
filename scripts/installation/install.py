@@ -11,6 +11,21 @@ import subprocess
 import argparse
 import shutil
 from pathlib import Path
+import re
+
+def get_package_version():
+    """Get the current package version from pyproject.toml."""
+    try:
+        pyproject_path = Path(__file__).parent.parent.parent / "pyproject.toml"
+        with open(pyproject_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        # Extract version using regex
+        version_match = re.search(r'version\s*=\s*"([^"]+)"', content)
+        if version_match:
+            return version_match.group(1)
+        return "7.2.0"  # Fallback version
+    except Exception:
+        return "7.2.0"  # Fallback version
 
 def print_header(text):
     """Print a formatted header."""
@@ -1385,8 +1400,9 @@ def install_claude_hooks(args, system_info):
             return
 
         # Prepare installer command with appropriate options
+        version = get_package_version()
         if args.install_natural_triggers:
-            print_info("Installing Natural Memory Triggers v7.1.3...")
+            print_info(f"Installing Natural Memory Triggers v{version}...")
             installer_cmd = [sys.executable, str(unified_installer), "--natural-triggers"]
         else:
             print_info("Installing standard memory awareness hooks...")
@@ -1404,7 +1420,7 @@ def install_claude_hooks(args, system_info):
         if result.returncode == 0:
             print_success("Claude Code memory awareness hooks installed successfully")
             if args.install_natural_triggers:
-                print_info("✅ Natural Memory Triggers v7.1.3 enabled")
+                print_info(f"✅ Natural Memory Triggers v{version} enabled")
                 print_info("✅ Intelligent trigger detection with 85%+ accuracy")
                 print_info("✅ Multi-tier performance optimization")
                 print_info("✅ CLI management tools available")
@@ -1451,7 +1467,7 @@ def main():
     parser.add_argument('--install-hooks', action='store_true',
                         help='Install Claude Code memory awareness hooks after main installation')
     parser.add_argument('--install-natural-triggers', action='store_true',
-                        help='Install Natural Memory Triggers v7.1.3 (requires Claude Code)')
+                        help='Install Natural Memory Triggers (requires Claude Code)')
     parser.add_argument('--with-ml', action='store_true',
                         help='Include ML dependencies (torch, sentence-transformers) for semantic search and embeddings')
     parser.add_argument('--with-chromadb', action='store_true',
