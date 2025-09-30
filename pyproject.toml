@@ -62,7 +62,6 @@ ml = [
 ]
 # SQLite-vec with lightweight ONNX embeddings (recommended for most users)
 sqlite = [
-    "sqlite-vec>=0.1.0",
     "onnxruntime>=1.14.1"
 ]
 # SQLite-vec with full ML capabilities (for advanced features)

@@ -494,7 +494,7 @@ def install_pytorch_macos_intel():
                 success_msg=f"PyTorch {torch_version} installed successfully"
             )
             if not success:
-                raise subprocess.SubprocessError(f"Failed to install PyTorch {torch_version}")
+                raise RuntimeError(f"Failed to install PyTorch {torch_version}")
         
         # Install a compatible version of sentence-transformers
         print_info(f"Installing sentence-transformers {st_version}...")
@@ -503,7 +503,7 @@ def install_pytorch_macos_intel():
             success_msg=f"sentence-transformers {st_version} installed successfully"
         )
         if not success:
-            raise subprocess.SubprocessError(f"Failed to install sentence-transformers {st_version}")
+            raise RuntimeError(f"Failed to install sentence-transformers {st_version}")
         
         print_success(f"PyTorch {torch_version} and sentence-transformers {st_version} installed successfully for macOS Intel")
         return True
@@ -962,14 +962,11 @@ def install_package(args):
     env = os.environ.copy()
 
     # Detect if pip is available
-    pip_available = False
-    try:
-        subprocess.check_call([sys.executable, '-m', 'pip', '--version'],
-                              stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL)
-        pip_available = True
-    except subprocess.SubprocessError:
-        pip_available = False
+    # Check if pip is available
+    pip_available, _ = run_command_safe(
+        [sys.executable, '-m', 'pip', '--version'],
+        silent=True
+    )
 
     # Detect if uv is available
     uv_path = shutil.which("uv")
@@ -1075,8 +1072,14 @@ def install_package(args):
             # First try to install without ML dependencies
             try:
                 cmd = installer_cmd + ['install', '--no-deps'] + install_mode + ['.']
-                print_info(f"Running: {' '.join(cmd)}")
-                subprocess.check_call(cmd, env=env)
+                success, _ = run_command_safe(
+                    cmd,
+                    success_msg="Package installed with --no-deps successfully",
+                    error_msg="Failed to install package with --no-deps",
+                    silent=False
+                )
+                if not success:
+                    raise Exception("Installation failed")
                 
                 # Install core dependencies except torch/sentence-transformers
                 print_info("Installing core dependencies except ML libraries...")
@@ -1095,9 +1098,15 @@ def install_package(args):
                     dependencies.append("tokenizers==0.20.3")
                 
                 # Install dependencies
-                subprocess.check_call(
-                    [sys.executable, '-m', 'pip', 'install'] + dependencies
+                cmd = [sys.executable, '-m', 'pip', 'install'] + dependencies
+                success, _ = run_command_safe(
+                    cmd,
+                    success_msg="Core dependencies installed successfully",
+                    error_msg="Failed to install core dependencies",
+                    silent=False
                 )
+                if not success:
+                    raise Exception("Core dependency installation failed")
                 
                 # Set environment variables for ONNX
                 print_info("Configuring to use ONNX runtime for inference without PyTorch...")
@@ -1143,11 +1152,14 @@ def install_package(args):
             print_info("For full functionality, use --with-ml flag or install with: pip install mcp-memory-service[ml]")
 
         cmd = installer_cmd + ['install'] + install_mode + install_target
-        print_info(f"Running: {' '.join(cmd)}")
-        subprocess.check_call(cmd, env=env)
-        print_success("MCP Memory Service installed successfully")
-        return True
-    except subprocess.SubprocessError as e:
+        success, _ = run_command_safe(
+            cmd,
+            success_msg="MCP Memory Service installed successfully",
+            error_msg="Failed to install MCP Memory Service",
+            silent=False
+        )
+        return success
+    except Exception as e:
         print_error(f"Failed to install MCP Memory Service: {e}")
         
         # Special handling for macOS with compatibility issues
