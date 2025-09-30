@@ -477,6 +477,77 @@ docker port memory-service
 curl http://localhost:8000/health
 ```
 
+#### 5. Model Download Issues
+
+**Symptom**: `OSError: We couldn't connect to 'https://huggingface.co'` when starting container
+
+**Issue**: Container cannot download sentence-transformer models due to network restrictions
+
+**Solutions**:
+
+1. **Pre-download models and mount cache (Recommended)**:
+
+```bash
+# Step 1: Download models on host machine first
+python -c "from sentence_transformers import SentenceTransformer; \
+          model = SentenceTransformer('all-MiniLM-L6-v2'); \
+          print('Model downloaded successfully')"
+
+# Step 2: Run container with model cache mounted
+docker run -d --name memory-service \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  -v $(pwd)/data/chroma_db:/app/chroma_db \
+  -e MCP_MEMORY_STORAGE_BACKEND=chromadb \
+  mcp-memory-service
+```
+
+2. **Configure proxy for Docker Desktop (Windows/Corporate networks)**:
+
+```bash
+# With proxy environment variables
+docker run -d --name memory-service \
+  -e HTTPS_PROXY=http://your-proxy:port \
+  -e HTTP_PROXY=http://your-proxy:port \
+  -e NO_PROXY=localhost,127.0.0.1 \
+  -v $(pwd)/data:/app/data \
+  mcp-memory-service
+```
+
+3. **Use offline mode with pre-cached models**:
+
+```bash
+# Ensure models are in mounted volume, then run offline
+docker run -d --name memory-service \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  -e HF_HUB_OFFLINE=1 \
+  -e TRANSFORMERS_OFFLINE=1 \
+  -e HF_DATASETS_OFFLINE=1 \
+  -v $(pwd)/data:/app/data \
+  mcp-memory-service
+```
+
+4. **Docker Compose with model cache**:
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+services:
+  mcp-memory-service:
+    build: .
+    volumes:
+      # Mount model cache from host
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ./data/chroma_db:/app/chroma_db
+      - ./data/backups:/app/backups
+    environment:
+      - MCP_MEMORY_STORAGE_BACKEND=chromadb
+      # Optional: force offline mode if models are pre-cached
+      # - HF_HUB_OFFLINE=1
+      # - TRANSFORMERS_OFFLINE=1
+```
+
+**Prevention**: Always mount the Hugging Face cache directory as a volume to persist models between container runs and avoid re-downloading.
+
 ### Diagnostic Commands
 
 #### Container Status
@@ -507,6 +578,26 @@ docker exec memory-service python -c "
 from src.mcp_memory_service.storage.sqlite_vec import SqliteVecStorage
 storage = SqliteVecStorage()
 print('Database accessible')
+"
+```
+
+#### Model Cache Verification
+
+```bash
+# Check if models are cached on host
+ls -la ~/.cache/huggingface/hub/
+
+# Verify model availability in container
+docker exec memory-service ls -la /root/.cache/huggingface/hub/
+
+# Test model loading in container
+docker exec memory-service python -c "
+from sentence_transformers import SentenceTransformer
+try:
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    print('✅ Model loaded successfully')
+except Exception as e:
+    print(f'❌ Model loading failed: {e}')
 "
 ```
 

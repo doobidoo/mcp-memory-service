@@ -365,27 +365,50 @@ SOLUTIONS:
             logger.error(traceback.format_exc())
             raise RuntimeError(error_msg)
     
+    def _is_docker_environment(self) -> bool:
+        """Detect if running inside a Docker container."""
+        # Check for Docker-specific files/environment
+        if os.path.exists('/.dockerenv'):
+            return True
+        if os.environ.get('DOCKER_CONTAINER'):
+            return True
+        # Check if running in common container environments
+        if any(os.environ.get(var) for var in ['KUBERNETES_SERVICE_HOST', 'MESOS_SANDBOX']):
+            return True
+        # Check cgroup for docker/containerd/podman
+        try:
+            with open('/proc/self/cgroup', 'r') as f:
+                return any('docker' in line or 'containerd' in line for line in f)
+        except:
+            pass
+        return False
+
     async def _initialize_embedding_model(self):
         """Initialize the embedding model (ONNX or SentenceTransformer based on configuration)."""
         global _MODEL_CACHE
-        
+
+        # Detect if we're in Docker
+        is_docker = self._is_docker_environment()
+        if is_docker:
+            logger.info("🐳 Docker environment detected - adjusting model loading strategy")
+
         try:
             # Check if we should use ONNX
             use_onnx = os.environ.get('MCP_MEMORY_USE_ONNX', '').lower() in ('1', 'true', 'yes')
-            
+
             if use_onnx:
                 # Try to use ONNX embeddings
                 logger.info("Attempting to use ONNX embeddings (PyTorch-free)")
                 try:
                     from ..embeddings import get_onnx_embedding_model
-                    
+
                     # Check cache first
                     cache_key = f"onnx_{self.embedding_model_name}"
                     if cache_key in _MODEL_CACHE:
                         self.embedding_model = _MODEL_CACHE[cache_key]
                         logger.info(f"Using cached ONNX embedding model: {self.embedding_model_name}")
                         return
-                    
+
                     # Create ONNX model
                     onnx_model = get_onnx_embedding_model(self.embedding_model_name)
                     if onnx_model:
@@ -400,25 +423,25 @@ SOLUTIONS:
                     logger.warning(f"ONNX dependencies not available: {e}")
                 except Exception as e:
                     logger.warning(f"Failed to initialize ONNX embeddings: {e}")
-            
+
             # Fall back to SentenceTransformer
             if not SENTENCE_TRANSFORMERS_AVAILABLE:
                 raise RuntimeError("Neither ONNX nor sentence-transformers available. Install one: pip install onnxruntime tokenizers OR pip install sentence-transformers torch")
-            
+
             # Check cache first
             cache_key = self.embedding_model_name
             if cache_key in _MODEL_CACHE:
                 self.embedding_model = _MODEL_CACHE[cache_key]
                 logger.info(f"Using cached embedding model: {self.embedding_model_name}")
                 return
-            
+
             # Get system info for optimal settings
             system_info = get_system_info()
             device = get_torch_device()
-            
+
             logger.info(f"Loading embedding model: {self.embedding_model_name}")
             logger.info(f"Using device: {device}")
-            
+
             # Configure for offline mode if models are cached
             # Only set offline mode if we detect cached models to prevent initial downloads
             hf_home = os.environ.get('HF_HOME', os.path.expanduser("~/.cache/huggingface"))
@@ -426,7 +449,8 @@ SOLUTIONS:
             if os.path.exists(model_cache_path):
                 os.environ['HF_HUB_OFFLINE'] = '1'
                 os.environ['TRANSFORMERS_OFFLINE'] = '1'
-            
+                logger.info("📦 Found cached model - enabling offline mode")
+
             # Try to load from cache first, fallback to direct model name
             try:
                 # First try loading from Hugging Face cache
@@ -447,25 +471,89 @@ SOLUTIONS:
                         raise FileNotFoundError("No snapshots directory")
                 else:
                     raise FileNotFoundError("No cache found")
+            except FileNotFoundError as cache_error:
+                logger.warning(f"Model not in cache: {cache_error}")
+                # Try to download the model (may fail in Docker without network)
+                try:
+                    logger.info("Attempting to download model from Hugging Face...")
+                    self.embedding_model = SentenceTransformer(self.embedding_model_name, device=device)
+                except (OSError, Exception) as download_error:
+                    # Check if this is a network connectivity issue
+                    error_msg = str(download_error)
+                    if any(phrase in error_msg.lower() for phrase in ['connection', 'network', 'couldn\'t connect', 'huggingface.co']):
+                        # Provide Docker-specific help
+                        docker_help = self._get_docker_network_help() if is_docker else ""
+                        raise RuntimeError(
+                            f"🔌 Model Download Error: Cannot connect to huggingface.co\n"
+                            f"{'='*60}\n"
+                            f"The model '{self.embedding_model_name}' needs to be downloaded but the connection failed.\n"
+                            f"{docker_help}"
+                            f"\n💡 Solutions:\n"
+                            f"1. Mount pre-downloaded models as a volume:\n"
+                            f"   # On host machine, download the model first:\n"
+                            f"   python -c \"from sentence_transformers import SentenceTransformer; SentenceTransformer('{self.embedding_model_name}')\"\n"
+                            f"   \n"
+                            f"   # Then run container with cache mount:\n"
+                            f"   docker run -v ~/.cache/huggingface:/root/.cache/huggingface ...\n"
+                            f"\n"
+                            f"2. Configure Docker network (if behind proxy):\n"
+                            f"   docker run -e HTTPS_PROXY=your-proxy -e HTTP_PROXY=your-proxy ...\n"
+                            f"\n"
+                            f"3. Use offline mode with pre-cached models:\n"
+                            f"   docker run -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 ...\n"
+                            f"\n"
+                            f"4. Use host network mode (if appropriate for your setup):\n"
+                            f"   docker run --network host ...\n"
+                            f"\n"
+                            f"📚 See docs: https://github.com/doobidoo/mcp-memory-service/blob/main/docs/deployment/docker.md#model-download-issues\n"
+                            f"{'='*60}"
+                        ) from download_error
+                    else:
+                        # Re-raise if not a network issue
+                        raise
             except Exception as cache_error:
                 logger.warning(f"Failed to load from cache: {cache_error}")
                 # Fallback to normal loading (may fail if offline)
                 logger.info("Attempting normal model loading...")
                 self.embedding_model = SentenceTransformer(self.embedding_model_name, device=device)
-            
+
             # Update embedding dimension based on actual model
             test_embedding = self.embedding_model.encode(["test"], convert_to_numpy=True)
             self.embedding_dimension = test_embedding.shape[1]
-            
+
             # Cache the model
             _MODEL_CACHE[cache_key] = self.embedding_model
-            
-            logger.info(f"Embedding model loaded successfully. Dimension: {self.embedding_dimension}")
-            
+
+            logger.info(f"✅ Embedding model loaded successfully. Dimension: {self.embedding_dimension}")
+
+        except RuntimeError:
+            # Re-raise our custom errors with helpful messages
+            raise
         except Exception as e:
             logger.error(f"Failed to initialize embedding model: {str(e)}")
             logger.error(traceback.format_exc())
             # Continue without embeddings - some operations may still work
+            logger.warning("⚠️ Continuing without embedding support - search functionality will be limited")
+
+    def _get_docker_network_help(self) -> str:
+        """Get Docker-specific network troubleshooting help."""
+        # Try to detect the Docker platform
+        docker_platform = "Docker"
+        if os.environ.get('DOCKER_DESKTOP_VERSION'):
+            docker_platform = "Docker Desktop"
+        elif os.path.exists('/proc/version'):
+            try:
+                with open('/proc/version', 'r') as f:
+                    version = f.read().lower()
+                    if 'microsoft' in version:
+                        docker_platform = "Docker Desktop for Windows"
+            except:
+                pass
+
+        return (
+            f"\n🐳 Docker Environment Detected ({docker_platform})\n"
+            f"This appears to be a network connectivity issue common in Docker containers.\n"
+        )
     
     def _generate_embedding(self, text: str) -> List[float]:
         """Generate embedding for text."""

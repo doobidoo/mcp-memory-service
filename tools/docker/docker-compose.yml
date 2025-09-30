@@ -17,6 +17,10 @@ services:
     volumes:
       # Single data directory for all storage
       - ./data:/app/data
+
+      # Model cache (prevents re-downloading models on each restart)
+      # Uncomment the following line to persist Hugging Face models
+      # - ${HOME}/.cache/huggingface:/root/.cache/huggingface
     
     environment:
       # Mode selection
@@ -35,6 +39,10 @@ services:
       # Python configuration
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app/src
+
+      # Offline mode (uncomment if models are pre-cached and network is restricted)
+      # - HF_HUB_OFFLINE=1
+      # - TRANSFORMERS_OFFLINE=1
     
     # Use the unified entrypoint
     entrypoint: ["/usr/local/bin/docker-entrypoint-unified.sh"]
