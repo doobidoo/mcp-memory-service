@@ -61,15 +61,20 @@ claude mcp add --transport http memory-service http://localhost:8000/mcp
 git clone https://github.com/doobidoo/mcp-memory-service.git
 cd mcp-memory-service
 
-# Lightweight installation (default - no ML dependencies)
+# Lightweight installation (SQLite-vec with ONNX embeddings - recommended)
 python install.py
 
-# With ML capabilities for semantic search and embeddings
+# Add full ML capabilities (torch + sentence-transformers for advanced features)
 python install.py --with-ml
 
-# With ChromaDB support (includes ML automatically)
+# Add ChromaDB backend support (includes full ML stack - for multi-client setups)
 python install.py --with-chromadb
 ```
+
+**📝 Installation Options Explained:**
+- **Default (recommended)**: Lightweight SQLite-vec with ONNX embeddings - fast, works offline, <100MB dependencies
+- **`--with-ml`**: Adds PyTorch + sentence-transformers for advanced ML features - heavier but more capable
+- **`--with-chromadb`**: Multi-client local server support - use only if you need shared team access
 
 **Docker (Fastest):**
 ```bash

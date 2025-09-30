@@ -69,6 +69,21 @@ def run_command_safe(cmd, success_msg=None, error_msg=None, silent=False,
     Returns:
         tuple: (success: bool, result: subprocess.CompletedProcess or None)
     """
+    # Validate command input
+    if not cmd or not isinstance(cmd, (list, tuple)):
+        print_error("Invalid command: must be a non-empty list or tuple")
+        return False, None
+
+    if not all(isinstance(arg, (str, int, float)) for arg in cmd if arg is not None):
+        print_error("Invalid command arguments: all arguments must be strings, numbers, or None")
+        return False, None
+
+    # Filter out None values and convert to strings
+    cmd_clean = [str(arg) for arg in cmd if arg is not None]
+    if not cmd_clean:
+        print_error("Command is empty after filtering")
+        return False, None
+
     try:
         kwargs = {'capture_output': False, 'text': True}
         if silent:
@@ -76,12 +91,17 @@ def run_command_safe(cmd, success_msg=None, error_msg=None, silent=False,
         if timeout:
             kwargs['timeout'] = timeout
 
-        result = subprocess.run(cmd, check=True, **kwargs)
+        result = subprocess.run(cmd_clean, check=True, **kwargs)
         if success_msg:
             print_success(success_msg)
         return True, result
-    except subprocess.TimeoutExpired:
-        timeout_msg = error_msg or f"Command timed out after {timeout}s"
+    except subprocess.TimeoutExpired as e:
+        if error_msg:
+            timeout_msg = error_msg
+        elif hasattr(e, 'timeout') and e.timeout:
+            timeout_msg = f"Command timed out after {e.timeout}s"
+        else:
+            timeout_msg = "Command timed out"
         print_error(timeout_msg)
         return False, None
     except subprocess.CalledProcessError as e:
@@ -96,17 +116,17 @@ def run_command_safe(cmd, success_msg=None, error_msg=None, silent=False,
             print_error(error_msg)
         else:
             # Safe command formatting for error messages
-            cmd_str = ' '.join(f'"{arg}"' if ' ' in str(arg) else str(arg) for arg in cmd)
+            cmd_str = ' '.join(f'"{arg}"' if ' ' in str(arg) else str(arg) for arg in cmd_clean)
             print_error(f"Command failed (exit code {e.returncode}): {cmd_str}")
         return False, None
     except FileNotFoundError:
         if error_msg:
             print_error(error_msg)
         else:
-            print_error(f"Command not found: {cmd[0]}")
+            print_error(f"Command not found: {cmd_clean[0]}")
         return False, None
     except PermissionError:
-        permission_msg = error_msg or f"Permission denied executing: {cmd[0]}"
+        permission_msg = error_msg or f"Permission denied executing: {cmd_clean[0]}"
         print_error(permission_msg)
         return False, None
 
