@@ -51,7 +51,7 @@ from .sse import sse_manager
 logger = logging.getLogger(__name__)
 
 # Global storage instance
-storage = None
+storage: Optional["MemoryStorage"] = None
 
 # Global mDNS advertiser instance
 mdns_advertiser: Optional[Any] = None

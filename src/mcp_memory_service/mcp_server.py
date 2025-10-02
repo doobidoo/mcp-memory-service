@@ -46,48 +46,6 @@ from .config import (
 )
 from .storage.base import MemoryStorage
 
-def _get_sqlite_vec_storage(error_message: str = "Failed to import SQLite-vec storage") -> type:
-    """Helper function to import SqliteVecMemoryStorage with consistent error handling."""
-    try:
-        from .storage.sqlite_vec import SqliteVecMemoryStorage
-        return SqliteVecMemoryStorage
-    except ImportError as e:
-        logger.error(f"{error_message}: {e}")
-        raise
-
-def get_storage_backend() -> type:
-    """Dynamically select and import storage backend based on configuration and availability."""
-    backend = STORAGE_BACKEND.lower()
-
-    if backend == "sqlite-vec" or backend == "sqlite_vec":
-        return _get_sqlite_vec_storage()
-    elif backend == "chroma":
-        try:
-            from .storage.chroma import ChromaStorage
-            return ChromaStorage
-        except ImportError as e:
-            logger.error(f"ChromaDB not installed. Install with: pip install mcp-memory-service[chromadb]")
-            logger.error(f"Import error: {str(e)}")
-            logger.warning("Falling back to SQLite-vec storage")
-            return _get_sqlite_vec_storage("Failed to import fallback SQLite-vec storage")
-    elif backend == "cloudflare":
-        try:
-            from .storage.cloudflare import CloudflareStorage
-            return CloudflareStorage
-        except ImportError as e:
-            logger.error(f"Failed to import Cloudflare storage: {e}")
-            raise
-    elif backend == "hybrid":
-        try:
-            from .storage.hybrid import HybridMemoryStorage
-            return HybridMemoryStorage
-        except ImportError as e:
-            logger.error(f"Failed to import Hybrid storage: {e}")
-            logger.warning("Falling back to SQLite-vec storage")
-            return _get_sqlite_vec_storage("Failed to import fallback SQLite-vec storage")
-    else:
-        logger.warning(f"Unknown storage backend '{backend}', defaulting to SQLite-vec")
-        return _get_sqlite_vec_storage("Failed to import default SQLite-vec storage")
 from .models.memory import Memory
 
 # Configure logging
@@ -104,57 +62,9 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
     """Manage MCP server lifecycle with proper resource initialization and cleanup."""
     logger.info("Initializing MCP Memory Service components...")
     
-    # Initialize storage backend based on configuration and availability
-    StorageClass = get_storage_backend()
-    
-    if StorageClass.__name__ == "SqliteVecMemoryStorage":
-        storage = StorageClass(
-            db_path=SQLITE_VEC_PATH,
-            embedding_model=EMBEDDING_MODEL_NAME
-        )
-    elif StorageClass.__name__ == "CloudflareStorage":
-        storage = StorageClass(
-            api_token=CLOUDFLARE_API_TOKEN,
-            account_id=CLOUDFLARE_ACCOUNT_ID,
-            vectorize_index=CLOUDFLARE_VECTORIZE_INDEX,
-            d1_database_id=CLOUDFLARE_D1_DATABASE_ID,
-            r2_bucket=CLOUDFLARE_R2_BUCKET,
-            embedding_model=CLOUDFLARE_EMBEDDING_MODEL,
-            large_content_threshold=CLOUDFLARE_LARGE_CONTENT_THRESHOLD,
-            max_retries=CLOUDFLARE_MAX_RETRIES,
-            base_delay=CLOUDFLARE_BASE_DELAY
-        )
-    elif StorageClass.__name__ == "HybridMemoryStorage":
-        # Prepare Cloudflare configuration dict
-        cloudflare_config = None
-        if all([CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_VECTORIZE_INDEX, CLOUDFLARE_D1_DATABASE_ID]):
-            cloudflare_config = {
-                'api_token': CLOUDFLARE_API_TOKEN,
-                'account_id': CLOUDFLARE_ACCOUNT_ID,
-                'vectorize_index': CLOUDFLARE_VECTORIZE_INDEX,
-                'd1_database_id': CLOUDFLARE_D1_DATABASE_ID,
-                'r2_bucket': CLOUDFLARE_R2_BUCKET,
-                'embedding_model': CLOUDFLARE_EMBEDDING_MODEL,
-                'large_content_threshold': CLOUDFLARE_LARGE_CONTENT_THRESHOLD,
-                'max_retries': CLOUDFLARE_MAX_RETRIES,
-                'base_delay': CLOUDFLARE_BASE_DELAY
-            }
-
-        storage = StorageClass(
-            sqlite_db_path=SQLITE_VEC_PATH,
-            embedding_model=EMBEDDING_MODEL_NAME,
-            cloudflare_config=cloudflare_config,
-            sync_interval=HYBRID_SYNC_INTERVAL,
-            batch_size=HYBRID_BATCH_SIZE
-        )
-    else:  # ChromaStorage
-        storage = StorageClass(
-            path=str(CHROMA_PATH),
-            collection_name=COLLECTION_METADATA.get("name", "memories")
-        )
-    
-    # Initialize storage backend
-    await storage.initialize()
+    # Initialize storage backend using shared factory
+    from .storage.factory import create_storage_instance
+    storage = await create_storage_instance(SQLITE_VEC_PATH)
     
     try:
         yield MCPServerContext(
