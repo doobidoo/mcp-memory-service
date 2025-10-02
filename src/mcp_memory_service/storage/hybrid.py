@@ -666,6 +666,7 @@ class HybridMemoryStorage(MemoryStorage):
             batch_size = min(100, self.batch_size * 2)  # Use larger batch for initial sync
             cursor = None  # Start from most recent (no cursor)
             processed_count = 0
+            consecutive_empty_batches = 0  # Track empty batches to detect completion
 
             while True:
                 try:
@@ -719,15 +720,25 @@ class HybridMemoryStorage(MemoryStorage):
 
                     logger.debug(f"Batch complete: checked={batch_checked}, missing={batch_missing}, synced={batch_synced}")
 
+                    # Track consecutive batches with no new syncs
+                    if batch_synced == 0:
+                        consecutive_empty_batches += 1
+                    else:
+                        consecutive_empty_batches = 0  # Reset counter when we find missing memories
+
                     # Update cursor to the oldest timestamp from this batch for next iteration
                     if cloudflare_memories and hasattr(self.secondary, 'get_all_memories_cursor'):
                         # Get the oldest created_at timestamp from this batch for next cursor
                         cursor = min(memory.created_at for memory in cloudflare_memories if memory.created_at)
                         logger.debug(f"Next cursor set to: {cursor}")
 
-                    # If we've processed a significant number of memories and found none missing,
-                    # it's likely that all memories already exist (count mismatch issue)
-                    if processed_count >= 100 and synced_count == 0:
+                    # Only break early if we've had many consecutive batches with no new syncs
+                    # AND we've successfully synced some memories (so it's not an all-existing scenario)
+                    if consecutive_empty_batches >= 5 and synced_count > 0:
+                        logger.info(f"Completed sync after {consecutive_empty_batches} consecutive empty batches - {synced_count} total memories synced")
+                        break
+                    # Or if we've processed many memories and have never found any missing (true no-op case)
+                    elif processed_count >= 200 and synced_count == 0:
                         logger.info(f"No missing memories found after checking {processed_count} memories - all Cloudflare memories already exist locally")
                         break
 
