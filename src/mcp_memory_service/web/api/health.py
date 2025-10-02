@@ -25,7 +25,7 @@ from typing import Dict, Any, TYPE_CHECKING
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from ...storage.sqlite_vec import SqliteVecMemoryStorage
+from ...storage.base import MemoryStorage
 from ..dependencies import get_storage
 from ... import __version__
 from ...config import OAUTH_ENABLED
@@ -78,7 +78,7 @@ async def health_check():
 
 @router.get("/health/detailed", response_model=DetailedHealthResponse)
 async def detailed_health_check(
-    storage: SqliteVecMemoryStorage = Depends(get_storage),
+    storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """Detailed health check with system and storage information."""

@@ -40,8 +40,7 @@ from ..config import (
     HTTPS_ENABLED,
     OAUTH_ENABLED
 )
-from ..storage.sqlite_vec import SqliteVecMemoryStorage
-from .dependencies import set_storage, get_storage
+from .dependencies import set_storage, get_storage, create_storage_backend
 from .api.health import router as health_router
 from .api.memories import router as memories_router
 from .api.search import router as search_router
@@ -52,7 +51,7 @@ from .sse import sse_manager
 logger = logging.getLogger(__name__)
 
 # Global storage instance
-storage: Optional[SqliteVecMemoryStorage] = None
+storage = None
 
 # Global mDNS advertiser instance
 mdns_advertiser: Optional[Any] = None
@@ -91,13 +90,8 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting MCP Memory Service HTTP interface...")
     try:
-        storage = SqliteVecMemoryStorage(
-            db_path=DATABASE_PATH,
-            embedding_model=EMBEDDING_MODEL_NAME
-        )
-        await storage.initialize()
+        storage = await create_storage_backend()
         set_storage(storage)  # Set the global storage instance
-        logger.info(f"SQLite-vec storage initialized at {DATABASE_PATH}")
         
         # Start SSE manager
         await sse_manager.start()

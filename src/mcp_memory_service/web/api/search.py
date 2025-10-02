@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 
-from ...storage.sqlite_vec import SqliteVecMemoryStorage
+from ...storage.base import MemoryStorage
 from ...models.memory import Memory, MemoryQueryResult
 from ...config import OAUTH_ENABLED
 from ..dependencies import get_storage
@@ -102,7 +102,7 @@ def memory_to_search_result(memory: Memory, reason: str = None) -> SearchResult:
 @router.post("/search", response_model=SearchResponse, tags=["search"])
 async def semantic_search(
     request: SemanticSearchRequest,
-    storage: SqliteVecMemoryStorage = Depends(get_storage),
+    storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
@@ -164,7 +164,7 @@ async def semantic_search(
 @router.post("/search/by-tag", response_model=SearchResponse, tags=["search"])
 async def tag_search(
     request: TagSearchRequest,
-    storage: SqliteVecMemoryStorage = Depends(get_storage),
+    storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
@@ -234,7 +234,7 @@ async def tag_search(
 @router.post("/search/by-time", response_model=SearchResponse, tags=["search"])
 async def time_search(
     request: TimeSearchRequest,
-    storage: SqliteVecMemoryStorage = Depends(get_storage),
+    storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
@@ -304,7 +304,7 @@ async def time_search(
 async def find_similar(
     content_hash: str,
     n_results: int = Query(default=10, ge=1, le=100, description="Number of similar memories to find"),
-    storage: SqliteVecMemoryStorage = Depends(get_storage),
+    storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
