@@ -41,6 +41,47 @@ def get_storage() -> MemoryStorage:
     return _storage
 
 
+def _get_storage_backend_class() -> type:
+    """Get storage backend class based on configuration (web-only version)."""
+    from ..config import STORAGE_BACKEND
+
+    backend = STORAGE_BACKEND.lower()
+
+    if backend == "sqlite-vec" or backend == "sqlite_vec":
+        from ..storage.sqlite_vec import SqliteVecMemoryStorage
+        return SqliteVecMemoryStorage
+    elif backend == "chroma":
+        try:
+            from ..storage.chroma import ChromaStorage
+            return ChromaStorage
+        except ImportError as e:
+            logger.error(f"ChromaDB not installed. Install with: pip install mcp-memory-service[chromadb]")
+            logger.error(f"Import error: {str(e)}")
+            logger.warning("Falling back to SQLite-vec storage")
+            from ..storage.sqlite_vec import SqliteVecMemoryStorage
+            return SqliteVecMemoryStorage
+    elif backend == "cloudflare":
+        try:
+            from ..storage.cloudflare import CloudflareStorage
+            return CloudflareStorage
+        except ImportError as e:
+            logger.error(f"Failed to import Cloudflare storage: {e}")
+            raise
+    elif backend == "hybrid":
+        try:
+            from ..storage.hybrid import HybridMemoryStorage
+            return HybridMemoryStorage
+        except ImportError as e:
+            logger.error(f"Failed to import Hybrid storage: {e}")
+            logger.warning("Falling back to SQLite-vec storage")
+            from ..storage.sqlite_vec import SqliteVecMemoryStorage
+            return SqliteVecMemoryStorage
+    else:
+        logger.warning(f"Unknown storage backend '{backend}', defaulting to SQLite-vec")
+        from ..storage.sqlite_vec import SqliteVecMemoryStorage
+        return SqliteVecMemoryStorage
+
+
 async def create_storage_backend() -> MemoryStorage:
     """
     Create and initialize storage backend for web interface based on configuration.
@@ -48,7 +89,6 @@ async def create_storage_backend() -> MemoryStorage:
     Returns:
         Initialized storage backend
     """
-    from ..mcp_server import get_storage_backend
     from ..config import (
         SQLITE_VEC_PATH, EMBEDDING_MODEL_NAME, DATABASE_PATH,
         CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID,
@@ -62,7 +102,7 @@ async def create_storage_backend() -> MemoryStorage:
     logger.info("Creating storage backend for web interface...")
 
     # Get storage class based on configuration
-    StorageClass = get_storage_backend()
+    StorageClass = _get_storage_backend_class()
 
     if StorageClass.__name__ == "SqliteVecMemoryStorage":
         # For HTTP interface, use DATABASE_PATH which is configured for web interface
