@@ -887,7 +887,7 @@ h3 { font-size: var(--text-xl); }
     font-size: var(--text-sm);
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
     text-decoration: none;
     border: none;
 }
@@ -1097,7 +1097,7 @@ h3 { font-size: var(--text-xl); }
     border-radius: var(--radius-lg);
     border: 1px solid var(--neutral-200);
     overflow: hidden;
-    transition: all 0.2s ease;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .endpoint-section:hover {
@@ -1123,7 +1123,7 @@ h3 { font-size: var(--text-xl); }
     border-radius: var(--radius-md);
     padding: var(--space-4);
     margin-bottom: var(--space-3);
-    transition: all 0.2s ease;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .endpoint-item:last-child {
