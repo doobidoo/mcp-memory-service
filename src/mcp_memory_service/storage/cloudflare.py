@@ -1100,6 +1100,75 @@ class CloudflareStorage(MemoryStorage):
             logger.error(f"Error getting all memories: {str(e)}")
             return []
 
+    async def get_all_memories_cursor(self, limit: int = None, cursor: float = None, memory_type: Optional[str] = None, tags: Optional[List[str]] = None) -> List[Memory]:
+        """
+        Get all memories using cursor-based pagination to avoid D1 OFFSET limitations.
+
+        This method uses timestamp-based cursors instead of OFFSET, which is more efficient
+        and avoids Cloudflare D1's OFFSET limitations that cause 400 Bad Request errors.
+
+        Args:
+            limit: Maximum number of memories to return (None for all)
+            cursor: Timestamp cursor for pagination (created_at value from last result)
+            memory_type: Optional filter by memory type
+            tags: Optional filter by tags (matches ANY of the provided tags)
+
+        Returns:
+            List of Memory objects ordered by created_at DESC, starting after cursor
+        """
+        try:
+            # Build SQL query with cursor-based pagination
+            sql = "SELECT * FROM memories"
+            params = []
+            where_conditions = []
+
+            # Add cursor condition (timestamp-based pagination)
+            if cursor is not None:
+                where_conditions.append("created_at < ?")
+                params.append(cursor)
+
+            # Add memory_type filter if specified
+            if memory_type is not None:
+                where_conditions.append("memory_type = ?")
+                params.append(memory_type)
+
+            # Add tags filter if specified (using LIKE for tag matching)
+            if tags and len(tags) > 0:
+                tag_conditions = " OR ".join(["tags LIKE ?" for _ in tags])
+                where_conditions.append(f"({tag_conditions})")
+                params.extend([f"%{tag}%" for tag in tags])
+
+            # Apply WHERE clause if we have any conditions
+            if where_conditions:
+                sql += " WHERE " + " AND ".join(where_conditions)
+
+            sql += " ORDER BY created_at DESC"
+
+            if limit is not None:
+                sql += " LIMIT ?"
+                params.append(limit)
+
+            payload = {"sql": sql, "params": params}
+            response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+            result = response.json()
+
+            if not result.get("success"):
+                raise ValueError(f"D1 query failed: {result}")
+
+            memories = []
+            if result.get("result", [{}])[0].get("results"):
+                for row in result["result"][0]["results"]:
+                    memory = await self._load_memory_from_row(row)
+                    if memory:
+                        memories.append(memory)
+
+            logger.debug(f"Retrieved {len(memories)} memories from D1 with cursor-based pagination")
+            return memories
+
+        except Exception as e:
+            logger.error(f"Error getting memories with cursor: {str(e)}")
+            return []
+
     async def count_all_memories(self, memory_type: Optional[str] = None) -> int:
         """
         Get total count of memories in storage.

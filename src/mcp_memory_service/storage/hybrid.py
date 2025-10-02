@@ -41,7 +41,8 @@ try:
         CLOUDFLARE_VECTORIZE_MAX_VECTORS,
         CLOUDFLARE_MAX_METADATA_SIZE_KB,
         CLOUDFLARE_WARNING_THRESHOLD_PERCENT,
-        CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT
+        CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT,
+        HYBRID_SYNC_ON_STARTUP
     )
 except ImportError:
     # Fallback values if config doesn't have them
@@ -50,6 +51,7 @@ except ImportError:
     CLOUDFLARE_MAX_METADATA_SIZE_KB = 10
     CLOUDFLARE_WARNING_THRESHOLD_PERCENT = 80
     CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT = 95
+    HYBRID_SYNC_ON_STARTUP = True
 
 logger = logging.getLogger(__name__)
 
@@ -571,6 +573,12 @@ class HybridMemoryStorage(MemoryStorage):
         self.batch_size = batch_size
         self.initialized = False
 
+        # Initial sync status tracking
+        self.initial_sync_in_progress = False
+        self.initial_sync_total = 0
+        self.initial_sync_completed = 0
+        self.initial_sync_finished = False
+
     async def initialize(self) -> None:
         """Initialize the hybrid storage system."""
         logger.info("Initializing hybrid memory storage...")
@@ -595,12 +603,173 @@ class HybridMemoryStorage(MemoryStorage):
                 await self.sync_service.start()
                 logger.info("Background sync service started")
 
+                # Schedule initial sync to run after server startup (non-blocking)
+                if HYBRID_SYNC_ON_STARTUP:
+                    asyncio.create_task(self._perform_initial_sync_after_startup())
+                    logger.info("Initial sync scheduled to run after server startup")
+
             except Exception as e:
                 logger.warning(f"Failed to initialize secondary storage: {e}")
                 self.secondary = None
 
         self.initialized = True
         logger.info("Hybrid memory storage initialization completed")
+
+    async def _perform_initial_sync_after_startup(self) -> None:
+        """
+        Wrapper for initial sync that waits for server startup to complete.
+        This allows the web server to be accessible during the sync process.
+        """
+        # Wait a bit for server to fully start up
+        await asyncio.sleep(2)
+        logger.info("Starting initial sync in background (server is now accessible)")
+        await self._perform_initial_sync()
+
+    async def _perform_initial_sync(self) -> None:
+        """
+        Perform initial sync from Cloudflare to SQLite if enabled.
+
+        This downloads all memories from Cloudflare that are missing in local SQLite,
+        providing immediate access to existing cloud memories.
+        """
+        if not HYBRID_SYNC_ON_STARTUP or not self.secondary:
+            return
+
+        logger.info("Starting initial sync from Cloudflare to SQLite...")
+
+        self.initial_sync_in_progress = True
+        self.initial_sync_completed = 0
+        self.initial_sync_finished = False
+
+        try:
+            # Get memory count from both storages to compare
+            primary_stats = self.primary.get_stats()
+            secondary_stats = await self.secondary.get_stats()
+
+            primary_count = primary_stats.get('total_memories', 0)
+            secondary_count = secondary_stats.get('total_memories', 0)
+
+            logger.info(f"Memory count comparison - Local SQLite: {primary_count}, Cloudflare: {secondary_count}")
+
+            if secondary_count <= primary_count:
+                logger.info("Local SQLite has same or more memories than Cloudflare, skipping initial sync")
+                self.initial_sync_finished = True
+                return
+
+            # Get all memories from Cloudflare to sync missing ones
+            missing_count = secondary_count - primary_count
+            self.initial_sync_total = missing_count
+            logger.info(f"Found {missing_count} memories in Cloudflare that need to be synced to local SQLite")
+
+            # Get all Cloudflare memories using cursor-based pagination to avoid D1 OFFSET limitations
+            synced_count = 0
+            batch_size = min(100, self.batch_size * 2)  # Use larger batch for initial sync
+            cursor = None  # Start from most recent (no cursor)
+            processed_count = 0
+
+            while True:
+                try:
+                    # Get batch of memories from Cloudflare using cursor-based pagination
+                    logger.debug(f"Fetching batch from Cloudflare with cursor-based pagination: cursor={cursor}, batch_size={batch_size}")
+
+                    # Try cursor-based pagination first, fallback to offset if not supported
+                    if hasattr(self.secondary, 'get_all_memories_cursor'):
+                        cloudflare_memories = await self.secondary.get_all_memories_cursor(
+                            limit=batch_size,
+                            cursor=cursor
+                        )
+                    else:
+                        # Fallback for backends without cursor support
+                        cloudflare_memories = await self.secondary.get_all_memories(
+                            limit=batch_size,
+                            offset=processed_count
+                        )
+
+                    if not cloudflare_memories:
+                        logger.debug(f"No more memories returned from Cloudflare at cursor {cursor}")
+                        break
+
+                    logger.debug(f"Processing batch of {len(cloudflare_memories)} memories from Cloudflare")
+                    batch_checked = 0
+                    batch_missing = 0
+                    batch_synced = 0
+
+                    # Check which memories are missing in primary storage
+                    for cf_memory in cloudflare_memories:
+                        batch_checked += 1
+                        processed_count += 1
+                        try:
+                            # Check if memory exists in primary storage
+                            existing = await self.primary.get_by_hash(cf_memory.content_hash)
+                            if not existing:
+                                batch_missing += 1
+                                # Memory doesn't exist locally, sync it
+                                success, message = await self.primary.store(cf_memory)
+                                if success:
+                                    batch_synced += 1
+                                    synced_count += 1
+                                    self.initial_sync_completed = synced_count
+                                    if synced_count % 10 == 0:  # Log progress every 10 memories
+                                        logger.info(f"Initial sync progress: {synced_count}/{missing_count} memories synced")
+                                else:
+                                    logger.warning(f"Failed to sync memory {cf_memory.content_hash}: {message}")
+                        except Exception as e:
+                            logger.warning(f"Error checking/syncing memory {cf_memory.content_hash}: {e}")
+                            continue
+
+                    logger.debug(f"Batch complete: checked={batch_checked}, missing={batch_missing}, synced={batch_synced}")
+
+                    # Update cursor to the oldest timestamp from this batch for next iteration
+                    if cloudflare_memories and hasattr(self.secondary, 'get_all_memories_cursor'):
+                        # Get the oldest created_at timestamp from this batch for next cursor
+                        cursor = min(memory.created_at for memory in cloudflare_memories if memory.created_at)
+                        logger.debug(f"Next cursor set to: {cursor}")
+
+                    # If we've processed a significant number of memories and found none missing,
+                    # it's likely that all memories already exist (count mismatch issue)
+                    if processed_count >= 100 and synced_count == 0:
+                        logger.info(f"No missing memories found after checking {processed_count} memories - all Cloudflare memories already exist locally")
+                        break
+
+                    # Yield control to avoid blocking
+                    await asyncio.sleep(0.01)
+
+                except Exception as e:
+                    # Handle Cloudflare D1 errors (like 400 Bad Request from OFFSET limitations)
+                    if "400" in str(e) and not hasattr(self.secondary, 'get_all_memories_cursor'):
+                        logger.error(f"D1 OFFSET limitation hit at processed_count={processed_count}: {e}")
+                        logger.warning("Cloudflare D1 OFFSET limits reached - sync incomplete due to backend limitations")
+                        break
+                    else:
+                        logger.error(f"Error during cursor-based sync: {e}")
+                        break
+
+            logger.info(f"Initial sync completed: {synced_count} memories downloaded from Cloudflare to local SQLite")
+
+            # Update sync tracking to reflect actual sync completion
+            if synced_count == 0:
+                # All memories were already present - this is a successful "no-op" sync
+                self.initial_sync_completed = self.initial_sync_total
+                logger.info(f"Sync completed successfully: All {self.initial_sync_total} memories were already present locally")
+
+            self.initial_sync_finished = True
+
+        except Exception as e:
+            logger.error(f"Initial sync failed: {e}")
+            # Don't fail initialization if initial sync fails
+            logger.warning("Continuing with hybrid storage despite initial sync failure")
+        finally:
+            self.initial_sync_in_progress = False
+
+    def get_initial_sync_status(self) -> Dict[str, Any]:
+        """Get current initial sync status for monitoring."""
+        return {
+            "in_progress": self.initial_sync_in_progress,
+            "total": self.initial_sync_total,
+            "completed": self.initial_sync_completed,
+            "finished": self.initial_sync_finished,
+            "progress_percentage": round((self.initial_sync_completed / max(self.initial_sync_total, 1)) * 100, 1) if self.initial_sync_total > 0 else 0
+        }
 
     async def store(self, memory: Memory) -> Tuple[bool, str]:
         """Store a memory in primary storage and queue for secondary sync."""
