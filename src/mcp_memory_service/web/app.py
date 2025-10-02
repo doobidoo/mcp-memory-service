@@ -584,11 +584,11 @@ def create_app() -> FastAPI:
                         <div class="logo-icon">🧠</div>
                         <div>
                             <h1>MCP Memory Service</h1>
-                            <p class="subtitle">Intelligent Semantic Memory with SQLite-vec</p>
+                            <p class="subtitle" id="subtitle">Intelligent Semantic Memory with <span id="backend-name">Loading...</span></p>
                         </div>
                     </div>
                     <div class="version-badge">
-                        <span>✅</span> v""" + __version__ + """ - Latest Release
+                        <span>✅</span> <span id="version-display">Loading...</span> - Latest Release
                     </div>
                     <div class="nav-buttons">
                         <a href="/" class="nav-btn">
@@ -814,6 +814,76 @@ def create_app() -> FastAPI:
                 
                 // Update stats every 30 seconds
                 setInterval(updateStats, 30000);
+            </script>
+
+            <script>
+                // Dynamic content loading for API overview
+                function getBackendDisplayName(backend) {
+                    const backendMap = {
+                        'sqlite-vec': 'SQLite-vec',
+                        'sqlite_vec': 'SQLite-vec',
+                        'cloudflare': 'Cloudflare D1 + Vectorize',
+                        'chromadb': 'ChromaDB',
+                        'hybrid': 'Hybrid (SQLite-vec + Cloudflare)'
+                    };
+                    return backendMap[backend] || backend || 'Unknown Backend';
+                }
+
+                async function loadDynamicInfo() {
+                    try {
+                        // Load detailed health information
+                        const response = await fetch('/api/health/detailed');
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+                        const healthData = await response.json();
+
+                        // Update version display
+                        const versionEl = document.getElementById('version-display');
+                        if (versionEl && healthData.version) {
+                            versionEl.textContent = `v${healthData.version}`;
+                        }
+
+                        // Update backend name and subtitle
+                        const backendNameEl = document.getElementById('backend-name');
+                        const subtitleEl = document.getElementById('subtitle');
+
+                        if (healthData.storage && healthData.storage.backend) {
+                            const backendDisplay = getBackendDisplayName(healthData.storage.backend);
+
+                            if (backendNameEl) {
+                                backendNameEl.textContent = backendDisplay;
+                            }
+
+                            if (subtitleEl) {
+                                subtitleEl.innerHTML = `Intelligent Semantic Memory with <span id="backend-name">${backendDisplay}</span>`;
+                            }
+                        }
+
+                    } catch (error) {
+                        console.error('Error loading dynamic info:', error);
+
+                        // Fallback values on error
+                        const versionEl = document.getElementById('version-display');
+                        const backendNameEl = document.getElementById('backend-name');
+                        const subtitleEl = document.getElementById('subtitle');
+
+                        if (versionEl) {
+                            versionEl.textContent = 'v?.?.?';
+                        }
+
+                        if (backendNameEl) {
+                            backendNameEl.textContent = 'Unknown Backend';
+                        }
+
+                        if (subtitleEl) {
+                            subtitleEl.innerHTML = 'Intelligent Semantic Memory with <span id="backend-name">Unknown Backend</span>';
+                        }
+                    }
+                }
+
+                // Load dynamic content when page loads
+                document.addEventListener('DOMContentLoaded', loadDynamicInfo);
             </script>
         </body>
         </html>
