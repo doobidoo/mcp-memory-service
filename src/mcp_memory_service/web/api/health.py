@@ -100,32 +100,59 @@ async def detailed_health_check(
         "disk_percent": round((disk_info.used / disk_info.total) * 100, 2)
     }
     
-    # Get storage information
+    # Get storage information (support all storage backends)
     try:
-        # Get basic storage stats
-        storage_info = {
-            "backend": "sqlite-vec",
-            "database_path": storage.db_path,
-            "embedding_model": storage.embedding_model_name,
-            "status": "connected"
-        }
-        
-        # Try to get detailed statistics from storage
-        try:
-            stats = storage.get_stats()
-            if "error" not in stats:
-                storage_info.update(stats)
-                storage_info["accessible"] = True
+        # Get statistics from storage using universal get_stats() method
+        if hasattr(storage, 'get_stats') and callable(getattr(storage, 'get_stats')):
+            # Handle both sync and async get_stats methods
+            if hasattr(storage, '__class__') and 'Hybrid' in storage.__class__.__name__:
+                # HybridMemoryStorage.get_stats() is async
+                stats = await storage.get_stats()
             else:
-                storage_info["accessible"] = False
-                storage_info["stats_error"] = stats["error"]
-        except Exception as e:
-            storage_info["accessible"] = False
-            storage_info["error"] = str(e)
-            
+                # Other storage backends have sync get_stats()
+                stats = storage.get_stats()
+        else:
+            stats = {"error": "Storage backend doesn't support statistics"}
+
+        if "error" not in stats:
+            # Detect backend type from storage class or stats
+            backend_name = stats.get("storage_backend", storage.__class__.__name__)
+            if "sqlite" in backend_name.lower():
+                backend_type = "sqlite-vec"
+            elif "cloudflare" in backend_name.lower():
+                backend_type = "cloudflare"
+            elif "hybrid" in backend_name.lower():
+                backend_type = "hybrid"
+            elif "chroma" in backend_name.lower():
+                backend_type = "chromadb"
+            else:
+                backend_type = backend_name
+
+            storage_info = {
+                "backend": backend_type,
+                "status": "connected",
+                "accessible": True
+            }
+
+            # Add backend-specific information if available
+            if hasattr(storage, 'db_path'):
+                storage_info["database_path"] = storage.db_path
+            if hasattr(storage, 'embedding_model_name'):
+                storage_info["embedding_model"] = storage.embedding_model_name
+
+            # Merge all stats
+            storage_info.update(stats)
+        else:
+            storage_info = {
+                "backend": storage.__class__.__name__,
+                "status": "error",
+                "accessible": False,
+                "error": stats["error"]
+            }
+
     except Exception as e:
         storage_info = {
-            "backend": "sqlite-vec",
+            "backend": storage.__class__.__name__ if hasattr(storage, '__class__') else "unknown",
             "status": "error",
             "error": str(e)
         }
