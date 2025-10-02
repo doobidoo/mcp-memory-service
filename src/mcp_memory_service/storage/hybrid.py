@@ -888,6 +888,10 @@ class HybridMemoryStorage(MemoryStorage):
 
         return stats
 
+    async def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:
+        """Get all tags with their usage counts from primary storage."""
+        return await self.primary.get_all_tags_with_counts()
+
     async def get_all_tags(self) -> List[str]:
         """Get all unique tags from primary storage."""
         return self.primary.get_all_tags()
