@@ -43,7 +43,12 @@ __pypackages__/
 
 # Virtual Environment activation files (redundant due to .venv/ but explicit if needed)
 .env
-.env.*
+.env.local
+.env.development
+.env.test
+.env.production
+# But include template files
+!.env.example
 
 # IDEs & Editors
 .idea/
