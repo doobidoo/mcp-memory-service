@@ -1055,3 +1055,142 @@ h3 { font-size: var(--text-xl); }
         padding: 0;
     }
 }
+
+/* API Documentation Styles */
+#apiDocsView {
+    padding: var(--space-6);
+}
+
+.api-docs-header {
+    text-align: center;
+    margin-bottom: var(--space-8);
+}
+
+.api-docs-header h2 {
+    color: var(--neutral-800);
+    margin-bottom: var(--space-3);
+}
+
+.api-docs-header p {
+    color: var(--neutral-600);
+    font-size: var(--text-lg);
+    margin-bottom: var(--space-6);
+}
+
+.api-docs-links {
+    display: flex;
+    gap: var(--space-4);
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.api-endpoints-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: var(--space-6);
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.endpoint-section {
+    background: var(--neutral-50);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--neutral-200);
+    overflow: hidden;
+    transition: all 0.2s ease;
+}
+
+.endpoint-section:hover {
+    border-color: var(--primary);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+}
+
+.endpoint-section h3 {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: white;
+    padding: var(--space-4);
+    margin: 0;
+    font-size: var(--text-lg);
+}
+
+.endpoint-list {
+    padding: var(--space-4);
+}
+
+.endpoint-item {
+    background: white;
+    border: 1px solid var(--neutral-200);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    margin-bottom: var(--space-3);
+    transition: all 0.2s ease;
+}
+
+.endpoint-item:last-child {
+    margin-bottom: 0;
+}
+
+.endpoint-item:hover {
+    border-color: var(--primary);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+}
+
+.endpoint-item .method {
+    display: inline-block;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    margin-right: var(--space-3);
+    min-width: 60px;
+    text-align: center;
+}
+
+.endpoint-item .method.get {
+    background: var(--success);
+    color: white;
+}
+
+.endpoint-item .method.post {
+    background: var(--primary);
+    color: white;
+}
+
+.endpoint-item .method.delete {
+    background: var(--error);
+    color: white;
+}
+
+.endpoint-item .path {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--neutral-700);
+    font-size: var(--text-sm);
+}
+
+.endpoint-item .description {
+    display: block;
+    color: var(--neutral-600);
+    font-size: var(--text-sm);
+    margin-top: var(--space-2);
+    line-height: 1.5;
+}
+
+/* Responsive adjustments for API docs */
+@media (max-width: 768px) {
+    .api-endpoints-grid {
+        grid-template-columns: 1fr;
+        gap: var(--space-4);
+    }
+
+    .api-docs-links {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .api-docs-links .btn {
+        width: 100%;
+        max-width: 300px;
+    }
+}

@@ -86,6 +86,12 @@
                     </svg>
                     Analytics
                 </button>
+                <button class="nav-item" data-view="api-docs">
+                    <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M14,17H7V15H14M17,13H7V11H17M17,9H7V7H17M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3Z"/>
+                    </svg>
+                    API Docs
+                </button>
             </div>
         </nav>
 
@@ -237,6 +243,124 @@
             <div id="analyticsView" class="view-container">
                 <h2>Analytics Dashboard</h2>
                 <p>Analytics features coming soon...</p>
+            </div>
+
+            <!-- API Documentation View -->
+            <div id="apiDocsView" class="view-container">
+                <div class="api-docs-header">
+                    <h2>🔗 API Documentation</h2>
+                    <p>Comprehensive REST API endpoints for MCP Memory Service</p>
+                    <div class="api-docs-links">
+                        <a href="/api/docs" target="_blank" class="btn btn-primary">
+                            <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M14,17H7V15H14M17,13H7V11H17M17,9H7V7H17M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3Z"/>
+                            </svg>
+                            Interactive Swagger UI
+                        </a>
+                        <a href="/api/redoc" target="_blank" class="btn btn-secondary">
+                            <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M14,17H7V15H14M17,13H7V11H17M17,9H7V7H17M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3Z"/>
+                            </svg>
+                            ReDoc Documentation
+                        </a>
+                        <a href="/api-overview" target="_blank" class="btn btn-secondary">
+                            <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M11,16.5L18,9.5L16.59,8.09L11,13.67L7.91,10.59L6.5,12L11,16.5Z"/>
+                            </svg>
+                            API Overview Page
+                        </a>
+                    </div>
+                </div>
+
+                <div class="api-endpoints-grid">
+                    <!-- Memory Management -->
+                    <div class="endpoint-section">
+                        <h3>💾 Memory Management</h3>
+                        <div class="endpoint-list">
+                            <div class="endpoint-item">
+                                <span class="method post">POST</span>
+                                <span class="path">/api/memories</span>
+                                <span class="description">Store a new memory with automatic embedding generation</span>
+                            </div>
+                            <div class="endpoint-item">
+                                <span class="method get">GET</span>
+                                <span class="path">/api/memories</span>
+                                <span class="description">List all memories with pagination support</span>
+                            </div>
+                            <div class="endpoint-item">
+                                <span class="method get">GET</span>
+                                <span class="path">/api/memories/{hash}</span>
+                                <span class="description">Retrieve a specific memory by content hash</span>
+                            </div>
+                            <div class="endpoint-item">
+                                <span class="method delete">DELETE</span>
+                                <span class="path">/api/memories/{hash}</span>
+                                <span class="description">Delete a memory and its embeddings</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Search Operations -->
+                    <div class="endpoint-section">
+                        <h3>🔍 Search Operations</h3>
+                        <div class="endpoint-list">
+                            <div class="endpoint-item">
+                                <span class="method post">POST</span>
+                                <span class="path">/api/search</span>
+                                <span class="description">Semantic similarity search using embeddings</span>
+                            </div>
+                            <div class="endpoint-item">
+                                <span class="method post">POST</span>
+                                <span class="path">/api/search/by-tag</span>
+                                <span class="description">Search memories by tags (AND/OR logic)</span>
+                            </div>
+                            <div class="endpoint-item">
+                                <span class="method post">POST</span>
+                                <span class="path">/api/search/by-time</span>
+                                <span class="description">Natural language time-based queries</span>
+                            </div>
+                            <div class="endpoint-item">
+                                <span class="method get">GET</span>
+                                <span class="path">/api/search/similar/{hash}</span>
+                                <span class="description">Find memories similar to a specific one</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Real-time Events -->
+                    <div class="endpoint-section">
+                        <h3>📡 Real-time Events</h3>
+                        <div class="endpoint-list">
+                            <div class="endpoint-item">
+                                <span class="method get">GET</span>
+                                <span class="path">/api/events</span>
+                                <span class="description">Subscribe to real-time memory events stream</span>
+                            </div>
+                            <div class="endpoint-item">
+                                <span class="method get">GET</span>
+                                <span class="path">/api/events/stats</span>
+                                <span class="description">View SSE connection statistics</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Health & Status -->
+                    <div class="endpoint-section">
+                        <h3>🏥 Health & Status</h3>
+                        <div class="endpoint-list">
+                            <div class="endpoint-item">
+                                <span class="method get">GET</span>
+                                <span class="path">/api/health</span>
+                                <span class="description">Quick health check endpoint</span>
+                            </div>
+                            <div class="endpoint-item">
+                                <span class="method get">GET</span>
+                                <span class="path">/api/health/detailed</span>
+                                <span class="description">Detailed health with database statistics</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </main>
 

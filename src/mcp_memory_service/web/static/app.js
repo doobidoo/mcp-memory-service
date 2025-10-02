@@ -426,6 +426,9 @@ class MemoryDashboard {
             case 'analytics':
                 // Load analytics data
                 break;
+            case 'api-docs':
+                // API docs view - static content, no additional loading needed
+                break;
             default:
                 // Dashboard view is loaded in loadDashboardData
                 break;
