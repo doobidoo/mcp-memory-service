@@ -174,18 +174,31 @@ def _find_best_split_point(text: str, max_length: int) -> int:
     return max_length
 
 
-def estimate_chunks_needed(content_length: int, max_length: int) -> int:
+def estimate_chunks_needed(content_length: int, max_length: int, overlap: int = 0) -> int:
     """
     Estimate the number of chunks needed for content of given length.
 
     Args:
         content_length: Length of content to split
         max_length: Maximum length per chunk
+        overlap: The character overlap between chunks.
 
     Returns:
         Estimated number of chunks
     """
-    return max(1, math.ceil(content_length / max_length))
+    if content_length <= 0:
+        return 0
+    if content_length <= max_length:
+        return 1
+
+    effective_chunk_size = max_length - overlap
+    if effective_chunk_size <= 0:
+        # Fallback to simple division if overlap is invalid, to avoid infinite loops.
+        return math.ceil(content_length / max_length)
+
+    # 1 chunk for the first part, then additional chunks for the rest.
+    num_additional_chunks = math.ceil((content_length - max_length) / effective_chunk_size)
+    return 1 + int(num_additional_chunks)
 
 
 def validate_chunk_lengths(chunks: List[str], max_length: int) -> bool:

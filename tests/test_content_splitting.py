@@ -103,10 +103,20 @@ class TestContentSplitter:
 
     def test_estimate_chunks_needed(self):
         """Test chunk estimation function."""
+        # Basic cases without overlap
+        assert estimate_chunks_needed(0, 100) == 0
         assert estimate_chunks_needed(100, 100) == 1
         assert estimate_chunks_needed(200, 100) == 2
         assert estimate_chunks_needed(250, 100) == 3
-        assert estimate_chunks_needed(0, 100) == 1  # Edge case
+
+        # Cases with overlap
+        assert estimate_chunks_needed(100, 100, overlap=10) == 1  # Fits in one chunk
+        assert estimate_chunks_needed(150, 100, overlap=10) == 2  # First chunk 100, second chunk covers remaining 50
+        assert estimate_chunks_needed(200, 100, overlap=50) == 3  # Effective chunk size is 50
+
+        # Edge cases
+        assert estimate_chunks_needed(100, 100, overlap=100) == 1  # Invalid overlap, fallback to simple division
+        assert estimate_chunks_needed(100, 100, overlap=150) == 1  # Invalid overlap larger than max_length
 
     def test_validate_chunk_lengths(self):
         """Test chunk length validation."""

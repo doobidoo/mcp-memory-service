@@ -17,6 +17,7 @@ MCP Memory Service
 Copyright (c) 2024 Heinrich Krupp
 Licensed under the MIT License. See LICENSE file in the project root for full license text.
 """
+import asyncio
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
@@ -62,7 +63,7 @@ class MemoryStorage(ABC):
         """
         Store multiple memories in a single operation.
 
-        Default implementation calls store() for each memory sequentially.
+        Default implementation calls store() for each memory concurrently using asyncio.gather.
         Override this method in concrete storage backends to provide true batch operations
         for improved performance (e.g., single database transaction, bulk network request).
 
@@ -72,11 +73,23 @@ class MemoryStorage(ABC):
         Returns:
             A list of (success, message) tuples, one for each memory in the batch.
         """
-        results = []
-        for memory in memories:
-            success, message = await self.store(memory)
-            results.append((success, message))
-        return results
+        if not memories:
+            return []
+
+        results = await asyncio.gather(
+            *(self.store(memory) for memory in memories),
+            return_exceptions=True
+        )
+
+        # Process results to handle potential exceptions from gather
+        final_results = []
+        for res in results:
+            if isinstance(res, Exception):
+                # If a store operation failed with an exception, record it as a failure
+                final_results.append((False, f"Failed to store memory: {res}"))
+            else:
+                final_results.append(res)
+        return final_results
     
     @abstractmethod
     async def retrieve(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
