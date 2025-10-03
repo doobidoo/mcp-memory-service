@@ -57,6 +57,10 @@ def split_content(
     if len(content) <= max_length:
         return [content]
 
+    # Validate overlap to prevent infinite loops
+    if overlap >= max_length:
+        raise ValueError(f"Overlap ({overlap}) must be smaller than max_length ({max_length}).")
+
     logger.info(f"Splitting content of {len(content)} chars into chunks of max {max_length} chars")
 
     if not preserve_boundaries:
@@ -109,16 +113,23 @@ def _split_preserving_boundaries(content: str, max_length: int, overlap: int) ->
         chunk = remaining[:split_point].rstrip()
         chunks.append(chunk)
 
-        # Calculate overlap start (go back overlap characters but respect boundaries)
-        overlap_start = max(0, split_point - overlap)
-        # Find a good boundary for overlap start if possible
-        if overlap > 0 and overlap_start > 0:
-            # Try to start overlap at a space
-            space_pos = remaining[overlap_start:split_point].find(' ')
-            if space_pos != -1:
-                overlap_start += space_pos + 1
+        # Calculate overlap start to prevent infinite loop
+        if split_point <= overlap:
+            # Not enough text to overlap, or overlap would cause an infinite loop.
+            # Advance past the current chunk without creating an overlap.
+            next_start = split_point
+        else:
+            # Calculate overlap start (go back overlap characters but respect boundaries)
+            overlap_start = max(0, split_point - overlap)
+            # Find a good boundary for overlap start if possible
+            if overlap > 0 and overlap_start > 0:
+                # Try to start overlap at a space
+                space_pos = remaining[overlap_start:split_point].find(' ')
+                if space_pos != -1:
+                    overlap_start += space_pos + 1
+            next_start = overlap_start
 
-        remaining = remaining[overlap_start:].lstrip()
+        remaining = remaining[next_start:].lstrip()
 
         # Prevent infinite loop in edge cases
         if not remaining or len(chunk) == 0:
@@ -133,36 +144,31 @@ def _find_best_split_point(text: str, max_length: int) -> int:
 
     Returns the character index where the split should occur.
     """
-    # If text is within limit, return full length
     if len(text) <= max_length:
         return len(text)
 
-    # Search window (look back up to 20% for a good boundary)
-    search_start = max(int(max_length * 0.8), max_length - 100)
-    search_text = text[search_start:max_length]
+    text_to_search = text[:max_length]
 
     # Priority 1: Double newline (paragraph break)
-    para_match = search_text.rfind('\n\n')
-    if para_match != -1:
-        return search_start + para_match
+    pos = text_to_search.rfind('\n\n')
+    if pos != -1:
+        return pos
 
     # Priority 2: Single newline
-    newline_match = search_text.rfind('\n')
-    if newline_match != -1:
-        return search_start + newline_match
+    pos = text_to_search.rfind('\n')
+    if pos != -1:
+        return pos
 
     # Priority 3: Sentence ending
-    # Look for '. ', '! ', '? ' patterns (including end of string)
     sentence_pattern = r'[.!?](?=\s|$)'
-    matches = list(re.finditer(sentence_pattern, search_text))
+    matches = list(re.finditer(sentence_pattern, text_to_search))
     if matches:
-        last_match = matches[-1]
-        return search_start + last_match.end()
+        return matches[-1].end()
 
     # Priority 4: Word boundary (space)
-    space_match = search_text.rfind(' ')
-    if space_match != -1:
-        return search_start + space_match + 1
+    pos = text_to_search.rfind(' ')
+    if pos != -1:
+        return pos + 1
 
     # Priority 5: Hard cutoff at max_length (last resort)
     return max_length

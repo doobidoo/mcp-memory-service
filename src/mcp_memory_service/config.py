@@ -288,9 +288,9 @@ CHROMADB_MAX_CONTENT_LENGTH = safe_get_int_env(
 # Set to None for unlimited, or configure via environment variable
 SQLITEVEC_MAX_CONTENT_LENGTH: Optional[int] = None
 env_sqlite_limit = os.getenv('MCP_SQLITEVEC_MAX_CONTENT_LENGTH')
-if env_sqlite_limit and env_sqlite_limit.lower() not in ('none', 'null', 'unlimited', ''):
+if env_sqlite_limit and env_sqlite_limit.lower().strip() not in ('none', 'null', 'unlimited', ''):
     try:
-        limit = int(env_sqlite_limit)
+        limit = int(env_sqlite_limit.strip())
         if limit >= 100:
             SQLITEVEC_MAX_CONTENT_LENGTH = limit
         else:
