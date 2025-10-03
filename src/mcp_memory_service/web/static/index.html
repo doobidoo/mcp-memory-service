@@ -166,13 +166,22 @@
                 <div class="search-layout">
                     <!-- Advanced Search Panel -->
                     <aside class="search-filters">
-                        <h3>Search Filters</h3>
+                        <h3>Search Filters
+                            <span class="tooltip" title="Filters work together: combine tags, dates, and types to narrow your search">ℹ️</span>
+                        </h3>
+
                         <div class="filter-section">
-                            <label for="tagFilter">Tags</label>
-                            <input type="text" id="tagFilter" placeholder="Enter tags...">
+                            <label for="tagFilter">Tags
+                                <span class="tooltip" title="Enter tags separated by commas (e.g., work, coding, important)">ℹ️</span>
+                            </label>
+                            <input type="text" id="tagFilter" placeholder="e.g., work, coding, important">
+                            <small class="help-text">Separate multiple tags with commas</small>
                         </div>
+
                         <div class="filter-section">
-                            <label for="dateFilter">Date Range</label>
+                            <label for="dateFilter">Date Range
+                                <span class="tooltip" title="Filter memories by when they were created">ℹ️</span>
+                            </label>
                             <select id="dateFilter">
                                 <option value="">All time</option>
                                 <option value="today">Today</option>
@@ -180,15 +189,45 @@
                                 <option value="month">This month</option>
                                 <option value="year">This year</option>
                             </select>
+                            <small class="help-text">Select a time period to filter memories</small>
                         </div>
+
                         <div class="filter-section">
-                            <label for="typeFilter">Content Type</label>
+                            <label for="typeFilter">Content Type
+                                <span class="tooltip" title="Filter by the type of content stored">ℹ️</span>
+                            </label>
                             <select id="typeFilter">
                                 <option value="">All types</option>
                                 <option value="note">Notes</option>
                                 <option value="code">Code</option>
                                 <option value="reference">References</option>
+                                <option value="idea">Ideas</option>
                             </select>
+                            <small class="help-text">Choose the type of memories to show</small>
+                        </div>
+
+                        <!-- Filter Actions -->
+                        <div class="filter-actions">
+                            <button type="button" id="applyFiltersBtn" class="btn btn-primary">
+                                <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M21.71 20.29L18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a1 1 0 0 0 1.42-1.42zM11 18a7 7 0 1 1 7-7 7 7 0 0 1-7 7z"/>
+                                </svg>
+                                Search
+                            </button>
+                            <button type="button" id="clearFiltersBtn" class="btn btn-secondary">
+                                <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                                </svg>
+                                Clear All
+                            </button>
+                        </div>
+
+                        <!-- Active Filters Display -->
+                        <div id="activeFilters" class="active-filters" style="display: none;">
+                            <h4>Active Filters:</h4>
+                            <div id="activeFiltersList" class="filter-pills">
+                                <!-- Dynamic filter pills will be added here -->
+                            </div>
                         </div>
                     </aside>
 

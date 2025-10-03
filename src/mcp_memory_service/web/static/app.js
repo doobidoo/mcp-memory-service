@@ -125,6 +125,10 @@ class MemoryDashboard {
             });
         });
 
+        // New filter action handlers
+        document.getElementById('applyFiltersBtn')?.addEventListener('click', this.handleFilterChange.bind(this));
+        document.getElementById('clearFiltersBtn')?.addEventListener('click', this.clearAllFilters.bind(this));
+
         // Settings button
         document.getElementById('settingsBtn')?.addEventListener('click', () => {
             this.showToast('Settings functionality not yet implemented.', 'info');
@@ -511,7 +515,14 @@ class MemoryDashboard {
         const tagFilter = document.getElementById('tagFilter')?.value;
         const dateFilter = document.getElementById('dateFilter')?.value;
         const typeFilter = document.getElementById('typeFilter')?.value;
-        const query = document.getElementById('searchInput').value.trim();
+        const query = document.getElementById('quickSearch')?.value?.trim() || '';
+
+        // Add loading state
+        const applyBtn = document.getElementById('applyFiltersBtn');
+        if (applyBtn) {
+            applyBtn.classList.add('loading');
+            applyBtn.disabled = true;
+        }
 
         try {
             let results = [];
@@ -535,25 +546,55 @@ class MemoryDashboard {
                         // For now, tag search takes precedence
                     }
                 }
-            } else if (query) {
-                // No tag filter, use semantic search with other filters
-                const filters = {};
-                if (dateFilter) filters.date_range = dateFilter;
-                if (typeFilter) filters.type = typeFilter;
+            } else if (dateFilter && dateFilter.trim()) {
+                // Date filter only - use time-based search
+                const payload = {
+                    query: dateFilter,
+                    n_results: 100
+                };
+                const response = await this.apiCall('/search/by-time', 'POST', payload);
+                results = response.results || [];
 
+                // Apply type filter if present
+                if (typeFilter && typeFilter.trim()) {
+                    results = results.filter(result => {
+                        const memoryType = result.memory.memory_type || 'note';
+                        return memoryType === typeFilter;
+                    });
+                }
+            } else if (query) {
+                // Semantic search with optional type filter
+                const filters = {};
+                if (typeFilter) filters.type = typeFilter;
                 results = await this.searchMemories(query, filters);
+            } else if (typeFilter && typeFilter.trim()) {
+                // Only type filter - get all memories and filter by type
+                const allMemoriesResponse = await this.apiCall('/memories?page=1&page_size=1000');
+                if (allMemoriesResponse.memories) {
+                    results = allMemoriesResponse.memories
+                        .filter(memory => (memory.memory_type || 'note') === typeFilter)
+                        .map(memory => ({ memory, similarity: 1.0 }));
+                }
             } else {
-                // No query or tags, clear results
+                // No filters, clear results
                 results = [];
             }
 
             this.searchResults = results;
             this.renderSearchResults(results);
             this.updateResultsCount(results.length);
+            this.updateActiveFilters();
 
         } catch (error) {
             console.error('Filter search error:', error);
             this.showToast('Filter search failed', 'error');
+        } finally {
+            // Remove loading state
+            const applyBtn = document.getElementById('applyFiltersBtn');
+            if (applyBtn) {
+                applyBtn.classList.remove('loading');
+                applyBtn.disabled = false;
+            }
         }
     }
 
@@ -1154,6 +1195,124 @@ class MemoryDashboard {
         if (element) {
             element.textContent = `${count} result${count !== 1 ? 's' : ''}`;
         }
+    }
+
+    /**
+     * Update active filters display
+     */
+    updateActiveFilters() {
+        const activeFiltersContainer = document.getElementById('activeFilters');
+        const filtersList = document.getElementById('activeFiltersList');
+
+        if (!activeFiltersContainer || !filtersList) return;
+
+        const tagFilter = document.getElementById('tagFilter')?.value?.trim();
+        const dateFilter = document.getElementById('dateFilter')?.value;
+        const typeFilter = document.getElementById('typeFilter')?.value;
+
+        const filters = [];
+
+        if (tagFilter) {
+            const tags = tagFilter.split(',').map(t => t.trim()).filter(t => t);
+            tags.forEach(tag => {
+                filters.push({
+                    type: 'tag',
+                    value: tag,
+                    label: `Tag: ${tag}`
+                });
+            });
+        }
+
+        if (dateFilter) {
+            const dateLabels = {
+                'today': 'Today',
+                'week': 'This week',
+                'month': 'This month',
+                'year': 'This year'
+            };
+            filters.push({
+                type: 'date',
+                value: dateFilter,
+                label: `Date: ${dateLabels[dateFilter] || dateFilter}`
+            });
+        }
+
+        if (typeFilter) {
+            const typeLabels = {
+                'note': 'Notes',
+                'code': 'Code',
+                'reference': 'References',
+                'idea': 'Ideas'
+            };
+            filters.push({
+                type: 'type',
+                value: typeFilter,
+                label: `Type: ${typeLabels[typeFilter] || typeFilter}`
+            });
+        }
+
+        if (filters.length === 0) {
+            activeFiltersContainer.style.display = 'none';
+            return;
+        }
+
+        activeFiltersContainer.style.display = 'block';
+        filtersList.innerHTML = filters.map(filter => `
+            <div class="filter-pill">
+                ${this.escapeHtml(filter.label)}
+                <button class="remove-filter" onclick="dashboard.removeFilter('${filter.type}', '${this.escapeHtml(filter.value)}')">
+                    ×
+                </button>
+            </div>
+        `).join('');
+    }
+
+    /**
+     * Remove a specific filter
+     */
+    removeFilter(type, value) {
+        switch (type) {
+            case 'tag':
+                const tagInput = document.getElementById('tagFilter');
+                if (tagInput) {
+                    const tags = tagInput.value.split(',').map(t => t.trim()).filter(t => t && t !== value);
+                    tagInput.value = tags.join(', ');
+                }
+                break;
+            case 'date':
+                const dateSelect = document.getElementById('dateFilter');
+                if (dateSelect) {
+                    dateSelect.value = '';
+                }
+                break;
+            case 'type':
+                const typeSelect = document.getElementById('typeFilter');
+                if (typeSelect) {
+                    typeSelect.value = '';
+                }
+                break;
+        }
+        this.handleFilterChange();
+    }
+
+    /**
+     * Clear all filters
+     */
+    clearAllFilters() {
+        const tagFilter = document.getElementById('tagFilter');
+        const dateFilter = document.getElementById('dateFilter');
+        const typeFilter = document.getElementById('typeFilter');
+
+        if (tagFilter) tagFilter.value = '';
+        if (dateFilter) dateFilter.value = '';
+        if (typeFilter) typeFilter.value = '';
+
+        this.searchResults = [];
+        this.renderSearchResults([]);
+        this.updateResultsCount(0);
+        this.updateActiveFilters();
+
+        this.showToast('All filters cleared', 'info');
     }
 
     /**
