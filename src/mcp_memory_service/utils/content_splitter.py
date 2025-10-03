@@ -152,12 +152,12 @@ def _find_best_split_point(text: str, max_length: int) -> int:
     # Priority 1: Double newline (paragraph break)
     pos = text_to_search.rfind('\n\n')
     if pos != -1:
-        return pos
+        return pos + 2
 
     # Priority 2: Single newline
     pos = text_to_search.rfind('\n')
     if pos != -1:
-        return pos
+        return pos + 1
 
     # Priority 3: Sentence ending
     sentence_pattern = r'[.!?](?=\s|$)'

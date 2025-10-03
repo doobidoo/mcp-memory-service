@@ -19,7 +19,7 @@ import logging
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, TypedDict, NotRequired
 import os
 import sys
 import socket
@@ -87,6 +87,30 @@ mcp = FastMCP(
 )
 
 # =============================================================================
+# TYPE DEFINITIONS
+# =============================================================================
+
+class StoreMemorySuccess(TypedDict):
+    """Return type for successful single memory storage."""
+    success: bool
+    message: str
+    content_hash: str
+
+class StoreMemorySplitSuccess(TypedDict):
+    """Return type for successful chunked memory storage."""
+    success: bool
+    message: str
+    chunks_created: int
+    chunk_hashes: List[str]
+
+class StoreMemoryFailure(TypedDict):
+    """Return type for failed memory storage."""
+    success: bool
+    message: str
+    chunks_created: NotRequired[int]
+    chunk_hashes: NotRequired[List[str]]
+
+# =============================================================================
 # CORE MEMORY OPERATIONS
 # =============================================================================
 
@@ -98,7 +122,7 @@ async def store_memory(
     memory_type: str = "note",
     metadata: Optional[Dict[str, Any]] = None,
     client_hostname: Optional[str] = None
-) -> Dict[str, Union[bool, str, int, List[str]]]:
+) -> Union[StoreMemorySuccess, StoreMemorySplitSuccess, StoreMemoryFailure]:
     """
     Store a new memory with content and optional metadata.
 
@@ -159,9 +183,10 @@ async def store_memory(
             logger.info(f"Content length {len(content)} exceeds backend limit {max_length}, splitting...")
 
             chunks = split_content(content, max_length, preserve_boundaries=CONTENT_PRESERVE_BOUNDARIES, overlap=CONTENT_SPLIT_OVERLAP)
-            chunk_hashes = []
             total_chunks = len(chunks)
+            chunk_memories = []
 
+            # Create all chunk memories
             for i, chunk in enumerate(chunks):
                 # Add chunk metadata
                 chunk_metadata = final_metadata.copy()
@@ -176,32 +201,34 @@ async def store_memory(
                 chunk_tags = final_tags.copy()
                 chunk_tags.append(f"chunk:{i+1}/{total_chunks}")
 
-                # Create and store chunk
+                # Create chunk memory object
                 chunk_memory = Memory(
                     content=chunk,
                     tags=chunk_tags,
                     memory_type=memory_type,
                     metadata=chunk_metadata
                 )
+                chunk_memories.append(chunk_memory)
 
-                success, message = await storage.store(chunk_memory)
-                if success:
-                    chunk_hashes.append(chunk_memory.content_hash)
-                else:
-                    logger.error(f"Failed to store chunk {i+1}/{total_chunks}: {message}")
-                    return {
-                        "success": False,
-                        "message": f"Failed to store chunk {i+1}/{total_chunks}: {message}",
-                        "chunks_created": i,
-                        "chunk_hashes": chunk_hashes
-                    }
+            # Store all chunks in a single batch operation
+            success, message = await storage.store_batch(chunk_memories)
 
-            return {
-                "success": True,
-                "message": f"Content split into {total_chunks} chunks and stored successfully",
-                "chunks_created": total_chunks,
-                "chunk_hashes": chunk_hashes
-            }
+            if success:
+                chunk_hashes = [mem.content_hash for mem in chunk_memories]
+                return {
+                    "success": True,
+                    "message": f"Content split into {total_chunks} chunks and stored successfully",
+                    "chunks_created": total_chunks,
+                    "chunk_hashes": chunk_hashes
+                }
+            else:
+                logger.error(f"Failed to store chunks: {message}")
+                return {
+                    "success": False,
+                    "message": f"Failed to store chunks: {message}",
+                    "chunks_created": 0,
+                    "chunk_hashes": []
+                }
 
         else:
             # Content within limit - store as single memory
