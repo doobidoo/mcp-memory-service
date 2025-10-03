@@ -184,6 +184,33 @@ async def detailed_health_check(
     )
 
 
+@router.get("/health/sync-status")
+async def sync_status(
+    storage: MemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+):
+    """Get current initial sync status for hybrid storage."""
+
+    # Check if this is a hybrid storage that supports sync status
+    if hasattr(storage, 'get_initial_sync_status'):
+        sync_status = storage.get_initial_sync_status()
+        return {
+            "sync_supported": True,
+            "status": sync_status
+        }
+    else:
+        return {
+            "sync_supported": False,
+            "status": {
+                "in_progress": False,
+                "total": 0,
+                "completed": 0,
+                "finished": True,
+                "progress_percentage": 100
+            }
+        }
+
+
 def format_uptime(seconds: float) -> str:
     """Format uptime in human-readable format."""
     if seconds < 60:

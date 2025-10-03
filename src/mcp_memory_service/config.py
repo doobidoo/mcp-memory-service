@@ -442,7 +442,7 @@ MDNS_SERVICE_TYPE = os.getenv('MCP_MDNS_SERVICE_TYPE', '_mcp-memory._tcp.local.'
 MDNS_DISCOVERY_TIMEOUT = int(os.getenv('MCP_MDNS_DISCOVERY_TIMEOUT', '5'))
 
 # Database path for HTTP interface (use SQLite-vec by default)
-if STORAGE_BACKEND == 'sqlite_vec' and SQLITE_VEC_PATH:
+if (STORAGE_BACKEND in ['sqlite_vec', 'hybrid']) and SQLITE_VEC_PATH:
     DATABASE_PATH = SQLITE_VEC_PATH
 else:
     # Fallback to a default SQLite-vec path for HTTP interface
