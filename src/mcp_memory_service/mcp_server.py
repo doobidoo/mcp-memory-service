@@ -43,7 +43,7 @@ from .config import (
     CLOUDFLARE_LARGE_CONTENT_THRESHOLD, CLOUDFLARE_MAX_RETRIES, CLOUDFLARE_BASE_DELAY,
     HYBRID_SYNC_INTERVAL, HYBRID_BATCH_SIZE, HYBRID_MAX_QUEUE_SIZE,
     HYBRID_SYNC_ON_STARTUP, HYBRID_FALLBACK_TO_PRIMARY,
-    CONTENT_PRESERVE_BOUNDARIES, CONTENT_SPLIT_OVERLAP
+    CONTENT_PRESERVE_BOUNDARIES, CONTENT_SPLIT_OVERLAP, ENABLE_AUTO_SPLIT
 )
 from .storage.base import MemoryStorage
 from .utils.content_splitter import split_content
@@ -149,6 +149,12 @@ async def store_memory(
         # Check if content needs splitting
         max_length = storage.max_content_length
         if max_length and len(content) > max_length:
+            if not ENABLE_AUTO_SPLIT:
+                logger.warning(f"Content length {len(content)} exceeds limit {max_length}, and auto-split is disabled.")
+                return {
+                    "success": False,
+                    "message": f"Content length {len(content)} exceeds backend limit of {max_length}. Auto-splitting is disabled.",
+                }
             # Content exceeds limit - split into chunks
             logger.info(f"Content length {len(content)} exceeds backend limit {max_length}, splitting...")
 

@@ -152,8 +152,8 @@ def _find_best_split_point(text: str, max_length: int) -> int:
         return search_start + newline_match
 
     # Priority 3: Sentence ending
-    # Look for '. ', '! ', '? ' patterns
-    sentence_pattern = r'[.!?]\s'
+    # Look for '. ', '! ', '? ' patterns (including end of string)
+    sentence_pattern = r'[.!?](?=\s|$)'
     matches = list(re.finditer(sentence_pattern, search_text))
     if matches:
         last_match = matches[-1]
