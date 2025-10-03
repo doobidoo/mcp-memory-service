@@ -43,7 +43,9 @@ try:
         CLOUDFLARE_WARNING_THRESHOLD_PERCENT,
         CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT,
         HYBRID_SYNC_ON_STARTUP,
-        HYBRID_MAX_CONTENT_LENGTH
+        HYBRID_MAX_CONTENT_LENGTH,
+        HYBRID_MAX_EMPTY_BATCHES,
+        HYBRID_MIN_CHECK_COUNT
     )
 except ImportError:
     # Fallback values if config doesn't have them
@@ -54,6 +56,8 @@ except ImportError:
     CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT = 95
     HYBRID_SYNC_ON_STARTUP = True
     HYBRID_MAX_CONTENT_LENGTH = 800
+    HYBRID_MAX_EMPTY_BATCHES = 20  # Default: 20 batches
+    HYBRID_MIN_CHECK_COUNT = 1000  # Default: 1000 memories
 
 logger = logging.getLogger(__name__)
 
@@ -681,7 +685,7 @@ class HybridMemoryStorage(MemoryStorage):
             batch_size = min(100, self.batch_size * 2)  # Use larger batch for initial sync
             cursor = None  # Start from most recent (no cursor)
             processed_count = 0
-            consecutive_empty_batches = 0  # Track empty batches to detect completion
+            consecutive_empty_batches = 0  # Track empty batches for early break detection
 
             while True:
                 try:
@@ -738,8 +742,13 @@ class HybridMemoryStorage(MemoryStorage):
                     # Track consecutive batches with no new syncs
                     if batch_synced == 0:
                         consecutive_empty_batches += 1
+                        logger.debug(f"Empty batch detected: consecutive_empty_batches={consecutive_empty_batches}/{HYBRID_MAX_EMPTY_BATCHES}")
                     else:
                         consecutive_empty_batches = 0  # Reset counter when we find missing memories
+
+                    # Log progress summary
+                    if processed_count % 100 == 0:  # Every 100 memories processed
+                        logger.info(f"Sync progress: processed={processed_count}, synced={synced_count}/{missing_count}, empty_batches={consecutive_empty_batches}")
 
                     # Update cursor to the oldest timestamp from this batch for next iteration
                     if cloudflare_memories and hasattr(self.secondary, 'get_all_memories_cursor'):
@@ -747,17 +756,17 @@ class HybridMemoryStorage(MemoryStorage):
                         cursor = min(memory.created_at for memory in cloudflare_memories if memory.created_at)
                         logger.debug(f"Next cursor set to: {cursor}")
 
-                    # Only break early if we've had many consecutive batches with no new syncs
-                    # AND we've successfully synced some memories (so it's not an all-existing scenario)
-                    if consecutive_empty_batches >= 5 and synced_count > 0:
-                        logger.info(f"Completed sync after {consecutive_empty_batches} consecutive empty batches - {synced_count} total memories synced")
+                    # Configurable early break conditions (v7.4.1+)
+                    # Break only if we've had many consecutive empty batches AND we've synced some memories
+                    if consecutive_empty_batches >= HYBRID_MAX_EMPTY_BATCHES and synced_count > 0:
+                        logger.info(f"Completed sync after {consecutive_empty_batches} consecutive empty batches (threshold: {HYBRID_MAX_EMPTY_BATCHES}) - {synced_count}/{missing_count} memories synced, {processed_count} total processed")
                         break
-                    # Or if we've processed many memories and have never found any missing (true no-op case)
-                    elif processed_count >= 200 and synced_count == 0:
-                        logger.info(f"No missing memories found after checking {processed_count} memories - all Cloudflare memories already exist locally")
+                    # Or if we've processed minimum threshold and found no missing memories (true no-op case)
+                    elif processed_count >= HYBRID_MIN_CHECK_COUNT and synced_count == 0:
+                        logger.info(f"No missing memories found after checking {processed_count} memories (threshold: {HYBRID_MIN_CHECK_COUNT}) - all Cloudflare memories already exist locally")
                         break
 
-                    # Yield control to avoid blocking
+                    # Yield control to avoid blocking the event loop
                     await asyncio.sleep(0.01)
 
                 except Exception as e:
