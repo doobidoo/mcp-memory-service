@@ -34,8 +34,22 @@ logger = logging.getLogger(__name__)
 
 class CloudflareStorage(MemoryStorage):
     """Cloudflare-based storage backend using Vectorize, D1, and R2."""
-    
-    def __init__(self, 
+
+    # Content length limit based on BGE-base-en-v1.5 model (512 tokens)
+    # Using 800 characters as safe limit (~400 tokens with overhead)
+    _MAX_CONTENT_LENGTH = 800
+
+    @property
+    def max_content_length(self) -> Optional[int]:
+        """Maximum content length: 800 chars (BGE model 512 token limit)."""
+        return self._MAX_CONTENT_LENGTH
+
+    @property
+    def supports_chunking(self) -> bool:
+        """Cloudflare backend supports content chunking with metadata linking."""
+        return True
+
+    def __init__(self,
                  api_token: str,
                  account_id: str,
                  vectorize_index: str,
@@ -47,7 +61,7 @@ class CloudflareStorage(MemoryStorage):
                  base_delay: float = 1.0):
         """
         Initialize Cloudflare storage backend.
-        
+
         Args:
             api_token: Cloudflare API token
             account_id: Cloudflare account ID
@@ -68,20 +82,20 @@ class CloudflareStorage(MemoryStorage):
         self.large_content_threshold = large_content_threshold
         self.max_retries = max_retries
         self.base_delay = base_delay
-        
+
         # API endpoints
         self.base_url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}"
         self.vectorize_url = f"{self.base_url}/vectorize/v2/indexes/{vectorize_index}"
         self.d1_url = f"{self.base_url}/d1/database/{d1_database_id}"
         self.ai_url = f"{self.base_url}/ai/run/{embedding_model}"
-        
+
         if r2_bucket:
             self.r2_url = f"{self.base_url}/r2/buckets/{r2_bucket}/objects"
-        
+
         # HTTP client with connection pooling
         self.client = None
         self._initialized = False
-        
+
         # Embedding cache for performance
         self._embedding_cache = {}
         self._cache_max_size = 1000

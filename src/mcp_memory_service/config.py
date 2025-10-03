@@ -258,6 +258,66 @@ if STORAGE_BACKEND not in SUPPORTED_BACKENDS:
 
 logger.info(f"Using storage backend: {STORAGE_BACKEND}")
 
+# =============================================================================
+# Content Length Limits Configuration (v7.5.0+)
+# =============================================================================
+
+# Backend-specific content length limits based on embedding model constraints
+# These limits prevent embedding failures and enable automatic content splitting
+
+# Cloudflare: BGE-base-en-v1.5 model has 512 token limit
+# Using 800 characters as safe limit (~400 tokens with overhead)
+CLOUDFLARE_MAX_CONTENT_LENGTH = safe_get_int_env(
+    'MCP_CLOUDFLARE_MAX_CONTENT_LENGTH',
+    default=800,
+    min_value=100,
+    max_value=10000
+)
+
+# ChromaDB: all-MiniLM-L6-v2 model has 384 token max_seq_length
+# Using 1500 characters as safe limit (~750 tokens with overhead)
+CHROMADB_MAX_CONTENT_LENGTH = safe_get_int_env(
+    'MCP_CHROMADB_MAX_CONTENT_LENGTH',
+    default=1500,
+    min_value=100,
+    max_value=10000
+)
+
+# SQLite-vec: No inherent limit (local storage)
+# Set to None for unlimited, or configure via environment variable
+SQLITEVEC_MAX_CONTENT_LENGTH = None
+env_sqlite_limit = os.getenv('MCP_SQLITEVEC_MAX_CONTENT_LENGTH')
+if env_sqlite_limit and env_sqlite_limit.lower() != 'none':
+    SQLITEVEC_MAX_CONTENT_LENGTH = safe_get_int_env(
+        'MCP_SQLITEVEC_MAX_CONTENT_LENGTH',
+        default=None,
+        min_value=100
+    )
+
+# Hybrid: Constrained by Cloudflare secondary storage
+HYBRID_MAX_CONTENT_LENGTH = CLOUDFLARE_MAX_CONTENT_LENGTH
+
+# Enable automatic content splitting when limits are exceeded
+ENABLE_AUTO_SPLIT = safe_get_bool_env('MCP_ENABLE_AUTO_SPLIT', default=True)
+
+# Content splitting configuration
+CONTENT_SPLIT_OVERLAP = safe_get_int_env(
+    'MCP_CONTENT_SPLIT_OVERLAP',
+    default=50,
+    min_value=0,
+    max_value=500
+)
+CONTENT_PRESERVE_BOUNDARIES = safe_get_bool_env('MCP_CONTENT_PRESERVE_BOUNDARIES', default=True)
+
+logger.info(f"Content length limits - Cloudflare: {CLOUDFLARE_MAX_CONTENT_LENGTH}, "
+           f"ChromaDB: {CHROMADB_MAX_CONTENT_LENGTH}, "
+           f"SQLite-vec: {'unlimited' if SQLITEVEC_MAX_CONTENT_LENGTH is None else SQLITEVEC_MAX_CONTENT_LENGTH}, "
+           f"Auto-split: {ENABLE_AUTO_SPLIT}")
+
+# =============================================================================
+# End Content Length Limits Configuration
+# =============================================================================
+
 # SQLite-vec specific configuration (also needed for hybrid backend)
 if STORAGE_BACKEND == 'sqlite_vec' or STORAGE_BACKEND == 'hybrid':
     # Try multiple environment variable names for SQLite-vec path

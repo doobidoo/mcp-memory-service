@@ -8,6 +8,101 @@ For older releases, see [CHANGELOG-HISTORIC.md](./CHANGELOG-HISTORIC.md).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.5.0] - 2025-10-03
+
+### ✨ **New Features**
+
+#### 🎯 **Backend-Specific Content Length Limits with Auto-Splitting**
+- **Intelligent content length management** - Prevents embedding failures by enforcing backend-specific limits
+- **Automatic content splitting** - Long content automatically splits into linked chunks with preserved context
+- **Backend-aware limits**:
+  - Cloudflare: 800 characters (BGE-base-en-v1.5 model 512 token limit)
+  - ChromaDB: 1500 characters (all-MiniLM-L6-v2 model 384 token limit)
+  - SQLite-vec: Unlimited (local storage)
+  - Hybrid: 800 characters (constrained by Cloudflare secondary storage)
+- **Smart boundary preservation** - Splits respect natural boundaries (paragraphs → sentences → words)
+- **Context preservation** - 50-character overlap between chunks maintains semantic continuity
+- **LLM-friendly tool descriptions** - MCP tool docstrings inform LLMs about limits upfront
+
+### 🔧 **Infrastructure Enhancements**
+
+#### 📦 **New Content Splitter Utility**
+- **`content_splitter.py` module** - Comprehensive content chunking with boundary-aware splitting
+- **Priority-based split points**:
+  1. Double newlines (paragraph breaks)
+  2. Single newlines
+  3. Sentence endings (. ! ? followed by space)
+  4. Spaces (word boundaries)
+  5. Character position (last resort)
+- **Configurable overlap** - Default 50 chars, customizable via `MCP_CONTENT_SPLIT_OVERLAP`
+- **Validation helpers** - `estimate_chunks_needed()`, `validate_chunk_lengths()` utilities
+
+#### 🏗️ **Storage Backend Updates**
+- **Abstract base class properties** - Added `max_content_length` and `supports_chunking` to `MemoryStorage`
+- **Backend implementations**:
+  - `CloudflareStorage`: 800 char limit, chunking supported
+  - `ChromaMemoryStorage`: 1500 char limit, chunking supported
+  - `SqliteVecMemoryStorage`: No limit (None), chunking supported
+  - `HybridMemoryStorage`: 800 char limit (follows Cloudflare), chunking supported
+
+#### ⚙️ **Configuration System**
+- **New config constants** in `config.py`:
+  - `CLOUDFLARE_MAX_CONTENT_LENGTH` (default: 800)
+  - `CHROMADB_MAX_CONTENT_LENGTH` (default: 1500)
+  - `SQLITEVEC_MAX_CONTENT_LENGTH` (default: None/unlimited)
+  - `HYBRID_MAX_CONTENT_LENGTH` (default: 800)
+  - `ENABLE_AUTO_SPLIT` (default: True)
+  - `CONTENT_SPLIT_OVERLAP` (default: 50)
+  - `CONTENT_PRESERVE_BOUNDARIES` (default: True)
+- **Environment variable support** - All limits configurable via environment variables
+- **Validation and logging** - Safe parsing with min/max bounds and startup logging
+
+### 🛠️ **MCP Server Tool Enhancements**
+
+#### 💾 **Enhanced `store_memory` Tool**
+- **Automatic content splitting** - Transparently handles content exceeding backend limits
+- **Chunk metadata tracking**:
+  - `is_chunk`: Boolean flag identifying chunked memories
+  - `chunk_index`: Current chunk number (1-based)
+  - `total_chunks`: Total number of chunks
+  - `original_length`: Original content length before splitting
+- **Chunk tags** - Automatic `chunk:N/M` tags for easy retrieval
+- **Enhanced return values**:
+  - Single memory: `content_hash`
+  - Split content: `chunks_created`, `chunk_hashes` array
+- **Updated docstring** - Clear backend limits documentation visible to LLMs
+
+### 🧪 **Testing & Validation**
+
+#### ✅ **Comprehensive Test Suite**
+- **`test_content_splitting.py`** - 20+ test cases covering:
+  - Basic splitting functionality (short/long content, empty strings)
+  - Boundary preservation (paragraphs, sentences, words, code blocks)
+  - Overlap validation and chunk estimation
+  - Backend limit verification (all 4 backends)
+  - Configuration constant validation
+- **Edge case coverage** - Empty content, exact lengths, overlaps
+- **Integration testing** - Ready for all storage backends
+
+### 📝 **Technical Implementation Details**
+
+#### 🔍 **Design Decisions**
+- **Conservative limits** - Buffer below actual token limits to account for tokenization variance
+- **Cloudflare priority** - Hybrid backend follows Cloudflare's stricter limit for sync compatibility
+- **Opt-out capable** - Set `MCP_ENABLE_AUTO_SPLIT=false` to disable auto-splitting
+- **Backward compatible** - No breaking changes to existing functionality
+
+#### ⚡ **Performance Considerations**
+- **Minimal overhead** - Content length checks are O(1) property access
+- **Efficient chunking** - Single-pass splitting with smart boundary detection
+- **No unnecessary splitting** - Content within limits passes through unchanged
+- **Batch operations** - All chunks stored in single transaction when possible
+
+### 🔗 **References**
+- Addresses issue: First memory store attempt (1,570 chars) exceeded Cloudflare's BGE model limit
+- Solution: Backend-specific limits with automatic intelligent content splitting
+- Feature branch: `feat/content-length-limits-with-splitting`
+
 ## [7.4.1] - 2025-10-03
 
 ### 🐛 **Bug Fixes**

@@ -538,6 +538,19 @@ class HybridMemoryStorage(MemoryStorage):
     - Full compatibility with the MemoryStorage interface
     """
 
+    @property
+    def max_content_length(self) -> Optional[int]:
+        """
+        Maximum content length constrained by Cloudflare secondary storage.
+        Uses Cloudflare's 800 char limit to ensure sync compatibility.
+        """
+        return 800  # Match Cloudflare's BGE model limit
+
+    @property
+    def supports_chunking(self) -> bool:
+        """Hybrid backend supports content chunking with metadata linking."""
+        return True
+
     def __init__(self,
                  sqlite_db_path: str,
                  embedding_model: str = "all-MiniLM-L6-v2",

@@ -97,56 +97,124 @@ async def store_memory(
     memory_type: str = "note",
     metadata: Optional[Dict[str, Any]] = None,
     client_hostname: Optional[str] = None
-) -> Dict[str, Union[bool, str]]:
+) -> Dict[str, Union[bool, str, int, List[str]]]:
     """
     Store a new memory with content and optional metadata.
-    
+
+    **IMPORTANT - Content Length Limits:**
+    - Cloudflare backend: 800 characters max (BGE model 512 token limit)
+    - ChromaDB backend: 1500 characters max (384 token model limit)
+    - SQLite-vec backend: No limit (local storage)
+    - Hybrid backend: 800 characters max (constrained by Cloudflare sync)
+
+    If content exceeds the backend's limit, it will be automatically split into
+    multiple linked memory chunks with preserved context (50-char overlap).
+    The splitting respects natural boundaries: paragraphs → sentences → words.
+
     Args:
         content: The content to store as memory
         tags: Optional tags to categorize the memory
         memory_type: Type of memory (note, decision, task, reference)
         metadata: Additional metadata for the memory
         client_hostname: Client machine hostname for source tracking
-    
+
     Returns:
-        Dictionary with success status and message
+        Dictionary with:
+        - success: Boolean indicating if storage succeeded
+        - message: Status message
+        - content_hash: Hash of original content (for single memory)
+        - chunks_created: Number of chunks (if content was split)
+        - chunk_hashes: List of content hashes (if content was split)
     """
     try:
         storage = ctx.request_context.lifespan_context.storage
-        
+        from .utils.content_splitter import split_content
+
         # Prepare tags and metadata with optional hostname
         final_tags = tags or []
         final_metadata = metadata or {}
-        
+
         if INCLUDE_HOSTNAME:
             # Prioritize client-provided hostname, then fallback to server
             if client_hostname:
                 hostname = client_hostname
             else:
                 hostname = socket.gethostname()
-                
+
             source_tag = f"source:{hostname}"
             if source_tag not in final_tags:
                 final_tags.append(source_tag)
             final_metadata["hostname"] = hostname
-        
-        # Create memory object
-        memory = Memory(
-            content=content,
-            tags=final_tags,
-            memory_type=memory_type,
-            metadata=final_metadata
-        )
-        
-        # Store memory
-        success, message = await storage.store(memory)
-        
-        return {
-            "success": success,
-            "message": message,
-            "content_hash": memory.content_hash
-        }
-        
+
+        # Check if content needs splitting
+        max_length = storage.max_content_length
+        if max_length and len(content) > max_length:
+            # Content exceeds limit - split into chunks
+            logger.info(f"Content length {len(content)} exceeds backend limit {max_length}, splitting...")
+
+            chunks = split_content(content, max_length, preserve_boundaries=True, overlap=50)
+            chunk_hashes = []
+            total_chunks = len(chunks)
+
+            for i, chunk in enumerate(chunks):
+                # Add chunk metadata
+                chunk_metadata = final_metadata.copy()
+                chunk_metadata.update({
+                    "is_chunk": True,
+                    "chunk_index": i + 1,
+                    "total_chunks": total_chunks,
+                    "original_length": len(content)
+                })
+
+                # Add chunk indicator to tags
+                chunk_tags = final_tags.copy()
+                chunk_tags.append(f"chunk:{i+1}/{total_chunks}")
+
+                # Create and store chunk
+                chunk_memory = Memory(
+                    content=chunk,
+                    tags=chunk_tags,
+                    memory_type=memory_type,
+                    metadata=chunk_metadata
+                )
+
+                success, message = await storage.store(chunk_memory)
+                if success:
+                    chunk_hashes.append(chunk_memory.content_hash)
+                else:
+                    logger.error(f"Failed to store chunk {i+1}/{total_chunks}: {message}")
+                    return {
+                        "success": False,
+                        "message": f"Failed to store chunk {i+1}/{total_chunks}: {message}",
+                        "chunks_created": i,
+                        "chunk_hashes": chunk_hashes
+                    }
+
+            return {
+                "success": True,
+                "message": f"Content split into {total_chunks} chunks and stored successfully",
+                "chunks_created": total_chunks,
+                "chunk_hashes": chunk_hashes
+            }
+
+        else:
+            # Content within limit - store as single memory
+            memory = Memory(
+                content=content,
+                tags=final_tags,
+                memory_type=memory_type,
+                metadata=final_metadata
+            )
+
+            # Store memory
+            success, message = await storage.store(memory)
+
+            return {
+                "success": success,
+                "message": message,
+                "content_hash": memory.content_hash
+            }
+
     except Exception as e:
         logger.error(f"Error storing memory: {e}")
         return {

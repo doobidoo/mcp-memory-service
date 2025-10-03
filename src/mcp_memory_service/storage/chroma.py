@@ -77,6 +77,21 @@ MODEL_FALLBACKS = [
 ]
 
 class ChromaMemoryStorage(MemoryStorage):
+
+    # Content length limit based on all-MiniLM-L6-v2 model (384 tokens)
+    # Using 1500 characters as safe limit (~750 tokens with overhead)
+    _MAX_CONTENT_LENGTH = 1500
+
+    @property
+    def max_content_length(self) -> Optional[int]:
+        """Maximum content length: 1500 chars (384 token model limit)."""
+        return self._MAX_CONTENT_LENGTH
+
+    @property
+    def supports_chunking(self) -> bool:
+        """ChromaDB backend supports content chunking with metadata linking."""
+        return True
+
     def __init__(self, path: str, preload_model: bool = True):
         """Initialize ChromaDB storage with hardware-aware embedding function and performance optimizations."""
         # Issue deprecation warning
@@ -91,7 +106,7 @@ class ChromaMemoryStorage(MemoryStorage):
             "DEPRECATION: ChromaDB backend is deprecated. Consider migrating to SQLite-vec backend. "
             "Run 'python scripts/migrate_to_sqlite_vec.py' to migrate your data."
         )
-        
+
         self.path = path
         self.model = None
         self.embedding_function = None
@@ -99,7 +114,7 @@ class ChromaMemoryStorage(MemoryStorage):
         self.collection = None
         self.system_info = get_system_info()
         self.embedding_settings = get_optimal_embedding_settings()
-        
+
         # Performance settings
         self.enable_query_cache = True
         self.cache_ttl = 300  # 5 minutes

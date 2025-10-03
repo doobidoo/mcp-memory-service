@@ -24,7 +24,30 @@ from ..models.memory import Memory, MemoryQueryResult
 
 class MemoryStorage(ABC):
     """Abstract base class for memory storage implementations."""
-    
+
+    @property
+    @abstractmethod
+    def max_content_length(self) -> Optional[int]:
+        """
+        Maximum content length supported by this storage backend.
+
+        Returns:
+            Maximum number of characters allowed in memory content, or None for unlimited.
+            This limit is based on the underlying embedding model's token limits.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def supports_chunking(self) -> bool:
+        """
+        Whether this backend supports automatic content chunking.
+
+        Returns:
+            True if the backend can store chunked memories with linking metadata.
+        """
+        pass
+
     @abstractmethod
     async def initialize(self) -> None:
         """Initialize the storage backend."""
