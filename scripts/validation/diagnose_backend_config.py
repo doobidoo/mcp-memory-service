@@ -203,6 +203,100 @@ def test_storage_creation():
         traceback.print_exc()
         return None
 
+def test_cloudflare_token():
+    """Test Cloudflare API token with both endpoints to help identify token type."""
+    print_separator("CLOUDFLARE TOKEN VERIFICATION")
+
+    api_token = os.getenv('CLOUDFLARE_API_TOKEN')
+    account_id = os.getenv('CLOUDFLARE_ACCOUNT_ID')
+
+    if not api_token:
+        print_status("error", "CLOUDFLARE_API_TOKEN not set, skipping token verification")
+        return False
+
+    if not account_id:
+        print_status("warning", "CLOUDFLARE_ACCOUNT_ID not set, cannot test account-scoped endpoint")
+
+    try:
+        import requests
+    except ImportError:
+        print_status("warning", "requests not available, skipping token verification")
+        return False
+
+    # Test 1: Account-scoped endpoint (recommended for scoped tokens)
+    if account_id:
+        print("Testing account-scoped token verification...")
+        try:
+            response = requests.get(
+                f"https://api.cloudflare.com/client/v4/accounts/{account_id}/tokens/verify",
+                headers={"Authorization": f"Bearer {api_token}"},
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("success"):
+                    result = data.get("result", {})
+                    print_status("success", "Account-scoped verification successful")
+                    print(f"   Token ID: {result.get('id', 'N/A')}")
+                    print(f"   Status: {result.get('status', 'N/A')}")
+                    print(f"   Expires: {result.get('expires_on', 'N/A')}")
+                    return True
+                else:
+                    errors = data.get("errors", [])
+                    print_status("error", "Account-scoped verification failed")
+                    for error in errors:
+                        print(f"   Error {error.get('code')}: {error.get('message')}")
+            else:
+                print_status("error", f"Account-scoped verification failed: HTTP {response.status_code}")
+                print(f"   Response: {response.text}")
+
+        except Exception as e:
+            print_status("error", f"Account-scoped verification error: {e}")
+
+    # Test 2: Generic user endpoint (works for global tokens)
+    print("\nTesting generic user token verification...")
+    try:
+        response = requests.get(
+            "https://api.cloudflare.com/client/v4/user/tokens/verify",
+            headers={"Authorization": f"Bearer {api_token}"},
+            timeout=10
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("success"):
+                result = data.get("result", {})
+                print_status("success", "Generic user verification successful")
+                print(f"   Token ID: {result.get('id', 'N/A')}")
+                print(f"   Status: {result.get('status', 'N/A')}")
+                return True
+            else:
+                errors = data.get("errors", [])
+                print_status("error", "Generic user verification failed")
+                for error in errors:
+                    print(f"   Error {error.get('code')}: {error.get('message')}")
+        else:
+            print_status("error", f"Generic user verification failed: HTTP {response.status_code}")
+            print(f"   Response: {response.text}")
+
+    except Exception as e:
+        print_status("error", f"Generic user verification error: {e}")
+
+    # Provide guidance
+    print("\nTOKEN VERIFICATION GUIDANCE:")
+    if account_id:
+        print("✅ For account-scoped tokens (recommended), use:")
+        print(f"   curl \"https://api.cloudflare.com/client/v4/accounts/{account_id}/tokens/verify\" \\")
+        print(f"        -H \"Authorization: Bearer YOUR_TOKEN\"")
+    print("✅ For global tokens (legacy), use:")
+    print("   curl \"https://api.cloudflare.com/client/v4/user/tokens/verify\" \\")
+    print("        -H \"Authorization: Bearer YOUR_TOKEN\"")
+    print("❌ Common mistake: Using wrong endpoint for token type")
+    print("📖 See docs/troubleshooting/cloudflare-authentication.md for details")
+
+    return False
+
 def main():
     """Run all diagnostic tests."""
     print("MCP Memory Service Backend Configuration Diagnostics")
@@ -214,10 +308,13 @@ def main():
     # Step 2: Check environment variables
     cloudflare_ready = check_environment_variables()
 
-    # Step 3: Test config import
+    # Step 3: Test Cloudflare token verification
+    token_valid = test_cloudflare_token()
+
+    # Step 4: Test config import
     configured_backend = test_config_import()
 
-    # Step 4: Test storage creation if config loaded successfully
+    # Step 5: Test storage creation if config loaded successfully
     if configured_backend:
         storage = test_storage_creation()
     else:
@@ -226,10 +323,11 @@ def main():
     # Final summary
     print_separator("DIAGNOSTIC SUMMARY")
 
-    if configured_backend == 'cloudflare' and cloudflare_ready and storage:
+    if configured_backend == 'cloudflare' and cloudflare_ready and token_valid and storage:
         print_status("success", "Cloudflare backend should be working correctly")
         print(f"   Configuration loaded: {configured_backend}")
         print(f"   Required variables set: {cloudflare_ready}")
+        print(f"   Token verification: {'PASSED' if token_valid else 'NOT TESTED'}")
         print(f"   Storage instance created: {storage.__class__.__name__}")
     elif configured_backend == 'sqlite_vec' and storage:
         print_status("success", "SQLite-vec backend is working")
@@ -248,10 +346,13 @@ def main():
         if not cloudflare_ready:
             print("   1. Set missing Cloudflare environment variables")
             print("   2. Create .env file with Cloudflare credentials")
+        if not token_valid:
+            print("   3. Verify Cloudflare API token is valid and has correct permissions")
+            print("   4. Use account-scoped verification endpoint (see docs/troubleshooting/cloudflare-authentication.md)")
         if not configured_backend:
-            print("   3. Fix environment variable loading issues")
+            print("   5. Fix environment variable loading issues")
         if configured_backend and not storage:
-            print("   4. Check Cloudflare credentials and connectivity")
+            print("   6. Check Cloudflare credentials and connectivity")
 
 if __name__ == "__main__":
     main()
