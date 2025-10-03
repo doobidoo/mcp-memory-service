@@ -51,6 +51,7 @@ from ..utils.system_detection import (
     print_system_diagnostics,
     AcceleratorType
 )
+from ..config import CHROMADB_MAX_CONTENT_LENGTH
 import mcp.types as types
 
 logger = logging.getLogger(__name__)
@@ -78,9 +79,8 @@ MODEL_FALLBACKS = [
 
 class ChromaMemoryStorage(MemoryStorage):
 
-    # Content length limit based on all-MiniLM-L6-v2 model (384 tokens)
-    # Using 1500 characters as safe limit (~750 tokens with overhead)
-    _MAX_CONTENT_LENGTH = 1500
+    # Content length limit from configuration
+    _MAX_CONTENT_LENGTH = CHROMADB_MAX_CONTENT_LENGTH
 
     @property
     def max_content_length(self) -> Optional[int]:

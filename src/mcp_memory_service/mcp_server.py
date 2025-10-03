@@ -42,10 +42,11 @@ from .config import (
     CLOUDFLARE_D1_DATABASE_ID, CLOUDFLARE_R2_BUCKET, CLOUDFLARE_EMBEDDING_MODEL,
     CLOUDFLARE_LARGE_CONTENT_THRESHOLD, CLOUDFLARE_MAX_RETRIES, CLOUDFLARE_BASE_DELAY,
     HYBRID_SYNC_INTERVAL, HYBRID_BATCH_SIZE, HYBRID_MAX_QUEUE_SIZE,
-    HYBRID_SYNC_ON_STARTUP, HYBRID_FALLBACK_TO_PRIMARY
+    HYBRID_SYNC_ON_STARTUP, HYBRID_FALLBACK_TO_PRIMARY,
+    CONTENT_PRESERVE_BOUNDARIES, CONTENT_SPLIT_OVERLAP
 )
 from .storage.base import MemoryStorage
-
+from .utils.content_splitter import split_content
 from .models.memory import Memory
 
 # Configure logging
@@ -128,7 +129,6 @@ async def store_memory(
     """
     try:
         storage = ctx.request_context.lifespan_context.storage
-        from .utils.content_splitter import split_content
 
         # Prepare tags and metadata with optional hostname
         final_tags = tags or []
@@ -152,7 +152,7 @@ async def store_memory(
             # Content exceeds limit - split into chunks
             logger.info(f"Content length {len(content)} exceeds backend limit {max_length}, splitting...")
 
-            chunks = split_content(content, max_length, preserve_boundaries=True, overlap=50)
+            chunks = split_content(content, max_length, preserve_boundaries=CONTENT_PRESERVE_BOUNDARIES, overlap=CONTENT_SPLIT_OVERLAP)
             chunk_hashes = []
             total_chunks = len(chunks)
 

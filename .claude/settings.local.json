@@ -78,7 +78,17 @@
       "Read(//Users/hkr/.claude/**)",
       "Bash(gh run view:*)",
       "Bash(npm ci:*)",
-      "Bash(npm test)"
+      "Bash(npm test)",
+      "Bash(claude --version)",
+      "Bash(claude update)",
+      "Bash(hash -r)",
+      "Bash(/Users/hkr/.bun/bin/claude --version)",
+      "Bash(bun update:*)",
+      "Bash(curl:*)",
+      "Read(//private/tmp/**)",
+      "Bash(pkill:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr comment:*)"
     ],
     "deny": [],
     "ask": [],

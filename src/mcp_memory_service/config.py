@@ -33,6 +33,7 @@ import os
 import sys
 import secrets
 from pathlib import Path
+from typing import Optional
 import time
 import logging
 
@@ -285,17 +286,25 @@ CHROMADB_MAX_CONTENT_LENGTH = safe_get_int_env(
 
 # SQLite-vec: No inherent limit (local storage)
 # Set to None for unlimited, or configure via environment variable
-SQLITEVEC_MAX_CONTENT_LENGTH = None
+SQLITEVEC_MAX_CONTENT_LENGTH: Optional[int] = None
 env_sqlite_limit = os.getenv('MCP_SQLITEVEC_MAX_CONTENT_LENGTH')
-if env_sqlite_limit and env_sqlite_limit.lower() != 'none':
-    SQLITEVEC_MAX_CONTENT_LENGTH = safe_get_int_env(
-        'MCP_SQLITEVEC_MAX_CONTENT_LENGTH',
-        default=None,
-        min_value=100
-    )
+if env_sqlite_limit and env_sqlite_limit.lower() not in ('none', 'null', 'unlimited', ''):
+    try:
+        limit = int(env_sqlite_limit)
+        if limit >= 100:
+            SQLITEVEC_MAX_CONTENT_LENGTH = limit
+        else:
+            logger.warning(f"MCP_SQLITEVEC_MAX_CONTENT_LENGTH value {limit} is below minimum 100. Using unlimited.")
+    except ValueError:
+        logger.warning(f"Invalid value for MCP_SQLITEVEC_MAX_CONTENT_LENGTH: '{env_sqlite_limit}'. Using unlimited.")
 
-# Hybrid: Constrained by Cloudflare secondary storage
-HYBRID_MAX_CONTENT_LENGTH = CLOUDFLARE_MAX_CONTENT_LENGTH
+# Hybrid: Constrained by Cloudflare secondary storage (configurable)
+HYBRID_MAX_CONTENT_LENGTH = safe_get_int_env(
+    'MCP_HYBRID_MAX_CONTENT_LENGTH',
+    default=CLOUDFLARE_MAX_CONTENT_LENGTH,
+    min_value=100,
+    max_value=10000
+)
 
 # Enable automatic content splitting when limits are exceeded
 ENABLE_AUTO_SPLIT = safe_get_bool_env('MCP_ENABLE_AUTO_SPLIT', default=True)

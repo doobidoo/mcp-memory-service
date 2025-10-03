@@ -172,23 +172,24 @@ class TestBackendLimits:
     """Test backend-specific content length limits."""
 
     def test_cloudflare_limit(self):
-        """Test that Cloudflare backend has 800 char limit."""
+        """Test that Cloudflare backend uses config constant."""
         from src.mcp_memory_service.storage.cloudflare import CloudflareStorage
+        from src.mcp_memory_service.config import CLOUDFLARE_MAX_CONTENT_LENGTH
 
-        # Mock initialization (we don't need actual connection)
-        # Just verify the class constant
-        assert CloudflareStorage._MAX_CONTENT_LENGTH == 800
+        # Verify the class constant matches config
+        assert CloudflareStorage._MAX_CONTENT_LENGTH == CLOUDFLARE_MAX_CONTENT_LENGTH
 
     def test_chromadb_limit(self):
-        """Test that ChromaDB backend has 1500 char limit."""
+        """Test that ChromaDB backend uses config constant."""
         from src.mcp_memory_service.storage.chroma import ChromaMemoryStorage
+        from src.mcp_memory_service.config import CHROMADB_MAX_CONTENT_LENGTH
 
-        assert ChromaMemoryStorage._MAX_CONTENT_LENGTH == 1500
+        assert ChromaMemoryStorage._MAX_CONTENT_LENGTH == CHROMADB_MAX_CONTENT_LENGTH
 
     def test_sqlitevec_unlimited(self):
-        """Test that SQLite-vec backend has no limit."""
+        """Test that SQLite-vec backend uses config constant."""
         from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-        from src.mcp_memory_service.storage.base import MemoryStorage
+        from src.mcp_memory_service.config import SQLITEVEC_MAX_CONTENT_LENGTH
 
         # Create a mock instance to check property
         import tempfile
@@ -198,13 +199,14 @@ class TestBackendLimits:
             db_path = os.path.join(tmpdir, "test.db")
             storage = SqliteVecMemoryStorage(db_path=db_path)
 
-            # Should return None for unlimited
-            assert storage.max_content_length is None
+            # Should return configured value (default: None/unlimited)
+            assert storage.max_content_length == SQLITEVEC_MAX_CONTENT_LENGTH
             assert storage.supports_chunking is True
 
-    def test_hybrid_follows_cloudflare(self):
-        """Test that Hybrid backend uses Cloudflare's limit."""
+    def test_hybrid_follows_config(self):
+        """Test that Hybrid backend uses config constant."""
         from src.mcp_memory_service.storage.hybrid import HybridMemoryStorage
+        from src.mcp_memory_service.config import HYBRID_MAX_CONTENT_LENGTH
         import tempfile
         import os
 
@@ -215,8 +217,8 @@ class TestBackendLimits:
                 cloudflare_config=None  # No cloud sync for this test
             )
 
-            # Should match Cloudflare's limit
-            assert storage.max_content_length == 800
+            # Should match configured hybrid limit
+            assert storage.max_content_length == HYBRID_MAX_CONTENT_LENGTH
             assert storage.supports_chunking is True
 
 

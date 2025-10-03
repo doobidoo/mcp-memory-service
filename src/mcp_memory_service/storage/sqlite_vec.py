@@ -57,6 +57,7 @@ from ..utils.system_detection import (
     get_torch_device,
     AcceleratorType
 )
+from ..config import SQLITEVEC_MAX_CONTENT_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +76,8 @@ class SqliteVecMemoryStorage(MemoryStorage):
 
     @property
     def max_content_length(self) -> Optional[int]:
-        """SQLite-vec has no content length limit (local storage)."""
-        return None
+        """SQLite-vec content length limit from configuration (default: unlimited)."""
+        return SQLITEVEC_MAX_CONTENT_LENGTH
 
     @property
     def supports_chunking(self) -> bool:

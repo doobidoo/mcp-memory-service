@@ -29,15 +29,15 @@ import httpx
 from .base import MemoryStorage
 from ..models.memory import Memory, MemoryQueryResult
 from ..utils.hashing import generate_content_hash
+from ..config import CLOUDFLARE_MAX_CONTENT_LENGTH
 
 logger = logging.getLogger(__name__)
 
 class CloudflareStorage(MemoryStorage):
     """Cloudflare-based storage backend using Vectorize, D1, and R2."""
 
-    # Content length limit based on BGE-base-en-v1.5 model (512 tokens)
-    # Using 800 characters as safe limit (~400 tokens with overhead)
-    _MAX_CONTENT_LENGTH = 800
+    # Content length limit from configuration
+    _MAX_CONTENT_LENGTH = CLOUDFLARE_MAX_CONTENT_LENGTH
 
     @property
     def max_content_length(self) -> Optional[int]:

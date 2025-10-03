@@ -42,7 +42,8 @@ try:
         CLOUDFLARE_MAX_METADATA_SIZE_KB,
         CLOUDFLARE_WARNING_THRESHOLD_PERCENT,
         CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT,
-        HYBRID_SYNC_ON_STARTUP
+        HYBRID_SYNC_ON_STARTUP,
+        HYBRID_MAX_CONTENT_LENGTH
     )
 except ImportError:
     # Fallback values if config doesn't have them
@@ -52,6 +53,7 @@ except ImportError:
     CLOUDFLARE_WARNING_THRESHOLD_PERCENT = 80
     CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT = 95
     HYBRID_SYNC_ON_STARTUP = True
+    HYBRID_MAX_CONTENT_LENGTH = 800
 
 logger = logging.getLogger(__name__)
 
@@ -542,9 +544,9 @@ class HybridMemoryStorage(MemoryStorage):
     def max_content_length(self) -> Optional[int]:
         """
         Maximum content length constrained by Cloudflare secondary storage.
-        Uses Cloudflare's 800 char limit to ensure sync compatibility.
+        Uses configured hybrid limit (defaults to Cloudflare limit).
         """
-        return 800  # Match Cloudflare's BGE model limit
+        return HYBRID_MAX_CONTENT_LENGTH
 
     @property
     def supports_chunking(self) -> bool:

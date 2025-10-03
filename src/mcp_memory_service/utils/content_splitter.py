@@ -20,6 +20,7 @@ like sentences, paragraphs, and code blocks to maintain readability.
 """
 
 import re
+import math
 from typing import List, Optional
 import logging
 
@@ -178,7 +179,6 @@ def estimate_chunks_needed(content_length: int, max_length: int) -> int:
     Returns:
         Estimated number of chunks
     """
-    import math
     return max(1, math.ceil(content_length / max_length))
 
 
