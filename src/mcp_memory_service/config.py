@@ -89,6 +89,46 @@ def safe_get_int_env(env_var: str, default: int, min_value: int = None, max_valu
         logger.error(f"Invalid integer value for {env_var}='{env_value}': {e}. Using default {default}")
         return default
 
+def safe_get_optional_int_env(env_var: str, default: Optional[int] = None, min_value: int = None, max_value: int = None, none_values: tuple = ('none', 'null', 'unlimited', '')) -> Optional[int]:
+    """
+    Safely parse an optional integer environment variable with validation and error handling.
+
+    Args:
+        env_var: Environment variable name
+        default: Default value if not set or invalid (None for unlimited)
+        min_value: Minimum allowed value (optional)
+        max_value: Maximum allowed value (optional)
+        none_values: Tuple of string values that should be interpreted as None
+
+    Returns:
+        Parsed and validated integer value, or None if explicitly set to a none_value
+    """
+    env_value = os.getenv(env_var)
+    if not env_value:
+        return default
+
+    # Check if value should be interpreted as None/unlimited
+    if env_value.lower().strip() in none_values:
+        return None
+
+    try:
+        value = int(env_value.strip())
+
+        # Validate range if specified
+        if min_value is not None and value < min_value:
+            logger.warning(f"Environment variable {env_var}={value} is below minimum {min_value}. Using default {default}")
+            return default
+
+        if max_value is not None and value > max_value:
+            logger.warning(f"Environment variable {env_var}={value} is above maximum {max_value}. Using default {default}")
+            return default
+
+        return value
+
+    except ValueError:
+        logger.warning(f"Invalid value for {env_var}='{env_value}'. Expected integer or {'/'.join(none_values)}. Using default {default}")
+        return default
+
 def safe_get_bool_env(env_var: str, default: bool) -> bool:
     """
     Safely parse a boolean environment variable with validation and error handling.
@@ -286,17 +326,12 @@ CHROMADB_MAX_CONTENT_LENGTH = safe_get_int_env(
 
 # SQLite-vec: No inherent limit (local storage)
 # Set to None for unlimited, or configure via environment variable
-SQLITEVEC_MAX_CONTENT_LENGTH: Optional[int] = None
-env_sqlite_limit = os.getenv('MCP_SQLITEVEC_MAX_CONTENT_LENGTH')
-if env_sqlite_limit and env_sqlite_limit.lower().strip() not in ('none', 'null', 'unlimited', ''):
-    try:
-        limit = int(env_sqlite_limit.strip())
-        if limit >= 100:
-            SQLITEVEC_MAX_CONTENT_LENGTH = limit
-        else:
-            logger.warning(f"MCP_SQLITEVEC_MAX_CONTENT_LENGTH value {limit} is below minimum 100. Using unlimited.")
-    except ValueError:
-        logger.warning(f"Invalid value for MCP_SQLITEVEC_MAX_CONTENT_LENGTH: '{env_sqlite_limit}'. Using unlimited.")
+SQLITEVEC_MAX_CONTENT_LENGTH = safe_get_optional_int_env(
+    'MCP_SQLITEVEC_MAX_CONTENT_LENGTH',
+    default=None,
+    min_value=100,
+    max_value=10000
+)
 
 # Hybrid: Constrained by Cloudflare secondary storage (configurable)
 HYBRID_MAX_CONTENT_LENGTH = safe_get_int_env(
