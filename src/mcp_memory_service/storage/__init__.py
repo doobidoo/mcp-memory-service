@@ -34,3 +34,9 @@ try:
     __all__.append('CloudflareStorage')
 except ImportError:
     CloudflareStorage = None
+
+try:
+    from .hybrid import HybridMemoryStorage
+    __all__.append('HybridMemoryStorage')
+except ImportError:
+    HybridMemoryStorage = None
