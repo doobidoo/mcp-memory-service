@@ -8,6 +8,25 @@ For older releases, see [CHANGELOG-HISTORIC.md](./CHANGELOG-HISTORIC.md).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.3.1] - 2025-10-03
+
+### 🐛 **Bug Fixes**
+
+#### 🔧 **HTTP Dashboard Backend Selection**
+- **Fixed HTTP dashboard backend selection** - Dashboard now properly respects `MCP_MEMORY_STORAGE_BACKEND` configuration
+- **Universal backend support** - Web interface works with all backends: SQLite-vec, Cloudflare, ChromaDB, and Hybrid
+- **Tags functionality restored** - Fixed broken browse by tags feature for all storage backends
+- **Shared factory pattern** - Eliminated code duplication between MCP server and web interface initialization
+
+#### 🛠️ **Code Quality Improvements**
+- **Extracted fallback logic** - Centralized SQLite-vec fallback handling for better maintainability
+- **Enhanced type safety** - Improved type hints throughout web interface components
+- **Gemini Code Assistant feedback** - Addressed all code review suggestions for better robustness
+
+### 🔗 **References**
+- Closes #136: HTTP Dashboard doesn't use Cloudflare backend despite configuration
+- PR #138: Complete universal storage backend support for HTTP dashboard
+
 ## [7.3.0] - 2025-10-02
 
 ### 🎉 **API Documentation Restoration**
