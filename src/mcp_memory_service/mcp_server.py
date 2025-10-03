@@ -211,10 +211,13 @@ async def store_memory(
                 chunk_memories.append(chunk_memory)
 
             # Store all chunks in a single batch operation
-            success, message = await storage.store_batch(chunk_memories)
+            results = await storage.store_batch(chunk_memories)
 
-            if success:
-                chunk_hashes = [mem.content_hash for mem in chunk_memories]
+            successful_chunks = [mem for mem, (success, _) in zip(chunk_memories, results) if success]
+            failed_count = len(chunk_memories) - len(successful_chunks)
+
+            if failed_count == 0:
+                chunk_hashes = [mem.content_hash for mem in successful_chunks]
                 return {
                     "success": True,
                     "message": f"Content split into {total_chunks} chunks and stored successfully",
@@ -222,12 +225,13 @@ async def store_memory(
                     "chunk_hashes": chunk_hashes
                 }
             else:
-                logger.error(f"Failed to store chunks: {message}")
+                error_messages = [msg for success, msg in results if not success]
+                logger.error(f"Failed to store {failed_count} chunks: {error_messages}")
                 return {
                     "success": False,
-                    "message": f"Failed to store chunks: {message}",
-                    "chunks_created": 0,
-                    "chunk_hashes": []
+                    "message": f"Failed to store {failed_count}/{total_chunks} chunks. Errors: {error_messages}",
+                    "chunks_created": len(successful_chunks),
+                    "chunk_hashes": [mem.content_hash for mem in successful_chunks]
                 }
 
         else:

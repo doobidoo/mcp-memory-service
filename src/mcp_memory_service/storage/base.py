@@ -58,7 +58,7 @@ class MemoryStorage(ABC):
         """Store a memory. Returns (success, message)."""
         pass
 
-    async def store_batch(self, memories: List[Memory]) -> Tuple[bool, str]:
+    async def store_batch(self, memories: List[Memory]) -> List[Tuple[bool, str]]:
         """
         Store multiple memories in a single operation.
 
@@ -70,20 +70,13 @@ class MemoryStorage(ABC):
             memories: List of Memory objects to store
 
         Returns:
-            Tuple of (success, message) - success is False if any memory fails to store
+            A list of (success, message) tuples, one for each memory in the batch.
         """
-        failed_count = 0
+        results = []
         for memory in memories:
             success, message = await self.store(memory)
-            if not success:
-                failed_count += 1
-
-        if failed_count == 0:
-            return True, f"Successfully stored {len(memories)} memories"
-        elif failed_count == len(memories):
-            return False, f"Failed to store all {len(memories)} memories"
-        else:
-            return False, f"Stored {len(memories) - failed_count}/{len(memories)} memories, {failed_count} failed"
+            results.append((success, message))
+        return results
     
     @abstractmethod
     async def retrieve(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
