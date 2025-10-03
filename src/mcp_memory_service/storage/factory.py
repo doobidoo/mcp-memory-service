@@ -27,6 +27,18 @@ from .base import MemoryStorage
 logger = logging.getLogger(__name__)
 
 
+def _fallback_to_sqlite_vec() -> Type[MemoryStorage]:
+    """
+    Helper function to fallback to SQLite-vec storage when other backends fail to import.
+
+    Returns:
+        SqliteVecMemoryStorage class
+    """
+    logger.warning("Falling back to SQLite-vec storage")
+    from .sqlite_vec import SqliteVecMemoryStorage
+    return SqliteVecMemoryStorage
+
+
 def get_storage_backend_class() -> Type[MemoryStorage]:
     """
     Get storage backend class based on configuration.
@@ -48,9 +60,7 @@ def get_storage_backend_class() -> Type[MemoryStorage]:
         except ImportError as e:
             logger.error(f"ChromaDB not installed. Install with: pip install mcp-memory-service[chromadb]")
             logger.error(f"Import error: {str(e)}")
-            logger.warning("Falling back to SQLite-vec storage")
-            from .sqlite_vec import SqliteVecMemoryStorage
-            return SqliteVecMemoryStorage
+            return _fallback_to_sqlite_vec()
     elif backend == "cloudflare":
         try:
             from .cloudflare import CloudflareStorage
@@ -64,9 +74,7 @@ def get_storage_backend_class() -> Type[MemoryStorage]:
             return HybridMemoryStorage
         except ImportError as e:
             logger.error(f"Failed to import Hybrid storage: {e}")
-            logger.warning("Falling back to SQLite-vec storage")
-            from .sqlite_vec import SqliteVecMemoryStorage
-            return SqliteVecMemoryStorage
+            return _fallback_to_sqlite_vec()
     else:
         logger.warning(f"Unknown storage backend '{backend}', defaulting to SQLite-vec")
         from .sqlite_vec import SqliteVecMemoryStorage
