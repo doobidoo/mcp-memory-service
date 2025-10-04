@@ -10,28 +10,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [7.5.5] - 2025-10-04
 
-### 🐛 **Bug Fix - HybridMemoryStorage Missing recall() Method**
+### 🐛 **Bug Fixes - HybridMemoryStorage Critical Issues**
 
-#### Fixed
+#### Fixed - Health Check Support (PR #145)
+- **HybridMemoryStorage recognition in health checks** - Resolved "Unknown storage type: HybridMemoryStorage" error
+- **Dashboard statistics for hybrid backend** - Added comprehensive stats collection from SQLite-vec primary storage
+- **Health validation for hybrid storage** - Implemented proper validation logic for hybrid backend
+- **Cloudflare sync status visibility** - Display sync service status (not_configured/configured/syncing)
+
+#### Fixed - Missing recall() Method (PR #146)
 - **AttributeError on time-based queries** - Added missing `recall()` method to HybridMemoryStorage
 - **Server.py compatibility** - Resolves errors when server calls `storage.recall()` with time filtering
 - **Consistent API** - Matches method signature of SqliteVecMemoryStorage and CloudflareStorage
 - **Delegation to primary** - Properly delegates to SQLite-vec primary storage for recall operations
 
 #### Technical Details
+- Added `HybridMemoryStorage` case to `dashboard_get_stats()` endpoint (server.py:2503)
+- Added `HybridMemoryStorage` case to `check_database_health()` endpoint (server.py:3705)
 - Added `recall()` method to HybridMemoryStorage (hybrid.py:916)
 - Method signature: `async def recall(query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None) -> List[MemoryQueryResult]`
-- Delegates to `primary.recall()` for consistency with single-storage backends
-- Supports both time-based filtering and semantic search queries
+- Query primary storage (SQLite-vec) for memory counts, tags, database info
+- Fixed code quality issues from Gemini Code Assist review (removed duplicate imports, refactored getattr usage)
 
 #### Impact
+- ✅ HTTP dashboard now properly displays hybrid backend statistics
+- ✅ MCP health check tool correctly validates hybrid storage
 - ✅ Time-based recall queries now work correctly with hybrid backend
-- ✅ No more AttributeError when server.py calls storage.recall()
-- ✅ Hybrid backend fully compatible with all server.py recall operations
-
-#### Related
-- Fixes compatibility issues at server.py:2275, 3519, 3919
-- Works in conjunction with PR #145 (health check support)
+- ✅ No more "Unknown storage type" or AttributeError exceptions
+- ✅ HybridMemoryStorage fully compatible with all server.py operations
 
 ## [7.5.4] - 2025-10-04
 

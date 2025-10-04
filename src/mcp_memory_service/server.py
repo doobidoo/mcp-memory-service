@@ -2499,7 +2499,50 @@ class MemoryServer:
                     logger.info(f"Cloudflare stats: {total_memories} memories, {unique_tags} unique tags")
                 else:
                     logger.warning("Cloudflare storage doesn't support get_stats")
-                    
+
+            elif storage_type == "HybridMemoryStorage":
+                # Hybrid backend stats (SQLite-vec primary + Cloudflare secondary)
+                if hasattr(storage, 'primary') and storage.primary is not None:
+                    # Use primary storage (SQLite-vec) for stats
+                    primary_storage = storage.primary
+                    if hasattr(primary_storage, 'conn') and primary_storage.conn is not None:
+                        # Count memories from SQLite
+                        cursor = primary_storage.conn.execute('SELECT COUNT(*) FROM memories')
+                        total_memories = cursor.fetchone()[0]
+
+                        # Count unique tags
+                        cursor = primary_storage.conn.execute('SELECT DISTINCT tags FROM memories WHERE tags IS NOT NULL AND tags != ""')
+                        all_tag_strings = [row[0] for row in cursor.fetchall()]
+                        all_tags = set()
+                        for tag_string in all_tag_strings:
+                            if tag_string:
+                                tags = [tag.strip() for tag in tag_string.split(',') if tag.strip()]
+                                all_tags.update(tags)
+                        unique_tags = len(all_tags)
+
+                        # Count memories from this week (using module-level time import)
+                        week_ago = time.time() - (7 * 24 * 60 * 60)
+                        cursor = primary_storage.conn.execute('SELECT COUNT(*) FROM memories WHERE created_at >= ?', (week_ago,))
+                        memories_this_week = cursor.fetchone()[0]
+
+                        # Get database path and size
+                        database_path = getattr(primary_storage, 'db_path', SQLITE_VEC_PATH)
+                        if os.path.exists(database_path):
+                            database_exists = True
+                            database_size = f"{os.path.getsize(database_path) / (1024*1024):.2f} MB"
+
+                        # Get last update time (using module-level datetime import)
+                        cursor = primary_storage.conn.execute('SELECT MAX(updated_at) FROM memories')
+                        last_update_timestamp = cursor.fetchone()[0]
+                        if last_update_timestamp:
+                            last_updated = datetime.fromtimestamp(last_update_timestamp).isoformat()
+
+                        # Add hybrid-specific info
+                        database_path += " (Hybrid: SQLite + Cloudflare)"
+                        logger.info(f"Hybrid stats: {total_memories} memories (primary), {unique_tags} unique tags")
+                else:
+                    logger.warning("Hybrid storage primary backend not initialized")
+
             elif hasattr(storage, 'collection'):
                 # ChromaDB backend stats (legacy/fallback)
                 if storage.collection is not None:
@@ -3657,6 +3700,79 @@ Memories Archived: {report.memories_archived}"""
                         "status": "error",
                         "error": str(e),
                         "backend": "cloudflare"
+                    }
+
+            elif storage_type == "HybridMemoryStorage":
+                # Hybrid storage validation (SQLite-vec primary + Cloudflare secondary)
+                try:
+                    if not hasattr(storage, 'primary') or storage.primary is None:
+                        is_valid = False
+                        message = "Hybrid storage primary backend is not initialized"
+                        stats = {
+                            "status": "error",
+                            "error": "Hybrid storage primary backend is not initialized",
+                            "backend": "hybrid"
+                        }
+                    else:
+                        primary_storage = storage.primary
+                        # Validate primary storage (SQLite-vec)
+                        if not hasattr(primary_storage, 'conn') or primary_storage.conn is None:
+                            is_valid = False
+                            message = "Hybrid storage: SQLite connection is not initialized"
+                            stats = {
+                                "status": "error",
+                                "error": "SQLite connection is not initialized",
+                                "backend": "hybrid"
+                            }
+                        else:
+                            # Check for required tables
+                            cursor = primary_storage.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memories'")
+                            if not cursor.fetchone():
+                                is_valid = False
+                                message = "Hybrid storage: SQLite database is missing required tables"
+                                stats = {
+                                    "status": "error",
+                                    "error": "SQLite database is missing required tables",
+                                    "backend": "hybrid"
+                                }
+                            else:
+                                # Count memories
+                                cursor = primary_storage.conn.execute('SELECT COUNT(*) FROM memories')
+                                memory_count = cursor.fetchone()[0]
+
+                                # Check if embedding tables exist
+                                cursor = primary_storage.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_embeddings'")
+                                has_embeddings = cursor.fetchone() is not None
+
+                                # Check secondary (Cloudflare) status
+                                cloudflare_status = "not_configured"
+                                if hasattr(storage, 'secondary') and storage.secondary:
+                                    sync_service = getattr(storage, 'sync_service', None)
+                                    if sync_service and getattr(sync_service, 'is_running', False):
+                                        cloudflare_status = "syncing"
+                                    else:
+                                        cloudflare_status = "configured"
+
+                                # Collect stats
+                                stats = {
+                                    "status": "healthy",
+                                    "backend": "hybrid",
+                                    "total_memories": memory_count,
+                                    "has_embeddings": has_embeddings,
+                                    "database_path": getattr(primary_storage, 'db_path', SQLITE_VEC_PATH),
+                                    "cloudflare_sync": cloudflare_status
+                                }
+
+                                is_valid = True
+                                message = f"Hybrid storage validation successful ({memory_count} memories, Cloudflare: {cloudflare_status})"
+
+                except Exception as e:
+                    is_valid = False
+                    message = f"Hybrid storage validation error: {str(e)}"
+                    stats = {
+                        "status": "error",
+                        "error": str(e),
+                        "backend": "hybrid"
                     }
 
             elif hasattr(storage, 'collection'):
