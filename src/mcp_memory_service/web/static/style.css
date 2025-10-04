@@ -1236,15 +1236,25 @@ h3 { font-size: var(--text-xl); }
 /* Tooltips */
 .tooltip {
     position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     cursor: help;
-    color: var(--neutral-500);
+    color: var(--neutral-400);
     font-size: var(--text-sm);
     margin-left: var(--space-2);
-    transition: color 0.2s ease;
+    transition: all 0.2s ease;
+    vertical-align: middle;
+}
+
+.tooltip svg {
+    display: block;
+    transition: all 0.2s ease;
 }
 
 .tooltip:hover {
     color: var(--primary);
+    transform: scale(1.1);
 }
 
 .tooltip:hover::after {
@@ -1830,6 +1840,58 @@ body.dark-mode .info-value {
 
 body.dark-mode h4 {
     color: #d1d5db !important;
+}
+
+/* Tooltips */
+body.dark-mode .tooltip {
+    color: #6b7280;
+}
+
+body.dark-mode .tooltip:hover {
+    color: #3b82f6;
+}
+
+body.dark-mode .tooltip:hover::after {
+    background: #1f2937;
+    color: #f9fafb;
+    border: 1px solid #374151;
+}
+
+body.dark-mode .tooltip:hover::before {
+    border-top-color: #1f2937;
+}
+
+/* Memory Metadata in Modals */
+body.dark-mode .memory-metadata {
+    border-color: #374151;
+}
+
+body.dark-mode .metadata-toggle {
+    background: #111827;
+    border-bottom-color: #374151;
+    color: #d1d5db;
+}
+
+body.dark-mode .metadata-toggle:hover {
+    background: #1f2937;
+}
+
+body.dark-mode .metadata-item {
+    border-bottom-color: #374151;
+}
+
+body.dark-mode .metadata-key {
+    color: #9ca3af;
+}
+
+body.dark-mode .metadata-value {
+    color: #f9fafb;
+}
+
+body.dark-mode .metadata-value code {
+    background: #111827;
+    color: #60a5fa;
+    border-color: #374151;
 }
 
 /* Modals */
