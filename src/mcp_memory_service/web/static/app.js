@@ -1626,6 +1626,7 @@ class MemoryDashboard {
             localStorage.setItem('memoryDashboardSettings', JSON.stringify(this.settings));
         } catch (error) {
             console.error('Failed to save settings:', error);
+            this.showToast('Failed to save settings. Your preferences will not be persisted.', 'error');
         }
     }
 
