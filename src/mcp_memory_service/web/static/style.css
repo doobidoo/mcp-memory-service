@@ -881,25 +881,27 @@ h3 { font-size: var(--text-xl); }
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-2) var(--space-4);
-    background: var(--primary);
-    color: white;
-    border-radius: var(--radius-full);
+    background: var(--neutral-100);
+    color: var(--neutral-700);
+    border: 1px solid var(--neutral-200);
+    border-radius: var(--radius-sm);
     font-size: var(--text-sm);
     font-weight: 500;
     cursor: pointer;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    transition: all 0.2s ease;
     text-decoration: none;
-    border: none;
 }
 
 .tag-bubble:hover {
-    background: var(--primary-dark);
+    background: var(--neutral-200);
+    border-color: var(--neutral-300);
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .tag-bubble .count {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--neutral-200);
+    color: var(--neutral-700);
     padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-sm);
     font-size: var(--text-xs);
@@ -1650,6 +1652,23 @@ body.dark-mode .memory-tag {
     border-color: #4b5563;
 }
 
+body.dark-mode .tag,
+body.dark-mode .tag-bubble {
+    background: #374151;
+    color: #d1d5db;
+    border-color: #4b5563;
+}
+
+body.dark-mode .tag-bubble:hover {
+    background: #4b5563;
+    border-color: #6b7280;
+}
+
+body.dark-mode .tag-bubble .count {
+    background: #4b5563;
+    color: #e5e7eb;
+}
+
 /* Search and Filters */
 body.dark-mode .search-section {
     background: #1f2937;
@@ -1676,6 +1695,28 @@ body.dark-mode .filter-chip.active {
     background: #3b82f6;
     color: #ffffff;
     border-color: #3b82f6;
+}
+
+/* Search Layout & Results */
+body.dark-mode .search-filters {
+    background: #1f2937;
+}
+
+body.dark-mode .search-results {
+    background: #1f2937;
+}
+
+body.dark-mode .search-header {
+    border-bottom-color: #374151;
+}
+
+body.dark-mode .search-header h2 {
+    color: #f9fafb;
+}
+
+body.dark-mode .filter-group h3,
+body.dark-mode .filter-group label {
+    color: #d1d5db;
 }
 
 /* Modals */
