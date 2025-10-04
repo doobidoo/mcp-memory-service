@@ -14,6 +14,17 @@ class MemoryDashboard {
         this.liveSearchEnabled = true;
         this.debounceTimer = null;
 
+        // Settings with defaults
+        this.settings = {
+            theme: 'light',
+            viewDensity: 'comfortable',
+            previewLines: 3,
+            showMetadata: false,
+            expandableCards: true,
+            defaultSearchMode: 'semantic',
+            resultsPerPage: 20
+        };
+
         // Bind methods
         this.handleSearch = this.handleSearch.bind(this);
         this.handleQuickSearch = this.handleQuickSearch.bind(this);
@@ -28,6 +39,8 @@ class MemoryDashboard {
      * Initialize the application
      */
     async init() {
+        this.loadSettings();
+        this.applyTheme();
         this.setupEventListeners();
         this.setupSSE();
         await this.loadVersion();
@@ -135,9 +148,23 @@ class MemoryDashboard {
         document.getElementById('applyFiltersBtn')?.addEventListener('click', this.handleFilterChange.bind(this));
         document.getElementById('clearFiltersBtn')?.addEventListener('click', this.clearAllFilters.bind(this));
 
+        // Theme toggle button
+        document.getElementById('themeToggleBtn')?.addEventListener('click', () => {
+            this.toggleTheme();
+        });
+
         // Settings button
         document.getElementById('settingsBtn')?.addEventListener('click', () => {
-            this.showToast('Settings functionality not yet implemented.', 'info');
+            this.openSettingsModal();
+        });
+
+        // Settings modal handlers
+        document.getElementById('saveSettingsBtn')?.addEventListener('click', () => {
+            this.saveSettings();
+        });
+
+        document.getElementById('resetSettingsBtn')?.addEventListener('click', () => {
+            this.resetSettings();
         });
 
         // Tag cloud event delegation
@@ -378,7 +405,7 @@ class MemoryDashboard {
 
         // Add click handlers
         container.querySelectorAll('.memory-card').forEach((card, index) => {
-            card.addEventListener('click', () => this.handleMemoryClick(memories[index]));
+            this.attachCardHandlers(card, memories[index]);
         });
     }
 
@@ -1094,7 +1121,7 @@ class MemoryDashboard {
 
         // Add click handlers
         container.querySelectorAll('.memory-card').forEach((card, index) => {
-            card.addEventListener('click', () => this.handleMemoryClick(memories[index]));
+            this.attachCardHandlers(card, memories[index]);
         });
     }
 
@@ -1149,7 +1176,7 @@ class MemoryDashboard {
 
         // Add click handlers
         container.querySelectorAll('.memory-card').forEach((card, index) => {
-            card.addEventListener('click', () => this.handleMemoryClick(results[index].memory));
+            this.attachCardHandlers(card, results[index].memory);
         });
     }
 
@@ -1166,14 +1193,18 @@ class MemoryDashboard {
             ? (searchResult.similarity_score * 100).toFixed(1)
             : null;
 
+        const isExpandable = this.settings.expandableCards;
+        const expandClass = isExpandable ? 'expandable' : '';
+
         return `
-            <div class="memory-card" data-memory-id="${memory.content_hash}">
+            <div class="memory-card ${expandClass}" data-memory-id="${memory.content_hash}" data-expanded="false" style="--preview-lines: ${this.settings.previewLines}">
                 <div class="memory-header">
                     <div class="memory-meta">
                         <span>${createdDate}</span>
                         ${memory.memory_type ? `<span> • ${memory.memory_type}</span>` : ''}
                         ${relevanceScore ? `<span> • ${relevanceScore}% match</span>` : ''}
                     </div>
+                    ${isExpandable ? '<button class="expand-toggle" aria-label="Expand card">▼</button>' : ''}
                 </div>
 
                 <div class="memory-content">
@@ -1537,6 +1568,169 @@ class MemoryDashboard {
             clearTimeout(timeout);
             timeout = setTimeout(later, wait);
         };
+    }
+
+    /**
+     * Load settings from localStorage
+     */
+    loadSettings() {
+        const saved = localStorage.getItem('mcp-dashboard-settings');
+        if (saved) {
+            try {
+                this.settings = { ...this.settings, ...JSON.parse(saved) };
+            } catch (error) {
+                console.error('Error loading settings:', error);
+            }
+        }
+    }
+
+    /**
+     * Save settings to localStorage
+     */
+    saveSettingsToStorage() {
+        localStorage.setItem('mcp-dashboard-settings', JSON.stringify(this.settings));
+    }
+
+    /**
+     * Apply current theme
+     */
+    applyTheme(theme = this.settings.theme) {
+        const isDark = theme === 'dark' ||
+            (theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+        document.body.classList.toggle('dark-mode', isDark);
+
+        // Update icon visibility
+        const sunIcon = document.getElementById('sunIcon');
+        const moonIcon = document.getElementById('moonIcon');
+        if (sunIcon && moonIcon) {
+            sunIcon.style.display = isDark ? 'none' : 'block';
+            moonIcon.style.display = isDark ? 'block' : 'none';
+        }
+    }
+
+    /**
+     * Toggle theme between light and dark
+     */
+    toggleTheme() {
+        const currentTheme = this.settings.theme;
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        this.settings.theme = newTheme;
+        this.applyTheme(newTheme);
+        this.saveSettingsToStorage();
+        this.showToast(`Switched to ${newTheme} mode`, 'success');
+    }
+
+    /**
+     * Open settings modal
+     */
+    openSettingsModal() {
+        const modal = document.getElementById('settingsModal');
+
+        // Populate current settings
+        document.getElementById('themeSetting').value = this.settings.theme;
+        document.getElementById('viewDensity').value = this.settings.viewDensity;
+        document.getElementById('previewLines').value = this.settings.previewLines;
+        document.getElementById('showMetadata').checked = this.settings.showMetadata;
+        document.getElementById('expandableCards').checked = this.settings.expandableCards;
+        document.getElementById('defaultSearchMode').value = this.settings.defaultSearchMode;
+        document.getElementById('resultsPerPage').value = this.settings.resultsPerPage;
+
+        // Populate system info
+        this.loadSystemInfo();
+
+        this.openModal(modal);
+    }
+
+    /**
+     * Load system information for settings modal
+     */
+    async loadSystemInfo() {
+        try {
+            const health = await this.apiCall('/health/detailed');
+            document.getElementById('settingsVersion').textContent = health.version || '—';
+            document.getElementById('settingsBackend').textContent = health.storage?.backend || '—';
+            document.getElementById('settingsConnection').textContent = this.eventSource?.readyState === EventSource.OPEN ? 'Connected' : 'Disconnected';
+        } catch (error) {
+            console.error('Error loading system info:', error);
+        }
+    }
+
+    /**
+     * Save settings from modal
+     */
+    saveSettings() {
+        this.settings.theme = document.getElementById('themeSetting').value;
+        this.settings.viewDensity = document.getElementById('viewDensity').value;
+        this.settings.previewLines = parseInt(document.getElementById('previewLines').value);
+        this.settings.showMetadata = document.getElementById('showMetadata').checked;
+        this.settings.expandableCards = document.getElementById('expandableCards').checked;
+        this.settings.defaultSearchMode = document.getElementById('defaultSearchMode').value;
+        this.settings.resultsPerPage = parseInt(document.getElementById('resultsPerPage').value);
+
+        this.saveSettingsToStorage();
+        this.applyTheme();
+        this.applyViewDensity();
+        this.closeModal(document.getElementById('settingsModal'));
+        this.showToast('Settings saved successfully', 'success');
+
+        // Refresh view to apply changes
+        if (this.currentView === 'dashboard') {
+            this.loadDashboardData();
+        }
+    }
+
+    /**
+     * Reset settings to defaults
+     */
+    resetSettings() {
+        if (confirm('Reset all settings to defaults?')) {
+            this.settings = {
+                theme: 'light',
+                viewDensity: 'comfortable',
+                previewLines: 3,
+                showMetadata: false,
+                expandableCards: true,
+                defaultSearchMode: 'semantic',
+                resultsPerPage: 20
+            };
+            this.saveSettingsToStorage();
+            this.applyTheme();
+            this.applyViewDensity();
+            this.closeModal(document.getElementById('settingsModal'));
+            this.showToast('Settings reset to defaults', 'success');
+        }
+    }
+
+    /**
+     * Apply view density setting
+     */
+    applyViewDensity() {
+        document.body.classList.toggle('compact-view', this.settings.viewDensity === 'compact');
+    }
+
+    /**
+     * Attach event handlers to memory card
+     */
+    attachCardHandlers(card, memory) {
+        const expandToggle = card.querySelector('.expand-toggle');
+        const content = card.querySelector('.memory-content');
+
+        if (expandToggle) {
+            expandToggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isExpanded = card.dataset.expanded === 'true';
+                card.dataset.expanded = (!isExpanded).toString();
+                expandToggle.textContent = isExpanded ? '▼' : '▲';
+            });
+        }
+
+        // Card click opens details modal
+        card.addEventListener('click', (e) => {
+            if (!e.target.classList.contains('expand-toggle')) {
+                this.handleMemoryClick(memory);
+            }
+        });
     }
 
     /**
