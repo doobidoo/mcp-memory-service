@@ -4,18 +4,7 @@
  */
 
 class MemoryDashboard {
-    // Static constants for settings modal
-    static SYSTEM_INFO_FIELD_IDS = [
-        'settingsVersion',
-        'settingsBackend',
-        'settingsPrimaryBackend',
-        'settingsEmbeddingModel',
-        'settingsEmbeddingDim',
-        'settingsDbSize',
-        'settingsTotalMemories',
-        'settingsUptime'
-    ];
-
+    // Static configuration for settings modal system information
     static SYSTEM_INFO_CONFIG = {
         settingsVersion: {
             sources: [{ path: 'version', api: 'health' }],
@@ -1691,7 +1680,7 @@ class MemoryDashboard {
      * Reset system info fields to loading state
      */
     resetSystemInfoLoadingState() {
-        MemoryDashboard.SYSTEM_INFO_FIELD_IDS.forEach(id => {
+        Object.keys(MemoryDashboard.SYSTEM_INFO_CONFIG).forEach(id => {
             const element = document.getElementById(id);
             if (element) {
                 element.textContent = 'Loading...';
@@ -1742,7 +1731,7 @@ class MemoryDashboard {
         } catch (error) {
             console.error('Unexpected error loading system info:', error);
             // Set all system info fields that are still in loading state to error
-            MemoryDashboard.SYSTEM_INFO_FIELD_IDS.forEach(id => {
+            Object.keys(MemoryDashboard.SYSTEM_INFO_CONFIG).forEach(id => {
                 const element = document.getElementById(id);
                 if (element && element.textContent === 'Loading...') {
                     element.textContent = 'Error';

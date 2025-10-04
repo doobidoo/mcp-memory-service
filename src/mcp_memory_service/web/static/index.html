@@ -19,6 +19,16 @@
                     <span id="versionBadge" class="version-badge">Loading...</span>
                 </div>
 
+                <!-- SVG Icon Definitions -->
+                <svg style="display: none;" aria-hidden="true">
+                    <defs>
+                        <symbol id="info-icon" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/>
+                            <path d="M12 8v.01M12 12v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </symbol>
+                    </defs>
+                </svg>
+
                 <!-- Quick Search Bar -->
                 <div class="search-section">
                     <div class="search-container">
@@ -186,10 +196,7 @@
                         <div class="filters-header">
                             <h3>Search Filters
                                 <span class="tooltip" title="Filters work together: combine tags, dates, and types to narrow your search">
-                                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-                                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/>
-                                        <path d="M12 8v.01M12 12v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
+                                    <svg width="16" height="16" fill="currentColor"><use href="#info-icon"/></svg>
                                 </span>
                             </h3>
                             <div class="mode-toggle-compact">
@@ -215,10 +222,7 @@
                         <div class="filter-section">
                             <label for="tagFilter">Tags
                                 <span class="tooltip" title="Enter tags separated by commas (e.g., work, coding, important)">
-                                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-                                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/>
-                                        <path d="M12 8v.01M12 12v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
+                                    <svg width="16" height="16" fill="currentColor"><use href="#info-icon"/></svg>
                                 </span>
                             </label>
                             <input type="text" id="tagFilter" placeholder="e.g., work, coding, important">
@@ -228,10 +232,7 @@
                         <div class="filter-section">
                             <label for="dateFilter">Date Range
                                 <span class="tooltip" title="Filter memories by when they were created">
-                                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-                                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/>
-                                        <path d="M12 8v.01M12 12v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
+                                    <svg width="16" height="16" fill="currentColor"><use href="#info-icon"/></svg>
                                 </span>
                             </label>
                             <select id="dateFilter">
@@ -249,10 +250,7 @@
                         <div class="filter-section">
                             <label for="typeFilter">Content Type
                                 <span class="tooltip" title="Filter by the type of content stored">
-                                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-                                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/>
-                                        <path d="M12 8v.01M12 12v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
+                                    <svg width="16" height="16" fill="currentColor"><use href="#info-icon"/></svg>
                                 </span>
                             </label>
                             <select id="typeFilter">
