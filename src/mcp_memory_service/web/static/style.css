@@ -1255,14 +1255,16 @@ h3 { font-size: var(--text-xl); }
     transform: translateX(-50%);
     background: var(--neutral-800);
     color: white;
-    padding: var(--space-2) var(--space-3);
+    padding: var(--space-3) var(--space-4);
     border-radius: var(--space-2);
     font-size: var(--text-xs);
     white-space: nowrap;
     z-index: 1000;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    max-width: 300px; /* Cache bust: tooltip width fix 2025-10-03 */
-    white-space: normal;
+    min-width: 150px;
+    max-width: 400px;
+    overflow: hidden;
+    text-overflow: ellipsis;
     line-height: 1.4;
 }
 
