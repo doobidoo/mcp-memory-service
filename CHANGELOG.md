@@ -226,37 +226,37 @@ If using Litestream sync scripts:
 
 ## [7.4.0] - 2025-10-03
 
-### ✨ **Enhanced Search Tab UX**
+### ✨ **Configurable Hybrid Sync Break Conditions**
 
-#### 🔍 **Advanced Search Functionality**
-- **Enhanced date filter options** - Added "Yesterday" and "This quarter" options to improve time-based search granularity
-- **Live search mode with toggle** - Implemented intelligent live/manual search modes with debounced input (300ms) to prevent API overload
-- **Independent semantic search** - Semantic search now works independently from tag filtering for more flexible query combinations
-- **Improved filter behavior** - Fixed confusing filter interactions and enhanced user experience with clear mode indicators
+#### 🔄 **Enhanced Synchronization Control**
+- **Configurable early break conditions** - Made hybrid sync termination thresholds configurable via environment variables
+  - `MCP_HYBRID_MAX_EMPTY_BATCHES` - Stop after N consecutive batches without new syncs (default: 20, was hardcoded 5)
+  - `MCP_HYBRID_MIN_CHECK_COUNT` - Minimum memories to check before early stop (default: 1000, was hardcoded 200)
+- **Increased default thresholds** - Quadrupled default values (5→20 batches, 200→1000 memories) to ensure complete synchronization
+- **Enhanced logging** - Added detailed sync progress logging every 100 memories with consecutive empty batch tracking
+- **Threshold visibility** - Break condition log messages now display threshold values for better diagnostics
 
-#### 🎨 **UI/UX Improvements**
-- **Resolved toggle visibility issues** - Fixed Live Search toggle contrast and visibility problems on white backgrounds
-- **Eliminated layout shifts** - Moved toggle to header to prevent dynamic position changes due to text length variations
-- **Enhanced tooltips** - Increased tooltip widths (desktop: 300px, mobile: 250px) for better readability
-- **Accessible design patterns** - Implemented standard toggle design with proper contrast ratios and always-visible controls
+#### 🐛 **Bug Fix - Incomplete Synchronization**
+- **Resolved incomplete sync issue** - Dashboard was showing only 1040 memories instead of 1200+ from Cloudflare
+- **Root cause** - Hardcoded early break conditions triggered prematurely:
+  - Line 737: `consecutive_empty_batches >= 5` stopped after 500 memories without new syncs
+  - Line 741: `processed_count >= 200` stopped after only 200 memories checked
+- **Impact** - Missing memories distributed throughout Cloudflare dataset were never synced to local SQLite
 
-#### ⚡ **Performance Optimization**
-- **Debounced search input** - 300ms delay prevents overwhelming API with rapid keystrokes during tag searches
-- **Smart search triggering** - Live search mode provides immediate results while manual mode offers user control
-- **Efficient event handling** - Optimized DOM manipulation and event listener management
+#### ⚙️ **Configuration**
+```bash
+# Environment variables for tuning sync behavior
+export MCP_HYBRID_MAX_EMPTY_BATCHES=20     # Stop after N empty batches
+export MCP_HYBRID_MIN_CHECK_COUNT=1000     # Min memories to check before early stop
+```
 
-### 🔧 **Code Quality Enhancement**
-
-#### 📚 **DRY Principles Implementation**
-- **Eliminated code duplication** - Refactored diagnostic script `test_cloudflare_token()` function following Gemini Code Assist feedback
-- **Extracted reusable helper** - Created `_verify_token_endpoint()` function reducing ~60 lines of duplicated token verification logic
-- **Enhanced consistency** - Both account-scoped and user endpoint tests now display identical token information fields
-- **Improved maintainability** - Centralized error handling and output formatting for easier future extensions
-
-### 🔗 **References**
-- Addresses user feedback on search tab UX requiring "further attention" with comprehensive improvements
-- Implements Gemini Code Assist code review recommendations from PR #139
-- Enhances overall dashboard usability with systematic testing of filter combinations
+#### ✅ **Benefits**
+- Complete synchronization of all Cloudflare memories to SQLite
+- Configurable per deployment needs without code changes
+- Better diagnostics for troubleshooting sync issues
+- Maintains protection against infinite loops (early break still active)
+- Preserves Cloudflare API protection through configurable limits
+- No behavior change for deployments with small datasets
 
 ## [7.3.2] - 2025-10-03
 
