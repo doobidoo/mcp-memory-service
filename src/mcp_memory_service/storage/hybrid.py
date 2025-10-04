@@ -913,6 +913,21 @@ class HybridMemoryStorage(MemoryStorage):
         """Get recent memories from primary storage."""
         return self.primary.get_recent_memories(n)
 
+    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None) -> List[MemoryQueryResult]:
+        """
+        Retrieve memories with combined time filtering and optional semantic search.
+
+        Args:
+            query: Optional semantic search query. If None, only time filtering is applied.
+            n_results: Maximum number of results to return.
+            start_timestamp: Optional start time for filtering.
+            end_timestamp: Optional end time for filtering.
+
+        Returns:
+            List of MemoryQueryResult objects.
+        """
+        return await self.primary.recall(query=query, n_results=n_results, start_timestamp=start_timestamp, end_timestamp=end_timestamp)
+
     async def recall_memory(self, query: str, n_results: int = 5) -> List[Memory]:
         """Recall memories using natural language time expressions."""
         return self.primary.recall_memory(query, n_results)

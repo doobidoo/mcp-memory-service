@@ -8,6 +8,31 @@ For older releases, see [CHANGELOG-HISTORIC.md](./CHANGELOG-HISTORIC.md).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.5.5] - 2025-10-04
+
+### 🐛 **Bug Fix - HybridMemoryStorage Missing recall() Method**
+
+#### Fixed
+- **AttributeError on time-based queries** - Added missing `recall()` method to HybridMemoryStorage
+- **Server.py compatibility** - Resolves errors when server calls `storage.recall()` with time filtering
+- **Consistent API** - Matches method signature of SqliteVecMemoryStorage and CloudflareStorage
+- **Delegation to primary** - Properly delegates to SQLite-vec primary storage for recall operations
+
+#### Technical Details
+- Added `recall()` method to HybridMemoryStorage (hybrid.py:916)
+- Method signature: `async def recall(query: Optional[str], n_results: int, start_timestamp: Optional[float], end_timestamp: Optional[float]) -> List[MemoryQueryResult]`
+- Delegates to `primary.recall()` for consistency with single-storage backends
+- Supports both time-based filtering and semantic search queries
+
+#### Impact
+- ✅ Time-based recall queries now work correctly with hybrid backend
+- ✅ No more AttributeError when server.py calls storage.recall()
+- ✅ Hybrid backend fully compatible with all server.py recall operations
+
+#### Related
+- Fixes compatibility issues at server.py:2275, 3519, 3919
+- Works in conjunction with PR #145 (health check support)
+
 ## [7.5.4] - 2025-10-04
 
 ### ✨ **Configurable Hybrid Sync Break Conditions**
