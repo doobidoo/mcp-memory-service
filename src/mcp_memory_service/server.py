@@ -3746,11 +3746,12 @@ Memories Archived: {report.memories_archived}"""
 
                                 # Check secondary (Cloudflare) status
                                 cloudflare_status = "not_configured"
-                                if hasattr(storage, 'secondary') and storage.secondary is not None:
-                                    cloudflare_status = "configured"
-                                    if hasattr(storage, 'sync_service') and storage.sync_service is not None:
-                                        if hasattr(storage.sync_service, 'is_running') and storage.sync_service.is_running:
-                                            cloudflare_status = "syncing"
+                                if hasattr(storage, 'secondary') and storage.secondary:
+                                    sync_service = getattr(storage, 'sync_service', None)
+                                    if sync_service and getattr(sync_service, 'is_running', False):
+                                        cloudflare_status = "syncing"
+                                    else:
+                                        cloudflare_status = "configured"
 
                                 # Collect stats
                                 stats = {
