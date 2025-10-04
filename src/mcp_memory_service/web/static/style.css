@@ -1754,3 +1754,89 @@ body.dark-mode ::-webkit-scrollbar-thumb {
 body.dark-mode ::-webkit-scrollbar-thumb:hover {
     background: #4b5563;
 }
+
+/* Connection Status */
+body.dark-mode .connection-status {
+    background: #1f2937;
+    border-color: #374151;
+}
+
+body.dark-mode .connection-status span {
+    color: #f9fafb;
+}
+
+/* Action Cards */
+body.dark-mode .action-card {
+    background: #1f2937;
+    border-color: #374151;
+}
+
+body.dark-mode .action-card:hover {
+    background: #374151;
+    border-color: #4b5563;
+}
+
+body.dark-mode .action-card h3,
+body.dark-mode .action-card p {
+    color: #f9fafb;
+}
+
+body.dark-mode .action-card svg {
+    color: #3b82f6;
+}
+
+/* Welcome Card */
+body.dark-mode .welcome-card {
+    background: #1f2937;
+    border-color: #374151;
+}
+
+body.dark-mode .welcome-card h2,
+body.dark-mode .welcome-card p {
+    color: #f9fafb;
+}
+
+/* Version Info */
+body.dark-mode .version-info,
+body.dark-mode .app-version {
+    color: #9ca3af;
+}
+
+/* Dropdowns and Selects */
+body.dark-mode option {
+    background: #1f2937;
+    color: #f9fafb;
+}
+
+/* Placeholders */
+body.dark-mode ::placeholder {
+    color: #6b7280;
+}
+
+body.dark-mode input::placeholder,
+body.dark-mode textarea::placeholder {
+    color: #6b7280;
+}
+
+/* Borders */
+body.dark-mode hr {
+    border-color: #374151;
+}
+
+/* Code blocks (if any) */
+body.dark-mode code,
+body.dark-mode pre {
+    background: #111827;
+    color: #e5e7eb;
+    border-color: #374151;
+}
+
+/* Buttons in various states */
+body.dark-mode .btn:hover {
+    opacity: 0.9;
+}
+
+body.dark-mode .btn:disabled {
+    opacity: 0.5;
+    color: #6b7280;
+}
