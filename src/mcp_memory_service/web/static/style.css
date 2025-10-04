@@ -1568,6 +1568,14 @@ body.dark-mode {
     color: #f9fafb;
 }
 
+body.dark-mode .app-container {
+    background-color: #111827;
+}
+
+body.dark-mode .main-content {
+    background-color: #111827;
+}
+
 /* Header */
 body.dark-mode .app-header {
     background: #1f2937;
@@ -1576,6 +1584,26 @@ body.dark-mode .app-header {
 
 body.dark-mode .app-title {
     color: #f9fafb;
+}
+
+/* Navigation */
+body.dark-mode .main-nav {
+    background: #1f2937;
+    border-bottom-color: #374151;
+}
+
+body.dark-mode .nav-item {
+    color: #d1d5db;
+}
+
+body.dark-mode .nav-item:hover {
+    background: #374151;
+    color: #3b82f6;
+}
+
+body.dark-mode .nav-item.active {
+    color: #3b82f6;
+    border-bottom-color: #3b82f6;
 }
 
 body.dark-mode .btn-secondary {
@@ -1765,20 +1793,27 @@ body.dark-mode .connection-status span {
     color: #f9fafb;
 }
 
+/* Sidebar Sections */
+body.dark-mode .recent-memories,
+body.dark-mode .quick-actions {
+    background: #1f2937;
+}
+
 /* Action Cards */
 body.dark-mode .action-card {
-    background: #1f2937;
+    background: #111827;
     border-color: #374151;
 }
 
 body.dark-mode .action-card:hover {
-    background: #374151;
+    background: #1f2937;
     border-color: #4b5563;
 }
 
 body.dark-mode .action-card h3,
-body.dark-mode .action-card p {
-    color: #f9fafb;
+body.dark-mode .action-card p,
+body.dark-mode .action-card span {
+    color: #f9fafb !important;
 }
 
 body.dark-mode .action-card svg {
