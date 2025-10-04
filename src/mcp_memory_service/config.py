@@ -457,7 +457,7 @@ if STORAGE_BACKEND == 'hybrid':
     HYBRID_HEALTH_CHECK_INTERVAL = int(os.getenv('MCP_HYBRID_HEALTH_CHECK_INTERVAL', '60'))  # 1 minute
     HYBRID_SYNC_ON_STARTUP = os.getenv('MCP_HYBRID_SYNC_ON_STARTUP', 'true').lower() == 'true'
 
-    # Initial sync behavior tuning (v7.4.1+)
+    # Initial sync behavior tuning (v7.4.0+)
     HYBRID_MAX_EMPTY_BATCHES = int(os.getenv('MCP_HYBRID_MAX_EMPTY_BATCHES', '20'))  # Stop after N batches without new syncs
     HYBRID_MIN_CHECK_COUNT = int(os.getenv('MCP_HYBRID_MIN_CHECK_COUNT', '1000'))  # Minimum memories to check before early stop
 

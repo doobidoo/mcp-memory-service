@@ -756,7 +756,7 @@ class HybridMemoryStorage(MemoryStorage):
                         cursor = min(memory.created_at for memory in cloudflare_memories if memory.created_at)
                         logger.debug(f"Next cursor set to: {cursor}")
 
-                    # Configurable early break conditions (v7.4.1+)
+                    # Configurable early break conditions (v7.4.0+)
                     # Break only if we've had many consecutive empty batches AND we've synced some memories
                     if consecutive_empty_batches >= HYBRID_MAX_EMPTY_BATCHES and synced_count > 0:
                         logger.info(f"Completed sync after {consecutive_empty_batches} consecutive empty batches (threshold: {HYBRID_MAX_EMPTY_BATCHES}) - {synced_count}/{missing_count} memories synced, {processed_count} total processed")
