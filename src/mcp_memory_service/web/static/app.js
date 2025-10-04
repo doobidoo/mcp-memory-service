@@ -1741,10 +1741,11 @@ class MemoryDashboard {
             }
         } catch (error) {
             console.error('Unexpected error loading system info:', error);
-            // Set all fields that are still in loading state to error
-            document.querySelectorAll('.info-value').forEach(el => {
-                if (el.textContent === 'Loading...') {
-                    el.textContent = 'Error';
+            // Set all system info fields that are still in loading state to error
+            MemoryDashboard.SYSTEM_INFO_FIELD_IDS.forEach(id => {
+                const element = document.getElementById(id);
+                if (element && element.textContent === 'Loading...') {
+                    element.textContent = 'Error';
                 }
             });
         }
