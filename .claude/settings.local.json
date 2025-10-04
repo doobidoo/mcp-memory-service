@@ -80,7 +80,13 @@
       "Bash(npm ci:*)",
       "Bash(npm test)",
       "Bash(git rebase:*)",
-      "Bash(gh pr close:*)"
+      "Bash(gh pr close:*)",
+      "Bash(git mv:*)",
+      "Bash(git rm:*)",
+      "Bash(gh release list:*)",
+      "Bash(gh release create:*)",
+      "Bash(gh pr list:*)",
+      "WebFetch(domain:localhost)"
     ],
     "deny": [],
     "ask": [],
