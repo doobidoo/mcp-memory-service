@@ -79,7 +79,8 @@
       "Bash(gh run view:*)",
       "Bash(npm ci:*)",
       "Bash(npm test)",
-      "Bash(git rebase:*)"
+      "Bash(git rebase:*)",
+      "Bash(gh pr close:*)"
     ],
     "deny": [],
     "ask": [],
