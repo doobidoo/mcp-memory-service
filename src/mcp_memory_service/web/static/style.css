@@ -1732,6 +1732,7 @@ body.dark-mode .filter-chip.active {
 /* Search Layout & Results */
 body.dark-mode .search-filters {
     background: #1f2937;
+    box-shadow: none;
 }
 
 body.dark-mode .search-results {
@@ -1749,6 +1750,53 @@ body.dark-mode .search-header h2 {
 body.dark-mode .filter-group h3,
 body.dark-mode .filter-group label {
     color: #d1d5db;
+}
+
+body.dark-mode .filter-section h3,
+body.dark-mode .filter-section label {
+    color: #d1d5db;
+}
+
+body.dark-mode .filter-section input,
+body.dark-mode .filter-section select {
+    background: #111827;
+    border-color: #374151;
+    color: #f9fafb;
+}
+
+body.dark-mode .filter-section input:focus,
+body.dark-mode .filter-section select:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+body.dark-mode .active-filters {
+    background: #111827;
+    border-color: #374151;
+}
+
+body.dark-mode .active-filters h4 {
+    color: #f9fafb;
+}
+
+body.dark-mode .filter-actions .btn {
+    background: #374151;
+    color: #f9fafb;
+    border-color: #4b5563;
+}
+
+body.dark-mode .filter-actions .btn-primary {
+    background: #3b82f6;
+    color: #ffffff;
+    border-color: #3b82f6;
+}
+
+body.dark-mode .filter-actions .btn:hover {
+    background: #4b5563;
+}
+
+body.dark-mode .filter-actions .btn-primary:hover {
+    background: #2563eb;
 }
 
 /* Browse Content */
