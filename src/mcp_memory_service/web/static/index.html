@@ -55,7 +55,7 @@
                             <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
                             <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
                         </svg>
-                        <svg id="moonIcon" width="20" height="20" fill="currentColor" viewBox="0 0 24 24" style="display: none;">
+                        <svg id="moonIcon" class="hidden" width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
                         </svg>
                     </button>
@@ -538,7 +538,7 @@
                 </div>
                 <div class="modal-body">
                     <form id="settingsForm">
-                        <h4 style="margin-top: 0; color: var(--neutral-600);">Preferences</h4>
+                        <h4 class="settings-section-heading">Preferences</h4>
                         <div class="form-group">
                             <label for="themeSelect">Theme</label>
                             <select id="themeSelect">
@@ -558,9 +558,9 @@
                             <input type="number" id="previewLines" min="1" max="10" value="3">
                         </div>
 
-                        <hr style="margin: var(--space-6) 0; border: none; border-top: 1px solid var(--neutral-200);">
+                        <hr class="settings-divider">
 
-                        <h4 style="margin-bottom: var(--space-4); color: var(--neutral-600);">System Information</h4>
+                        <h4 class="settings-section-heading" style="margin-bottom: var(--space-4);">System Information</h4>
                         <div class="system-info">
                             <div class="info-row">
                                 <span class="info-label">Version:</span>

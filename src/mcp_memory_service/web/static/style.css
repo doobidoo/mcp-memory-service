@@ -1609,6 +1609,30 @@ input:checked + .slider:before {
    Appended 2025-10-04: Do not modify existing rules above
    ============================================================ */
 
+/* Utility Classes */
+.hidden {
+    display: none !important;
+}
+
+.settings-section-heading {
+    margin-top: 0;
+    color: var(--neutral-600);
+}
+
+body.dark-mode .settings-section-heading {
+    color: #9ca3af;
+}
+
+.settings-divider {
+    margin: var(--space-6) 0;
+    border: none;
+    border-top: 1px solid var(--neutral-200);
+}
+
+body.dark-mode .settings-divider {
+    border-top-color: #374151;
+}
+
 body.dark-mode {
     background-color: #111827;
     color: #f9fafb;

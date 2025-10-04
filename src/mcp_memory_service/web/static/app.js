@@ -1594,12 +1594,12 @@ class MemoryDashboard {
         const isDark = theme === 'dark';
         document.body.classList.toggle('dark-mode', isDark);
 
-        // Toggle icon visibility
+        // Toggle icon visibility using CSS classes
         const sunIcon = document.getElementById('sunIcon');
         const moonIcon = document.getElementById('moonIcon');
         if (sunIcon && moonIcon) {
-            sunIcon.style.display = isDark ? 'none' : 'block';
-            moonIcon.style.display = isDark ? 'block' : 'none';
+            sunIcon.classList.toggle('hidden', isDark);
+            moonIcon.classList.toggle('hidden', !isDark);
         }
     }
 
@@ -1625,6 +1625,9 @@ class MemoryDashboard {
         document.getElementById('viewDensity').value = this.settings.viewDensity;
         document.getElementById('previewLines').value = this.settings.previewLines;
 
+        // Reset system info to loading state
+        this.resetSystemInfoLoadingState();
+
         // Load system information
         await this.loadSystemInfo();
 
@@ -1632,50 +1635,129 @@ class MemoryDashboard {
     }
 
     /**
+     * Reset system info fields to loading state
+     */
+    resetSystemInfoLoadingState() {
+        const fieldIds = [
+            'settingsVersion',
+            'settingsBackend',
+            'settingsPrimaryBackend',
+            'settingsEmbeddingModel',
+            'settingsEmbeddingDim',
+            'settingsDbSize',
+            'settingsTotalMemories',
+            'settingsUptime'
+        ];
+
+        fieldIds.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = 'Loading...';
+            }
+        });
+    }
+
+    /**
      * Load system information for settings modal
      */
     async loadSystemInfo() {
+        // System info field configuration map
+        const systemInfoConfig = {
+            settingsVersion: {
+                sources: [{ path: 'version', api: 'health' }],
+                formatter: (value) => value || 'N/A'
+            },
+            settingsBackend: {
+                sources: [
+                    { path: 'storage.storage_backend', api: 'detailedHealth' },
+                    { path: 'storage.backend', api: 'detailedHealth' }
+                ],
+                formatter: (value) => value || 'N/A'
+            },
+            settingsPrimaryBackend: {
+                sources: [
+                    { path: 'storage.primary_backend', api: 'detailedHealth' },
+                    { path: 'storage.backend', api: 'detailedHealth' }
+                ],
+                formatter: (value) => value || 'N/A'
+            },
+            settingsEmbeddingModel: {
+                sources: [{ path: 'storage.primary_stats.embedding_model', api: 'detailedHealth' }],
+                formatter: (value) => value || 'N/A'
+            },
+            settingsEmbeddingDim: {
+                sources: [{ path: 'storage.primary_stats.embedding_dimension', api: 'detailedHealth' }],
+                formatter: (value) => value || 'N/A'
+            },
+            settingsDbSize: {
+                sources: [{ path: 'storage.primary_stats.database_size_mb', api: 'detailedHealth' }],
+                formatter: (value) => value ? `${value.toFixed(2)} MB` : 'N/A'
+            },
+            settingsTotalMemories: {
+                sources: [{ path: 'storage.total_memories', api: 'detailedHealth' }],
+                formatter: (value) => value?.toLocaleString() || 'N/A'
+            },
+            settingsUptime: {
+                sources: [{ path: 'uptime_seconds', api: 'detailedHealth' }],
+                formatter: (value) => value ? this.formatUptime(value) : 'N/A'
+            }
+        };
+
         try {
-            const [health, detailedHealth] = await Promise.all([
+            // Use Promise.allSettled for robust error handling
+            const [healthResult, detailedHealthResult] = await Promise.allSettled([
                 this.apiCall('/health'),
                 this.apiCall('/health/detailed')
             ]);
 
-            // Version
-            document.getElementById('settingsVersion').textContent = health.version || 'N/A';
+            const apiData = {
+                health: healthResult.status === 'fulfilled' ? healthResult.value : null,
+                detailedHealth: detailedHealthResult.status === 'fulfilled' ? detailedHealthResult.value : null
+            };
 
-            // Storage backend info
-            if (detailedHealth.storage) {
-                const storage = detailedHealth.storage;
-                document.getElementById('settingsBackend').textContent = storage.storage_backend || storage.backend || 'N/A';
-                document.getElementById('settingsPrimaryBackend').textContent = storage.primary_backend || storage.backend || 'N/A';
-                document.getElementById('settingsTotalMemories').textContent = storage.total_memories?.toLocaleString() || 'N/A';
+            // Update fields using configuration
+            Object.entries(systemInfoConfig).forEach(([fieldId, config]) => {
+                const element = document.getElementById(fieldId);
+                if (!element) return;
 
-                // Embedding info from primary_stats
-                if (storage.primary_stats) {
-                    document.getElementById('settingsEmbeddingModel').textContent = storage.primary_stats.embedding_model || 'N/A';
-                    document.getElementById('settingsEmbeddingDim').textContent = storage.primary_stats.embedding_dimension || 'N/A';
-
-                    // Database size
-                    const dbSizeMB = storage.primary_stats.database_size_mb;
-                    document.getElementById('settingsDbSize').textContent = dbSizeMB ? `${dbSizeMB.toFixed(2)} MB` : 'N/A';
+                let value = null;
+                for (const source of config.sources) {
+                    const apiResponse = apiData[source.api];
+                    if (apiResponse) {
+                        value = this.getNestedValue(apiResponse, source.path);
+                        if (value !== undefined && value !== null) break;
+                    }
                 }
-            }
 
-            // Uptime
-            if (detailedHealth.uptime_seconds) {
-                const uptime = this.formatUptime(detailedHealth.uptime_seconds);
-                document.getElementById('settingsUptime').textContent = uptime;
+                element.textContent = config.formatter(value);
+            });
+
+            // Log warnings for failed API calls
+            if (healthResult.status === 'rejected') {
+                console.warn('Failed to load health endpoint:', healthResult.reason);
+            }
+            if (detailedHealthResult.status === 'rejected') {
+                console.warn('Failed to load detailed health endpoint:', detailedHealthResult.reason);
             }
         } catch (error) {
-            console.error('Failed to load system info:', error);
-            // Set all to error state
+            console.error('Unexpected error loading system info:', error);
+            // Set all fields that are still in loading state to error
             document.querySelectorAll('.info-value').forEach(el => {
                 if (el.textContent === 'Loading...') {
                     el.textContent = 'Error';
                 }
             });
         }
+    }
+
+    /**
+     * Get nested object value by path string
+     * @param {Object} obj - Object to traverse
+     * @param {string} path - Dot-separated path (e.g., 'storage.primary_stats.embedding_model')
+     * @returns {*} Value at path or undefined
+     */
+    getNestedValue(obj, path) {
+        return path.split('.').reduce((current, key) => current?.[key], obj);
     }
 
     /**
