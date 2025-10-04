@@ -14,6 +14,13 @@ class MemoryDashboard {
         this.liveSearchEnabled = true;
         this.debounceTimer = null;
 
+        // Settings with defaults
+        this.settings = {
+            theme: 'light',
+            viewDensity: 'comfortable',
+            previewLines: 3
+        };
+
         // Bind methods
         this.handleSearch = this.handleSearch.bind(this);
         this.handleQuickSearch = this.handleQuickSearch.bind(this);
@@ -28,6 +35,8 @@ class MemoryDashboard {
      * Initialize the application
      */
     async init() {
+        this.loadSettings();
+        this.applyTheme();
         this.setupEventListeners();
         this.setupSSE();
         await this.loadVersion();
@@ -135,9 +144,23 @@ class MemoryDashboard {
         document.getElementById('applyFiltersBtn')?.addEventListener('click', this.handleFilterChange.bind(this));
         document.getElementById('clearFiltersBtn')?.addEventListener('click', this.clearAllFilters.bind(this));
 
+        // Theme toggle button
+        document.getElementById('themeToggleBtn')?.addEventListener('click', () => {
+            this.toggleTheme();
+        });
+
         // Settings button
         document.getElementById('settingsBtn')?.addEventListener('click', () => {
-            this.showToast('Settings functionality not yet implemented.', 'info');
+            this.openSettingsModal();
+        });
+
+        // Settings modal handlers
+        document.getElementById('saveSettingsBtn')?.addEventListener('click', () => {
+            this.saveSettings();
+        });
+
+        document.getElementById('cancelSettingsBtn')?.addEventListener('click', () => {
+            this.closeModal(document.getElementById('settingsModal'));
         });
 
         // Tag cloud event delegation
@@ -1537,6 +1560,95 @@ class MemoryDashboard {
             clearTimeout(timeout);
             timeout = setTimeout(later, wait);
         };
+    }
+
+    /**
+     * Load settings from localStorage
+     */
+    loadSettings() {
+        try {
+            const saved = localStorage.getItem('memoryDashboardSettings');
+            if (saved) {
+                this.settings = { ...this.settings, ...JSON.parse(saved) };
+            }
+        } catch (error) {
+            console.warn('Failed to load settings:', error);
+        }
+    }
+
+    /**
+     * Save settings to localStorage
+     */
+    saveSettingsToStorage() {
+        try {
+            localStorage.setItem('memoryDashboardSettings', JSON.stringify(this.settings));
+        } catch (error) {
+            console.error('Failed to save settings:', error);
+        }
+    }
+
+    /**
+     * Apply theme to the page
+     */
+    applyTheme(theme = this.settings.theme) {
+        const isDark = theme === 'dark';
+        document.body.classList.toggle('dark-mode', isDark);
+
+        // Toggle icon visibility
+        const sunIcon = document.getElementById('sunIcon');
+        const moonIcon = document.getElementById('moonIcon');
+        if (sunIcon && moonIcon) {
+            sunIcon.style.display = isDark ? 'none' : 'block';
+            moonIcon.style.display = isDark ? 'block' : 'none';
+        }
+    }
+
+    /**
+     * Toggle between light and dark theme
+     */
+    toggleTheme() {
+        const newTheme = this.settings.theme === 'dark' ? 'light' : 'dark';
+        this.settings.theme = newTheme;
+        this.applyTheme(newTheme);
+        this.saveSettingsToStorage();
+        this.showToast(`Switched to ${newTheme} mode`, 'success');
+    }
+
+    /**
+     * Open settings modal
+     */
+    openSettingsModal() {
+        const modal = document.getElementById('settingsModal');
+
+        // Populate form with current settings
+        document.getElementById('themeSelect').value = this.settings.theme;
+        document.getElementById('viewDensity').value = this.settings.viewDensity;
+        document.getElementById('previewLines').value = this.settings.previewLines;
+
+        this.openModal(modal);
+    }
+
+    /**
+     * Save settings from modal
+     */
+    saveSettings() {
+        // Get values from form
+        const theme = document.getElementById('themeSelect').value;
+        const viewDensity = document.getElementById('viewDensity').value;
+        const previewLines = parseInt(document.getElementById('previewLines').value, 10);
+
+        // Update settings
+        this.settings.theme = theme;
+        this.settings.viewDensity = viewDensity;
+        this.settings.previewLines = previewLines;
+
+        // Apply changes
+        this.applyTheme(theme);
+        this.saveSettingsToStorage();
+
+        // Close modal and show confirmation
+        this.closeModal(document.getElementById('settingsModal'));
+        this.showToast('Settings saved successfully', 'success');
     }
 
     /**

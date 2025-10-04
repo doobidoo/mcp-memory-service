@@ -1557,3 +1557,200 @@ input:checked + .slider:before {
 #searchModeText {
     min-width: 120px;
 }
+
+/* ============================================================
+   DARK MODE - ADDITIVE ONLY
+   Appended 2025-10-04: Do not modify existing rules above
+   ============================================================ */
+
+body.dark-mode {
+    background-color: #111827;
+    color: #f9fafb;
+}
+
+/* Header */
+body.dark-mode .app-header {
+    background: #1f2937;
+    border-bottom-color: #374151;
+}
+
+body.dark-mode .app-title {
+    color: #f9fafb;
+}
+
+body.dark-mode .btn-secondary {
+    background: #374151;
+    color: #f9fafb;
+    border-color: #4b5563;
+}
+
+body.dark-mode .btn-secondary:hover {
+    background: #4b5563;
+}
+
+body.dark-mode .btn-primary {
+    background: #3b82f6;
+    color: #ffffff;
+}
+
+body.dark-mode .btn-primary:hover {
+    background: #2563eb;
+}
+
+/* Cards */
+body.dark-mode .memory-card {
+    background: #1f2937;
+    border-color: #374151;
+}
+
+body.dark-mode .memory-card:hover {
+    border-color: #4b5563;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+body.dark-mode .memory-content {
+    color: #e5e7eb;
+}
+
+body.dark-mode .memory-meta {
+    color: #9ca3af;
+}
+
+body.dark-mode .memory-tag {
+    background: #374151;
+    color: #d1d5db;
+    border-color: #4b5563;
+}
+
+/* Search and Filters */
+body.dark-mode .search-section {
+    background: #1f2937;
+    border-color: #374151;
+}
+
+body.dark-mode .search-box {
+    background: #111827;
+    border-color: #374151;
+    color: #f9fafb;
+}
+
+body.dark-mode .search-box:focus {
+    border-color: #3b82f6;
+}
+
+body.dark-mode .filter-chip {
+    background: #374151;
+    color: #d1d5db;
+    border-color: #4b5563;
+}
+
+body.dark-mode .filter-chip.active {
+    background: #3b82f6;
+    color: #ffffff;
+    border-color: #3b82f6;
+}
+
+/* Modals */
+body.dark-mode .modal-overlay {
+    background: rgba(0, 0, 0, 0.8);
+}
+
+body.dark-mode .modal-content {
+    background: #1f2937;
+    color: #f9fafb;
+}
+
+body.dark-mode .modal-header {
+    border-bottom-color: #374151;
+}
+
+body.dark-mode .modal-footer {
+    border-top-color: #374151;
+}
+
+body.dark-mode input[type="text"],
+body.dark-mode input[type="number"],
+body.dark-mode textarea,
+body.dark-mode select {
+    background: #111827;
+    border-color: #374151;
+    color: #f9fafb;
+}
+
+body.dark-mode input[type="text"]:focus,
+body.dark-mode input[type="number"]:focus,
+body.dark-mode textarea:focus,
+body.dark-mode select:focus {
+    border-color: #3b82f6;
+}
+
+body.dark-mode label {
+    color: #d1d5db;
+}
+
+/* Stats Grid */
+body.dark-mode .stats-grid {
+    background: #1f2937;
+    border-color: #374151;
+}
+
+body.dark-mode .stat-card {
+    background: #111827;
+    border-color: #374151;
+}
+
+body.dark-mode .stat-label {
+    color: #9ca3af;
+}
+
+body.dark-mode .stat-value {
+    color: #f9fafb;
+}
+
+/* Toast Notifications */
+body.dark-mode .toast {
+    background: #1f2937;
+    color: #f9fafb;
+    border-color: #374151;
+}
+
+body.dark-mode .toast.success {
+    border-left-color: #10b981;
+}
+
+body.dark-mode .toast.error {
+    border-left-color: #ef4444;
+}
+
+body.dark-mode .toast.info {
+    border-left-color: #3b82f6;
+}
+
+/* Pagination */
+body.dark-mode .pagination {
+    background: #1f2937;
+    border-color: #374151;
+}
+
+body.dark-mode .pagination button:disabled {
+    color: #4b5563;
+}
+
+/* Loading Overlay */
+body.dark-mode .loading-overlay {
+    background: rgba(17, 24, 39, 0.95);
+    color: #f9fafb;
+}
+
+/* Scrollbars (webkit browsers) */
+body.dark-mode ::-webkit-scrollbar {
+    background: #111827;
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb {
+    background: #374151;
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb:hover {
+    background: #4b5563;
+}
