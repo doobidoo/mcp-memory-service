@@ -35,29 +35,18 @@ from .cloudflare import CloudflareStorage
 from ..models.memory import Memory, MemoryQueryResult
 
 # Import config to check if limit constants are available
-try:
-    from ..config import (
-        CLOUDFLARE_D1_MAX_SIZE_GB,
-        CLOUDFLARE_VECTORIZE_MAX_VECTORS,
-        CLOUDFLARE_MAX_METADATA_SIZE_KB,
-        CLOUDFLARE_WARNING_THRESHOLD_PERCENT,
-        CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT,
-        HYBRID_SYNC_ON_STARTUP,
-        HYBRID_MAX_CONTENT_LENGTH,
-        HYBRID_MAX_EMPTY_BATCHES,
-        HYBRID_MIN_CHECK_COUNT
-    )
-except ImportError:
-    # Fallback values if config doesn't have them
-    CLOUDFLARE_D1_MAX_SIZE_GB = 10
-    CLOUDFLARE_VECTORIZE_MAX_VECTORS = 5_000_000
-    CLOUDFLARE_MAX_METADATA_SIZE_KB = 10
-    CLOUDFLARE_WARNING_THRESHOLD_PERCENT = 80
-    CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT = 95
-    HYBRID_SYNC_ON_STARTUP = True
-    HYBRID_MAX_CONTENT_LENGTH = 800
-    HYBRID_MAX_EMPTY_BATCHES = 20  # Default: 20 batches
-    HYBRID_MIN_CHECK_COUNT = 1000  # Default: 1000 memories
+from .. import config as app_config
+
+# Use getattr to provide fallbacks if attributes don't exist (prevents duplicate defaults)
+CLOUDFLARE_D1_MAX_SIZE_GB = getattr(app_config, 'CLOUDFLARE_D1_MAX_SIZE_GB', 10)
+CLOUDFLARE_VECTORIZE_MAX_VECTORS = getattr(app_config, 'CLOUDFLARE_VECTORIZE_MAX_VECTORS', 5_000_000)
+CLOUDFLARE_MAX_METADATA_SIZE_KB = getattr(app_config, 'CLOUDFLARE_MAX_METADATA_SIZE_KB', 10)
+CLOUDFLARE_WARNING_THRESHOLD_PERCENT = getattr(app_config, 'CLOUDFLARE_WARNING_THRESHOLD_PERCENT', 80)
+CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT = getattr(app_config, 'CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT', 95)
+HYBRID_SYNC_ON_STARTUP = getattr(app_config, 'HYBRID_SYNC_ON_STARTUP', True)
+HYBRID_MAX_CONTENT_LENGTH = getattr(app_config, 'HYBRID_MAX_CONTENT_LENGTH', 800)
+HYBRID_MAX_EMPTY_BATCHES = getattr(app_config, 'HYBRID_MAX_EMPTY_BATCHES', 20)
+HYBRID_MIN_CHECK_COUNT = getattr(app_config, 'HYBRID_MIN_CHECK_COUNT', 1000)
 
 logger = logging.getLogger(__name__)
 
