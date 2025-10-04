@@ -4,6 +4,60 @@
  */
 
 class MemoryDashboard {
+    // Static constants for settings modal
+    static SYSTEM_INFO_FIELD_IDS = [
+        'settingsVersion',
+        'settingsBackend',
+        'settingsPrimaryBackend',
+        'settingsEmbeddingModel',
+        'settingsEmbeddingDim',
+        'settingsDbSize',
+        'settingsTotalMemories',
+        'settingsUptime'
+    ];
+
+    static SYSTEM_INFO_CONFIG = {
+        settingsVersion: {
+            sources: [{ path: 'version', api: 'health' }],
+            formatter: (value) => value || 'N/A'
+        },
+        settingsBackend: {
+            sources: [
+                { path: 'storage.storage_backend', api: 'detailedHealth' },
+                { path: 'storage.backend', api: 'detailedHealth' }
+            ],
+            formatter: (value) => value || 'N/A'
+        },
+        settingsPrimaryBackend: {
+            sources: [
+                { path: 'storage.primary_backend', api: 'detailedHealth' },
+                { path: 'storage.backend', api: 'detailedHealth' }
+            ],
+            formatter: (value) => value || 'N/A'
+        },
+        settingsEmbeddingModel: {
+            sources: [{ path: 'storage.primary_stats.embedding_model', api: 'detailedHealth' }],
+            formatter: (value) => value || 'N/A'
+        },
+        settingsEmbeddingDim: {
+            sources: [{ path: 'storage.primary_stats.embedding_dimension', api: 'detailedHealth' }],
+            formatter: (value) => value || 'N/A'
+        },
+        settingsDbSize: {
+            sources: [{ path: 'storage.primary_stats.database_size_mb', api: 'detailedHealth' }],
+            formatter: (value) => value ? `${value.toFixed(2)} MB` : 'N/A'
+        },
+        settingsTotalMemories: {
+            sources: [{ path: 'storage.total_memories', api: 'detailedHealth' }],
+            formatter: (value) => value?.toLocaleString() || 'N/A'
+        },
+        settingsUptime: {
+            sources: [{ path: 'uptime_seconds', api: 'detailedHealth' }],
+            // Note: formatter uses instance method, defined in loadSystemInfo
+            formatter: null  // Will be set dynamically
+        }
+    };
+
     constructor() {
         this.apiBase = '/api';
         this.eventSource = null;
@@ -1638,18 +1692,7 @@ class MemoryDashboard {
      * Reset system info fields to loading state
      */
     resetSystemInfoLoadingState() {
-        const fieldIds = [
-            'settingsVersion',
-            'settingsBackend',
-            'settingsPrimaryBackend',
-            'settingsEmbeddingModel',
-            'settingsEmbeddingDim',
-            'settingsDbSize',
-            'settingsTotalMemories',
-            'settingsUptime'
-        ];
-
-        fieldIds.forEach(id => {
+        MemoryDashboard.SYSTEM_INFO_FIELD_IDS.forEach(id => {
             const element = document.getElementById(id);
             if (element) {
                 element.textContent = 'Loading...';
@@ -1661,48 +1704,6 @@ class MemoryDashboard {
      * Load system information for settings modal
      */
     async loadSystemInfo() {
-        // System info field configuration map
-        const systemInfoConfig = {
-            settingsVersion: {
-                sources: [{ path: 'version', api: 'health' }],
-                formatter: (value) => value || 'N/A'
-            },
-            settingsBackend: {
-                sources: [
-                    { path: 'storage.storage_backend', api: 'detailedHealth' },
-                    { path: 'storage.backend', api: 'detailedHealth' }
-                ],
-                formatter: (value) => value || 'N/A'
-            },
-            settingsPrimaryBackend: {
-                sources: [
-                    { path: 'storage.primary_backend', api: 'detailedHealth' },
-                    { path: 'storage.backend', api: 'detailedHealth' }
-                ],
-                formatter: (value) => value || 'N/A'
-            },
-            settingsEmbeddingModel: {
-                sources: [{ path: 'storage.primary_stats.embedding_model', api: 'detailedHealth' }],
-                formatter: (value) => value || 'N/A'
-            },
-            settingsEmbeddingDim: {
-                sources: [{ path: 'storage.primary_stats.embedding_dimension', api: 'detailedHealth' }],
-                formatter: (value) => value || 'N/A'
-            },
-            settingsDbSize: {
-                sources: [{ path: 'storage.primary_stats.database_size_mb', api: 'detailedHealth' }],
-                formatter: (value) => value ? `${value.toFixed(2)} MB` : 'N/A'
-            },
-            settingsTotalMemories: {
-                sources: [{ path: 'storage.total_memories', api: 'detailedHealth' }],
-                formatter: (value) => value?.toLocaleString() || 'N/A'
-            },
-            settingsUptime: {
-                sources: [{ path: 'uptime_seconds', api: 'detailedHealth' }],
-                formatter: (value) => value ? this.formatUptime(value) : 'N/A'
-            }
-        };
-
         try {
             // Use Promise.allSettled for robust error handling
             const [healthResult, detailedHealthResult] = await Promise.allSettled([
@@ -1714,6 +1715,10 @@ class MemoryDashboard {
                 health: healthResult.status === 'fulfilled' ? healthResult.value : null,
                 detailedHealth: detailedHealthResult.status === 'fulfilled' ? detailedHealthResult.value : null
             };
+
+            // Create config with dynamic formatter for uptime (needs instance method)
+            const systemInfoConfig = { ...MemoryDashboard.SYSTEM_INFO_CONFIG };
+            systemInfoConfig.settingsUptime.formatter = (value) => value ? this.formatUptime(value) : 'N/A';
 
             // Update fields using configuration
             Object.entries(systemInfoConfig).forEach(([fieldId, config]) => {
