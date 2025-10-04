@@ -1753,6 +1753,10 @@ body.dark-mode .filter-group label {
 
 /* Browse Content */
 body.dark-mode .browse-content {
+    background: transparent;
+}
+
+body.dark-mode .tags-cloud {
     background: #1f2937;
 }
 
