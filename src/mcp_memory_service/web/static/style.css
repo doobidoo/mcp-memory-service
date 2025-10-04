@@ -1719,6 +1719,16 @@ body.dark-mode .filter-group label {
     color: #d1d5db;
 }
 
+/* Browse Content */
+body.dark-mode .browse-content {
+    background: #1f2937;
+}
+
+body.dark-mode .browse-header h2,
+body.dark-mode .browse-header p {
+    color: #f9fafb;
+}
+
 /* Modals */
 body.dark-mode .modal-overlay {
     background: rgba(0, 0, 0, 0.8);
