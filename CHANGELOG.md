@@ -8,6 +8,27 @@ For older releases, see [CHANGELOG-HISTORIC.md](./CHANGELOG-HISTORIC.md).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.5.5] - 2025-10-04
+
+### 🐛 **Bug Fix - HybridMemoryStorage Health Check Support**
+
+#### Fixed
+- **HybridMemoryStorage recognition in health checks** - Resolved "Unknown storage type: HybridMemoryStorage" error
+- **Dashboard statistics for hybrid backend** - Added comprehensive stats collection from SQLite-vec primary storage
+- **Health validation for hybrid storage** - Implemented proper validation logic for hybrid backend
+- **Cloudflare sync status visibility** - Display sync service status (not_configured/configured/syncing)
+
+#### Technical Details
+- Added `HybridMemoryStorage` case to `dashboard_get_stats()` endpoint (server.py:2503)
+- Added `HybridMemoryStorage` case to `check_database_health()` endpoint (server.py:3705)
+- Query primary storage (SQLite-vec) for memory counts, tags, database info
+- Fixed code quality issues from Gemini Code Assist review (removed duplicate imports)
+
+#### Impact
+- HTTP dashboard now properly displays hybrid backend statistics
+- MCP health check tool correctly validates hybrid storage
+- No more "Unknown storage type" errors when using hybrid backend
+
 ## [7.5.4] - 2025-10-04
 
 ### ✨ **Configurable Hybrid Sync Break Conditions**
