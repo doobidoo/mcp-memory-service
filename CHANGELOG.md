@@ -20,7 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 #### Technical Details
 - Added `recall()` method to HybridMemoryStorage (hybrid.py:916)
-- Method signature: `async def recall(query: Optional[str], n_results: int, start_timestamp: Optional[float], end_timestamp: Optional[float]) -> List[MemoryQueryResult]`
+- Method signature: `async def recall(query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None) -> List[MemoryQueryResult]`
 - Delegates to `primary.recall()` for consistency with single-storage backends
 - Supports both time-based filtering and semantic search queries
 
