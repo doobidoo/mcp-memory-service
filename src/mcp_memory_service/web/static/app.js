@@ -45,16 +45,15 @@ class MemoryDashboard {
         },
         settingsDbSize: {
             sources: [{ path: 'storage.primary_stats.database_size_mb', api: 'detailedHealth' }],
-            formatter: (value) => value ? `${value.toFixed(2)} MB` : 'N/A'
+            formatter: (value) => (value != null) ? `${value.toFixed(2)} MB` : 'N/A'
         },
         settingsTotalMemories: {
             sources: [{ path: 'storage.total_memories', api: 'detailedHealth' }],
-            formatter: (value) => value?.toLocaleString() || 'N/A'
+            formatter: (value) => (value != null) ? value.toLocaleString() : 'N/A'
         },
         settingsUptime: {
             sources: [{ path: 'uptime_seconds', api: 'detailedHealth' }],
-            // Note: formatter uses instance method, defined in loadSystemInfo
-            formatter: null  // Will be set dynamically
+            formatter: (value) => (value != null) ? MemoryDashboard.formatUptime(value) : 'N/A'
         }
     };
 
@@ -1716,12 +1715,8 @@ class MemoryDashboard {
                 detailedHealth: detailedHealthResult.status === 'fulfilled' ? detailedHealthResult.value : null
             };
 
-            // Create config with dynamic formatter for uptime (needs instance method)
-            const systemInfoConfig = { ...MemoryDashboard.SYSTEM_INFO_CONFIG };
-            systemInfoConfig.settingsUptime.formatter = (value) => value ? this.formatUptime(value) : 'N/A';
-
             // Update fields using configuration
-            Object.entries(systemInfoConfig).forEach(([fieldId, config]) => {
+            Object.entries(MemoryDashboard.SYSTEM_INFO_CONFIG).forEach(([fieldId, config]) => {
                 const element = document.getElementById(fieldId);
                 if (!element) return;
 
@@ -1767,8 +1762,10 @@ class MemoryDashboard {
 
     /**
      * Format uptime seconds into human readable string
+     * @param {number} seconds - Uptime in seconds
+     * @returns {string} Formatted uptime string
      */
-    formatUptime(seconds) {
+    static formatUptime(seconds) {
         const days = Math.floor(seconds / 86400);
         const hours = Math.floor((seconds % 86400) / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
