@@ -660,6 +660,38 @@ h3 { font-size: var(--text-xl); }
     min-height: 120px;
 }
 
+/* System Info in Settings Modal */
+.system-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--neutral-100);
+}
+
+.info-row:last-child {
+    border-bottom: none;
+}
+
+.info-label {
+    font-size: var(--text-sm);
+    color: var(--neutral-600);
+    font-weight: 500;
+}
+
+.info-value {
+    font-size: var(--text-sm);
+    color: var(--neutral-900);
+    font-weight: 600;
+    font-family: 'Monaco', 'Courier New', monospace;
+}
+
 /* Loading and Status Components */
 .loading-overlay {
     position: fixed;
@@ -1727,6 +1759,23 @@ body.dark-mode .browse-content {
 body.dark-mode .browse-header h2,
 body.dark-mode .browse-header p {
     color: #f9fafb;
+}
+
+/* System Info */
+body.dark-mode .info-row {
+    border-bottom-color: #374151;
+}
+
+body.dark-mode .info-label {
+    color: #9ca3af;
+}
+
+body.dark-mode .info-value {
+    color: #f9fafb;
+}
+
+body.dark-mode h4 {
+    color: #d1d5db !important;
 }
 
 /* Modals */

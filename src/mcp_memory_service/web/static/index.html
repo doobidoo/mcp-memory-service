@@ -514,6 +514,7 @@
                 </div>
                 <div class="modal-body">
                     <form id="settingsForm">
+                        <h4 style="margin-top: 0; color: var(--neutral-600);">Preferences</h4>
                         <div class="form-group">
                             <label for="themeSelect">Theme</label>
                             <select id="themeSelect">
@@ -531,6 +532,44 @@
                         <div class="form-group">
                             <label for="previewLines">Memory Preview Lines</label>
                             <input type="number" id="previewLines" min="1" max="10" value="3">
+                        </div>
+
+                        <hr style="margin: var(--space-6) 0; border: none; border-top: 1px solid var(--neutral-200);">
+
+                        <h4 style="margin-bottom: var(--space-4); color: var(--neutral-600);">System Information</h4>
+                        <div class="system-info">
+                            <div class="info-row">
+                                <span class="info-label">Version:</span>
+                                <span class="info-value" id="settingsVersion">Loading...</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Storage Backend:</span>
+                                <span class="info-value" id="settingsBackend">Loading...</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Primary Backend:</span>
+                                <span class="info-value" id="settingsPrimaryBackend">Loading...</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Embedding Model:</span>
+                                <span class="info-value" id="settingsEmbeddingModel">Loading...</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Embedding Dimensions:</span>
+                                <span class="info-value" id="settingsEmbeddingDim">Loading...</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Database Size:</span>
+                                <span class="info-value" id="settingsDbSize">Loading...</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Total Memories:</span>
+                                <span class="info-value" id="settingsTotalMemories">Loading...</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Uptime:</span>
+                                <span class="info-value" id="settingsUptime">Loading...</span>
+                            </div>
                         </div>
                     </form>
                 </div>

@@ -1617,7 +1617,7 @@ class MemoryDashboard {
     /**
      * Open settings modal
      */
-    openSettingsModal() {
+    async openSettingsModal() {
         const modal = document.getElementById('settingsModal');
 
         // Populate form with current settings
@@ -1625,7 +1625,73 @@ class MemoryDashboard {
         document.getElementById('viewDensity').value = this.settings.viewDensity;
         document.getElementById('previewLines').value = this.settings.previewLines;
 
+        // Load system information
+        await this.loadSystemInfo();
+
         this.openModal(modal);
+    }
+
+    /**
+     * Load system information for settings modal
+     */
+    async loadSystemInfo() {
+        try {
+            const [health, detailedHealth] = await Promise.all([
+                this.apiCall('/health'),
+                this.apiCall('/health/detailed')
+            ]);
+
+            // Version
+            document.getElementById('settingsVersion').textContent = health.version || 'N/A';
+
+            // Storage backend info
+            if (detailedHealth.storage) {
+                const storage = detailedHealth.storage;
+                document.getElementById('settingsBackend').textContent = storage.storage_backend || storage.backend || 'N/A';
+                document.getElementById('settingsPrimaryBackend').textContent = storage.primary_backend || storage.backend || 'N/A';
+                document.getElementById('settingsTotalMemories').textContent = storage.total_memories?.toLocaleString() || 'N/A';
+
+                // Embedding info from primary_stats
+                if (storage.primary_stats) {
+                    document.getElementById('settingsEmbeddingModel').textContent = storage.primary_stats.embedding_model || 'N/A';
+                    document.getElementById('settingsEmbeddingDim').textContent = storage.primary_stats.embedding_dimension || 'N/A';
+
+                    // Database size
+                    const dbSizeMB = storage.primary_stats.database_size_mb;
+                    document.getElementById('settingsDbSize').textContent = dbSizeMB ? `${dbSizeMB.toFixed(2)} MB` : 'N/A';
+                }
+            }
+
+            // Uptime
+            if (detailedHealth.uptime_seconds) {
+                const uptime = this.formatUptime(detailedHealth.uptime_seconds);
+                document.getElementById('settingsUptime').textContent = uptime;
+            }
+        } catch (error) {
+            console.error('Failed to load system info:', error);
+            // Set all to error state
+            document.querySelectorAll('.info-value').forEach(el => {
+                if (el.textContent === 'Loading...') {
+                    el.textContent = 'Error';
+                }
+            });
+        }
+    }
+
+    /**
+     * Format uptime seconds into human readable string
+     */
+    formatUptime(seconds) {
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+
+        const parts = [];
+        if (days > 0) parts.push(`${days}d`);
+        if (hours > 0) parts.push(`${hours}h`);
+        if (minutes > 0) parts.push(`${minutes}m`);
+
+        return parts.length > 0 ? parts.join(' ') : '< 1m';
     }
 
     /**
