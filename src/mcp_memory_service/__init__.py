@@ -24,7 +24,7 @@ def setup_offline_mode():
     # Set offline environment variables
     os.environ['HF_HUB_OFFLINE'] = '1'
     os.environ['TRANSFORMERS_OFFLINE'] = '1'
-    
+
     # Configure cache paths
     username = os.environ.get('USERNAME', os.environ.get('USER', ''))
     if platform.system() == "Windows" and username:
@@ -35,7 +35,7 @@ def setup_offline_mode():
         default_hf_home = os.path.expanduser("~/.cache/huggingface")
         default_transformers_cache = os.path.expanduser("~/.cache/huggingface/transformers")
         default_sentence_transformers_home = os.path.expanduser("~/.cache/torch/sentence_transformers")
-    
+
     # Set cache paths if not already set
     if 'HF_HOME' not in os.environ:
         os.environ['HF_HOME'] = default_hf_home
@@ -47,7 +47,7 @@ def setup_offline_mode():
 # Setup offline mode immediately when this module is imported
 setup_offline_mode()
 
-__version__ = "8.2.4"
+__version__ = "8.2.5"
 
 from .models import Memory, MemoryQueryResult
 from .storage import MemoryStorage
@@ -56,7 +56,7 @@ from .utils import generate_content_hash
 # Conditional imports
 __all__ = [
     'Memory',
-    'MemoryQueryResult', 
+    'MemoryQueryResult',
     'MemoryStorage',
     'generate_content_hash'
 ]
@@ -73,4 +73,3 @@ try:
     __all__.append('SqliteVecMemoryStorage')
 except ImportError:
     SqliteVecMemoryStorage = None
-

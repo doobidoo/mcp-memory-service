@@ -8,7 +8,23 @@ For older releases, see [CHANGELOG-HISTORIC.md](./CHANGELOG-HISTORIC.md).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [8.2.4] - 2025-10-06
+## [8.2.5] - 2025-10-06
+
+### 🐛 **Bug Fixes**
+
+#### **Critical: Missing await in HybridMemoryStorage.recall_memory()**
+- **Fixed**: `recall_memory()` method in `HybridMemoryStorage` returned unawaited coroutine
+- **Root cause**: Missing `await` keyword when calling `self.primary.recall_memory()`
+- **Error**: `'coroutine' object is not iterable` when calling `recall_memory` via HTTP-MCP bridge
+- **Solution**: Added `await` keyword: `return await self.primary.recall_memory(query, n_results)`
+- **Impact**: ✅ SessionStart hooks now successfully retrieve memories, automatic memory injection working
+- **File**: `src/mcp_memory_service/storage/hybrid.py:935`
+
+##### **Technical Details**
+- **Affected**: All users with hybrid backend using Natural Memory Triggers v7.1.0+
+- **Verification**: HTTP-MCP bridge `/mcp` endpoint with `recall_memory` tool now returns proper JSON results
+- **Test**: `curl -s http://localhost:8000/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"recall_memory","arguments":{"query":"last week","n_results":2}}}'`
+
 
 ### 🐛 **Bug Fixes**
 

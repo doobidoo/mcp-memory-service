@@ -932,7 +932,7 @@ class HybridMemoryStorage(MemoryStorage):
 
     async def recall_memory(self, query: str, n_results: int = 5) -> List[Memory]:
         """Recall memories using natural language time expressions."""
-        return self.primary.recall_memory(query, n_results)
+        return await self.primary.recall_memory(query, n_results)
 
     async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None, tags: Optional[List[str]] = None) -> List[Memory]:
         """Get all memories from primary storage."""
