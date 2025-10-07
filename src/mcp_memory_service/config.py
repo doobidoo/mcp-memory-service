@@ -16,13 +16,7 @@
 MCP Memory Service Configuration
 
 Environment Variables:
-- MCP_MEMORY_STORAGE_BACKEND: Storage backend ('sqlite_vec', 'chromadb', 'cloudflare', or 'hybrid')
-- MCP_MEMORY_CHROMA_PATH: Local ChromaDB storage directory
-- MCP_MEMORY_CHROMADB_HOST: Remote ChromaDB server hostname (enables remote mode)
-- MCP_MEMORY_CHROMADB_PORT: Remote ChromaDB server port (default: 8000)
-- MCP_MEMORY_CHROMADB_SSL: Use HTTPS for remote connection ('true'/'false')
-- MCP_MEMORY_CHROMADB_API_KEY: API key for remote ChromaDB authentication
-- MCP_MEMORY_COLLECTION_NAME: ChromaDB collection name (default: 'memory_collection')
+- MCP_MEMORY_STORAGE_BACKEND: Storage backend ('sqlite_vec', 'cloudflare', or 'hybrid')
 - MCP_MEMORY_SQLITE_PATH: SQLite-vec database file path
 - MCP_MEMORY_USE_ONNX: Use ONNX embeddings ('true'/'false')
 
@@ -242,19 +236,6 @@ def get_base_directory() -> str:
 try:
     BASE_DIR = get_base_directory()
     
-    # Try multiple environment variable names for ChromaDB path
-    chroma_path = None
-    for env_var in ['MCP_MEMORY_CHROMA_PATH', 'mcpMemoryChromaPath']:
-        if path := os.getenv(env_var):
-            chroma_path = path
-            logger.info(f"Using {env_var}={path} for ChromaDB path")
-            break
-    
-    # If no environment variable is set, use the default path
-    if not chroma_path:
-        chroma_path = os.path.join(BASE_DIR, 'chroma_db')
-        logger.info(f"No ChromaDB path environment variable found, using default: {chroma_path}")
-
     # Try multiple environment variable names for backups path
     backups_path = None
     for env_var in ['MCP_MEMORY_BACKUPS_PATH', 'mcpMemoryBackupsPath']:
@@ -267,12 +248,10 @@ try:
     if not backups_path:
         backups_path = os.path.join(BASE_DIR, 'backups')
         logger.info(f"No backups path environment variable found, using default: {backups_path}")
-    
-    CHROMA_PATH = validate_and_create_path(chroma_path)
+
     BACKUPS_PATH = validate_and_create_path(backups_path)
 
     # Print the final paths used
-    logger.info(f"Using ChromaDB path: {CHROMA_PATH}")
     logger.info(f"Using backups path: {BACKUPS_PATH}")
 
 except Exception as e:
@@ -285,7 +264,7 @@ SERVER_NAME = "memory"
 from . import __version__ as SERVER_VERSION
 
 # Storage backend configuration
-SUPPORTED_BACKENDS = ['chroma', 'sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid']
+SUPPORTED_BACKENDS = ['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid']
 STORAGE_BACKEND = os.getenv('MCP_MEMORY_STORAGE_BACKEND', 'sqlite_vec').lower()
 
 # Normalize backend names (sqlite-vec -> sqlite_vec)
@@ -311,15 +290,6 @@ logger.info(f"Using storage backend: {STORAGE_BACKEND}")
 CLOUDFLARE_MAX_CONTENT_LENGTH = safe_get_int_env(
     'MCP_CLOUDFLARE_MAX_CONTENT_LENGTH',
     default=800,
-    min_value=100,
-    max_value=10000
-)
-
-# ChromaDB: all-MiniLM-L6-v2 model has 384 token max_seq_length
-# Using 1500 characters as safe limit (~750 tokens with overhead)
-CHROMADB_MAX_CONTENT_LENGTH = safe_get_int_env(
-    'MCP_CHROMADB_MAX_CONTENT_LENGTH',
-    default=1500,
     min_value=100,
     max_value=10000
 )
@@ -354,7 +324,6 @@ CONTENT_SPLIT_OVERLAP = safe_get_int_env(
 CONTENT_PRESERVE_BOUNDARIES = safe_get_bool_env('MCP_CONTENT_PRESERVE_BOUNDARIES', default=True)
 
 logger.info(f"Content length limits - Cloudflare: {CLOUDFLARE_MAX_CONTENT_LENGTH}, "
-           f"ChromaDB: {CHROMADB_MAX_CONTENT_LENGTH}, "
            f"SQLite-vec: {'unlimited' if SQLITEVEC_MAX_CONTENT_LENGTH is None else SQLITEVEC_MAX_CONTENT_LENGTH}, "
            f"Auto-split: {ENABLE_AUTO_SPLIT}")
 
@@ -514,23 +483,6 @@ else:
     CLOUDFLARE_BATCH_INSERT_LIMIT = None
     CLOUDFLARE_WARNING_THRESHOLD_PERCENT = None
     CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT = None
-
-# ChromaDB settings with performance optimizations
-CHROMA_SETTINGS = {
-    "anonymized_telemetry": False,
-    "allow_reset": False,  # Disable for production performance
-    "is_persistent": True,
-    "chroma_db_impl": "duckdb+parquet"
-}
-
-# Collection settings with optimized HNSW parameters
-COLLECTION_METADATA = {
-    "hnsw:space": "cosine",
-    "hnsw:construction_ef": 200,  # Increased for better accuracy (was 100)
-    "hnsw:search_ef": 100,        # Balanced for good search results
-    "hnsw:M": 16,                 # Better graph connectivity (was not set)
-    "hnsw:max_elements": 100000   # Pre-allocate space for better performance
-}
 
 # HTTP Server Configuration
 HTTP_ENABLED = os.getenv('MCP_HTTP_ENABLED', 'false').lower() == 'true'

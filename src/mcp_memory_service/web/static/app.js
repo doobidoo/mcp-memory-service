@@ -25,15 +25,24 @@ class MemoryDashboard {
             formatter: (value) => value || 'N/A'
         },
         settingsEmbeddingModel: {
-            sources: [{ path: 'storage.primary_stats.embedding_model', api: 'detailedHealth' }],
+            sources: [
+                { path: 'storage.primary_stats.embedding_model', api: 'detailedHealth' },
+                { path: 'storage.embedding_model', api: 'detailedHealth' }
+            ],
             formatter: (value) => value || 'N/A'
         },
         settingsEmbeddingDim: {
-            sources: [{ path: 'storage.primary_stats.embedding_dimension', api: 'detailedHealth' }],
+            sources: [
+                { path: 'storage.primary_stats.embedding_dimension', api: 'detailedHealth' },
+                { path: 'storage.embedding_dimension', api: 'detailedHealth' }
+            ],
             formatter: (value) => value || 'N/A'
         },
         settingsDbSize: {
-            sources: [{ path: 'storage.primary_stats.database_size_mb', api: 'detailedHealth' }],
+            sources: [
+                { path: 'storage.primary_stats.database_size_mb', api: 'detailedHealth' },
+                { path: 'storage.database_size_mb', api: 'detailedHealth' }
+            ],
             formatter: (value) => (value != null) ? `${value.toFixed(2)} MB` : 'N/A'
         },
         settingsTotalMemories: {
