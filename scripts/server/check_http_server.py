@@ -73,24 +73,15 @@ def main():
         description="Check if MCP Memory Service HTTP server is running"
     )
     parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Print detailed status information"
-    )
-    parser.add_argument(
         "-q", "--quiet",
         action="store_true",
-        help="Only return exit code (0=running, 1=not running)"
+        help="Only return exit code (0=running, 1=not running), no output."
     )
 
     args = parser.parse_args()
 
-    if args.quiet:
-        is_running = check_http_server(verbose=False)
-        sys.exit(0 if is_running else 1)
-    else:
-        is_running = check_http_server(verbose=True)
-        sys.exit(0 if is_running else 1)
+    is_running = check_http_server(verbose=not args.quiet)
+    sys.exit(0 if is_running else 1)
 
 
 if __name__ == "__main__":

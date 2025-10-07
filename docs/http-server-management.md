@@ -14,8 +14,8 @@ When using **Natural Memory Triggers** in Claude Code:
 ### Quick Check
 
 ```bash
-# Verbose output (recommended for troubleshooting)
-uv run python scripts/server/check_http_server.py -v
+# Verbose output (default, recommended for troubleshooting)
+uv run python scripts/server/check_http_server.py
 
 # Quiet mode (only exit code, useful for scripts)
 uv run python scripts/server/check_http_server.py -q
@@ -83,7 +83,7 @@ scripts\server\start_http_server.bat
 **Solution:**
 1. Check if HTTP server is running:
    ```bash
-   uv run python scripts/server/check_http_server.py -v
+   uv run python scripts/server/check_http_server.py
    ```
 
 2. If not running, start it:

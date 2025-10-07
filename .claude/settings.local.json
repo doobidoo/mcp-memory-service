@@ -14,7 +14,8 @@
       "Read(//c/Users/heinrich.krupp/**)",
       "Bash(ls -la \"C:\\Users\\heinrich.krupp\\.config\\claude\"\" 2>/dev/null || ls -la \"$APPDATAClaude\"\")",
       "Bash(git stash push:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(git rm:*)"
     ],
     "deny": [],
     "ask": [],
