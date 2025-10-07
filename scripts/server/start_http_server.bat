@@ -4,10 +4,10 @@ REM Start the MCP Memory Service HTTP server in the background on Windows
 echo Starting MCP Memory Service HTTP server...
 
 REM Check if server is already running
-python scripts\server\check_http_server.py -q
+uv run python scripts\server\check_http_server.py -q
 if %errorlevel% == 0 (
     echo HTTP server is already running!
-    python scripts\server\check_http_server.py -v
+    uv run python scripts\server\check_http_server.py -v
     exit /b 0
 )
 
@@ -18,7 +18,7 @@ REM Wait a moment for server to start
 timeout /t 3 /nobreak >nul
 
 REM Check if it started successfully
-python scripts\server\check_http_server.py -v
+uv run python scripts\server\check_http_server.py -v
 if %errorlevel% == 0 (
     echo.
     echo [OK] HTTP server started successfully!

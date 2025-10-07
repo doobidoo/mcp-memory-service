@@ -55,7 +55,7 @@ def check_http_server(verbose: bool = False) -> bool:
                 if verbose:
                     print(f"[WARN] HTTP server responded with status {response.status}")
                 return False
-    except (URLError, HTTPError, Exception) as e:
+    except (URLError, HTTPError, json.JSONDecodeError) as e:
         if verbose:
             print("[ERROR] HTTP server is NOT running")
             print(f"\nTo start the HTTP server, run:")

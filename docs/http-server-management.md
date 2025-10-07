@@ -157,7 +157,7 @@ The session-start hook automatically:
 ### Start Server on System Boot
 
 **Unix/macOS (launchd):**
-Create `~/Library/LaunchAgents/com.mcp.memory.http.plist`:
+Create `~/Library/LaunchAgents/com.mcp.memory.http.plist` and replace `/path/to/repository` with the absolute path to this repository:
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -167,7 +167,7 @@ Create `~/Library/LaunchAgents/com.mcp.memory.http.plist`:
     <string>com.mcp.memory.http</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/path/to/scripts/server/start_http_server.sh</string>
+        <string>/path/to/repository/scripts/server/start_http_server.sh</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -180,14 +180,15 @@ Create `~/Library/LaunchAgents/com.mcp.memory.http.plist`:
 2. Create Basic Task
 3. Trigger: At log on
 4. Action: Start a program
-5. Program: `C:\path\to\scripts\server\start_http_server.bat`
+5. Program: `C:\path\to\repository\scripts\server\start_http_server.bat` (replace `C:\path\to\repository` with the full path to this repository)
 
 ### Pre-Claude Code Script
 
 Add to your shell profile (`.bashrc`, `.zshrc`, etc.):
 ```bash
 # Auto-start MCP Memory HTTP server before Claude Code
-alias claude-code='~/path/to/scripts/server/start_http_server.sh && claude'
+# Replace /path/to/repository with the absolute path to this project
+alias claude-code='/path/to/repository/scripts/server/start_http_server.sh && claude'
 ```
 
 ## See Also

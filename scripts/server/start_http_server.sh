@@ -6,9 +6,9 @@ set -e
 echo "Starting MCP Memory Service HTTP server..."
 
 # Check if server is already running
-if python scripts/server/check_http_server.py -q; then
+if uv run python scripts/server/check_http_server.py -q; then
     echo "✅ HTTP server is already running!"
-    python scripts/server/check_http_server.py -v
+    uv run python scripts/server/check_http_server.py -v
     exit 0
 fi
 
@@ -19,11 +19,16 @@ SERVER_PID=$!
 echo "Server started with PID: $SERVER_PID"
 echo "Logs available at: /tmp/mcp-http-server.log"
 
-# Wait a moment for server to start
-sleep 3
+# Wait up to 5 seconds for the server to start
+for i in {1..5}; do
+    if uv run python scripts/server/check_http_server.py -q; then
+        break
+    fi
+    sleep 1
+done
 
 # Check if it started successfully
-if python scripts/server/check_http_server.py -v; then
+if uv run python scripts/server/check_http_server.py -v; then
     echo ""
     echo "✅ HTTP server started successfully!"
     echo "PID: $SERVER_PID"

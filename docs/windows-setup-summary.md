@@ -105,9 +105,9 @@ Duplicates: 0
 
 ```env
 MCP_MEMORY_STORAGE_BACKEND=hybrid
-CLOUDFLARE_API_TOKEN=Y9qwW1rYkwiE63iWYASxnzfTQlIn-mtwCihRTwZa
-CLOUDFLARE_ACCOUNT_ID=be0e35a26715043ef8df90253268c33f
-CLOUDFLARE_D1_DATABASE_ID=f745e9b4-ba8e-4d47-b38f-12af91060d5a
+CLOUDFLARE_API_TOKEN=<YOUR_CLOUDFLARE_API_TOKEN>
+CLOUDFLARE_ACCOUNT_ID=<YOUR_CLOUDFLARE_ACCOUNT_ID>
+CLOUDFLARE_D1_DATABASE_ID=<YOUR_CLOUDFLARE_D1_DATABASE_ID>
 CLOUDFLARE_VECTORIZE_INDEX=mcp-memory-index
 MCP_HYBRID_SYNC_INTERVAL=300
 MCP_HYBRID_BATCH_SIZE=50
@@ -122,7 +122,7 @@ MCP_HYBRID_SYNC_ON_STARTUP=true
 python -c "import sqlite3; conn = sqlite3.connect(r'C:\Users\heinrich.krupp\AppData\Local\mcp-memory\backups\sqlite_vec.db'); cursor = conn.cursor(); cursor.execute('SELECT COUNT(*) FROM memories'); print(f'Local: {cursor.fetchone()[0]}'); conn.close()"
 
 # Cloudflare count
-curl -s "https://api.cloudflare.com/client/v4/accounts/be0e35a26715043ef8df90253268c33f/d1/database/f745e9b4-ba8e-4d47-b38f-12af91060d5a/query" -H "Authorization: Bearer Y9qwW1rYkwiE63iWYASxnzfTQlIn-mtwCihRTwZa" -H "Content-Type: application/json" -d '{"sql":"SELECT COUNT(*) as count FROM memories"}' | python -c "import sys, json; data = json.load(sys.stdin); print(f'Cloudflare: {data[\"result\"][0][\"results\"][0][\"count\"]}')"
+curl -s "https://api.cloudflare.com/client/v4/accounts/<YOUR_CLOUDFLARE_ACCOUNT_ID>/d1/database/<YOUR_CLOUDFLARE_D1_DATABASE_ID>/query" -H "Authorization: Bearer <YOUR_CLOUDFLARE_API_TOKEN>" -H "Content-Type: application/json" -d '{"sql":"SELECT COUNT(*) as count FROM memories"}' | python -c "import sys, json; data = json.load(sys.stdin); print(f'Cloudflare: {data[\"result\"][0][\"results\"][0][\"count\"]}')"
 
 # Dashboard count
 curl -s "http://127.0.0.1:8000/api/memories?page=1&page_size=1" | python -c "import sys, json; data = json.load(sys.stdin); print(f'Dashboard: {data[\"total\"]}')"
