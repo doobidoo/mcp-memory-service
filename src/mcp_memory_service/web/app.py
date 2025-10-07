@@ -817,7 +817,6 @@ def create_app() -> FastAPI:
                         'sqlite-vec': 'SQLite-vec',
                         'sqlite_vec': 'SQLite-vec',
                         'cloudflare': 'Cloudflare D1 + Vectorize',
-                        'chromadb': 'ChromaDB',
                         'hybrid': 'Hybrid (SQLite-vec + Cloudflare)'
                     };
                     return backendMap[backend] || backend || 'Unknown Backend';

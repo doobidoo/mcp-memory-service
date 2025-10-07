@@ -14,7 +14,7 @@
 
 """
 SQLite-vec storage backend for MCP Memory Service.
-Provides a lightweight alternative to ChromaDB using sqlite-vec extension.
+Provides local vector similarity search using sqlite-vec extension.
 """
 
 import sqlite3
@@ -70,8 +70,8 @@ class SqliteVecMemoryStorage(MemoryStorage):
     """
     SQLite-vec based memory storage implementation.
 
-    This backend provides a lightweight alternative to ChromaDB using sqlite-vec
-    for vector similarity search while maintaining the same interface.
+    This backend provides local vector similarity search using sqlite-vec
+    while maintaining the same interface as other storage backends.
     """
 
     @property
@@ -227,19 +227,19 @@ class SqliteVecMemoryStorage(MemoryStorage):
                     solutions.extend([
                         "Install Python via Homebrew: brew install python",
                         "Use pyenv with extension support: PYTHON_CONFIGURE_OPTS='--enable-loadable-sqlite-extensions' pyenv install 3.12.0",
-                        "Switch to ChromaDB backend: export MCP_MEMORY_STORAGE_BACKEND=chromadb"
+                        "Consider using Cloudflare backend: export MCP_MEMORY_STORAGE_BACKEND=cloudflare"
                     ])
                 elif platform.system().lower() == "linux":
                     solutions.extend([
                         "Install Python with extension support: apt install python3-dev sqlite3",
                         "Rebuild Python with: ./configure --enable-loadable-sqlite-extensions",
-                        "Switch to ChromaDB backend: export MCP_MEMORY_STORAGE_BACKEND=chromadb"
+                        "Consider using Cloudflare backend: export MCP_MEMORY_STORAGE_BACKEND=cloudflare"
                     ])
                 else:  # Windows and others
                     solutions.extend([
                         "Use official Python installer from python.org",
                         "Install Python with conda: conda install python",
-                        "Switch to ChromaDB backend: export MCP_MEMORY_STORAGE_BACKEND=chromadb"
+                        "Consider using Cloudflare backend: export MCP_MEMORY_STORAGE_BACKEND=cloudflare"
                     ])
                 
                 detailed_error = f"""
@@ -252,10 +252,10 @@ SOLUTIONS:
 {chr(10).join(f"  • {solution}" for solution in solutions)}
 
 The sqlite-vec backend requires Python compiled with --enable-loadable-sqlite-extensions.
-Consider using the ChromaDB backend as an alternative: it provides the same functionality
-without requiring SQLite extensions.
+Consider using the Cloudflare backend as an alternative: it provides cloud-based vector
+search without requiring local SQLite extensions.
 
-To switch backends permanently, set: MCP_MEMORY_STORAGE_BACKEND=chromadb
+To switch backends permanently, set: MCP_MEMORY_STORAGE_BACKEND=cloudflare
 """
                 raise RuntimeError(detailed_error.strip())
             
@@ -286,9 +286,9 @@ This is common on macOS with the system Python installation.
 RECOMMENDED SOLUTIONS:
   • Use Homebrew Python: brew install python && rehash
   • Use pyenv with extensions: PYTHON_CONFIGURE_OPTS='--enable-loadable-sqlite-extensions' pyenv install 3.12.0
-  • Switch to ChromaDB backend: export MCP_MEMORY_STORAGE_BACKEND=chromadb
+  • Switch to Cloudflare backend: export MCP_MEMORY_STORAGE_BACKEND=cloudflare
 
-The ChromaDB backend provides the same vector search functionality without requiring SQLite extensions.
+The Cloudflare backend provides cloud-based vector search without requiring local SQLite extensions.
 """
                 else:
                     detailed_error = f"""
@@ -301,7 +301,7 @@ Failed to load the sqlite-vec extension. This could be due to:
 
 SOLUTIONS:
   • Reinstall sqlite-vec: pip install --force-reinstall sqlite-vec
-  • Switch to ChromaDB backend: export MCP_MEMORY_STORAGE_BACKEND=chromadb
+  • Switch to Cloudflare backend: export MCP_MEMORY_STORAGE_BACKEND=cloudflare
   • Check SQLite version: python -c "import sqlite3; print(sqlite3.sqlite_version)"
 """
                 raise RuntimeError(detailed_error.strip())
@@ -1266,8 +1266,8 @@ SOLUTIONS:
     
     def sanitized(self, tags):
         """Sanitize and normalize tags to a JSON string.
-        
-        This method provides compatibility with the ChromaMemoryStorage interface.
+
+        This method provides compatibility with the storage backend interface.
         """
         if tags is None:
             return json.dumps([])

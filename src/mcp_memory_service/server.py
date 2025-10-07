@@ -2544,7 +2544,7 @@ class MemoryServer:
             await self.send_progress_notification(operation_id, 0, "Starting database optimization...")
             await self.send_progress_notification(operation_id, 20, "Analyzing database structure...")
             
-            # For dashboard optimization, return success without requiring ChromaDB initialization
+            # For dashboard optimization, return success without requiring storage initialization
             # This prevents timeout issues while still providing meaningful feedback
             await self.send_progress_notification(operation_id, 40, "Cleaning up duplicate entries...")
             await asyncio.sleep(0.1)  # Small delay to simulate work
@@ -3422,9 +3422,9 @@ Memories Archived: {report.memories_archived}"""
             # If cleaned_query is empty or just whitespace after removing time expressions,
             # we should perform time-based retrieval only
             semantic_query = cleaned_query.strip() if cleaned_query.strip() else None
-            
-            # Use the enhanced recall method from ChromaMemoryStorage that combines
-            # semantic search with time filtering, or just time filtering if no semantic query
+
+            # Use the enhanced recall method that combines semantic search with time filtering,
+            # or just time filtering if no semantic query
             results = await storage.recall(
                 query=semantic_query,
                 n_results=n_results,
@@ -3686,63 +3686,6 @@ Memories Archived: {report.memories_archived}"""
                         "backend": "hybrid"
                     }
 
-            elif hasattr(storage, 'collection'):
-                # Standard ChromaDB validation
-                if storage.collection is None:
-                    is_valid = False
-                    message = "Collection is not initialized"
-                    stats = {
-                        "status": "error",
-                        "error": "Collection is not initialized",
-                        "backend": "chromadb"
-                    }
-                else:
-                    try:
-                        # Count documents
-                        collection_count = storage.collection.count()
-                        
-                        # Get collection metadata
-                        metadata = {}
-                        if hasattr(storage.collection, 'metadata'):
-                            metadata = storage.collection.metadata
-                        
-                        # Get embedding function info
-                        embedding_function = "none"
-                        if hasattr(storage, 'embedding_function') and storage.embedding_function:
-                            embedding_function = storage.embedding_function.__class__.__name__
-                        
-                        # Collect stats
-                        stats = {
-                            "status": "healthy",
-                            "backend": "chromadb",
-                            "total_memories": collection_count,
-                            "embedding_function": embedding_function,
-                            "metadata": metadata
-                        }
-                        
-                        # Check database path and size
-                        if hasattr(storage, 'path'):
-                            db_path = storage.path
-                            if os.path.exists(db_path):
-                                total_size = 0
-                                for dirpath, _, filenames in os.walk(db_path):
-                                    for f in filenames:
-                                        fp = os.path.join(dirpath, f)
-                                        total_size += os.path.getsize(fp)
-                                
-                                stats["database_size_bytes"] = total_size
-                                stats["database_size_mb"] = round(total_size / (1024 * 1024), 2)
-                        
-                        is_valid = True
-                        message = "ChromaDB validation successful"
-                    except Exception as e:
-                        is_valid = False
-                        message = f"ChromaDB validation error: {str(e)}"
-                        stats = {
-                            "status": "error",
-                            "error": str(e),
-                            "backend": "chromadb"
-                        }
             else:
                 is_valid = False
                 message = f"Unknown storage type: {storage_type}"
@@ -4194,8 +4137,7 @@ async def async_main():
     check_uv_environment()
     
     # Debug logging is now handled by the CLI layer
-    # CHROMA_PATH is now handled by config.py reading from MCP_MEMORY_CHROMA_PATH environment variable
-    
+
     # Print system diagnostics only for LM Studio (avoid JSON parsing errors in Claude Desktop)
     system_info = get_system_info()
     if MCP_CLIENT == 'lm_studio':
@@ -4206,10 +4148,10 @@ async def async_main():
         print(f"Memory: {system_info.memory_gb:.2f} GB", file=sys.stdout, flush=True)
         print(f"Optimal Model: {system_info.get_optimal_model()}", file=sys.stdout, flush=True)
         print(f"Optimal Batch Size: {system_info.get_optimal_batch_size()}", file=sys.stdout, flush=True)
-        print(f"ChromaDB Path: {CHROMA_PATH}", file=sys.stdout, flush=True)
+        print(f"Storage Backend: {STORAGE_BACKEND}", file=sys.stdout, flush=True)
         print("================================================\n", file=sys.stdout, flush=True)
-    
-    logger.info(f"Starting MCP Memory Service with ChromaDB path: {CHROMA_PATH}")
+
+    logger.info(f"Starting MCP Memory Service with storage backend: {STORAGE_BACKEND}")
     
     try:
         # Create server instance with hardware-aware configuration

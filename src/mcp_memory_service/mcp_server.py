@@ -35,7 +35,7 @@ from mcp.types import TextContent
 
 # Import existing memory service components
 from .config import (
-    CHROMA_PATH, COLLECTION_METADATA, STORAGE_BACKEND,
+    STORAGE_BACKEND,
     CONSOLIDATION_ENABLED, EMBEDDING_MODEL_NAME, INCLUDE_HOSTNAME,
     SQLITE_VEC_PATH,
     CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_VECTORIZE_INDEX,
@@ -128,7 +128,6 @@ async def store_memory(
 
     **IMPORTANT - Content Length Limits:**
     - Cloudflare backend: 800 characters max (BGE model 512 token limit)
-    - ChromaDB backend: 1500 characters max (384 token model limit)
     - SQLite-vec backend: No limit (local storage)
     - Hybrid backend: 800 characters max (constrained by Cloudflare sync)
 
@@ -514,7 +513,6 @@ def main():
     
     logger.info(f"Starting MCP Memory Service FastAPI server on {host}:{port}")
     logger.info(f"Storage backend: {STORAGE_BACKEND}")
-    logger.info(f"Data path: {CHROMA_PATH}")
     
     # Run server with streamable HTTP transport
     mcp.run("streamable-http")

@@ -20,8 +20,8 @@ from ..models.memory import Memory, MemoryQueryResult
 def _get_embedding_model(storage):
     """
     Get the embedding model from storage, handling different backend attribute names.
-    
-    ChromaDB uses 'model' while SQLite-Vec uses 'embedding_model'.
+
+    Different backends use different attribute names (e.g., 'model', 'embedding_model').
     """
     if hasattr(storage, 'model') and storage.model is not None:
         return storage.model

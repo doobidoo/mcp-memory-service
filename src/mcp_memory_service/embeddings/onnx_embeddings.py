@@ -1,7 +1,7 @@
 """
 ONNX-based embedding generation for MCP Memory Service.
 Provides PyTorch-free embedding generation using ONNX Runtime.
-Based on ChromaDB's ONNXMiniLM_L6_V2 implementation.
+Based on ONNXMiniLM_L6_V2 implementation.
 """
 
 import hashlib

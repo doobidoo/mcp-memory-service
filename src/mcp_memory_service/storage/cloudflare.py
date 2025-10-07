@@ -917,8 +917,8 @@ class CloudflareStorage(MemoryStorage):
     
     def sanitized(self, tags):
         """Sanitize and normalize tags to a JSON string.
-        
-        This method provides compatibility with the ChromaMemoryStorage interface.
+
+        This method provides compatibility with the storage backend interface.
         """
         if tags is None:
             return json.dumps([])
