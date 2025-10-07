@@ -1440,7 +1440,7 @@ This release combines three major improvements: comprehensive memory management 
 
 #### 🪟 **Platform Support**
 - **💻 Enhanced Windows Support** - Added comprehensive Windows debugging capabilities
-  - ✅ **Debug Script**: New `start_http_debug.bat` for Windows HTTP mode testing
+  - ✅ **Debug Script**: New `scripts/development/start_http_debug.bat` for Windows HTTP mode testing
   - ✅ **103 Lines Added**: Comprehensive Windows debugging and troubleshooting support
   - ✅ **Environment Variables**: Proper Windows environment variable handling
 

@@ -62,7 +62,7 @@ set TRANSFORMERS_CACHE=%USERPROFILE%\.cache\huggingface\transformers
 REM Optional: Set API key for security
 REM To use authentication, set your own API key in the environment variable:
 REM set MCP_API_KEY=your-secure-api-key-here
-REM Or pass it when running this script: set MCP_API_KEY=mykey && start_http_debug.bat
+REM Or pass it when running this script: set MCP_API_KEY=mykey && scripts\development\start_http_debug.bat
 if "%MCP_API_KEY%"=="" (
     echo WARNING: No API key set. Running without authentication.
     echo          To enable auth, set MCP_API_KEY environment variable.

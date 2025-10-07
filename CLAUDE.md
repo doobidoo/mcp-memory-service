@@ -26,6 +26,11 @@ pytest tests/                                 # Run tests
 python scripts/validation/verify_environment.py # Check environment
 python scripts/validation/validate_configuration_complete.py   # Comprehensive configuration validation
 
+# HTTP Server Management (Required for Claude Code hooks)
+python scripts/server/check_http_server.py -v  # Check if HTTP server is running
+scripts/server/start_http_server.sh            # Start HTTP server (Unix/macOS)
+scripts/server/start_http_server.bat           # Start HTTP server (Windows)
+
 # Memory Operations (requires: python scripts/utils/claude_commands_utils.py)
 claude /memory-store "content"                 # Store information
 claude /memory-recall "query"                  # Retrieve information
@@ -223,12 +228,117 @@ export MCP_API_KEY="$(openssl rand -base64 32)" # Generate secure API key
 
 ## Claude Code Hooks Configuration 🆕
 
+### Protocol Selection Guide (v8.2.6+)
+
+**Choose the right protocol for your environment** - Natural Memory Triggers support both HTTP and MCP protocols with automatic fallback.
+
+#### **When to Use HTTP Protocol (Recommended for Claude Code)**
+
+HTTP is the **default and recommended** protocol when using Natural Memory Triggers within Claude Code:
+
+**Why HTTP?**
+- ✅ Avoids MCP server conflicts (Claude Code already uses the MCP server)
+- ✅ Works alongside HTTP-MCP Bridge for persistent server connection
+- ✅ Better for production hooks that run automatically on session start
+- ✅ More reliable in Claude Code environment
+
+**Configuration Example:**
+```json
+// ~/.claude/hooks/config.json
+{
+  "memoryService": {
+    "protocol": "http",
+    "preferredProtocol": "http",
+    "fallbackEnabled": true,
+    "http": {
+      "endpoint": "http://localhost:8000",
+      "apiKey": "your-api-key",
+      "healthCheckTimeout": 3000,
+      "useDetailedHealthCheck": true
+    }
+  }
+}
+```
+
+**Prerequisites:**
+- HTTP server must be running: `uv run python scripts/server/run_http_server.py`
+- Or use HTTPS: `MCP_HTTPS_ENABLED=true uv run python scripts/server/run_http_server.py`
+
+**Checking Server Status:**
+```bash
+# Check if HTTP server is running
+python scripts/server/check_http_server.py -v
+
+# Auto-start server (checks first, starts if needed)
+scripts/server/start_http_server.sh    # Unix/macOS
+scripts/server/start_http_server.bat   # Windows
+```
+
+**⚠️ Important:** If the HTTP server is not running, the session-start hook will fail silently and no memories will be injected. Always verify the server is running before starting Claude Code.
+
+#### **When to Use MCP Protocol (Optional)**
+
+MCP protocol is available for **standalone scenarios** where Claude Code isn't running:
+
+**Valid MCP Use Cases:**
+- 🔧 Standalone hook testing and development
+- 📝 VSCode, Cursor, Windsurf, Cline, RooCode, Zed IDE integrations
+- 🧪 Direct MCP server access without HTTP overhead
+- 🚀 Scenarios where Claude Code isn't actively using the MCP server
+
+**Configuration Example:**
+```json
+// ~/.claude/hooks/config.json (standalone/other IDEs)
+{
+  "memoryService": {
+    "protocol": "mcp",
+    "preferredProtocol": "mcp",
+    "fallbackEnabled": true,
+    "mcp": {
+      "serverCommand": ["uv", "run", "memory", "server"],
+      "serverWorkingDir": "/path/to/mcp-memory-service",
+      "connectionTimeout": 5000,
+      "toolCallTimeout": 10000
+    }
+  }
+}
+```
+
+**⚠️ Important:** MCP protocol will **fail in Claude Code** because the MCP server is already in use. The installer auto-detects your environment and configures the appropriate protocol.
+
+#### **Auto Protocol (Smart Fallback)**
+
+The `"auto"` protocol tries preferred protocol first, then falls back:
+
+```json
+{
+  "memoryService": {
+    "protocol": "auto",
+    "preferredProtocol": "http",  // Try HTTP first
+    "fallbackEnabled": true,
+    "http": { ... },
+    "mcp": { ... }
+  }
+}
+```
+
+**Recommended:** Use explicit `"http"` protocol in Claude Code instead of `"auto"` to avoid unnecessary MCP connection attempts.
+
+#### **Troubleshooting**
+
+For comprehensive troubleshooting of hooks configuration issues, see:
+- **[Wiki Troubleshooting Guide](https://github.com/doobidoo/mcp-memory-service/wiki/07-TROUBLESHOOTING#claude-code-hooks-timeout)** - Detailed solutions for timeout issues, backend configuration, and more
+- **Configuration Validation:** `python scripts/validation/validate_configuration_complete.py`
+- **Diagnostic Script:** `python scripts/validation/diagnose_backend_config.py`
+
+---
+
 ### Natural Memory Triggers v7.1.0 (Latest)
 
 **Intelligent automatic memory retrieval** with advanced semantic analysis and multi-tier performance optimization:
 
 ```bash
-# Installation (Zero-restart required)
+# Installation (Zero-restart required, auto-detects environment)
 cd claude-hooks && python install_hooks.py --natural-triggers
 
 # CLI Management
