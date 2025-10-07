@@ -123,8 +123,6 @@ async def detailed_health_check(
                 backend_type = "cloudflare"
             elif "hybrid" in backend_name.lower():
                 backend_type = "hybrid"
-            elif "chroma" in backend_name.lower():
-                backend_type = "chromadb"
             else:
                 backend_type = backend_name
 

@@ -89,7 +89,6 @@ def check_critical_dependencies() -> Tuple[bool, list]:
     
     # Check other critical packages
     critical_packages = [
-        "chromadb",
         "sqlite-vec",
         "mcp",
         "aiohttp",

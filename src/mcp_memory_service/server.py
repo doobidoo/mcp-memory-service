@@ -178,7 +178,6 @@ from . import __version__
 from .lm_studio_compat import patch_mcp_for_lm_studio, add_windows_timeout_handling
 from .dependency_check import run_dependency_check, get_recommended_timeout
 from .config import (
-    CHROMA_PATH,
     BACKUPS_PATH,
     SERVER_NAME,
     SERVER_VERSION,
@@ -224,7 +223,7 @@ if CONSOLIDATION_ENABLED:
 # Configure performance-critical module logging
 if not os.getenv('DEBUG_MODE'):
     # Set higher log levels for performance-critical modules
-    for module_name in ['chromadb', 'sentence_transformers', 'transformers', 'torch', 'numpy']:
+    for module_name in ['sentence_transformers', 'transformers', 'torch', 'numpy']:
         logging.getLogger(module_name).setLevel(logging.WARNING)
 
 # Check if UV is being used
@@ -272,9 +271,11 @@ def configure_environment():
     # For systems with limited memory, reduce cache sizes
     if system_info.memory_gb < 8:
         logger.info("Configuring for low-memory system")
-        os.environ["TRANSFORMERS_CACHE"] = os.path.join(os.path.dirname(CHROMA_PATH), "model_cache")
-        os.environ["HF_HOME"] = os.path.join(os.path.dirname(CHROMA_PATH), "hf_cache")
-        os.environ["SENTENCE_TRANSFORMERS_HOME"] = os.path.join(os.path.dirname(CHROMA_PATH), "st_cache")
+        # Use BACKUPS_PATH parent directory for model caches
+        cache_base = os.path.dirname(BACKUPS_PATH)
+        os.environ["TRANSFORMERS_CACHE"] = os.path.join(cache_base, "model_cache")
+        os.environ["HF_HOME"] = os.path.join(cache_base, "hf_cache")
+        os.environ["SENTENCE_TRANSFORMERS_HOME"] = os.path.join(cache_base, "st_cache")
 
 # Configure environment before any imports that might use it
 configure_environment()
@@ -329,14 +330,13 @@ class MemoryServer:
         try:
             # Initialize paths
             logger.info(f"Creating directories if they don't exist...")
-            os.makedirs(CHROMA_PATH, exist_ok=True)
             os.makedirs(BACKUPS_PATH, exist_ok=True)
-            
+
             # Log system diagnostics
             logger.info(f"Initializing on {platform.system()} {platform.machine()} with Python {platform.python_version()}")
             logger.info(f"Using accelerator: {self.system_info.accelerator}")
-            
-            # DEFER CHROMADB INITIALIZATION - Initialize storage lazily when needed
+
+            # DEFER STORAGE INITIALIZATION - Initialize storage lazily when needed
             # This prevents hanging during server startup due to embedding model loading
             logger.info(f"Deferring {STORAGE_BACKEND} storage initialization to prevent hanging")
             if MCP_CLIENT == 'lm_studio':
@@ -520,21 +520,10 @@ class MemoryServer:
                 )
                 logger.info(f"✅ EAGER INIT: HybridMemoryStorage instance created")
             else:
-                # Initialize ChromaDB with preload_model=True for caching
-                logger.info(f"🗄️  EAGER INIT: Using ChromaDB storage...")
-                try:
-                    from .storage.chroma import ChromaMemoryStorage
-                    self.storage = ChromaMemoryStorage(CHROMA_PATH, preload_model=True)
-                    logger.info(f"✅ EAGER INIT: ChromaDB storage created at {CHROMA_PATH}")
-                except ImportError as e:
-                    logger.error(f"❌ EAGER INIT: ChromaDB not installed. Install with: pip install mcp-memory-service[chromadb]")
-                    logger.error(f"❌ EAGER INIT: Import error details: {str(e)}")
-                    raise ImportError(
-                        "ChromaDB backend selected but chromadb package not installed. "
-                        "Install with: pip install mcp-memory-service[chromadb] or "
-                        "switch to sqlite_vec backend by setting MCP_MEMORY_STORAGE_BACKEND=sqlite_vec"
-                    ) from e
-            
+                # Unknown backend - should not reach here due to factory validation
+                logger.error(f"❌ EAGER INIT: Unknown storage backend: {STORAGE_BACKEND}")
+                raise ValueError(f"Unsupported storage backend: {STORAGE_BACKEND}")
+
             # Initialize the storage backend
             logger.info(f"🔧 EAGER INIT: Calling storage.initialize()...")
             await self.storage.initialize()
@@ -670,14 +659,10 @@ class MemoryServer:
                     logger.error("  - sqlite_vec (recommended for single-device use)")
                     logger.error("  - cloudflare (cloud storage)")
                     logger.error("  - hybrid (recommended for multi-device use)")
-                    logger.error("")
-                    logger.error("NOTE: ChromaDB backend was removed in v8.0.0")
-                    logger.error("For ChromaDB migration, see: https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy")
                     logger.error("=" * 70)
                     raise ValueError(
                         f"Unsupported storage backend: {STORAGE_BACKEND}. "
-                        "Use 'sqlite_vec', 'cloudflare', or 'hybrid'. "
-                        "ChromaDB was removed in v8.0.0 - see migration guide on chromadb-legacy branch."
+                        "Use 'sqlite_vec', 'cloudflare', or 'hybrid'."
                     )
                 
                 # Initialize the storage backend
@@ -2525,48 +2510,6 @@ class MemoryServer:
                 else:
                     logger.warning("Hybrid storage primary backend not initialized")
 
-            elif hasattr(storage, 'collection'):
-                # ChromaDB backend stats (legacy/fallback)
-                if storage.collection is not None:
-                    # Get all memories to count them and extract tags
-                    total_memories = storage.collection.count()
-                    all_data = storage.collection.get(include=["metadatas"])
-                    if all_data and all_data.get("metadatas"):
-                        
-                        # Count unique tags
-                        all_tags = set()
-                        for metadata in all_data["metadatas"]:
-                            if metadata and isinstance(metadata, dict):
-                                tags = metadata.get("tags", [])
-                                if isinstance(tags, list):
-                                    all_tags.update(tags)
-                                elif isinstance(tags, str):
-                                    tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()]
-                                    all_tags.update(tag_list)
-                        unique_tags = len(all_tags)
-                        
-                    # Get ChromaDB directory info
-                    database_path = CHROMA_PATH
-                    if os.path.exists(CHROMA_PATH):
-                        database_exists = True
-                        try:
-                            total_size = 0
-                            for dirpath, dirnames, filenames in os.walk(CHROMA_PATH):
-                                for filename in filenames:
-                                    filepath = os.path.join(dirpath, filename)
-                                    if os.path.exists(filepath):
-                                        total_size += os.path.getsize(filepath)
-                            database_size = f"{total_size / (1024*1024):.2f} MB"
-                        except Exception:
-                            database_size = "calculation_failed"
-                            
-                    last_updated = "recently" if total_memories > 0 else "unknown"
-                    
-                    logger.info(f"ChromaDB stats: {total_memories} memories, {unique_tags} unique tags")
-                    
-                else:
-                    logger.warning("ChromaDB collection not initialized")
-            
             else:
                 logger.warning(f"Unknown storage type: {storage_type}")
                 
@@ -2675,20 +2618,6 @@ class MemoryServer:
                     }
                 else:
                     logger.warning(f"SQLite database not found at {sqlite_path}")
-            
-            # Handle ChromaDB backend (fallback/legacy)
-            if STORAGE_BACKEND == 'chroma' or (files_copied == 0 and os.path.exists(CHROMA_PATH)):
-                if os.path.exists(CHROMA_PATH):
-                    shutil.copytree(CHROMA_PATH, os.path.join(backup_path, "chroma_db"), dirs_exist_ok=True)
-                    
-                    # Count files copied
-                    for root, dirs, files in os.walk(os.path.join(backup_path, "chroma_db")):
-                        files_copied += len(files)
-                    
-                    backend_info = {
-                        "backend": "chroma",
-                        "source_path": CHROMA_PATH
-                    }
             
             # Create backup metadata
             backup_metadata = {

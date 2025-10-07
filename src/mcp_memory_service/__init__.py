@@ -63,12 +63,6 @@ __all__ = [
 
 # Import storage backends conditionally
 try:
-    from .storage import ChromaMemoryStorage
-    __all__.append('ChromaMemoryStorage')
-except ImportError:
-    ChromaMemoryStorage = None
-
-try:
     from .storage import SqliteVecMemoryStorage
     __all__.append('SqliteVecMemoryStorage')
 except ImportError:
