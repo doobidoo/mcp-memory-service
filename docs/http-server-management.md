@@ -116,7 +116,9 @@ Should match your server configuration:
    ```bash
    # Unix/macOS
    lsof -i :8000
+   ```
 
+   ```cmd
    # Windows
    netstat -ano | findstr :8000
    ```
@@ -137,9 +139,8 @@ The session-start hook automatically:
 2. Falls back to MCP if HTTP unavailable
 3. Falls back to environment-only if both fail
 
-**Recommended setup for Claude Code:**
+**Recommended setup for Claude Code** (`~/.claude/hooks/config.json`):
 ```json
-// ~/.claude/hooks/config.json
 {
   "memoryService": {
     "protocol": "http",

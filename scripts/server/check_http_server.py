@@ -8,7 +8,6 @@ helpful feedback to users about how to start it if it's not running.
 
 import sys
 import os
-from pathlib import Path
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 import json

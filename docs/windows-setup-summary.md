@@ -83,10 +83,10 @@ Duplicates: 0
     "protocol": "auto",
     "preferredProtocol": "mcp",
     "http": {
-      "endpoint": "http://localhost:8000"  // ✅ Updated from 8443
+      "endpoint": "http://localhost:8000"
     },
     "mcp": {
-      "serverCommand": ["uv", "run", "python", "-m", "mcp_memory_service.server"]  // ✅ Fixed
+      "serverCommand": ["uv", "run", "python", "-m", "mcp_memory_service.server"]
     }
   },
   "naturalTriggers": {
