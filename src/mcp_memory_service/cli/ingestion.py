@@ -46,9 +46,9 @@ def add_ingestion_commands(cli_group):
 @click.option('--chunk-overlap', '-o', default=200, help='Characters to overlap between chunks')
 @click.option('--memory-type', '-m', default='document', help='Type label for created memories')
 @click.option('--storage-backend', '-s', default='sqlite_vec',
-              type=click.Choice(['sqlite_vec', 'cloudflare', 'hybrid']), help='Storage backend to use')
+              type=click.Choice(['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid']), help='Storage backend to use')
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose output')
-def ingest_document(file_path: Path, tags: tuple, chunk_size: int, chunk_overlap: int, 
+def ingest_document(file_path: Path, tags: tuple, chunk_size: int, chunk_overlap: int,
                    memory_type: str, storage_backend: str, verbose: bool):
     """
     Ingest a single document file into the memory database.
@@ -169,7 +169,7 @@ def ingest_document(file_path: Path, tags: tuple, chunk_size: int, chunk_overlap
 @click.option('--chunk-size', '-c', default=1000, help='Target size for text chunks in characters')
 @click.option('--max-files', default=100, help='Maximum number of files to process')
 @click.option('--storage-backend', '-s', default='sqlite_vec',
-              type=click.Choice(['sqlite_vec', 'cloudflare', 'hybrid']), help='Storage backend to use')
+              type=click.Choice(['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid']), help='Storage backend to use')
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose output')
 @click.option('--dry-run', is_flag=True, help='Show what would be processed without storing')
 def ingest_directory(directory_path: Path, tags: tuple, recursive: bool, extensions: tuple,
