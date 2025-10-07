@@ -207,33 +207,25 @@ class MemoryClient {
     }
 
     /**
-     * Query memories via HTTP
+     * Query memories via HTTP REST API
      */
     async queryMemoriesHTTP(query, limit = 10) {
         return new Promise((resolve, reject) => {
-            const url = new URL('/mcp', this.httpConfig.endpoint);
+            const url = new URL('/api/search', this.httpConfig.endpoint);
             const postData = JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'tools/call',
-                params: {
-                    name: 'retrieve_memory',
-                    arguments: {
-                        query: query,
-                        n_results: limit
-                    }
-                }
+                query: query,
+                limit: limit
             });
 
             const options = {
                 hostname: url.hostname,
-                port: url.port || 8443,
+                port: url.port || (url.protocol === 'https:' ? 8443 : 8889),
                 path: url.pathname,
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Content-Length': Buffer.byteLength(postData),
-                    'Authorization': `Bearer ${this.httpConfig.apiKey}`
+                    'X-API-Key': this.httpConfig.apiKey
                 },
                 rejectUnauthorized: false
             };
@@ -245,22 +237,14 @@ class MemoryClient {
                 res.on('end', () => {
                     try {
                         const response = JSON.parse(data);
-                        if (response.result && response.result.content) {
-                            let textData = response.result.content[0].text;
-
-                            try {
-                                textData = textData
-                                    .replace(/'/g, '"')
-                                    .replace(/True/g, 'true')
-                                    .replace(/False/g, 'false')
-                                    .replace(/None/g, 'null');
-
-                                const memories = JSON.parse(textData);
-                                resolve(memories.results || memories.memories || []);
-                            } catch (conversionError) {
-                                console.warn('[Memory Client] Could not parse HTTP memory response:', conversionError.message);
-                                resolve([]);
-                            }
+                        // REST API returns { results: [{memory: {...}, similarity_score: ...}] }
+                        if (response.results && Array.isArray(response.results)) {
+                            // Extract memory objects from results and preserve similarity_score
+                            const memories = response.results.map(result => ({
+                                ...result.memory,
+                                similarity_score: result.similarity_score
+                            }));
+                            resolve(memories);
                         } else {
                             resolve([]);
                         }
