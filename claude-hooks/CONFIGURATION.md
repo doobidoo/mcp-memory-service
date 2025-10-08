@@ -17,6 +17,75 @@ The hooks are configured via `config.json` in the hooks directory. Configuration
 
 ---
 
+## Memory Service Connection Configuration
+
+### `memoryService` Object
+
+Controls how the hooks connect to the MCP Memory Service.
+
+```json
+"memoryService": {
+  "protocol": "auto",
+  "preferredProtocol": "http",
+  "fallbackEnabled": true,
+  "http": {
+    "endpoint": "http://127.0.0.1:8889",
+    "apiKey": "YOUR_API_KEY_HERE",
+    "healthCheckTimeout": 3000,
+    "useDetailedHealthCheck": true
+  },
+  "mcp": {
+    "serverCommand": ["uv", "run", "memory", "server", "-s", "hybrid"],
+    "serverWorkingDir": "../",
+    "connectionTimeout": 2000,
+    "toolCallTimeout": 3000
+  }
+}
+```
+
+#### HTTP Configuration
+
+**`endpoint`** (String): URL of the HTTP memory service.
+
+**Security Considerations:**
+- **HTTP (`http://`)**: Default for local development. Traffic is **unencrypted** - only use for localhost connections.
+- **HTTPS (`https://`)**: Recommended if connecting to remote servers or when encryption-in-transit is required.
+  - For self-signed certificates, your system must trust the certificate authority.
+  - The hooks enforce certificate validation - `rejectUnauthorized` is always enabled for security.
+
+**`apiKey`** (String): API key for authenticating with the memory service. Replace `YOUR_API_KEY_HERE` with your actual key.
+
+**Note**: Never commit actual API keys to version control. Use environment variables or secure secret storage.
+
+#### MCP Configuration
+
+**`serverCommand`** (Array): Command to launch the MCP memory service locally.
+- Example: `["uv", "run", "memory", "server", "-s", "hybrid"]`
+- Adjust storage backend flag (`-s`) as needed: `hybrid`, `cloudflare`, `sqlite_vec`, `chromadb`
+
+**`serverWorkingDir`** (String): Working directory for the MCP server process.
+- **Relative paths**: `"../"` assumes hooks are in a subdirectory (e.g., `project/claude-hooks/`)
+- **Absolute paths**: Use full path for explicit configuration
+- **Environment variables**: Consider using `process.env.MCP_MEMORY_PROJECT_ROOT` for flexibility
+
+**Directory Structure Assumption (for `../` relative path):**
+```
+project-root/
+├── src/                    # MCP Memory Service code
+├── claude-hooks/           # This hooks directory
+│   ├── config.json
+│   └── utilities/
+└── pyproject.toml
+```
+
+If your structure differs, update `serverWorkingDir` accordingly or use an absolute path.
+
+**`connectionTimeout`** (Number): Milliseconds to wait for MCP server connection (default: 2000).
+
+**`toolCallTimeout`** (Number): Milliseconds to wait for MCP tool call responses (default: 3000).
+
+---
+
 ## Memory Scoring Configuration
 
 ### `memoryScoring` Object

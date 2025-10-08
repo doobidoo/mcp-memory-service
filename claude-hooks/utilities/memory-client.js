@@ -141,8 +141,7 @@ class MemoryClient {
                         'X-API-Key': this.httpConfig.apiKey,
                         'Accept': 'application/json'
                     },
-                    timeout: this.httpConfig.healthCheckTimeout || 3000,
-                    rejectUnauthorized: false
+                    timeout: this.httpConfig.healthCheckTimeout || 3000
                 };
 
                 const protocol = url.protocol === 'https:' ? https : http;
@@ -226,8 +225,7 @@ class MemoryClient {
                     'Content-Type': 'application/json',
                     'Content-Length': Buffer.byteLength(postData),
                     'X-API-Key': this.httpConfig.apiKey
-                },
-                rejectUnauthorized: false
+                }
             };
 
             const protocol = url.protocol === 'https:' ? https : http;
@@ -240,10 +238,12 @@ class MemoryClient {
                         // REST API returns { results: [{memory: {...}, similarity_score: ...}] }
                         if (response.results && Array.isArray(response.results)) {
                             // Extract memory objects from results and preserve similarity_score
-                            const memories = response.results.map(result => ({
-                                ...result.memory,
-                                similarity_score: result.similarity_score
-                            }));
+                            const memories = response.results
+                                .filter(result => result && result.memory) // Ensure memory object exists
+                                .map(result => ({
+                                    ...result.memory,
+                                    similarity_score: result.similarity_score
+                                }));
                             resolve(memories);
                         } else {
                             resolve([]);
