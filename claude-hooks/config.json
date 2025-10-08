@@ -1,11 +1,11 @@
 {
   "memoryService": {
     "protocol": "auto",
-    "preferredProtocol": "mcp",
+    "preferredProtocol": "http",
     "fallbackEnabled": true,
     "http": {
-      "endpoint": "https://localhost:8443",
-      "apiKey": "test-key-123",
+      "endpoint": "http://127.0.0.1:8889",
+      "apiKey": "VhOGAoUOE5_BMzu-phDORdyXHNMcDRBxvndK_Uop",
       "healthCheckTimeout": 3000,
       "useDetailedHealthCheck": true
     },
@@ -16,11 +16,11 @@
         "memory",
         "server",
         "-s",
-        "cloudflare"
+        "hybrid"
       ],
-      "serverWorkingDir": "C:/REPOSITORIES/mcp-memory-service",
-      "connectionTimeout": 5000,
-      "toolCallTimeout": 10000
+      "serverWorkingDir": "/Users/hkr/Documents/GitHub/mcp-memory-service",
+      "connectionTimeout": 2000,
+      "toolCallTimeout": 3000
     },
     "defaultTags": [
       "claude-code",
@@ -31,8 +31,8 @@
     "injectAfterCompacting": false,
     "recentFirstMode": true,
     "recentMemoryRatio": 0.6,
-    "recentTimeWindow": "last-week",
-    "fallbackTimeWindow": "last-month",
+    "recentTimeWindow": "last-month",
+    "fallbackTimeWindow": "last-3-months",
     "showStorageSource": true,
     "sourceDisplayMode": "brief"
   },
@@ -51,14 +51,14 @@
   },
   "memoryScoring": {
     "weights": {
-      "timeDecay": 0.25,
-      "tagRelevance": 0.35,
+      "timeDecay": 0.40,
+      "tagRelevance": 0.25,
       "contentRelevance": 0.15,
-      "contentQuality": 0.25,
+      "contentQuality": 0.20,
       "conversationRelevance": 0.25
     },
-    "minRelevanceScore": 0.3,
-    "timeDecayRate": 0.1,
+    "minRelevanceScore": 0.4,
+    "timeDecayRate": 0.05,
     "enableConversationContext": true
   },
   "contextFormatting": {
@@ -107,7 +107,7 @@
     "maxCommits": 20,
     "includeChangelog": true,
     "maxGitMemories": 3,
-    "gitContextWeight": 1.2
+    "gitContextWeight": 1.8
   },
   "output": {
     "verbose": true,

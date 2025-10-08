@@ -216,8 +216,40 @@ function calculateTypeBonus(memoryType) {
         'todo': 0.05,            // TODOs are task-specific
         'temporary': -0.1        // Temporary notes should be deprioritized
     };
-    
+
     return typeScores[memoryType?.toLowerCase()] || 0;
+}
+
+/**
+ * Calculate recency bonus to prioritize very recent memories
+ * Provides explicit boost for memories created within specific time windows
+ */
+function calculateRecencyBonus(memoryDate) {
+    try {
+        const now = new Date();
+        const memoryTime = new Date(memoryDate);
+
+        if (isNaN(memoryTime.getTime())) {
+            return 0; // No bonus for invalid dates
+        }
+
+        // Calculate days since memory creation
+        const daysDiff = (now - memoryTime) / (1000 * 60 * 60 * 24);
+
+        // Apply tiered recency bonuses
+        if (daysDiff <= 7) {
+            return 0.15; // Strong boost for last week
+        } else if (daysDiff <= 14) {
+            return 0.10; // Moderate boost for last 2 weeks
+        } else if (daysDiff <= 30) {
+            return 0.05; // Small boost for last month
+        }
+
+        return 0; // No bonus for older memories
+
+    } catch (error) {
+        return 0;
+    }
 }
 
 /**
@@ -342,13 +374,15 @@ function calculateRelevanceScore(memory, projectContext, options = {}) {
         const contentScore = calculateContentRelevance(memory.content, projectContext);
         const qualityScore = calculateContentQuality(memory.content);
         const typeBonus = calculateTypeBonus(memory.memory_type);
-        
+        const recencyBonus = calculateRecencyBonus(memory.created_at || memory.created_at_iso);
+
         let finalScore = (
             (timeScore * w.timeDecay) +
             (tagScore * w.tagRelevance) +
             (contentScore * w.contentRelevance) +
             (qualityScore * w.contentQuality) +
-            typeBonus // Type bonus is not weighted, acts as adjustment
+            typeBonus + // Type bonus is not weighted, acts as adjustment
+            recencyBonus // Recency bonus provides explicit boost for very recent memories
         );
 
         const breakdown = {
@@ -356,7 +390,8 @@ function calculateRelevanceScore(memory, projectContext, options = {}) {
             tagRelevance: tagScore,
             contentRelevance: contentScore,
             contentQuality: qualityScore,
-            typeBonus: typeBonus
+            typeBonus: typeBonus,
+            recencyBonus: recencyBonus
         };
 
         // Add conversation context scoring if enabled (Phase 2)
@@ -464,6 +499,7 @@ module.exports = {
     calculateTagRelevance,
     calculateContentRelevance,
     calculateTypeBonus,
+    calculateRecencyBonus,
     filterByRelevance
 };
 
