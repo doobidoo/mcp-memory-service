@@ -303,16 +303,19 @@ function detectStorageBackendFallback(config) {
  */
 async function queryMemoryService(memoryClient, query) {
     try {
+        // Add timeout for each individual query (2 seconds max)
+        const queryTimeout = new Promise((resolve) =>
+            setTimeout(() => resolve([]), 2000)
+        );
+
         let memories = [];
 
         // Use time-based queries for recent memories
-        if (query.timeFilter) {
-            const timeQuery = `${query.semanticQuery} ${query.timeFilter}`;
-            memories = await memoryClient.queryMemoriesByTime(timeQuery, query.limit);
-        } else {
-            // Use semantic search for general queries
-            memories = await memoryClient.queryMemories(query.semanticQuery, query.limit);
-        }
+        const queryPromise = query.timeFilter ?
+            memoryClient.queryMemoriesByTime(`${query.semanticQuery} ${query.timeFilter}`, query.limit) :
+            memoryClient.queryMemories(query.semanticQuery, query.limit);
+
+        memories = await Promise.race([queryPromise, queryTimeout]);
 
         return memories || [];
     } catch (error) {
@@ -338,6 +341,30 @@ const CONSOLE_COLORS = {
  * Main session start hook function with enhanced visual output
  */
 async function onSessionStart(context) {
+    // Global timeout wrapper to prevent hook from hanging
+    const HOOK_TIMEOUT = 8000; // 8 seconds (leave 2s buffer for cleanup)
+    const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Hook timeout - completing early')), HOOK_TIMEOUT);
+    });
+
+    try {
+        return await Promise.race([
+            executeSessionStart(context),
+            timeoutPromise
+        ]);
+    } catch (error) {
+        if (error.message.includes('Hook timeout')) {
+            console.log(`${CONSOLE_COLORS.YELLOW}⏱️  Memory Hook${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.GRAY}Completed with timeout (normal for slow connections)${CONSOLE_COLORS.RESET}`);
+            return;
+        }
+        throw error;
+    }
+}
+
+/**
+ * Main execution logic (wrapped by timeout)
+ */
+async function executeSessionStart(context) {
     try {
         // Load configuration first to check verbosity settings
         const config = await loadConfig();
@@ -498,8 +525,16 @@ async function onSessionStart(context) {
         // Initialize memory client for memory queries if not already connected
         if (!memoryClient) {
             try {
+                // Add quick timeout for initial connection
+                const connectionTimeout = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Quick connection timeout')), 2000)
+                );
+
                 memoryClient = new MemoryClient(config.memoryService);
-                await memoryClient.connect();
+                await Promise.race([
+                    memoryClient.connect(),
+                    connectionTimeout
+                ]);
                 connectionInfo = memoryClient.getConnectionInfo();
             } catch (error) {
                 if (verbose && !cleanMode) {
@@ -728,11 +763,22 @@ async function onSessionStart(context) {
             }
             
             // Score memories for relevance (with enhanced recency weighting)
-            const scoredMemories = scoreMemoryRelevance(memories, projectContext, { 
-                verbose: showMemoryDetails, 
-                enhanceRecency: recentFirstMode 
+            let scoredMemories = scoreMemoryRelevance(memories, projectContext, {
+                verbose: showMemoryDetails,
+                enhanceRecency: recentFirstMode
             });
-            
+
+            // Apply git context weight boost to git-derived memories
+            scoredMemories = scoredMemories.map(memory => {
+                if (memory._gitContextWeight && memory._gitContextWeight !== 1.0) {
+                    return {
+                        ...memory,
+                        relevanceScore: Math.min(1.0, memory.relevanceScore * memory._gitContextWeight)
+                    };
+                }
+                return memory;
+            }).sort((a, b) => b.relevanceScore - a.relevanceScore); // Re-sort after boost
+
             // Show top scoring memories with recency info
             if (verbose && showMemoryDetails && scoredMemories.length > 0 && !cleanMode) {
                 const topMemories = scoredMemories.slice(0, 3);
@@ -806,26 +852,17 @@ async function onSessionStart(context) {
             console.log(`${CONSOLE_COLORS.YELLOW}📭 Memory Search${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.GRAY}No relevant memories found${CONSOLE_COLORS.RESET}`);
         }
 
-        // Cleanup MCP client after memory operations
-        if (memoryClient) {
-            try {
-                await memoryClient.disconnect();
-            } catch (error) {
-                // Ignore cleanup errors
-            }
-        }
-        
     } catch (error) {
         console.error(`${CONSOLE_COLORS.RED}❌ Memory Hook Error${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${error.message}`);
         // Fail gracefully - don't prevent session from starting
     } finally {
         // Ensure MCP client cleanup even on error
-        if (memoryClient) {
-            try {
+        try {
+            if (memoryClient && typeof memoryClient.disconnect === 'function') {
                 await memoryClient.disconnect();
-            } catch (error) {
-                // Ignore cleanup errors
             }
+        } catch (error) {
+            // Ignore cleanup errors silently
         }
     }
 }

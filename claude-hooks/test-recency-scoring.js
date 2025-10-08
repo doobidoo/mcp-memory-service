@@ -49,17 +49,22 @@ const testMemories = [
     }
 ];
 
+// Calculate daysAgo once for each memory (DRY principle)
+const memoriesWithAge = testMemories.map(mem => ({
+    ...mem,
+    daysAgo: Math.floor((Date.now() - new Date(mem.created_at_iso)) / (1000 * 60 * 60 * 24))
+}));
+
 console.log('\n=== RECENCY SCORING TEST ===\n');
 
 // Show decay and bonus calculations
 console.log('📊 Time Decay and Recency Bonus Analysis:');
 console.log('─'.repeat(80));
-testMemories.forEach((mem, idx) => {
-    const daysAgo = Math.floor((Date.now() - new Date(mem.created_at_iso)) / (1000 * 60 * 60 * 24));
+memoriesWithAge.forEach((mem, idx) => {
     const decayScore = calculateTimeDecay(mem.created_at_iso, config.memoryScoring.timeDecayRate); // Using decay rate from config
     const recencyBonus = calculateRecencyBonus(mem.created_at_iso);
 
-    console.log(`Memory ${idx + 1}: ${daysAgo} days old`);
+    console.log(`Memory ${idx + 1}: ${mem.daysAgo} days old`);
     console.log(`  Time Decay (${config.memoryScoring.timeDecayRate} rate): ${decayScore.toFixed(3)}`);
     console.log(`  Recency Bonus: ${recencyBonus > 0 ? '+' + recencyBonus.toFixed(3) : '0.000'}`);
     console.log(`  Content: ${mem.content.substring(0, 60)}...`);
@@ -70,15 +75,14 @@ testMemories.forEach((mem, idx) => {
 console.log('\n📈 Final Scoring Results (New Algorithm):');
 console.log('─'.repeat(80));
 
-const scoredMemories = scoreMemoryRelevance(testMemories, projectContext, {
+const scoredMemories = scoreMemoryRelevance(memoriesWithAge, projectContext, {
     verbose: false,
     weights: config.memoryScoring.weights,
     timeDecayRate: config.memoryScoring.timeDecayRate
 });
 
 scoredMemories.forEach((memory, index) => {
-    const daysAgo = Math.floor((Date.now() - new Date(memory.created_at_iso)) / (1000 * 60 * 60 * 24));
-    console.log(`${index + 1}. Score: ${memory.relevanceScore.toFixed(3)} (${daysAgo} days old)`);
+    console.log(`${index + 1}. Score: ${memory.relevanceScore.toFixed(3)} (${memory.daysAgo} days old)`);
     console.log(`   Content: ${memory.content.substring(0, 70)}...`);
     console.log(`   Breakdown:`);
     console.log(`     - Time Decay: ${memory.scoreBreakdown.timeDecay.toFixed(3)} (weight: ${config.memoryScoring.weights.timeDecay})`);
@@ -99,10 +103,7 @@ console.log('  - Old memories with perfect tags should rank lower despite tag ad
 
 // Check if recent memories are ranked higher
 const top3 = scoredMemories.slice(0, 3);
-const recentInTop3 = top3.filter(m => {
-    const daysAgo = Math.floor((Date.now() - new Date(m.created_at_iso)) / (1000 * 60 * 60 * 24));
-    return daysAgo <= 7;
-}).length;
+const recentInTop3 = top3.filter(m => m.daysAgo <= 7).length;
 
 if (recentInTop3 >= 2) {
     console.log('✅ SUCCESS: At least 2 of top 3 memories are from the last week');

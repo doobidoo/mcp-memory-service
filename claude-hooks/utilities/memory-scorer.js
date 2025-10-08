@@ -225,26 +225,28 @@ function calculateTypeBonus(memoryType) {
  * Provides explicit boost for memories created within specific time windows
  */
 function calculateRecencyBonus(memoryDate) {
+    // Recency bonus tiers (days and corresponding bonus values)
+    const RECENCY_TIERS = [
+        { days: 7, bonus: 0.15 },  // Strong boost for last week
+        { days: 14, bonus: 0.10 }, // Moderate boost for last 2 weeks
+        { days: 30, bonus: 0.05 }  // Small boost for last month
+    ];
+
     try {
         const now = new Date();
         const memoryTime = new Date(memoryDate);
 
-        if (isNaN(memoryTime.getTime())) {
-            return 0; // No bonus for invalid dates
+        if (isNaN(memoryTime.getTime()) || memoryTime > now) {
+            return 0; // No bonus for invalid or future dates
         }
 
-        // Calculate days since memory creation
         const daysDiff = (now - memoryTime) / (1000 * 60 * 60 * 24);
 
-        // Apply tiered recency bonuses
-        if (daysDiff < 0) {
-            return 0; // No bonus for memories with future dates
-        } else if (daysDiff <= 7) {
-            return 0.15; // Strong boost for last week
-        } else if (daysDiff <= 14) {
-            return 0.10; // Moderate boost for last 2 weeks
-        } else if (daysDiff <= 30) {
-            return 0.05; // Small boost for last month
+        // Find the appropriate tier for this memory's age
+        for (const tier of RECENCY_TIERS) {
+            if (daysDiff <= tier.days) {
+                return tier.bonus;
+            }
         }
 
         return 0; // No bonus for older memories
