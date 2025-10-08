@@ -447,15 +447,15 @@ finalScore = clamp(finalScore, 0, 1)
 
 ```javascript
 {
-  'decision': +0.3,      // Architectural decisions
-  'architecture': +0.3,  // Architecture docs
-  'reference': +0.2,     // Reference materials
-  'session': +0.15,      // Session summaries
-  'insight': +0.2,       // Insights
-  'bug-fix': +0.15,      // Bug fixes
-  'feature': +0.1,       // Feature descriptions
-  'note': +0.05,         // General notes
-  'temporary': -0.1      // Temporary notes (penalized)
+  'decision': 0.3,      // Architectural decisions
+  'architecture': 0.3,  // Architecture docs
+  'reference': 0.2,     // Reference materials
+  'session': 0.15,      // Session summaries
+  'insight': 0.2,       // Insights
+  'bug-fix': 0.15,      // Bug fixes
+  'feature': 0.1,       // Feature descriptions
+  'note': 0.05,         // General notes
+  'temporary': -0.1     // Temporary notes (penalized)
 }
 ```
 

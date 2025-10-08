@@ -138,7 +138,7 @@ class MemoryClient {
                     path: url.pathname,
                     method: 'GET',
                     headers: {
-                        'Authorization': `Bearer ${this.httpConfig.apiKey}`,
+                        'X-API-Key': this.httpConfig.apiKey,
                         'Accept': 'application/json'
                     },
                     timeout: this.httpConfig.healthCheckTimeout || 3000,

@@ -77,9 +77,9 @@ scoredMemories.forEach((memory, index) => {
     console.log(`${index + 1}. Score: ${memory.relevanceScore.toFixed(3)} (${daysAgo} days old)`);
     console.log(`   Content: ${memory.content.substring(0, 70)}...`);
     console.log(`   Breakdown:`);
-    console.log(`     - Time Decay: ${memory.scoreBreakdown.timeDecay.toFixed(3)} (weight: 0.40)`);
-    console.log(`     - Tag Relevance: ${memory.scoreBreakdown.tagRelevance.toFixed(3)} (weight: 0.25)`);
-    console.log(`     - Content Quality: ${memory.scoreBreakdown.contentQuality.toFixed(3)} (weight: 0.20)`);
+    console.log(`     - Time Decay: ${memory.scoreBreakdown.timeDecay.toFixed(3)} (weight: ${config.memoryScoring.weights.timeDecay})`);
+    console.log(`     - Tag Relevance: ${memory.scoreBreakdown.tagRelevance.toFixed(3)} (weight: ${config.memoryScoring.weights.tagRelevance})`);
+    console.log(`     - Content Quality: ${memory.scoreBreakdown.contentQuality.toFixed(3)} (weight: ${config.memoryScoring.weights.contentQuality})`);
     console.log(`     - Recency Bonus: ${memory.scoreBreakdown.recencyBonus.toFixed(3)} (direct boost)`);
     console.log('');
 });
