@@ -5,6 +5,7 @@
  */
 
 const { scoreMemoryRelevance, calculateTimeDecay, calculateRecencyBonus } = require('./utilities/memory-scorer');
+const config = require('./config.json');
 
 // Test project context
 const projectContext = {
@@ -55,11 +56,11 @@ console.log('📊 Time Decay and Recency Bonus Analysis:');
 console.log('─'.repeat(80));
 testMemories.forEach((mem, idx) => {
     const daysAgo = Math.floor((Date.now() - new Date(mem.created_at_iso)) / (1000 * 60 * 60 * 24));
-    const decayScore = calculateTimeDecay(mem.created_at_iso, 0.05); // Using new decay rate
+    const decayScore = calculateTimeDecay(mem.created_at_iso, config.memoryScoring.timeDecayRate); // Using decay rate from config
     const recencyBonus = calculateRecencyBonus(mem.created_at_iso);
 
     console.log(`Memory ${idx + 1}: ${daysAgo} days old`);
-    console.log(`  Time Decay (0.05 rate): ${decayScore.toFixed(3)}`);
+    console.log(`  Time Decay (${config.memoryScoring.timeDecayRate} rate): ${decayScore.toFixed(3)}`);
     console.log(`  Recency Bonus: ${recencyBonus > 0 ? '+' + recencyBonus.toFixed(3) : '0.000'}`);
     console.log(`  Content: ${mem.content.substring(0, 60)}...`);
     console.log('');

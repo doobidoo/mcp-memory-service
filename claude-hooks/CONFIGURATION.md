@@ -25,7 +25,9 @@ Controls how memories are scored and ranked for relevance to the current session
 
 #### `weights` (Object)
 
-Relative importance of different scoring factors. All weights should sum to ~1.0 for normalized scoring.
+Relative importance of different scoring factors. These weights are applied to individual component scores (0.0-1.0 each), then summed together with additive bonuses (typeBonus, recencyBonus). The final score is clamped to [0, 1].
+
+**Note**: Weights don't need to sum to exactly 1.0 since additional bonuses are added separately and the final score is normalized by clamping. The weights shown below sum to 1.00 for the base scoring (without conversation context) or 1.25 when conversation context is enabled.
 
 ```json
 "weights": {
@@ -33,7 +35,7 @@ Relative importance of different scoring factors. All weights should sum to ~1.0
   "tagRelevance": 0.25,        // Tag matching weight (default: 0.25)
   "contentRelevance": 0.15,    // Content keyword weight (default: 0.15)
   "contentQuality": 0.20,      // Quality assessment weight (default: 0.20)
-  "conversationRelevance": 0.25 // Conversation context weight (default: 0.25)
+  "conversationRelevance": 0.25 // Conversation context weight (default: 0.25, only when enabled)
 }
 ```
 
@@ -412,6 +414,11 @@ finalScore =
   (contentQualityScore * contentQualityWeight) +
   typeBonus +
   recencyBonus
+
+// Add conversation context if enabled
+if (conversationContextEnabled) {
+  finalScore += (conversationRelevanceScore * conversationRelevanceWeight)
+}
 
 // Apply git context boost (multiplicative)
 if (isGitContextMemory) {
