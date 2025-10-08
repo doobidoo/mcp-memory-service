@@ -70,7 +70,11 @@ testMemories.forEach((mem, idx) => {
 console.log('\n📈 Final Scoring Results (New Algorithm):');
 console.log('─'.repeat(80));
 
-const scoredMemories = scoreMemoryRelevance(testMemories, projectContext, { verbose: false });
+const scoredMemories = scoreMemoryRelevance(testMemories, projectContext, {
+    verbose: false,
+    weights: config.memoryScoring.weights,
+    timeDecayRate: config.memoryScoring.timeDecayRate
+});
 
 scoredMemories.forEach((memory, index) => {
     const daysAgo = Math.floor((Date.now() - new Date(memory.created_at_iso)) / (1000 * 60 * 60 * 24));

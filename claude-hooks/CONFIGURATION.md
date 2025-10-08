@@ -53,9 +53,10 @@ Controls how the hooks connect to the MCP Memory Service.
   - For self-signed certificates, your system must trust the certificate authority.
   - The hooks enforce certificate validation - `rejectUnauthorized` is always enabled for security.
 
-**`apiKey`** (String): API key for authenticating with the memory service. Replace `YOUR_API_KEY_HERE` with your actual key.
-
-**Note**: Never commit actual API keys to version control. Use environment variables or secure secret storage.
+**`apiKey`** (String): API key for authenticating with the memory service.
+- **Default**: Empty string `""` - the application will validate and prompt for a valid key on startup
+- **Best practice**: Set via environment variable or secure configuration file
+- **Security**: Never commit actual API keys to version control
 
 #### MCP Configuration
 
@@ -492,6 +493,7 @@ if (conversationContextEnabled) {
 
 // Step 3: Apply git context boost (multiplicative - boosts ALL components)
 // Note: This multiplies the entire score including conversation relevance
+// Implementation: Applied in session-start.js after scoring, not in memory-scorer.js
 if (isGitContextMemory) {
   baseScore *= gitContextWeight
 }

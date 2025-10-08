@@ -5,7 +5,7 @@
     "fallbackEnabled": true,
     "http": {
       "endpoint": "http://127.0.0.1:8889",
-      "apiKey": "YOUR_API_KEY_HERE",
+      "apiKey": "",
       "healthCheckTimeout": 3000,
       "useDetailedHealthCheck": true
     },

@@ -348,13 +348,14 @@ function calculateRelevanceScore(memory, projectContext, options = {}) {
     try {
         const {
             weights = {},
+            timeDecayRate = 0.1,       // Default decay rate
             includeConversationContext = false,
             conversationAnalysis = null
         } = options;
 
         // Default weights including content quality factor
         const defaultWeights = includeConversationContext ? {
-            timeDecay: 0.20,           // Reduced weight for time 
+            timeDecay: 0.20,           // Reduced weight for time
             tagRelevance: 0.30,        // Tag matching remains important
             contentRelevance: 0.15,    // Content matching reduced
             contentQuality: 0.25,      // New quality factor
@@ -367,11 +368,11 @@ function calculateRelevanceScore(memory, projectContext, options = {}) {
             contentQuality: 0.25,      // Quality factor prioritized
             typeBonus: 0.05            // Type bonus reduced
         };
-        
+
         const w = { ...defaultWeights, ...weights };
-        
+
         // Calculate individual scores
-        const timeScore = calculateTimeDecay(memory.created_at || memory.created_at_iso);
+        const timeScore = calculateTimeDecay(memory.created_at || memory.created_at_iso, timeDecayRate);
         const tagScore = calculateTagRelevance(memory.tags, projectContext);
         const contentScore = calculateContentRelevance(memory.content, projectContext);
         const qualityScore = calculateContentQuality(memory.content);
