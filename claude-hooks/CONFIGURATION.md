@@ -305,8 +305,8 @@ Result: Recent memory wins despite lower base score
 ```json
 {
   "memoryService": {
-    "recentTimeWindow": "last-3-months",
-    "fallbackTimeWindow": "last-year"
+    "recentTimeWindow": "last-month",
+    "fallbackTimeWindow": "last-3-months"
   },
   "memoryScoring": {
     "weights": {
@@ -407,7 +407,8 @@ Result: Recent memory wins despite lower base score
 ### Final Score Calculation
 
 ```javascript
-finalScore =
+// Step 1: Calculate base score (weighted sum of components + bonuses)
+let baseScore =
   (timeDecayScore * timeDecayWeight) +
   (tagRelevanceScore * tagRelevanceWeight) +
   (contentRelevanceScore * contentRelevanceWeight) +
@@ -415,23 +416,24 @@ finalScore =
   typeBonus +
   recencyBonus
 
-// Add conversation context if enabled
+// Step 2: Add conversation context if enabled (additive)
 if (conversationContextEnabled) {
-  finalScore += (conversationRelevanceScore * conversationRelevanceWeight)
+  baseScore += (conversationRelevanceScore * conversationRelevanceWeight)
 }
 
-// Apply git context boost (multiplicative)
+// Step 3: Apply git context boost (multiplicative - boosts ALL components)
+// Note: This multiplies the entire score including conversation relevance
 if (isGitContextMemory) {
-  finalScore *= gitContextWeight
+  baseScore *= gitContextWeight
 }
 
-// Apply quality penalty for very low quality (multiplicative)
+// Step 4: Apply quality penalty for very low quality (multiplicative)
 if (contentQualityScore < 0.2) {
-  finalScore *= 0.5
+  baseScore *= 0.5
 }
 
-// Normalize to [0, 1]
-finalScore = clamp(finalScore, 0, 1)
+// Step 5: Normalize to [0, 1]
+finalScore = clamp(baseScore, 0, 1)
 ```
 
 ### Score Component Ranges

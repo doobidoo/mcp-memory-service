@@ -237,7 +237,9 @@ function calculateRecencyBonus(memoryDate) {
         const daysDiff = (now - memoryTime) / (1000 * 60 * 60 * 24);
 
         // Apply tiered recency bonuses
-        if (daysDiff <= 7) {
+        if (daysDiff < 0) {
+            return 0; // No bonus for memories with future dates
+        } else if (daysDiff <= 7) {
             return 0.15; // Strong boost for last week
         } else if (daysDiff <= 14) {
             return 0.10; // Moderate boost for last 2 weeks
