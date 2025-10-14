@@ -228,6 +228,43 @@ class HookInstaller:
 
         return None
 
+    def detect_environment_type(self) -> str:
+        """Detect if running in Claude Code vs standalone environment."""
+        self.info("Detecting environment type...")
+
+        # Check for Claude Code MCP server (indicates Claude Code is active)
+        mcp_config = self.detect_claude_mcp_configuration()
+
+        if mcp_config and mcp_config.get('status') == '✓ Connected':
+            self.success("Claude Code environment detected (MCP server active)")
+            return "claude-code"
+        else:
+            self.success("Standalone environment detected (no active MCP server)")
+            return "standalone"
+
+    def configure_protocol_for_environment(self, env_type: str) -> Dict:
+        """Configure optimal protocol based on detected environment."""
+        if env_type == "claude-code":
+            protocol_config = {
+                "protocol": "http",
+                "preferredProtocol": "http",
+                "fallbackEnabled": True,
+                "reason": "Claude Code environment - using HTTP to avoid MCP conflicts"
+            }
+            self.info("📋 Protocol Configuration: HTTP (recommended for Claude Code)")
+            self.info("   Reason: Avoids MCP server conflicts when Claude Code is active")
+        else:
+            protocol_config = {
+                "protocol": "auto",
+                "preferredProtocol": "mcp",
+                "fallbackEnabled": True,
+                "reason": "Standalone environment - MCP preferred for performance"
+            }
+            self.info("📋 Protocol Configuration: Auto (MCP preferred)")
+            self.info("   Reason: MCP provides best performance in standalone scenarios")
+
+        return protocol_config
+
     def validate_mcp_prerequisites(self, detected_config: Optional[Dict] = None) -> Tuple[bool, List[str]]:
         """Validate that MCP memory service is properly configured."""
         issues = []
@@ -258,10 +295,13 @@ class HookInstaller:
 
         return len(issues) == 0, issues
 
-    def generate_hooks_config_from_mcp(self, detected_config: Dict) -> Dict:
+    def generate_hooks_config_from_mcp(self, detected_config: Dict, env_type: str = "standalone") -> Dict:
         """Generate hooks configuration based on detected Claude Code MCP setup."""
         command = detected_config.get('command', '')
         server_type = detected_config.get('type', 'stdio')
+
+        # Get environment-appropriate protocol configuration
+        protocol_config = self.configure_protocol_for_environment(env_type)
 
         if server_type == 'stdio':
             # For stdio servers, we'll reference the existing server
@@ -282,9 +322,9 @@ class HookInstaller:
 
         config = {
             "memoryService": {
-                "protocol": "mcp",
-                "preferredProtocol": "mcp",
-                "fallbackEnabled": True,
+                "protocol": protocol_config["protocol"],
+                "preferredProtocol": protocol_config["preferredProtocol"],
+                "fallbackEnabled": protocol_config["fallbackEnabled"],
                 "http": {
                     "endpoint": "https://localhost:8443",
                     "apiKey": "auto-detect",
@@ -307,13 +347,16 @@ class HookInstaller:
 
         return config
 
-    def generate_basic_config(self) -> Dict:
+    def generate_basic_config(self, env_type: str = "standalone") -> Dict:
         """Generate basic configuration when no template is available."""
+        # Get environment-appropriate protocol configuration
+        protocol_config = self.configure_protocol_for_environment(env_type)
+
         return {
             "memoryService": {
-                "protocol": "auto",
-                "preferredProtocol": "mcp",
-                "fallbackEnabled": True,
+                "protocol": protocol_config["protocol"],
+                "preferredProtocol": protocol_config["preferredProtocol"],
+                "fallbackEnabled": protocol_config["fallbackEnabled"],
                 "http": {
                     "endpoint": "https://localhost:8443",
                     "apiKey": "auto-detect",
@@ -557,7 +600,7 @@ class HookInstaller:
             self.error(f"Failed to install Natural Memory Triggers: {e}")
             return False
 
-    def install_configuration(self, install_natural_triggers: bool = False, detected_mcp: Optional[Dict] = None) -> bool:
+    def install_configuration(self, install_natural_triggers: bool = False, detected_mcp: Optional[Dict] = None, env_type: str = "standalone") -> bool:
         """Install or update configuration files."""
         self.info("Installing configuration...")
 
@@ -582,7 +625,7 @@ class HookInstaller:
             try:
                 if detected_mcp:
                     # Use smart configuration generation for existing MCP
-                    config = self.generate_hooks_config_from_mcp(detected_mcp)
+                    config = self.generate_hooks_config_from_mcp(detected_mcp, env_type)
                     self.success("Generated configuration based on detected MCP setup")
                 elif config_src.exists():
                     # Use template configuration and update paths
@@ -596,7 +639,7 @@ class HookInstaller:
                     self.success("Generated configuration using template with updated paths")
                 else:
                     # Generate basic configuration
-                    config = self.generate_basic_config()
+                    config = self.generate_basic_config(env_type)
                     self.success("Generated basic configuration")
 
                 # Add additional configuration based on installation options
@@ -1036,6 +1079,10 @@ Features:
     else:
         installer.info("No existing MCP configuration found - using independent setup")
 
+    # Environment Detection and Protocol Configuration
+    installer.header("Environment Detection & Protocol Configuration")
+    env_type = installer.detect_environment_type()
+
     # Determine what to install
     install_all = not (args.basic or args.natural_triggers) or args.all
     install_basic = args.basic or install_all
@@ -1075,7 +1122,8 @@ Features:
 
     # Install configuration (always needed) with MCP awareness
     if not installer.install_configuration(install_natural_triggers=install_natural_triggers,
-                                         detected_mcp=detected_mcp if use_existing_mcp else None):
+                                         detected_mcp=detected_mcp if use_existing_mcp else None,
+                                         env_type=env_type):
         overall_success = False
 
     # Configure Claude Code settings

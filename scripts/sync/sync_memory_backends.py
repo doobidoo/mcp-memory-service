@@ -30,9 +30,9 @@ from datetime import datetime
 # Add project root to path so we can import from the src directory
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.mcp_memory_service.storage.cloudflare import CloudflareStorage
-from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-from src.mcp_memory_service.config import (
+from mcp_memory_service.storage.cloudflare import CloudflareStorage
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+from mcp_memory_service.config import (
     CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_VECTORIZE_INDEX,
     CLOUDFLARE_D1_DATABASE_ID, BASE_DIR
 )
