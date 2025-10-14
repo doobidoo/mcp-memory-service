@@ -55,6 +55,10 @@ class Colors:
 class HookInstaller:
     """Unified hook installer for all platforms and feature levels."""
 
+    # Environment type constants
+    CLAUDE_CODE_ENV = "claude-code"
+    STANDALONE_ENV = "standalone"
+
     def __init__(self):
         self.script_dir = Path(__file__).parent.absolute()
         self.platform_name = platform.system().lower()
@@ -235,16 +239,16 @@ class HookInstaller:
         # Check for Claude Code MCP server (indicates Claude Code is active)
         mcp_config = self.detect_claude_mcp_configuration()
 
-        if mcp_config and mcp_config.get('status') == '✓ Connected':
+        if mcp_config and 'Connected' in mcp_config.get('status', ''):
             self.success("Claude Code environment detected (MCP server active)")
-            return "claude-code"
+            return self.CLAUDE_CODE_ENV
         else:
             self.success("Standalone environment detected (no active MCP server)")
-            return "standalone"
+            return self.STANDALONE_ENV
 
     def configure_protocol_for_environment(self, env_type: str) -> Dict:
         """Configure optimal protocol based on detected environment."""
-        if env_type == "claude-code":
+        if env_type == self.CLAUDE_CODE_ENV:
             protocol_config = {
                 "protocol": "http",
                 "preferredProtocol": "http",
