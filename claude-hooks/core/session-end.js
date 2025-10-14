@@ -210,7 +210,7 @@ function analyzeConversation(conversationData) {
 /**
  * Store session consolidation to memory service
  */
-async function storeSessionMemory(endpoint, apiKey, content, projectContext, analysis) {
+function storeSessionMemory(endpoint, apiKey, content, projectContext, analysis) {
     return new Promise((resolve, reject) => {
         const url = new URL('/api/memories', endpoint);
         const isHttps = url.protocol === 'https:';
@@ -337,8 +337,8 @@ async function onSessionEnd(context) {
         const consolidation = formatSessionConsolidation(analysis, projectContext);
 
         // Get endpoint and apiKey from new config structure
-        const endpoint = config.memoryService.http?.endpoint || config.memoryService.endpoint || 'http://127.0.0.1:8000';
-        const apiKey = config.memoryService.http?.apiKey || config.memoryService.apiKey || 'default-key';
+        const endpoint = config.memoryService?.http?.endpoint || config.memoryService?.endpoint || 'http://127.0.0.1:8000';
+        const apiKey = config.memoryService?.http?.apiKey || config.memoryService?.apiKey || 'test-key-123';
 
         // Store to memory service
         const result = await storeSessionMemory(
