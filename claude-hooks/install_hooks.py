@@ -248,26 +248,40 @@ class HookInstaller:
 
     def configure_protocol_for_environment(self, env_type: str) -> Dict:
         """Configure optimal protocol based on detected environment."""
-        if env_type == self.CLAUDE_CODE_ENV:
-            protocol_config = {
+        # Data-driven configuration map
+        config_map = {
+            self.CLAUDE_CODE_ENV: {
                 "protocol": "http",
                 "preferredProtocol": "http",
                 "fallbackEnabled": True,
-                "reason": "Claude Code environment - using HTTP to avoid MCP conflicts"
-            }
-            self.info("📋 Protocol Configuration: HTTP (recommended for Claude Code)")
-            self.info("   Reason: Avoids MCP server conflicts when Claude Code is active")
-        else:
-            protocol_config = {
+                "reason": "Claude Code environment - using HTTP to avoid MCP conflicts",
+                "log_title": "📋 Protocol Configuration: HTTP (recommended for Claude Code)",
+                "log_reason": "Avoids MCP server conflicts when Claude Code is active"
+            },
+            self.STANDALONE_ENV: {
                 "protocol": "auto",
                 "preferredProtocol": "mcp",
                 "fallbackEnabled": True,
-                "reason": "Standalone environment - MCP preferred for performance"
+                "reason": "Standalone environment - MCP preferred for performance",
+                "log_title": "📋 Protocol Configuration: Auto (MCP preferred)",
+                "log_reason": "MCP provides best performance in standalone scenarios"
             }
-            self.info("📋 Protocol Configuration: Auto (MCP preferred)")
-            self.info("   Reason: MCP provides best performance in standalone scenarios")
+        }
 
-        return protocol_config
+        # Get configuration for environment type (default to standalone if unknown)
+        config = config_map.get(env_type, config_map[self.STANDALONE_ENV])
+
+        # Log the configuration
+        self.info(config["log_title"])
+        self.info(f"   Reason: {config['log_reason']}")
+
+        # Return only the protocol configuration (excluding logging fields)
+        return {
+            "protocol": config["protocol"],
+            "preferredProtocol": config["preferredProtocol"],
+            "fallbackEnabled": config["fallbackEnabled"],
+            "reason": config["reason"]
+        }
 
     def validate_mcp_prerequisites(self, detected_config: Optional[Dict] = None) -> Tuple[bool, List[str]]:
         """Validate that MCP memory service is properly configured."""
@@ -300,7 +314,15 @@ class HookInstaller:
         return len(issues) == 0, issues
 
     def generate_hooks_config_from_mcp(self, detected_config: Dict, env_type: str = "standalone") -> Dict:
-        """Generate hooks configuration based on detected Claude Code MCP setup."""
+        """Generate hooks configuration based on detected Claude Code MCP setup.
+
+        Args:
+            detected_config: Dictionary containing detected MCP configuration
+            env_type: Environment type ('claude-code' or 'standalone'), defaults to 'standalone'
+
+        Returns:
+            Dictionary containing complete hooks configuration
+        """
         command = detected_config.get('command', '')
         server_type = detected_config.get('type', 'stdio')
 
@@ -352,7 +374,14 @@ class HookInstaller:
         return config
 
     def generate_basic_config(self, env_type: str = "standalone") -> Dict:
-        """Generate basic configuration when no template is available."""
+        """Generate basic configuration when no template is available.
+
+        Args:
+            env_type: Environment type ('claude-code' or 'standalone'), defaults to 'standalone'
+
+        Returns:
+            Dictionary containing basic hooks configuration
+        """
         # Get environment-appropriate protocol configuration
         protocol_config = self.configure_protocol_for_environment(env_type)
 
@@ -605,7 +634,16 @@ class HookInstaller:
             return False
 
     def install_configuration(self, install_natural_triggers: bool = False, detected_mcp: Optional[Dict] = None, env_type: str = "standalone") -> bool:
-        """Install or update configuration files."""
+        """Install or update configuration files.
+
+        Args:
+            install_natural_triggers: Whether to include Natural Memory Triggers configuration
+            detected_mcp: Optional detected MCP configuration to use
+            env_type: Environment type ('claude-code' or 'standalone'), defaults to 'standalone'
+
+        Returns:
+            True if installation successful, False otherwise
+        """
         self.info("Installing configuration...")
 
         try:
