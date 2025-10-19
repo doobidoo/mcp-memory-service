@@ -1329,7 +1329,11 @@ class MemoryServer:
                                                     "description": "Tags as comma-separated string"
                                                 }
                                             ],
-                                            "description": "Tags to categorize the memory. Accepts either an array of strings or a comma-separated string."
+                                            "description": "Tags to categorize the memory. Accepts either an array of strings or a comma-separated string.",
+                                            "examples": [
+                                                "tag1,tag2,tag3",
+                                                ["tag1", "tag2", "tag3"]
+                                            ]
                                         },
                                         "type": {
                                             "type": "string",
