@@ -57,8 +57,8 @@ COPY tools/docker/docker-entrypoint-persistent.sh /usr/local/bin/
 COPY tools/docker/docker-entrypoint-unified.sh /usr/local/bin/
 
 # Install the package with UV (configurable dependency group)
-# Use CPU-only PyTorch in CI environments to save disk space
-RUN if [ "$FORCE_CPU_PYTORCH" = "true" ] || [ "$CI" = "true" ]; then \
+# Use CPU-only PyTorch by default to save disk space in CI/test environments
+RUN if [ "$FORCE_CPU_PYTORCH" = "true" ] || [ "$INSTALL_EXTRA" = "[sqlite]" ]; then \
         echo "Installing CPU-only PyTorch to save disk space..."; \
         python -m uv pip install torch --index-url https://download.pytorch.org/whl/cpu; \
         python -m uv pip install -e .${INSTALL_EXTRA} --no-deps; \
