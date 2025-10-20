@@ -126,6 +126,7 @@ async def get_analytics_overview(
         if hasattr(storage, 'get_stats'):
             try:
                 stats = await storage.get_stats()
+                logger.info(f"Storage stats: {stats}")  # Debug logging
             except Exception as e:
                 logger.warning(f"Failed to retrieve storage stats: {e}")
                 stats = {}
@@ -162,7 +163,7 @@ async def get_analytics_overview(
             memories_this_week=memories_this_week,
             memories_this_month=memories_this_month,
             unique_tags=stats.get("unique_tags", 0),
-            database_size_mb=stats.get("database_size_mb"),
+            database_size_mb=stats.get("primary_stats", {}).get("database_size_mb") or stats.get("database_size_mb"),
             uptime_seconds=None,  # Would need to be calculated from health endpoint
             backend_type=stats.get("storage_backend", "unknown")
         )
@@ -272,7 +273,17 @@ async def get_tag_usage_analytics(
             raise HTTPException(status_code=501, detail="Tag analytics not supported by storage backend")
 
         # Get total memories for accurate percentage calculation
-        total_memories = stats.get("total_memories", 0) if hasattr(storage, 'get_stats') else 0
+        if hasattr(storage, 'get_stats'):
+        try:
+            stats = await storage.get_stats()
+            total_memories = stats.get("total_memories", 0)
+            except Exception as e:
+        logger.warning(f"Failed to retrieve storage stats: {e}")
+        stats = {}
+        total_memories = 0
+        else:
+        total_memories = 0
+
         if total_memories == 0:
             # Fallback: calculate from all tag data
             all_tags = tag_data.copy()
