@@ -6,6 +6,7 @@ FROM python:3.12-slim
 ARG SKIP_MODEL_DOWNLOAD=false
 ARG PLATFORM=linux/amd64
 ARG INSTALL_EXTRA="[sqlite]"
+ARG FORCE_CPU_PYTORCH=false
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -56,7 +57,14 @@ COPY tools/docker/docker-entrypoint-persistent.sh /usr/local/bin/
 COPY tools/docker/docker-entrypoint-unified.sh /usr/local/bin/
 
 # Install the package with UV (configurable dependency group)
-RUN python -m uv pip install -e .${INSTALL_EXTRA}
+# Use CPU-only PyTorch in CI environments to save disk space
+RUN if [ "$FORCE_CPU_PYTORCH" = "true" ] || [ "$CI" = "true" ]; then \
+        echo "Installing CPU-only PyTorch to save disk space..."; \
+        python -m uv pip install torch --index-url https://download.pytorch.org/whl/cpu; \
+        python -m uv pip install -e .${INSTALL_EXTRA} --no-deps; \
+    else \
+        python -m uv pip install -e .${INSTALL_EXTRA}; \
+    fi
 
 # Conditionally pre-download ONNX models for lightweight embedding
 RUN if [ "$SKIP_MODEL_DOWNLOAD" != "true" ]; then \
