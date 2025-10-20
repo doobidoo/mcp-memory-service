@@ -133,6 +133,7 @@ scripts/.claude/settings.local.json*
 
 # Personal files
 CLAUDE_PERSONALIZED.md
+CLAUDE.local.md
 SESSION_MEMORY_2025-08-11.md
 
 # Context crystallizer artifacts

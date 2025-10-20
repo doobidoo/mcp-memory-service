@@ -6,6 +6,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const https = require('https');
+const http = require('http');
 
 // Import utilities
 const { detectProjectContext } = require('../utilities/project-detector');
@@ -23,8 +24,10 @@ async function loadConfig() {
         console.warn('[Memory Hook] Using default configuration:', error.message);
         return {
             memoryService: {
-                endpoint: 'https://narrowbox.local:8443',
-                apiKey: 'test-key-123',
+                http: {
+                    endpoint: 'http://127.0.0.1:8000',
+                    apiKey: 'test-key-123'
+                },
                 defaultTags: ['claude-code', 'auto-generated'],
                 enableSessionConsolidation: true
             },
@@ -207,10 +210,12 @@ function analyzeConversation(conversationData) {
 /**
  * Store session consolidation to memory service
  */
-async function storeSessionMemory(endpoint, apiKey, content, projectContext, analysis) {
+function storeSessionMemory(endpoint, apiKey, content, projectContext, analysis) {
     return new Promise((resolve, reject) => {
         const url = new URL('/api/memories', endpoint);
-        
+        const isHttps = url.protocol === 'https:';
+        const requestModule = isHttps ? https : http;
+
         // Generate tags based on analysis and project context
         const tags = [
             'claude-code-session',
@@ -221,7 +226,7 @@ async function storeSessionMemory(endpoint, apiKey, content, projectContext, ana
             ...projectContext.frameworks.slice(0, 2), // Top 2 frameworks
             `confidence:${Math.round(analysis.confidence * 100)}`
         ].filter(Boolean);
-        
+
         const postData = JSON.stringify({
             content: content,
             tags: tags,
@@ -248,18 +253,22 @@ async function storeSessionMemory(endpoint, apiKey, content, projectContext, ana
 
         const options = {
             hostname: url.hostname,
-            port: url.port || 8443,
+            port: url.port || (isHttps ? 8443 : 8000),
             path: url.pathname,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Content-Length': Buffer.byteLength(postData),
                 'Authorization': `Bearer ${apiKey}`
-            },
-            rejectUnauthorized: false // For self-signed certificates
+            }
         };
 
-        const req = https.request(options, (res) => {
+        // Only set rejectUnauthorized for HTTPS
+        if (isHttps) {
+            options.rejectUnauthorized = false; // For self-signed certificates
+        }
+
+        const req = requestModule.request(options, (res) => {
             let data = '';
             res.on('data', (chunk) => {
                 data += chunk;
@@ -326,11 +335,15 @@ async function onSessionEnd(context) {
         
         // Format session consolidation
         const consolidation = formatSessionConsolidation(analysis, projectContext);
-        
+
+        // Get endpoint and apiKey from new config structure
+        const endpoint = config.memoryService?.http?.endpoint || config.memoryService?.endpoint || 'http://127.0.0.1:8000';
+        const apiKey = config.memoryService?.http?.apiKey || config.memoryService?.apiKey || 'test-key-123';
+
         // Store to memory service
         const result = await storeSessionMemory(
-            config.memoryService.endpoint,
-            config.memoryService.apiKey,
+            endpoint,
+            apiKey,
             consolidation,
             projectContext,
             analysis

@@ -170,7 +170,8 @@ class MemoryClient {
                         'X-API-Key': this.httpConfig.apiKey,
                         'Accept': 'application/json'
                     },
-                    timeout: this.httpConfig.healthCheckTimeout || 3000
+                    timeout: this.httpConfig.healthCheckTimeout || 3000,
+                    rejectUnauthorized: false  // Allow self-signed certificates
                 };
 
                 const protocol = url.protocol === 'https:' ? https : http;
@@ -253,7 +254,8 @@ class MemoryClient {
                     'Content-Type': 'application/json',
                     'Content-Length': Buffer.byteLength(postData),
                     'X-API-Key': this.httpConfig.apiKey
-                }
+                },
+                rejectUnauthorized: false  // Allow self-signed certificates
             };
 
             const protocol = url.protocol === 'https:' ? https : http;

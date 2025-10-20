@@ -138,6 +138,42 @@ function convertMarkdownToANSI(text, options = {}) {
 }
 
 /**
+ * Wrap text to specified width while preserving words and indentation
+ */
+function wrapText(text, maxWidth = 80, indent = 0) {
+    const indentStr = ' '.repeat(indent);
+    const effectiveWidth = maxWidth - indent;
+
+    if (text.length <= effectiveWidth) {
+        return [text];
+    }
+
+    const words = text.split(/(\s+)/); // Keep whitespace in array
+    const lines = [];
+    let currentLine = '';
+
+    for (const word of words) {
+        const testLine = currentLine + word;
+        if (testLine.length <= effectiveWidth) {
+            currentLine = testLine;
+        } else if (currentLine.trim()) {
+            lines.push(currentLine.trim());
+            currentLine = word.trim() + ' ';
+        } else {
+            // Word is longer than line width, force break
+            lines.push(word.substring(0, effectiveWidth));
+            currentLine = word.substring(effectiveWidth);
+        }
+    }
+
+    if (currentLine.trim()) {
+        lines.push(currentLine.trim());
+    }
+
+    return lines.map((line, idx) => (idx === 0 ? line : indentStr + line));
+}
+
+/**
  * Format memories for CLI environment with enhanced visual formatting
  */
 function formatMemoriesForCLI(memories, projectContext, options = {}) {
@@ -151,90 +187,94 @@ function formatMemoriesForCLI(memories, projectContext, options = {}) {
     } = options;
 
     if (!memories || memories.length === 0) {
-        return `${COLORS.CYAN}┌─${COLORS.RESET} 🧠 Memory Context\n${COLORS.CYAN}└─${COLORS.RESET} No relevant memories found for this session.\n`;
+        return `\n${COLORS.CYAN}╭────────────────────────────────────────────────────────────────────────────────╮${COLORS.RESET}\n${COLORS.CYAN}│${COLORS.RESET} 🧠 ${COLORS.BRIGHT}Memory Context${COLORS.RESET}                                                              ${COLORS.CYAN}│${COLORS.RESET}\n${COLORS.CYAN}╰────────────────────────────────────────────────────────────────────────────────╯${COLORS.RESET}\n${COLORS.CYAN}┌─${COLORS.RESET} ${COLORS.GRAY}No relevant memories found for this session.${COLORS.RESET}\n`;
     }
 
     // Filter out null/generic memories and limit number
     const validMemories = [];
     let memoryIndex = 0;
-    
+
     for (const memory of memories) {
         if (validMemories.length >= maxMemories) break;
-        
+
         const formatted = formatMemoryForCLI(memory, memoryIndex, {
             maxContentLength: maxContentLengthCLI,
             includeDate: includeTimestamp
         });
-        
+
         if (formatted) {
             validMemories.push({ memory, formatted });
             memoryIndex++;
         }
     }
 
-    let contextMessage = `${COLORS.CYAN}┌─${COLORS.RESET} 🧠 ${COLORS.BRIGHT}Memory Context${COLORS.RESET}`;
-    
+    // Build header with project info
+    let contextMessage = `\n${COLORS.CYAN}╭────────────────────────────────────────────────────────────────────────────────╮${COLORS.RESET}\n`;
+    contextMessage += `${COLORS.CYAN}│${COLORS.RESET} 🧠 ${COLORS.BRIGHT}Injected Memory Context${COLORS.RESET}                                                      ${COLORS.CYAN}│${COLORS.RESET}\n`;
+    contextMessage += `${COLORS.CYAN}╰────────────────────────────────────────────────────────────────────────────────╯${COLORS.RESET}\n`;
+
     // Add project summary in enhanced CLI format
     if (includeProjectSummary && projectContext) {
         const { name, frameworks, tools, branch, lastCommit } = projectContext;
         const projectInfo = [];
         if (name) projectInfo.push(name);
-        if (frameworks?.length) projectInfo.push(frameworks.join(', '));
-        if (tools?.length) projectInfo.push(tools.join(', '));
-        
-        contextMessage += ` ${COLORS.DIM}→${COLORS.RESET} ${COLORS.BLUE}${projectInfo.join(', ')}${COLORS.RESET}\n`;
-        contextMessage += `${COLORS.CYAN}│${COLORS.RESET}\n`;
-        
+        if (frameworks?.length) projectInfo.push(frameworks.slice(0, 2).join(', '));
+        if (tools?.length) projectInfo.push(tools.slice(0, 2).join(', '));
+
+        contextMessage += `${COLORS.CYAN}┌─${COLORS.RESET} 🧠 ${COLORS.BRIGHT}Memory Context${COLORS.RESET} ${COLORS.DIM}→${COLORS.RESET} ${COLORS.BLUE}${projectInfo.join(', ')}${COLORS.RESET}\n`;
+
+        // Add storage information if available
+        if (storageInfo) {
+            const locationText = storageInfo.location.length > 40 ?
+                storageInfo.location.substring(0, 37) + '...' :
+                storageInfo.location;
+
+            // Show rich storage info if health data is available
+            if (storageInfo.health && storageInfo.health.totalMemories > 0) {
+                const memoryInfo = `${storageInfo.health.totalMemories} memories`;
+                contextMessage += `${COLORS.CYAN}│${COLORS.RESET}\n`;
+                contextMessage += `${COLORS.CYAN}├─${COLORS.RESET} ${storageInfo.icon} ${COLORS.BRIGHT}${storageInfo.description}${COLORS.RESET} ${COLORS.DIM}•${COLORS.RESET} ${COLORS.GRAY}${memoryInfo}${COLORS.RESET}\n`;
+            } else {
+                contextMessage += `${COLORS.CYAN}│${COLORS.RESET}\n`;
+                contextMessage += `${COLORS.CYAN}├─${COLORS.RESET} ${storageInfo.icon} ${COLORS.BRIGHT}${storageInfo.description}${COLORS.RESET}\n`;
+            }
+            contextMessage += `${COLORS.CYAN}├─${COLORS.RESET} 📍 ${COLORS.GRAY}${locationText}${COLORS.RESET}\n`;
+        }
+
+        contextMessage += `${COLORS.CYAN}├─${COLORS.RESET} 📚 ${COLORS.BRIGHT}${validMemories.length} memories loaded${COLORS.RESET}\n`;
+
         if (branch || lastCommit) {
             const gitInfo = [];
             if (branch) gitInfo.push(`${COLORS.GREEN}${branch}${COLORS.RESET}`);
             if (lastCommit) gitInfo.push(`${COLORS.GRAY}${lastCommit.substring(0, 7)}${COLORS.RESET}`);
-            contextMessage += `${COLORS.CYAN}├─${COLORS.RESET} 📂 ${gitInfo.join(' • ')}\n`;
-        }
-        
-        // Add storage information if available
-        if (storageInfo) {
-            const locationText = storageInfo.location.length > 40 ? 
-                storageInfo.location.substring(0, 37) + '...' : 
-                storageInfo.location;
-            
-            // Show rich storage info if health data is available
-            if (storageInfo.health && storageInfo.health.totalMemories > 0) {
-                const memoryInfo = `${storageInfo.health.totalMemories} memories`;
-                const sizeInfo = storageInfo.health.databaseSizeMB > 0 ? `, ${storageInfo.health.databaseSizeMB}MB` : '';
-                contextMessage += `${COLORS.CYAN}├─${COLORS.RESET} ${storageInfo.icon} ${COLORS.BRIGHT}${storageInfo.description}${COLORS.RESET} ${COLORS.GRAY}(${memoryInfo}${sizeInfo})${COLORS.RESET}\n`;
-                contextMessage += `${COLORS.CYAN}├─${COLORS.RESET} 📍 ${COLORS.GRAY}${locationText}${COLORS.RESET}\n`;
-            } else {
-                contextMessage += `${COLORS.CYAN}├─${COLORS.RESET} ${storageInfo.icon} ${COLORS.BRIGHT}${storageInfo.description}${COLORS.RESET} ${COLORS.GRAY}(${locationText})${COLORS.RESET}\n`;
-            }
+            contextMessage += `${COLORS.CYAN}│${COLORS.RESET}\n`;
         }
     } else {
-        contextMessage += '\n';
-        contextMessage += `${COLORS.CYAN}│${COLORS.RESET}\n`;
+        contextMessage += `${COLORS.CYAN}┌─${COLORS.RESET} 🧠 ${COLORS.BRIGHT}Memory Context${COLORS.RESET}\n`;
+        contextMessage += `${COLORS.CYAN}├─${COLORS.RESET} 📚 ${COLORS.BRIGHT}${validMemories.length} memories loaded${COLORS.RESET}\n`;
     }
-    
-    contextMessage += `${COLORS.CYAN}├─${COLORS.RESET} 📚 ${COLORS.BRIGHT}${validMemories.length} memories loaded${COLORS.RESET}\n`;
+
     contextMessage += `${COLORS.CYAN}│${COLORS.RESET}\n`;
-    
+
     if (validMemories.length > 3) {
         // Group by category with enhanced formatting
         const categories = groupMemoriesByCategory(validMemories.map(v => v.memory));
-        
+
         const categoryInfo = {
             gitContext: { title: 'Current Development', icon: '⚡', color: COLORS.BRIGHT },
-            recent: { title: 'Recent Work (Last 7 days)', icon: '🕒', color: COLORS.GREEN },
+            recent: { title: 'Recent Work', icon: '🕒', color: COLORS.GREEN },
             decisions: { title: 'Architecture & Design', icon: '🏗️', color: COLORS.YELLOW },
-            architecture: { title: 'Architecture & Design', icon: '🏗️', color: COLORS.YELLOW }, 
+            architecture: { title: 'Architecture & Design', icon: '🏗️', color: COLORS.YELLOW },
             insights: { title: 'Key Insights', icon: '💡', color: COLORS.MAGENTA },
             bugs: { title: 'Bug Fixes & Issues', icon: '🐛', color: COLORS.GREEN },
             features: { title: 'Features & Implementation', icon: '✨', color: COLORS.BLUE },
             other: { title: 'Additional Context', icon: '📝', color: COLORS.GRAY }
         };
-        
+
         let hasContent = false;
         let categoryCount = 0;
         const totalCategories = Object.values(categories).filter(cat => cat.length > 0).length;
-        
+
         Object.entries(categories).forEach(([category, categoryMemories]) => {
             if (categoryMemories.length > 0) {
                 categoryCount++;
@@ -242,10 +282,10 @@ function formatMemoriesForCLI(memories, projectContext, options = {}) {
                 const categoryIcon = categoryInfo[category]?.icon || '📝';
                 const categoryTitle = categoryInfo[category]?.title || 'Context';
                 const categoryColor = categoryInfo[category]?.color || COLORS.GRAY;
-                
-                contextMessage += `${COLORS.CYAN}${isLast ? '└─' : '├─'}${COLORS.RESET} ${categoryIcon} ${categoryColor}${categoryTitle}${COLORS.RESET}:\n`;
+
+                contextMessage += `${COLORS.CYAN}${isLast ? '└─' : '├─'}${COLORS.RESET} ${categoryIcon} ${categoryColor}${COLORS.BRIGHT}${categoryTitle}${COLORS.RESET}:\n`;
                 hasContent = true;
-                
+
                 categoryMemories.forEach((memory, idx) => {
                     const formatted = formatMemoryForCLI(memory, 0, {
                         maxContentLength: maxContentLengthCategorized,
@@ -254,32 +294,57 @@ function formatMemoriesForCLI(memories, projectContext, options = {}) {
                     });
                     if (formatted) {
                         const isLastMemory = idx === categoryMemories.length - 1;
-                        const connector = isLast ? ' ' : `${COLORS.CYAN}│${COLORS.RESET}`;
-                        const prefix = isLastMemory 
-                            ? `${connector}  ${COLORS.CYAN}└─${COLORS.RESET} ` 
-                            : `${connector}  ${COLORS.CYAN}├─${COLORS.RESET} `;
-                        contextMessage += `${prefix}${formatted}\n`;
+                        const connector = isLast ? '   ' : `${COLORS.CYAN}│${COLORS.RESET}  `;
+                        const prefix = isLastMemory
+                            ? `${connector}${COLORS.CYAN}└─${COLORS.RESET} `
+                            : `${connector}${COLORS.CYAN}├─${COLORS.RESET} `;
+
+                        // Wrap long content lines
+                        const lines = wrapText(formatted, 76, 6);
+                        contextMessage += `${prefix}${lines[0]}\n`;
+
+                        // Additional wrapped lines with proper indentation
+                        for (let i = 1; i < lines.length; i++) {
+                            const continueConnector = isLast ? '      ' : `${COLORS.CYAN}│${COLORS.RESET}     `;
+                            contextMessage += `${continueConnector}${lines[i]}\n`;
+                        }
                     }
                 });
                 if (!isLast) contextMessage += `${COLORS.CYAN}│${COLORS.RESET}\n`;
             }
         });
-        
+
         if (!hasContent) {
             // Fallback to linear format
             validMemories.forEach(({ formatted }, idx) => {
                 const isLast = idx === validMemories.length - 1;
-                contextMessage += `${COLORS.CYAN}${isLast ? '└─' : '├─'}${COLORS.RESET} ${formatted}\n`;
+                const lines = wrapText(formatted, 76, 3);
+                contextMessage += `${COLORS.CYAN}${isLast ? '└─' : '├─'}${COLORS.RESET} ${lines[0]}\n`;
+
+                // Additional wrapped lines
+                for (let i = 1; i < lines.length; i++) {
+                    const connector = isLast ? '   ' : `${COLORS.CYAN}│${COLORS.RESET}  `;
+                    contextMessage += `${connector}${lines[i]}\n`;
+                }
             });
         }
     } else {
         // Simple linear formatting with enhanced visual elements
         validMemories.forEach(({ formatted }, idx) => {
             const isLast = idx === validMemories.length - 1;
-            contextMessage += `${COLORS.CYAN}${isLast ? '└─' : '├─'}${COLORS.RESET} ${formatted}\n`;
+            const lines = wrapText(formatted, 76, 3);
+            contextMessage += `${COLORS.CYAN}${isLast ? '└─' : '├─'}${COLORS.RESET} ${lines[0]}\n`;
+
+            // Additional wrapped lines
+            for (let i = 1; i < lines.length; i++) {
+                const connector = isLast ? '   ' : `${COLORS.CYAN}│${COLORS.RESET}  `;
+                contextMessage += `${connector}${lines[i]}\n`;
+            }
         });
     }
-    
+
+    contextMessage += `\n${COLORS.CYAN}╰────────────────────────────────────────────────────────────────────────────────╯${COLORS.RESET}\n`;
+
     return contextMessage;
 }
 
@@ -343,66 +408,54 @@ function formatMemoryForCLI(memory, index, options = {}) {
 
         // Format date with recency indicators and color
         let dateStr = '';
-        let ageText = '';
         if (includeDate && memory.created_at_iso) {
             const date = new Date(memory.created_at_iso);
             const now = new Date();
             const daysDiff = (now - date) / (1000 * 60 * 60 * 24);
 
-            let recencyIndicator = '';
-            let dateColor = COLORS.GRAY;
-
             if (daysDiff < 1) {
-                recencyIndicator = '🕒 ';
-                dateColor = COLORS.GREEN;
-                dateStr = ` ${dateColor}${recencyIndicator}today${COLORS.RESET}`;
-                ageText = 'today';
+                dateStr = ` ${COLORS.GREEN}🕒 today${COLORS.RESET}`;
             } else if (daysDiff < 2) {
-                recencyIndicator = '📅 ';
-                dateColor = COLORS.GREEN;
-                dateStr = ` ${dateColor}${recencyIndicator}yesterday${COLORS.RESET}`;
-                ageText = 'yesterday';
+                dateStr = ` ${COLORS.GREEN}📅 yesterday${COLORS.RESET}`;
             } else if (daysDiff <= 7) {
-                recencyIndicator = '📅 ';
-                dateColor = COLORS.CYAN;
-                const formattedDate = date.toLocaleDateString('en-US', { weekday: 'short' });
-                dateStr = ` ${dateColor}${recencyIndicator}${formattedDate}${COLORS.RESET}`;
-                ageText = `${Math.floor(daysDiff)}d ago`;
+                const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+                dateStr = ` ${COLORS.CYAN}📅 ${dayName}${COLORS.RESET}`;
             } else if (daysDiff <= 30) {
                 const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                dateStr = ` ${COLORS.GRAY}(${formattedDate})${COLORS.RESET}`;
-                ageText = `${Math.floor(daysDiff)}d ago`;
+                dateStr = ` ${COLORS.DIM}${formattedDate}${COLORS.RESET}`;
             } else {
-                // For old memories, emphasize the age
-                dateStr = ` ${COLORS.DIM}(${Math.floor(daysDiff)}d ago)${COLORS.RESET}`;
-                ageText = `${Math.floor(daysDiff)}d ago`;
+                const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                dateStr = ` ${COLORS.GRAY}(${formattedDate})${COLORS.RESET}`;
             }
         }
 
-        // Color the content based on type
-        let coloredContent = content;
-        if (memory.memory_type === 'decision' || (memory.tags && memory.tags.some(tag => tag.includes('decision')))) {
-            coloredContent = `${COLORS.YELLOW}${content}${COLORS.RESET}`;
-        } else if (memory.memory_type === 'insight') {
-            coloredContent = `${COLORS.MAGENTA}${content}${COLORS.RESET}`;
-        } else if (memory.memory_type === 'bug-fix') {
-            coloredContent = `${COLORS.GREEN}${content}${COLORS.RESET}`;
-        } else if (memory.memory_type === 'feature') {
-            coloredContent = `${COLORS.BLUE}${content}${COLORS.RESET}`;
+        // Determine content color based on memory type and recency
+        let contentColor = '';
+        let contentReset = COLORS.RESET;
+
+        // Prioritize recent memories with green tint
+        if (memory.created_at_iso) {
+            const daysDiff = (new Date() - new Date(memory.created_at_iso)) / (1000 * 60 * 60 * 24);
+            if (daysDiff < 7) {
+                // Recent memory - no special coloring, keep it prominent
+                contentColor = '';
+            }
         }
 
-        // Wrap text for proper tree formatting
-        const wrappedLines = wrapTextForTree(coloredContent, maxLineWidth);
-
-        // Return first line with date, additional lines need tree indentation
-        if (wrappedLines.length === 1) {
-            return `${wrappedLines[0]}${dateStr}`;
-        } else {
-            // Multi-line content: first line gets date, rest get indented
-            return wrappedLines[0] + dateStr + '\n' +
-                   wrappedLines.slice(1).map(line => `     ${line}`).join('\n');
+        // Apply type-based coloring only for non-recent memories
+        if (!contentColor) {
+            if (memory.memory_type === 'decision' || (memory.tags && memory.tags.some(tag => tag.includes('decision')))) {
+                contentColor = COLORS.DIM; // Subtle for decisions
+            } else if (memory.memory_type === 'insight') {
+                contentColor = COLORS.DIM;
+            } else if (memory.memory_type === 'bug-fix') {
+                contentColor = COLORS.DIM;
+            } else if (memory.memory_type === 'feature') {
+                contentColor = COLORS.DIM;
+            }
         }
 
+        return `${contentColor}${content}${contentReset}${dateStr}`;
     } catch (error) {
         return `${COLORS.GRAY}[Error formatting memory: ${error.message}]${COLORS.RESET}`;
     }

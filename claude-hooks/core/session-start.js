@@ -373,7 +373,7 @@ async function executeSessionStart(context) {
         const cleanMode = config.output?.cleanMode === true; // Default to false
         const showMemoryDetails = config.output?.showMemoryDetails === true;
         const showProjectDetails = config.output?.showProjectDetails !== false; // Default to true
-        
+
         if (verbose && !cleanMode) {
             console.log(`${CONSOLE_COLORS.CYAN}🧠 Memory Hook${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Initializing session awareness...`);
         }
@@ -407,7 +407,9 @@ async function executeSessionStart(context) {
         // Detect project context
         const projectContext = await detectProjectContext(context.workingDirectory || process.cwd());
         if (verbose && showProjectDetails && !cleanMode) {
-            console.log(`${CONSOLE_COLORS.BLUE}📂 Project${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.BRIGHT}${projectContext.name}${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.GRAY}(${projectContext.language})${CONSOLE_COLORS.RESET}`);
+            const projectDisplay = `${CONSOLE_COLORS.BRIGHT}${projectContext.name}${CONSOLE_COLORS.RESET}`;
+            const typeDisplay = projectContext.language !== 'Unknown' ? ` ${CONSOLE_COLORS.GRAY}(${projectContext.language})${CONSOLE_COLORS.RESET}` : '';
+            console.log(`${CONSOLE_COLORS.BLUE}📂 Project Detector${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Analyzing ${projectDisplay}${typeDisplay}`);
         }
         
         // Initialize memory client and detect storage backend
