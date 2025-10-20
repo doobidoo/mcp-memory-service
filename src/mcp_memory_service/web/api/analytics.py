@@ -274,15 +274,15 @@ async def get_tag_usage_analytics(
 
         # Get total memories for accurate percentage calculation
         if hasattr(storage, 'get_stats'):
-        try:
-            stats = await storage.get_stats()
-            total_memories = stats.get("total_memories", 0)
+            try:
+                stats = await storage.get_stats()
+                total_memories = stats.get("total_memories", 0)
             except Exception as e:
-        logger.warning(f"Failed to retrieve storage stats: {e}")
-        stats = {}
-        total_memories = 0
+                logger.warning(f"Failed to retrieve storage stats: {e}")
+                stats = {}
+                total_memories = 0
         else:
-        total_memories = 0
+            total_memories = 0
 
         if total_memories == 0:
             # Fallback: calculate from all tag data

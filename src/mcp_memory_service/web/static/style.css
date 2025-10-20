@@ -2270,7 +2270,7 @@ margin-top: 3rem;
     padding: var(--space-1) var(--space-2);
     border: 1px solid var(--neutral-300);
     border-radius: var(--radius-sm);
-    background: white;
+    background: var(--neutral-50);
     color: var(--neutral-700);
     font-size: var(--text-xs);
     cursor: pointer;
@@ -2278,7 +2278,7 @@ margin-top: 3rem;
 }
 
 .tag-action-btn:hover {
-    background: var(--neutral-100);
+    background: var(--neutral-200);
     border-color: var(--neutral-400);
 }
 
@@ -2288,33 +2288,117 @@ margin-top: 3rem;
     border-color: var(--error);
 }
 
-/* Dark mode support for Manage/Analytics */
+/* Dark mode support for Manage/Analytics - Fixed v8.5.5 */
 body.dark-mode .manage-section,
 body.dark-mode .analytics-section {
-    background: var(--neutral-800);
-    color: var(--neutral-100);
+    background: var(--neutral-100) !important;  /* Dark card background */
+    color: var(--neutral-900) !important;  /* Light text */
+}
+
+body.dark-mode .manage-section h2,
+body.dark-mode .analytics-section h2 {
+    color: var(--neutral-900) !important;
 }
 
 body.dark-mode .bulk-op-card,
 body.dark-mode .system-op-card,
 body.dark-mode .chart-card,
 body.dark-mode .report-card {
-    background: var(--neutral-700);
-    border-color: var(--neutral-600);
-    color: var(--neutral-100);
+    background: var(--neutral-50) !important;  /* Darker nested card background */
+    border-color: var(--neutral-200) !important;
+    color: var(--neutral-900) !important;
+}
+
+body.dark-mode .bulk-op-card h3,
+body.dark-mode .system-op-card h3,
+body.dark-mode .chart-card h3,
+body.dark-mode .report-card h3 {
+    color: var(--neutral-900) !important;
+}
+
+body.dark-mode .bulk-op-card p,
+body.dark-mode .system-op-card p,
+body.dark-mode .chart-card p,
+body.dark-mode .report-card p {
+    color: var(--neutral-600) !important;
+}
+
+/* Form controls in Manage/Analytics dark mode */
+body.dark-mode .bulk-op-card input,
+body.dark-mode .bulk-op-card select,
+body.dark-mode .chart-card input,
+body.dark-mode .chart-card select,
+body.dark-mode .manage-section .form-control,
+body.dark-mode .analytics-section .form-control {
+    background: var(--neutral-100) !important;
+    border-color: var(--neutral-200) !important;
+    color: var(--neutral-900) !important;
+}
+
+body.dark-mode .bulk-op-card input:focus,
+body.dark-mode .bulk-op-card select:focus,
+body.dark-mode .chart-card input:focus,
+body.dark-mode .chart-card select:focus {
+    border-color: var(--primary) !important;
+    background: var(--neutral-50) !important;
+}
+
+/* Buttons in Manage/Analytics dark mode */
+body.dark-mode .bulk-op-card .btn,
+body.dark-mode .system-op-card .btn,
+body.dark-mode .chart-card .btn {
+    opacity: 1;
 }
 
 body.dark-mode .metric-card {
-    background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary)) !important;
+    color: white !important;
+}
+
+body.dark-mode .metric-value,
+body.dark-mode .metric-label {
+    color: white !important;
+}
+
+/* Tag management table dark mode */
+body.dark-mode .tag-stats-table {
+    color: var(--neutral-900);
 }
 
 body.dark-mode .tag-stats-table th {
-    background: var(--neutral-700);
-    color: var(--neutral-100);
+    background: var(--neutral-200) !important;
+    color: var(--neutral-900) !important;
 }
 
 body.dark-mode .tag-stats-table td {
-    border-bottom-color: var(--neutral-600);
+    border-bottom-color: var(--neutral-200) !important;
+    color: var(--neutral-900) !important;
+}
+
+body.dark-mode .tag-stats-table .tag-name {
+    color: var(--primary) !important;
+}
+
+body.dark-mode .tag-stats-table .tag-count {
+    color: var(--neutral-900) !important;
+}
+
+/* Tag action buttons dark mode */
+body.dark-mode .tag-action-btn {
+    background: var(--neutral-200) !important;
+    border-color: var(--neutral-300) !important;
+    color: var(--neutral-900) !important;
+}
+
+body.dark-mode .tag-action-btn:hover {
+    background: var(--neutral-300) !important;
+    border-color: var(--neutral-400) !important;
+}
+
+body.dark-mode .tag-action-btn.danger:hover {
+    background: var(--error) !important;
+    color: white !important;
+    border-color: var(--error) !important;
 }
 
 /* Simple Chart Styles */
@@ -2374,28 +2458,37 @@ body.dark-mode .tag-stats-table td {
     color: var(--primary);
 }
 
-/* Dark mode for charts */
+/* Dark mode for charts - Fixed v8.5.5 contrast */
 body.dark-mode .chart-header {
-    color: var(--neutral-100);
+    color: var(--neutral-900) !important;  /* Brightest text for headings */
 }
 
 body.dark-mode .chart-label {
-    color: var(--neutral-300);
+    color: var(--neutral-700) !important;  /* Lighter text for labels */
 }
 
 body.dark-mode .chart-value {
-    color: var(--neutral-100);
+    color: var(--neutral-900) !important;  /* Brightest text for values */
 }
 
 body.dark-mode .chart-bar {
-    background: var(--primary-dark);
+    background: var(--primary) !important;
+}
+
+body.dark-mode .chart-container {
+    color: var(--neutral-700) !important;  /* Loading/placeholder text */
 }
 
 body.dark-mode .tags-list li,
 body.dark-mode .activity-list li {
-    border-bottom-color: var(--neutral-600);
+    border-bottom-color: var(--neutral-200) !important;
+    color: var(--neutral-900) !important;
 }
 
 body.dark-mode .tags-list li strong {
-    color: var(--primary-light);
+    color: var(--primary) !important;
+}
+
+body.dark-mode .activity-list li {
+    color: var(--neutral-700) !important;
 }
