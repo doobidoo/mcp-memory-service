@@ -1977,6 +1977,7 @@ class MemoryDashboard {
                 const option = document.createElement('option');
                 option.value = tagStat.tag;
                 option.textContent = `${tagStat.tag} (${tagStat.count} memories)`;
+                option.dataset.count = tagStat.count;  // Store count in data attribute
                 select.appendChild(option);
             });
         } catch (error) {
@@ -2014,18 +2015,13 @@ class MemoryDashboard {
         html += '<thead><tr>';
         html += '<th>Tag</th>';
         html += '<th>Count</th>';
-        html += '<th>Last Used</th>';
         html += '<th>Actions</th>';
         html += '</tr></thead><tbody>';
 
         data.tags.forEach(tagStat => {
-            const lastUsed = tagStat.last_used ?
-                new Date(tagStat.last_used * 1000).toLocaleDateString() : 'Never';
-
             html += '<tr>';
             html += `<td class="tag-name">${tagStat.tag}</td>`;
             html += `<td class="tag-count">${tagStat.count}</td>`;
-            html += `<td>${lastUsed}</td>`;
             html += '<td class="tag-actions">';
             html += `<button class="tag-action-btn" onclick="app.renameTag('${tagStat.tag}')">Rename</button>`;
             html += `<button class="tag-action-btn danger" onclick="app.deleteTag('${tagStat.tag}', ${tagStat.count})">Delete</button>`;
@@ -2048,10 +2044,9 @@ class MemoryDashboard {
             return;
         }
 
-        // Extract count from option text
+        // Extract count from data attribute
         const option = select.querySelector(`option[value="${tag}"]`);
-        const countMatch = option.textContent.match(/\((\d+) memories\)/);
-        const count = countMatch ? parseInt(countMatch[1]) : 0;
+        const count = parseInt(option.dataset.count, 10) || 0;
 
         if (!await this.confirmBulkOperation(`Delete ${count} memories with tag "${tag}"?`)) {
             return;

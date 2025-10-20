@@ -227,24 +227,15 @@ async def get_tag_statistics(
         if hasattr(storage, 'get_all_tags_with_counts'):
             tag_data = await storage.get_all_tags_with_counts()
 
-            # Enhance with additional stats (this could be optimized)
+            # For now, provide basic tag stats without additional queries
+            # TODO: Implement efficient batch queries in storage layer for last_used and memory_types
             enhanced_tags = []
             for tag_item in tag_data:
-                tag_name = tag_item["tag"]
-
-                # Get recent memories with this tag to find last usage
-                recent_memories = await storage.search_by_tag_chronological([tag_name], limit=1)
-                last_used = recent_memories[0].created_at if recent_memories else None
-
-                # Get memory types for this tag (sample a few memories)
-                sample_memories = await storage.search_by_tag([tag_name], limit=10)
-                memory_types = list(set(m.memory_type for m in sample_memories if m.memory_type))
-
                 enhanced_tags.append(TagStatsResponse(
-                    tag=tag_name,
+                    tag=tag_item["tag"],
                     count=tag_item["count"],
-                    last_used=last_used,
-                    memory_types=memory_types
+                    last_used=None,  # Would need efficient batch query
+                    memory_types=[]  # Would need efficient batch query
                 ))
 
             return TagStatsListResponse(

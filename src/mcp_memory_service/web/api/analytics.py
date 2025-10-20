@@ -126,7 +126,8 @@ async def get_analytics_overview(
         if hasattr(storage, 'get_stats'):
             try:
                 stats = await storage.get_stats()
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to retrieve storage stats: {e}")
                 stats = {}
         else:
             stats = {}
@@ -135,13 +136,14 @@ async def get_analytics_overview(
         week_ago = datetime.now(timezone.utc) - timedelta(days=7)
         week_ago_ts = week_ago.timestamp()
 
-        # This is a simplified calculation - in a real implementation,
-        # we'd need a more efficient way to count memories by date range
+        # TODO: Move date-based counting to storage layer for efficiency
+        # Current implementation is inefficient and may miss data
         memories_this_week = 0
         try:
             recent_memories = await storage.get_recent_memories(n=1000)  # Get recent batch
             memories_this_week = sum(1 for m in recent_memories if m.created_at and m.created_at > week_ago_ts)
-        except:
+        except Exception as e:
+            logger.warning(f"Failed to calculate weekly memories: {e}")
             memories_this_week = 0
 
         # Calculate memories this month
@@ -151,7 +153,8 @@ async def get_analytics_overview(
         try:
             recent_memories = await storage.get_recent_memories(n=2000)  # Get larger batch
             memories_this_month = sum(1 for m in recent_memories if m.created_at and m.created_at > month_ago_ts)
-        except:
+        except Exception as e:
+            logger.warning(f"Failed to calculate monthly memories: {e}")
             memories_this_month = 0
 
         return AnalyticsOverview(
@@ -268,12 +271,16 @@ async def get_tag_usage_analytics(
         else:
             raise HTTPException(status_code=501, detail="Tag analytics not supported by storage backend")
 
+        # Get total memories for accurate percentage calculation
+        total_memories = stats.get("total_memories", 0) if hasattr(storage, 'get_stats') else 0
+        if total_memories == 0:
+            # Fallback: calculate from all tag data
+            all_tags = tag_data.copy()
+            total_memories = sum(tag["count"] for tag in all_tags)
+
         # Sort by count and limit
         tag_data.sort(key=lambda x: x["count"], reverse=True)
         tag_data = tag_data[:limit]
-
-        # Calculate total for percentages
-        total_memories = sum(tag["count"] for tag in tag_data)
 
         # Convert to response format
         tags = []

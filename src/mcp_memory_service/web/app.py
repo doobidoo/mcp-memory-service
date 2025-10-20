@@ -188,12 +188,12 @@ def create_app() -> FastAPI:
     
     # Include API routers
     app.include_router(health_router, prefix="/api", tags=["health"])
-app.include_router(memories_router, prefix="/api", tags=["memories"])
-app.include_router(search_router, prefix="/api", tags=["search"])
-app.include_router(manage_router, prefix="/api/manage", tags=["management"])
-app.include_router(analytics_router, prefix="/api/analytics", tags=["analytics"])
-app.include_router(events_router, prefix="/api", tags=["events"])
-app.include_router(sync_router, prefix="/api", tags=["sync"])
+    app.include_router(memories_router, prefix="/api", tags=["memories"])
+    app.include_router(search_router, prefix="/api", tags=["search"])
+    app.include_router(manage_router, prefix="/api/manage", tags=["management"])
+    app.include_router(analytics_router, prefix="/api/analytics", tags=["analytics"])
+    app.include_router(events_router, prefix="/api", tags=["events"])
+    app.include_router(sync_router, prefix="/api", tags=["sync"])
     
     # Include MCP protocol router
     app.include_router(mcp_router, tags=["mcp-protocol"])
