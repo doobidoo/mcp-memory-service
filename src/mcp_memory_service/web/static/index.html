@@ -346,14 +346,158 @@
                 </div>
             </div>
 
+            <!-- Manage View -->
             <div id="manageView" class="view-container">
-                <h2>Manage Memories</h2>
-                <p>Management tools coming soon...</p>
+                <div class="manage-layout">
+                    <!-- Bulk Operations Section -->
+                    <section class="manage-section">
+                        <h2>🧹 Bulk Operations</h2>
+                        <div class="bulk-ops-grid">
+                            <div class="bulk-op-card">
+                                <h3>Delete by Tag</h3>
+                                <p>Remove all memories with a specific tag</p>
+                                <div class="op-controls">
+                                    <select id="deleteTagSelect" class="form-control">
+                                        <option value="">Select tag...</option>
+                                    </select>
+                                    <button id="deleteByTagBtn" class="btn btn-danger">Delete</button>
+                                </div>
+                            </div>
+
+                            <div class="bulk-op-card">
+                                <h3>Cleanup Duplicates</h3>
+                                <p>Remove duplicate memories based on content</p>
+                                <div class="op-controls">
+                                    <button id="cleanupDuplicatesBtn" class="btn btn-warning">Run Cleanup</button>
+                                </div>
+                            </div>
+
+                            <div class="bulk-op-card">
+                                <h3>Delete by Date</h3>
+                                <p>Remove memories older than a specific date</p>
+                                <div class="op-controls">
+                                    <input type="date" id="deleteDateInput" class="form-control">
+                                    <button id="deleteByDateBtn" class="btn btn-danger">Delete</button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Tag Management Section -->
+                    <section class="manage-section">
+                        <h2>🏷️ Tag Management</h2>
+                        <div id="tagManagementContainer">
+                            <div class="loading-spinner"></div>
+                            <p>Loading tag statistics...</p>
+                        </div>
+                    </section>
+
+                    <!-- System Operations Section -->
+                    <section class="manage-section">
+                        <h2>⚙️ System Maintenance</h2>
+                        <div class="system-ops-grid">
+                            <div class="system-op-card">
+                                <h3>Database Optimization</h3>
+                                <p>Optimize database performance</p>
+                                <button id="optimizeDbBtn" class="btn btn-secondary" disabled>Optimize DB</button>
+                            </div>
+
+                            <div class="system-op-card">
+                                <h3>Rebuild Search Index</h3>
+                                <p>Rebuild search indexes for better performance</p>
+                                <button id="rebuildIndexBtn" class="btn btn-secondary" disabled>Rebuild Index</button>
+                            </div>
+                        </div>
+                    </section>
+                </div>
             </div>
 
+            <!-- Analytics View -->
             <div id="analyticsView" class="view-container">
-                <h2>Analytics Dashboard</h2>
-                <p>Analytics features coming soon...</p>
+                <div class="analytics-layout">
+                    <!-- Key Metrics Cards -->
+                    <section class="analytics-section">
+                        <h2>📊 Key Metrics</h2>
+                        <div class="metrics-grid">
+                            <div class="metric-card">
+                                <div class="metric-value" id="analyticsTotalMemories">-</div>
+                                <div class="metric-label">Total Memories</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value" id="analyticsThisWeek">-</div>
+                                <div class="metric-label">This Week</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value" id="analyticsUniqueTags">-</div>
+                                <div class="metric-label">Unique Tags</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value" id="analyticsDbSize">-</div>
+                                <div class="metric-label">Database Size</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Charts Section -->
+                    <section class="analytics-section">
+                        <h2>📈 Trends & Charts</h2>
+                        <div class="charts-grid">
+                            <div class="chart-card">
+                                <h3>Memory Growth Over Time</h3>
+                                <div class="chart-controls">
+                                    <select id="growthPeriodSelect" class="form-control">
+                                        <option value="week">Last Week</option>
+                                        <option value="month" selected>Last Month</option>
+                                        <option value="quarter">Last Quarter</option>
+                                        <option value="year">Last Year</option>
+                                    </select>
+                                </div>
+                                <div id="memoryGrowthChart" class="chart-container">
+                                    <div class="loading-spinner"></div>
+                                    <p>Loading chart...</p>
+                                </div>
+                            </div>
+
+                            <div class="chart-card">
+                                <h3>Tag Usage Distribution</h3>
+                                <div id="tagUsageChart" class="chart-container">
+                                    <div class="loading-spinner"></div>
+                                    <p>Loading chart...</p>
+                                </div>
+                            </div>
+
+                            <div class="chart-card">
+                                <h3>Memory Types</h3>
+                                <div id="memoryTypesChart" class="chart-container">
+                                    <div class="loading-spinner"></div>
+                                    <p>Loading chart...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Detailed Analytics -->
+                    <section class="analytics-section">
+                        <h2>📋 Detailed Reports</h2>
+                        <div class="reports-grid">
+                            <div class="report-card">
+                                <h3>Top Tags</h3>
+                                <div id="topTagsList" class="report-content">
+                                    <div class="loading-spinner"></div>
+                                    <p>Loading...</p>
+                                </div>
+                            </div>
+
+                            <div class="report-card">
+                                <h3>Recent Activity</h3>
+                                <div id="recentActivityList" class="report-content">
+                                    <div class="loading-spinner"></div>
+                                    <p>Loading...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
             </div>
 
             <!-- API Documentation View -->

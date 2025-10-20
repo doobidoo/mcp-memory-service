@@ -229,6 +229,16 @@ class MemoryDashboard {
             }
         });
 
+        // Manage tab event listeners
+        document.getElementById('deleteByTagBtn')?.addEventListener('click', this.handleBulkDeleteByTag.bind(this));
+        document.getElementById('cleanupDuplicatesBtn')?.addEventListener('click', this.handleCleanupDuplicates.bind(this));
+        document.getElementById('deleteByDateBtn')?.addEventListener('click', this.handleBulkDeleteByDate.bind(this));
+        document.getElementById('optimizeDbBtn')?.addEventListener('click', this.handleOptimizeDatabase.bind(this));
+        document.getElementById('rebuildIndexBtn')?.addEventListener('click', this.handleRebuildIndex.bind(this));
+
+        // Analytics tab event listeners
+        document.getElementById('growthPeriodSelect')?.addEventListener('change', this.handleGrowthPeriodChange.bind(this));
+
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -633,10 +643,10 @@ class MemoryDashboard {
                 await this.loadBrowseData();
                 break;
             case 'manage':
-                // Load management tools
+                await this.loadManageData();
                 break;
             case 'analytics':
-                // Load analytics data
+                await this.loadAnalyticsData();
                 break;
             case 'apiDocs':
                 // API docs view - static content, no additional loading needed
@@ -1927,6 +1937,541 @@ class MemoryDashboard {
         // Close modal and show confirmation
         this.closeModal(document.getElementById('settingsModal'));
         this.showToast('Settings saved successfully', 'success');
+    }
+
+    // ===== MANAGE TAB METHODS =====
+
+    /**
+     * Load manage tab data
+    */
+    async loadManageData() {
+    try {
+            // Load tag statistics for bulk operations
+            await this.loadTagSelectOptions();
+            await this.loadTagManagementStats();
+        } catch (error) {
+            console.error('Failed to load manage data:', error);
+            this.showToast('Failed to load management data', 'error');
+        }
+    }
+
+    /**
+     * Load tag options for bulk delete select
+     */
+    async loadTagSelectOptions() {
+        try {
+            const response = await fetch(`${this.apiBase}/manage/tags/stats`);
+            if (!response.ok) throw new Error('Failed to load tags');
+
+            const data = await response.json();
+            const select = document.getElementById('deleteTagSelect');
+            if (!select) return;
+
+            // Clear existing options except the first
+            while (select.children.length > 1) {
+                select.removeChild(select.lastChild);
+            }
+
+            // Add tag options
+            data.tags.forEach(tagStat => {
+                const option = document.createElement('option');
+                option.value = tagStat.tag;
+                option.textContent = `${tagStat.tag} (${tagStat.count} memories)`;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Failed to load tag options:', error);
+        }
+    }
+
+    /**
+     * Load tag management statistics
+     */
+    async loadTagManagementStats() {
+        const container = document.getElementById('tagManagementContainer');
+        if (!container) return;
+
+        try {
+            const response = await fetch(`${this.apiBase}/manage/tags/stats`);
+            if (!response.ok) throw new Error('Failed to load tag stats');
+
+            const data = await response.json();
+            this.renderTagManagementTable(data);
+        } catch (error) {
+            console.error('Failed to load tag management stats:', error);
+            container.innerHTML = '<p class="error">Failed to load tag statistics</p>';
+        }
+    }
+
+    /**
+     * Render tag management table
+     */
+    renderTagManagementTable(data) {
+        const container = document.getElementById('tagManagementContainer');
+        if (!container) return;
+
+        let html = '<table class="tag-stats-table">';
+        html += '<thead><tr>';
+        html += '<th>Tag</th>';
+        html += '<th>Count</th>';
+        html += '<th>Last Used</th>';
+        html += '<th>Actions</th>';
+        html += '</tr></thead><tbody>';
+
+        data.tags.forEach(tagStat => {
+            const lastUsed = tagStat.last_used ?
+                new Date(tagStat.last_used * 1000).toLocaleDateString() : 'Never';
+
+            html += '<tr>';
+            html += `<td class="tag-name">${tagStat.tag}</td>`;
+            html += `<td class="tag-count">${tagStat.count}</td>`;
+            html += `<td>${lastUsed}</td>`;
+            html += '<td class="tag-actions">';
+            html += `<button class="tag-action-btn" onclick="app.renameTag('${tagStat.tag}')">Rename</button>`;
+            html += `<button class="tag-action-btn danger" onclick="app.deleteTag('${tagStat.tag}', ${tagStat.count})">Delete</button>`;
+            html += '</td></tr>';
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    /**
+     * Handle bulk delete by tag
+     */
+    async handleBulkDeleteByTag() {
+        const select = document.getElementById('deleteTagSelect');
+        const tag = select.value;
+
+        if (!tag) {
+            this.showToast('Please select a tag to delete', 'warning');
+            return;
+        }
+
+        // Extract count from option text
+        const option = select.querySelector(`option[value="${tag}"]`);
+        const countMatch = option.textContent.match(/\((\d+) memories\)/);
+        const count = countMatch ? parseInt(countMatch[1]) : 0;
+
+        if (!await this.confirmBulkOperation(`Delete ${count} memories with tag "${tag}"?`)) {
+            return;
+        }
+
+        this.setLoading(true);
+        try {
+            const response = await fetch(`${this.apiBase}/manage/bulk-delete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tag: tag,
+                    confirm_count: count
+                })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                this.showToast(result.message, 'success');
+                await this.loadManageData(); // Refresh data
+                await this.loadDashboardData(); // Refresh dashboard stats
+            } else {
+                this.showToast(result.message, 'error');
+            }
+        } catch (error) {
+            console.error('Bulk delete failed:', error);
+            this.showToast('Bulk delete operation failed', 'error');
+        } finally {
+            this.setLoading(false);
+        }
+    }
+
+    /**
+     * Handle cleanup duplicates
+     */
+    async handleCleanupDuplicates() {
+        if (!await this.confirmBulkOperation('Remove all duplicate memories?')) {
+            return;
+        }
+
+        this.setLoading(true);
+        try {
+            const response = await fetch(`${this.apiBase}/manage/cleanup-duplicates`, {
+                method: 'POST'
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                this.showToast(result.message, 'success');
+                await this.loadManageData();
+                await this.loadDashboardData();
+            } else {
+                this.showToast(result.message, 'error');
+            }
+        } catch (error) {
+            console.error('Cleanup duplicates failed:', error);
+            this.showToast('Cleanup operation failed', 'error');
+        } finally {
+            this.setLoading(false);
+        }
+    }
+
+    /**
+     * Handle bulk delete by date
+     */
+    async handleBulkDeleteByDate() {
+        const dateInput = document.getElementById('deleteDateInput');
+        const date = dateInput.value;
+
+        if (!date) {
+            this.showToast('Please select a date', 'warning');
+            return;
+        }
+
+        if (!await this.confirmBulkOperation(`Delete all memories before ${date}?`)) {
+            return;
+        }
+
+        this.setLoading(true);
+        try {
+            const response = await fetch(`${this.apiBase}/manage/bulk-delete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    before_date: date
+                })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                this.showToast(result.message, 'success');
+                await this.loadManageData();
+                await this.loadDashboardData();
+            } else {
+                this.showToast(result.message, 'error');
+            }
+        } catch (error) {
+            console.error('Bulk delete by date failed:', error);
+            this.showToast('Bulk delete operation failed', 'error');
+        } finally {
+            this.setLoading(false);
+        }
+    }
+
+    /**
+     * Handle database optimization
+     */
+    async handleOptimizeDatabase() {
+        this.showToast('Database optimization not yet implemented', 'warning');
+    }
+
+    /**
+     * Handle index rebuild
+     */
+    async handleRebuildIndex() {
+        this.showToast('Index rebuild not yet implemented', 'warning');
+    }
+
+    /**
+     * Rename a tag
+     */
+    async renameTag(oldTag) {
+        const newTag = prompt(`Rename tag "${oldTag}" to:`, oldTag);
+        if (!newTag || newTag === oldTag) return;
+
+        this.showToast('Tag renaming not yet implemented', 'warning');
+    }
+
+    /**
+     * Delete a tag
+     */
+    async deleteTag(tag, count) {
+        if (!await this.confirmBulkOperation(`Delete tag "${tag}" from ${count} memories?`)) {
+            return;
+        }
+
+        this.showToast('Tag deletion not yet implemented', 'warning');
+    }
+
+    // ===== ANALYTICS TAB METHODS =====
+
+    /**
+     * Load analytics tab data
+     */
+    async loadAnalyticsData() {
+        try {
+            await Promise.all([
+                this.loadAnalyticsOverview(),
+                this.loadMemoryGrowthChart(),
+                this.loadTagUsageChart(),
+                this.loadMemoryTypesChart(),
+                this.loadTopTagsReport(),
+                this.loadRecentActivityReport()
+            ]);
+        } catch (error) {
+            console.error('Failed to load analytics data:', error);
+            this.showToast('Failed to load analytics data', 'error');
+        }
+    }
+
+    /**
+     * Load analytics overview metrics
+     */
+    async loadAnalyticsOverview() {
+        try {
+            const response = await fetch(`${this.apiBase}/analytics/overview`);
+            if (!response.ok) throw new Error('Failed to load overview');
+
+            const data = await response.json();
+
+            // Update metric cards
+            this.updateElementText('analyticsTotalMemories', data.total_memories || 0);
+            this.updateElementText('analyticsThisWeek', data.memories_this_week || 0);
+            this.updateElementText('analyticsUniqueTags', data.unique_tags || 0);
+            this.updateElementText('analyticsDbSize', data.database_size_mb ?
+                `${data.database_size_mb.toFixed(1)} MB` : 'N/A');
+        } catch (error) {
+            console.error('Failed to load analytics overview:', error);
+        }
+    }
+
+    /**
+     * Load memory growth chart
+     */
+    async loadMemoryGrowthChart() {
+        const container = document.getElementById('memoryGrowthChart');
+        const period = document.getElementById('growthPeriodSelect').value;
+
+        if (!container) return;
+
+        try {
+            const response = await fetch(`${this.apiBase}/analytics/memory-growth?period=${period}`);
+            if (!response.ok) throw new Error('Failed to load growth data');
+
+            const data = await response.json();
+            this.renderMemoryGrowthChart(container, data);
+        } catch (error) {
+            console.error('Failed to load memory growth:', error);
+            container.innerHTML = '<p class="error">Failed to load growth chart</p>';
+        }
+    }
+
+    /**
+     * Render memory growth chart
+     */
+    renderMemoryGrowthChart(container, data) {
+        if (!data.data_points || data.data_points.length === 0) {
+            container.innerHTML = '<p>No growth data available</p>';
+            return;
+        }
+
+        // Simple text-based chart for now (could be enhanced with a charting library)
+        let html = '<div class="simple-chart">';
+        html += '<div class="chart-header">Daily Memory Growth</div>';
+
+        data.data_points.slice(-10).forEach(point => { // Show last 10 days
+            const barWidth = Math.max(point.count * 5, 1); // Scale bars
+            html += `<div class="chart-row">
+                <span class="chart-label">${point.date}</span>
+                <div class="chart-bar" style="width: ${barWidth}px"></div>
+                <span class="chart-value">${point.count}</span>
+            </div>`;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+    /**
+     * Load tag usage chart
+     */
+    async loadTagUsageChart() {
+        const container = document.getElementById('tagUsageChart');
+        if (!container) return;
+
+        try {
+            const response = await fetch(`${this.apiBase}/analytics/tag-usage`);
+            if (!response.ok) throw new Error('Failed to load tag usage');
+
+            const data = await response.json();
+            this.renderTagUsageChart(container, data);
+        } catch (error) {
+            console.error('Failed to load tag usage:', error);
+            container.innerHTML = '<p class="error">Failed to load tag usage chart</p>';
+        }
+    }
+
+    /**
+     * Render tag usage chart
+     */
+    renderTagUsageChart(container, data) {
+        if (!data.tags || data.tags.length === 0) {
+            container.innerHTML = '<p>No tags found</p>';
+            return;
+        }
+
+        let html = '<div class="simple-chart">';
+        html += '<div class="chart-header">Tag Usage Distribution</div>';
+
+        data.tags.slice(0, 10).forEach(tag => { // Top 10 tags
+            const barWidth = Math.max(tag.percentage * 3, 1); // Scale bars
+            html += `<div class="chart-row">
+                <span class="chart-label">${tag.tag}</span>
+                <div class="chart-bar" style="width: ${barWidth}px"></div>
+                <span class="chart-value">${tag.count} (${tag.percentage}%)</span>
+            </div>`;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+    /**
+     * Load memory types chart
+     */
+    async loadMemoryTypesChart() {
+        const container = document.getElementById('memoryTypesChart');
+        if (!container) return;
+
+        try {
+            const response = await fetch(`${this.apiBase}/analytics/memory-types`);
+            if (!response.ok) throw new Error('Failed to load memory types');
+
+            const data = await response.json();
+            this.renderMemoryTypesChart(container, data);
+        } catch (error) {
+            console.error('Failed to load memory types:', error);
+            container.innerHTML = '<p class="error">Failed to load memory types chart</p>';
+        }
+    }
+
+    /**
+     * Render memory types chart
+     */
+    renderMemoryTypesChart(container, data) {
+        if (!data.types || data.types.length === 0) {
+            container.innerHTML = '<p>No memory types found</p>';
+            return;
+        }
+
+        let html = '<div class="simple-chart">';
+        html += '<div class="chart-header">Memory Types</div>';
+
+        data.types.forEach(type => {
+            const barWidth = Math.max(type.percentage * 3, 1); // Scale bars
+            html += `<div class="chart-row">
+                <span class="chart-label">${type.memory_type || 'untyped'}</span>
+                <div class="chart-bar" style="width: ${barWidth}px"></div>
+                <span class="chart-value">${type.count} (${type.percentage}%)</span>
+            </div>`;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+    /**
+     * Load top tags report
+     */
+    async loadTopTagsReport() {
+        const container = document.getElementById('topTagsList');
+        if (!container) return;
+
+        try {
+            const response = await fetch(`${this.apiBase}/analytics/tag-usage`);
+            if (!response.ok) throw new Error('Failed to load top tags');
+
+            const data = await response.json();
+            this.renderTopTagsReport(container, data);
+        } catch (error) {
+            console.error('Failed to load top tags:', error);
+            container.innerHTML = '<p class="error">Failed to load top tags</p>';
+        }
+    }
+
+    /**
+     * Render top tags report
+     */
+    renderTopTagsReport(container, data) {
+        if (!data.tags || data.tags.length === 0) {
+            container.innerHTML = '<p>No tags found</p>';
+            return;
+        }
+
+        let html = '<ul class="tags-list">';
+        data.tags.slice(0, 10).forEach(tag => {
+            html += `<li><strong>${tag.tag}</strong>: ${tag.count} memories (${tag.percentage}%)</li>`;
+        });
+        html += '</ul>';
+
+        container.innerHTML = html;
+    }
+
+    /**
+     * Load recent activity report
+     */
+    async loadRecentActivityReport() {
+        const container = document.getElementById('recentActivityList');
+        if (!container) return;
+
+        try {
+            // Get recent memories
+            const response = await fetch(`${this.apiBase}/memories?page=1&page_size=5`);
+            if (!response.ok) throw new Error('Failed to load recent activity');
+
+            const data = await response.json();
+            this.renderRecentActivityReport(container, data.memories);
+        } catch (error) {
+            console.error('Failed to load recent activity:', error);
+            container.innerHTML = '<p class="error">Failed to load recent activity</p>';
+        }
+    }
+
+    /**
+     * Render recent activity report
+     */
+    renderRecentActivityReport(container, memories) {
+        if (!memories || memories.length === 0) {
+            container.innerHTML = '<p>No recent activity</p>';
+            return;
+        }
+
+        let html = '<ul class="activity-list">';
+        memories.forEach(memory => {
+            const date = memory.created_at_iso ?
+                new Date(memory.created_at_iso).toLocaleDateString() : 'Unknown';
+            const preview = memory.content.substring(0, 50) + (memory.content.length > 50 ? '...' : '');
+            html += `<li><strong>${date}</strong>: ${preview}</li>`;
+        });
+        html += '</ul>';
+
+        container.innerHTML = html;
+    }
+
+    /**
+     * Handle growth period change
+     */
+    async handleGrowthPeriodChange() {
+        await this.loadMemoryGrowthChart();
+    }
+
+    // ===== UTILITY METHODS =====
+
+    /**
+     * Show confirmation dialog for bulk operations
+     */
+    async confirmBulkOperation(message) {
+        return confirm(`⚠️ WARNING: ${message}
+
+This action cannot be undone. Are you sure?`);
+    }
+
+    /**
+     * Update element text content
+     */
+    updateElementText(elementId, text) {
+        const element = document.getElementById(elementId);
+        if (element) {
+            element.textContent = text;
+        }
     }
 
     /**
