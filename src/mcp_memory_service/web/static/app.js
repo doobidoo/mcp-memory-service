@@ -444,9 +444,10 @@ class MemoryDashboard {
             const statusClass = upload.status.toLowerCase();
             const statusText = upload.status.charAt(0).toUpperCase() + upload.status.slice(1);
             const progressPercent = upload.progress || 0;
+            const hasMemories = upload.chunks_stored > 0;
 
             return `
-                <div class="upload-item ${statusClass}">
+                <div class="upload-item ${statusClass}" data-upload-id="${upload.upload_id}">
                     <div class="upload-info">
                         <div class="upload-filename">${this.escapeHtml(upload.filename)}</div>
                         <div class="upload-meta">
@@ -460,10 +461,32 @@ class MemoryDashboard {
                             </div>
                         ` : ''}
                     </div>
-                    <div class="upload-status ${statusClass}">
-                        <span>${statusText}</span>
-                        ${upload.errors && upload.errors.length > 0 ? `
-                            <span title="${this.escapeHtml(upload.errors.join('; '))}">⚠️</span>
+                    <div class="upload-actions-container">
+                        <div class="upload-status ${statusClass}">
+                            <span>${statusText}</span>
+                            ${upload.errors && upload.errors.length > 0 ? `
+                                <span title="${this.escapeHtml(upload.errors.join('; '))}">⚠️</span>
+                            ` : ''}
+                        </div>
+                        ${upload.status === 'completed' && hasMemories ? `
+                            <div class="upload-actions">
+                                <button class="btn-icon btn-view-memory"
+                                        onclick="app.viewDocumentMemory('${upload.upload_id}')"
+                                        title="View memory chunks">
+                                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+                                    </svg>
+                                    <span>View</span>
+                                </button>
+                                <button class="btn-icon btn-remove"
+                                        onclick="app.removeDocument('${upload.upload_id}', '${this.escapeHtml(upload.filename)}')"
+                                        title="Remove document and memories">
+                                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                                    </svg>
+                                    <span>Remove</span>
+                                </button>
+                            </div>
                         ` : ''}
                     </div>
                 </div>
@@ -537,6 +560,40 @@ class MemoryDashboard {
         if (uploadBtn) {
             uploadBtn.addEventListener('click', () => {
                 this.handleDocumentUpload();
+            });
+        }
+
+        // Document search button
+        const docSearchBtn = document.getElementById('docSearchBtn');
+        const docSearchInput = document.getElementById('docSearchInput');
+        if (docSearchBtn && docSearchInput) {
+            docSearchBtn.addEventListener('click', () => {
+                const query = docSearchInput.value.trim();
+                if (query) {
+                    this.searchDocumentContent(query);
+                } else {
+                    this.showToast('Please enter a search query', 'warning');
+                }
+            });
+
+            // Enter key to search
+            docSearchInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    const query = docSearchInput.value.trim();
+                    if (query) {
+                        this.searchDocumentContent(query);
+                    }
+                }
+            });
+        }
+
+        // Close modal when clicking outside
+        const memoryViewerModal = document.getElementById('memoryViewerModal');
+        if (memoryViewerModal) {
+            memoryViewerModal.addEventListener('click', (e) => {
+                if (e.target === memoryViewerModal) {
+                    this.closeMemoryViewer();
+                }
             });
         }
     }
@@ -2109,6 +2166,173 @@ class MemoryDashboard {
             } else {
                 indicator.classList.add('hidden');
             }
+        }
+    }
+
+    /**
+     * View document memory chunks
+     */
+    async viewDocumentMemory(uploadId) {
+        try {
+            this.setLoading(true);
+            const response = await this.apiCall(`/documents/search-content/${uploadId}`);
+
+            if (response.status === 'success' || response.status === 'partial') {
+                // Show modal
+                const modal = document.getElementById('memoryViewerModal');
+                const filename = document.getElementById('memoryViewerFilename');
+                const stats = document.getElementById('memoryViewerStats');
+                const chunksList = document.getElementById('memoryChunksList');
+
+                filename.textContent = response.filename || 'Document';
+                stats.textContent = `${response.total_found} chunk${response.total_found !== 1 ? 's' : ''} found`;
+
+                // Render chunks
+                if (response.memories && response.memories.length > 0) {
+                    const chunksHtml = response.memories.map((memory, index) => {
+                        const chunkIndex = memory.chunk_index !== undefined ? memory.chunk_index : index;
+                        const page = memory.page ? ` • Page ${memory.page}` : '';
+                        const contentPreview = memory.content.length > 300
+                            ? memory.content.substring(0, 300) + '...'
+                            : memory.content;
+
+                        return `
+                            <div class="memory-chunk-item">
+                                <div class="chunk-header">
+                                    <span class="chunk-number">Chunk ${chunkIndex + 1}${page}</span>
+                                    <span class="chunk-hash" title="${memory.content_hash}">${memory.content_hash.substring(0, 12)}...</span>
+                                </div>
+                                <div class="chunk-content">${this.escapeHtml(contentPreview)}</div>
+                                <div class="chunk-tags">
+                                    ${memory.tags.map(tag => `<span class="tag">${this.escapeHtml(tag)}</span>`).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+
+                    chunksList.innerHTML = chunksHtml;
+                } else {
+                    chunksList.innerHTML = '<p class="text-muted">No memory chunks found for this document.</p>';
+                }
+
+                modal.style.display = 'flex';
+
+                if (response.status === 'partial') {
+                    this.showToast(`Found ${response.total_found} chunks (partial results)`, 'warning');
+                }
+            } else {
+                this.showToast('Failed to load document memories', 'error');
+            }
+        } catch (error) {
+            console.error('Error viewing document memory:', error);
+            this.showToast('Error loading document memories', 'error');
+        } finally {
+            this.setLoading(false);
+        }
+    }
+
+    /**
+     * Close memory viewer modal
+     */
+    closeMemoryViewer() {
+        const modal = document.getElementById('memoryViewerModal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
+
+    /**
+     * Remove document and its memories
+     */
+    async removeDocument(uploadId, filename) {
+        if (!confirm(`Remove "${filename}" and all its memory chunks?\n\nThis action cannot be undone.`)) {
+            return;
+        }
+
+        try {
+            this.setLoading(true);
+            const response = await this.apiCall(`/documents/remove/${uploadId}`, {
+                method: 'DELETE'
+            });
+
+            if (response.status === 'success') {
+                this.showToast(`Removed "${filename}" (${response.memories_deleted} memories deleted)`, 'success');
+                // Refresh upload history
+                await this.loadUploadHistory();
+            } else {
+                this.showToast('Failed to remove document', 'error');
+            }
+        } catch (error) {
+            console.error('Error removing document:', error);
+            this.showToast('Error removing document', 'error');
+        } finally {
+            this.setLoading(false);
+        }
+    }
+
+    /**
+     * Search document content
+     */
+    async searchDocumentContent(query) {
+        try {
+            this.setLoading(true);
+            const resultsContainer = document.getElementById('docSearchResults');
+            const resultsList = document.getElementById('docSearchResultsList');
+            const resultsCount = document.getElementById('docSearchCount');
+
+            // Use the regular search endpoint but filter for document memories
+            const response = await this.apiCall('/search', {
+                method: 'POST',
+                body: JSON.stringify({
+                    query: query,
+                    limit: 20
+                })
+            });
+
+            if (response.results) {
+                // Filter results to only show document-type memories
+                const documentResults = response.results.filter(r =>
+                    r.memory_type === 'document' || r.tags.some(tag => tag.startsWith('upload_id:'))
+                );
+
+                resultsCount.textContent = `${documentResults.length} result${documentResults.length !== 1 ? 's' : ''}`;
+
+                if (documentResults.length > 0) {
+                    const resultsHtml = documentResults.map(result => {
+                        const uploadIdTag = result.tags.find(tag => tag.startsWith('upload_id:'));
+                        const sourceFile = result.metadata?.source_file || 'Unknown file';
+                        const contentPreview = result.content.length > 200
+                            ? result.content.substring(0, 200) + '...'
+                            : result.content;
+
+                        return `
+                            <div class="search-result-item">
+                                <div class="result-header">
+                                    <strong>${this.escapeHtml(sourceFile)}</strong>
+                                    <span class="similarity-score">${Math.round(result.similarity * 100)}% match</span>
+                                </div>
+                                <div class="result-content">${this.escapeHtml(contentPreview)}</div>
+                                <div class="result-tags">
+                                    ${result.tags.slice(0, 5).map(tag => `<span class="tag">${this.escapeHtml(tag)}</span>`).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+
+                    resultsList.innerHTML = resultsHtml;
+                } else {
+                    resultsList.innerHTML = '<p class="text-muted">No matching document content found. Try different search terms.</p>';
+                }
+
+                resultsContainer.style.display = 'block';
+            } else {
+                this.showToast('Search failed', 'error');
+            }
+        } catch (error) {
+            console.error('Error searching documents:', error);
+            this.showToast('Error performing search', 'error');
+        } finally {
+            this.setLoading(false);
         }
     }
 

@@ -394,6 +394,28 @@
                             <p>Loading upload history...</p>
                         </div>
                     </section>
+
+                    <!-- Document Content Search Section -->
+                    <section class="documents-section">
+                        <h2>🔍 Search Ingested Content</h2>
+                        <p class="section-description">Search within your uploaded documents to verify content is indexed</p>
+                        <div class="doc-search-container">
+                            <input type="text"
+                                   id="docSearchInput"
+                                   class="search-input"
+                                   placeholder="Search for content within ingested documents...">
+                            <button id="docSearchBtn" class="btn btn-primary">Search Documents</button>
+                        </div>
+                        <div id="docSearchResults" class="doc-search-results" style="display: none;">
+                            <div class="search-results-header">
+                                <h3>Search Results</h3>
+                                <span id="docSearchCount" class="results-count">0 results</span>
+                            </div>
+                            <div id="docSearchResultsList" class="search-results-list">
+                                <!-- Results will be populated here -->
+                            </div>
+                        </div>
+                    </section>
                 </div>
             </div>
 
@@ -906,6 +928,30 @@
     <div id="connectionStatus" class="connection-status">
         <div class="status-indicator"></div>
         <span class="status-text">Connected</span>
+    </div>
+
+    <!-- Memory Viewer Modal -->
+    <div id="memoryViewerModal" class="modal" style="display: none;">
+        <div class="modal-content memory-viewer-content">
+            <div class="modal-header">
+                <h2>📝 Document Memory Chunks</h2>
+                <button class="modal-close" onclick="app.closeMemoryViewer()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="document-info">
+                    <h3 id="memoryViewerFilename">Loading...</h3>
+                    <p id="memoryViewerStats" class="text-muted">0 chunks found</p>
+                </div>
+                <div class="memory-chunks-container">
+                    <div id="memoryChunksList" class="memory-chunks-list">
+                        <!-- Chunks will be populated here -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="app.closeMemoryViewer()">Close</button>
+            </div>
+        </div>
     </div>
 
     <script src="/static/app.js"></script>
