@@ -96,10 +96,16 @@
                     Search
                 </button>
                 <button class="nav-item" data-view="browse">
+                <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/>
+                </svg>
+                Browse
+                </button>
+                <button class="nav-item" data-view="documents">
                     <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/>
+                        <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
                     </svg>
-                    Browse
+                    Documents
                 </button>
                 <button class="nav-item" data-view="manage">
                     <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
@@ -319,6 +325,75 @@
                             <!-- Dynamic search results will be loaded here -->
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Documents View -->
+            <div id="documentsView" class="view-container">
+                <div class="documents-layout">
+                    <!-- Document Upload Section -->
+                    <section class="documents-section">
+                        <h2>📄 Document Ingestion</h2>
+                        <div class="upload-area">
+                            <div id="dropZone" class="drop-zone">
+                                <div class="drop-zone-content">
+                                    <svg width="48" height="48" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                                    </svg>
+                                    <h3>Drag & drop files here</h3>
+                                    <p>or <button id="fileSelectBtn" class="link-button">browse to select files</button></p>
+                                    <p class="supported-formats">Supported formats: PDF, DOCX, PPTX, TXT, MD, JSON</p>
+                                    <input type="file" id="fileInput" multiple accept=".pdf,.docx,.pptx,.txt,.md,.json" style="display: none;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Upload Configuration -->
+                        <div class="upload-config">
+                            <div class="config-section">
+                                <label for="docTags">Tags (comma-separated)</label>
+                                <input type="text" id="docTags" placeholder="e.g., documentation, reference, manual" class="form-control">
+                            </div>
+                            <div class="config-row">
+                                <div class="config-section">
+                                    <label for="chunkSize">Chunk Size: <span id="chunkSizeValue">1000</span> chars</label>
+                                    <input type="range" id="chunkSize" min="500" max="2000" value="1000" step="100" class="form-control">
+                                </div>
+                                <div class="config-section">
+                                    <label for="chunkOverlap">Overlap: <span id="chunkOverlapValue">200</span> chars</label>
+                                    <input type="range" id="chunkOverlap" min="0" max="500" value="200" step="50" class="form-control">
+                                </div>
+                            </div>
+                            <div class="config-section">
+                                <label for="memoryType">Memory Type</label>
+                                <select id="memoryType" class="form-control">
+                                    <option value="document">Document</option>
+                                    <option value="reference">Reference</option>
+                                    <option value="knowledge">Knowledge</option>
+                                    <option value="note">Note</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Upload Button -->
+                        <div class="upload-actions">
+                            <button id="uploadBtn" class="btn btn-primary" disabled>
+                                <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                                </svg>
+                                Upload & Ingest
+                            </button>
+                        </div>
+                    </section>
+
+                    <!-- Upload Queue/History Section -->
+                    <section class="documents-section">
+                        <h2>📊 Upload History</h2>
+                        <div id="uploadHistory" class="upload-history">
+                            <div class="loading-spinner"></div>
+                            <p>Loading upload history...</p>
+                        </div>
+                    </section>
                 </div>
             </div>
 

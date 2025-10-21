@@ -72,6 +72,9 @@ class MemoryDashboard {
             previewLines: 3
         };
 
+        // Documents upload state
+        this.selectedFiles = [];
+
         // Bind methods
         this.handleSearch = this.handleSearch.bind(this);
         this.handleQuickSearch = this.handleQuickSearch.bind(this);
@@ -384,6 +387,398 @@ class MemoryDashboard {
     }
 
     /**
+     * Load documents view data
+     */
+    async loadDocumentsData() {
+        this.setLoading(true);
+        try {
+            // Load upload history
+            await this.loadUploadHistory();
+            // Setup document upload event listeners
+            this.setupDocumentsEventListeners();
+        } catch (error) {
+            console.error('Error loading documents data:', error);
+            this.showToast('Failed to load documents data', 'error');
+        } finally {
+            this.setLoading(false);
+        }
+    }
+
+    /**
+     * Load upload history from API
+     */
+    async loadUploadHistory() {
+        console.log('Loading upload history...');
+        try {
+            const historyResponse = await this.apiCall('/documents/history');
+            console.log('Upload history response:', historyResponse);
+            if (historyResponse.uploads) {
+                this.renderUploadHistory(historyResponse.uploads);
+            } else {
+                console.warn('No uploads property in response');
+                this.renderUploadHistory([]);
+            }
+        } catch (error) {
+            console.error('Error loading upload history:', error);
+            // Show a message in the history container instead of just logging
+            const historyContainer = document.getElementById('uploadHistory');
+            if (historyContainer) {
+                historyContainer.innerHTML = '<p style="text-align: center; color: var(--error);">Failed to load upload history. Please check the console for details.</p>';
+            }
+        }
+    }
+
+    /**
+     * Render upload history
+     */
+    renderUploadHistory(uploads) {
+        const historyContainer = document.getElementById('uploadHistory');
+        if (!historyContainer) return;
+
+        if (uploads.length === 0) {
+            historyContainer.innerHTML = '<p style="text-align: center; color: var(--neutral-500);">No uploads yet. Start by uploading some documents!</p>';
+            return;
+        }
+
+        const historyHtml = uploads.map(upload => {
+            const statusClass = upload.status.toLowerCase();
+            const statusText = upload.status.charAt(0).toUpperCase() + upload.status.slice(1);
+            const progressPercent = upload.progress || 0;
+
+            return `
+                <div class="upload-item ${statusClass}">
+                    <div class="upload-info">
+                        <div class="upload-filename">${this.escapeHtml(upload.filename)}</div>
+                        <div class="upload-meta">
+                            ${upload.chunks_stored || 0} chunks stored •
+                            ${(upload.file_size / 1024).toFixed(1)} KB •
+                            ${new Date(upload.created_at).toLocaleString()}
+                        </div>
+                        ${upload.status === 'processing' ? `
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${progressPercent}%"></div>
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div class="upload-status ${statusClass}">
+                        <span>${statusText}</span>
+                        ${upload.errors && upload.errors.length > 0 ? `
+                            <span title="${this.escapeHtml(upload.errors.join('; '))}">⚠️</span>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        historyContainer.innerHTML = historyHtml;
+    }
+
+    /**
+     * Setup event listeners for documents view
+     */
+    setupDocumentsEventListeners() {
+        // File selection buttons
+        const fileSelectBtn = document.getElementById('fileSelectBtn');
+        const fileInput = document.getElementById('fileInput');
+
+        if (fileSelectBtn && fileInput) {
+            fileSelectBtn.addEventListener('click', () => {
+                fileInput.click();
+            });
+
+            fileInput.addEventListener('change', (e) => {
+                this.handleFileSelection(e.target.files);
+            });
+        }
+
+        // Drag and drop
+        const dropZone = document.getElementById('dropZone');
+        if (dropZone) {
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('drag-over');
+            });
+
+            dropZone.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('drag-over');
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('drag-over');
+                const files = e.dataTransfer.files;
+                this.handleFileSelection(files);
+            });
+        }
+
+        // Configuration controls
+        const chunkSizeInput = document.getElementById('chunkSize');
+        const chunkOverlapInput = document.getElementById('chunkOverlap');
+        const chunkSizeValue = document.getElementById('chunkSizeValue');
+        const chunkOverlapValue = document.getElementById('chunkOverlapValue');
+
+        if (chunkSizeInput && chunkSizeValue) {
+            chunkSizeInput.addEventListener('input', (e) => {
+                chunkSizeValue.textContent = e.target.value;
+                this.updateUploadButton();
+            });
+        }
+
+        if (chunkOverlapInput && chunkOverlapValue) {
+            chunkOverlapInput.addEventListener('input', (e) => {
+                chunkOverlapValue.textContent = e.target.value;
+                this.updateUploadButton();
+            });
+        }
+
+        // Upload button
+        const uploadBtn = document.getElementById('uploadBtn');
+        if (uploadBtn) {
+            uploadBtn.addEventListener('click', () => {
+                this.handleDocumentUpload();
+            });
+        }
+    }
+
+    /**
+     * Handle file selection from input or drag-drop
+     */
+    handleFileSelection(files) {
+        if (!files || files.length === 0) return;
+
+        this.selectedFiles = Array.from(files);
+        this.updateUploadButton();
+
+        // Show file preview in drop zone
+        const dropZone = document.getElementById('dropZone');
+        if (dropZone) {
+            const fileNames = this.selectedFiles.map(f => f.name).join(', ');
+            const content = dropZone.querySelector('.drop-zone-content');
+            if (content) {
+                content.innerHTML = `
+                    <svg width="48" height="48" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                    </svg>
+                    <h3>${files.length} file${files.length > 1 ? 's' : ''} selected</h3>
+                    <p>${fileNames}</p>
+                    <input type="file" id="fileInput" multiple accept=".pdf,.docx,.pptx,.txt,.md,.json" style="display: none;">
+                `;
+            }
+        }
+    }
+
+    /**
+     * Update upload button state based on selections
+     */
+    updateUploadButton() {
+        const uploadBtn = document.getElementById('uploadBtn');
+        const hasFiles = this.selectedFiles && this.selectedFiles.length > 0;
+
+        if (uploadBtn) {
+            uploadBtn.disabled = !hasFiles;
+            uploadBtn.textContent = hasFiles ?
+                `Upload & Ingest ${this.selectedFiles.length} file${this.selectedFiles.length > 1 ? 's' : ''}` :
+                'Upload & Ingest';
+        }
+    }
+
+    /**
+     * Handle document upload
+     */
+    async handleDocumentUpload() {
+        if (!this.selectedFiles || this.selectedFiles.length === 0) {
+            this.showToast('No files selected', 'error');
+            return;
+        }
+
+        const tags = document.getElementById('docTags')?.value || '';
+        const chunkSize = document.getElementById('chunkSize')?.value || 1000;
+        const chunkOverlap = document.getElementById('chunkOverlap')?.value || 200;
+        const memoryType = document.getElementById('memoryType')?.value || 'document';
+
+        try {
+            this.setLoading(true);
+
+            if (this.selectedFiles.length === 1) {
+                // Single file upload
+                await this.uploadSingleDocument(this.selectedFiles[0], {
+                    tags,
+                    chunk_size: parseInt(chunkSize),
+                    chunk_overlap: parseInt(chunkOverlap),
+                    memory_type: memoryType
+                });
+            } else {
+                // Batch upload
+                await this.uploadBatchDocuments(this.selectedFiles, {
+                    tags,
+                    chunk_size: parseInt(chunkSize),
+                    chunk_overlap: parseInt(chunkOverlap),
+                    memory_type: memoryType
+                });
+            }
+
+            // Clear selection and reload history
+            this.selectedFiles = [];
+            this.updateUploadButton();
+            await this.loadUploadHistory();
+
+            // Reset drop zone
+            const dropZone = document.getElementById('dropZone');
+            if (dropZone) {
+                const content = dropZone.querySelector('.drop-zone-content');
+                if (content) {
+                    content.innerHTML = `
+                        <svg width="48" height="48" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                        </svg>
+                        <h3>Drag & drop files here</h3>
+                        <p>or <button id="fileSelectBtn" class="link-button">browse to select files</button></p>
+                        <p class="supported-formats">Supported formats: PDF, DOCX, PPTX, TXT, MD, JSON</p>
+                        <input type="file" id="fileInput" multiple accept=".pdf,.docx,.pptx,.txt,.md,.json" style="display: none;">
+                    `;
+                }
+                // Re-setup event listeners for the new elements
+                this.setupDocumentsEventListeners();
+            }
+
+        } catch (error) {
+            console.error('Upload error:', error);
+            this.showToast('Upload failed: ' + error.message, 'error');
+        } finally {
+            this.setLoading(false);
+        }
+    }
+
+    /**
+     * Upload single document
+     */
+    async uploadSingleDocument(file, config) {
+        console.log(`Uploading file: ${file.name}, size: ${file.size} bytes`);
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('tags', config.tags);
+        formData.append('chunk_size', config.chunk_size.toString());
+        formData.append('chunk_overlap', config.chunk_overlap.toString());
+        formData.append('memory_type', config.memory_type);
+
+        const response = await fetch(`${this.apiBase}/documents/upload`, {
+            method: 'POST',
+            body: formData
+        });
+
+        console.log(`Upload response status: ${response.status}`);
+
+        if (!response.ok) {
+            let errorMessage = `Upload failed with status ${response.status}`;
+            try {
+                const error = await response.json();
+                console.error('Upload error details:', error);
+                errorMessage = error.detail || error.message || errorMessage;
+            } catch (e) {
+                console.error('Could not parse error response:', e);
+                try {
+                    const errorText = await response.text();
+                    console.error('Error response text:', errorText);
+                    errorMessage = errorText || errorMessage;
+                } catch (e2) {
+                    console.error('Could not read error response:', e2);
+                }
+            }
+            throw new Error(errorMessage);
+        }
+
+        const result = await response.json();
+        console.log('Upload result:', result);
+        this.showToast(`Upload started for ${file.name}`, 'success');
+
+        // Monitor progress if we have an upload ID
+        if (result.upload_id) {
+            this.monitorUploadProgress(result.upload_id);
+        }
+
+        return result;
+    }
+
+    /**
+     * Upload batch documents
+     */
+    async uploadBatchDocuments(files, config) {
+        const formData = new FormData();
+        files.forEach(file => {
+            formData.append('files', file);
+        });
+        formData.append('tags', config.tags);
+        formData.append('chunk_size', config.chunk_size.toString());
+        formData.append('chunk_overlap', config.chunk_overlap.toString());
+        formData.append('memory_type', config.memory_type);
+
+        const response = await fetch(`${this.apiBase}/documents/batch-upload`, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Batch upload failed');
+        }
+
+        const result = await response.json();
+        this.showToast(`Batch upload started for ${files.length} files`, 'success');
+
+        // Monitor progress if we have an upload ID
+        if (result.upload_id) {
+            this.monitorUploadProgress(result.upload_id);
+        }
+
+        return result;
+    }
+
+    /**
+     * Monitor upload progress by polling status endpoint
+     */
+    monitorUploadProgress(uploadId) {
+        const pollStatus = async () => {
+            try {
+                const statusResponse = await this.apiCall(`/documents/status/${uploadId}`);
+                this.updateUploadProgress(uploadId, statusResponse);
+
+                if (statusResponse.progress >= 100 || statusResponse.status === 'completed' || statusResponse.status === 'failed') {
+                    // Upload completed, refresh history
+                    this.loadUploadHistory();
+                } else {
+                    // Continue polling
+                    setTimeout(pollStatus, 2000); // Poll every 2 seconds
+                }
+            } catch (error) {
+                // If polling fails, try again with longer interval
+                setTimeout(pollStatus, 5000);
+            }
+        };
+
+        // Start polling after a short delay
+        setTimeout(pollStatus, 1000);
+    }
+
+    /**
+     * Update upload progress display
+     */
+    updateUploadProgress(uploadId, statusData) {
+        // Find the upload item in history and update it
+        const historyContainer = document.getElementById('uploadHistory');
+        if (!historyContainer) return;
+
+        const uploadItems = historyContainer.querySelectorAll('.upload-item');
+        uploadItems.forEach(item => {
+            const filename = item.querySelector('.upload-filename');
+            if (filename && filename.textContent.includes(uploadId)) {
+                // This is a simplified update - in practice you'd match by upload ID
+                this.loadUploadHistory(); // For now, just refresh the entire history
+            }
+        });
+    }
+
+    /**
      * Check hybrid backend sync status
      */
     async checkSyncStatus() {
@@ -641,6 +1036,9 @@ class MemoryDashboard {
                 break;
             case 'browse':
                 await this.loadBrowseData();
+                break;
+            case 'documents':
+                await this.loadDocumentsData();
                 break;
             case 'manage':
                 await this.loadManageData();
