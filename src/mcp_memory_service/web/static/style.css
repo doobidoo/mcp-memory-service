@@ -714,6 +714,11 @@ h3 { font-size: var(--text-xl); }
     margin-bottom: var(--space-3);
     white-space: pre-wrap;
     word-break: break-word;
+    max-height: 400px;
+    overflow-y: auto;
+    padding: var(--space-3);
+    background: white;
+    border-radius: var(--radius-sm);
 }
 
 .chunk-tags {
@@ -3292,13 +3297,6 @@ body.dark-mode .activity-list li {
     color: var(--neutral-500);
 }
 
-.chunk-content {
-    color: var(--neutral-700);
-    line-height: 1.6;
-    margin-bottom: var(--space-3);
-    white-space: pre-wrap;
-}
-
 .chunk-tags {
     display: flex;
     gap: var(--space-2);
@@ -3327,9 +3325,8 @@ body.dark-mode .memory-viewer-content {
 }
 
 body.dark-mode .section-description,
-body.dark-mode .result-content,
-body.dark-mode .chunk-content {
-    color: var(--neutral-700);
+body.dark-mode .result-content {
+    color: var(--neutral-300);
 }
 
 /* Responsive Adjustments */
