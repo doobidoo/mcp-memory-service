@@ -756,8 +756,10 @@ async def search_document_content(upload_id: str, limit: int = 10):
         upload_tag = f"upload_id:{upload_id}"
         logger.info(f"Searching for memories with tag: {upload_tag}")
 
-        # Use tag search
-        memories = await storage.search_by_tags([upload_tag], limit=limit)
+        # Use tag search (search_by_tags doesn't support limit parameter)
+        all_memories = await storage.search_by_tags([upload_tag])
+        # Apply limit after retrieval
+        memories = all_memories[:limit] if limit else all_memories
 
         # Format results
         results = []
