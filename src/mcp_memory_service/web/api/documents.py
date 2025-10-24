@@ -99,11 +99,6 @@ async def upload_document(
     """
     Upload and ingest a single document.
 
-    Uses FastAPI BackgroundTasks for proper async processing.
-    """
-    """
-    Upload and ingest a single document.
-
     Args:
         file: The document file to upload
         tags: Comma-separated list of tags
@@ -113,6 +108,8 @@ async def upload_document(
 
     Returns:
         Upload session information with ID for tracking
+
+    Uses FastAPI BackgroundTasks for proper async processing.
     """
     logger.info(f"🚀 Document upload endpoint called with file: {file.filename}")
     try:
@@ -320,131 +317,6 @@ async def get_upload_history():
         logger.error(f"Error in get_upload_history: {e}")
         # Return empty history on error so the UI doesn't break
         return {"uploads": []}
-
-async def process_document_upload(
-    upload_id: str,
-    file_path: str,
-    tags: List[str],
-    chunk_size: int,
-    chunk_overlap: int,
-    memory_type: str
-):
-    """Background task to process a single document upload."""
-    logger.info(f"🎯 BACKGROUND TASK STARTED for upload {upload_id} - processing file: {file_path}")
-    import asyncio
-    await asyncio.sleep(0.1)  # Small delay to ensure task is running
-    try:
-        logger.info(f"Starting document processing: {upload_id}")
-        session = upload_sessions[upload_id]
-        session.status = "processing"
-
-        # Get storage (skip initialization check for testing)
-        try:
-            storage = get_storage()
-            logger.info("Storage available for processing")
-        except:
-            logger.error("Storage not available, skipping storage operations")
-            # Create a mock storage for testing
-            class MockStorage:
-                async def store(self, memory):
-                    logger.info(f"Mock storage: would store memory {memory.content_hash}")
-                    return True, "Mock stored successfully"
-            storage = MockStorage()
-            logger.info("Using mock storage for testing")
-
-        # Get appropriate loader
-        file_path_obj = Path(file_path)
-        loader = get_loader_for_file(file_path_obj)
-        if loader is None:
-            raise Exception(f"No loader available for {file_path_obj.suffix}")
-
-        # Configure loader
-        loader.chunk_size = chunk_size
-        loader.chunk_overlap = chunk_overlap
-
-        chunks_processed = 0
-        chunks_stored = 0
-        errors = []
-
-        logger.info(f"Starting to process chunks from {file_path_obj}")
-
-        # Process chunks
-        chunk_count = 0
-        async for chunk in loader.extract_chunks(file_path_obj):
-            chunk_count += 1
-            chunks_processed += 1
-            logger.info(f"Processing chunk {chunk_count}: {len(chunk.content)} chars, index {chunk.chunk_index}")
-
-            try:
-                # Combine document tags with chunk metadata tags
-                all_tags = tags.copy()
-                if chunk.metadata.get('tags'):
-                    all_tags.extend(chunk.metadata['tags'])
-
-                # Add upload_id tag for document tracking
-                all_tags.append(f"upload_id:{upload_id}")
-
-                # Add upload_id to metadata as well
-                chunk_metadata = chunk.metadata.copy() if chunk.metadata else {}
-                chunk_metadata['upload_id'] = upload_id
-
-                # Create memory object
-                memory = Memory(
-                    content=chunk.content,
-                    content_hash=generate_content_hash(chunk.content, chunk_metadata),
-                    tags=list(set(all_tags)),  # Remove duplicates
-                    memory_type=memory_type,
-                    metadata=chunk_metadata
-                )
-
-                logger.info(f"Storing memory with content hash: {memory.content_hash}")
-
-                # Store the memory
-                success, error = await storage.store(memory)
-                if success:
-                    chunks_stored += 1
-                    logger.info(f"Successfully stored chunk {chunk_count}")
-                else:
-                    logger.error(f"Failed to store chunk {chunk_count}: {error}")
-                    errors.append(f"Chunk {chunk.chunk_index}: {error}")
-
-                # Update progress
-                total_chunks = chunk.metadata.get('total_chunks', 1)
-                progress = min(95.0, (chunks_processed / max(1, total_chunks)) * 100)
-                session.chunks_processed = chunks_processed
-                session.chunks_stored = chunks_stored
-                session.total_chunks = total_chunks
-                session.progress = progress
-                session.errors = errors
-
-            except Exception as e:
-                logger.error(f"Error processing chunk {chunk_count}: {str(e)}")
-                errors.append(f"Chunk {chunk.chunk_index}: {str(e)}")
-
-        logger.info(f"Finished processing {chunk_count} chunks, stored {chunks_stored}")
-
-        # Finalize
-        session.status = "completed" if chunks_stored > 0 else "failed"
-        session.completed_at = datetime.now()
-        session.progress = 100.0
-
-        logger.info(f"Document processing completed: {upload_id}, {chunks_stored}/{chunks_processed} chunks")
-        return {"chunks_processed": chunks_processed, "chunks_stored": chunks_stored}
-
-    except Exception as e:
-        logger.error(f"Document processing error: {str(e)}")
-        session = upload_sessions.get(upload_id)
-        if session:
-            session.status = "failed"
-            session.errors.append(str(e))
-            session.completed_at = datetime.now()
-            # Note: send_progress_update removed - progress tracking via polling instead
-    finally:
-        # Clean up temp file (always executed)
-        try:
-            os.unlink(file_path)
-        except Exception as cleanup_error:
-            logger.debug(f"Could not delete temp file {file_path}: {cleanup_error}")
 
 async def process_single_file_upload(
     upload_id: str,
@@ -656,7 +528,7 @@ async def process_batch_upload(
             # Note: send_progress_update removed - progress tracking via polling instead
 
 # Clean up old completed sessions periodically
-@router.on_event("startup")
+@router.on_event("startup")  # TODO: Migrate to lifespan context manager in app.py (FastAPI 0.109+)
 async def cleanup_old_sessions():
     """Clean up old completed upload sessions."""
     async def cleanup():
@@ -724,8 +596,8 @@ async def remove_document(upload_id: str, remove_from_memory: bool = True):
             try:
                 # Use bulk delete by tag if available
                 from .manage import bulk_delete_by_tags
-                result = await storage.delete_by_tags([upload_tag])
-                memories_deleted = result.get('deleted_count', 0)
+                count, _ = await storage.delete_by_tags([upload_tag])
+                memories_deleted = count
                 logger.info(f"Deleted {memories_deleted} memories with tag {upload_tag}")
             except Exception as e:
                 logger.warning(f"Could not delete memories by tag: {e}")
@@ -830,7 +702,6 @@ async def search_document_content(upload_id: str, limit: int = 10):
             created_at_str = None
             if memory.created_at:
                 if isinstance(memory.created_at, float):
-                    from datetime import datetime
                     created_at_str = datetime.fromtimestamp(memory.created_at).isoformat()
                 elif hasattr(memory.created_at, 'isoformat'):
                     created_at_str = memory.created_at.isoformat()

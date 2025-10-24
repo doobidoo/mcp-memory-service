@@ -5,7 +5,7 @@ Batch ingest all supported documents from a directory into the MCP Memory Servic
 ## Usage
 
 ```
-claude /memory-ingest-dir <directory_path> [--tags TAG1,TAG2] [--recursive] [--file-extensions EXT1,EXT2] [--chunk-size SIZE] [--max-files COUNT]
+claude /memory-ingest-dir <directory_path> [--tags TAG1,TAG2] [--recursive] [--file-extensions EXT1,EXT2] [--chunk-size SIZE] [--chunk-overlap SIZE] [--max-files COUNT]
 ```
 
 ## Parameters
@@ -15,6 +15,7 @@ claude /memory-ingest-dir <directory_path> [--tags TAG1,TAG2] [--recursive] [--f
 - `--recursive`: Process subdirectories recursively (default: true)
 - `--file-extensions`: Comma-separated list of file extensions to process (default: pdf,txt,md,json)
 - `--chunk-size`: Target size for text chunks in characters (default: 1000)
+- `--chunk-overlap`: Characters to overlap between chunks (default: 200)
 - `--max-files`: Maximum number of files to process (default: 100)
 
 ## Supported Formats
@@ -41,14 +42,16 @@ Then I'll upload the files in batch:
 
 ```bash
 # Create a temporary script to upload files
-cat > /tmp/upload_files.sh << 'EOF'
+UPLOAD_SCRIPT=$(mktemp)
+cat > "$UPLOAD_SCRIPT" << 'EOF'
 #!/bin/bash
 FILES=("$@")
 TAGS="$1"
 CHUNK_SIZE="$2"
-MAX_FILES="$3"
+CHUNK_OVERLAP="$3"
+MAX_FILES="$4"
 
-for file in "${FILES[@]}"; do
+for file in "${FILES[@]:4}"; do
   echo "Uploading: $file"
   curl -X POST "http://localhost:8080/api/documents/upload" \
     -F "file=@$file" \
@@ -60,7 +63,7 @@ for file in "${FILES[@]}"; do
 done
 EOF
 
-chmod +x /tmp/upload_files.sh
+chmod +x "$UPLOAD_SCRIPT"
 ```
 
 ## Examples

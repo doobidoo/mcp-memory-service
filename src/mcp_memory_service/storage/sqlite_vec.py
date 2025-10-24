@@ -1131,9 +1131,10 @@ SOLUTIONS:
             cursor = self.conn.execute(query, params)
             memory_ids = [row[0] for row in cursor.fetchall()]
 
-            # Delete from embeddings table
-            for memory_id in memory_ids:
-                self.conn.execute('DELETE FROM memory_embeddings WHERE rowid = ?', (memory_id,))
+            # Delete from embeddings table using single query with IN clause
+            if memory_ids:
+                placeholders = ','.join('?' for _ in memory_ids)
+                self.conn.execute(f'DELETE FROM memory_embeddings WHERE rowid IN ({placeholders})', memory_ids)
 
             # Delete from memories table
             delete_query = f'DELETE FROM memories WHERE {conditions}'
