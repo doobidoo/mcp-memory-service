@@ -1843,26 +1843,207 @@ class MemoryDashboard {
     }
 
     /**
-     * Render recent memories
-     */
+    * Render recent memories
+    */
     renderRecentMemories(memories) {
-        const container = document.getElementById('recentMemoriesList');
+    const container = document.getElementById('recentMemoriesList');
 
-        if (!container) {
-            console.error('recentMemoriesList container not found');
-            return;
-        }
+    if (!container) {
+    console.error('recentMemoriesList container not found');
+    return;
+    }
 
-        if (!memories || memories.length === 0) {
-            container.innerHTML = '<p class="empty-state">No memories found. <a href="#" onclick="app.handleAddMemory()">Add your first memory</a></p>';
-            return;
-        }
+    if (!memories || memories.length === 0) {
+    container.innerHTML = '<p class="empty-state">No memories found. <a href="#" onclick="app.handleAddMemory()">Add your first memory</a></p>';
+    return;
+    }
 
-        container.innerHTML = memories.map(memory => this.renderMemoryCard(memory)).join('');
+    // Group document chunks by upload_id
+        const groupedMemories = this.groupMemoriesByUpload(memories);
 
-        // Add click handlers
+    container.innerHTML = groupedMemories.map(group => {
+    if (group.type === 'document') {
+            return this.renderDocumentGroup(group);
+            } else {
+                return this.renderMemoryCard(group.memory);
+            }
+        }).join('');
+
+        // Add click handlers for individual memories
         container.querySelectorAll('.memory-card').forEach((card, index) => {
-            card.addEventListener('click', () => this.handleMemoryClick(memories[index]));
+            const group = groupedMemories[index];
+            if (group.type === 'single') {
+                card.addEventListener('click', () => this.handleMemoryClick(group.memory));
+            }
+        });
+
+        // Add click handlers for document groups
+        container.querySelectorAll('.document-group').forEach((groupEl, index) => {
+            const group = groupedMemories.filter(g => g.type === 'document')[index];
+            if (group) {
+                groupEl.addEventListener('click', (e) => {
+                    // Don't trigger if clicking on action buttons
+                    if (e.target.closest('.document-actions')) return;
+                    this.showDocumentChunks(group);
+                });
+            }
+        });
+    }
+
+    /**
+     * Group memories by upload_id for document chunks
+     */
+    groupMemoriesByUpload(memories) {
+        const groups = [];
+        const documentGroups = new Map();
+        const processedHashes = new Set();
+
+        for (const memory of memories) {
+            // Check if this is a document chunk
+            const isDocumentChunk = memory.metadata && memory.metadata.upload_id;
+
+            if (isDocumentChunk && !processedHashes.has(memory.content_hash)) {
+                const uploadId = memory.metadata.upload_id;
+                const sourceFile = memory.metadata.source_file || 'Unknown file';
+
+                if (!documentGroups.has(uploadId)) {
+                    documentGroups.set(uploadId, {
+                        upload_id: uploadId,
+                        source_file: sourceFile,
+                        memories: [],
+                        created_at: memory.created_at,
+                        tags: new Set()
+                    });
+                }
+
+                const group = documentGroups.get(uploadId);
+                group.memories.push(memory);
+                group.tags.add(...(memory.tags || []));
+                processedHashes.add(memory.content_hash);
+            } else if (!processedHashes.has(memory.content_hash)) {
+                // Regular memory
+                groups.push({
+                    type: 'single',
+                    memory: memory
+                });
+                processedHashes.add(memory.content_hash);
+            }
+        }
+
+        // Convert document groups to array format
+        for (const group of documentGroups.values()) {
+            groups.push({
+                type: 'document',
+                upload_id: group.upload_id,
+                source_file: group.source_file,
+                memories: group.memories,
+                created_at: group.created_at,
+                tags: Array.from(group.tags)
+            });
+        }
+
+        // Sort by creation time (most recent first)
+        groups.sort((a, b) => {
+            const timeA = a.type === 'document' ? a.created_at : a.memory.created_at;
+            const timeB = b.type === 'document' ? b.created_at : b.memory.created_at;
+            return timeB - timeA;
+        });
+
+        return groups;
+    }
+
+    /**
+     * Render a document group card
+     */
+    renderDocumentGroup(group) {
+        const createdDate = new Date(group.created_at * 1000).toLocaleDateString();
+        const fileName = this.escapeHtml(group.source_file);
+        const chunkCount = group.memories.length;
+        const uniqueTags = [...new Set(group.tags.filter(tag => !tag.startsWith('upload_id:') && !tag.startsWith('source_file:') && !tag.startsWith('file_type:')))];
+
+        return `
+            <div class="document-group" data-upload-id="${this.escapeHtml(group.upload_id)}">
+                <div class="document-header">
+                    <div class="document-icon">📄</div>
+                    <div class="document-info">
+                        <div class="document-title">${fileName}</div>
+                        <div class="document-meta">
+                            ${chunkCount} chunks • ${createdDate}
+                        </div>
+                    </div>
+                </div>
+                <div class="document-preview">
+                    ${group.memories[0] ? this.escapeHtml(group.memories[0].content.substring(0, 150)) + (group.memories[0].content.length > 150 ? '...' : '') : 'No content preview available'}
+                </div>
+                ${uniqueTags.length > 0 ? `
+                    <div class="document-tags">
+                        ${uniqueTags.slice(0, 3).map(tag => `<span class="tag">${this.escapeHtml(tag)}</span>`).join('')}
+                        ${uniqueTags.length > 3 ? `<span class="tag more">+${uniqueTags.length - 3} more</span>` : ''}
+                    </div>
+                ` : ''}
+                <div class="document-actions">
+                    <button class="btn-icon btn-view-chunks" title="View all chunks">
+                        <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+                        </svg>
+                        <span>View Chunks</span>
+                    </button>
+                    <button class="btn-icon btn-remove" title="Remove document">
+                        <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                        </svg>
+                        <span>Remove</span>
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Show document chunks in a modal
+     */
+    showDocumentChunks(group) {
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal-content large-modal">
+                <div class="modal-header">
+                    <h3>📄 ${this.escapeHtml(group.source_file)}</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="document-chunks">
+                        ${group.memories.map((memory, index) => `
+                            <div class="chunk-item">
+                                <div class="chunk-header">
+                                    <span class="chunk-number">Chunk ${index + 1}</span>
+                                    <div class="chunk-meta">
+                                        ${memory.metadata && memory.metadata.page ? `Page ${memory.metadata.page} • ` : ''}
+                                        ${memory.content.length} chars
+                                    </div>
+                                </div>
+                                <div class="chunk-content">
+                                    ${this.escapeHtml(memory.content)}
+                                </div>
+                                ${memory.tags && memory.tags.length > 0 ? `
+                                    <div class="chunk-tags">
+                                        ${memory.tags.map(tag => `<span class="tag">${this.escapeHtml(tag)}</span>`).join('')}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // Add close handlers
+        const closeModal = () => document.body.removeChild(modal);
+        modal.querySelector('.modal-close').addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
         });
     }
 
@@ -1922,34 +2103,39 @@ class MemoryDashboard {
     }
 
     /**
-     * Render a memory card
-     */
+    * Render a memory card
+    */
     renderMemoryCard(memory, searchResult = null) {
-        const createdDate = new Date(memory.created_at * 1000).toLocaleDateString();
-        const relevanceScore = searchResult &&
-            searchResult.similarity_score !== null &&
-            searchResult.similarity_score !== undefined &&
-            !isNaN(searchResult.similarity_score) &&
-            searchResult.similarity_score > 0
-            ? (searchResult.similarity_score * 100).toFixed(1)
-            : null;
+    const createdDate = new Date(memory.created_at * 1000).toLocaleDateString();
+    const relevanceScore = searchResult &&
+    searchResult.similarity_score !== null &&
+    searchResult.similarity_score !== undefined &&
+    !isNaN(searchResult.similarity_score) &&
+    searchResult.similarity_score > 0
+    ? (searchResult.similarity_score * 100).toFixed(1)
+    : null;
 
-        return `
-            <div class="memory-card" data-memory-id="${memory.content_hash}">
-                <div class="memory-header">
-                    <div class="memory-meta">
+    // Truncate content to 150 characters for preview
+    const truncatedContent = memory.content.length > 150
+    ? memory.content.substring(0, 150) + '...'
+    : memory.content;
+
+    return `
+    <div class="memory-card" data-memory-id="${memory.content_hash}">
+    <div class="memory-header">
+        <div class="memory-meta">
                         <span>${createdDate}</span>
-                        ${memory.memory_type ? `<span> • ${memory.memory_type}</span>` : ''}
-                        ${relevanceScore ? `<span> • ${relevanceScore}% match</span>` : ''}
-                    </div>
+            ${memory.memory_type ? `<span> • ${memory.memory_type}</span>` : ''}
+        ${relevanceScore ? `<span> • ${relevanceScore}% match</span>` : ''}
+        </div>
                 </div>
 
-                <div class="memory-content">
-                    ${this.escapeHtml(memory.content)}
-                </div>
+    <div class="memory-content">
+    ${this.escapeHtml(truncatedContent)}
+    </div>
 
-                ${memory.tags && memory.tags.length > 0 ? `
-                    <div class="memory-tags">
+        ${memory.tags && memory.tags.length > 0 ? `
+                <div class="memory-tags">
                         ${memory.tags.map(tag => `<span class="tag">${this.escapeHtml(tag)}</span>`).join('')}
                     </div>
                 ` : ''}

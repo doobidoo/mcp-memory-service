@@ -1,0 +1,10 @@
+This is a test document for MCP Memory Service document ingestion.
+
+It contains some sample content to test the chunking and embedding functionality.
+
+Features:
+- Multiple paragraphs
+- Some technical content
+- Test data for verification
+
+End of document.
