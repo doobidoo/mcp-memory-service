@@ -164,7 +164,7 @@ async def upload_document(
         logger.info(f"🧪 Testing direct chunking for upload {upload_id}")
         try:
             from mcp_memory_service.ingestion import get_loader_for_file
-            from pathlib import Path
+            # Note: Path already imported at module level (line 29)
 
             # Test chunking directly
             file_path_obj = Path(temp_path)
