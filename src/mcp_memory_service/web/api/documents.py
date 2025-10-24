@@ -23,6 +23,7 @@ import os
 import uuid
 import asyncio
 import logging
+import tempfile
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
@@ -70,17 +71,8 @@ async def ensure_storage_initialized():
 # In-memory storage for upload tracking (in production, use database)
 upload_sessions = {}
 
-class UploadRequest(BaseModel):
-    tags: List[str] = []
-    chunk_size: int = 1000
-    chunk_overlap: int = 200
-    memory_type: str = "document"
-
-class BatchUploadRequest(BaseModel):
-    tags: List[str] = []
-    chunk_size: int = 1000
-    chunk_overlap: int = 200
-    memory_type: str = "document"
+# Note: UploadRequest and BatchUploadRequest models removed - not used
+# Endpoints read parameters directly from form data
 
 class UploadStatus(BaseModel):
     upload_id: str
@@ -143,11 +135,20 @@ async def upload_document(
 
         # Create upload session
         upload_id = str(uuid.uuid4())
-        temp_path = f"/tmp/{upload_id}_{file.filename}"
+
+        # Create secure temporary file (avoids path traversal vulnerability)
+        # Extract safe file extension for suffix
+        file_ext = Path(file.filename).suffix if file.filename else ""
+        temp_file = tempfile.NamedTemporaryFile(
+            delete=False,
+            prefix=f"{upload_id}_",
+            suffix=file_ext
+        )
+        temp_path = temp_file.name
 
         # Save uploaded file temporarily
-        with open(temp_path, "wb") as f:
-            f.write(file_content)
+        with temp_file:
+            temp_file.write(file_content)
 
         # Initialize upload session
         session = UploadStatus(
@@ -251,7 +252,7 @@ async def batch_upload_documents(
 
         # Validate and save all files
         for file in files:
-            file_ext = Path(file.filename).suffix.lower()
+            file_ext = Path(file.filename).suffix.lower().lstrip('.')
             if file_ext not in SUPPORTED_FORMATS:
                 supported = ", ".join(f".{ext}" for ext in SUPPORTED_FORMATS.keys())
                 raise HTTPException(
@@ -259,10 +260,17 @@ async def batch_upload_documents(
                     detail=f"Unsupported file type for {file.filename}: {file_ext}. Supported: {supported}"
                 )
 
-            temp_path = f"/tmp/{batch_id}_{file.filename}"
-            with open(temp_path, "wb") as f:
-                content = await file.read()
-                f.write(content)
+            # Create secure temporary file (avoids path traversal vulnerability)
+            content = await file.read()
+            safe_ext = Path(file.filename).suffix if file.filename else ""
+            temp_file = tempfile.NamedTemporaryFile(
+                delete=False,
+                prefix=f"{batch_id}_",
+                suffix=safe_ext
+            )
+            temp_path = temp_file.name
+            with temp_file:
+                temp_file.write(content)
             temp_paths.append((file.filename, temp_path, len(content)))
 
         # Initialize batch session
@@ -455,12 +463,6 @@ async def process_document_upload(
         session.completed_at = datetime.now()
         session.progress = 100.0
 
-        # Clean up temp file
-        try:
-            os.unlink(file_path)
-        except:
-            pass
-
         logger.info(f"Document processing completed: {upload_id}, {chunks_stored}/{chunks_processed} chunks")
         return {"chunks_processed": chunks_processed, "chunks_stored": chunks_stored}
 
@@ -472,6 +474,12 @@ async def process_document_upload(
             session.errors.append(str(e))
             session.completed_at = datetime.now()
             # Note: send_progress_update removed - progress tracking via polling instead
+    finally:
+        # Clean up temp file (always executed)
+        try:
+            os.unlink(file_path)
+        except Exception as cleanup_error:
+            logger.debug(f"Could not delete temp file {file_path}: {cleanup_error}")
 
 async def process_batch_upload(
     batch_id: str,
@@ -555,21 +563,16 @@ async def process_batch_upload(
 
                 processed_files += 1
 
-                # Clean up temp file
-                try:
-                    os.unlink(temp_path)
-                except:
-                    pass
-
             except Exception as e:
                 all_errors.append(f"{filename}: {str(e)}")
                 processed_files += 1
 
-                # Clean up temp file
+            finally:
+                # Clean up temp file (always executed)
                 try:
                     os.unlink(temp_path)
-                except:
-                    pass
+                except Exception as cleanup_error:
+                    logger.debug(f"Could not delete temp file {temp_path}: {cleanup_error}")
 
         # Finalize batch
         session.status = "completed" if total_chunks_stored > 0 else "failed"
@@ -603,7 +606,7 @@ async def cleanup_old_sessions():
             for upload_id, session in upload_sessions.items():
                 if session.status in ["completed", "failed"]:
                     # Keep sessions for 24 hours after completion
-                    if session.completed_at and (current_time - session.completed_at).seconds > 86400:
+                    if session.completed_at and (current_time - session.completed_at).total_seconds() > 86400:
                         to_remove.append(upload_id)
 
             for upload_id in to_remove:

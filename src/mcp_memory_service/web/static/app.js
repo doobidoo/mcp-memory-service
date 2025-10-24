@@ -610,7 +610,7 @@ class MemoryDashboard {
         // Show file preview in drop zone
         const dropZone = document.getElementById('dropZone');
         if (dropZone) {
-            const fileNames = this.selectedFiles.map(f => f.name).join(', ');
+            const fileNames = this.selectedFiles.map(f => this.escapeHtml(f.name)).join(', ');
             const content = dropZone.querySelector('.drop-zone-content');
             if (content) {
                 content.innerHTML = `
