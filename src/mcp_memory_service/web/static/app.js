@@ -2241,11 +2241,21 @@ class MemoryDashboard {
         filtersList.innerHTML = filters.map(filter => `
             <div class="filter-pill">
                 ${this.escapeHtml(filter.label)}
-                <button class="remove-filter" onclick="dashboard.removeFilter('${filter.type}', '${this.escapeHtml(filter.value)}')">
+                <button class="remove-filter" data-filter-type="${this.escapeHtml(filter.type)}" data-filter-value="${this.escapeHtml(filter.value)}">
                     ×
                 </button>
             </div>
         `).join('');
+
+        // Add event listeners for filter removal
+        filtersList.addEventListener('click', (e) => {
+            const button = e.target.closest('.remove-filter');
+            if (!button) return;
+
+            const type = button.dataset.filterType;
+            const value = button.dataset.filterValue;
+            this.removeFilter(type, value);
+        });
     }
 
     /**
@@ -2928,17 +2938,33 @@ class MemoryDashboard {
         html += '</tr></thead><tbody>';
 
         data.tags.forEach(tagStat => {
-            html += '<tr>';
-            html += `<td class="tag-name">${tagStat.tag}</td>`;
-            html += `<td class="tag-count">${tagStat.count}</td>`;
-            html += '<td class="tag-actions">';
-            html += `<button class="tag-action-btn" onclick="app.renameTag('${tagStat.tag}')">Rename</button>`;
-            html += `<button class="tag-action-btn danger" onclick="app.deleteTag('${tagStat.tag}', ${tagStat.count})">Delete</button>`;
-            html += '</td></tr>';
+        html += '<tr>';
+        html += `<td class="tag-name">${tagStat.tag}</td>`;
+        html += `<td class="tag-count">${tagStat.count}</td>`;
+        html += '<td class="tag-actions">';
+        html += `<button class="tag-action-btn" data-action="rename-tag" data-tag="${this.escapeHtml(tagStat.tag)}">Rename</button>`;
+        html += `<button class="tag-action-btn danger" data-action="delete-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-count="${tagStat.count}">Delete</button>`;
+        html += '</td></tr>';
         });
 
         html += '</tbody></table>';
         container.innerHTML = html;
+
+        // Add event listeners for tag actions
+        container.addEventListener('click', (e) => {
+            const button = e.target.closest('[data-action]');
+            if (!button) return;
+
+            const action = button.dataset.action;
+            const tag = button.dataset.tag;
+
+            if (action === 'rename-tag') {
+                this.renameTag(tag);
+            } else if (action === 'delete-tag') {
+                const count = parseInt(button.dataset.count, 10);
+                this.deleteTag(tag, count);
+            }
+        });
     }
 
     /**
