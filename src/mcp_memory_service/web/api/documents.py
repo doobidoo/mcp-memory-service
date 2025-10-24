@@ -826,12 +826,21 @@ async def search_document_content(upload_id: str, limit: int = 10):
         # Format results
         results = []
         for memory in memories:
+            # Handle created_at (stored as float timestamp)
+            created_at_str = None
+            if memory.created_at:
+                if isinstance(memory.created_at, float):
+                    from datetime import datetime
+                    created_at_str = datetime.fromtimestamp(memory.created_at).isoformat()
+                elif hasattr(memory.created_at, 'isoformat'):
+                    created_at_str = memory.created_at.isoformat()
+
             results.append({
                 "content_hash": memory.content_hash,
                 "content": memory.content,
                 "tags": memory.tags,
                 "metadata": memory.metadata,
-                "created_at": memory.created_at.isoformat() if hasattr(memory, 'created_at') else None,
+                "created_at": created_at_str,
                 "chunk_index": memory.metadata.get('chunk_index', 0) if memory.metadata else 0,
                 "page": memory.metadata.get('page', None) if memory.metadata else None
             })
