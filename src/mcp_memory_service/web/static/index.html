@@ -363,7 +363,10 @@
                                     <input type="range" id="chunkSize" min="500" max="2000" value="1000" step="100" class="form-control">
                                 </div>
                                 <div class="config-section">
-                                    <label for="chunkOverlap">Overlap: <span id="chunkOverlapValue">200</span> chars</label>
+                                    <label for="chunkOverlap">
+                                        Overlap: <span id="chunkOverlapValue">200</span> chars
+                                        <span class="info-icon info-icon-overlap" title="Click for overlap explanation">ℹ️</span>
+                                    </label>
                                     <input type="range" id="chunkOverlap" min="0" max="500" value="200" step="50" class="form-control">
                                 </div>
                             </div>
@@ -418,6 +421,74 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <!-- Overlap Help Section (collapsible) -->
+                            <div id="overlapHelpSection" class="chunking-help overlap-help" style="display: none;">
+                                <div class="help-header">
+                                    <strong>🔗 Chunk Overlap Explained</strong>
+                                    <button class="close-help" onclick="app.hideOverlapHelp()">×</button>
+                                </div>
+                                <div class="help-content">
+                                    <p class="help-note">
+                                        <strong>What is overlap?</strong> Overlap is the number of characters that are duplicated
+                                        between consecutive chunks. This helps maintain context across chunk boundaries.
+                                    </p>
+
+                                    <div class="help-example">
+                                        <strong>Visual Example:</strong>
+                                        <div class="overlap-diagram">
+                                            <div class="chunk-demo">
+                                                <span class="chunk-part unique">Chunk 1 unique content...</span>
+                                                <span class="chunk-part overlap">shared overlap region</span>
+                                            </div>
+                                            <div class="chunk-demo">
+                                                <span class="chunk-part overlap">shared overlap region</span>
+                                                <span class="chunk-part unique">Chunk 2 unique content...</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="help-recommendations">
+                                        <div class="help-option">
+                                            <div class="help-option-header">
+                                                <strong>🎯 No Overlap (0 chars)</strong>
+                                            </div>
+                                            <p><strong>Best for:</strong> Maximum storage efficiency, no redundancy needed</p>
+                                            <p><strong>Trade-off:</strong> Context may be lost at chunk boundaries</p>
+                                        </div>
+
+                                        <div class="help-option">
+                                            <div class="help-option-header">
+                                                <strong>✅ Medium Overlap (200 chars)</strong>
+                                                <span class="help-tag">Recommended</span>
+                                            </div>
+                                            <p><strong>Best for:</strong> Most documents - balances context and efficiency</p>
+                                            <p><strong>Why:</strong> Preserves 1-2 sentences of context across boundaries</p>
+                                        </div>
+
+                                        <div class="help-option">
+                                            <div class="help-option-header">
+                                                <strong>🔄 High Overlap (400+ chars)</strong>
+                                            </div>
+                                            <p><strong>Best for:</strong> Complex technical content requiring maximum context</p>
+                                            <p><strong>Trade-off:</strong> More storage and processing, higher redundancy</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="help-tips">
+                                        <strong>💡 Guidelines:</strong>
+                                        <ul>
+                                            <li><strong>Rule of thumb:</strong> Overlap should be 15-25% of chunk size</li>
+                                            <li><strong>Small chunks (500)</strong> → Use 100-150 overlap</li>
+                                            <li><strong>Medium chunks (1000)</strong> → Use 200-250 overlap</li>
+                                            <li><strong>Large chunks (2000)</strong> → Use 400-500 overlap</li>
+                                            <li>Higher overlap helps with search accuracy but increases storage</li>
+                                            <li>Zero overlap is fine for well-structured documents with clear sections</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div class="config-section">
                                 <label for="memoryType">Memory Type</label>
                                 <select id="memoryType" class="form-control">

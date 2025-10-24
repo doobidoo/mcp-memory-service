@@ -2365,6 +2365,36 @@ body.dark-mode .close-help:hover {
     color: var(--error) !important;
 }
 
+/* Dark mode - Overlap diagram */
+body.dark-mode .help-example {
+    background: var(--neutral-50) !important;
+    border-color: var(--neutral-200) !important;
+}
+
+body.dark-mode .help-example strong {
+    color: var(--neutral-900) !important;
+}
+
+body.dark-mode .chunk-demo {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .chunk-part.unique {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.3) 0%, rgba(59, 130, 246, 0.2) 100%) !important;
+    color: var(--blue-300) !important;
+    border-color: var(--primary) !important;
+}
+
+body.dark-mode .chunk-part.overlap {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.3) 0%, rgba(245, 158, 11, 0.2) 100%) !important;
+    color: #fbbf24 !important;
+    border-color: var(--warning) !important;
+}
+
+body.dark-mode .chunk-demo:hover .chunk-part.overlap {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.4) 0%, rgba(245, 158, 11, 0.3) 100%) !important;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .documents-layout {
@@ -3354,6 +3384,65 @@ body.dark-mode .chunk-content {
     font-weight: 600;
 }
 
+/* Overlap Visual Diagram */
+.help-example {
+    margin: var(--space-3) 0;
+    padding: var(--space-3);
+    background: white;
+    border-radius: var(--radius-base);
+    border: 1px solid var(--neutral-200);
+}
+
+.help-example strong {
+    display: block;
+    margin-bottom: var(--space-2);
+    color: var(--neutral-800);
+}
+
+.overlap-diagram {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+}
+
+.chunk-demo {
+    display: flex;
+    border-radius: var(--radius-base);
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.chunk-part {
+    padding: var(--space-2);
+    font-family: monospace;
+    font-size: 0.85em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-base);
+}
+
+.chunk-part.unique {
+    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+    color: var(--primary-dark);
+    flex: 1;
+    border: 2px solid var(--primary);
+}
+
+.chunk-part.overlap {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    color: #92400e;
+    flex: 0 0 35%;
+    border: 2px solid var(--warning);
+    font-weight: 600;
+}
+
+.chunk-demo:hover .chunk-part.overlap {
+    background: linear-gradient(135deg, #fde68a 0%, #fbbf24 100%);
+    transform: scale(1.02);
+}
+
 /* Mobile responsiveness for help section */
 @media (max-width: 768px) {
     .chunking-help {
@@ -3366,5 +3455,18 @@ body.dark-mode .chunk-content {
 
     .help-tips {
         padding: var(--space-2);
+    }
+
+    .help-example {
+        padding: var(--space-2);
+    }
+
+    .chunk-part {
+        font-size: 0.75em;
+        padding: var(--space-1);
+    }
+
+    .chunk-part.overlap {
+        flex: 0 0 40%;
     }
 }

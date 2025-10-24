@@ -556,6 +556,14 @@ class MemoryDashboard {
             });
         }
 
+        // Overlap help info icon
+        const overlapInfoIcon = document.querySelector('.info-icon-overlap');
+        if (overlapInfoIcon) {
+            overlapInfoIcon.addEventListener('click', () => {
+                this.toggleOverlapHelp();
+            });
+        }
+
         if (chunkOverlapInput && chunkOverlapValue) {
             chunkOverlapInput.addEventListener('input', (e) => {
                 chunkOverlapValue.textContent = e.target.value;
@@ -1056,6 +1064,30 @@ class MemoryDashboard {
      */
     hideChunkingHelp() {
         const helpSection = document.getElementById('chunkingHelpSection');
+        if (helpSection) {
+            helpSection.style.display = 'none';
+        }
+    }
+
+    /**
+     * Toggle overlap help section visibility
+     */
+    toggleOverlapHelp() {
+        const helpSection = document.getElementById('overlapHelpSection');
+        if (helpSection) {
+            if (helpSection.style.display === 'none') {
+                helpSection.style.display = 'block';
+            } else {
+                helpSection.style.display = 'none';
+            }
+        }
+    }
+
+    /**
+     * Hide overlap help section
+     */
+    hideOverlapHelp() {
+        const helpSection = document.getElementById('overlapHelpSection');
         if (helpSection) {
             helpSection.style.display = 'none';
         }
