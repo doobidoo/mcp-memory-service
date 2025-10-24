@@ -2297,6 +2297,74 @@ body.dark-mode .upload-meta {
     color: var(--neutral-600);
 }
 
+/* Dark mode - Chunking Help Section */
+body.dark-mode .chunking-help {
+    background: var(--neutral-100) !important;
+    border-color: var(--neutral-200) !important;
+}
+
+body.dark-mode .help-header {
+    border-bottom-color: var(--neutral-200) !important;
+    color: var(--neutral-900) !important;
+}
+
+body.dark-mode .help-content {
+    color: var(--neutral-700) !important;
+}
+
+body.dark-mode .help-note {
+    background: rgba(245, 158, 11, 0.15) !important;
+    border-left-color: var(--warning) !important;
+    color: var(--neutral-900) !important;
+}
+
+body.dark-mode .help-option {
+    background: var(--neutral-50) !important;
+    border-color: var(--neutral-200) !important;
+}
+
+body.dark-mode .help-option:hover {
+    border-color: var(--primary) !important;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2) !important;
+}
+
+body.dark-mode .help-option-header strong {
+    color: var(--neutral-900) !important;
+}
+
+body.dark-mode .help-option p {
+    color: var(--neutral-700) !important;
+}
+
+body.dark-mode .help-option p strong {
+    color: var(--neutral-900) !important;
+}
+
+body.dark-mode .help-tips {
+    background: rgba(59, 130, 246, 0.15) !important;
+    border-left-color: var(--primary) !important;
+}
+
+body.dark-mode .help-tips strong {
+    color: var(--neutral-900) !important;
+}
+
+body.dark-mode .help-tips li {
+    color: var(--neutral-700) !important;
+}
+
+body.dark-mode .help-tips li strong {
+    color: var(--primary) !important;
+}
+
+body.dark-mode .close-help {
+    color: var(--neutral-600) !important;
+}
+
+body.dark-mode .close-help:hover {
+    color: var(--error) !important;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .documents-layout {
