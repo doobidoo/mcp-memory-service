@@ -27,9 +27,11 @@ from .chunker import TextChunker
 from .registry import get_loader_for_file, register_loader, SUPPORTED_FORMATS, is_supported_file
 
 # Import loaders to trigger registration
+# Order matters! Import SemtoolsLoader first, then specialized loaders
+# This allows specialized loaders to override if semtools is unavailable
 from . import text_loader
-from . import pdf_loader
 from . import semtools_loader
+from . import pdf_loader
 
 __all__ = [
     'DocumentLoader',
