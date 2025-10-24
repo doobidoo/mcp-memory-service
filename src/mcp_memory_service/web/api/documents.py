@@ -224,7 +224,7 @@ async def batch_upload_documents(
 
             # Create secure temporary file (avoids path traversal vulnerability)
             content = await file.read()
-            safe_ext = Path(file.filename).suffix if file.filename else ""
+            safe_ext = Path(file.filename).suffix.lower() if file.filename else ""
             temp_file = tempfile.NamedTemporaryFile(
                 delete=False,
                 prefix=f"{batch_id}_",

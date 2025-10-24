@@ -579,6 +579,24 @@ class MemoryDashboard {
             });
         }
 
+        // Add event listeners for buttons with data-action attribute
+        document.querySelectorAll('[data-action]').forEach(button => {
+            button.addEventListener('click', (e) => {
+                const action = e.currentTarget.dataset.action;
+                if (this[action] && typeof this[action] === 'function') {
+                    this[action]();
+                }
+            });
+        });
+
+        // Force sync button
+        const forceSyncButton = document.getElementById('forceSyncButton');
+        if (forceSyncButton) {
+            forceSyncButton.addEventListener('click', () => {
+                this.forceSync();
+            });
+        }
+
         // Document search button
         const docSearchBtn = document.getElementById('docSearchBtn');
         const docSearchInput = document.getElementById('docSearchInput');

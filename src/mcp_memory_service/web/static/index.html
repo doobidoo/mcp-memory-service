@@ -136,7 +136,7 @@
                     <span id="syncStatusText">Checking sync status...</span>
                     <span id="syncStatusDetails" class="sync-details"></span>
                 </div>
-                <button id="forceSyncButton" class="sync-button" onclick="app.forceSync()" title="Manually trigger sync to Cloudflare">
+                <button id="forceSyncButton" class="sync-button" title="Manually trigger sync to Cloudflare">
                     <span class="sync-button-icon">⚡</span>
                     <span class="sync-button-text">Sync Now</span>
                 </button>
@@ -342,8 +342,8 @@
                                     </svg>
                                     <h3>Drag & drop files here</h3>
                                     <p>or <button id="fileSelectBtn" class="link-button">browse to select files</button></p>
-                                    <p class="supported-formats">Supported formats: PDF, DOCX, PPTX, TXT, MD, JSON</p>
-                                    <input type="file" id="fileInput" multiple accept=".pdf,.docx,.pptx,.txt,.md,.json" style="display: none;">
+                                    <p class="supported-formats">Supported formats: PDF, TXT, MD, JSON</p>
+                                    <input type="file" id="fileInput" multiple accept=".pdf,.txt,.md,.json" style="display: none;">
                                 </div>
                             </div>
                         </div>
@@ -375,7 +375,7 @@
                             <div id="chunkingHelpSection" class="chunking-help" style="display: none;">
                                 <div class="help-header">
                                     <strong>📚 Chunking Configuration Guide</strong>
-                                    <button class="close-help" onclick="app.hideChunkingHelp()">×</button>
+                                    <button class="close-help" data-action="hideChunkingHelp">×</button>
                                 </div>
                                 <div class="help-content">
                                     <p class="help-note">
@@ -426,7 +426,7 @@
                             <div id="overlapHelpSection" class="chunking-help overlap-help" style="display: none;">
                                 <div class="help-header">
                                     <strong>🔗 Chunk Overlap Explained</strong>
-                                    <button class="close-help" onclick="app.hideOverlapHelp()">×</button>
+                                    <button class="close-help" data-action="hideOverlapHelp">×</button>
                                 </div>
                                 <div class="help-content">
                                     <p class="help-note">
@@ -1060,7 +1060,7 @@
         <div class="modal-content memory-viewer-content">
             <div class="modal-header">
                 <h2>📝 Document Memory Chunks</h2>
-                <button class="modal-close" onclick="app.closeMemoryViewer()">&times;</button>
+                <button class="modal-close" data-action="closeMemoryViewer">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="document-info">
@@ -1074,7 +1074,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="app.closeMemoryViewer()">Close</button>
+                <button class="btn btn-secondary" data-action="closeMemoryViewer">Close</button>
             </div>
         </div>
     </div>
