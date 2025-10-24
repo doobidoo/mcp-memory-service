@@ -356,12 +356,66 @@
                             </div>
                             <div class="config-row">
                                 <div class="config-section">
-                                    <label for="chunkSize">Chunk Size: <span id="chunkSizeValue">1000</span> chars</label>
+                                    <label for="chunkSize">
+                                        Chunk Size: <span id="chunkSizeValue">1000</span> chars
+                                        <span class="info-icon" title="Click for chunking recommendations">ℹ️</span>
+                                    </label>
                                     <input type="range" id="chunkSize" min="500" max="2000" value="1000" step="100" class="form-control">
                                 </div>
                                 <div class="config-section">
                                     <label for="chunkOverlap">Overlap: <span id="chunkOverlapValue">200</span> chars</label>
                                     <input type="range" id="chunkOverlap" min="0" max="500" value="200" step="50" class="form-control">
+                                </div>
+                            </div>
+
+                            <!-- Chunking Help Section (collapsible) -->
+                            <div id="chunkingHelpSection" class="chunking-help" style="display: none;">
+                                <div class="help-header">
+                                    <strong>📚 Chunking Configuration Guide</strong>
+                                    <button class="close-help" onclick="app.hideChunkingHelp()">×</button>
+                                </div>
+                                <div class="help-content">
+                                    <p class="help-note">
+                                        <strong>Note:</strong> Actual chunk sizes may vary as the system respects paragraph boundaries
+                                        to maintain semantic coherence.
+                                    </p>
+
+                                    <div class="help-recommendations">
+                                        <div class="help-option">
+                                            <div class="help-option-header">
+                                                <strong>✅ Default (1000 chars, 200 overlap)</strong>
+                                                <span class="help-tag">Recommended</span>
+                                            </div>
+                                            <p><strong>Best for:</strong> Technical documentation, reference manuals, knowledge bases</p>
+                                            <p><strong>Why:</strong> Paragraph-aware chunking preserves complete thoughts and context</p>
+                                        </div>
+
+                                        <div class="help-option">
+                                            <div class="help-option-header">
+                                                <strong>🔍 Smaller Chunks (500 chars, 100 overlap)</strong>
+                                            </div>
+                                            <p><strong>Best for:</strong> Dense technical docs, code documentation, API references</p>
+                                            <p><strong>Trade-off:</strong> More granular retrieval but may split paragraphs more aggressively</p>
+                                        </div>
+
+                                        <div class="help-option">
+                                            <div class="help-option-header">
+                                                <strong>📖 Larger Chunks (2000 chars, 400 overlap)</strong>
+                                            </div>
+                                            <p><strong>Best for:</strong> Narrative documents, articles, blogs, long-form content</p>
+                                            <p><strong>Trade-off:</strong> Better context but less precise retrieval</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="help-tips">
+                                        <strong>💡 Tips:</strong>
+                                        <ul>
+                                            <li><strong>Overlap</strong> helps maintain context across chunk boundaries</li>
+                                            <li><strong>Higher overlap</strong> = better continuity but more redundancy</li>
+                                            <li>Test different settings on a sample document to find optimal configuration</li>
+                                            <li>Chunks preserve complete sentences and paragraphs when possible</li>
+                                        </ul>
+                                    </div>
                                 </div>
                             </div>
                             <div class="config-section">

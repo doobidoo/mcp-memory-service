@@ -3121,3 +3121,182 @@ body.dark-mode .chunk-content {
         margin: var(--space-2);
     }
 }
+
+/* ============================================
+   Chunking Help Section Styles
+   ============================================ */
+
+.info-icon {
+    cursor: pointer;
+    font-size: 1.1em;
+    margin-left: var(--space-1);
+    opacity: 0.7;
+    transition: all var(--transition-base);
+    user-select: none;
+}
+
+.info-icon:hover {
+    opacity: 1;
+    transform: scale(1.2);
+}
+
+.chunking-help {
+    margin-top: var(--space-3);
+    padding: var(--space-3);
+    background: var(--neutral-50);
+    border: 1px solid var(--neutral-200);
+    border-radius: var(--radius-lg);
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.help-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 2px solid var(--neutral-200);
+    color: var(--neutral-800);
+}
+
+.help-header strong {
+    font-size: 1.1em;
+}
+
+.close-help {
+    background: none;
+    border: none;
+    font-size: 1.5em;
+    color: var(--neutral-500);
+    cursor: pointer;
+    padding: 0 var(--space-2);
+    line-height: 1;
+    transition: color var(--transition-base);
+}
+
+.close-help:hover {
+    color: var(--error);
+}
+
+.help-content {
+    color: var(--neutral-700);
+}
+
+.help-note {
+    background: var(--warning);
+    background: linear-gradient(135deg, #fff3cd 0%, #fcf8e3 100%);
+    border-left: 4px solid var(--warning);
+    padding: var(--space-2);
+    margin-bottom: var(--space-3);
+    border-radius: var(--radius-base);
+    font-size: 0.95em;
+}
+
+.help-recommendations {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.help-option {
+    background: white;
+    padding: var(--space-3);
+    border-radius: var(--radius-base);
+    border: 1px solid var(--neutral-200);
+    transition: all var(--transition-base);
+}
+
+.help-option:hover {
+    border-color: var(--primary);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+}
+
+.help-option-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-2);
+}
+
+.help-option-header strong {
+    color: var(--neutral-800);
+}
+
+.help-tag {
+    background: var(--success);
+    color: white;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-full);
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.help-option p {
+    margin: var(--space-1) 0;
+    font-size: 0.9em;
+    line-height: 1.5;
+}
+
+.help-option p strong {
+    color: var(--neutral-700);
+}
+
+.help-tips {
+    background: linear-gradient(135deg, #e0f2fe 0%, #dbeafe 100%);
+    padding: var(--space-3);
+    border-radius: var(--radius-base);
+    border-left: 4px solid var(--primary);
+}
+
+.help-tips strong {
+    color: var(--neutral-800);
+    display: block;
+    margin-bottom: var(--space-2);
+}
+
+.help-tips ul {
+    margin: 0;
+    padding-left: var(--space-4);
+}
+
+.help-tips li {
+    margin: var(--space-1) 0;
+    font-size: 0.9em;
+    line-height: 1.6;
+    color: var(--neutral-700);
+}
+
+.help-tips li strong {
+    display: inline;
+    color: var(--primary-dark);
+    font-weight: 600;
+}
+
+/* Mobile responsiveness for help section */
+@media (max-width: 768px) {
+    .chunking-help {
+        padding: var(--space-2);
+    }
+
+    .help-option {
+        padding: var(--space-2);
+    }
+
+    .help-tips {
+        padding: var(--space-2);
+    }
+}

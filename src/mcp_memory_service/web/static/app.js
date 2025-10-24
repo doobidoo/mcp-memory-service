@@ -548,6 +548,14 @@ class MemoryDashboard {
             });
         }
 
+        // Chunking help info icon
+        const infoIcon = document.querySelector('.info-icon');
+        if (infoIcon) {
+            infoIcon.addEventListener('click', () => {
+                this.toggleChunkingHelp();
+            });
+        }
+
         if (chunkOverlapInput && chunkOverlapValue) {
             chunkOverlapInput.addEventListener('input', (e) => {
                 chunkOverlapValue.textContent = e.target.value;
@@ -1027,6 +1035,30 @@ class MemoryDashboard {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    /**
+     * Toggle chunking help section visibility
+     */
+    toggleChunkingHelp() {
+        const helpSection = document.getElementById('chunkingHelpSection');
+        if (helpSection) {
+            if (helpSection.style.display === 'none') {
+                helpSection.style.display = 'block';
+            } else {
+                helpSection.style.display = 'none';
+            }
+        }
+    }
+
+    /**
+     * Hide chunking help section
+     */
+    hideChunkingHelp() {
+        const helpSection = document.getElementById('chunkingHelpSection');
+        if (helpSection) {
+            helpSection.style.display = 'none';
+        }
     }
 
     /**
