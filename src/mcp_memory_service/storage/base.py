@@ -134,7 +134,43 @@ class MemoryStorage(ABC):
     async def delete_by_tag(self, tag: str) -> Tuple[int, str]:
         """Delete memories by tag. Returns (count_deleted, message)."""
         pass
-    
+
+    async def delete_by_tags(self, tags: List[str]) -> Tuple[int, str]:
+        """
+        Delete memories matching ANY of the given tags.
+
+        Default implementation calls delete_by_tag for each tag sequentially.
+        Override in concrete implementations for better performance (e.g., single query with OR).
+
+        Args:
+            tags: List of tags - memories matching ANY tag will be deleted
+
+        Returns:
+            Tuple of (total_count_deleted, message)
+        """
+        if not tags:
+            return 0, "No tags provided"
+
+        total_count = 0
+        errors = []
+
+        for tag in tags:
+            try:
+                count, message = await self.delete_by_tag(tag)
+                total_count += count
+                if "error" in message.lower() or "failed" in message.lower():
+                    errors.append(f"{tag}: {message}")
+            except Exception as e:
+                errors.append(f"{tag}: {str(e)}")
+
+        if errors:
+            error_summary = "; ".join(errors[:3])  # Limit error details
+            if len(errors) > 3:
+                error_summary += f" (+{len(errors) - 3} more errors)"
+            return total_count, f"Deleted {total_count} memories with partial failures: {error_summary}"
+
+        return total_count, f"Deleted {total_count} memories across {len(tags)} tag(s)"
+
     @abstractmethod
     async def cleanup_duplicates(self) -> Tuple[int, str]:
         """Remove duplicate memories. Returns (count_removed, message)."""
