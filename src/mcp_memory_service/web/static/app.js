@@ -441,15 +441,15 @@ class MemoryDashboard {
         }
 
         const historyHtml = uploads.map(upload => {
-            const statusClass = upload.status.toLowerCase();
-            const statusText = upload.status.charAt(0).toUpperCase() + upload.status.slice(1);
-            const progressPercent = upload.progress || 0;
-            const hasMemories = upload.chunks_stored > 0;
+        const statusClass = upload.status.toLowerCase();
+        const statusText = upload.status.charAt(0).toUpperCase() + upload.status.slice(1);
+        const progressPercent = upload.progress || 0;
+        const hasMemories = upload.chunks_stored > 0;
 
-            return `
-                <div class="upload-item ${statusClass}" data-upload-id="${upload.upload_id}">
-                    <div class="upload-info">
-                        <div class="upload-filename">${this.escapeHtml(upload.filename)}</div>
+        return `
+        <div class="upload-item ${statusClass}" data-upload-id="${upload.upload_id}" data-filename="${this.escapeHtml(upload.filename)}">
+        <div class="upload-info">
+        <div class="upload-filename">${this.escapeHtml(upload.filename)}</div>
                         <div class="upload-meta">
                             ${upload.chunks_stored || 0} chunks stored •
                             ${(upload.file_size / 1024).toFixed(1)} KB •
@@ -471,16 +471,14 @@ class MemoryDashboard {
                         ${upload.status === 'completed' && hasMemories ? `
                             <div class="upload-actions">
                                 <button class="btn-icon btn-view-memory"
-                                        onclick="app.viewDocumentMemory('${upload.upload_id}')"
-                                        title="View memory chunks">
+                                title="View memory chunks">
                                     <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
                                     </svg>
                                     <span>View</span>
                                 </button>
                                 <button class="btn-icon btn-remove"
-                                        onclick="app.removeDocument('${upload.upload_id}', '${this.escapeHtml(upload.filename)}')"
-                                        title="Remove document and memories">
+                                title="Remove document and memories">
                                     <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
                                     </svg>
@@ -617,6 +615,27 @@ class MemoryDashboard {
                     if (query) {
                         this.searchDocumentContent(query);
                     }
+                }
+            });
+        }
+
+        // Upload history action buttons (event delegation)
+        const uploadHistory = document.getElementById('uploadHistory');
+        if (uploadHistory) {
+            uploadHistory.addEventListener('click', (e) => {
+                const button = e.target.closest('.btn-view-memory, .btn-remove');
+                if (!button) return;
+
+                const uploadItem = button.closest('.upload-item');
+                const uploadId = uploadItem?.dataset.uploadId;
+                const filename = uploadItem?.dataset.filename;
+
+                if (!uploadId) return;
+
+                if (button.classList.contains('btn-view-memory')) {
+                    this.viewDocumentMemory(uploadId);
+                } else if (button.classList.contains('btn-remove')) {
+                    this.removeDocument(uploadId, filename);
                 }
             });
         }

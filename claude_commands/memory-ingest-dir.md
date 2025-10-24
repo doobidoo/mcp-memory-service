@@ -45,13 +45,14 @@ Then I'll upload the files in batch:
 UPLOAD_SCRIPT=$(mktemp)
 cat > "$UPLOAD_SCRIPT" << 'EOF'
 #!/bin/bash
-FILES=("$@")
 TAGS="$1"
 CHUNK_SIZE="$2"
 CHUNK_OVERLAP="$3"
 MAX_FILES="$4"
+shift 4
+FILES=("$@")
 
-for file in "${FILES[@]:4}"; do
+for file in "${FILES[@]}"; do
   echo "Uploading: $file"
   curl -X POST "http://localhost:8080/api/documents/upload" \
     -F "file=@$file" \

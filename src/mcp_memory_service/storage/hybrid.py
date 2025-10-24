@@ -863,10 +863,7 @@ class HybridMemoryStorage(MemoryStorage):
             return 0, "No tags provided"
 
         # First, get all memories with any of these tags for sync queue
-        memories_to_delete = []
-        for tag in tags:
-            tag_memories = await self.primary.search_by_tags([tag])
-            memories_to_delete.extend(tag_memories)
+        memories_to_delete = await self.primary.search_by_tags(tags, operation="OR")
 
         # Remove duplicates based on content_hash
         unique_memories = {m.content_hash: m for m in memories_to_delete}.values()
