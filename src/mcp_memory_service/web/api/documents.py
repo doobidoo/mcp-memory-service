@@ -160,58 +160,23 @@ async def upload_document(
         )
         upload_sessions[upload_id] = session
 
-        # TEMPORARY: Direct chunking test without storage
-        logger.info(f"🧪 Testing direct chunking for upload {upload_id}")
-        try:
-            from mcp_memory_service.ingestion import get_loader_for_file
-            # Note: Path already imported at module level (line 29)
+        # Start background processing
+        background_tasks.add_task(
+            process_single_file_upload,
+            upload_id,
+            temp_path,
+            file.filename,
+            tag_list,
+            chunk_size,
+            chunk_overlap,
+            memory_type
+        )
 
-            # Test chunking directly
-            file_path_obj = Path(temp_path)
-            loader = get_loader_for_file(file_path_obj)
-
-            if loader:
-                loader.chunk_size = chunk_size
-                loader.chunk_overlap = chunk_overlap
-
-                chunks_found = 0
-                async for chunk in loader.extract_chunks(file_path_obj):
-                    chunks_found += 1
-                    logger.info(f"Found chunk {chunks_found}: {len(chunk.content)} chars")
-
-                logger.info(f"✅ Direct chunking test: found {chunks_found} chunks")
-                session.chunks_processed = chunks_found
-                session.chunks_stored = chunks_found  # Mock successful storage
-                session.status = "completed"
-                session.progress = 100.0
-                session.completed_at = datetime.now()
-            else:
-                logger.error("No loader found for file")
-                session.status = "failed"
-                session.errors.append("No loader found for file type")
-
-        except Exception as e:
-            logger.error(f"❌ Direct chunking test failed: {e}")
-            session.status = "failed"
-            session.errors.append(f"Chunking failed: {str(e)}")
-            session.completed_at = datetime.now()
-
-        # Return the final status
-        session = upload_sessions.get(upload_id)
-        if session:
-            return {
-                "upload_id": upload_id,
-                "status": session.status,
-                "message": f"Document {file.filename} processing completed",
-                "chunks_processed": session.chunks_processed,
-                "chunks_stored": session.chunks_stored
-            }
-        else:
-            return {
-                "upload_id": upload_id,
-                "status": "failed",
-                "message": f"Document {file.filename} processing failed"
-            }
+        return {
+            "upload_id": upload_id,
+            "status": "queued",
+            "message": f"Document {file.filename} queued for processing"
+        }
 
     except Exception as e:
         logger.error(f"Upload error: {str(e)}")
@@ -480,6 +445,103 @@ async def process_document_upload(
             os.unlink(file_path)
         except Exception as cleanup_error:
             logger.debug(f"Could not delete temp file {file_path}: {cleanup_error}")
+
+async def process_single_file_upload(
+    upload_id: str,
+    file_path: str,
+    filename: str,
+    tags: List[str],
+    chunk_size: int,
+    chunk_overlap: int,
+    memory_type: str
+):
+    """Background task to process a single document upload."""
+    try:
+        logger.info(f"Starting document processing: {upload_id} - {filename}")
+        session = upload_sessions[upload_id]
+        session.status = "processing"
+
+        # Get storage
+        storage = await ensure_storage_initialized()
+
+        # Get appropriate loader
+        file_path_obj = Path(file_path)
+        loader = get_loader_for_file(file_path_obj)
+        if loader is None:
+            raise ValueError(f"No loader available for file: {filename}")
+
+        # Configure loader
+        loader.chunk_size = chunk_size
+        loader.chunk_overlap = chunk_overlap
+
+        chunks_processed = 0
+        chunks_stored = 0
+
+        # Process chunks from the file
+        async for chunk in loader.extract_chunks(file_path_obj):
+            chunks_processed += 1
+
+            try:
+                # Add file-specific tags
+                all_tags = tags.copy()
+                all_tags.append(f"source_file:{filename}")
+                all_tags.append(f"file_type:{file_path_obj.suffix.lstrip('.')}")
+                all_tags.append(f"upload_id:{upload_id}")
+
+                if chunk.metadata.get('tags'):
+                    all_tags.extend(chunk.metadata['tags'])
+
+                # Add upload_id to metadata
+                chunk_metadata = chunk.metadata.copy() if chunk.metadata else {}
+                chunk_metadata['upload_id'] = upload_id
+                chunk_metadata['source_file'] = filename
+
+                # Create memory object
+                memory = Memory(
+                    content=chunk.content,
+                    content_hash=generate_content_hash(chunk.content, chunk_metadata),
+                    tags=list(set(all_tags)),  # Remove duplicates
+                    memory_type=memory_type,
+                    metadata=chunk_metadata
+                )
+
+                # Store the memory
+                success, error = await storage.store(memory)
+                if success:
+                    chunks_stored += 1
+                else:
+                    session.errors.append(f"Chunk {chunk.chunk_index}: {error}")
+
+            except Exception as e:
+                session.errors.append(f"Chunk {chunk.chunk_index}: {str(e)}")
+
+            # Update progress
+            session.chunks_processed = chunks_processed
+            session.chunks_stored = chunks_stored
+            session.progress = (chunks_processed / max(chunks_processed, 1)) * 100
+
+        # Mark as completed
+        session.status = "completed"
+        session.completed_at = datetime.now()
+        session.progress = 100.0
+
+        logger.info(f"Document processing completed: {upload_id}, {chunks_stored}/{chunks_processed} chunks")
+        return {"chunks_processed": chunks_processed, "chunks_stored": chunks_stored}
+
+    except Exception as e:
+        logger.error(f"Document processing error: {str(e)}")
+        session = upload_sessions.get(upload_id)
+        if session:
+            session.status = "failed"
+            session.errors.append(str(e))
+            session.completed_at = datetime.now()
+    finally:
+        # Clean up temp file (always executed)
+        try:
+            os.unlink(file_path)
+        except Exception as cleanup_error:
+            logger.debug(f"Could not delete temp file {file_path}: {cleanup_error}")
+
 
 async def process_batch_upload(
     batch_id: str,
