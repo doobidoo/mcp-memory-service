@@ -130,6 +130,16 @@ async def upload_document(
         # Parse tags
         tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()]
 
+        # Validate tags - reject excessively long tags (likely user error/corruption)
+        MAX_TAG_LENGTH = 100
+        invalid_tags = [tag for tag in tag_list if len(tag) > MAX_TAG_LENGTH]
+        if invalid_tags:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tags must be {MAX_TAG_LENGTH} characters or less. Found {len(invalid_tags)} invalid tag(s). "
+                       f"First invalid tag: {invalid_tags[0][:100]}..."
+            )
+
         # Create upload session
         upload_id = str(uuid.uuid4())
 
@@ -207,6 +217,16 @@ async def batch_upload_documents(
 
         # Parse tags
         tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()]
+
+        # Validate tags - reject excessively long tags (likely user error/corruption)
+        MAX_TAG_LENGTH = 100
+        invalid_tags = [tag for tag in tag_list if len(tag) > MAX_TAG_LENGTH]
+        if invalid_tags:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tags must be {MAX_TAG_LENGTH} characters or less. Found {len(invalid_tags)} invalid tag(s). "
+                       f"First invalid tag: {invalid_tags[0][:100]}..."
+            )
 
         # Create batch upload session
         batch_id = str(uuid.uuid4())
