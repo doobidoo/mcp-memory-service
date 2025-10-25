@@ -525,6 +525,8 @@ h3 { font-size: var(--text-xl); }
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+    max-height: 600px;
+    overflow-y: auto;
 }
 
 .memory-grid {
@@ -1920,6 +1922,7 @@ body.dark-mode .recent-memories,
 body.dark-mode .quick-actions,
 body.dark-mode .memory-card,
 body.dark-mode .action-card,
+body.dark-mode .document-group,
 body.dark-mode .search-filters,
 body.dark-mode .search-results,
 body.dark-mode .modal-content,
