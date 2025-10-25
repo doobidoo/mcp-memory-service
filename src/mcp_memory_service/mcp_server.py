@@ -118,7 +118,7 @@ class StoreMemoryFailure(TypedDict):
 async def store_memory(
     content: str,
     ctx: Context,
-    tags: Optional[List[str]] = None,
+    tags: Union[str, List[str], None] = None,
     memory_type: str = "note",
     metadata: Optional[Dict[str, Any]] = None,
     client_hostname: Optional[str] = None
@@ -137,18 +137,22 @@ async def store_memory(
 
     Args:
         content: The content to store as memory
-        tags: Optional tags to categorize the memory
+        tags: Optional tags to categorize the memory (accepts array or comma-separated string)
         memory_type: Type of memory (note, decision, task, reference)
         metadata: Additional metadata for the memory
         client_hostname: Client machine hostname for source tracking
+
+    **IMPORTANT - Tag Formats (Both Supported):**
+    The tags parameter accepts BOTH formats:
+    - ✅ Array format: tags=["tag1", "tag2", "tag3"]
+    - ✅ String format: tags="tag1,tag2,tag3"
+
+    Both will be normalized to an array internally.
 
     **IMPORTANT - Metadata Tag Format:**
     When providing tags in the metadata parameter, they MUST be an array:
     - ✅ CORRECT: metadata={"tags": ["tag1", "tag2"], "type": "note"}
     - ❌ WRONG: metadata={"tags": "tag1,tag2", "type": "note"}
-
-    The tags parameter (separate from metadata) already accepts arrays correctly.
-    Only the metadata.tags field needs this clarification.
 
     Returns:
         Dictionary with:
@@ -161,8 +165,15 @@ async def store_memory(
     try:
         storage = ctx.request_context.lifespan_context.storage
 
-        # Prepare tags and metadata with optional hostname
-        final_tags = tags or []
+        # Normalize tags to list (accept both string and array formats)
+        if isinstance(tags, str):
+            # Split comma-separated string into array
+            final_tags = [tag.strip() for tag in tags.split(',') if tag.strip()]
+        elif tags:
+            final_tags = tags
+        else:
+            final_tags = []
+
         final_metadata = metadata or {}
 
         if INCLUDE_HOSTNAME:
