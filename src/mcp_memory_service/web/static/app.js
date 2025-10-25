@@ -2071,8 +2071,14 @@ class MemoryDashboard {
 
         document.body.appendChild(modal);
 
+        // Add active class to show modal (required for display: flex)
+        setTimeout(() => modal.classList.add('active'), 10);
+
         // Add close handlers
-        const closeModal = () => document.body.removeChild(modal);
+        const closeModal = () => {
+            modal.classList.remove('active');
+            setTimeout(() => document.body.removeChild(modal), 300);
+        };
         modal.querySelector('.modal-close').addEventListener('click', closeModal);
         modal.addEventListener('click', (e) => {
             if (e.target === modal) closeModal();
