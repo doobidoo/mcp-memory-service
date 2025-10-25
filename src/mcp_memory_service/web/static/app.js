@@ -74,6 +74,7 @@ class MemoryDashboard {
 
         // Documents upload state
         this.selectedFiles = [];
+        this.documentsListenersSetup = false;
 
         // Bind methods
         this.handleSearch = this.handleSearch.bind(this);
@@ -498,6 +499,12 @@ class MemoryDashboard {
      * Setup event listeners for documents view
      */
     setupDocumentsEventListeners() {
+        // Prevent duplicate event listener setup
+        if (this.documentsListenersSetup) {
+            console.log('Document listeners already set up, skipping...');
+            return;
+        }
+
         // File selection buttons
         const fileSelectBtn = document.getElementById('fileSelectBtn');
         const fileInput = document.getElementById('fileInput');
@@ -649,6 +656,10 @@ class MemoryDashboard {
                 }
             });
         }
+
+        // Mark listeners as set up to prevent duplicates
+        this.documentsListenersSetup = true;
+        console.log('Document listeners setup complete');
     }
 
     /**
@@ -1908,8 +1919,7 @@ class MemoryDashboard {
                     removeBtn.addEventListener('click', async (e) => {
                         e.stopPropagation();
                         await this.removeDocument(group.upload_id, group.source_file);
-                        // Refresh recent memories after deletion
-                        await this.loadRecentMemories();
+                        // removeDocument() already handles view refresh
                     });
                 }
             }
@@ -2580,25 +2590,37 @@ class MemoryDashboard {
      * Remove document and its memories
      */
     async removeDocument(uploadId, filename) {
+        console.log('removeDocument called with:', { uploadId, filename, currentView: this.currentView });
+
         if (!confirm(`Remove "${filename}" and all its memory chunks?\n\nThis action cannot be undone.`)) {
+            console.log('User cancelled removal');
             return;
         }
 
         try {
             this.setLoading(true);
-            const response = await this.apiCall(`/documents/remove/${uploadId}`, {
-                method: 'DELETE'
-            });
+            console.log('Making DELETE request to:', `/documents/remove/${uploadId}`);
+
+            const response = await this.apiCall(`/documents/remove/${uploadId}`, 'DELETE');
+
+            console.log('Delete response:', response);
 
             if (response.status === 'success') {
                 this.showToast(`Removed "${filename}" (${response.memories_deleted} memories deleted)`, 'success');
-                // Refresh upload history
-                await this.loadUploadHistory();
+                // Refresh the current view (Dashboard or Documents tab)
+                console.log('Refreshing view:', this.currentView);
+                if (this.currentView === 'dashboard') {
+                    await this.loadDashboardData();
+                } else if (this.currentView === 'documents') {
+                    await this.loadUploadHistory();
+                }
             } else {
+                console.error('Removal failed with response:', response);
                 this.showToast('Failed to remove document', 'error');
             }
         } catch (error) {
             console.error('Error removing document:', error);
+            console.error('Error stack:', error.stack);
             this.showToast('Error removing document', 'error');
         } finally {
             this.setLoading(false);

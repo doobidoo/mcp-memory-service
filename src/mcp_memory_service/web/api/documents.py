@@ -255,11 +255,15 @@ async def batch_upload_documents(
                 temp_file.write(content)
             temp_paths.append((file.filename, temp_path, len(content)))
 
+        # Calculate total file size for the batch
+        total_file_size = sum(file_size for _, _, file_size in temp_paths)
+
         # Initialize batch session
         session = UploadStatus(
             upload_id=batch_id,
             status="queued",
             filename=f"Batch ({len(files)} files)",
+            file_size=total_file_size,
             created_at=datetime.now()
         )
         upload_sessions[batch_id] = session
@@ -583,11 +587,9 @@ async def remove_document(upload_id: str, remove_from_memory: bool = True):
     """
     logger.info(f"Remove document request for upload_id: {upload_id}, remove_from_memory: {remove_from_memory}")
 
-    # Check if upload session exists
-    if upload_id not in upload_sessions:
-        raise HTTPException(status_code=404, detail="Upload session not found")
-
-    session = upload_sessions[upload_id]
+    # Get session info if available (may not exist after server restart)
+    session = upload_sessions.get(upload_id)
+    filename = session.filename if session else "Unknown file"
     memories_deleted = 0
 
     try:
@@ -595,48 +597,50 @@ async def remove_document(upload_id: str, remove_from_memory: bool = True):
             # Get storage
             storage = get_storage()
 
-            # Search for memories with this upload_id in metadata
-            # Use the search functionality to find all memories with upload_id metadata
-            from ...tools.search import search_memories_by_metadata
-
-            # For now, we'll need to scan all memories and filter by upload_id in metadata
-            # This is a placeholder - in production, you'd want indexed metadata search
-            logger.info(f"Searching for memories with upload_id: {upload_id}")
-
-            # Use tag-based search as a workaround
-            # We need to add upload_id as a tag during document ingestion
-            memories_to_delete = []
-
             # Search by tag pattern: upload_id:{upload_id}
             upload_tag = f"upload_id:{upload_id}"
-            logger.info(f"Searching for tag: {upload_tag}")
+            logger.info(f"Searching for memories with tag: {upload_tag}")
 
-            # Get all memories (this is not efficient, but works for now)
-            # In production, implement proper metadata indexing
             try:
-                # Use bulk delete by tag if available
-                from .manage import bulk_delete_by_tags
+                # Delete all memories with this upload_id tag
                 count, _ = await storage.delete_by_tags([upload_tag])
                 memories_deleted = count
                 logger.info(f"Deleted {memories_deleted} memories with tag {upload_tag}")
+
+                # If we deleted memories but don't have session info, try to get filename from first memory
+                if memories_deleted > 0 and not session:
+                    # Try to get source_file from metadata by checking remaining memories
+                    # (we already deleted them, so we'll use a generic message)
+                    filename = f"Document (upload_id: {upload_id[:8]}...)"
+
             except Exception as e:
                 logger.warning(f"Could not delete memories by tag: {e}")
-                # Fallback: just remove the session
+                # If deletion fails and we don't know about this upload, return 404
+                if not session:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Upload ID not found and no memories with tag '{upload_tag}'"
+                    )
                 memories_deleted = 0
 
-        # Remove upload session
-        del upload_sessions[upload_id]
+        # Remove upload session if it exists
+        if session:
+            del upload_sessions[upload_id]
 
         return {
             "status": "success",
             "upload_id": upload_id,
-            "filename": session.filename,
+            "filename": filename,
             "memories_deleted": memories_deleted,
-            "message": f"Document '{session.filename}' removed successfully"
+            "message": f"Document '{filename}' removed successfully"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error removing document: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to remove document: {str(e)}")
 
 @router.delete("/remove-by-tags")
@@ -683,24 +687,25 @@ async def remove_documents_by_tags(tags: List[str]):
         raise HTTPException(status_code=500, detail=f"Failed to remove documents: {str(e)}")
 
 @router.get("/search-content/{upload_id}")
-async def search_document_content(upload_id: str, limit: int = 10):
+async def search_document_content(upload_id: str, limit: int = 1000):
     """
     Search for all memories associated with an upload.
 
     Args:
         upload_id: The upload session ID
-        limit: Maximum number of results to return
+        limit: Maximum number of results to return (default: 1000)
 
     Returns:
         List of memories with their content and metadata
     """
     logger.info(f"Search document content for upload_id: {upload_id}, limit: {limit}")
 
-    # Check if upload session exists
-    if upload_id not in upload_sessions:
-        raise HTTPException(status_code=404, detail="Upload session not found")
+    # Get session info if available (may not exist after server restart)
+    session = upload_sessions.get(upload_id)
 
-    session = upload_sessions[upload_id]
+    # If no session, we'll still try to find memories by upload_id tag
+    if not session:
+        logger.info(f"No upload session found for {upload_id}, searching by tag only")
 
     try:
         # Get storage
@@ -712,8 +717,13 @@ async def search_document_content(upload_id: str, limit: int = 10):
 
         # Use tag search (search_by_tags doesn't support limit parameter)
         all_memories = await storage.search_by_tags([upload_tag])
+
+        # If no memories found and no session, this upload_id doesn't exist
+        if not all_memories and not session:
+            raise HTTPException(status_code=404, detail=f"No memories found for upload_id: {upload_id}")
+
         # Apply limit after retrieval
-        memories = all_memories[:limit] if limit else all_memories
+        memories = all_memories[:limit] if limit and limit > 0 else all_memories
 
         # Format results
         results = []
@@ -739,21 +749,30 @@ async def search_document_content(upload_id: str, limit: int = 10):
         # Sort by chunk index
         results.sort(key=lambda x: x.get('chunk_index', 0))
 
+        # Get filename from session or from first memory's metadata
+        filename = session.filename if session else None
+        if not filename and results:
+            # Try to get from first memory's metadata
+            first_memory_metadata = results[0].get('metadata', {})
+            filename = first_memory_metadata.get('source_file', f"Document (upload_id: {upload_id[:8]}...)")
+
         return {
             "status": "success",
             "upload_id": upload_id,
-            "filename": session.filename,
+            "filename": filename or "Unknown Document",
             "total_found": len(results),
             "memories": results
         }
 
     except Exception as e:
         logger.error(f"Error searching document content: {str(e)}")
+        # Get filename from session if available
+        filename = session.filename if session else f"Document (upload_id: {upload_id[:8]}...)"
         # Return empty results instead of error to avoid breaking UI
         return {
             "status": "partial",
             "upload_id": upload_id,
-            "filename": session.filename,
+            "filename": filename,
             "total_found": 0,
             "memories": [],
             "error": str(e)
