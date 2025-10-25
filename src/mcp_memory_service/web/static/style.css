@@ -729,6 +729,29 @@ h3 { font-size: var(--text-xl); }
     gap: var(--space-2);
 }
 
+/* Dark mode: Fix white backgrounds in document chunk modals */
+body.dark-mode .chunk-item {
+    background: #1f2937 !important;
+    border-color: #374151 !important;
+}
+
+body.dark-mode .chunk-content {
+    background: #111827 !important;
+    color: #d1d5db !important;
+}
+
+body.dark-mode .chunk-number {
+    color: #60a5fa !important;
+}
+
+body.dark-mode .chunk-meta {
+    color: #9ca3af !important;
+}
+
+body.dark-mode .chunk-header {
+    color: #f3f4f6 !important;
+}
+
 /* Search Layout */
 .search-layout {
     display: grid;
@@ -3040,6 +3063,28 @@ body.dark-mode .tags-list li strong {
 
 body.dark-mode .activity-list li {
     color: var(--neutral-700) !important;
+}
+
+/* Dark mode: Document chunks modal */
+body.dark-mode .modal-content .chunk-item {
+    background: #1f2937 !important;
+    border-color: #374151 !important;
+}
+
+body.dark-mode .modal-content .chunk-header {
+    color: #f3f4f6 !important;
+}
+
+body.dark-mode .modal-content .chunk-content {
+    color: #d1d5db !important;
+}
+
+body.dark-mode .modal-content .chunk-meta {
+    color: #9ca3af !important;
+}
+
+body.dark-mode .modal-content .chunk-number {
+    color: #60a5fa !important;
 }
 
 /* Document Management Features */
