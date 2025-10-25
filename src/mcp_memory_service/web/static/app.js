@@ -1888,6 +1888,32 @@ class MemoryDashboard {
                 });
             }
         });
+
+        // Add click handlers for document action buttons
+        container.querySelectorAll('.document-group').forEach((groupEl, index) => {
+            const group = groupedMemories.filter(g => g.type === 'document')[index];
+            if (group) {
+                // View chunks button
+                const viewBtn = groupEl.querySelector('.btn-view-chunks');
+                if (viewBtn) {
+                    viewBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this.showDocumentChunks(group);
+                    });
+                }
+
+                // Remove button
+                const removeBtn = groupEl.querySelector('.btn-remove');
+                if (removeBtn) {
+                    removeBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        await this.removeDocument(group.upload_id, group.source_file);
+                        // Refresh recent memories after deletion
+                        await this.loadRecentMemories();
+                    });
+                }
+            }
+        });
     }
 
     /**
