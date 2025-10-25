@@ -1959,7 +1959,13 @@ class MemoryDashboard {
         const createdDate = new Date(group.created_at * 1000).toLocaleDateString();
         const fileName = this.escapeHtml(group.source_file);
         const chunkCount = group.memories.length;
-        const uniqueTags = [...new Set(group.tags.filter(tag => !tag.startsWith('upload_id:') && !tag.startsWith('source_file:') && !tag.startsWith('file_type:')))];
+        // Filter out metadata tags AND tags that are too long (likely corrupted/malformed)
+        const uniqueTags = [...new Set(group.tags.filter(tag =>
+            !tag.startsWith('upload_id:') &&
+            !tag.startsWith('source_file:') &&
+            !tag.startsWith('file_type:') &&
+            tag.length < 100  // Reject tags longer than 100 chars (likely corrupted metadata)
+        ))];
 
         return `
             <div class="document-group" data-upload-id="${this.escapeHtml(group.upload_id)}">
