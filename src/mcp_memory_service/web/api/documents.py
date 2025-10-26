@@ -41,6 +41,58 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Constants
+MAX_TAG_LENGTH = 100
+
+
+def parse_and_validate_tags(tags: str) -> List[str]:
+    """
+    Parse and validate tags from user input.
+
+    Handles comma-separated and space-separated tags, removes file:// prefixes,
+    sanitizes path separators, and validates tag lengths.
+
+    Args:
+        tags: Raw tag string (comma or space separated)
+
+    Returns:
+        List of cleaned and validated tags
+
+    Raises:
+        HTTPException: If any tag exceeds MAX_TAG_LENGTH
+    """
+    if not tags or not tags.strip():
+        return []
+
+    # Split by comma OR space
+    raw_tags = tags.replace(',', ' ').split()
+    tag_list = []
+
+    for tag in raw_tags:
+        clean_tag = tag.strip()
+        if not clean_tag:
+            continue
+
+        # Remove file:// protocol prefixes and extract filename
+        if clean_tag.startswith('file://'):
+            clean_tag = Path(clean_tag.replace('file://', '')).name
+
+        # Remove common path separators to create clean tag names
+        clean_tag = clean_tag.replace('/', '_').replace('\\', '_')
+
+        # Validate tag length - raise error instead of silently dropping
+        if len(clean_tag) > MAX_TAG_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tag '{clean_tag[:100]}...' exceeds maximum length of {MAX_TAG_LENGTH} characters. "
+                       f"Please use shorter, more descriptive tags."
+            )
+
+        if clean_tag:
+            tag_list.append(clean_tag)
+
+    return tag_list
+
 
 async def ensure_storage_initialized():
     """Ensure storage is initialized for web API usage."""
@@ -127,28 +179,8 @@ async def upload_document(
                 detail=f"Unsupported file type: .{file_ext}. Supported: {supported}"
             )
 
-        # Parse tags - split by comma OR space, remove file:// prefixes
-        raw_tags = tags.replace(',', ' ').split()
-        tag_list = []
-        for tag in raw_tags:
-            clean_tag = tag.strip()
-            # Remove file:// protocol prefixes
-            if clean_tag.startswith('file://'):
-                clean_tag = Path(clean_tag.replace('file://', '')).name
-            # Remove common path separators to create clean tag names
-            clean_tag = clean_tag.replace('/', '_').replace('\\', '_')
-            if clean_tag and len(clean_tag) <= 100:  # MAX_TAG_LENGTH = 100
-                tag_list.append(clean_tag)
-
-        # Validate tags - reject excessively long tags (likely user error/corruption)
-        MAX_TAG_LENGTH = 100
-        invalid_tags = [tag for tag in tag_list if len(tag) > MAX_TAG_LENGTH]
-        if invalid_tags:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Tags must be {MAX_TAG_LENGTH} characters or less. Found {len(invalid_tags)} invalid tag(s). "
-                       f"First invalid tag: {invalid_tags[0][:100]}..."
-            )
+        # Parse and validate tags
+        tag_list = parse_and_validate_tags(tags)
 
         # Create upload session
         upload_id = str(uuid.uuid4())
@@ -225,28 +257,8 @@ async def batch_upload_documents(
         if not files:
             raise HTTPException(status_code=400, detail="No files provided")
 
-        # Parse tags - split by comma OR space, remove file:// prefixes
-        raw_tags = tags.replace(',', ' ').split()
-        tag_list = []
-        for tag in raw_tags:
-            clean_tag = tag.strip()
-            # Remove file:// protocol prefixes
-            if clean_tag.startswith('file://'):
-                clean_tag = Path(clean_tag.replace('file://', '')).name
-            # Remove common path separators to create clean tag names
-            clean_tag = clean_tag.replace('/', '_').replace('\\', '_')
-            if clean_tag and len(clean_tag) <= 100:  # MAX_TAG_LENGTH = 100
-                tag_list.append(clean_tag)
-
-        # Validate tags - reject excessively long tags (likely user error/corruption)
-        MAX_TAG_LENGTH = 100
-        invalid_tags = [tag for tag in tag_list if len(tag) > MAX_TAG_LENGTH]
-        if invalid_tags:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Tags must be {MAX_TAG_LENGTH} characters or less. Found {len(invalid_tags)} invalid tag(s). "
-                       f"First invalid tag: {invalid_tags[0][:100]}..."
-            )
+        # Parse and validate tags
+        tag_list = parse_and_validate_tags(tags)
 
         # Create batch upload session
         batch_id = str(uuid.uuid4())
