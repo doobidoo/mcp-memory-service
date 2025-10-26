@@ -19,7 +19,11 @@ import logging
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Any, Union, TypedDict, NotRequired
+from typing import Dict, List, Optional, Any, Union, TypedDict
+try:
+    from typing import NotRequired  # Python 3.11+
+except ImportError:
+    from typing_extensions import NotRequired  # Python 3.10
 import os
 import sys
 import socket
