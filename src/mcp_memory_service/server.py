@@ -341,7 +341,7 @@ class MemoryServer:
             # This prevents hanging during server startup due to embedding model loading
             logger.info(f"Deferring {STORAGE_BACKEND} storage initialization to prevent hanging")
             if MCP_CLIENT == 'lm_studio':
-            print(f"Deferring {STORAGE_BACKEND} storage initialization to prevent startup hanging", file=sys.stdout, flush=True)
+                print(f"Deferring {STORAGE_BACKEND} storage initialization to prevent startup hanging", file=sys.stdout, flush=True)
             self.storage = None
             self.memory_service = None
             self._storage_initialized = False
@@ -2172,7 +2172,7 @@ class MemoryServer:
                     try:
                         dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
                         memory_info.append(f"Timestamp: {dt.strftime('%Y-%m-%d %H:%M:%S')}")
-                    except:
+                    except (ValueError, TypeError):
                         memory_info.append(f"Timestamp: {created_at}")
 
                 memory_info.extend([
@@ -2225,7 +2225,7 @@ class MemoryServer:
                     try:
                         dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
                         memory_info.append(f"Timestamp: {dt.strftime('%Y-%m-%d %H:%M:%S')}")
-                    except:
+                    except (ValueError, TypeError):
                         memory_info.append(f"Timestamp: {created_at}")
 
                 memory_info.extend([

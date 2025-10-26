@@ -131,6 +131,7 @@ class MemoryService:
                     # Create chunk memory object
                     chunk_memory = Memory(
                         content=chunk,
+                        content_hash=generate_content_hash(chunk, chunk_metadata),
                         tags=chunk_tags,
                         memory_type=memory_type,
                         metadata=chunk_metadata
@@ -165,6 +166,7 @@ class MemoryService:
                 # Content within limit - store as single memory
                 memory = Memory(
                     content=content,
+                    content_hash=generate_content_hash(content, final_metadata),
                     tags=final_tags,
                     memory_type=memory_type,
                     metadata=final_metadata
