@@ -71,7 +71,7 @@ class MemoryService:
             if isinstance(tags, str):
                 # Split comma-separated string into array
                 final_tags = [tag.strip() for tag in tags.split(',') if tag.strip()]
-            elif tags:
+            elif isinstance(tags, list):
                 final_tags = tags
             else:
                 final_tags = []
