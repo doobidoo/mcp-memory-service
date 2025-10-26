@@ -350,10 +350,33 @@
 
                         <!-- Upload Configuration -->
                         <div class="upload-config">
-                            <div class="config-section">
-                                <label for="docTags">Tags (comma-separated)</label>
-                                <input type="text" id="docTags" placeholder="e.g., documentation, reference, manual" class="form-control">
-                            </div>
+                        <div class="config-section">
+                        <label for="docTags">Tags (comma-separated)</label>
+                        <input type="text" id="docTags" placeholder="e.g., documentation, reference, manual" class="form-control">
+                            <small class="form-help">Tags will be applied to all files. Use spaces or commas as separators.</small>
+                             </div>
+
+                             <!-- Processing Mode Toggle (shown when multiple files selected) -->
+                             <div class="config-section" id="processingModeSection" style="display: none;">
+                             <label>Processing Mode <span class="info-icon info-icon-processing" title="Click for processing mode explanation">ℹ️</span></label>
+                                 <div class="processing-mode-toggle">
+                                     <button type="button" id="batchModeBtn" class="mode-btn active" data-mode="batch">
+                                         <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                                             <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/>
+                                         </svg>
+                                         Batch Processing
+                                     </button>
+                                     <button type="button" id="individualModeBtn" class="mode-btn" data-mode="individual">
+                                         <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                                             <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                                         </svg>
+                                         Individual Processing
+                                     </button>
+                                 </div>
+                                 <div class="mode-description" id="modeDescription">
+                                     <small>All selected files will be processed together with the same tags.</small>
+                                 </div>
+                             </div>
                             <div class="config-row">
                                 <div class="config-section">
                                     <label for="chunkSize">
@@ -489,7 +512,54 @@
                                 </div>
                             </div>
 
-                            <div class="config-section">
+                            <!-- Processing Mode Help Section (collapsible) -->
+                             <div id="processingModeHelpSection" class="chunking-help processing-mode-help" style="display: none;">
+                                 <div class="help-header">
+                                     <strong>⚙️ Processing Mode Options</strong>
+                                     <button class="close-help" data-action="hideProcessingModeHelp">×</button>
+                                 </div>
+                                 <div class="help-content">
+                                     <p class="help-note">
+                                         <strong>When uploading multiple files,</strong> choose how they should be processed.
+                                         Both modes apply the same tags to all files.
+                                     </p>
+
+                                     <div class="help-recommendations">
+                                         <div class="help-option">
+                                             <div class="help-option-header">
+                                                 <strong>📦 Batch Processing</strong>
+                                                 <span class="help-tag">Default</span>
+                                             </div>
+                                             <p><strong>What it does:</strong> Uploads all files together as one operation</p>
+                                             <p><strong>Best for:</strong> Similar files, fast bulk processing, when you want files grouped together</p>
+                                             <p><strong>Pros:</strong> Faster, simpler, single progress indicator</p>
+                                             <p><strong>Cons:</strong> One file failure can affect the whole batch</p>
+                                         </div>
+
+                                         <div class="help-option">
+                                             <div class="help-option-header">
+                                                 <strong>🔄 Individual Processing</strong>
+                                             </div>
+                                             <p><strong>What it does:</strong> Uploads each file separately with individual API calls</p>
+                                             <p><strong>Best for:</strong> Mixed file types, when you want error isolation, or need individual progress tracking</p>
+                                             <p><strong>Pros:</strong> Better error handling, individual progress, more robust</p>
+                                             <p><strong>Cons:</strong> Slightly slower due to sequential processing</p>
+                                         </div>
+                                     </div>
+
+                                     <div class="help-tips">
+                                         <strong>💡 When to choose each mode:</strong>
+                                         <ul>
+                                             <li><strong>Batch mode:</strong> When files are similar and you want them processed quickly together</li>
+                                             <li><strong>Individual mode:</strong> When files might have different processing requirements or you want to ensure all files get processed even if some fail</li>
+                                             <li><strong>Single files:</strong> Always processed individually (no choice needed)</li>
+                                             <li>Both modes apply the same tags to all files</li>
+                                         </ul>
+                                     </div>
+                                 </div>
+                             </div>
+
+                             <div class="config-section">
                                 <label for="memoryType">Memory Type</label>
                                 <select id="memoryType" class="form-control">
                                     <option value="document">Document</option>

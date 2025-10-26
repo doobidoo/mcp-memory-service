@@ -75,6 +75,7 @@ class MemoryDashboard {
         // Documents upload state
         this.selectedFiles = [];
         this.documentsListenersSetup = false;
+        this.processingMode = 'batch'; // 'batch' or 'individual'
 
         // Bind methods
         this.handleSearch = this.handleSearch.bind(this);
@@ -569,10 +570,34 @@ class MemoryDashboard {
             });
         }
 
+        // Processing mode help info icon
+        const processingModeInfoIcon = document.querySelector('.info-icon-processing');
+        if (processingModeInfoIcon) {
+            processingModeInfoIcon.addEventListener('click', () => {
+                this.toggleProcessingModeHelp();
+            });
+        }
+
         if (chunkOverlapInput && chunkOverlapValue) {
             chunkOverlapInput.addEventListener('input', (e) => {
                 chunkOverlapValue.textContent = e.target.value;
                 this.updateUploadButton();
+            });
+        }
+
+        // Processing mode toggle buttons
+        const batchModeBtn = document.getElementById('batchModeBtn');
+        const individualModeBtn = document.getElementById('individualModeBtn');
+
+        if (batchModeBtn) {
+            batchModeBtn.addEventListener('click', () => {
+                this.setProcessingMode('batch');
+            });
+        }
+
+        if (individualModeBtn) {
+            individualModeBtn.addEventListener('click', () => {
+                this.setProcessingMode('individual');
             });
         }
 
@@ -702,6 +727,38 @@ class MemoryDashboard {
                 `Upload & Ingest ${this.selectedFiles.length} file${this.selectedFiles.length > 1 ? 's' : ''}` :
                 'Upload & Ingest';
         }
+
+        // Show/hide processing mode section based on file count
+        const processingModeSection = document.getElementById('processingModeSection');
+        if (processingModeSection) {
+            processingModeSection.style.display = (hasFiles && this.selectedFiles.length > 1) ? 'block' : 'none';
+        }
+    }
+
+    /**
+     * Set processing mode (batch or individual)
+     */
+    setProcessingMode(mode) {
+        this.processingMode = mode;
+
+        // Update button states
+        const batchBtn = document.getElementById('batchModeBtn');
+        const individualBtn = document.getElementById('individualModeBtn');
+        const modeDescription = document.getElementById('modeDescription');
+
+        if (batchBtn) {
+            batchBtn.classList.toggle('active', mode === 'batch');
+        }
+        if (individualBtn) {
+            individualBtn.classList.toggle('active', mode === 'individual');
+        }
+        if (modeDescription) {
+            modeDescription.innerHTML = mode === 'batch'
+                ? '<small>All selected files will be processed together with the same tags.</small>'
+                : '<small>Each file will be processed individually with the same tags.</small>';
+        }
+
+        console.log(`Processing mode set to: ${mode}`);
     }
 
     /**
@@ -721,14 +778,28 @@ class MemoryDashboard {
         try {
             this.setLoading(true);
 
-            if (this.selectedFiles.length === 1) {
-                // Single file upload
-                await this.uploadSingleDocument(this.selectedFiles[0], {
-                    tags,
-                    chunk_size: parseInt(chunkSize),
-                    chunk_overlap: parseInt(chunkOverlap),
-                    memory_type: memoryType
-                });
+            if (this.selectedFiles.length === 1 || this.processingMode === 'individual') {
+                // Individual file processing (single file or individual mode for multiple files)
+                for (let i = 0; i < this.selectedFiles.length; i++) {
+                    const file = this.selectedFiles[i];
+                    try {
+                        await this.uploadSingleDocument(file, {
+                            tags,
+                            chunk_size: parseInt(chunkSize),
+                            chunk_overlap: parseInt(chunkOverlap),
+                            memory_type: memoryType
+                        });
+
+                        // Small delay between individual uploads to avoid overwhelming the server
+                        if (i < this.selectedFiles.length - 1) {
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                        }
+                    } catch (error) {
+                        console.error(`Failed to upload ${file.name}:`, error);
+                        this.showToast(`Failed to upload ${file.name}: ${error.message}`, 'error');
+                        // Continue with remaining files
+                    }
+                }
             } else {
                 // Batch upload
                 await this.uploadBatchDocuments(this.selectedFiles, {
@@ -1136,6 +1207,30 @@ class MemoryDashboard {
      */
     hideOverlapHelp() {
         const helpSection = document.getElementById('overlapHelpSection');
+        if (helpSection) {
+            helpSection.style.display = 'none';
+        }
+    }
+
+    /**
+     * Toggle processing mode help section visibility
+     */
+    toggleProcessingModeHelp() {
+        const helpSection = document.getElementById('processingModeHelpSection');
+        if (helpSection) {
+            if (helpSection.style.display === 'none') {
+                helpSection.style.display = 'block';
+            } else {
+                helpSection.style.display = 'none';
+            }
+        }
+    }
+
+    /**
+     * Hide processing mode help section
+     */
+    hideProcessingModeHelp() {
+        const helpSection = document.getElementById('processingModeHelpSection');
         if (helpSection) {
             helpSection.style.display = 'none';
         }
