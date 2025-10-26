@@ -1,24 +1,40 @@
 #!/bin/bash
-# Fast duplicate cleanup using direct SQL
+# Fast duplicate cleanup using direct SQL with hash tracking for Cloudflare sync
 set -e
 
-DB_PATH="$HOME/.local/share/mcp-memory/sqlite_vec.db"
+# Platform-specific database path
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    DB_PATH="$HOME/Library/Application Support/mcp-memory/sqlite_vec.db"
+else
+    DB_PATH="$HOME/.local/share/mcp-memory/sqlite_vec.db"
+fi
+HASH_FILE="$HOME/deleted_duplicates.txt"
 
 echo "🛑 Stopping HTTP server..."
-systemctl --user stop mcp-memory-http.service 2>/dev/null || true
+# Try to stop the HTTP server - use the actual PID method since systemd may not be available on macOS
+ps aux | grep -E "uvicorn.*8889" | grep -v grep | awk '{print $2}' | xargs kill 2>/dev/null || true
 sleep 2
 
-echo "📊 Analyzing duplicates..."
+echo "📊 Analyzing duplicates and tracking hashes..."
 
-# Create Python script to find and delete duplicates
+# Create Python script to find duplicates, save hashes, and delete
 python3 << 'PYTHON_SCRIPT'
 import sqlite3
 from pathlib import Path
 from collections import defaultdict
 import hashlib
 import re
+import os
 
-DB_PATH = Path.home() / ".local/share/mcp-memory/sqlite_vec.db"
+import platform
+
+# Platform-specific database path
+if platform.system() == "Darwin":  # macOS
+    DB_PATH = Path.home() / "Library/Application Support/mcp-memory/sqlite_vec.db"
+else:  # Linux/Windows
+    DB_PATH = Path.home() / ".local/share/mcp-memory/sqlite_vec.db"
+
+HASH_FILE = Path.home() / "deleted_duplicates.txt"
 
 def normalize_content(content):
     """Normalize content by removing timestamps."""
@@ -62,13 +78,24 @@ if not duplicates:
 
 print(f"Found {len(duplicates)} duplicate groups")
 
-# Collect IDs to delete (keep newest, delete older)
+# Collect IDs and hashes to delete (keep newest, delete older)
 ids_to_delete = []
+hashes_to_delete = []
+
 for group in duplicates.values():
     for memory in group[1:]:  # Keep first (newest), delete rest
         ids_to_delete.append(memory['id'])
+        hashes_to_delete.append(memory['hash'])
 
 print(f"Deleting {len(ids_to_delete)} duplicate memories...")
+
+# Save hashes to file for Cloudflare cleanup
+print(f"Saving {len(hashes_to_delete)} content hashes to {HASH_FILE}...")
+with open(HASH_FILE, 'w') as f:
+    for content_hash in hashes_to_delete:
+        f.write(f"{content_hash}\n")
+
+print(f"✅ Saved hashes to {HASH_FILE}")
 
 # Delete from memories table
 placeholders = ','.join('?' * len(ids_to_delete))
@@ -80,11 +107,19 @@ cursor.execute(f"DELETE FROM memories WHERE id IN ({placeholders})", ids_to_dele
 conn.commit()
 conn.close()
 
-print(f"✅ Deleted {len(ids_to_delete)} duplicates")
+print(f"✅ Deleted {len(ids_to_delete)} duplicates from SQLite")
+print(f"📝 Content hashes saved for Cloudflare cleanup")
 
 PYTHON_SCRIPT
 
+echo ""
 echo "🚀 Restarting HTTP server..."
-systemctl --user start mcp-memory-http.service
+nohup uv run python -m uvicorn mcp_memory_service.web.app:app --host 127.0.0.1 --port 8889 > /tmp/memory_http_server.log 2>&1 &
+sleep 3
 
-echo "✅ Cleanup complete!"
+echo ""
+echo "✅ SQLite cleanup complete!"
+echo "📋 Next steps:"
+echo "   1. Review deleted hashes: cat $HASH_FILE"
+echo "   2. Delete from Cloudflare: uv run python scripts/maintenance/delete_cloudflare_duplicates.py"
+echo "   3. Verify counts match"

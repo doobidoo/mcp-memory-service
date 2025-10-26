@@ -6,7 +6,13 @@ from pathlib import Path
 from collections import defaultdict
 import hashlib
 
-DB_PATH = Path.home() / ".local/share/mcp-memory/sqlite_vec.db"
+import platform
+
+# Platform-specific database path
+if platform.system() == "Darwin":  # macOS
+    DB_PATH = Path.home() / "Library/Application Support/mcp-memory/sqlite_vec.db"
+else:  # Linux/Windows
+    DB_PATH = Path.home() / ".local/share/mcp-memory/sqlite_vec.db"
 
 def normalize_content(content):
     """Normalize content by removing timestamps and session-specific data."""
