@@ -27,6 +27,7 @@ import tempfile
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse, unquote
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -74,8 +75,13 @@ def parse_and_validate_tags(tags: str) -> List[str]:
             continue
 
         # Remove file:// protocol prefixes and extract filename
+        # Uses urllib.parse for robust handling of URL-encoded chars and different path formats
         if clean_tag.startswith('file://'):
-            clean_tag = Path(clean_tag.replace('file://', '')).name
+            path_str = unquote(urlparse(clean_tag).path)
+            # On Windows, urlparse may add a leading slash (e.g., /C:/...), which needs to be removed
+            if os.name == 'nt' and path_str.startswith('/') and len(path_str) > 2 and path_str[2] == ':':
+                path_str = path_str[1:]
+            clean_tag = Path(path_str).name
 
         # Remove common path separators to create clean tag names
         clean_tag = clean_tag.replace('/', '_').replace('\\', '_')
