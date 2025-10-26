@@ -4,6 +4,9 @@
  */
 
 class MemoryDashboard {
+    // Delay between individual file uploads to avoid overwhelming the server (ms)
+    static INDIVIDUAL_UPLOAD_DELAY = 500;
+
     // Static configuration for settings modal system information
     static SYSTEM_INFO_CONFIG = {
         settingsVersion: {
@@ -792,7 +795,7 @@ class MemoryDashboard {
 
                         // Small delay between individual uploads to avoid overwhelming the server
                         if (i < this.selectedFiles.length - 1) {
-                            await new Promise(resolve => setTimeout(resolve, 500));
+                            await new Promise(resolve => setTimeout(resolve, this.constructor.INDIVIDUAL_UPLOAD_DELAY));
                         }
                     } catch (error) {
                         console.error(`Failed to upload ${file.name}:`, error);
@@ -1218,11 +1221,7 @@ class MemoryDashboard {
     toggleProcessingModeHelp() {
         const helpSection = document.getElementById('processingModeHelpSection');
         if (helpSection) {
-            if (helpSection.style.display === 'none') {
-                helpSection.style.display = 'block';
-            } else {
-                helpSection.style.display = 'none';
-            }
+            helpSection.style.display = helpSection.style.display === 'block' ? 'none' : 'block';
         }
     }
 

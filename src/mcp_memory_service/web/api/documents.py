@@ -88,8 +88,7 @@ def parse_and_validate_tags(tags: str) -> List[str]:
                        f"Please use shorter, more descriptive tags."
             )
 
-        if clean_tag:
-            tag_list.append(clean_tag)
+        tag_list.append(clean_tag)
 
     return tag_list
 
