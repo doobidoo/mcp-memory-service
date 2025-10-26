@@ -8,7 +8,7 @@ all memory operations, eliminating the DRY violation.
 
 import logging
 import socket
-from typing import Dict, List, Optional, Any, Union, Tuple
+from typing import Dict, List, Optional, Any, Union, Tuple, TypedDict
 from datetime import datetime
 
 from ..config import (
@@ -23,6 +23,36 @@ from ..utils.content_splitter import split_content
 from ..utils.hashing import generate_content_hash
 
 logger = logging.getLogger(__name__)
+
+
+class MemoryResult(TypedDict):
+    """Type definition for memory operation results."""
+    content: str
+    content_hash: str
+    tags: List[str]
+    memory_type: Optional[str]
+    created_at: str
+    similarity_score: Optional[float]
+
+
+class OperationResult(TypedDict):
+    """Type definition for operation results."""
+    success: bool
+    message: str
+    content_hash: Optional[str]
+    chunks_created: Optional[int]
+    chunk_hashes: Optional[List[str]]
+
+
+class HealthStats(TypedDict):
+    """Type definition for health statistics."""
+    status: str
+    backend: str
+    total_memories: int
+    total_tags: int
+    storage_size: str
+    last_backup: str
+    timestamp: str
 
 
 class MemoryService:
@@ -49,7 +79,7 @@ class MemoryService:
         memory_type: str = "note",
         metadata: Optional[Dict[str, Any]] = None,
         client_hostname: Optional[str] = None
-    ) -> Dict[str, Any]:
+    ) -> OperationResult:
         """
         Store a new memory with content and optional metadata.
 
@@ -193,7 +223,7 @@ class MemoryService:
         query: str,
         n_results: int = 5,
         min_similarity: float = 0.0
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Union[List[MemoryResult], str]]:
         """
         Retrieve memories based on semantic similarity to a query.
 
@@ -243,7 +273,7 @@ class MemoryService:
         self,
         tags: Union[str, List[str]],
         match_all: bool = False
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Union[List[MemoryResult], str, bool, int]]:
         """
         Search memories by tags.
 
@@ -319,7 +349,7 @@ class MemoryService:
                 "content_hash": content_hash
             }
 
-    async def check_database_health(self) -> Dict[str, Any]:
+    async def check_database_health(self) -> Dict[str, Union[str, HealthStats]]:
         """
         Check the health and status of the memory database.
 

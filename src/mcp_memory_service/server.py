@@ -2115,15 +2115,7 @@ class MemoryServer:
             )
 
             # Convert MemoryService result to HTTP response format
-            if result["success"]:
-                if "chunks_created" in result:
-                    # Content was split
-                    return [types.TextContent(type="text", text=result["message"])]
-                else:
-                    # Single memory stored
-                    return [types.TextContent(type="text", text=result["message"])]
-            else:
-                return [types.TextContent(type="text", text=result["message"])]
+            return [types.TextContent(type="text", text=result["message"])]
 
         except Exception as e:
             logger.error(f"Error storing memory: {str(e)}\n{traceback.format_exc()}")
