@@ -8,6 +8,20 @@ For older releases, see [CHANGELOG-HISTORIC.md](./CHANGELOG-HISTORIC.md).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [8.7.1] - 2025-10-26
+
+### Fixed
+- **Cloudflare Vectorize Deletion** - Fixed vector deletion endpoint bug (src/mcp_memory_service/storage/cloudflare.py:671)
+  - **Problem**: Used incorrect endpoint `/delete-by-ids` (hyphens) causing 404 Not Found errors, preventing vector deletion
+  - **Solution**:
+    - Changed to correct Cloudflare API endpoint `/delete_by_ids` (underscores)
+    - Fixed payload format from `[vector_id]` to `{"ids": [vector_id]}`
+    - Created working cleanup script: `scripts/maintenance/delete_orphaned_vectors_fixed.py`
+    - Removed obsolete broken script: `scripts/maintenance/delete_orphaned_vectors.py`
+  - **Impact**: Successfully deleted 646 orphaned vectors from Vectorize in 7 batches
+  - **Testing**: Verified with production data (646 vectors, 100/batch, all mutations successful)
+  - **Discovery**: Found via web research of official Cloudflare Vectorize API documentation
+
 ## [8.7.0] - 2025-10-26
 
 ### Fixed

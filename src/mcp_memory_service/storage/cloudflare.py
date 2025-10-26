@@ -665,12 +665,12 @@ class CloudflareStorage(MemoryStorage):
     
     async def _delete_vectorize_vector(self, vector_id: str) -> None:
         """Delete vector from Vectorize."""
-        # Send IDs directly in the payload
-        payload = [vector_id]
-        
-        response = await self._retry_request("POST", f"{self.vectorize_url}/delete-by-ids", json=payload)
+        # Correct endpoint uses underscores, not hyphens
+        payload = {"ids": [vector_id]}
+
+        response = await self._retry_request("POST", f"{self.vectorize_url}/delete_by_ids", json=payload)
         result = response.json()
-        
+
         if not result.get("success"):
             logger.warning(f"Failed to delete vector from Vectorize: {result}")
     
