@@ -182,7 +182,7 @@ class MemoryService:
                 }
 
         except Exception as e:
-            logger.error(f"Error storing memory: {e}")
+            logger.error(f"Error storing memory: {e}", exc_info=True)
             return {
                 "success": False,
                 "message": f"Failed to store memory: {str(e)}"
