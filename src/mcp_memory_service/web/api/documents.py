@@ -127,8 +127,18 @@ async def upload_document(
                 detail=f"Unsupported file type: .{file_ext}. Supported: {supported}"
             )
 
-        # Parse tags
-        tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()]
+        # Parse tags - split by comma OR space, remove file:// prefixes
+        raw_tags = tags.replace(',', ' ').split()
+        tag_list = []
+        for tag in raw_tags:
+            clean_tag = tag.strip()
+            # Remove file:// protocol prefixes
+            if clean_tag.startswith('file://'):
+                clean_tag = Path(clean_tag.replace('file://', '')).name
+            # Remove common path separators to create clean tag names
+            clean_tag = clean_tag.replace('/', '_').replace('\\', '_')
+            if clean_tag and len(clean_tag) <= 100:  # MAX_TAG_LENGTH = 100
+                tag_list.append(clean_tag)
 
         # Validate tags - reject excessively long tags (likely user error/corruption)
         MAX_TAG_LENGTH = 100
@@ -215,8 +225,18 @@ async def batch_upload_documents(
         if not files:
             raise HTTPException(status_code=400, detail="No files provided")
 
-        # Parse tags
-        tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()]
+        # Parse tags - split by comma OR space, remove file:// prefixes
+        raw_tags = tags.replace(',', ' ').split()
+        tag_list = []
+        for tag in raw_tags:
+            clean_tag = tag.strip()
+            # Remove file:// protocol prefixes
+            if clean_tag.startswith('file://'):
+                clean_tag = Path(clean_tag.replace('file://', '')).name
+            # Remove common path separators to create clean tag names
+            clean_tag = clean_tag.replace('/', '_').replace('\\', '_')
+            if clean_tag and len(clean_tag) <= 100:  # MAX_TAG_LENGTH = 100
+                tag_list.append(clean_tag)
 
         # Validate tags - reject excessively long tags (likely user error/corruption)
         MAX_TAG_LENGTH = 100
