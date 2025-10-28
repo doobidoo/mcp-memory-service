@@ -143,7 +143,7 @@ class JSONLoader(DocumentLoader):
             logger.error(f"Invalid JSON in file {file_path}: {str(e)}")
             raise ValueError(f"Invalid JSON format: {str(e)}") from e
         except Exception as e:
-            logger.error(f"Error extracting from JSON file {file_path}: {str(e)}")
+            logger.error(f"Error extracting from JSON file {file_path}: {type(e).__name__} - {str(e)}")
             raise ValueError(f"Failed to extract JSON content: {str(e)}") from e
 
     async def _read_json_file(self, file_path: Path) -> tuple:
@@ -172,7 +172,9 @@ class JSONLoader(DocumentLoader):
                             content = file.read()
                         data = json.loads(content)
                         return data, encoding
-                    except (UnicodeDecodeError, json.JSONDecodeError):
+                    except UnicodeDecodeError:
+                        continue
+                    except json.JSONDecodeError:
                         continue
 
                 # Last resort with error replacement

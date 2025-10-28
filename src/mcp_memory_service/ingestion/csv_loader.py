@@ -152,7 +152,7 @@ class CSVLoader(DocumentLoader):
                 )
 
         except Exception as e:
-            logger.error(f"Error extracting from CSV file {file_path}: {str(e)}")
+            logger.error(f"Error extracting from CSV file {file_path}: {type(e).__name__} - {str(e)}")
             raise ValueError(f"Failed to extract CSV content: {str(e)}") from e
 
     async def _read_csv_file(
