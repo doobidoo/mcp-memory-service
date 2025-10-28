@@ -2947,6 +2947,267 @@ body.dark-mode .report-card p {
     color: var(--neutral-600) !important;
 }
 
+/* Activity Heatmap Styles */
+.activity-heatmap {
+    font-family: var(--font-mono);
+}
+
+.heatmap-stats {
+    display: flex;
+    gap: var(--space-6);
+    margin-bottom: var(--space-4);
+    font-size: var(--text-sm);
+    color: var(--neutral-600);
+}
+
+.heatmap-month {
+    margin-bottom: var(--space-4);
+}
+
+.month-label {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--neutral-700);
+    margin-bottom: var(--space-2);
+}
+
+.month-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 1px;
+    background: var(--neutral-200);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.heatmap-cell {
+    aspect-ratio: 1;
+    background: var(--neutral-100);
+    border: 1px solid var(--neutral-200);
+    cursor: pointer;
+    transition: var(--transition-base);
+}
+
+.heatmap-cell:hover {
+    opacity: 0.8;
+}
+
+.heatmap-cell.empty {
+    background: transparent;
+    border: none;
+}
+
+.heatmap-cell.level-0 {
+    background: var(--neutral-100);
+}
+
+.heatmap-cell.level-1 {
+    background: #9be9a8;
+}
+
+.heatmap-cell.level-2 {
+    background: #40c463;
+}
+
+.heatmap-cell.level-3 {
+    background: #30a14e;
+}
+
+.heatmap-cell.level-4 {
+    background: #216e39;
+}
+
+.heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+    font-size: var(--text-sm);
+    color: var(--neutral-600);
+}
+
+.legend-cell {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+}
+
+/* Enhanced Tags Report */
+.enhanced-tags-report .report-period {
+    font-size: var(--text-sm);
+    color: var(--neutral-600);
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--neutral-200);
+}
+
+.enhanced-tags-report .tags-list {
+    list-style: none;
+    padding: 0;
+}
+
+.enhanced-tags-report .tags-list li {
+    padding: var(--space-3);
+    border: 1px solid var(--neutral-200);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--space-2);
+    background: white;
+}
+
+.enhanced-tags-report .tag-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-2);
+}
+
+.enhanced-tags-report .tag-count {
+    font-weight: 600;
+    color: var(--primary);
+}
+
+.enhanced-tags-report .tag-cooccurrence {
+    font-size: var(--text-sm);
+    color: var(--neutral-600);
+    font-style: italic;
+}
+
+/* Activity Breakdown */
+.activity-breakdown .activity-summary {
+    display: flex;
+    gap: var(--space-6);
+    margin-bottom: var(--space-4);
+    flex-wrap: wrap;
+}
+
+.activity-breakdown .activity-stat {
+    font-size: var(--text-sm);
+    color: var(--neutral-600);
+}
+
+.activity-breakdown .peak-times {
+    margin-bottom: var(--space-4);
+    font-size: var(--text-sm);
+    color: var(--neutral-700);
+}
+
+.activity-breakdown .activity-chart {
+    margin-top: var(--space-4);
+}
+
+.activity-bar-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+    padding: var(--space-2);
+    background: var(--neutral-50);
+    border-radius: var(--radius-sm);
+}
+
+.activity-label {
+    min-width: 60px;
+    font-size: var(--text-sm);
+    font-weight: 500;
+    color: var(--neutral-700);
+}
+
+.activity-bar {
+    flex: 1;
+    height: 8px;
+    background: linear-gradient(90deg, var(--primary), var(--primary-dark));
+    border-radius: 4px;
+    transition: var(--transition-base);
+}
+
+.activity-count {
+    min-width: 30px;
+    text-align: right;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--primary);
+}
+
+/* Storage Report */
+.storage-report .storage-summary {
+    display: flex;
+    gap: var(--space-6);
+    margin-bottom: var(--space-4);
+    flex-wrap: wrap;
+}
+
+.storage-report .storage-stat {
+    font-size: var(--text-sm);
+    color: var(--neutral-600);
+}
+
+.storage-report h4 {
+    margin: var(--space-4) 0 var(--space-2) 0;
+    color: var(--neutral-900);
+    font-size: var(--text-lg);
+    font-weight: 600;
+}
+
+.storage-report .largest-memories {
+    list-style: none;
+    padding: 0;
+}
+
+.storage-report .largest-memories li {
+    padding: var(--space-3);
+    border: 1px solid var(--neutral-200);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--space-2);
+    background: white;
+}
+
+.storage-report .memory-size {
+    font-weight: 600;
+    color: var(--primary);
+    margin-bottom: var(--space-1);
+}
+
+.storage-report .memory-preview {
+    font-size: var(--text-sm);
+    color: var(--neutral-700);
+    margin-bottom: var(--space-1);
+    word-break: break-word;
+}
+
+.storage-report .memory-meta {
+    font-size: var(--text-xs);
+    color: var(--neutral-500);
+}
+
+/* Dark mode support for new analytics features */
+body.dark-mode .heatmap-cell.level-0 {
+    background: var(--neutral-200);
+}
+
+body.dark-mode .heatmap-cell.level-1 {
+    background: #238636;
+}
+
+body.dark-mode .heatmap-cell.level-2 {
+    background: #1a7f37;
+}
+
+body.dark-mode .heatmap-cell.level-3 {
+    background: #0f5132;
+}
+
+body.dark-mode .heatmap-cell.level-4 {
+    background: #033a16;
+}
+
+body.dark-mode .enhanced-tags-report .tags-list li,
+body.dark-mode .activity-bar-row,
+body.dark-mode .storage-report .largest-memories li {
+    background: var(--neutral-100);
+    border-color: var(--neutral-300);
+    color: var(--neutral-900);
+}
+
 /* Form controls in Manage/Analytics dark mode */
 body.dark-mode .bulk-op-card input,
 body.dark-mode .bulk-op-card select,

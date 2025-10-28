@@ -246,6 +246,9 @@ class MemoryDashboard {
 
         // Analytics tab event listeners
         document.getElementById('growthPeriodSelect')?.addEventListener('change', this.handleGrowthPeriodChange.bind(this));
+        document.getElementById('heatmapPeriodSelect')?.addEventListener('change', this.handleHeatmapPeriodChange.bind(this));
+        document.getElementById('topTagsPeriodSelect')?.addEventListener('change', this.handleTopTagsPeriodChange.bind(this));
+        document.getElementById('activityGranularitySelect')?.addEventListener('change', this.handleActivityGranularityChange.bind(this));
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
@@ -3293,8 +3296,10 @@ class MemoryDashboard {
                 this.loadMemoryGrowthChart(),
                 this.loadTagUsageChart(),
                 this.loadMemoryTypesChart(),
+                this.loadActivityHeatmapChart(),
                 this.loadTopTagsReport(),
-                this.loadRecentActivityReport()
+                this.loadRecentActivityReport(),
+                this.loadStorageReport()
             ]);
         } catch (error) {
             console.error('Failed to load analytics data:', error);
@@ -3459,80 +3464,276 @@ class MemoryDashboard {
     }
 
     /**
-     * Load top tags report
-     */
+    * Load top tags report
+    */
     async loadTopTagsReport() {
-        const container = document.getElementById('topTagsList');
+    const container = document.getElementById('topTagsList');
+    const period = document.getElementById('topTagsPeriodSelect')?.value || '30d';
         if (!container) return;
 
-        try {
-            const response = await fetch(`${this.apiBase}/analytics/tag-usage`);
+    try {
+    const response = await fetch(`${this.apiBase}/analytics/top-tags?period=${period}`);
             if (!response.ok) throw new Error('Failed to load top tags');
 
-            const data = await response.json();
-            this.renderTopTagsReport(container, data);
-        } catch (error) {
-            console.error('Failed to load top tags:', error);
-            container.innerHTML = '<p class="error">Failed to load top tags</p>';
+    const data = await response.json();
+        this.renderTopTagsReport(container, data);
+    } catch (error) {
+    console.error('Failed to load top tags:', error);
+        container.innerHTML = '<p class="error">Failed to load top tags</p>';
         }
     }
 
     /**
-     * Render top tags report
-     */
+    * Render top tags report
+    */
     renderTopTagsReport(container, data) {
-        if (!data.tags || data.tags.length === 0) {
-            container.innerHTML = '<p>No tags found</p>';
-            return;
-        }
+    if (!data.tags || data.tags.length === 0) {
+    container.innerHTML = '<p>No tags found</p>';
+    return;
+    }
 
-        let html = '<ul class="tags-list">';
-        data.tags.slice(0, 10).forEach(tag => {
-            html += `<li><strong>${tag.tag}</strong>: ${tag.count} memories (${tag.percentage}%)</li>`;
+    let html = '<div class="enhanced-tags-report">';
+    html += `<div class="report-period">Period: ${data.period}</div>`;
+    html += '<ul class="tags-list">';
+    data.tags.slice(0, 10).forEach(tag => {
+        const trendIcon = tag.trending ? '📈' : '';
+            const growthText = tag.growth_rate !== null ? ` (${tag.growth_rate > 0 ? '+' : ''}${tag.growth_rate}%)` : '';
+        html += `<li>
+                <div class="tag-header">
+                    <strong>${tag.tag}</strong>${trendIcon}
+                    <span class="tag-count">${tag.count} memories (${tag.percentage}%)${growthText}</span>
+                </div>`;
+            if (tag.co_occurring_tags && tag.co_occurring_tags.length > 0) {
+                html += '<div class="tag-cooccurrence">Often with: ';
+                html += tag.co_occurring_tags.slice(0, 3).map(co => `${co.tag} (${co.strength.toFixed(2)})`).join(', ');
+                html += '</div>';
+            }
+            html += '</li>';
         });
-        html += '</ul>';
+        html += '</ul></div>';
 
         container.innerHTML = html;
     }
 
     /**
-     * Load recent activity report
-     */
+    * Load recent activity report
+    */
     async loadRecentActivityReport() {
-        const container = document.getElementById('recentActivityList');
+    const container = document.getElementById('recentActivityList');
+    const granularity = document.getElementById('activityGranularitySelect')?.value || 'daily';
+        if (!container) return;
+
+    try {
+    const response = await fetch(`${this.apiBase}/analytics/activity-breakdown?granularity=${granularity}`);
+    if (!response.ok) throw new Error('Failed to load activity breakdown');
+
+    const data = await response.json();
+    this.renderRecentActivityReport(container, data);
+    } catch (error) {
+    console.error('Failed to load recent activity:', error);
+    container.innerHTML = '<p class="error">Failed to load recent activity</p>';
+    }
+    }
+
+    /**
+    * Render recent activity report
+    */
+    renderRecentActivityReport(container, data) {
+    let html = '<div class="activity-breakdown">';
+
+    // Summary stats
+    html += '<div class="activity-summary">';
+        html += `<div class="activity-stat"><strong>Active Days:</strong> ${data.active_days}/${data.total_days}</div>`;
+    html += `<div class="activity-stat"><strong>Current Streak:</strong> ${data.current_streak} days</div>`;
+    html += `<div class="activity-stat"><strong>Longest Streak:</strong> ${data.longest_streak} days</div>`;
+    html += '</div>';
+
+    if (data.peak_times && data.peak_times.length > 0) {
+    html += '<div class="peak-times">';
+        html += '<strong>Peak Times:</strong> ';
+        html += data.peak_times.join(', ');
+            html += '</div>';
+    }
+
+        // Activity breakdown chart
+        if (data.breakdown && data.breakdown.length > 0) {
+            html += '<div class="activity-chart">';
+            const maxCount = Math.max(...data.breakdown.map(d => d.count));
+
+            data.breakdown.forEach(item => {
+                const barWidth = maxCount > 0 ? (item.count / maxCount * 100) : 0;
+                html += `<div class="activity-bar-row">
+                    <span class="activity-label">${item.label}</span>
+                    <div class="activity-bar" style="width: ${barWidth}%" title="${item.count} memories"></div>
+                    <span class="activity-count">${item.count}</span>
+                </div>`;
+            });
+
+            html += '</div>';
+        }
+
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+    /**
+    * Load activity heatmap chart
+    */
+    async loadActivityHeatmapChart() {
+    const container = document.getElementById('activityHeatmapChart');
+        const period = document.getElementById('heatmapPeriodSelect').value;
+
         if (!container) return;
 
         try {
-            // Get recent memories
-            const response = await fetch(`${this.apiBase}/memories?page=1&page_size=5`);
-            if (!response.ok) throw new Error('Failed to load recent activity');
+            const response = await fetch(`${this.apiBase}/analytics/activity-heatmap?days=${period}`);
+            if (!response.ok) throw new Error('Failed to load heatmap data');
 
             const data = await response.json();
-            this.renderRecentActivityReport(container, data.memories);
+            this.renderActivityHeatmapChart(container, data);
         } catch (error) {
-            console.error('Failed to load recent activity:', error);
-            container.innerHTML = '<p class="error">Failed to load recent activity</p>';
+            console.error('Failed to load activity heatmap:', error);
+            container.innerHTML = '<p class="error">Failed to load activity heatmap</p>';
         }
     }
 
     /**
-     * Render recent activity report
+     * Render activity heatmap chart
      */
-    renderRecentActivityReport(container, memories) {
-        if (!memories || memories.length === 0) {
-            container.innerHTML = '<p>No recent activity</p>';
+    renderActivityHeatmapChart(container, data) {
+        if (!data.data || data.data.length === 0) {
+            container.innerHTML = '<p>No activity data available</p>';
             return;
         }
 
-        let html = '<ul class="activity-list">';
-        memories.forEach(memory => {
-            const date = memory.created_at_iso ?
-                new Date(memory.created_at_iso).toLocaleDateString() : 'Unknown';
-            const preview = memory.content.substring(0, 50) + (memory.content.length > 50 ? '...' : '');
-            html += `<li><strong>${date}</strong>: ${preview}</li>`;
-        });
-        html += '</ul>';
+        // Create calendar grid
+        let html = '<div class="activity-heatmap">';
+        html += '<div class="heatmap-stats">';
+        html += `<span>${data.total_days} active days</span>`;
+        html += `<span>Max: ${data.max_count} memories/day</span>`;
+        html += '</div>';
 
+        // Group by months
+        const months = {};
+        data.data.forEach(day => {
+            const date = new Date(day.date);
+            const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            if (!months[monthKey]) {
+                months[monthKey] = [];
+            }
+            months[monthKey].push(day);
+        });
+
+        // Render each month
+        Object.keys(months).sort().reverse().forEach(monthKey => {
+            const [year, month] = monthKey.split('-');
+            const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'short' });
+
+            html += `<div class="heatmap-month">`;
+            html += `<div class="month-label">${monthName} ${year}</div>`;
+            html += '<div class="month-grid">';
+
+            // Create 7x6 grid (weeks x days)
+            const monthData = months[monthKey];
+            const firstDay = new Date(monthData[0].date).getDay();
+
+            // Add empty cells for days before month starts
+            for (let i = 0; i < firstDay; i++) {
+                html += '<div class="heatmap-cell empty"></div>';
+            }
+
+            // Add cells for each day
+            monthData.forEach(day => {
+                const level = day.level;
+                const tooltip = `${day.date}: ${day.count} memories`;
+                html += `<div class="heatmap-cell level-${level}" title="${tooltip}"></div>`;
+            });
+
+            html += '</div></div>';
+        });
+
+        // Legend
+        html += '<div class="heatmap-legend">';
+        html += '<span>Less</span>';
+        for (let i = 0; i <= 4; i++) {
+            html += `<div class="legend-cell level-${i}"></div>`;
+        }
+        html += '<span>More</span>';
+        html += '</div>';
+
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+    /**
+     * Handle heatmap period change
+     */
+    async handleHeatmapPeriodChange() {
+        await this.loadActivityHeatmapChart();
+    }
+
+    /**
+     * Handle top tags period change
+     */
+    async handleTopTagsPeriodChange() {
+        await this.loadTopTagsReport();
+    }
+
+    /**
+     * Handle activity granularity change
+     */
+    async handleActivityGranularityChange() {
+        await this.loadRecentActivityReport();
+    }
+
+    /**
+     * Load storage report
+     */
+    async loadStorageReport() {
+        const container = document.getElementById('storageReport');
+        if (!container) return;
+
+        try {
+            const response = await fetch(`${this.apiBase}/analytics/storage-stats`);
+            if (!response.ok) throw new Error('Failed to load storage stats');
+
+            const data = await response.json();
+            this.renderStorageReport(container, data);
+        } catch (error) {
+            console.error('Failed to load storage report:', error);
+            container.innerHTML = '<p class="error">Failed to load storage report</p>';
+        }
+    }
+
+    /**
+     * Render storage report
+     */
+    renderStorageReport(container, data) {
+        let html = '<div class="storage-report">';
+
+        // Summary stats
+        html += '<div class="storage-summary">';
+        html += `<div class="storage-stat"><strong>Total Size:</strong> ${data.total_size_mb} MB</div>`;
+        html += `<div class="storage-stat"><strong>Average Memory:</strong> ${data.average_memory_size} chars</div>`;
+        html += `<div class="storage-stat"><strong>Efficiency:</strong> ${data.storage_efficiency}%</div>`;
+        html += '</div>';
+
+        // Largest memories
+        if (data.largest_memories && data.largest_memories.length > 0) {
+            html += '<h4>Largest Memories</h4>';
+            html += '<ul class="largest-memories">';
+            data.largest_memories.slice(0, 5).forEach(memory => {
+                const date = memory.created_at ? new Date(memory.created_at * 1000).toLocaleDateString() : 'Unknown';
+                html += `<li>
+                    <div class="memory-size">${memory.size} chars</div>
+                    <div class="memory-preview">${this.escapeHtml(memory.content_preview)}</div>
+                    <div class="memory-meta">${date} • Tags: ${memory.tags.join(', ') || 'none'}</div>
+                </li>`;
+            });
+            html += '</ul>';
+        }
+
+        html += '</div>';
         container.innerHTML = html;
     }
 

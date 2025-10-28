@@ -759,36 +759,74 @@
                             </div>
 
                             <div class="chart-card">
-                                <h3>Memory Types</h3>
-                                <div id="memoryTypesChart" class="chart-container">
-                                    <div class="loading-spinner"></div>
-                                    <p>Loading chart...</p>
-                                </div>
+                            <h3>Memory Types</h3>
+                            <div id="memoryTypesChart" class="chart-container">
+                            <div class="loading-spinner"></div>
+                            <p>Loading chart...</p>
                             </div>
-                        </div>
-                    </section>
-
-                    <!-- Detailed Analytics -->
-                    <section class="analytics-section">
-                        <h2>📋 Detailed Reports</h2>
-                        <div class="reports-grid">
-                            <div class="report-card">
-                                <h3>Top Tags</h3>
-                                <div id="topTagsList" class="report-content">
-                                    <div class="loading-spinner"></div>
-                                    <p>Loading...</p>
-                                </div>
                             </div>
 
-                            <div class="report-card">
-                                <h3>Recent Activity</h3>
-                                <div id="recentActivityList" class="report-content">
-                                    <div class="loading-spinner"></div>
-                                    <p>Loading...</p>
-                                </div>
+                                    <div class="chart-card">
+                                 <h3>Activity Heatmap</h3>
+                                        <div class="chart-controls">
+                                            <select id="heatmapPeriodSelect" class="form-control">
+                                            <option value="90">Last 90 Days</option>
+                                            <option value="180">Last 6 Months</option>
+                                        <option value="365" selected>Last Year</option>
+                                </select>
                             </div>
-                        </div>
-                    </section>
+                            <div id="activityHeatmapChart" class="chart-container">
+                            <div class="loading-spinner"></div>
+                                <p>Loading heatmap...</p>
+                                </div>
+                             </div>
+                            </div>
+                            </section>
+
+                            <!-- Detailed Analytics -->
+                            <section class="analytics-section">
+                            <h2>📋 Detailed Reports</h2>
+                            <div class="reports-grid">
+                                <div class="report-card">
+                                        <h3>Top Tags</h3>
+                                 <div class="chart-controls">
+                                     <select id="topTagsPeriodSelect" class="form-control">
+                                         <option value="7d">Last 7 Days</option>
+                                         <option value="30d" selected>Last 30 Days</option>
+                                         <option value="90d">Last 90 Days</option>
+                                         <option value="all">All Time</option>
+                                     </select>
+                                 </div>
+                                 <div id="topTagsList" class="report-content">
+                                     <div class="loading-spinner"></div>
+                                     <p>Loading...</p>
+                                 </div>
+                             </div>
+
+                             <div class="report-card">
+                                 <h3>Recent Activity</h3>
+                                 <div class="chart-controls">
+                                     <select id="activityGranularitySelect" class="form-control">
+                                         <option value="hourly">By Hour</option>
+                                         <option value="daily" selected>By Day</option>
+                                         <option value="weekly">By Week</option>
+                                     </select>
+                                 </div>
+                                 <div id="recentActivityList" class="report-content">
+                                     <div class="loading-spinner"></div>
+                                     <p>Loading...</p>
+                                 </div>
+                             </div>
+
+                             <div class="report-card">
+                                 <h3>Storage Report</h3>
+                                 <div id="storageReport" class="report-content">
+                                     <div class="loading-spinner"></div>
+                                     <p>Loading...</p>
+                                 </div>
+                             </div>
+                         </div>
+                     </section>
                 </div>
             </div>
 
