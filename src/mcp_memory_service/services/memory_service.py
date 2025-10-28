@@ -149,9 +149,16 @@ class MemoryService:
             # Generate content hash for deduplication
             content_hash = generate_content_hash(content)
 
-            # Process content if auto-splitting is enabled
-            if ENABLE_AUTO_SPLIT and len(content) > CONTENT_PRESERVE_BOUNDARIES:
-                chunks = split_content(content)
+            # Process content if auto-splitting is enabled and content exceeds max length
+            max_length = self.storage.max_content_length
+            if ENABLE_AUTO_SPLIT and max_length and len(content) > max_length:
+                # Split content into chunks
+                chunks = split_content(
+                    content,
+                    max_length=max_length,
+                    preserve_boundaries=CONTENT_PRESERVE_BOUNDARIES,
+                    overlap=CONTENT_SPLIT_OVERLAP
+                )
                 stored_memories = []
 
                 for i, chunk in enumerate(chunks):
@@ -169,8 +176,9 @@ class MemoryService:
                         metadata=chunk_metadata
                     )
 
-                    await self.storage.store(memory)
-                    stored_memories.append(self._format_memory_response(memory))
+                    success, message = await self.storage.store(memory)
+                    if success:
+                        stored_memories.append(self._format_memory_response(memory))
 
                 return {
                     "success": True,
@@ -188,12 +196,18 @@ class MemoryService:
                     metadata=final_metadata
                 )
 
-                await self.storage.store(memory)
+                success, message = await self.storage.store(memory)
 
-                return {
-                    "success": True,
-                    "memory": self._format_memory_response(memory)
-                }
+                if success:
+                    return {
+                        "success": True,
+                        "memory": self._format_memory_response(memory)
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": message
+                    }
 
         except ValueError as e:
             # Handle validation errors specifically
@@ -283,10 +297,8 @@ class MemoryService:
                 tags = [tags]
 
             # Search using database-level filtering
-            memories = await self.storage.search_by_tags(
-                tags=tags,
-                match_all=match_all
-            )
+            # Note: Using search_by_tag from base class (singular)
+            memories = await self.storage.search_by_tag(tags=tags)
 
             # Format results
             results = []
@@ -322,7 +334,11 @@ class MemoryService:
             Dictionary with memory data or error
         """
         try:
-            memory = await self.storage.get_memory(content_hash)
+            # Get all memories and find by hash (storage base doesn't have get_memory)
+            # This is inefficient but maintains compatibility
+            all_memories = await self.storage.get_all_memories(limit=None, offset=0)
+            memory = next((m for m in all_memories if m.content_hash == content_hash), None)
+
             if memory:
                 return {
                     "memory": self._format_memory_response(memory),
@@ -353,11 +369,18 @@ class MemoryService:
             Dictionary with operation result
         """
         try:
-            success = await self.storage.delete_memory(content_hash)
-            return {
-                "success": success,
-                "content_hash": content_hash
-            }
+            success, message = await self.storage.delete(content_hash)
+            if success:
+                return {
+                    "success": True,
+                    "content_hash": content_hash
+                }
+            else:
+                return {
+                    "success": False,
+                    "content_hash": content_hash,
+                    "error": message
+                }
 
         except Exception as e:
             logger.error(f"Error deleting memory: {e}")
@@ -375,10 +398,10 @@ class MemoryService:
             Dictionary with health status and statistics
         """
         try:
-            stats = await self.storage.health_check()
+            stats = await self.storage.get_stats()
             return {
                 "healthy": True,
-                "storage_type": stats.get("storage_type", "unknown"),
+                "storage_type": stats.get("backend", "unknown"),
                 "total_memories": stats.get("total_memories", 0),
                 "last_updated": datetime.now().isoformat(),
                 **stats
