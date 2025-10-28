@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from ...storage.base import MemoryStorage
 from ...models.memory import Memory
+from ...services.memory_service import MemoryService
 from ...utils.hashing import generate_content_hash
 from ...config import INCLUDE_HOSTNAME, OAUTH_ENABLED
 from ..dependencies import get_storage
@@ -141,76 +142,94 @@ async def store_memory(
 ):
     """
     Store a new memory.
-    
-    Creates a new memory entry with the provided content, tags, and metadata.
-    The system automatically generates a unique hash for the content.
+
+    Uses the MemoryService for consistent business logic including content processing,
+    hostname tagging, and metadata enrichment.
     """
     try:
-        # Generate content hash
-        content_hash = generate_content_hash(request.content)
-        
         # Prepare tags and metadata with optional hostname
         final_tags = request.tags or []
         final_metadata = request.metadata or {}
-        
+
         if INCLUDE_HOSTNAME:
             # Prioritize client-provided hostname, then header, then fallback to server
             hostname = None
-            
+
             # 1. Check if client provided hostname in request body
             if request.client_hostname:
                 hostname = request.client_hostname
-                
+
             # 2. Check for X-Client-Hostname header
             elif http_request.headers.get('X-Client-Hostname'):
                 hostname = http_request.headers.get('X-Client-Hostname')
-                
+
             # 3. Fallback to server hostname (original behavior)
             else:
                 hostname = socket.gethostname()
-            
+
             source_tag = f"source:{hostname}"
             if source_tag not in final_tags:
                 final_tags.append(source_tag)
             final_metadata["hostname"] = hostname
-        
-        # Create memory object
-        memory = Memory(
+
+        # Use MemoryService for consistent business logic
+        memory_service = MemoryService(storage)
+        result = await memory_service.store_memory(
             content=request.content,
-            content_hash=content_hash,
             tags=final_tags,
             memory_type=request.memory_type,
             metadata=final_metadata
         )
-        
-        # Store the memory
-        success, message = await storage.store(memory)
-        
-        if success:
+
+        if result["success"]:
             # Broadcast SSE event for successful memory storage
             try:
-                memory_data = {
-                    "content_hash": content_hash,
-                    "content": memory.content,
-                    "tags": memory.tags,
-                    "memory_type": memory.memory_type
-                }
+                # Handle both single memory and chunked responses
+                if "memory" in result:
+                    memory_data = {
+                        "content_hash": result["memory"]["content_hash"],
+                        "content": result["memory"]["content"],
+                        "tags": result["memory"]["tags"],
+                        "memory_type": result["memory"]["memory_type"]
+                    }
+                else:
+                    # For chunked responses, use the first chunk's data
+                    first_memory = result["memories"][0]
+                    memory_data = {
+                        "content_hash": first_memory["content_hash"],
+                        "content": first_memory["content"],
+                        "tags": first_memory["tags"],
+                        "memory_type": first_memory["memory_type"]
+                    }
+
                 event = create_memory_stored_event(memory_data)
                 await sse_manager.broadcast_event(event)
             except Exception as e:
                 # Don't fail the request if SSE broadcasting fails
                 logger.warning(f"Failed to broadcast memory_stored event: {e}")
-            
-            return MemoryCreateResponse(
-                success=True,
-                message=message,
-                content_hash=content_hash,
-                memory=memory_to_response(memory)
-            )
+
+            # Return appropriate response based on MemoryService result
+            if "memory" in result:
+                # Single memory response
+                return MemoryCreateResponse(
+                    success=True,
+                    message="Memory stored successfully",
+                    content_hash=result["memory"]["content_hash"],
+                    memory=result["memory"]
+                )
+            else:
+                # Chunked memory response
+                first_memory = result["memories"][0]
+                return MemoryCreateResponse(
+                    success=True,
+                    message=f"Memory stored as {result['total_chunks']} chunks",
+                    content_hash=first_memory["content_hash"],
+                    memory=first_memory
+                )
         else:
             return MemoryCreateResponse(
                 success=False,
-                message=message,
+                message=result.get("error", "Failed to store memory"),
                 content_hash=content_hash
             )
             
@@ -229,51 +248,30 @@ async def list_memories(
     user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
-    List memories with pagination.
-    
-    Retrieves memories with optional filtering by tag or memory type.
-    Results are paginated for better performance.
+    List memories with pagination and optional filtering.
+
+    Uses the MemoryService for consistent business logic and optimal database-level filtering.
     """
     try:
-        # Calculate offset for pagination
-        offset = (page - 1) * page_size
-        
-        if tag:
-            # Filter by tag with proper chronological ordering and pagination
-            if memory_type:
-                # When filtering by both tag and memory_type, we need to get all matching
-                # tag memories, filter by type, then paginate (suboptimal but correct)
-                all_tag_memories = await storage.search_by_tag_chronological([tag])
-                filtered_memories = [m for m in all_tag_memories if m.memory_type == memory_type]
+        # Create MemoryService instance
+        memory_service = MemoryService(storage)
 
-                total = len(filtered_memories)
-                page_memories = filtered_memories[offset:offset + page_size]
-                has_more = offset + page_size < total
-            else:
-                # Tag-only filtering with server-side pagination
-                page_memories = await storage.search_by_tag_chronological([tag], limit=page_size, offset=offset)
-                total = await storage.count_memories_by_tag([tag])
-                has_more = offset + page_size < total
-        else:
-            if memory_type:
-                # Memory type filtering without tag - now efficiently handled at storage layer
-                total = await storage.count_all_memories(memory_type=memory_type)
-                page_memories = await storage.get_all_memories(limit=page_size, offset=offset, memory_type=memory_type)
-                has_more = offset + page_size < total
-            else:
-                # No filtering - use efficient server-side pagination
-                total = await storage.count_all_memories()
-                page_memories = await storage.get_all_memories(limit=page_size, offset=offset)
-                has_more = offset + page_size < total
-        
-        return MemoryListResponse(
-            memories=[memory_to_response(m) for m in page_memories],
-            total=total,
+        # Use the service for consistent, performant memory listing
+        result = await memory_service.list_memories(
             page=page,
             page_size=page_size,
-            has_more=has_more
+            tag=tag,
+            memory_type=memory_type
         )
-        
+
+        return MemoryListResponse(
+            memories=result["memories"],
+            total=result["total"],
+            page=result["page"],
+            page_size=result["page_size"],
+            has_more=result["has_more"]
+        )
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list memories: {str(e)}")
 
