@@ -473,7 +473,9 @@ async def get_activity_heatmap(
     Returns daily activity counts for the specified period, with activity levels for color coding.
     """
     try:
-        # Get recent memories for activity analysis
+        # TODO: Performance optimization - Add dedicated storage method to fetch only timestamps
+        # Currently fetching 5000 full memory objects just to process creation timestamps.
+        # Suggested: storage.get_memory_timestamps(days=days) would be much more efficient.
         recent_memories = await storage.get_recent_memories(n=5000)  # Get larger sample
 
         # Group by date
@@ -574,9 +576,11 @@ async def get_top_tags_report(
         # Filter by time period if needed
         if days is not None:
             cutoff_ts = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
-            # Note: This is a simplified implementation. In a real system,
-            # we'd need time-filtered tag counting in the storage layer
-            pass  # For now, return all tags
+            # TODO: CRITICAL - Period filtering not implemented
+            # This endpoint accepts a 'period' parameter (7d, 30d, 90d) but returns all-time data
+            # This is misleading for API consumers who expect filtered results
+            # Implementation requires: storage.get_tags_with_counts(start_timestamp=cutoff_ts)
+            pass  # Currently returns all tags regardless of period
 
         # Sort and limit
         tag_data.sort(key=lambda x: x["count"], reverse=True)
@@ -628,7 +632,9 @@ async def get_activity_breakdown(
     Returns activity statistics by time period, peak times, and streak information.
     """
     try:
-        # Get recent memories
+        # TODO: Performance optimization - Add dedicated storage method to fetch only timestamps
+        # Currently fetching 2000 full memory objects just to process creation timestamps.
+        # Suggested: storage.get_memory_timestamps_for_period() would be much more efficient.
         recent_memories = await storage.get_recent_memories(n=2000)
 
         # Group by granularity
@@ -699,34 +705,42 @@ async def get_activity_breakdown(
         activity_dates = sorted(set(activity_dates))
         current_streak = 0
         longest_streak = 0
-        temp_streak = 0
 
         if activity_dates:
-            # Current streak
+            # Current streak - check backwards from today
             today = datetime.now(timezone.utc).date()
-            for i in range(len(activity_dates) - 1, -1, -1):
-                if activity_dates[i] == today - timedelta(days=len(activity_dates) - 1 - i):
-                    current_streak += 1
-                else:
-                    break
+            activity_dates_set = set(activity_dates)
 
-            # Longest streak
+            # A streak is only "current" if it includes today
+            if today in activity_dates_set:
+                day_to_check = today
+                while day_to_check in activity_dates_set:
+                    current_streak += 1
+                    day_to_check -= timedelta(days=1)
+
+            # Longest streak - iterate through sorted dates
+            temp_streak = 1  # Start at 1, not 0
+            longest_streak = 1  # At least 1 if there's any activity
+
             for i in range(1, len(activity_dates)):
                 if activity_dates[i] == activity_dates[i-1] + timedelta(days=1):
                     temp_streak += 1
                     longest_streak = max(longest_streak, temp_streak)
                 else:
-                    temp_streak = 0
+                    temp_streak = 1  # Reset to 1, not 0
 
         # Find peak times (top 3)
         sorted_breakdown = sorted(breakdown, key=lambda x: x.count, reverse=True)
         peak_times = [item.label for item in sorted_breakdown[:3]]
 
+        # Calculate total_days as the span from oldest to newest memory
+        total_days = (activity_dates[-1] - activity_dates[0]).days + 1 if len(activity_dates) >= 2 else len(activity_dates)
+
         return ActivityReport(
             breakdown=breakdown,
             peak_times=peak_times,
             active_days=len(active_days),
-            total_days=len(set(activity_dates)),
+            total_days=total_days,
             current_streak=current_streak,
             longest_streak=max(longest_streak, current_streak)
         )
