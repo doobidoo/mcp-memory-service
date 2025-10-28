@@ -29,7 +29,7 @@ from ...models.memory import Memory
 from ...services.memory_service import MemoryService
 from ...utils.hashing import generate_content_hash
 from ...config import INCLUDE_HOSTNAME, OAUTH_ENABLED
-from ..dependencies import get_storage
+from ..dependencies import get_storage, get_memory_service
 from ..sse import sse_manager, create_memory_stored_event, create_memory_deleted_event
 
 # OAuth authentication imports (conditional)
@@ -137,7 +137,7 @@ def memory_to_response(memory: Memory) -> MemoryResponse:
 async def store_memory(
     request: MemoryCreateRequest,
     http_request: Request,
-    storage: MemoryStorage = Depends(get_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
 ):
     """
@@ -147,38 +147,27 @@ async def store_memory(
     hostname tagging, and metadata enrichment.
     """
     try:
-        # Prepare tags and metadata with optional hostname
-        final_tags = request.tags or []
-        final_metadata = request.metadata or {}
-
+        # Resolve hostname for consistent tagging (logic stays in API layer, tagging in service)
+        client_hostname = None
         if INCLUDE_HOSTNAME:
             # Prioritize client-provided hostname, then header, then fallback to server
-            hostname = None
-
             # 1. Check if client provided hostname in request body
-            if request.client_hostname:
-                hostname = request.client_hostname
+        if request.client_hostname:
+            client_hostname = request.client_hostname
+        # 2. Check for X-Client-Hostname header
+        elif http_request.headers.get('X-Client-Hostname'):
+            client_hostname = http_request.headers.get('X-Client-Hostname')
+        # 3. Fallback to server hostname (original behavior)
+        else:
+            client_hostname = socket.gethostname()
 
-            # 2. Check for X-Client-Hostname header
-            elif http_request.headers.get('X-Client-Hostname'):
-                hostname = http_request.headers.get('X-Client-Hostname')
-
-            # 3. Fallback to server hostname (original behavior)
-            else:
-                hostname = socket.gethostname()
-
-            source_tag = f"source:{hostname}"
-            if source_tag not in final_tags:
-                final_tags.append(source_tag)
-            final_metadata["hostname"] = hostname
-
-        # Use MemoryService for consistent business logic
-        memory_service = MemoryService(storage)
+        # Use injected MemoryService for consistent business logic (hostname tagging handled internally)
         result = await memory_service.store_memory(
             content=request.content,
-            tags=final_tags,
-            memory_type=request.memory_type,
-            metadata=final_metadata
+        tags=request.tags,
+        memory_type=request.memory_type,
+        metadata=request.metadata,
+        client_hostname=client_hostname
         )
 
         if result["success"]:
@@ -230,7 +219,7 @@ async def store_memory(
             return MemoryCreateResponse(
                 success=False,
                 message=result.get("error", "Failed to store memory"),
-                content_hash=content_hash
+                content_hash=None
             )
             
     except Exception as e:
@@ -244,7 +233,7 @@ async def list_memories(
     page_size: int = Query(10, ge=1, le=100, description="Number of memories per page"),
     tag: Optional[str] = Query(None, description="Filter by tag"),
     memory_type: Optional[str] = Query(None, description="Filter by memory type"),
-    storage: MemoryStorage = Depends(get_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
@@ -253,10 +242,7 @@ async def list_memories(
     Uses the MemoryService for consistent business logic and optimal database-level filtering.
     """
     try:
-        # Create MemoryService instance
-        memory_service = MemoryService(storage)
-
-        # Use the service for consistent, performant memory listing
+        # Use the injected service for consistent, performant memory listing
         result = await memory_service.list_memories(
             page=page,
             page_size=page_size,

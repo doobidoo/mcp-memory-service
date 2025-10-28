@@ -104,12 +104,13 @@ class MemoryService:
             }
 
         except Exception as e:
-            logger.error(f"Error listing memories: {e}")
+            logger.exception(f"Unexpected error listing memories: {e}")
             return {
+                "success": False,
+                "error": f"Failed to list memories: {str(e)}",
                 "memories": [],
                 "page": page,
-                "page_size": page_size,
-                "error": f"Failed to list memories: {str(e)}"
+                "page_size": page_size
             }
 
     async def store_memory(
@@ -117,7 +118,8 @@ class MemoryService:
         content: str,
         tags: Optional[List[str]] = None,
         memory_type: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        client_hostname: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Store a new memory with validation and content processing.
@@ -127,11 +129,23 @@ class MemoryService:
             tags: Optional tags for the memory
             memory_type: Optional memory type classification
             metadata: Optional additional metadata
+            client_hostname: Optional client hostname for source tagging
 
         Returns:
             Dictionary with operation result
         """
         try:
+            # Prepare tags and metadata with optional hostname tagging
+            final_tags = tags or []
+            final_metadata = metadata or {}
+
+            # Apply hostname tagging if provided (for consistent source tracking)
+            if client_hostname:
+                source_tag = f"source:{client_hostname}"
+                if source_tag not in final_tags:
+                    final_tags.append(source_tag)
+                final_metadata["hostname"] = client_hostname
+
             # Generate content hash for deduplication
             content_hash = generate_content_hash(content)
 
@@ -142,7 +156,7 @@ class MemoryService:
 
                 for i, chunk in enumerate(chunks):
                     chunk_hash = generate_content_hash(chunk)
-                    chunk_metadata = metadata.copy() if metadata else {}
+                    chunk_metadata = final_metadata.copy()
                     chunk_metadata["chunk_index"] = i
                     chunk_metadata["total_chunks"] = len(chunks)
                     chunk_metadata["original_hash"] = content_hash
@@ -150,7 +164,7 @@ class MemoryService:
                     memory = Memory(
                         content=chunk,
                         content_hash=chunk_hash,
-                        tags=tags or [],
+                        tags=final_tags,
                         memory_type=memory_type,
                         metadata=chunk_metadata
                     )
@@ -169,9 +183,9 @@ class MemoryService:
                 memory = Memory(
                     content=content,
                     content_hash=content_hash,
-                    tags=tags or [],
+                    tags=final_tags,
                     memory_type=memory_type,
-                    metadata=metadata
+                    metadata=final_metadata
                 )
 
                 await self.storage.store(memory)
@@ -181,8 +195,23 @@ class MemoryService:
                     "memory": self._format_memory_response(memory)
                 }
 
+        except ValueError as e:
+            # Handle validation errors specifically
+            logger.warning(f"Validation error storing memory: {e}")
+            return {
+                "success": False,
+                "error": f"Invalid memory data: {str(e)}"
+            }
+        except ConnectionError as e:
+            # Handle storage connectivity issues
+            logger.error(f"Storage connection error: {e}")
+            return {
+                "success": False,
+                "error": f"Storage connection failed: {str(e)}"
+            }
         except Exception as e:
-            logger.error(f"Error storing memory: {e}")
+            # Handle unexpected errors
+            logger.exception(f"Unexpected error storing memory: {e}")
             return {
                 "success": False,
                 "error": f"Failed to store memory: {str(e)}"

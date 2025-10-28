@@ -21,6 +21,7 @@ from typing import Optional
 from fastapi import HTTPException
 
 from ..storage.base import MemoryStorage
+from ..services.memory_service import MemoryService
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,11 @@ def get_storage() -> MemoryStorage:
     if _storage is None:
         raise HTTPException(status_code=503, detail="Storage not initialized")
     return _storage
+
+
+def get_memory_service(storage: MemoryStorage = get_storage()) -> MemoryService:
+    """Get a MemoryService instance with the configured storage backend."""
+    return MemoryService(storage)
 
 
 
