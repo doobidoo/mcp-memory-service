@@ -651,7 +651,7 @@ class HybridMemoryStorage(MemoryStorage):
 
         try:
             # Get memory count from both storages to compare
-            primary_stats = self.primary.get_stats()
+            primary_stats = await self.primary.get_stats()
             secondary_stats = await self.secondary.get_stats()
 
             primary_count = primary_stats.get('total_memories', 0)
