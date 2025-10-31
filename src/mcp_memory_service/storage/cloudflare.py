@@ -310,7 +310,7 @@ class CloudflareStorage(MemoryStorage):
             vector_metadata = {
                 "content_hash": memory.content_hash,
                 "memory_type": memory.memory_type or "standard",
-                "tags": ",".join(memory.tags) if memory.tags else "",
+                "tags": list(memory.tags) if memory.tags else [],
                 "created_at": memory.created_at_iso or datetime.now().isoformat()
             }
             
@@ -445,42 +445,66 @@ class CloudflareStorage(MemoryStorage):
         if response.status_code not in [200, 201]:
             raise ValueError(f"Failed to store content in R2: {response.status_code}")
     
-    async def retrieve(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
-        """Retrieve memories by semantic search."""
+    async def retrieve(
+        self,
+        query: str,
+        n_results: int = 5,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None,
+        min_similarity: Optional[float] = None
+    ) -> List[MemoryQueryResult]:
+        """Retrieve memories by semantic search with optional filtering."""
         try:
             # Generate query embedding
             query_embedding = await self._generate_embedding(query)
-            
-            # Search Vectorize (without namespace for now)
+
+            # Build search payload
             search_payload = {
                 "vector": query_embedding,
                 "topK": n_results,
                 "returnMetadata": "all",
                 "returnValues": False
             }
-            
+
+            # Add metadata filter if any filters are specified
+            filter_obj = {}
+            if memory_type is not None:
+                filter_obj["memory_type"] = {"$eq": memory_type}
+            if tags:
+                # Cloudflare Vectorize uses $in for array matching
+                filter_obj["tags"] = {"$in": tags}
+
+            if filter_obj:
+                search_payload["filter"] = filter_obj
+
             response = await self._retry_request("POST", f"{self.vectorize_url}/query", json=search_payload)
             result = response.json()
-            
+
             if not result.get("success"):
                 raise ValueError(f"Vectorize query failed: {result}")
-            
+
             matches = result.get("result", {}).get("matches", [])
-            
+
             # Convert to MemoryQueryResult objects
             results = []
             for match in matches:
                 memory = await self._load_memory_from_match(match)
                 if memory:
+                    relevance_score = match.get("score", 0.0)
+
+                    # Apply minimum similarity filter if specified
+                    if min_similarity is not None and relevance_score < min_similarity:
+                        continue
+
                     query_result = MemoryQueryResult(
                         memory=memory,
-                        relevance_score=match.get("score", 0.0)
+                        relevance_score=relevance_score
                     )
                     results.append(query_result)
-            
+
             logger.info(f"Retrieved {len(results)} memories for query")
             return results
-            
+
         except Exception as e:
             logger.error(f"Failed to retrieve memories: {e}")
             return []

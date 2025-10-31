@@ -462,6 +462,7 @@ SOLUTIONS:
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_content_hash ON memories(content_hash)')
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at)')
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_type ON memories(memory_type)')
+            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_tags ON memories(tags)')
 
             # Mark as initialized to prevent re-initialization
             self._initialized = True
@@ -783,50 +784,98 @@ SOLUTIONS:
             logger.error(traceback.format_exc())
             return False, error_msg
     
-    async def retrieve(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
-        """Retrieve memories using semantic search."""
+    async def retrieve(
+        self,
+        query: str,
+        n_results: int = 5,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None,
+        min_similarity: Optional[float] = None
+    ) -> List[MemoryQueryResult]:
+        """Retrieve memories using semantic search with optional filtering."""
         try:
             if not self.conn:
                 logger.error("Database not initialized")
                 return []
-            
+
             if not self.embedding_model:
                 logger.warning("No embedding model available, cannot perform semantic search")
                 return []
-            
+
             # Generate query embedding
             try:
                 query_embedding = self._generate_embedding(query)
             except Exception as e:
                 logger.error(f"Failed to generate query embedding: {str(e)}")
                 return []
-            
+
             # First, check if embeddings table has data
             cursor = self.conn.execute('SELECT COUNT(*) FROM memory_embeddings')
             embedding_count = cursor.fetchone()[0]
-            
+
             if embedding_count == 0:
                 logger.warning("No embeddings found in database. Memories may have been stored without embeddings.")
                 return []
-            
+
+            # Build filter conditions for memories table
+            filter_conditions = []
+            filter_params = []
+
+            if memory_type is not None:
+                filter_conditions.append('memory_type = ?')
+                filter_params.append(memory_type)
+
+            if tags:
+                # Match ANY of the provided tags (OR logic) with exact matching using comma boundaries
+                tag_conditions = " OR ".join(["',' || tags || ',' LIKE ?" for _ in tags])
+                filter_conditions.append(f"({tag_conditions})")
+                filter_params.extend([f"%,{tag},%" for tag in tags])
+
             # Perform vector similarity search using JOIN with retry logic
             def search_memories():
-                # Try direct rowid join first
-                cursor = self.conn.execute('''
-                    SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
-                           m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso, 
-                           e.distance
-                    FROM memories m
-                    INNER JOIN (
-                        SELECT rowid, distance 
-                        FROM memory_embeddings 
-                        WHERE content_embedding MATCH ?
-                        ORDER BY distance
-                        LIMIT ?
-                    ) e ON m.id = e.rowid
-                    ORDER BY e.distance
-                ''', (serialize_float32(query_embedding), n_results))
-                
+                # Build the vector search query with optional filtering
+                if filter_conditions:
+                    # Filter embeddings to only those matching memory criteria
+                    filter_clause = " AND ".join(filter_conditions)
+                    query_sql = '''
+                        SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
+                               m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
+                               e.distance
+                        FROM memories m
+                        INNER JOIN (
+                            SELECT e.rowid, e.distance
+                            FROM memory_embeddings e
+                            WHERE e.content_embedding MATCH ?
+                            AND e.rowid IN (
+                                SELECT id FROM memories
+                                WHERE ''' + filter_clause + '''
+                            )
+                            ORDER BY e.distance
+                            LIMIT ?
+                        ) e ON m.id = e.rowid
+                        ORDER BY e.distance
+                    '''
+                    params = [serialize_float32(query_embedding)] + filter_params + [n_results]
+                else:
+                    # No filtering - original query
+                    query_sql = '''
+                        SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
+                               m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
+                               e.distance
+                        FROM memories m
+                        INNER JOIN (
+                            SELECT rowid, distance
+                            FROM memory_embeddings
+                            WHERE content_embedding MATCH ?
+                            ORDER BY distance
+                            LIMIT ?
+                        ) e ON m.id = e.rowid
+                        ORDER BY e.distance
+                    '''
+                    params = [serialize_float32(query_embedding), n_results]
+
+                cursor = self.conn.execute(query_sql, params)
+
                 # Check if we got results
                 results = cursor.fetchall()
                 if not results:
@@ -834,9 +883,9 @@ SOLUTIONS:
                     logger.debug("No results from vector search. Checking database state...")
                     mem_count = self.conn.execute('SELECT COUNT(*) FROM memories').fetchone()[0]
                     logger.debug(f"Memories table has {mem_count} rows, embeddings table has {embedding_count} rows")
-                
+
                 return results
-            
+
             search_results = await self._execute_with_retry(search_memories)
             
             results = []
@@ -867,7 +916,11 @@ SOLUTIONS:
                     # For cosine distance: distance ranges from 0 (identical) to 2 (opposite)
                     # Convert to similarity score: 1 - (distance/2) gives 0-1 range
                     relevance_score = max(0.0, 1.0 - (float(distance) / 2.0)) if distance is not None else 0.0
-                    
+
+                    # Apply minimum similarity filter if specified
+                    if min_similarity is not None and relevance_score < min_similarity:
+                        continue
+
                     results.append(MemoryQueryResult(
                         memory=memory,
                         relevance_score=relevance_score,
@@ -896,9 +949,9 @@ SOLUTIONS:
             if not tags:
                 return []
             
-            # Build query for tag search (OR logic)
-            tag_conditions = " OR ".join(["tags LIKE ?" for _ in tags])
-            tag_params = [f"%{tag}%" for tag in tags]
+            # Build query for tag search (OR logic) with exact matching using comma boundaries
+            tag_conditions = " OR ".join(["',' || tags || ',' LIKE ?" for _ in tags])
+            tag_params = [f"%,{tag},%" for tag in tags]
             
             cursor = self.conn.execute(f'''
                 SELECT content_hash, content, tags, memory_type, metadata,
@@ -954,14 +1007,14 @@ SOLUTIONS:
             if not tags:
                 return []
             
-            # Build query based on operation
+            # Build query based on operation with exact matching using comma boundaries
             if operation.upper() == "AND":
                 # All tags must be present (each tag must appear in the tags field)
-                tag_conditions = " AND ".join(["tags LIKE ?" for _ in tags])
+                tag_conditions = " AND ".join(["',' || tags || ',' LIKE ?" for _ in tags])
             else:  # OR operation (default for backward compatibility)
-                tag_conditions = " OR ".join(["tags LIKE ?" for _ in tags])
-            
-            tag_params = [f"%{tag}%" for tag in tags]
+                tag_conditions = " OR ".join(["',' || tags || ',' LIKE ?" for _ in tags])
+
+            tag_params = [f"%,{tag},%" for tag in tags]
             
             cursor = self.conn.execute(f'''
                 SELECT content_hash, content, tags, memory_type, metadata,
@@ -1831,11 +1884,11 @@ SOLUTIONS:
                 where_conditions.append('m.memory_type = ?')
                 params.append(memory_type)
 
-            # Add tags filter if specified (using database-level filtering like search_by_tag_chronological)
+            # Add tags filter if specified with exact matching using comma boundaries
             if tags and len(tags) > 0:
-                tag_conditions = " OR ".join(["m.tags LIKE ?" for _ in tags])
+                tag_conditions = " OR ".join(["',' || m.tags || ',' LIKE ?" for _ in tags])
                 where_conditions.append(f"({tag_conditions})")
-                params.extend([f"%{tag}%" for tag in tags])
+                params.extend([f"%,{tag},%" for tag in tags])
 
             # Apply WHERE clause if we have any conditions
             if where_conditions:
@@ -1947,12 +2000,12 @@ SOLUTIONS:
                 params.append(memory_type)
 
             if tags:
-                # Filter by tags - match ANY tag (OR logic)
-                tag_conditions = ' OR '.join(['tags LIKE ?' for _ in tags])
+                # Filter by tags - match ANY tag (OR logic) with exact matching using comma boundaries
+                tag_conditions = ' OR '.join(["',' || tags || ',' LIKE ?" for _ in tags])
                 conditions.append(f'({tag_conditions})')
-                # Add each tag with wildcards for LIKE matching
+                # Add each tag with comma boundaries for exact matching
                 for tag in tags:
-                    params.append(f'%{tag}%')
+                    params.append(f'%,{tag},%')
 
             # Build final query
             if conditions:
