@@ -236,7 +236,8 @@ class MemoryService:
         query: str,
         n_results: int = 10,
         tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None
+        memory_type: Optional[str] = None,
+        min_similarity: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         Retrieve memories by semantic search with optional filtering.
@@ -246,21 +247,54 @@ class MemoryService:
             n_results: Maximum number of results
             tags: Optional tag filtering
             memory_type: Optional memory type filtering
+            min_similarity: Optional minimum similarity threshold (0.0 to 1.0)
 
         Returns:
             Dictionary with search results
         """
         try:
+            # Storage backends only accept query and n_results
+            # Apply tag/type filtering after retrieval
             memories = await self.storage.retrieve(
                 query=query,
-                n_results=n_results,
-                tags=tags,
-                memory_type=memory_type
+                n_results=n_results
             )
 
+            # Apply post-retrieval filtering
+            filtered_memories = memories
+
+            # Filter by tags if specified
+            if tags:
+                filtered_memories = [
+                    m for m in filtered_memories
+                    if any(tag in m.tags for tag in tags)
+                ]
+
+            # Filter by memory type if specified
+            if memory_type:
+                filtered_memories = [
+                    m for m in filtered_memories
+                    if m.memory_type == memory_type
+                ]
+
+            # Filter by similarity if specified
+            if min_similarity is not None:
+                filtered_memories = [
+                    m for m in filtered_memories
+                    if hasattr(m, 'similarity') and m.similarity >= min_similarity
+                ]
+
             results = []
-            for memory in memories:
-                results.append(self._format_memory_response(memory))
+            for item in filtered_memories:
+                # Handle both Memory and MemoryQueryResult objects
+                if hasattr(item, 'memory'):
+                    # MemoryQueryResult - unwrap and add similarity score
+                    memory_dict = self._format_memory_response(item.memory)
+                    memory_dict['similarity_score'] = item.similarity_score
+                    results.append(memory_dict)
+                else:
+                    # Plain Memory object
+                    results.append(self._format_memory_response(item))
 
             return {
                 "memories": results,
@@ -302,8 +336,12 @@ class MemoryService:
 
             # Format results
             results = []
-            for memory in memories:
-                results.append(self._format_memory_response(memory))
+            for item in memories:
+                # Handle both Memory and MemoryQueryResult objects
+                if hasattr(item, 'memory'):
+                    results.append(self._format_memory_response(item.memory))
+                else:
+                    results.append(self._format_memory_response(item))
 
             # Determine match type description
             match_type = "ALL" if match_all else "ANY"

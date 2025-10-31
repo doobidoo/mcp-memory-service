@@ -2115,7 +2115,15 @@ class MemoryServer:
             )
 
             # Convert MemoryService result to HTTP response format
-            return [types.TextContent(type="text", text=result["message"])]
+            if result.get("success"):
+                if "memories" in result:
+                    # Multiple chunks
+                    return [types.TextContent(type="text", text=f"Stored {len(result['memories'])} memory chunks successfully")]
+                else:
+                    # Single memory
+                    return [types.TextContent(type="text", text=f"Memory stored successfully: {result['memory']['content_hash']}")]
+            else:
+                return [types.TextContent(type="text", text=f"Error: {result.get('error', 'Unknown error')}")]
 
         except Exception as e:
             logger.error(f"Error storing memory: {str(e)}\n{traceback.format_exc()}")
@@ -2136,7 +2144,7 @@ class MemoryServer:
             start_time = time.time()
 
             # Call shared MemoryService business logic
-            result = await self.memory_service.retrieve_memory(
+            result = await self.memory_service.retrieve_memories(
                 query=query,
                 n_results=n_results
             )
@@ -2162,16 +2170,23 @@ class MemoryServer:
                 if created_at:
                     # Parse ISO string and format
                     try:
-                        dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        # Handle both string and float timestamps
+                        if isinstance(created_at, (int, float)):
+                            dt = datetime.fromtimestamp(created_at)
+                        else:
+                            dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
                         memory_info.append(f"Timestamp: {dt.strftime('%Y-%m-%d %H:%M:%S')}")
-                    except (ValueError, TypeError):
+                    except (ValueError, TypeError, AttributeError):
                         memory_info.append(f"Timestamp: {created_at}")
 
                 memory_info.extend([
                     f"Content: {memory['content']}",
-                    f"Hash: {memory['content_hash']}",
-                    f"Relevance Score: {memory['similarity_score']:.2f}"
+                    f"Hash: {memory['content_hash']}"
                 ])
+
+                # Add similarity score if available
+                if 'similarity_score' in memory:
+                    memory_info.append(f"Relevance Score: {memory['similarity_score']:.2f}")
                 tags = memory.get("tags", [])
                 if tags:
                     memory_info.append(f"Tags: {', '.join(tags)}")
@@ -2215,9 +2230,13 @@ class MemoryServer:
                 created_at = memory.get("created_at")
                 if created_at:
                     try:
-                        dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        # Handle both string and float timestamps
+                        if isinstance(created_at, (int, float)):
+                            dt = datetime.fromtimestamp(created_at)
+                        else:
+                            dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
                         memory_info.append(f"Timestamp: {dt.strftime('%Y-%m-%d %H:%M:%S')}")
-                    except (ValueError, TypeError):
+                    except (ValueError, TypeError, AttributeError):
                         memory_info.append(f"Timestamp: {created_at}")
 
                 memory_info.extend([
@@ -2249,7 +2268,10 @@ class MemoryServer:
             # Call shared MemoryService business logic
             result = await self.memory_service.delete_memory(content_hash)
 
-            return [types.TextContent(type="text", text=result["message"])]
+            if result.get("success"):
+                return [types.TextContent(type="text", text=f"Memory deleted successfully: {content_hash}")]
+            else:
+                return [types.TextContent(type="text", text=f"Error: {result.get('error', 'Unknown error')}")]
         except Exception as e:
             logger.error(f"Error deleting memory: {str(e)}\n{traceback.format_exc()}")
             return [types.TextContent(type="text", text=f"Error deleting memory: {str(e)}")]

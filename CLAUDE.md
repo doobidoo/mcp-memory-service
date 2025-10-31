@@ -1,3 +1,6 @@
+
+@sessions/CLAUDE.sessions.md
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with this MCP Memory Service repository.
