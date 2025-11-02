@@ -3635,7 +3635,9 @@ class MemoryDashboard {
 
             // Create 7x6 grid (weeks x days)
             const monthData = months[monthKey];
-            const firstDay = new Date(monthData[0].date).getDay();
+            // Parse date in local timezone to avoid day-of-week shifting near timezone boundaries
+            const [fYear, fMonth, fDay] = monthData[0].date.split('-').map(Number);
+            const firstDay = new Date(fYear, fMonth - 1, fDay).getDay();
 
             // Add empty cells for days before month starts
             for (let i = 0; i < firstDay; i++) {

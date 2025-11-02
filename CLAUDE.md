@@ -1,3 +1,7 @@
+
+@sessions/CLAUDE.sessions.md
+@CLAUDE.local.md
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with this MCP Memory Service repository.
@@ -10,13 +14,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop with SQLite-vec, Cloudflare, and Hybrid storage backends.
 
-> **🎯 v8.5.1**: **Dynamic Memory Weight Adjustment** - Intelligent auto-calibration prevents stale memories from dominating context! Automatically detects memory age vs git activity mismatches and adapts weights/boosts accordingly. No more manual config tweaks!
+> **⚡ v8.13.0**: **Tag Normalization Migration** - Normalized relational tag storage achieves true O(log n) query performance. Migration from commit ee1cac5's comma-separated tags to Third Normal Form schema with `tags` and `memory_tags` tables. Breaking change requires one-time migration. See migration commands below.
+
+> **🎯 v8.12.1**: **MemoryService Architecture** - Centralized business logic with 80% code duplication reduction. Database-level filtering prevents performance scaling issues. Enhanced error handling and dependency injection.
+
+> **🔧 v8.12.0**: **Post-Release Bug Fixes** - Critical production issues resolved within 4 hours. Import-time evaluation fixes, syntax error corrections, interface compatibility updates. Enhanced testing requirements for architecture changes.
+
+> **🚀 v8.9.0**: **Hybrid Backend Support** - Improved performance with background Cloudflare synchronization. Database lock fixes and maintenance script enhancements.
+
+> **🧠 v8.5.1**: **Dynamic Memory Weight Adjustment** - Intelligent auto-calibration prevents stale memories from dominating context! Automatically detects memory age vs git activity mismatches and adapts weights/boosts accordingly. No more manual config tweaks!
 
 > **🆕 v8.4.0**: **Memory Hooks Recency Optimization** - Recent memory prioritization with 80% better context accuracy. Comprehensive scoring rebalancing ensures development work from the last 7 days surfaces automatically!
 
 > **🎉 v8.3.1**: **HTTP Server Management** - Cross-platform auto-start scripts and health check utilities for seamless Natural Memory Triggers integration!
-
-> **🔄 v8.0.0**: **ChromaDB Removed** - Simplified architecture focuses on SQLite-vec (fast local), Cloudflare (edge distribution), and Hybrid (best of both) backends!
 
 > **🧠 v7.1.0**: Now features **Natural Memory Triggers** with intelligent automatic memory retrieval, 85%+ trigger accuracy, and multi-tier performance optimization!
 
@@ -48,6 +58,15 @@ python scripts/sync/sync_memory_backends.py --dry-run   # Preview sync
 python scripts/sync/claude_sync_commands.py backup      # Cloudflare → SQLite
 python scripts/sync/claude_sync_commands.py restore     # SQLite → Cloudflare
 
+# Schema Migration (Tag Normalization)
+# Run ONCE after upgrading to v8.13+ for O(log n) tag filtering performance
+cp ~/Library/Application\ Support/mcp-memory/sqlite_vec.db ~/Library/Application\ Support/mcp-memory/sqlite_vec.db.backup  # Backup (macOS)
+python scripts/database/migrate_tags_to_relational.py --dry-run  # Preview migration
+python scripts/database/migrate_tags_to_relational.py            # Run migration
+python scripts/sync/migrate_cloudflare_tags.py --dry-run         # Preview Cloudflare migration (if using Cloudflare)
+python scripts/sync/migrate_cloudflare_tags.py                   # Migrate Cloudflare tags to array format
+python scripts/sync/migrate_cloudflare_tags.py --verify          # Verify migration success
+
 # Service Management
 scripts/service/memory_service_manager.sh status       # Check service status
 scripts/service/memory_service_manager.sh start-cloudflare # Start with Cloudflare
@@ -75,12 +94,19 @@ df -h /                                               # Check disk space (critic
 journalctl -u mcp-memory-service -f                   # Monitor service logs
 
 # Interactive Dashboard Testing & Validation
-curl "http://127.0.0.1:8888/api/health"              # Health check (expect 200 OK)
-curl "http://127.0.0.1:8888/api/search" -H "Content-Type: application/json" -d '{"query":"test"}' # Semantic search
-curl "http://127.0.0.1:8888/api/search/by-tag" -H "Content-Type: application/json" -d '{"tags":["test"]}' # Tag search
-curl "http://127.0.0.1:8888/api/search/by-time" -H "Content-Type: application/json" -d '{"query":"last week"}' # Time search
-curl -N "http://127.0.0.1:8888/api/events"           # Test SSE real-time updates
-time curl -s "http://127.0.0.1:8888/" > /dev/null     # Dashboard page load performance
+curl "http://127.0.0.1:8000/api/health"              # Health check (expect 200 OK)
+curl "http://127.0.0.1:8000/api/search" -H "Content-Type: application/json" -d '{"query":"test"}' # Semantic search
+curl "http://127.0.0.1:8000/api/search/by-tag" -H "Content-Type: application/json" -d '{"tags":["test"]}' # Tag search
+curl "http://127.0.0.1:8000/api/search/by-time" -H "Content-Type: application/json" -d '{"query":"last week"}' # Time search
+curl -N "http://127.0.0.1:8000/api/events"           # Test SSE real-time updates
+time curl -s "http://127.0.0.1:8000/" > /dev/null     # Dashboard page load performance
+
+# Critical: Post-v8.12.0 Testing Requirements
+# After architecture changes, ALWAYS test:
+# 1. HTTP server actually starts (uv run memory server --http)
+# 2. Dashboard loads in browser without errors
+# 3. API endpoints return valid responses (not 500 errors)
+# 4. All storage backends have compatible interfaces
 ```
 
 ## Architecture
@@ -88,7 +114,7 @@ time curl -s "http://127.0.0.1:8888/" > /dev/null     # Dashboard page load perf
 **Core Components:**
 - **Server Layer**: MCP protocol implementation with async handlers and global caches (`src/mcp_memory_service/server.py`)
 - **Storage Backends**: SQLite-Vec (fast local, 5ms reads), Cloudflare (edge distribution), Hybrid (SQLite+Cloudflare sync)
-- **Web Interface**: FastAPI dashboard at `https://localhost:8443/` with REST API
+- **Web Interface**: FastAPI dashboard at `http://127.0.0.1:8000/` (HTTP) or `https://localhost:8443/` (HTTPS) with REST API
 - **Document Ingestion**: Pluggable loaders for PDF, DOCX, PPTX, text with semtools support
 - **Dual Protocol Memory Hooks** 🆕: Advanced Claude Code integration with HTTP + MCP support
   - **HTTP Protocol**: Web-based memory service connection (`https://localhost:8443/api/*`)
@@ -203,9 +229,12 @@ POST /api/search/by-time
 ```
 
 ### 🎯 **Usage**
-- **Dashboard Access**: `http://127.0.0.1:8888/` (HTTP) or `https://localhost:8443/` (HTTPS)
+- **Dashboard Access**:
+  - HTTP mode (default): `http://127.0.0.1:8000/`
+  - HTTPS mode (when enabled): `https://localhost:8443/`
 - **API Base**: `/api/` for programmatic access
 - **SSE Events**: `/api/events` for real-time updates
+- **Server Ports**: Same port for both HTTP/HTTPS API and MCP protocol (default: 8000)
 - **File Structure**: `src/mcp_memory_service/web/static/` (index.html, app.js, style.css)
 
 ## Environment Variables
@@ -227,11 +256,11 @@ export MCP_HTTPS_ENABLED=true                 # Enable HTTPS (production)
 export MCP_API_KEY="$(openssl rand -base64 32)" # Generate secure API key
 ```
 
-**Configuration Precedence:** Global Claude Config > .env file > Environment variables
+**Configuration Precedence:** Environment variables > .env file > Global Claude Config > defaults
 
 **✅ Automatic Configuration Loading (v6.16.0+):** The service now automatically loads `.env` files and respects environment variable precedence. CLI defaults no longer override environment configuration.
 
-**⚠️  Important:** This system uses **Cloudflare as the primary backend**. If health checks show SQLite-vec instead of Cloudflare, this indicates a configuration issue that needs to be resolved.
+**⚠️  Important:** When using hybrid or cloudflare backends, ensure Cloudflare credentials are properly configured. If health checks show "sqlite-vec" when you expect "cloudflare" or "hybrid", this indicates a configuration issue that needs to be resolved.
 
 **Platform Support:** macOS (MPS/CPU), Windows (CUDA/DirectML/CPU), Linux (CUDA/ROCm/CPU)
 
@@ -392,6 +421,20 @@ mcp context optimize                           # Get optimization suggestions
 | **Cloudflare** ☁️ | Network dependent | Cloud-only deployment | `install.py --storage-backend cloudflare` |
 | **SQLite-Vec** 🪶 | Fast (5ms read) | Development, single-user local | `install.py --storage-backend sqlite_vec` |
 
+### ⚠️ **Database Lock Prevention (v8.9.0+)**
+
+**CRITICAL**: After adding `MCP_MEMORY_SQLITE_PRAGMAS` to `.env`, you **MUST restart all servers**:
+- HTTP server: `kill <PID>` then restart with `uv run python scripts/server/run_http_server.py`
+- MCP servers: Use `/mcp` in Claude Code to reconnect, or restart Claude Desktop
+- Verify: Check logs for `Custom pragma from env: busy_timeout=15000`
+
+SQLite pragmas are **per-connection**, not global. Long-running servers (days/weeks old) won't pick up new `.env` settings automatically.
+
+**Symptoms of missing pragmas**:
+- "database is locked" errors despite v8.9.0+ installation
+- `PRAGMA busy_timeout` returns `0` instead of `15000`
+- Concurrent HTTP + MCP access fails
+
 ### 🚀 **Hybrid Backend (v6.21.0+) - RECOMMENDED**
 
 The **Hybrid backend** provides the best of both worlds - **SQLite-vec speed with Cloudflare persistence**:
@@ -460,7 +503,9 @@ export CLOUDFLARE_VECTORIZE_INDEX="mcp-memory-index"
 ## Key Endpoints
 
 ### 🌐 **Web Interface**
-- **Dashboard**: `http://127.0.0.1:8888/` (HTTP) or `https://localhost:8443/` (HTTPS)
+- **Dashboard**:
+  - HTTP mode (default): `http://127.0.0.1:8000/`
+  - HTTPS mode (when enabled): `https://localhost:8443/`
 - **Health Check**: `/api/health` - Server status and version
 - **SSE Events**: `/api/events` - Real-time updates via Server-Sent Events
 
@@ -550,11 +595,11 @@ When configuring Claude Code hooks, **all HTTP endpoints MUST use the same port*
 **Configuration Files to Check:**
 1. **`~/.claude/hooks/config.json`** - Line 7: `"endpoint": "http://127.0.0.1:8000"`
 2. **HTTP Server** - Default port: `8000` (check `scripts/server/run_http_server.py`)
-3. **Dashboard/Web Interface** - Separate port: `8888` (HTTP) or `8443` (HTTPS)
+3. **Dashboard/Web Interface** - Separate port: `8000` (HTTP) or `8443` (HTTPS)
 
 **Common Mistakes:**
 - ❌ Port mismatch (config.json shows 8889 but server runs on 8000)
-- ❌ Using dashboard port (8888/8443) instead of API server port (8000)
+- ❌ Using dashboard port (8000/8443) instead of API server port (8000)
 - ❌ Different ports in `settings.json` MCP server env vs hooks config
 
 **Quick Verification:**
@@ -633,6 +678,15 @@ python debug_server_initialization.py       # Test initialization flows (v6.15.1
 tail -50 ~/Library/Logs/Claude/mcp-server-memory.log | grep -E "(🚀|☁️|✅|❌)" # View enhanced logs
 ```
 
+**⚠️ Accidental Database Creation:**
+
+If you find a `data/memory.db` file in your project directory:
+- This is **not** the configured database location
+- It may be created accidentally by tools running in the project directory
+- Safe to delete: `rm -rf data/` (already in `.gitignore`)
+- Configured location: `~/Library/Application Support/mcp-memory/sqlite_vec.db` (macOS)
+- Verify: `curl http://localhost:8000/api/health` should show correct memory count
+
 ### Windows SessionStart Hook Issue
 
 **🚨 CRITICAL BUG**: SessionStart hooks with `matchers: ["*"]` cause Claude Code to hang indefinitely on Windows.
@@ -704,6 +758,3 @@ node C:\Users\username\.claude\hooks\core\session-start.js
 > - **Backend Configuration Issues**: See [Wiki Troubleshooting Guide](https://github.com/doobidoo/mcp-memory-service/wiki/07-TROUBLESHOOTING#backend-configuration-issues) for comprehensive solutions to missing memories, environment variable issues, Cloudflare auth, hooks timeouts, and more
 > - **Historical Context**: Retrieve memories tagged with `claude-code-reference`
 > - **Quick Diagnostic**: Run `python scripts/validation/diagnose_backend_config.py`
-- always use "/gemini review" when commenting on a PR
-- make sure to have commited and pushed every change to the branch before commenting on the PR and before triggering gemini Code Assist
-- when working on hooks always make sure the modified files need to be synced into the repo as well

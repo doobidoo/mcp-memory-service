@@ -537,3 +537,429 @@ async def test_end_to_end_workflow_with_real_storage(temp_db):
 
     finally:
         storage.close()
+
+
+# Real HTTP API Integration Tests with TestClient
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_http_api_store_memory_endpoint(temp_db):
+    """
+    Test POST /api/memories endpoint with real HTTP request.
+
+    Uses TestClient to make actual HTTP request to FastAPI app.
+    """
+    # Create real storage
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    try:
+        # Import app and set storage
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        # Create TestClient
+        client = TestClient(app)
+
+        # Make HTTP POST request
+        response = client.post(
+            "/api/memories",
+            json={
+                "content": "HTTP API test memory",
+                "tags": ["http", "api", "test"],
+                "memory_type": "note"
+            }
+        )
+
+        # Verify response
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert "memory" in data
+        assert data["memory"]["content"] == "HTTP API test memory"
+        assert "http" in data["memory"]["tags"]
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_http_api_list_memories_endpoint(temp_db):
+    """
+    Test GET /api/memories endpoint with real HTTP request.
+
+    Verifies pagination and filtering work through HTTP API.
+    """
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    try:
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        # Store test memories first
+        service = MemoryService(storage=storage)
+        for i in range(5):
+            await service.store_memory(
+                content=f"Test memory {i}",
+                tags=["test"],
+                memory_type="note"
+            )
+
+        # Make HTTP GET request
+        client = TestClient(app)
+        response = client.get("/api/memories?page=1&page_size=10")
+
+        # Verify response
+        assert response.status_code == 200
+        data = response.json()
+        assert "memories" in data
+        assert len(data["memories"]) == 5
+        assert data["total"] == 5
+        assert data["page"] == 1
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_http_api_search_endpoint(temp_db):
+    """
+    Test POST /api/search endpoint with real HTTP request.
+
+    Verifies semantic search works through HTTP API.
+    """
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    try:
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        # Store searchable memory
+        service = MemoryService(storage=storage)
+        await service.store_memory(
+            content="Python programming language tutorial",
+            tags=["python", "tutorial"],
+            memory_type="reference"
+        )
+
+        # Make HTTP POST request for search
+        client = TestClient(app)
+        response = client.post(
+            "/api/search",
+            json={"query": "python tutorial", "limit": 5}
+        )
+
+        # Verify response
+        assert response.status_code == 200
+        data = response.json()
+        assert "memories" in data
+        assert data["query"] == "python tutorial"
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_http_api_search_by_tag_endpoint(temp_db):
+    """
+    Test POST /api/search/by-tag endpoint with real HTTP request.
+
+    Verifies tag search works through HTTP API.
+    """
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    try:
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        # Store memories with tags
+        service = MemoryService(storage=storage)
+        await service.store_memory(
+            content="Important work item",
+            tags=["important", "work"],
+            memory_type="task"
+        )
+        await service.store_memory(
+            content="Personal note",
+            tags=["personal"],
+            memory_type="note"
+        )
+
+        # Search by tag via HTTP
+        client = TestClient(app)
+        response = client.post(
+            "/api/search/by-tag",
+            json={"tags": ["important"], "limit": 10}
+        )
+
+        # Verify response
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["memories"]) == 1
+        assert "important" in data["memories"][0]["tags"]
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_http_api_get_memory_by_hash_endpoint(temp_db):
+    """
+    Test GET /api/memories/{hash} endpoint with real HTTP request.
+
+    Verifies retrieving specific memory by hash works.
+    """
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    try:
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        # Store a memory
+        service = MemoryService(storage=storage)
+        store_result = await service.store_memory(
+            content="Memory to retrieve",
+            tags=["test"],
+            memory_type="note"
+        )
+        content_hash = store_result["memory"]["content_hash"]
+
+        # Retrieve via HTTP
+        client = TestClient(app)
+        response = client.get(f"/api/memories/{content_hash}")
+
+        # Verify response
+        assert response.status_code == 200
+        data = response.json()
+        assert data["content"] == "Memory to retrieve"
+        assert data["content_hash"] == content_hash
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_http_api_delete_memory_endpoint(temp_db):
+    """
+    Test DELETE /api/memories/{hash} endpoint with real HTTP request.
+
+    Verifies deletion works through HTTP API.
+    """
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    try:
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        # Store a memory
+        service = MemoryService(storage=storage)
+        store_result = await service.store_memory(
+            content="Memory to delete",
+            tags=["test"],
+            memory_type="note"
+        )
+        content_hash = store_result["memory"]["content_hash"]
+
+        # Delete via HTTP
+        client = TestClient(app)
+        response = client.delete(f"/api/memories/{content_hash}")
+
+        # Verify response
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+
+        # Verify memory is gone
+        get_response = client.get(f"/api/memories/{content_hash}")
+        assert get_response.status_code == 404
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_http_api_pagination_with_real_data(temp_db):
+    """
+    Test pagination through HTTP API with multiple pages.
+
+    Verifies database-level pagination prevents O(n) loading.
+    """
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    try:
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        # Store 25 memories
+        service = MemoryService(storage=storage)
+        for i in range(25):
+            await service.store_memory(
+                content=f"Pagination test {i}",
+                tags=["pagination"],
+                memory_type="note"
+            )
+
+        client = TestClient(app)
+
+        # Page 1: First 10
+        response1 = client.get("/api/memories?page=1&page_size=10")
+        assert response1.status_code == 200
+        data1 = response1.json()
+        assert len(data1["memories"]) == 10
+        assert data1["total"] == 25
+        assert data1["has_more"] is True
+
+        # Page 2: Next 10
+        response2 = client.get("/api/memories?page=2&page_size=10")
+        data2 = response2.json()
+        assert len(data2["memories"]) == 10
+        assert data2["has_more"] is True
+
+        # Page 3: Last 5
+        response3 = client.get("/api/memories?page=3&page_size=10")
+        data3 = response3.json()
+        assert len(data3["memories"]) == 5
+        assert data3["has_more"] is False
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_http_api_error_handling_invalid_json(temp_db):
+    """
+    Test that HTTP API handles malformed JSON gracefully.
+
+    This would have caught v8.12.0 syntax errors.
+    """
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    try:
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        client = TestClient(app)
+
+        # Send malformed JSON
+        response = client.post(
+            "/api/memories",
+            data="{'this': 'is not valid json}",  # Missing quote
+            headers={"Content-Type": "application/json"}
+        )
+
+        # Should return 400 or 422, not 500
+        assert response.status_code in [400, 422]
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_http_api_client_hostname_header(temp_db):
+    """
+    Test that X-Client-Hostname header is processed correctly.
+
+    Verifies hostname tagging works through real HTTP request.
+    """
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    try:
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        client = TestClient(app)
+
+        # Send request with hostname header
+        response = client.post(
+            "/api/memories",
+            json={
+                "content": "Test with hostname",
+                "tags": ["test"]
+            },
+            headers={"X-Client-Hostname": "test-machine"}
+        )
+
+        # Verify hostname tag added
+        assert response.status_code == 200
+        data = response.json()
+        assert "source:test-machine" in data["memory"]["tags"]
+        assert data["memory"]["metadata"]["hostname"] == "test-machine"
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_http_api_complete_crud_workflow(temp_db):
+    """
+    Complete end-to-end CRUD workflow through real HTTP API.
+
+    This verifies the entire HTTP API stack works correctly.
+    """
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    try:
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        client = TestClient(app)
+
+        # CREATE: Store a memory
+        create_response = client.post(
+            "/api/memories",
+            json={
+                "content": "CRUD test memory",
+                "tags": ["crud", "test"],
+                "memory_type": "note"
+            }
+        )
+        assert create_response.status_code == 200
+        content_hash = create_response.json()["memory"]["content_hash"]
+
+        # READ: List all memories
+        list_response = client.get("/api/memories")
+        assert list_response.status_code == 200
+        assert len(list_response.json()["memories"]) > 0
+
+        # READ: Get specific memory
+        get_response = client.get(f"/api/memories/{content_hash}")
+        assert get_response.status_code == 200
+        assert get_response.json()["content"] == "CRUD test memory"
+
+        # UPDATE: Search for memory
+        search_response = client.post(
+            "/api/search",
+            json={"query": "CRUD test", "limit": 5}
+        )
+        assert search_response.status_code == 200
+        assert len(search_response.json()["memories"]) > 0
+
+        # DELETE: Remove memory
+        delete_response = client.delete(f"/api/memories/{content_hash}")
+        assert delete_response.status_code == 200
+        assert delete_response.json()["success"] is True
+
+        # VERIFY: Memory is gone
+        verify_response = client.get(f"/api/memories/{content_hash}")
+        assert verify_response.status_code == 404
+
+    finally:
+        storage.close()

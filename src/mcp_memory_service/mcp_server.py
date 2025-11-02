@@ -200,7 +200,7 @@ async def retrieve_memory(
     """
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
-    return await memory_service.retrieve_memory(
+    return await memory_service.retrieve_memories(
         query=query,
         n_results=n_results,
         min_similarity=min_similarity

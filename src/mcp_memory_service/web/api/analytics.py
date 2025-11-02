@@ -761,28 +761,27 @@ async def get_storage_stats(
 
         total_size_mb = stats.get("primary_stats", {}).get("database_size_mb") or stats.get("database_size_mb") or 0
 
-        # Get recent memories for size analysis
-        recent_memories = await storage.get_recent_memories(n=1000)
+        # Get recent memories for average size calculation (smaller sample)
+        recent_memories = await storage.get_recent_memories(n=100)
 
         if recent_memories:
-            # Calculate average memory size
+            # Calculate average memory size from recent sample
             total_content_length = sum(len(memory.content or "") for memory in recent_memories)
             average_memory_size = total_content_length / len(recent_memories)
-
-            # Find largest memories
-            sorted_memories = sorted(recent_memories, key=lambda m: len(m.content or ""), reverse=True)
-            largest_memories = []
-            for memory in sorted_memories[:10]:  # Top 10
-                largest_memories.append({
-                    "hash": memory.content_hash,
-                    "size": len(memory.content or ""),
-                    "created_at": memory.created_at,
-                    "tags": memory.tags or [],
-                    "content_preview": (memory.content or "")[:100] + "..." if len(memory.content or "") > 100 else memory.content or ""
-                })
         else:
             average_memory_size = 0
-            largest_memories = []
+
+        # Get largest memories using efficient database query
+        largest_memories_objs = await storage.get_largest_memories(n=10)
+        largest_memories = []
+        for memory in largest_memories_objs:
+            largest_memories.append({
+                "hash": memory.content_hash,
+                "size": len(memory.content or ""),
+                "created_at": memory.created_at,
+                "tags": memory.tags or [],
+                "content_preview": (memory.content or "")[:100] + "..." if len(memory.content or "") > 100 else memory.content or ""
+            })
 
         # Placeholder growth trend (would need historical data)
         growth_trend = [

@@ -651,7 +651,7 @@ class HybridMemoryStorage(MemoryStorage):
 
         try:
             # Get memory count from both storages to compare
-            primary_stats = self.primary.get_stats()
+            primary_stats = await self.primary.get_stats()
             secondary_stats = await self.secondary.get_stats()
 
             primary_count = primary_stats.get('total_memories', 0)
@@ -807,13 +807,27 @@ class HybridMemoryStorage(MemoryStorage):
 
         return success, message
 
-    async def retrieve(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
+    async def retrieve(
+        self,
+        query: str,
+        n_results: int = 5,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None,
+        min_similarity: Optional[float] = None
+    ) -> List[MemoryQueryResult]:
         """Retrieve memories from primary storage (fast)."""
-        return await self.primary.retrieve(query, n_results)
+        return await self.primary.retrieve(query, n_results, tags, memory_type, min_similarity)
 
-    async def search(self, query: str, n_results: int = 5, min_similarity: float = 0.0) -> List[MemoryQueryResult]:
+    async def search(
+        self,
+        query: str,
+        n_results: int = 5,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None,
+        min_similarity: Optional[float] = None
+    ) -> List[MemoryQueryResult]:
         """Search memories in primary storage."""
-        return await self.primary.search(query, n_results)
+        return await self.primary.search(query, n_results, tags, memory_type, min_similarity)
 
     async def search_by_tag(self, tags: List[str], match_all: bool = False) -> List[Memory]:
         """Search memories by tags in primary storage."""
@@ -943,6 +957,10 @@ class HybridMemoryStorage(MemoryStorage):
     async def get_recent_memories(self, n: int = 10) -> List[Memory]:
         """Get recent memories from primary storage."""
         return await self.primary.get_recent_memories(n)
+
+    async def get_largest_memories(self, n: int = 10) -> List[Memory]:
+        """Get largest memories by content length from primary storage."""
+        return await self.primary.get_largest_memories(n)
 
     async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None) -> List[MemoryQueryResult]:
         """

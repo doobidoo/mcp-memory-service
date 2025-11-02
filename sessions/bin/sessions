@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec node "sessions/api/index.js" "$@"

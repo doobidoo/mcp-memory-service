@@ -303,7 +303,8 @@ async def test_retrieve_memories_basic(memory_service, mock_storage, sample_memo
         query="test query",
         n_results=3,
         tags=None,
-        memory_type=None
+        memory_type=None,
+        min_similarity=None
     )
 
 
@@ -323,7 +324,8 @@ async def test_retrieve_memories_with_filters(memory_service, mock_storage, samp
         query="test",
         n_results=5,
         tags=["tag1"],
-        memory_type="note"
+        memory_type="note",
+        min_similarity=None
     )
 
 

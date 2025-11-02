@@ -8,6 +8,37 @@ For older releases, see [CHANGELOG-HISTORIC.md](./CHANGELOG-HISTORIC.md).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [8.13.0] - 2025-10-29
+
+### Added
+- **HTTP Server Integration Tests** (#190): Comprehensive test suite with 32 tests prevents production bugs like v8.12.0
+  - `tests/integration/test_http_server_startup.py`: 8 tests for server startup validation
+  - `tests/unit/test_fastapi_dependencies.py`: 11 tests for dependency injection
+  - `tests/unit/test_storage_interface_compatibility.py`: 13 tests for backend interface consistency
+  - Extended `tests/integration/test_api_with_memory_service.py`: +11 HTTP API tests with TestClient
+  - Tests would have caught all 3 v8.12.0 production bugs (import-time evaluation, syntax errors, interface mismatches)
+
+- **Storage Method: get_largest_memories()** (#186): Efficient database queries for largest memories by content length
+  - Added to all storage backends (SQLite, Cloudflare, Hybrid)
+  - Uses `ORDER BY LENGTH(content) DESC LIMIT n` instead of loading 1000 memories and sorting in Python
+  - Analytics dashboard now queries entire dataset for truly largest memories
+
+### Fixed
+- **Analytics Dashboard Timezone Bug** (#186): Fixed heatmap calendar showing wrong day-of-week near timezone boundaries
+  - JavaScript `new Date('YYYY-MM-DD')` parsed as UTC midnight, but `getDay()` used local timezone
+  - Changed to parse date components in local timezone: `new Date(year, month-1, day)`
+  - Prevents calendar cells from shifting to previous/next day for users in UTC-12 to UTC+12 timezones
+
+### Improved
+- **Analytics Performance**: Reduced memory sample for average size calculation from 1000→100 memories
+- **Test Coverage**: Zero HTTP integration tests → 32 comprehensive tests covering server startup, dependencies, and API endpoints
+
+### Documentation
+- **MCP Schema Caching** (#173): Closed with comprehensive documentation in CLAUDE.md and troubleshooting guides
+  - Root cause: MCP protocol caches tool schemas client-side
+  - Workaround: `/mcp` command reconnects server with fresh schema
+  - Documented symptoms, diagnosis, and resolution steps
+
 ## [8.12.1] - 2025-10-28
 
 ### Fixed

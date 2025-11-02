@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-memory-service"
-version = "8.12.1"
+version = "8.13.0"
 description = "Universal MCP memory service with semantic search, multi-client support, and autonomous consolidation for Claude Desktop, VS Code, and 13+ AI applications"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -125,4 +125,9 @@ changelog_sections = [
     ["perf", "Performance"],
     ["refactor", "Code Refactoring"],
     ["test", "Tests"]
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
 ]
