@@ -9,8 +9,7 @@ description: Tasks related to vector similarity search, semantic retrieval, filt
 ## Active Tasks
 
 ### High Priority
-- `h-fix-vector-filtering-production-issues.md` - Fix critical production issues in vector filtering: missing tags index, Cloudflare type mismatch, tag LIKE false positives
-- `h-fix-tag-filtering-performance-migration.md` - Fix index performance and migration issues from ee1cac5 commit - normalized tag storage, Cloudflare migration, actual O(log n) performance
+- `h-fix-tag-filtering-performance-migration.md` - Fix index performance and migration issues from ee1cac5 commit - normalized tag storage, Cloudflare migration, actual O(log n) performance (consolidates h-fix-vector-filtering-production-issues)
 
 ### Medium Priority
 
