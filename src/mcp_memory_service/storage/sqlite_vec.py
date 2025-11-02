@@ -389,7 +389,25 @@ SOLUTIONS:
                     updated_at_iso TEXT
                 )
             ''')
-            
+
+            # Create normalized tag storage (Third Normal Form)
+            self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS tags (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL
+                )
+            ''')
+
+            self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS memory_tags (
+                    memory_id INTEGER NOT NULL,
+                    tag_id INTEGER NOT NULL,
+                    PRIMARY KEY (memory_id, tag_id),
+                    FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE,
+                    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+                )
+            ''')
+
             # Initialize embedding model BEFORE creating vector table
             await self._initialize_embedding_model()
 
@@ -462,7 +480,11 @@ SOLUTIONS:
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_content_hash ON memories(content_hash)')
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at)')
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_type ON memories(memory_type)')
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_tags ON memories(tags)')
+
+            # Relational tag indexes (O(log n) performance)
+            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name)')
+            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_tags_memory ON memory_tags(memory_id)')
+            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_tags_tag ON memory_tags(tag_id)')
 
             # Mark as initialized to prevent re-initialization
             self._initialized = True
@@ -748,7 +770,36 @@ SOLUTIONS:
                 return cursor.lastrowid
             
             memory_rowid = await self._execute_with_retry(insert_memory)
-            
+
+            # Insert tags into relational tables
+            def insert_tags():
+                if memory.tags:
+                    for tag in memory.tags:
+                        # Get or create tag
+                        cursor = self.conn.execute(
+                            'SELECT id FROM tags WHERE name = ?',
+                            (tag,)
+                        )
+                        tag_row = cursor.fetchone()
+
+                        if tag_row:
+                            tag_id = tag_row[0]
+                        else:
+                            # Insert new tag
+                            cursor = self.conn.execute(
+                                'INSERT INTO tags (name) VALUES (?)',
+                                (tag,)
+                            )
+                            tag_id = cursor.lastrowid
+
+                        # Insert memory-tag association
+                        self.conn.execute(
+                            'INSERT OR IGNORE INTO memory_tags (memory_id, tag_id) VALUES (?, ?)',
+                            (memory_rowid, tag_id)
+                        )
+
+            await self._execute_with_retry(insert_tags)
+
             # Insert into embeddings table with retry logic
             def insert_embedding():
                 # Check if we can insert with specific rowid
@@ -826,10 +877,11 @@ SOLUTIONS:
                 filter_params.append(memory_type)
 
             if tags:
-                # Match ANY of the provided tags (OR logic) with exact matching using comma boundaries
-                tag_conditions = " OR ".join(["',' || tags || ',' LIKE ?" for _ in tags])
-                filter_conditions.append(f"({tag_conditions})")
-                filter_params.extend([f"%,{tag},%" for tag in tags])
+                # Match ANY of the provided tags (OR logic) using relational JOIN
+                # This uses index on tags(name) for O(log n) performance
+                tag_placeholders = ",".join(["?" for _ in tags])
+                filter_conditions.append(f"id IN (SELECT memory_id FROM memory_tags mt JOIN tags t ON mt.tag_id = t.id WHERE t.name IN ({tag_placeholders}))")
+                filter_params.extend(tags)
 
             # Perform vector similarity search using JOIN with retry logic
             def search_memories():
@@ -948,18 +1000,20 @@ SOLUTIONS:
             
             if not tags:
                 return []
-            
-            # Build query for tag search (OR logic) with exact matching using comma boundaries
-            tag_conditions = " OR ".join(["',' || tags || ',' LIKE ?" for _ in tags])
-            tag_params = [f"%,{tag},%" for tag in tags]
-            
+
+            # Build query for tag search (OR logic) using relational JOIN
+            # This uses index on tags(name) for O(log n) performance
+            tag_placeholders = ",".join(["?" for _ in tags])
+
             cursor = self.conn.execute(f'''
-                SELECT content_hash, content, tags, memory_type, metadata,
-                       created_at, updated_at, created_at_iso, updated_at_iso
-                FROM memories
-                WHERE {tag_conditions}
-                ORDER BY created_at DESC
-            ''', tag_params)
+                SELECT DISTINCT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
+                       m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso
+                FROM memories m
+                JOIN memory_tags mt ON m.id = mt.memory_id
+                JOIN tags t ON mt.tag_id = t.id
+                WHERE t.name IN ({tag_placeholders})
+                ORDER BY m.created_at DESC
+            ''', tags)
             
             results = []
             for row in cursor.fetchall():
@@ -1007,22 +1061,33 @@ SOLUTIONS:
             if not tags:
                 return []
             
-            # Build query based on operation with exact matching using comma boundaries
-            if operation.upper() == "AND":
-                # All tags must be present (each tag must appear in the tags field)
-                tag_conditions = " AND ".join(["',' || tags || ',' LIKE ?" for _ in tags])
-            else:  # OR operation (default for backward compatibility)
-                tag_conditions = " OR ".join(["',' || tags || ',' LIKE ?" for _ in tags])
+            # Build query based on operation using relational JOIN
+            # This uses index on tags(name) for O(log n) performance
+            tag_placeholders = ",".join(["?" for _ in tags])
 
-            tag_params = [f"%,{tag},%" for tag in tags]
-            
-            cursor = self.conn.execute(f'''
-                SELECT content_hash, content, tags, memory_type, metadata,
-                       created_at, updated_at, created_at_iso, updated_at_iso
-                FROM memories 
-                WHERE {tag_conditions}
-                ORDER BY updated_at DESC
-            ''', tag_params)
+            if operation.upper() == "AND":
+                # All tags must be present - use GROUP BY with HAVING COUNT
+                cursor = self.conn.execute(f'''
+                    SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
+                           m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso
+                    FROM memories m
+                    JOIN memory_tags mt ON m.id = mt.memory_id
+                    JOIN tags t ON mt.tag_id = t.id
+                    WHERE t.name IN ({tag_placeholders})
+                    GROUP BY m.id
+                    HAVING COUNT(DISTINCT t.name) = ?
+                    ORDER BY m.updated_at DESC
+                ''', tags + [len(tags)])
+            else:  # OR operation (default for backward compatibility)
+                cursor = self.conn.execute(f'''
+                    SELECT DISTINCT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
+                           m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso
+                    FROM memories m
+                    JOIN memory_tags mt ON m.id = mt.memory_id
+                    JOIN tags t ON mt.tag_id = t.id
+                    WHERE t.name IN ({tag_placeholders})
+                    ORDER BY m.updated_at DESC
+                ''', tags)
             
             results = []
             for row in cursor.fetchall():
@@ -1884,11 +1949,12 @@ SOLUTIONS:
                 where_conditions.append('m.memory_type = ?')
                 params.append(memory_type)
 
-            # Add tags filter if specified with exact matching using comma boundaries
+            # Add tags filter if specified using relational JOIN
+            # This uses index on tags(name) for O(log n) performance
             if tags and len(tags) > 0:
-                tag_conditions = " OR ".join(["',' || m.tags || ',' LIKE ?" for _ in tags])
-                where_conditions.append(f"({tag_conditions})")
-                params.extend([f"%,{tag},%" for tag in tags])
+                tag_placeholders = ",".join(["?" for _ in tags])
+                where_conditions.append(f"m.id IN (SELECT memory_id FROM memory_tags mt JOIN tags t ON mt.tag_id = t.id WHERE t.name IN ({tag_placeholders}))")
+                params.extend(tags)
 
             # Apply WHERE clause if we have any conditions
             if where_conditions:
@@ -2000,12 +2066,11 @@ SOLUTIONS:
                 params.append(memory_type)
 
             if tags:
-                # Filter by tags - match ANY tag (OR logic) with exact matching using comma boundaries
-                tag_conditions = ' OR '.join(["',' || tags || ',' LIKE ?" for _ in tags])
-                conditions.append(f'({tag_conditions})')
-                # Add each tag with comma boundaries for exact matching
-                for tag in tags:
-                    params.append(f'%,{tag},%')
+                # Filter by tags - match ANY tag (OR logic) using relational JOIN
+                # This uses index on tags(name) for O(log n) performance
+                tag_placeholders = ",".join(["?" for _ in tags])
+                conditions.append(f'id IN (SELECT memory_id FROM memory_tags mt JOIN tags t ON mt.tag_id = t.id WHERE t.name IN ({tag_placeholders}))')
+                params.extend(tags)
 
             # Build final query
             if conditions:

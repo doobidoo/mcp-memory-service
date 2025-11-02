@@ -14,6 +14,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop with SQLite-vec, Cloudflare, and Hybrid storage backends.
 
+> **⚡ v8.13.0**: **Tag Normalization Migration** - Normalized relational tag storage achieves true O(log n) query performance. Migration from commit ee1cac5's comma-separated tags to Third Normal Form schema with `tags` and `memory_tags` tables. Breaking change requires one-time migration. See migration commands below.
+
 > **🎯 v8.12.1**: **MemoryService Architecture** - Centralized business logic with 80% code duplication reduction. Database-level filtering prevents performance scaling issues. Enhanced error handling and dependency injection.
 
 > **🔧 v8.12.0**: **Post-Release Bug Fixes** - Critical production issues resolved within 4 hours. Import-time evaluation fixes, syntax error corrections, interface compatibility updates. Enhanced testing requirements for architecture changes.
@@ -55,6 +57,15 @@ python scripts/sync/sync_memory_backends.py --status    # Check sync status
 python scripts/sync/sync_memory_backends.py --dry-run   # Preview sync
 python scripts/sync/claude_sync_commands.py backup      # Cloudflare → SQLite
 python scripts/sync/claude_sync_commands.py restore     # SQLite → Cloudflare
+
+# Schema Migration (Tag Normalization)
+# Run ONCE after upgrading to v8.13+ for O(log n) tag filtering performance
+cp ~/Library/Application\ Support/mcp-memory/sqlite_vec.db ~/Library/Application\ Support/mcp-memory/sqlite_vec.db.backup  # Backup (macOS)
+python scripts/database/migrate_tags_to_relational.py --dry-run  # Preview migration
+python scripts/database/migrate_tags_to_relational.py            # Run migration
+python scripts/sync/migrate_cloudflare_tags.py --dry-run         # Preview Cloudflare migration (if using Cloudflare)
+python scripts/sync/migrate_cloudflare_tags.py                   # Migrate Cloudflare tags to array format
+python scripts/sync/migrate_cloudflare_tags.py --verify          # Verify migration success
 
 # Service Management
 scripts/service/memory_service_manager.sh status       # Check service status

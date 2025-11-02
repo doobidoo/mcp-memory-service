@@ -257,6 +257,109 @@ class TestPerformanceBenchmark:
         assert duration_new < duration_old, \
             "Database-level filtering should be faster than Python post-filtering"
 
+    @pytest.mark.slow
+    @pytest.mark.asyncio
+    async def test_olog_n_scaling_verification(self, temp_db_path):
+        """
+        Verify O(log n) scaling by testing at multiple data sizes.
+
+        O(log n) behavior: Doubling data size increases query time by ~40% or less
+        O(n) behavior: Doubling data size doubles query time (100% increase)
+
+        This test proves our relational tag indexes provide true O(log n) performance.
+        """
+        storage = SqliteVecMemoryStorage(str(temp_db_path / "test.db"))
+        await storage.initialize()
+
+        print("\n=== O(log n) SCALING VERIFICATION ===")
+        print("Testing at 10K, 50K, and 100K memory scales")
+        print("Expected: ~30-40% time increase per doubling (O(log n))")
+        print("Failure mode: ~100% time increase per doubling (O(n))")
+
+        # Test at multiple scales
+        test_sizes = [10_000, 50_000, 100_000]
+        durations = {}
+
+        for size in test_sizes:
+            print(f"\n--- Testing with {size:,} memories ---")
+
+            # Clear and repopulate
+            # (In practice, we'd use a fresh database, but for this test we'll accumulate)
+            current_count = await storage.count_all_memories()
+            memories_to_add = size - current_count
+
+            if memories_to_add > 0:
+                print(f"Adding {memories_to_add:,} more memories...")
+                tags_pool = ["python", "java", "rust", "go", "javascript"]
+                store_start = time.time()
+
+                for i in range(current_count, size):
+                    tag = tags_pool[i % len(tags_pool)]
+                    await storage.store(Memory(
+                        content=f"Tutorial {i} about {tag}",
+                        content_hash=generate_content_hash(f"Tutorial {i}"),
+                        tags=[tag, "programming"],
+                        memory_type="note"
+                    ))
+
+                    if (i + 1) % 10_000 == 0:
+                        elapsed = time.time() - store_start
+                        print(f"  Stored {i + 1:,} memories ({elapsed:.2f}s elapsed)")
+
+                store_duration = time.time() - store_start
+                print(f"Added {memories_to_add:,} memories in {store_duration:.2f}s")
+
+            # Run tag-filtered query and measure time
+            print(f"Running tag-filtered query...")
+            query_start = time.time()
+            results = await storage.retrieve(
+                query="programming tutorial",
+                n_results=10,
+                tags=["python"]
+            )
+            query_duration = time.time() - query_start
+
+            durations[size] = query_duration
+            print(f"Query completed in {query_duration*1000:.2f}ms")
+            print(f"Returned {len(results)} results")
+
+            # Sanity check: should return results
+            assert len(results) > 0, "Should return results"
+
+        # Analyze scaling behavior
+        print("\n=== SCALING ANALYSIS ===")
+
+        # 10K → 50K (5x increase)
+        increase_10k_to_50k = (durations[50_000] / durations[10_000]) - 1
+        print(f"10K → 50K (5x data): {increase_10k_to_50k*100:.1f}% time increase")
+        print(f"  10K: {durations[10_000]*1000:.2f}ms")
+        print(f"  50K: {durations[50_000]*1000:.2f}ms")
+
+        # 50K → 100K (2x increase)
+        increase_50k_to_100k = (durations[100_000] / durations[50_000]) - 1
+        print(f"\n50K → 100K (2x data): {increase_50k_to_100k*100:.1f}% time increase")
+        print(f"  50K: {durations[50_000]*1000:.2f}ms")
+        print(f"  100K: {durations[100_000]*1000:.2f}ms")
+
+        # O(log n) validation:
+        # For a 2x data increase, O(log n) should see ~40% or less time increase
+        # For O(n), we'd see ~100% time increase
+        print("\n=== VERDICT ===")
+        if increase_50k_to_100k < 0.6:
+            print(f"✓ O(log n) performance confirmed ({increase_50k_to_100k*100:.1f}% < 60%)")
+        elif increase_50k_to_100k < 1.0:
+            print(f"⚠ Sub-linear but not O(log n) ({increase_50k_to_100k*100:.1f}%)")
+        else:
+            print(f"✗ Linear O(n) behavior detected ({increase_50k_to_100k*100:.1f}% ≈ 100%)")
+
+        # CRITICAL ASSERTION: Doubling data should NOT double query time
+        assert increase_50k_to_100k < 0.6, \
+            f"Query time should scale O(log n): 2x data → <60% time increase, got {increase_50k_to_100k*100:.1f}%"
+
+        # Additional assertion: 100K query should complete in reasonable time
+        assert durations[100_000] < 0.5, \
+            f"100K query should complete in <500ms, took {durations[100_000]*1000:.2f}ms"
+
 
 @pytest.fixture
 def temp_db_path(tmp_path):

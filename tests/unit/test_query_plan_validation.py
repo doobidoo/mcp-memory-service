@@ -1,9 +1,9 @@
 """
-Test query plan validation - verify indexes are used.
+Test query plan validation - verify indexes are used for tag filtering.
 
 This test uses EXPLAIN QUERY PLAN to verify that tag filtering queries
-use the idx_tags index, not full table scans. This ensures O(log n)
-performance instead of O(n) at scale.
+use the relational tags indexes (idx_tags_name, idx_memory_tags_memory),
+not full table scans. This ensures O(log n) performance instead of O(n) at scale.
 """
 import pytest
 from mcp_memory_service.models.memory import Memory
@@ -15,12 +15,12 @@ class TestQueryPlanValidation:
     """Verify that tag filtering queries use indexes efficiently."""
 
     @pytest.mark.asyncio
-    async def test_tag_filter_uses_index(self, temp_db_path):
+    async def test_tag_filter_uses_relational_index(self, temp_db_path):
         """
-        Verify that tag filtering uses idx_tags index, not full table scan.
+        Verify that tag filtering uses JOIN with idx_tags_name index, not table scan.
 
-        Query plan should show "USING INDEX idx_tags" or "SEARCH TABLE memories USING INDEX",
-        NOT "SCAN TABLE memories".
+        Query plan should show "SEARCH TABLE tags USING INDEX idx_tags_name",
+        NOT "SCAN TABLE tags" or "SCAN TABLE memories".
         """
         storage = SqliteVecMemoryStorage(str(temp_db_path / "test.db"))
         await storage.initialize()
@@ -34,47 +34,46 @@ class TestQueryPlanValidation:
                 memory_type="note"
             ))
 
-        # Build the same query that retrieve() would use
-        # This is a simplified version focusing on the tag filter subquery
+        # Build the same query pattern that retrieve() uses for tag filtering
         query_sql = '''
             SELECT id FROM memories
-            WHERE ',' || tags || ',' LIKE ?
+            WHERE id IN (
+                SELECT memory_id FROM memory_tags mt
+                JOIN tags t ON mt.tag_id = t.id
+                WHERE t.name IN (?)
+            )
         '''
-        params = ["%,python,%"]
+        params = ["python"]
 
         # Get query plan
         cursor = storage.conn.execute(f"EXPLAIN QUERY PLAN {query_sql}", params)
         plan = cursor.fetchall()
 
-        # Convert plan to string for easier inspection
+        # Convert plan to string for inspection
         plan_str = " ".join([str(row) for row in plan]).upper()
 
-        print(f"\n=== QUERY PLAN ===")
+        print(f"\n=== TAG FILTER QUERY PLAN ===")
         for row in plan:
             print(row)
         print(f"Plan string: {plan_str}")
 
-        # Verify index is being considered
-        # Note: With the comma concatenation in WHERE clause, SQLite may not use the index directly
-        # But it should NOT be doing a full SCAN TABLE without any index consideration
-        assert "SCAN TABLE MEMORIES" not in plan_str or "INDEX" in plan_str, \
-            f"Query should use index or at least not be a pure table scan. Plan: {plan_str}"
+        # CRITICAL: Must use SEARCH (index seek), NOT SCAN (table scan)
+        assert "SEARCH" in plan_str, \
+            f"Query MUST use index (SEARCH), found: {plan_str}"
 
-        # The goal is to ensure the tags column has an index available
-        # Even if the expression index isn't used, having idx_tags prevents worst-case behavior
-        # Verify the index exists
-        cursor = storage.conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='memories' AND name='idx_tags'"
-        )
-        index_exists = cursor.fetchone()
-        assert index_exists is not None, "idx_tags index should exist on memories table"
+        # CRITICAL: Should NOT do table scans
+        assert "SCAN TABLE TAGS" not in plan_str, \
+            f"Query should NOT scan tags table, should use idx_tags_name. Plan: {plan_str}"
+
+        assert "SCAN TABLE MEMORIES" not in plan_str or "COVERING INDEX" in plan_str, \
+            f"Query should NOT scan memories table without covering index. Plan: {plan_str}"
 
     @pytest.mark.asyncio
     async def test_memory_type_filter_uses_index(self, temp_db_path):
         """
         Verify that memory_type filtering uses idx_memory_type index.
 
-        This should definitely use an index since there's no expression involved.
+        This should use an index since there's no expression involved.
         """
         storage = SqliteVecMemoryStorage(str(temp_db_path / "test.db"))
         await storage.initialize()
@@ -105,9 +104,12 @@ class TestQueryPlanValidation:
         for row in plan:
             print(row)
 
-        # Should use idx_memory_type index
-        assert "INDEX" in plan_str or "SEARCH" in plan_str, \
+        # Should use idx_memory_type index with SEARCH (not SCAN)
+        assert "SEARCH" in plan_str or "INDEX" in plan_str, \
             f"Query should use idx_memory_type index. Plan: {plan_str}"
+
+        assert "SCAN TABLE MEMORIES" not in plan_str or "USING INDEX" in plan_str, \
+            f"Query should not do full table scan. Plan: {plan_str}"
 
     @pytest.mark.asyncio
     async def test_combined_filters_query_plan(self, temp_db_path):
@@ -131,9 +133,14 @@ class TestQueryPlanValidation:
         # Build combined filter query (similar to retrieve())
         query_sql = '''
             SELECT id FROM memories
-            WHERE memory_type = ? AND ',' || tags || ',' LIKE ?
+            WHERE memory_type = ?
+            AND id IN (
+                SELECT memory_id FROM memory_tags mt
+                JOIN tags t ON mt.tag_id = t.id
+                WHERE t.name IN (?)
+            )
         '''
-        params = ["note", "%,python,%"]
+        params = ["note", "python"]
 
         # Get query plan
         cursor = storage.conn.execute(f"EXPLAIN QUERY PLAN {query_sql}", params)
@@ -145,42 +152,154 @@ class TestQueryPlanValidation:
         for row in plan:
             print(row)
 
-        # Verify at least one index is used (likely memory_type since it's simpler)
-        assert "INDEX" in plan_str or "SEARCH" in plan_str, \
-            f"Query should use at least one index. Plan: {plan_str}"
+        # Verify indexes are used (SEARCH not SCAN)
+        assert "SEARCH" in plan_str, \
+            f"Query should use indexes (SEARCH), found: {plan_str}"
 
-        # Most importantly: NOT a full table scan without any index
-        if "SCAN" in plan_str:
-            assert "INDEX" in plan_str, \
-                f"If scanning, should at least reference an index. Plan: {plan_str}"
+        # Should NOT do full table scans
+        assert "SCAN TABLE TAGS" not in plan_str, \
+            f"Tags query should use idx_tags_name, not table scan. Plan: {plan_str}"
 
     @pytest.mark.asyncio
-    async def test_all_indexes_exist(self, temp_db_path):
+    async def test_relational_indexes_exist(self, temp_db_path):
         """
-        Verify all expected indexes exist on memories table.
+        Verify all expected relational indexes exist.
 
-        This is a sanity check to ensure schema migration worked correctly.
+        After migration, we should have:
+        - idx_tags_name on tags(name)
+        - idx_memory_tags_memory on memory_tags(memory_id)
+        - idx_memory_tags_tag on memory_tags(tag_id)
+        - Standard indexes on memories table
         """
         storage = SqliteVecMemoryStorage(str(temp_db_path / "test.db"))
         await storage.initialize()
 
-        # Query for all indexes on memories table
+        # Query for all indexes
         cursor = storage.conn.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='index' AND tbl_name='memories'
-            ORDER BY name
+            SELECT name, tbl_name FROM sqlite_master
+            WHERE type='index'
+            ORDER BY tbl_name, name
         """)
-        indexes = [row[0] for row in cursor.fetchall()]
+        indexes = [(row[0], row[1]) for row in cursor.fetchall()]
 
-        print(f"\n=== INDEXES ON MEMORIES TABLE ===")
-        for index in indexes:
-            print(f"  - {index}")
+        print(f"\n=== ALL INDEXES ===")
+        for name, table in indexes:
+            print(f"  {table}.{name}")
 
-        # Verify expected indexes exist
-        expected_indexes = ["idx_content_hash", "idx_created_at", "idx_memory_type", "idx_tags"]
-        for expected in expected_indexes:
-            assert expected in indexes, \
-                f"Expected index '{expected}' not found. Existing indexes: {indexes}"
+        # Extract index names
+        index_names = [name for name, _ in indexes]
+
+        # Verify relational tag indexes
+        assert "idx_tags_name" in index_names, \
+            "idx_tags_name should exist on tags table"
+
+        assert "idx_memory_tags_memory" in index_names, \
+            "idx_memory_tags_memory should exist on memory_tags table"
+
+        assert "idx_memory_tags_tag" in index_names, \
+            "idx_memory_tags_tag should exist on memory_tags table"
+
+        # Verify standard memory indexes
+        assert "idx_content_hash" in index_names, \
+            "idx_content_hash should exist on memories table"
+
+        assert "idx_created_at" in index_names, \
+            "idx_created_at should exist on memories table"
+
+        assert "idx_memory_type" in index_names, \
+            "idx_memory_type should exist on memories table"
+
+    @pytest.mark.asyncio
+    async def test_multi_tag_or_query_plan(self, temp_db_path):
+        """
+        Verify query plan for multiple tags with OR logic.
+
+        Should use idx_tags_name with IN clause.
+        """
+        storage = SqliteVecMemoryStorage(str(temp_db_path / "test.db"))
+        await storage.initialize()
+
+        # Store test data
+        for i in range(10):
+            await storage.store(Memory(
+                content=f"Test memory {i}",
+                content_hash=generate_content_hash(f"Test memory {i}"),
+                tags=["python", "code"] if i % 2 == 0 else ["java", "code"],
+                memory_type="note"
+            ))
+
+        # Query for memories with python OR java tag
+        query_sql = '''
+            SELECT DISTINCT memory_id FROM memory_tags mt
+            JOIN tags t ON mt.tag_id = t.id
+            WHERE t.name IN (?, ?)
+        '''
+        params = ["python", "java"]
+
+        # Get query plan
+        cursor = storage.conn.execute(f"EXPLAIN QUERY PLAN {query_sql}", params)
+        plan = cursor.fetchall()
+
+        plan_str = " ".join([str(row) for row in plan]).upper()
+
+        print(f"\n=== MULTI-TAG OR QUERY PLAN ===")
+        for row in plan:
+            print(row)
+
+        # Should use SEARCH on idx_tags_name for the IN clause
+        assert "SEARCH" in plan_str, \
+            f"Query should use index seek (SEARCH). Plan: {plan_str}"
+
+        # Should NOT scan tags table
+        assert "SCAN TABLE TAGS" not in plan_str, \
+            f"Should use idx_tags_name, not table scan. Plan: {plan_str}"
+
+    @pytest.mark.asyncio
+    async def test_multi_tag_and_query_plan(self, temp_db_path):
+        """
+        Verify query plan for multiple tags with AND logic.
+
+        Uses GROUP BY + HAVING COUNT to ensure all tags present.
+        """
+        storage = SqliteVecMemoryStorage(str(temp_db_path / "test.db"))
+        await storage.initialize()
+
+        # Store test data
+        for i in range(10):
+            await storage.store(Memory(
+                content=f"Test memory {i}",
+                content_hash=generate_content_hash(f"Test memory {i}"),
+                tags=["python", "test", "code"] if i % 2 == 0 else ["java", "test"],
+                memory_type="note"
+            ))
+
+        # Query for memories with python AND test tags
+        query_sql = '''
+            SELECT memory_id FROM memory_tags mt
+            JOIN tags t ON mt.tag_id = t.id
+            WHERE t.name IN (?, ?)
+            GROUP BY memory_id
+            HAVING COUNT(DISTINCT t.name) = 2
+        '''
+        params = ["python", "test"]
+
+        # Get query plan
+        cursor = storage.conn.execute(f"EXPLAIN QUERY PLAN {query_sql}", params)
+        plan = cursor.fetchall()
+
+        plan_str = " ".join([str(row) for row in plan]).upper()
+
+        print(f"\n=== MULTI-TAG AND QUERY PLAN ===")
+        for row in plan:
+            print(row)
+
+        # Should use SEARCH on indexes
+        assert "SEARCH" in plan_str, \
+            f"Query should use index seek (SEARCH). Plan: {plan_str}"
+
+        # Should NOT scan tags table without index
+        assert "SCAN TABLE TAGS" not in plan_str, \
+            f"Should use idx_tags_name, not table scan. Plan: {plan_str}"
 
 
 @pytest.fixture
