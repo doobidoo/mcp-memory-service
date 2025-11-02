@@ -92,8 +92,27 @@ class MemoryStorage(ABC):
         return final_results
     
     @abstractmethod
-    async def retrieve(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
-        """Retrieve memories by semantic search."""
+    async def retrieve(
+        self,
+        query: str,
+        n_results: int = 5,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None,
+        min_similarity: Optional[float] = None
+    ) -> List[MemoryQueryResult]:
+        """
+        Retrieve memories by semantic search with optional filtering.
+
+        Args:
+            query: Search query text
+            n_results: Maximum number of results to return
+            tags: Optional list of tags to filter by (matches ANY tag)
+            memory_type: Optional memory type filter
+            min_similarity: Optional minimum similarity threshold
+
+        Returns:
+            List of MemoryQueryResult objects, filtered and sorted by relevance
+        """
         pass
     
     @abstractmethod
@@ -235,15 +254,29 @@ class MemoryStorage(ABC):
         """Get n most recent memories. Override for specific implementations."""
         return []
     
-    async def recall_memory(self, query: str, n_results: int = 5) -> List[Memory]:
+    async def recall_memory(
+        self,
+        query: str,
+        n_results: int = 5,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None,
+        min_similarity: Optional[float] = None
+    ) -> List[Memory]:
         """Recall memories based on natural language time expression. Override for specific implementations."""
         # Default implementation just uses regular search
-        results = await self.retrieve(query, n_results)
+        results = await self.retrieve(query, n_results, tags, memory_type, min_similarity)
         return [r.memory for r in results]
     
-    async def search(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
+    async def search(
+        self,
+        query: str,
+        n_results: int = 5,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None,
+        min_similarity: Optional[float] = None
+    ) -> List[MemoryQueryResult]:
         """Search memories. Default implementation uses retrieve."""
-        return await self.retrieve(query, n_results)
+        return await self.retrieve(query, n_results, tags, memory_type, min_similarity)
     
     async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None, tags: Optional[List[str]] = None) -> List[Memory]:
         """

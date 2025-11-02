@@ -1,5 +1,6 @@
 
 @sessions/CLAUDE.sessions.md
+@CLAUDE.local.md
 
 # CLAUDE.md
 

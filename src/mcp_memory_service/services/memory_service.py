@@ -253,39 +253,17 @@ class MemoryService:
             Dictionary with search results
         """
         try:
-            # Storage backends only accept query and n_results
-            # Apply tag/type filtering after retrieval
+            # Pass filters directly to storage backend for database-level filtering
             memories = await self.storage.retrieve(
                 query=query,
-                n_results=n_results
+                n_results=n_results,
+                tags=tags,
+                memory_type=memory_type,
+                min_similarity=min_similarity
             )
 
-            # Apply post-retrieval filtering
-            filtered_memories = memories
-
-            # Filter by tags if specified
-            if tags:
-                filtered_memories = [
-                    m for m in filtered_memories
-                    if any(tag in m.tags for tag in tags)
-                ]
-
-            # Filter by memory type if specified
-            if memory_type:
-                filtered_memories = [
-                    m for m in filtered_memories
-                    if m.memory_type == memory_type
-                ]
-
-            # Filter by similarity if specified
-            if min_similarity is not None:
-                filtered_memories = [
-                    m for m in filtered_memories
-                    if hasattr(m, 'similarity') and m.similarity >= min_similarity
-                ]
-
             results = []
-            for item in filtered_memories:
+            for item in memories:
                 # Handle both Memory and MemoryQueryResult objects
                 if hasattr(item, 'memory'):
                     # MemoryQueryResult - unwrap and add similarity score

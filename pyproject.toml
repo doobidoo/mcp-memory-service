@@ -126,3 +126,8 @@ changelog_sections = [
     ["refactor", "Code Refactoring"],
     ["test", "Tests"]
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
