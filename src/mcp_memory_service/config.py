@@ -540,6 +540,9 @@ logger.info(f"Document chunking: size={DOCUMENT_CHUNK_SIZE}, overlap={DOCUMENT_C
 # Dream-inspired consolidation configuration
 CONSOLIDATION_ENABLED = os.getenv('MCP_CONSOLIDATION_ENABLED', 'false').lower() == 'true'
 
+# Debug tools configuration
+EXPOSE_DEBUG_TOOLS = os.getenv('MCP_MEMORY_EXPOSE_DEBUG_TOOLS', 'false').lower() == 'true'
+
 # Machine identification configuration
 INCLUDE_HOSTNAME = os.getenv('MCP_MEMORY_INCLUDE_HOSTNAME', 'false').lower() == 'true'
 

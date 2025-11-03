@@ -14,6 +14,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop with SQLite-vec, Cloudflare, and Hybrid storage backends.
 
+> **⚡ v8.14.0**: **MCP Tool Refactoring** - Aggressive token reduction from 29.6k to <5k tokens (83% reduction). Tool consolidation (26→12 core tools), compressed descriptions, debug tools now opt-in via `MCP_MEMORY_EXPOSE_DEBUG_TOOLS`. Breaking changes: `retrieve_memory` removed (use `recall_memory`), delete operations consolidated into single tool with `match_mode` parameter.
+
 > **⚡ v8.13.0**: **Tag Normalization Migration** - Normalized relational tag storage achieves true O(log n) query performance. Migration from commit ee1cac5's comma-separated tags to Third Normal Form schema with `tags` and `memory_tags` tables. Breaking change requires one-time migration. See migration commands below.
 
 > **🎯 v8.12.1**: **MemoryService Architecture** - Centralized business logic with 80% code duplication reduction. Database-level filtering prevents performance scaling issues. Enhanced error handling and dependency injection.
@@ -254,6 +256,9 @@ export CLOUDFLARE_VECTORIZE_INDEX="mcp-memory-index" # Required for Cloudflare b
 export MCP_HTTP_ENABLED=true                  # Enable HTTP server
 export MCP_HTTPS_ENABLED=true                 # Enable HTTPS (production)
 export MCP_API_KEY="$(openssl rand -base64 32)" # Generate secure API key
+
+# Debug Tools (Optional)
+export MCP_MEMORY_EXPOSE_DEBUG_TOOLS=false    # Enable debug tools (debug_retrieve, exact_match_retrieve, get_raw_embedding)
 ```
 
 **Configuration Precedence:** Environment variables > .env file > Global Claude Config > defaults
