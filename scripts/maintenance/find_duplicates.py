@@ -105,8 +105,11 @@ def find_duplicates(memories_source, similarity_threshold=0.95):
         Dict of duplicate groups
     """
     if isinstance(memories_source, str):
-        # Database path provided
-        conn = sqlite3.connect(memories_source)
+        # Database path provided with timeout for concurrent access
+        conn = sqlite3.connect(memories_source, timeout=120.0)
+        # Apply critical pragmas immediately
+        conn.execute("PRAGMA busy_timeout=120000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
         
         print("Scanning for duplicate memories...")
@@ -223,7 +226,11 @@ def remove_duplicates(db_path, duplicate_groups, dry_run=True):
         duplicate_groups: Dict of duplicate groups from find_duplicates()
         dry_run: If True, only show what would be deleted
     """
-    conn = sqlite3.connect(db_path)
+    # Connect with timeout for concurrent access
+    conn = sqlite3.connect(db_path, timeout=120.0)
+    # Apply critical pragmas immediately
+    conn.execute("PRAGMA busy_timeout=120000")
+    conn.execute("PRAGMA journal_mode=WAL")
     cursor = conn.cursor()
     
     total_to_delete = 0

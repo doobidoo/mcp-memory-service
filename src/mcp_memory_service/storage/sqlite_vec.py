@@ -288,9 +288,34 @@ To switch backends permanently, set: MCP_MEMORY_STORAGE_BACKEND=cloudflare
 """
                 raise RuntimeError(detailed_error.strip())
             
-            # Connect to database
-            self.conn = sqlite3.connect(self.db_path)
-            
+            # Connect to database with timeout to handle concurrent access
+            # Timeout at connection level ensures we wait for locks before pragma application
+            self.conn = sqlite3.connect(self.db_path, timeout=120.0)
+
+            # Apply critical pragmas IMMEDIATELY before any operations
+            # This prevents "database is locked" errors during extension loading and schema operations
+            # Check environment variable for overrides
+            custom_pragmas_env = os.environ.get("MCP_MEMORY_SQLITE_PRAGMAS", "")
+            busy_timeout_value = "120000"  # Default: 120 seconds
+            journal_mode_value = "WAL"
+
+            if custom_pragmas_env:
+                for pragma_pair in custom_pragmas_env.split(","):
+                    if "=" in pragma_pair:
+                        name, value = pragma_pair.split("=", 1)
+                        name, value = name.strip(), value.strip()
+                        if name == "busy_timeout":
+                            busy_timeout_value = value
+                        elif name == "journal_mode":
+                            journal_mode_value = value
+
+            try:
+                self.conn.execute(f"PRAGMA busy_timeout={busy_timeout_value}")
+                self.conn.execute(f"PRAGMA journal_mode={journal_mode_value}")
+                logger.info(f"Critical pragmas applied: busy_timeout={busy_timeout_value}, journal_mode={journal_mode_value}")
+            except sqlite3.Error as e:
+                logger.warning(f"Failed to apply critical pragmas: {e}")
+
             # Load sqlite-vec extension with proper error handling
             try:
                 self.conn.enable_load_extension(True)
@@ -335,10 +360,9 @@ SOLUTIONS:
 """
                 raise RuntimeError(detailed_error.strip())
             
-            # Apply default pragmas for concurrent access
+            # Apply additional pragmas for performance and safety
+            # Note: busy_timeout and journal_mode are already applied above before extension loading
             default_pragmas = {
-                "journal_mode": "WAL",  # Enable WAL mode for concurrent access
-                "busy_timeout": "5000",  # 5 second timeout for locked database
                 "synchronous": "NORMAL",  # Balanced performance/safety
                 "cache_size": "10000",  # Increase cache size
                 "temp_store": "MEMORY"  # Use memory for temp tables
@@ -476,15 +500,28 @@ SOLUTIONS:
                 INSERT OR REPLACE INTO metadata (key, value) VALUES ('distance_metric', 'cosine')
             """)
             
-            # Create indexes for better performance
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_content_hash ON memories(content_hash)')
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at)')
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_type ON memories(memory_type)')
+            # Create indexes for better performance with retry logic
+            # Index creation can take time and may encounter locks during concurrent initialization
+            await self._execute_with_retry(
+                lambda: self.conn.execute('CREATE INDEX IF NOT EXISTS idx_content_hash ON memories(content_hash)')
+            )
+            await self._execute_with_retry(
+                lambda: self.conn.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at)')
+            )
+            await self._execute_with_retry(
+                lambda: self.conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_type ON memories(memory_type)')
+            )
 
-            # Relational tag indexes (O(log n) performance)
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name)')
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_tags_memory ON memory_tags(memory_id)')
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_tags_tag ON memory_tags(tag_id)')
+            # Relational tag indexes (O(log n) performance) with retry logic
+            await self._execute_with_retry(
+                lambda: self.conn.execute('CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name)')
+            )
+            await self._execute_with_retry(
+                lambda: self.conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_tags_memory ON memory_tags(memory_id)')
+            )
+            await self._execute_with_retry(
+                lambda: self.conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_tags_tag ON memory_tags(tag_id)')
+            )
 
             # Mark as initialized to prevent re-initialization
             self._initialized = True
