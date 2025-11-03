@@ -186,6 +186,7 @@ from .config import (
     CONSOLIDATION_ENABLED,
     CONSOLIDATION_CONFIG,
     CONSOLIDATION_SCHEDULE,
+    EXPOSE_DEBUG_TOOLS,
     INCLUDE_HOSTNAME,
     # Cloudflare configuration
     CLOUDFLARE_API_TOKEN,
@@ -1289,63 +1290,22 @@ class MemoryServer:
                 tools = [
                     types.Tool(
                         name="store_memory",
-                        description="""Store new information with optional tags.
-
-                        Accepts two tag formats in metadata:
-                        - Array: ["tag1", "tag2"]
-                        - String: "tag1,tag2"
-
-                       Examples:
-                        # Using array format:
-                        {
-                            "content": "Memory content",
-                            "metadata": {
-                                "tags": ["important", "reference"],
-                                "type": "note"
-                            }
-                        }
-
-                        # Using string format(preferred):
-                        {
-                            "content": "Memory content",
-                            "metadata": {
-                                "tags": "important,reference",
-                                "type": "note"
-                            }
-                        }""",
+                        description="Store content with optional tags (array or comma-separated string) and metadata.",
                         inputSchema={
                             "type": "object",
                             "properties": {
-                                "content": {
-                                    "type": "string",
-                                    "description": "The memory content to store, such as a fact, note, or piece of information."
-                                },
+                                "content": {"type": "string", "description": "Content to store"},
                                 "metadata": {
                                     "type": "object",
-                                    "description": "Optional metadata about the memory, including tags and type.",
                                     "properties": {
                                         "tags": {
                                             "oneOf": [
-                                                {
-                                                    "type": "array",
-                                                    "items": {"type": "string"},
-                                                    "description": "Tags as an array of strings"
-                                                },
-                                                {
-                                                    "type": "string",
-                                                    "description": "Tags as comma-separated string"
-                                                }
+                                                {"type": "array", "items": {"type": "string"}},
+                                                {"type": "string"}
                                             ],
-                                            "description": "Tags to categorize the memory. Accepts either an array of strings or a comma-separated string.",
-                                            "examples": [
-                                                "tag1,tag2,tag3",
-                                                ["tag1", "tag2", "tag3"]
-                                            ]
+                                            "description": "Tags as array or comma-separated string"
                                         },
-                                        "type": {
-                                            "type": "string",
-                                            "description": "Optional type or category label for the memory, e.g., 'note', 'fact', 'reminder'."
-                                        }
+                                        "type": {"type": "string", "description": "Memory type"}
                                     }
                                 }
                             },
@@ -1354,163 +1314,46 @@ class MemoryServer:
                     ),
                     types.Tool(
                         name="recall_memory",
-                        description="""Retrieve memories using natural language time expressions and optional semantic search.
-                        
-                        Supports various time-related expressions such as:
-                        - "yesterday", "last week", "2 days ago"
-                        - "last summer", "this month", "last January"
-                        - "spring", "winter", "Christmas", "Thanksgiving"
-                        - "morning", "evening", "yesterday afternoon"
-                        
-                        Examples:
-                        {
-                            "query": "recall what I stored last week"
-                        }
-                        
-                        {
-                            "query": "find information about databases from two months ago",
-                            "n_results": 5
-                        }
-                        """,
+                        description="Retrieve memories using natural language time expressions and semantic search.",
                         inputSchema={
                             "type": "object",
                             "properties": {
-                                "query": {
-                                    "type": "string",
-                                    "description": "Natural language query specifying the time frame or content to recall, e.g., 'last week', 'yesterday afternoon', or a topic."
-                                },
-                                "n_results": {
-                                    "type": "number",
-                                    "default": 5,
-                                    "description": "Maximum number of results to return."
-                                }
-                            },
-                            "required": ["query"]
-                        }
-                    ),
-                    types.Tool(
-                        name="retrieve_memory",
-                        description="""Find relevant memories based on query.
-
-                        Example:
-                        {
-                            "query": "find this memory",
-                            "n_results": 5
-                        }""",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "query": {
-                                    "type": "string",
-                                    "description": "Search query to find relevant memories based on content."
-                                },
-                                "n_results": {
-                                    "type": "number",
-                                    "default": 5,
-                                    "description": "Maximum number of results to return."
-                                }
+                                "query": {"type": "string", "description": "Query with time expressions or content to recall"},
+                                "n_results": {"type": "number", "default": 5, "description": "Max results"}
                             },
                             "required": ["query"]
                         }
                     ),
                     types.Tool(
                         name="search_by_tag",
-                        description="""Search memories by tags. Must use array format.
-                        Returns memories matching ANY of the specified tags.
-
-                        Example:
-                        {
-                            "tags": ["important", "reference"]
-                        }""",
+                        description="Search memories by tags (returns ANY match).",
                         inputSchema={
                             "type": "object",
                             "properties": {
-                                "tags": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "List of tags to search for. Returns memories matching ANY of these tags."
-                                }
+                                "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to search"}
                             },
                             "required": ["tags"]
                         }
                     ),
                     types.Tool(
                         name="delete_memory",
-                        description="""Delete a specific memory by its hash.
-
-                        Example:
-                        {
-                            "content_hash": "a1b2c3d4..."
-                        }""",
+                        description="Delete a memory by content hash.",
                         inputSchema={
                             "type": "object",
                             "properties": {
-                                "content_hash": {
-                                    "type": "string",
-                                    "description": "Hash of the memory content to delete. Obtainable from memory metadata."
-                                }
+                                "content_hash": {"type": "string", "description": "Memory content hash"}
                             },
                             "required": ["content_hash"]
                         }
                     ),
                     types.Tool(
                         name="delete_by_tag",
-                        description="""Delete all memories with specific tags.
-                        WARNING: Deletes ALL memories containing any of the specified tags.
-
-                        Example:
-                        {"tags": ["temporary", "outdated"]}""",
+                        description="Delete memories by tags. Supports ANY or ALL matching modes.",
                         inputSchema={
                             "type": "object",
                             "properties": {
-                                "tags": {
-                                    "type": "array", 
-                                    "items": {"type": "string"},
-                                    "description": "Array of tag labels. Memories containing any of these tags will be deleted."
-                                }
-                            },
-                            "required": ["tags"]
-                        }
-                    ),
-                    types.Tool(
-                        name="delete_by_tags",
-                        description="""Delete all memories containing any of the specified tags.
-                        This is the explicit multi-tag version for API clarity.
-                        WARNING: Deletes ALL memories containing any of the specified tags.
-
-                        Example:
-                        {
-                            "tags": ["temporary", "outdated", "test"]
-                        }""",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "tags": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "List of tag labels. Memories containing any of these tags will be deleted."
-                                }
-                            },
-                            "required": ["tags"]
-                        }
-                    ),
-                    types.Tool(
-                        name="delete_by_all_tags",
-                        description="""Delete memories that contain ALL of the specified tags.
-                        WARNING: Only deletes memories that have every one of the specified tags.
-
-                        Example:
-                        {
-                            "tags": ["important", "urgent"]
-                        }""",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "tags": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "List of tag labels. Only memories containing ALL of these tags will be deleted."
-                                }
+                                "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to match"},
+                                "match_mode": {"type": "string", "enum": ["any", "all"], "default": "any", "description": "Match mode: 'any' or 'all'"}
                             },
                             "required": ["tags"]
                         }
@@ -1524,75 +1367,6 @@ class MemoryServer:
                         }
                     ),
                     types.Tool(
-                        name="debug_retrieve",
-                        description="""Retrieve memories with debug information.
-
-                        Example:
-                        {
-                            "query": "debug this",
-                            "n_results": 5,
-                            "similarity_threshold": 0.0
-                        }""",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "query": {
-                                    "type": "string",
-                                    "description": "Search query for debugging retrieval, e.g., a phrase or keyword."
-                                },
-                                "n_results": {
-                                    "type": "number",
-                                    "default": 5,
-                                    "description": "Maximum number of results to return."
-                                },
-                                "similarity_threshold": {
-                                    "type": "number",
-                                    "default": 0.0,
-                                    "description": "Minimum similarity score threshold for results (0.0 to 1.0)."
-                                }
-                            },
-                            "required": ["query"]
-                        }
-                    ),
-                    types.Tool(
-                        name="exact_match_retrieve",
-                        description="""Retrieve memories using exact content match.
-
-                        Example:
-                        {
-                            "content": "find exactly this"
-                        }""",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "content": {
-                                    "type": "string",
-                                    "description": "Exact content string to match against stored memories."
-                                }
-                            },
-                            "required": ["content"]
-                        }
-                    ),
-                    types.Tool(
-                        name="get_raw_embedding",
-                        description="""Get raw embedding vector for debugging purposes.
-
-                        Example:
-                        {
-                            "content": "text to embed"
-                        }""",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "content": {
-                                    "type": "string",
-                                    "description": "Content to generate embedding for."
-                                }
-                            },
-                            "required": ["content"]
-                        }
-                    ),
-                    types.Tool(
                         name="check_database_health",
                         description="Check database health and get statistics",
                         inputSchema={
@@ -1602,154 +1376,58 @@ class MemoryServer:
                     ),
                     types.Tool(
                         name="recall_by_timeframe",
-                        description="""Retrieve memories within a specific timeframe.
-
-                        Example:
-                        {
-                            "start_date": "2024-01-01",
-                            "end_date": "2024-01-31",
-                            "n_results": 5
-                        }""",
+                        description="Retrieve memories within a date range.",
                         inputSchema={
                             "type": "object",
                             "properties": {
-                                "start_date": {
-                                    "type": "string",
-                                    "format": "date",
-                                    "description": "Start date (inclusive) in YYYY-MM-DD format."
-                                },
-                                "end_date": {
-                                    "type": "string",
-                                    "format": "date",
-                                    "description": "End date (inclusive) in YYYY-MM-DD format."
-                                },
-                                "n_results": {
-                                    "type": "number",
-                                    "default": 5,
-                                    "description": "Maximum number of results to return."
-                                }
+                                "start_date": {"type": "string", "format": "date", "description": "Start date (YYYY-MM-DD)"},
+                                "end_date": {"type": "string", "format": "date", "description": "End date (YYYY-MM-DD)"},
+                                "n_results": {"type": "number", "default": 5, "description": "Max results"}
                             },
                             "required": ["start_date"]
                         }
                     ),
                     types.Tool(
                         name="delete_by_timeframe",
-                        description="""Delete memories within a specific timeframe.
-                        Optional tag parameter to filter deletions.
-
-                        Example:
-                        {
-                            "start_date": "2024-01-01",
-                            "end_date": "2024-01-31",
-                            "tag": "temporary"
-                        }""",
+                        description="Delete memories within a date range, optionally filtered by tag.",
                         inputSchema={
                             "type": "object",
                             "properties": {
-                                "start_date": {
-                                    "type": "string",
-                                    "format": "date",
-                                    "description": "Start date (inclusive) in YYYY-MM-DD format."
-                                },
-                                "end_date": {
-                                    "type": "string",
-                                    "format": "date",
-                                    "description": "End date (inclusive) in YYYY-MM-DD format."
-                                },
-                                "tag": {
-                                    "type": "string",
-                                    "description": "Optional tag to filter deletions. Only memories with this tag will be deleted."
-                                }
+                                "start_date": {"type": "string", "format": "date", "description": "Start date (YYYY-MM-DD)"},
+                                "end_date": {"type": "string", "format": "date", "description": "End date (YYYY-MM-DD)"},
+                                "tag": {"type": "string", "description": "Optional tag filter"}
                             },
                             "required": ["start_date"]
                         }
                     ),
                     types.Tool(
                         name="delete_before_date",
-                        description="""Delete memories before a specific date.
-                        Optional tag parameter to filter deletions.
-
-                        Example:
-                        {
-                            "before_date": "2024-01-01",
-                            "tag": "temporary"
-                        }""",
+                        description="Delete memories before a date, optionally filtered by tag.",
                         inputSchema={
                             "type": "object",
                             "properties": {
-                                "before_date": {"type": "string", "format": "date"},
-                                "tag": {"type": "string"}
+                                "before_date": {"type": "string", "format": "date", "description": "Date threshold (YYYY-MM-DD)"},
+                                "tag": {"type": "string", "description": "Optional tag filter"}
                             },
                             "required": ["before_date"]
                         }
                     ),
                     types.Tool(
                         name="update_memory_metadata",
-                        description="""Update memory metadata without recreating the entire memory entry.
-                        
-                        This provides efficient metadata updates while preserving the original
-                        memory content, embeddings, and optionally timestamps.
-                        
-                        Examples:
-                        # Add tags to a memory
-                        {
-                            "content_hash": "abc123...",
-                            "updates": {
-                                "tags": ["important", "reference", "new-tag"]
-                            }
-                        }
-                        
-                        # Update memory type and custom metadata
-                        {
-                            "content_hash": "abc123...",
-                            "updates": {
-                                "memory_type": "reminder",
-                                "metadata": {
-                                    "priority": "high",
-                                    "due_date": "2024-01-15"
-                                }
-                            }
-                        }
-                        
-                        # Update custom fields directly
-                        {
-                            "content_hash": "abc123...",
-                            "updates": {
-                                "priority": "urgent",
-                                "status": "active"
-                            }
-                        }""",
+                        description="Update memory metadata (tags, type, custom fields) without recreating entry.",
                         inputSchema={
                             "type": "object",
                             "properties": {
-                                "content_hash": {
-                                    "type": "string",
-                                    "description": "The content hash of the memory to update."
-                                },
+                                "content_hash": {"type": "string", "description": "Memory content hash"},
                                 "updates": {
                                     "type": "object",
-                                    "description": "Dictionary of metadata fields to update.",
                                     "properties": {
-                                        "tags": {
-                                            "type": "array",
-                                            "items": {"type": "string"},
-                                            "description": "Replace existing tags with this list."
-                                        },
-                                        "memory_type": {
-                                            "type": "string",
-                                            "description": "Update the memory type (e.g., 'note', 'reminder', 'fact')."
-                                        },
-                                        "metadata": {
-                                            "type": "object",
-                                            "description": "Custom metadata fields to merge with existing metadata."
-                                        }
+                                        "tags": {"type": "array", "items": {"type": "string"}, "description": "New tags"},
+                                        "memory_type": {"type": "string", "description": "Memory type"},
+                                        "metadata": {"type": "object", "description": "Custom metadata"}
                                     }
                                 },
-                                "preserve_timestamps": {
-                                    "type": "boolean",
-                                    "default": True,
-                                    "description": "Whether to preserve the original created_at timestamp (default: true)."
-                                }
+                                "preserve_timestamps": {"type": "boolean", "default": True, "description": "Preserve original created_at"}
                             },
                             "required": ["content_hash", "updates"]
                         }
@@ -1761,230 +1439,143 @@ class MemoryServer:
                     consolidation_tools = [
                         types.Tool(
                             name="consolidate_memories",
-                            description="""Run memory consolidation for a specific time horizon.
-                            
-                            Performs dream-inspired memory consolidation including:
-                            - Exponential decay scoring
-                            - Creative association discovery  
-                            - Semantic clustering and compression
-                            - Controlled forgetting with archival
-                            
-                            Example:
-                            {
-                                "time_horizon": "weekly"
-                            }""",
+                            description="Run dream-inspired memory consolidation for time horizon.",
                             inputSchema={
                                 "type": "object",
                                 "properties": {
-                                    "time_horizon": {
-                                        "type": "string",
-                                        "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"],
-                                        "description": "Time horizon for consolidation operations."
-                                    }
+                                    "time_horizon": {"type": "string", "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"], "description": "Time horizon"}
                                 },
                                 "required": ["time_horizon"]
                             }
                         ),
                         types.Tool(
                             name="consolidation_status",
-                            description="Get status and health information about the consolidation system.",
+                            description="Get consolidation system status.",
                             inputSchema={"type": "object", "properties": {}}
                         ),
                         types.Tool(
                             name="consolidation_recommendations",
-                            description="""Get recommendations for consolidation based on current memory state.
-                            
-                            Example:
-                            {
-                                "time_horizon": "monthly"
-                            }""",
+                            description="Get consolidation recommendations for time horizon.",
                             inputSchema={
                                 "type": "object",
                                 "properties": {
-                                    "time_horizon": {
-                                        "type": "string",
-                                        "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"],
-                                        "description": "Time horizon to analyze for consolidation recommendations."
-                                    }
+                                    "time_horizon": {"type": "string", "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"], "description": "Time horizon"}
                                 },
                                 "required": ["time_horizon"]
                             }
                         ),
                         types.Tool(
                             name="scheduler_status",
-                            description="Get consolidation scheduler status and job information.",
+                            description="Get consolidation scheduler status.",
                             inputSchema={"type": "object", "properties": {}}
                         ),
                         types.Tool(
                             name="trigger_consolidation",
-                            description="""Manually trigger a consolidation job.
-                            
-                            Example:
-                            {
-                                "time_horizon": "weekly",
-                                "immediate": true
-                            }""",
+                            description="Manually trigger consolidation job.",
                             inputSchema={
                                 "type": "object",
                                 "properties": {
-                                    "time_horizon": {
-                                        "type": "string",
-                                        "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"],
-                                        "description": "Time horizon for the consolidation job."
-                                    },
-                                    "immediate": {
-                                        "type": "boolean",
-                                        "default": True,
-                                        "description": "Whether to run immediately or schedule for later."
-                                    }
+                                    "time_horizon": {"type": "string", "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"], "description": "Time horizon"},
+                                    "immediate": {"type": "boolean", "default": True, "description": "Run immediately"}
                                 },
                                 "required": ["time_horizon"]
                             }
                         ),
                         types.Tool(
                             name="pause_consolidation",
-                            description="""Pause consolidation jobs.
-                            
-                            Example:
-                            {
-                                "time_horizon": "weekly"
-                            }""",
+                            description="Pause consolidation jobs.",
                             inputSchema={
                                 "type": "object",
                                 "properties": {
-                                    "time_horizon": {
-                                        "type": "string",
-                                        "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"],
-                                        "description": "Specific time horizon to pause, or omit to pause all jobs."
-                                    }
+                                    "time_horizon": {"type": "string", "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"], "description": "Time horizon or omit for all"}
                                 }
                             }
                         ),
                         types.Tool(
                             name="resume_consolidation",
-                            description="""Resume consolidation jobs.
-                            
-                            Example:
-                            {
-                                "time_horizon": "weekly"
-                            }""",
+                            description="Resume consolidation jobs.",
                             inputSchema={
                                 "type": "object",
                                 "properties": {
-                                    "time_horizon": {
-                                        "type": "string",
-                                        "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"],
-                                        "description": "Specific time horizon to resume, or omit to resume all jobs."
-                                    }
+                                    "time_horizon": {"type": "string", "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"], "description": "Time horizon or omit for all"}
                                 }
                             }
                         )
                     ]
                     tools.extend(consolidation_tools)
                     logger.info(f"Added {len(consolidation_tools)} consolidation tools")
-                
+
+                # Add debug tools if enabled
+                if EXPOSE_DEBUG_TOOLS:
+                    debug_tools = [
+                        types.Tool(
+                            name="debug_retrieve",
+                            description="Retrieve memories with debug information and similarity scores.",
+                            inputSchema={
+                                "type": "object",
+                                "properties": {
+                                    "query": {"type": "string", "description": "Search query"},
+                                    "n_results": {"type": "number", "default": 5, "description": "Max results"},
+                                    "similarity_threshold": {"type": "number", "default": 0.0, "description": "Min similarity (0.0-1.0)"}
+                                },
+                                "required": ["query"]
+                            }
+                        ),
+                        types.Tool(
+                            name="exact_match_retrieve",
+                            description="Retrieve memories by exact content match.",
+                            inputSchema={
+                                "type": "object",
+                                "properties": {
+                                    "content": {"type": "string", "description": "Exact content to match"}
+                                },
+                                "required": ["content"]
+                            }
+                        ),
+                        types.Tool(
+                            name="get_raw_embedding",
+                            description="Get raw embedding vector for content.",
+                            inputSchema={
+                                "type": "object",
+                                "properties": {
+                                    "content": {"type": "string", "description": "Content to embed"}
+                                },
+                                "required": ["content"]
+                            }
+                        )
+                    ]
+                    tools.extend(debug_tools)
+                    logger.info(f"Added {len(debug_tools)} debug tools")
+
                 # Add document ingestion tools
                 ingestion_tools = [
                     types.Tool(
                         name="ingest_document",
-                        description="""Ingest a single document file into the memory database.
-                        
-                        Supports multiple formats:
-                        - PDF files (.pdf)
-                        - Text files (.txt, .md, .markdown, .rst)
-                        - JSON files (.json)
-                        
-                        The document will be parsed, chunked intelligently, and stored
-                        as multiple memories with appropriate metadata.
-                        
-                        Example:
-                        {
-                            "file_path": "/path/to/document.pdf",
-                            "tags": ["documentation", "manual"],
-                            "chunk_size": 1000
-                        }""",
+                        description="Ingest document file (PDF/TXT/MD/JSON) into memory with chunking.",
                         inputSchema={
                             "type": "object",
                             "properties": {
-                                "file_path": {
-                                    "type": "string",
-                                    "description": "Path to the document file to ingest."
-                                },
-                                "tags": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "Optional tags to apply to all memories created from this document.",
-                                    "default": []
-                                },
-                                "chunk_size": {
-                                    "type": "number",
-                                    "description": "Target size for text chunks in characters (default: 1000).",
-                                    "default": 1000
-                                },
-                                "chunk_overlap": {
-                                    "type": "number",
-                                    "description": "Characters to overlap between chunks (default: 200).",
-                                    "default": 200
-                                },
-                                "memory_type": {
-                                    "type": "string",
-                                    "description": "Type label for created memories (default: 'document').",
-                                    "default": "document"
-                                }
+                                "file_path": {"type": "string", "description": "Document file path"},
+                                "tags": {"type": "array", "items": {"type": "string"}, "default": [], "description": "Tags to apply"},
+                                "chunk_size": {"type": "number", "default": 1000, "description": "Chunk size in characters"},
+                                "chunk_overlap": {"type": "number", "default": 200, "description": "Chunk overlap"},
+                                "memory_type": {"type": "string", "default": "document", "description": "Memory type"}
                             },
                             "required": ["file_path"]
                         }
                     ),
                     types.Tool(
                         name="ingest_directory",
-                        description="""Batch ingest all supported documents from a directory.
-                        
-                        Recursively processes all supported file types in the directory,
-                        creating memories with consistent tagging and metadata.
-                        
-                        Supported formats: PDF, TXT, MD, JSON
-                        
-                        Example:
-                        {
-                            "directory_path": "/path/to/documents",
-                            "tags": ["knowledge-base"],
-                            "recursive": true,
-                            "file_extensions": ["pdf", "md", "txt"]
-                        }""",
+                        description="Batch ingest all documents from directory (PDF/TXT/MD/JSON).",
                         inputSchema={
                             "type": "object",
                             "properties": {
-                                "directory_path": {
-                                    "type": "string",
-                                    "description": "Path to the directory containing documents to ingest."
-                                },
-                                "tags": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "Optional tags to apply to all memories created.",
-                                    "default": []
-                                },
-                                "recursive": {
-                                    "type": "boolean",
-                                    "description": "Whether to process subdirectories recursively (default: true).",
-                                    "default": True
-                                },
-                                "file_extensions": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "File extensions to process (default: all supported).",
-                                    "default": ["pdf", "txt", "md", "json"]
-                                },
-                                "chunk_size": {
-                                    "type": "number",
-                                    "description": "Target size for text chunks in characters (default: 1000).",
-                                    "default": 1000
-                                },
-                                "max_files": {
-                                    "type": "number",
-                                    "description": "Maximum number of files to process (default: 100).",
-                                    "default": 100
-                                }
+                                "directory_path": {"type": "string", "description": "Directory path"},
+                                "tags": {"type": "array", "items": {"type": "string"}, "default": [], "description": "Tags to apply"},
+                                "recursive": {"type": "boolean", "default": True, "description": "Process subdirectories"},
+                                "file_extensions": {"type": "array", "items": {"type": "string"}, "default": ["pdf", "txt", "md", "json"], "description": "File extensions"},
+                                "chunk_size": {"type": "number", "default": 1000, "description": "Chunk size"},
+                                "max_files": {"type": "number", "default": 100, "description": "Max files"}
                             },
                             "required": ["directory_path"]
                         }
@@ -2018,8 +1609,6 @@ class MemoryServer:
                 
                 if name == "store_memory":
                     return await self.handle_store_memory(arguments)
-                elif name == "retrieve_memory":
-                    return await self.handle_retrieve_memory(arguments)
                 elif name == "recall_memory":
                     return await self.handle_recall_memory(arguments)
                 elif name == "search_by_tag":
@@ -2028,17 +1617,19 @@ class MemoryServer:
                     return await self.handle_delete_memory(arguments)
                 elif name == "delete_by_tag":
                     return await self.handle_delete_by_tag(arguments)
-                elif name == "delete_by_tags":
-                    return await self.handle_delete_by_tags(arguments)
-                elif name == "delete_by_all_tags":
-                    return await self.handle_delete_by_all_tags(arguments)
                 elif name == "cleanup_duplicates":
                     return await self.handle_cleanup_duplicates(arguments)
                 elif name == "debug_retrieve":
+                    if not EXPOSE_DEBUG_TOOLS:
+                        return [types.TextContent(type="text", text="Debug tools not enabled. Set MCP_MEMORY_EXPOSE_DEBUG_TOOLS=true to enable.")]
                     return await self.handle_debug_retrieve(arguments)
                 elif name == "exact_match_retrieve":
+                    if not EXPOSE_DEBUG_TOOLS:
+                        return [types.TextContent(type="text", text="Debug tools not enabled. Set MCP_MEMORY_EXPOSE_DEBUG_TOOLS=true to enable.")]
                     return await self.handle_exact_match_retrieve(arguments)
                 elif name == "get_raw_embedding":
+                    if not EXPOSE_DEBUG_TOOLS:
+                        return [types.TextContent(type="text", text="Debug tools not enabled. Set MCP_MEMORY_EXPOSE_DEBUG_TOOLS=true to enable.")]
                     return await self.handle_get_raw_embedding(arguments)
                 elif name == "check_database_health":
                     logger.info("Calling handle_check_database_health")
@@ -2277,20 +1868,27 @@ class MemoryServer:
             return [types.TextContent(type="text", text=f"Error deleting memory: {str(e)}")]
 
     async def handle_delete_by_tag(self, arguments: dict) -> List[types.TextContent]:
-        """Handler for deleting memories by tags."""
+        """Handler for deleting memories by tags with ANY or ALL match modes."""
         tags = arguments.get("tags", [])
-        
+        match_mode = arguments.get("match_mode", "any")
+
         if not tags:
             return [types.TextContent(type="text", text="Error: Tags array is required")]
-        
-        # Convert single string to array if needed for backward compatibility
+
+        # Convert single string to array if needed
         if isinstance(tags, str):
             tags = [tags]
-        
+
         try:
             # Initialize storage lazily when needed
             storage = await self._ensure_storage_initialized()
-            count, message = await storage.delete_by_tag(tags)
+
+            # Branch based on match mode
+            if match_mode == "all":
+                count, message = await storage.delete_by_all_tags(tags)
+            else:
+                count, message = await storage.delete_by_tag(tags)
+
             return [types.TextContent(type="text", text=message)]
         except Exception as e:
             logger.error(f"Error deleting by tag: {str(e)}\n{traceback.format_exc()}")
