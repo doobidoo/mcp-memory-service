@@ -69,8 +69,14 @@ class ZeroEmbeddingRepair:
         
         if not os.path.exists(self.db_path):
             raise FileNotFoundError(f"Database not found: {self.db_path}")
-            
-        self.conn = sqlite3.connect(self.db_path)
+
+        # Connect with timeout to handle concurrent access
+        self.conn = sqlite3.connect(self.db_path, timeout=120.0)
+
+        # Apply critical pragmas immediately for concurrent access support
+        self.conn.execute("PRAGMA busy_timeout=120000")
+        self.conn.execute("PRAGMA journal_mode=WAL")
+
         self.conn.enable_load_extension(True)
         sqlite_vec.load(self.conn)
         self.conn.enable_load_extension(False)

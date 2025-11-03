@@ -55,7 +55,11 @@ def cleanup_corrupted_memories(db_path, dry_run=True):
         db_path: Path to the SQLite database
         dry_run: If True, only show what would be deleted without actually deleting
     """
-    conn = sqlite3.connect(db_path)
+    # Connect with timeout for concurrent access
+    conn = sqlite3.connect(db_path, timeout=120.0)
+    # Apply critical pragmas immediately
+    conn.execute("PRAGMA busy_timeout=120000")
+    conn.execute("PRAGMA journal_mode=WAL")
     cursor = conn.cursor()
     
     print(f"{'DRY RUN - ' if dry_run else ''}Scanning for memories with corrupted encoding...")

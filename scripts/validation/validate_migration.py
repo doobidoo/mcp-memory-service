@@ -206,8 +206,12 @@ class MigrationValidator:
             return False
         
         try:
-            conn = sqlite3.connect(self.sqlite_path)
-            
+            # Connect with timeout for concurrent access
+            conn = sqlite3.connect(self.sqlite_path, timeout=120.0)
+            # Apply critical pragmas immediately
+            conn.execute("PRAGMA busy_timeout=120000")
+            conn.execute("PRAGMA journal_mode=WAL")
+
             # Check if tables exist
             tables = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
