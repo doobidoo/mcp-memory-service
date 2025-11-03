@@ -1,19 +1,2 @@
 {
-  "mcpServers": {
-    "genie": {
-      "command": "npx",
-      "args": [
-        "automagik-genie@next",
-        "mcp"
-      ]
-    },
-    "forge": {
-      "command": "npx",
-      "args": [
-        "@automagik/forge-mcp",
-        "-t",
-        "stdio"
-      ]
-    }
-  }
 }
