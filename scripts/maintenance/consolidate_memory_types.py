@@ -31,7 +31,9 @@ from datetime import datetime
 import platform
 if platform.system() == "Darwin":  # macOS
     DB_PATH = Path.home() / "Library/Application Support/mcp-memory/sqlite_vec.db"
-else:  # Linux/Windows
+elif platform.system() == "Windows":
+    DB_PATH = Path(os.getenv('LOCALAPPDATA')) / "mcp-memory" / "sqlite_vec.db"
+else:  # Linux and other Unix-like systems
     DB_PATH = Path.home() / ".local/share/mcp-memory/sqlite_vec.db"
 
 # Version
