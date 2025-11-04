@@ -893,6 +893,27 @@ class HybridMemoryStorage(MemoryStorage):
 
         return count_deleted, message
 
+    async def delete_by_all_tags(self, tags: List[str]) -> Tuple[int, str]:
+        """
+        Delete memories matching ALL of the given tags from primary storage and queue for secondary sync.
+        """
+        if not tags:
+            return 0, "No tags provided"
+
+        # First, get all memories with ALL of these tags for sync queue
+        memories_to_delete = await self.primary.search_by_tags(tags, operation="AND")
+
+        # Delete from primary using delete_by_all_tags
+        count_deleted, message = await self.primary.delete_by_all_tags(tags)
+
+        # Queue individual deletes for secondary sync
+        if count_deleted > 0 and self.sync_service:
+            for memory in memories_to_delete:
+                operation = SyncOperation(operation='delete', content_hash=memory.content_hash)
+                await self.sync_service.enqueue_operation(operation)
+
+        return count_deleted, message
+
     async def cleanup_duplicates(self) -> Tuple[int, str]:
         """Clean up duplicates in primary storage."""
         # Only cleanup primary, secondary will sync naturally

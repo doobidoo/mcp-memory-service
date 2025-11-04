@@ -1385,6 +1385,52 @@ SOLUTIONS:
             logger.error(error_msg)
             return 0, error_msg
 
+    async def delete_by_all_tags(self, tags: List[str]) -> Tuple[int, str]:
+        """
+        Delete memories matching ALL of the given tags (AND logic).
+
+        Uses AND conditions to find memories that contain all specified tags.
+        """
+        try:
+            if not self.conn:
+                return 0, "Database not initialized"
+
+            if not tags:
+                return 0, "No tags provided"
+
+            # Build AND condition for all tags
+            # Using LIKE for each tag to match partial tag strings (same as delete_by_tag)
+            conditions = " AND ".join(["tags LIKE ?" for _ in tags])
+            params = [f"%{tag}%" for tag in tags]
+
+            # Get the ids first to delete corresponding embeddings
+            query = f'SELECT id FROM memories WHERE {conditions}'
+            cursor = self.conn.execute(query, params)
+            memory_ids = [row[0] for row in cursor.fetchall()]
+
+            # Delete from embeddings table using single query with IN clause
+            if memory_ids:
+                placeholders = ','.join('?' for _ in memory_ids)
+                self.conn.execute(f'DELETE FROM memory_embeddings WHERE rowid IN ({placeholders})', memory_ids)
+
+            # Delete from memories table
+            delete_query = f'DELETE FROM memories WHERE {conditions}'
+            cursor = self.conn.execute(delete_query, params)
+            self.conn.commit()
+
+            count = cursor.rowcount
+            logger.info(f"Deleted {count} memories matching ALL tags: {tags}")
+
+            if count > 0:
+                return count, f"Successfully deleted {count} memories matching all {len(tags)} tag(s)"
+            else:
+                return 0, f"No memories found matching all of the {len(tags)} tags"
+
+        except Exception as e:
+            error_msg = f"Failed to delete by all tags: {str(e)}"
+            logger.error(error_msg)
+            return 0, error_msg
+
     async def cleanup_duplicates(self) -> Tuple[int, str]:
         """Remove duplicate memories based on content hash."""
         try:
