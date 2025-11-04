@@ -3358,16 +3358,22 @@ class MemoryDashboard {
             return;
         }
 
-        // Simple text-based chart for now (could be enhanced with a charting library)
-        let html = '<div class="simple-chart">';
-        html += '<div class="chart-header">Daily Memory Growth</div>';
+        // Find max count for scaling
+        const recentPoints = data.data_points.slice(-10);
+        const maxCount = Math.max(...recentPoints.map(p => p.count), 1);
 
-        data.data_points.slice(-10).forEach(point => { // Show last 10 days
-            const barWidth = Math.max(point.count * 5, 1); // Scale bars
+        let html = '<div class="simple-chart">';
+
+        recentPoints.forEach(point => {
+            // Normalize bar width relative to max, then convert to pixels (200px scale)
+            const barWidthPx = (point.count / maxCount) * 200;
+            const displayCount = point.count || 0;
+            const displayCumulative = point.cumulative || 0;
+
             html += `<div class="chart-row">
+                <div class="chart-bar" style="width: ${barWidthPx}px"></div>
+                <span class="chart-value">+${displayCount} <small>(${displayCumulative} total)</small></span>
                 <span class="chart-label">${point.date}</span>
-                <div class="chart-bar" style="width: ${barWidth}px"></div>
-                <span class="chart-value">${point.count}</span>
             </div>`;
         });
 
@@ -3403,17 +3409,33 @@ class MemoryDashboard {
             return;
         }
 
-        let html = '<div class="simple-chart">';
-        html += '<div class="chart-header">Tag Usage Distribution</div>';
+        // Filter tags with >10 memories, aggregate the rest
+        const significantTags = data.tags.filter(t => t.count > 10);
+        const minorTags = data.tags.filter(t => t.count <= 10);
 
-        data.tags.slice(0, 10).forEach(tag => { // Top 10 tags
-            const barWidth = Math.max(tag.percentage * 3, 1); // Scale bars
+        let html = '<div class="simple-chart">';
+
+        // Render significant tags
+        significantTags.forEach(tag => {
+            const barWidthPx = (tag.percentage / 100) * 200; // Convert percentage to pixels (200px scale)
             html += `<div class="chart-row">
-                <span class="chart-label">${tag.tag}</span>
-                <div class="chart-bar" style="width: ${barWidth}px"></div>
+                <div class="chart-bar" style="width: ${barWidthPx}px"></div>
                 <span class="chart-value">${tag.count} (${tag.percentage}%)</span>
+                <span class="chart-label">${tag.tag}</span>
             </div>`;
         });
+
+        // Add "diverse" category if there are minor tags
+        if (minorTags.length > 0) {
+            const diverseCount = minorTags.reduce((sum, t) => sum + t.count, 0);
+            const diversePercentage = minorTags.reduce((sum, t) => sum + t.percentage, 0);
+            const barWidthPx = (diversePercentage / 100) * 300;
+            html += `<div class="chart-row">
+                <div class="chart-bar" style="width: ${barWidthPx}px"></div>
+                <span class="chart-value">${diverseCount} (${diversePercentage.toFixed(1)}%)</span>
+                <span class="chart-label" title="${minorTags.length} tags with ≤10 memories each">diverse (${minorTags.length} tags)</span>
+            </div>`;
+        }
 
         html += '</div>';
         container.innerHTML = html;
@@ -3447,17 +3469,34 @@ class MemoryDashboard {
             return;
         }
 
-        let html = '<div class="simple-chart">';
-        html += '<div class="chart-header">Memory Types</div>';
+        // Filter types with >10 memories, aggregate the rest
+        const significantTypes = data.types.filter(t => t.count > 10);
+        const minorTypes = data.types.filter(t => t.count <= 10);
 
-        data.types.forEach(type => {
-            const barWidth = Math.max(type.percentage * 3, 1); // Scale bars
+        let html = '<div class="simple-chart">';
+
+        // Render significant types
+        significantTypes.forEach(type => {
+            const barWidthPx = (type.percentage / 100) * 200; // Convert percentage to pixels (200px scale)
+            const typeName = type.memory_type || 'untyped';
             html += `<div class="chart-row">
-                <span class="chart-label">${type.memory_type || 'untyped'}</span>
-                <div class="chart-bar" style="width: ${barWidth}px"></div>
-                <span class="chart-value">${type.count} (${type.percentage}%)</span>
+                <div class="chart-bar" style="width: ${barWidthPx}px"></div>
+                <span class="chart-value">${type.count} (${type.percentage.toFixed(1)}%)</span>
+                <span class="chart-label" title="${typeName}">${typeName}</span>
             </div>`;
         });
+
+        // Add "diverse" category if there are minor types
+        if (minorTypes.length > 0) {
+            const diverseCount = minorTypes.reduce((sum, t) => sum + t.count, 0);
+            const diversePercentage = minorTypes.reduce((sum, t) => sum + t.percentage, 0);
+            const barWidthPx = (diversePercentage / 100) * 300;
+            html += `<div class="chart-row">
+                <div class="chart-bar" style="width: ${barWidthPx}px"></div>
+                <span class="chart-value">${diverseCount} (${diversePercentage.toFixed(1)}%)</span>
+                <span class="chart-label" title="${minorTypes.length} types with ≤10 memories each">diverse (${minorTypes.length} types)</span>
+            </div>`;
+        }
 
         html += '</div>';
         container.innerHTML = html;

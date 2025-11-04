@@ -3290,6 +3290,8 @@ body.dark-mode .tag-action-btn.danger:hover {
 .simple-chart {
     font-family: var(--font-mono);
     font-size: var(--text-sm);
+    width: 100%;
+    overflow: hidden;
 }
 
 .chart-header {
@@ -3303,25 +3305,57 @@ body.dark-mode .tag-action-btn.danger:hover {
     align-items: center;
     margin-bottom: var(--space-2);
     gap: var(--space-3);
-}
-
-.chart-label {
-    min-width: 80px;
-    color: var(--neutral-700);
+    min-height: 24px;
+    width: 100%;
+    max-width: 100%;
 }
 
 .chart-bar {
-    height: 16px;
+    height: 18px;
     background: var(--primary);
     border-radius: var(--radius-sm);
     transition: width 0.3s ease;
+    min-width: 10px;
+    max-width: 200px;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.chart-label {
+    flex: 1;
+    min-width: 0;
+    color: var(--neutral-700);
+    font-size: var(--text-sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chart-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 100%);
+    border-radius: var(--radius-sm);
 }
 
 .chart-value {
-    min-width: 60px;
+    min-width: 100px;
     text-align: right;
     color: var(--neutral-900);
     font-weight: 500;
+    font-size: 1rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.chart-value small {
+    color: var(--neutral-600);
+    font-weight: 400;
+    font-size: 0.9rem;
 }
 
 .tags-list, .activity-list {
@@ -3344,16 +3378,18 @@ body.dark-mode .tag-action-btn.danger:hover {
 }
 
 /* Dark mode for charts - Fixed v8.5.5 contrast */
-body.dark-mode .chart-header {
-    color: var(--neutral-900) !important;  /* Brightest text for headings */
-}
-
 body.dark-mode .chart-label {
-    color: var(--neutral-700) !important;  /* Lighter text for labels */
+    color: #e5e5e5 !important;  /* Much brighter text for labels */
+    font-weight: 500;  /* Slightly bolder for readability */
 }
 
 body.dark-mode .chart-value {
-    color: var(--neutral-900) !important;  /* Brightest text for values */
+    color: #ffffff !important;  /* Pure white for maximum readability */
+    font-weight: 600;  /* Slightly bolder in dark mode */
+}
+
+body.dark-mode .chart-value small {
+    color: var(--neutral-300) !important;  /* Lighter text for small elements */
 }
 
 body.dark-mode .chart-bar {
