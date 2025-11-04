@@ -131,6 +131,7 @@ CLAUDE_MEMORY.md
 # Claude Code local settings (personal configurations)
 .claude/settings.local.json*
 scripts/.claude/settings.local.json*
+.claude/agents/
 
 # Personal files
 CLAUDE_PERSONALIZED.md
