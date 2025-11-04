@@ -27,8 +27,14 @@ from typing import Dict, Tuple, Optional
 from collections import defaultdict
 from datetime import datetime
 
-# Database path
-DB_PATH = Path.home() / ".local/share/mcp-memory/sqlite_vec.db"
+# Database path (platform-aware)
+import platform
+if platform.system() == "Darwin":  # macOS
+    DB_PATH = Path.home() / "Library/Application Support/mcp-memory/sqlite_vec.db"
+elif platform.system() == "Windows":
+    DB_PATH = Path(os.getenv('LOCALAPPDATA')) / "mcp-memory" / "sqlite_vec.db"
+else:  # Linux and other Unix-like systems
+    DB_PATH = Path.home() / ".local/share/mcp-memory/sqlite_vec.db"
 
 # Version
 VERSION = "1.0.0"
@@ -63,6 +69,10 @@ CONSOLIDATION_MAP: Dict[str, str] = {
     "major_milestone": "milestone",
     "documentation-milestone": "milestone",
     "release-milestone": "milestone",
+    "deployment-milestone": "milestone",
+    "final-milestone": "milestone",
+    "progress-milestone": "milestone",
+    "mission-accomplished": "milestone",
 
     # Completion types -> milestone
     "completion": "milestone",
@@ -128,13 +138,9 @@ CONSOLIDATION_MAP: Dict[str, str] = {
     "technical-summary": "note",
     "technical-todo": "note",
 
-    # Project prefix removal - documentation
+    # Project prefix removal
     "project-documentation": "documentation",
-
-    # Project prefix removal - status
     "project-status": "status",
-
-    # Project prefix removal - other
     "project-summary": "note",
     "project-update": "status",
     "project-management": "process",
@@ -148,109 +154,79 @@ CONSOLIDATION_MAP: Dict[str, str] = {
     "project-overview": "note",
     "project-policy": "process",
     "project-requirement": "note",
-    "project-resolution": "solution",
-    "project-structure": "architecture",
-    "project-work": "note",
+    "project-planning": "process",
+    "project-plan": "process",
+    "project-roadmap": "process",
+    "project-strategy": "process",
+    "project-task": "note",
+    "project-timeline": "process",
+    "project-tracker": "status",
+    "project-workflow": "process",
+    "project-issue": "troubleshooting",
+    "project-problem": "troubleshooting",
+    "project-challenge": "troubleshooting",
+    "project-risk": "note",
+    "project-solution": "solution",
+    "project-result": "milestone",
+    "project-success": "achievement",
+    "project-failure": "note",
+    "project-learning": "reference",
+    "project-lesson": "reference",
+    "project-feedback": "note",
+    "project-review": "analysis",
+    "project-assessment": "analysis",
+    "project-evaluation": "analysis",
+    "project-analysis": "analysis",
+    "project-report": "analysis",
+    "project-metrics": "analysis",
+    "project-performance": "analysis",
+    "project-impact": "analysis",
+    "project-outcome-analysis": "analysis",
+    "project-benefit": "achievement",
+    "project-achievement": "achievement",
 
-    # Documentation variants -> documentation
-    "documentation-update": "documentation",
-    "issue-documentation": "documentation",
-    "process-documentation": "documentation",
-    "deployment-documentation": "documentation",
-    "release-documentation": "documentation",
-    "solution-documentation": "documentation",
-    "tool-documentation": "documentation",
-    "incident-documentation": "documentation",
-    "documentation-proposal": "documentation",
-    "documentation-reference": "documentation",
-
-    # Troubleshooting variants
-    "troubleshooting-guide": "guide",
-    "troubleshooting-resolution": "troubleshooting",
-    "troubleshooting-status": "troubleshooting",
-
-    # Implementation variants -> implementation
-    "implementation-plan": "implementation",
-    "implementation-complete": "implementation",
-    "implementation-summary": "implementation",
-    "implementation-guide": "guide",
-    "implementation-insight": "implementation",
-    "implementation-notes": "implementation",
-    "implementation-progress": "implementation",
-    "implementation-strategy": "implementation",
-    "implementation-success": "implementation",
-    "implementation-update": "implementation",
-    "feature-implementation": "implementation",
-
-    # Status variants -> status
-    "status-update": "status",
-    "pr-status": "status",
-    "deployment-status": "status",
-    "status-report": "status",
-    "process-status": "status",
-    "server-status": "status",
-    "status-analysis": "status",
-    "status-checkpoint": "status",
-
-    # Release variants -> release
-    "release-notes": "release",
-    "release-documentation": "release",
-    "release-note": "release",
-    "release-process": "release",
-
-    # Fix/Bug variants -> fix
-    "bug-fix": "fix",
-    "bugfix": "fix",
-    "bug-report": "fix",
-    "bug-analysis": "fix",
-    "incident-resolution": "fix",
-
-    # Deployment variants -> deployment
-    "deployment-record": "deployment",
-    "deployment-summary": "deployment",
-    "deployment-success": "deployment",
-    "deployment-history": "deployment",
-    "deployment-notes": "deployment",
-    "deployment-pending": "deployment",
-    "deployment-ready": "deployment",
-    "deployment-verification": "deployment",
-
-    # Configuration variants -> configuration
+    # System and configuration
     "system-config": "configuration",
     "system-setup": "configuration",
     "server-config": "configuration",
+    "server-configuration": "configuration",
+    "system-configuration": "configuration",
+    "infrastructure_setup": "configuration",
     "setup": "configuration",
     "setup-guide": "guide",
     "setup-memo": "configuration",
     "configuration-guide": "guide",
+    "user-preference": "configuration",
 
-    # Infrastructure variants
+    # Infrastructure
     "infrastructure-change": "infrastructure",
     "infrastructure-analysis": "infrastructure",
     "infrastructure-report": "infrastructure",
 
-    # Process variants -> process
+    # Process and workflow
     "workflow": "process",
     "procedure": "process",
     "workflow-guide": "guide",
     "process-guide": "guide",
     "process-improvement": "process",
-    "process-documentation": "documentation",
+    "action-plan": "process",
+    "detailed-process": "process",
+    "development-plan": "process",
+    "comprehensive-plan": "process",
+    "cleanup": "process",
+    "maintenance": "process",
 
-    # Guide consolidations
+    # Installation and features
     "installation-guide": "guide",
-
-    # Feature variants -> feature
     "feature-specification": "feature",
+    "feature-summary": "feature",
 
-    # Miscellaneous consolidations
+    # General mappings
     "summary": "note",
     "memo": "note",
     "reminder": "note",
     "clarification": "note",
     "checkpoint": "note",
-    "session-checkpoint": "session",
-    "status-checkpoint": "status",
     "finding": "analysis",
     "report": "analysis",
     "analysis-summary": "analysis",
@@ -266,58 +242,138 @@ CONSOLIDATION_MAP: Dict[str, str] = {
     "user-feedback": "note",
     "user-identity": "note",
     "user-account": "configuration",
-    "incident": "troubleshooting",
-    "known-issue": "troubleshooting",
-    "issue": "troubleshooting",
-    "issue-resolution": "solution",
-    "issue-tracking": "status",
-    "issue-documentation": "documentation",
-    "operational-alert": "status",
-    "plan": "note",
-    "planning": "note",
-    "strategy": "architecture",
-    "decision": "architecture",
-    "template": "document",
-    "pattern": "architecture",
-    "code": "document",
-    "code-snippet": "document",
-    "code-review-summary": "note",
-    "code-review-response": "note",
-    "code-review-resolution": "solution",
-    "commands": "reference",
-    "content": "note",
-    "context-rules": "process",
-    "skill-enhancement": "note",
-    "knowledge": "reference",
-    "access-info": "reference",
-    "cost-management": "analysis",
-    "financial": "analysis",
-    "procurement-request": "note",
-    "action-items": "note",
-    "action": "note",
-    "task-list": "note",
-    "metrics": "analysis",
-    "resolution": "solution",
-    "installation-record": "configuration",
-    "installation-log": "configuration",
-    "maintenance-log": "infrastructure",
-    "communication": "note",
-    "accomplishment": "achievement",
-    "pr-context": "reference",
-    "system_reminder": "note",
+
+    # Extended mappings from database analysis
     "marketing": "note",
     "support": "note",
     "integration": "implementation",
+    "strategy-integration": "implementation",
     "methodology": "process",
     "guideline": "guide",
     "critical-lesson": "reference",
     "security-reminder": "security",
     "security-recovery": "security",
     "security-resolution": "security",
+    "security-update": "security",
     "workflow-rule": "process",
     "professional_story": "note",
-}
 
+    # Additional types found in database
+    "applescript-template": "document",
+    "project": "note",
+    "test-document": "test",
+    "documentation-summary": "documentation",
+    "documentation-final": "documentation",
+    "fact": "note",
+    "development-summary": "note",
+    "lesson-learned": "reference",
+    "reference-guide": "guide",
+    "task": "note",
+    "update": "status",
+
+    # German terms (found in database)
+    "Bankzahlung": "note",
+    "Betrugsschema": "note",
+    "Finanzbeweis": "note",
+    "Strafanzeige": "note",
+
+    # Analysis and investigation types
+    "analysis-finding": "analysis",
+    "analysis-start": "analysis",
+    "comprehensive-analysis": "analysis",
+    "final-analysis": "analysis",
+    "investigation": "analysis",
+    "issue-identification": "analysis",
+    "issue_investigation": "analysis",
+    "temporal-analysis": "analysis",
+    "testing-insights": "analysis",
+
+    # Architecture types
+    "architecture-decision": "architecture",
+    "architecture-visualization": "architecture",
+    "concept-design": "architecture",
+    "design-decision": "architecture",
+    "tool-decision": "architecture",
+
+    # Status and reporting
+    "backup-record": "status",
+    "maintenance-report": "status",
+    "maintenance-summary": "status",
+    "progress": "status",
+    "progress-tracking": "status",
+    "system-health-report": "status",
+    "system-report": "status",
+
+    # Reference types
+    "best-practice": "reference",
+    "learning": "reference",
+    "lesson": "reference",
+    "network-info": "reference",
+    "principle": "reference",
+
+    # Fix types
+    "bug": "fix",
+    "critical-fix": "fix",
+
+    # Troubleshooting types
+    "configuration-issue": "troubleshooting",
+    "critical-issue": "troubleshooting",
+    "debugging": "troubleshooting",
+    "error": "troubleshooting",
+    "problem-escalation": "troubleshooting",
+
+    # Solution types
+    "final-resolution": "solution",
+    "solution-complete": "solution",
+    "solution-design": "solution",
+    "solution-implemented": "solution",
+
+    # Test types
+    "compatibility-test": "test",
+    "debug-test": "test",
+    "functionality-test": "test",
+    "healthcheck_test": "test",
+    "post-fix-test": "test",
+    "post-restart-test": "test",
+    "string-format-test": "test",
+    "system_test": "test",
+    "test-case": "test",
+    "test-result": "test",
+    "testing": "test",
+    "validation": "test",
+    "validation-results": "test",
+    "verification-test": "test",
+
+    # Guide types
+    "comprehensive-guide": "guide",
+    "tutorial_resource": "guide",
+
+    # Document types
+    "comprehensive_collection": "document",
+    "strategy-document": "document",
+
+    # Achievement types
+    "success": "achievement",
+    "work-achievement": "achievement",
+
+    # Note types (various)
+    "concept": "note",
+    "contribution": "note",
+    "critical-discovery": "note",
+    "design-note": "note",
+    "discovery": "note",
+    "important-note": "note",
+    "imported": "note",
+    "network-limitation": "note",
+    "reflection": "note",
+    "server-behavior": "note",
+    "system": "note",
+    "tool": "note",
+    "user-input": "note",
+    "user-question": "note",
+    "user-request": "note",
+    "issue_creation": "note",
+}
 
 def check_http_server_running() -> bool:
     """Check if HTTP server is running (Linux only)."""

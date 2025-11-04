@@ -132,6 +132,9 @@ CLAUDE_MEMORY.md
 .claude/settings.local.json*
 scripts/.claude/settings.local.json*
 
+# Amp CLI Bridge (entire directory - user-specific working space)
+.claude/amp/
+
 # Personal files
 CLAUDE_PERSONALIZED.md
 CLAUDE.local.md
@@ -152,3 +155,11 @@ package-lock.json
 .npm
 .mcp.json.disabled
 data/
+
+# GitHub wiki clone (managed separately)
+.wiki/
+
+# Keep directory structure but ignore content
+!.claude/amp/prompts/pending/.gitkeep
+!.claude/amp/responses/ready/.gitkeep
+!.claude/amp/responses/consumed/.gitkeep

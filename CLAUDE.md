@@ -81,6 +81,9 @@ node ~/.claude/hooks/test-natural-triggers.js          # Test trigger system
 # Note: Context-provider commands are integrated into MCP client automatically
 # No manual commands needed - contexts activate automatically during sessions
 
+# Amp CLI Bridge (Semi-Automated File-Based Workflow)
+# Usage: Claude Code creates prompt → Shows you command → You run: amp @{prompt-file} → Response appears
+
 # Debug & Troubleshooting
 npx @modelcontextprotocol/inspector uv run memory server # MCP Inspector
 python scripts/database/simple_timestamp_check.py       # Database health check
@@ -894,6 +897,192 @@ node C:\Users\username\.claude\hooks\core\session-start.js
 - Windows: Fatal hang ❌
 
 **Impact**: Critical for Windows users. SessionStart hooks are completely unusable until Claude Code fixes subprocess management on Windows.
+
+---
+
+## Amp CLI Bridge (Semi-Automated Workflow) 🆕
+
+**Purpose**: Leverage Amp CLI capabilities (research, code analysis, web search) from Claude Code without consuming Claude Code credits, using a semi-automated file-based workflow where you manually run Amp commands.
+
+### Architecture
+
+```
+Claude Code (@agent-amp-bridge) → .claude/amp/prompts/pending/{uuid}.json
+                                            ↓
+                          You run: amp @prompts/pending/{uuid}.json
+                                            ↓
+                          Amp writes: responses/ready/{uuid}.json
+                                            ↓
+                   Claude Code reads response ← Workflow continues
+```
+
+### Quick Start
+
+**1. Claude Code creates prompt**:
+```
+You: "Use @agent-amp-bridge to research TypeScript 5.0 features"
+Claude: [Creates prompt file and shows command]
+```
+
+**2. Run the command shown**:
+```bash
+amp @.claude/amp/prompts/pending/research-xyz.json
+```
+
+**3. Amp processes and writes response**:
+- Amp reads the prompt from the file
+- Processes using your authenticated free-tier session
+- Writes response to `.claude/amp/responses/ready/research-xyz.json`
+
+**4. Claude Code continues automatically**:
+- Detects response file
+- Reads and presents results
+- Archives processed files
+
+### How It Works
+
+1. **Claude Code Agent** (`@agent-amp-bridge`):
+   - Generates UUID for each request
+   - Writes prompt to `.claude/amp/prompts/pending/{uuid}.json`
+   - **Includes file-write instructions** in the prompt
+   - Polls `.claude/amp/responses/ready/{uuid}.json` for response
+   - Presents results when available
+
+2. **You (Manual Step)**:
+   - Run: `./scripts/amp/next-prompt.sh` to see command
+   - Execute: `amp @.claude/amp/prompts/pending/{uuid}.json`
+   - Amp reads prompt and writes response file
+
+3. **Amp Processing**:
+   - Reads prompt from JSON file using `@` file reference
+   - Processes using your authenticated session (free tier credits)
+   - Follows embedded instructions to write response JSON
+   - Writes to `.claude/amp/responses/ready/{uuid}.json`
+
+4. **File Structure**:
+   ```
+   .claude/amp/
+   ├── prompts/
+   │   └── pending/        # Prompts waiting for you to process
+   ├── responses/
+   │   ├── ready/          # Responses written by Amp
+   │   └── consumed/       # Archive of processed responses
+   └── README.md           # Documentation
+   ```
+
+### Message Format
+
+**Prompt** (`.claude/amp/prompts/pending/{uuid}.json`):
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "timestamp": "2025-11-04T20:00:00.000Z",
+  "prompt": "Research async/await best practices in Python",
+  "context": {
+    "project": "mcp-memory-service",
+    "cwd": "/path/to/project"
+  },
+  "options": {
+    "timeout": 300000,
+    "format": "markdown"
+  }
+}
+```
+
+**Response** (`.claude/amp/responses/ready/{uuid}.json`):
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "timestamp": "2025-11-04T20:05:00.000Z",
+  "success": true,
+  "output": "## Async/Await Best Practices\n\n...",
+  "error": null,
+  "duration": 300000
+}
+```
+
+### Configuration
+
+**File**: `.claude/amp/config.json`
+
+```json
+{
+  "pollInterval": 1000,      // Check for new prompts every 1s
+  "timeout": 300000,          // 5 minute timeout per prompt
+  "debug": false,             // Enable debug logging
+  "ampCommand": "amp"         // Amp CLI command
+}
+```
+
+### Use Cases
+
+✅ **Web Research**: "Research latest React 18 features"
+✅ **Code Analysis**: "Analyze our storage backend architecture"
+✅ **Documentation**: "Generate API docs for MCP tools"
+✅ **Code Generation**: "Create TypeScript type definitions"
+✅ **Best Practices**: "Find OAuth 2.1 security recommendations"
+
+### Manual Inspection (Optional)
+
+**List pending prompts:**
+```bash
+ls -lt .claude/amp/prompts/pending/
+```
+
+**View prompt content:**
+```bash
+cat .claude/amp/prompts/pending/{uuid}.json | jq -r '.prompt'
+```
+
+**Note**: The agent automatically shows you the exact command when creating each prompt.
+
+### Troubleshooting
+
+**Amp CLI credit errors:**
+```bash
+# Test if Amp is authenticated
+amp
+
+# If credits exhausted:
+# - Free tier limits may be daily/monthly
+# - Check status: https://ampcode.com/settings
+# - Wait for refresh or upgrade subscription
+```
+
+**Response not appearing:**
+```bash
+# Verify Amp wrote the file
+ls -lt .claude/amp/responses/ready/
+
+# Check if Amp followed file-write instructions
+# The prompt explicitly tells Amp where to write
+```
+
+**Permission issues:**
+```bash
+# Ensure directories exist
+ls -la .claude/amp/
+
+# Check write permissions
+touch .claude/amp/responses/ready/test.json && rm .claude/amp/responses/ready/test.json
+```
+
+### Benefits
+
+- ✅ **Zero Claude Code Credits**: All Amp API calls use your separate authenticated session
+- ✅ **Uses Free Tier**: Works with Amp's free tier (when credits available)
+- ✅ **Simple Workflow**: No background processes, just manual command execution
+- ✅ **Full Control**: You decide when/what to process
+- ✅ **Fault Tolerant**: File-based queue survives crashes
+- ✅ **Audit Trail**: All prompts/responses saved for debugging
+- ✅ **Reusable**: Can replay prompts or review past responses
+
+### Limitations
+
+- 🖐️ **Manual Step Required**: You must run the `amp @` command for each prompt
+- 💰 **Amp Credits**: Still consumes Amp API credits (free tier limits apply)
+- ⏱️ **Semi-Async**: Claude Code waits for you to process the prompt
+- 📝 **Best for Research**: Optimized for async research tasks, not real-time chat
 
 ---
 
