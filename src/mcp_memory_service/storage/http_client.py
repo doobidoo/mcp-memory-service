@@ -270,7 +270,12 @@ class HTTPClientStorage(MemoryStorage):
         """Delete memories by tag (not implemented via HTTP - would be dangerous)."""
         logger.warning("Bulk delete by tag not supported via HTTP client for safety")
         return 0, "Bulk delete by tag not supported via HTTP client for safety reasons"
-    
+
+    async def delete_by_all_tags(self, tags: List[str]) -> Tuple[int, str]:
+        """Delete memories by all tags (not implemented via HTTP - would be dangerous)."""
+        logger.warning("Bulk delete by all tags not supported via HTTP client for safety")
+        return 0, "Bulk delete by all tags not supported via HTTP client for safety reasons"
+
     async def cleanup_duplicates(self) -> Tuple[int, str]:
         """Cleanup duplicates (not implemented via HTTP - server-side operation)."""
         logger.warning("Cleanup duplicates not supported via HTTP client")

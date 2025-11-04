@@ -191,6 +191,19 @@ class MemoryStorage(ABC):
         return total_count, f"Deleted {total_count} memories across {len(tags)} tag(s)"
 
     @abstractmethod
+    async def delete_by_all_tags(self, tags: List[str]) -> Tuple[int, str]:
+        """
+        Delete memories matching ALL of the given tags (AND logic).
+
+        Args:
+            tags: List of tags - only memories containing ALL tags will be deleted
+
+        Returns:
+            Tuple of (count_deleted, message)
+        """
+        pass
+
+    @abstractmethod
     async def cleanup_duplicates(self) -> Tuple[int, str]:
         """Remove duplicate memories. Returns (count_removed, message)."""
         pass

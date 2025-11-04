@@ -14,21 +14,22 @@ import pytest
 # Add the path to the MCP Memory Service
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
-from mcp_memory_service.storage.chroma import ChromaMemoryStorage
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.models.memory import Memory
-from mcp_memory_service.config import CHROMA_PATH
+from mcp_memory_service.config import SQLITE_VEC_PATH
 import time
 
 @pytest.mark.asyncio
 async def test_enhanced_delete_by_tag():
     """Test the enhanced delete_by_tag functionality."""
-    
+
     print("=== Testing Enhanced Delete By Tag Functionality ===\n")
-    
+
     try:
         # Initialize storage
-        print("1. Initializing ChromaMemoryStorage...")
-        storage = ChromaMemoryStorage(CHROMA_PATH)
+        print("1. Initializing SqliteVecMemoryStorage...")
+        storage = SqliteVecMemoryStorage(db_path=SQLITE_VEC_PATH)
+        await storage.initialize()
         
         # Test data
         test_memories = [

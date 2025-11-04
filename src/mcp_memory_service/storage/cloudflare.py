@@ -735,7 +735,44 @@ class CloudflareStorage(MemoryStorage):
         except Exception as e:
             logger.error(f"Failed to delete by tag {tag}: {e}")
             return 0, f"Deletion failed: {str(e)}"
-    
+
+    async def delete_by_all_tags(self, tags: List[str]) -> Tuple[int, str]:
+        """
+        Delete memories matching ALL of the given tags (AND logic).
+
+        Searches for candidate memories, then filters to those containing all required tags.
+        """
+        try:
+            if not tags:
+                return 0, "No tags provided"
+
+            # Find candidate memories (those with at least one matching tag)
+            memories = await self.search_by_tag(tags)
+
+            # Filter to only memories that have ALL required tags
+            tags_set = set(tags)
+            filtered_memories = [
+                memory for memory in memories
+                if tags_set.issubset(set(memory.tags))
+            ]
+
+            deleted_count = 0
+            for memory in filtered_memories:
+                success, _ = await self.delete(memory.content_hash)
+                if success:
+                    deleted_count += 1
+
+            logger.info(f"Deleted {deleted_count} memories with ALL tags: {tags}")
+
+            if deleted_count > 0:
+                return deleted_count, f"Successfully deleted {deleted_count} memories matching all {len(tags)} tag(s)"
+            else:
+                return 0, f"No memories found matching all of the {len(tags)} tags"
+
+        except Exception as e:
+            logger.error(f"Failed to delete by all tags {tags}: {e}")
+            return 0, f"Deletion failed: {str(e)}"
+
     async def cleanup_duplicates(self) -> Tuple[int, str]:
         """Remove duplicate memories based on content hash."""
         try:
