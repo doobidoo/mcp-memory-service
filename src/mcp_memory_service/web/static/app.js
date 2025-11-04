@@ -3429,7 +3429,7 @@ class MemoryDashboard {
         if (minorTags.length > 0) {
             const diverseCount = minorTags.reduce((sum, t) => sum + t.count, 0);
             const diversePercentage = minorTags.reduce((sum, t) => sum + t.percentage, 0);
-            const barWidthPx = (diversePercentage / 100) * 300;
+            const barWidthPx = (diversePercentage / 100) * 200;
             html += `<div class="chart-row">
                 <div class="chart-bar" style="width: ${barWidthPx}px"></div>
                 <span class="chart-value">${diverseCount} (${diversePercentage.toFixed(1)}%)</span>
@@ -3490,7 +3490,7 @@ class MemoryDashboard {
         if (minorTypes.length > 0) {
             const diverseCount = minorTypes.reduce((sum, t) => sum + t.count, 0);
             const diversePercentage = minorTypes.reduce((sum, t) => sum + t.percentage, 0);
-            const barWidthPx = (diversePercentage / 100) * 300;
+            const barWidthPx = (diversePercentage / 100) * 200;
             html += `<div class="chart-row">
                 <div class="chart-bar" style="width: ${barWidthPx}px"></div>
                 <span class="chart-value">${diverseCount} (${diversePercentage.toFixed(1)}%)</span>
