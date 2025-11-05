@@ -136,9 +136,10 @@ I've documented the full evaluation process with:
 - Detailed analysis of why improvements were minimal
 
 **PoC Results**:
-- [Library TOON Evaluation](https://github.com/doobidoo/mcp-memory-service/blob/feature/toon-format-poc/docs/poc/toon-format-results.md)
-- [Manual Tabular Implementation](https://github.com/doobidoo/mcp-memory-service/blob/feature/toon-manual-tabular/docs/poc/toon-manual-tabular-results.md)
-- [Manual Implementation Code](https://github.com/doobidoo/mcp-memory-service/blob/feature/toon-manual-tabular/.claude/hooks/utilities/toon-formatter.js#L360-L444)
+- [Library TOON Evaluation](https://github.com/doobidoo/mcp-memory-service/blob/feature/toon-format-poc/docs/poc/toon-format-results.md) - Complete analysis of `@toon-format/toon` library performance
+- [Manual Tabular Implementation Results](https://github.com/doobidoo/mcp-memory-service/blob/feature/toon-manual-tabular/docs/poc/toon-manual-tabular-results.md) - Spec-compliant implementation analysis
+- [Manual Implementation Code](https://github.com/doobidoo/mcp-memory-service/blob/feature/toon-manual-tabular/docs/poc/manual-toon-implementation.js) - Reference implementation with CSV escaping, compact dates, and helper functions
+- [Test Scripts](https://github.com/doobidoo/mcp-memory-service/tree/feature/toon-manual-tabular/scripts/testing) - `test-toon-formatter.js` and `compare-formats.js` with measurements
 
 ## Constructive Feedback
 
