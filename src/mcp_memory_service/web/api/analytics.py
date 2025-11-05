@@ -527,7 +527,6 @@ async def get_activity_heatmap(
         timestamps = await storage.get_memory_timestamps(days=days)
 
         # Group by date
-        from collections import defaultdict
         date_counts = defaultdict(int)
 
         end_date = datetime.now(timezone.utc).date()
@@ -825,6 +824,9 @@ async def get_storage_stats(
             average_memory_size = total_content_length / len(recent_memories)
         else:
             average_memory_size = 0
+
+        # Get total memory count
+        total_memories = await storage.count_all_memories()
 
         # Get largest memories using efficient database query
         largest_memories_objs = await storage.get_largest_memories(n=10)

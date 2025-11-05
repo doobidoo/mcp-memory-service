@@ -27,7 +27,7 @@ import sys
 import platform
 from collections import Counter
 from typing import List, Dict, Any, Tuple, Optional, Set, Callable
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import asyncio
 import random
 
@@ -1978,7 +1978,6 @@ SOLUTIONS:
             await self.initialize()
 
             if days is not None:
-                from datetime import datetime, timezone, timedelta
                 cutoff = datetime.now(timezone.utc) - timedelta(days=days)
                 cutoff_timestamp = cutoff.timestamp()
 

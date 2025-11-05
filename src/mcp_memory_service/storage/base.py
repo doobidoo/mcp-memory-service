@@ -20,7 +20,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 import asyncio
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any, Tuple
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from ..models.memory import Memory, MemoryQueryResult
 
 class MemoryStorage(ABC):
@@ -333,7 +333,6 @@ class MemoryStorage(ABC):
 
         # Filter by days if specified
         if days is not None:
-            from datetime import datetime, timezone, timedelta
             cutoff = datetime.now(timezone.utc) - timedelta(days=days)
             cutoff_timestamp = cutoff.timestamp()
             timestamps = [ts for ts in timestamps if ts >= cutoff_timestamp]

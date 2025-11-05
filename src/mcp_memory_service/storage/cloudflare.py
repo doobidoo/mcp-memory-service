@@ -23,7 +23,7 @@ import hashlib
 import asyncio
 import time
 from typing import List, Dict, Any, Tuple, Optional
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import httpx
 
 from .base import MemoryStorage
@@ -1003,7 +1003,6 @@ class CloudflareStorage(MemoryStorage):
         """
         try:
             if days is not None:
-                from datetime import datetime, timezone, timedelta
                 cutoff = datetime.now(timezone.utc) - timedelta(days=days)
                 cutoff_timestamp = cutoff.timestamp()
 
