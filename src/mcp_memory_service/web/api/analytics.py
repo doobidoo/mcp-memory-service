@@ -158,12 +158,29 @@ class ActivityReport(BaseModel):
     longest_streak: int
 
 
+class LargestMemory(BaseModel):
+    """A single large memory entry."""
+    content_hash: str
+    size_bytes: int
+    size_kb: float
+    created_at: Optional[str] = None
+    tags: List[str] = []
+    preview: str  # First 100 chars
+
+
+class GrowthTrendPoint(BaseModel):
+    """Storage growth at a point in time."""
+    date: str  # ISO format YYYY-MM-DD
+    total_size_mb: float
+    memory_count: int
+
+
 class StorageStats(BaseModel):
     """Storage statistics and largest memories."""
     total_size_mb: float
     average_memory_size: float
-    largest_memories: List[Dict[str, Any]]
-    growth_trend: List[Dict[str, Any]]  # Size over time
+    largest_memories: List[LargestMemory]
+    growth_trend: List[GrowthTrendPoint]
     storage_efficiency: float  # Percentage of efficient storage
 
 
@@ -506,10 +523,8 @@ async def get_activity_heatmap(
     Returns daily activity counts for the specified period, with activity levels for color coding.
     """
     try:
-        # TODO: Performance optimization - Add dedicated storage method to fetch only timestamps
-        # Currently fetching 5000 full memory objects just to process creation timestamps.
-        # Suggested: storage.get_memory_timestamps(days=days) would be much more efficient.
-        recent_memories = await storage.get_recent_memories(n=5000)  # Get larger sample
+        # Use optimized timestamp-only fetching (v8.18.0+)
+        timestamps = await storage.get_memory_timestamps(days=days)
 
         # Group by date
         from collections import defaultdict
@@ -518,11 +533,10 @@ async def get_activity_heatmap(
         end_date = datetime.now(timezone.utc).date()
         start_date = end_date - timedelta(days=days)
 
-        for memory in recent_memories:
-            if memory.created_at:
-                mem_date = datetime.fromtimestamp(memory.created_at, tz=timezone.utc).date()
-                if start_date <= mem_date <= end_date:
-                    date_counts[mem_date] += 1
+        for timestamp in timestamps:
+            mem_date = datetime.fromtimestamp(timestamp, tz=timezone.utc).date()
+            if start_date <= mem_date <= end_date:
+                date_counts[mem_date] += 1
 
         # Create heatmap data
         heatmap_data = []
@@ -665,10 +679,9 @@ async def get_activity_breakdown(
     Returns activity statistics by time period, peak times, and streak information.
     """
     try:
-        # TODO: Performance optimization - Add dedicated storage method to fetch only timestamps
-        # Currently fetching 2000 full memory objects just to process creation timestamps.
-        # Suggested: storage.get_memory_timestamps_for_period() would be much more efficient.
-        recent_memories = await storage.get_recent_memories(n=2000)
+        # Use optimized timestamp-only fetching (v8.18.0+)
+        # Get last 90 days of timestamps (adequate for all granularity levels)
+        timestamps = await storage.get_memory_timestamps(days=90)
 
         # Group by granularity
         breakdown = []
@@ -677,12 +690,11 @@ async def get_activity_breakdown(
 
         if granularity == "hourly":
             hour_counts = defaultdict(int)
-            for memory in recent_memories:
-                if memory.created_at:
-                    dt = datetime.fromtimestamp(memory.created_at, tz=timezone.utc)
-                    hour_counts[dt.hour] += 1
-                    active_days.add(dt.date())
-                    activity_dates.append(dt.date())
+            for timestamp in timestamps:
+                dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                hour_counts[dt.hour] += 1
+                active_days.add(dt.date())
+                activity_dates.append(dt.date())
 
             for hour in range(24):
                 count = hour_counts.get(hour, 0)
@@ -697,12 +709,11 @@ async def get_activity_breakdown(
             day_counts = defaultdict(int)
             day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
-            for memory in recent_memories:
-                if memory.created_at:
-                    dt = datetime.fromtimestamp(memory.created_at, tz=timezone.utc)
-                    day_counts[dt.weekday()] += 1
-                    active_days.add(dt.date())
-                    activity_dates.append(dt.date())
+            for timestamp in timestamps:
+                dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                day_counts[dt.weekday()] += 1
+                active_days.add(dt.date())
+                activity_dates.append(dt.date())
 
             for i, day_name in enumerate(day_names):
                 count = day_counts.get(i, 0)
@@ -714,24 +725,27 @@ async def get_activity_breakdown(
 
         else:  # weekly
             week_counts = defaultdict(int)
-            for memory in recent_memories:
-                if memory.created_at:
-                    dt = datetime.fromtimestamp(memory.created_at, tz=timezone.utc)
-                    # Get ISO week number
-                    week_num = dt.isocalendar()[1]
-                    week_counts[week_num] += 1
-                    active_days.add(dt.date())
-                    activity_dates.append(dt.date())
+            for timestamp in timestamps:
+                dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                # Get ISO week number with year
+                year, week_num, _ = dt.isocalendar()
+                week_key = f"{year}-W{week_num:02d}"
+                week_counts[week_key] += 1
+                active_days.add(dt.date())
+                activity_dates.append(dt.date())
 
             # Last 12 weeks
-            current_week = datetime.now(timezone.utc).isocalendar()[1]
+            now = datetime.now(timezone.utc)
             for i in range(12):
-                week_num = (current_week - 11 + i) % 53
-                count = week_counts.get(week_num, 0)
+                # Calculate target date
+                target_date = now - timedelta(weeks=(11 - i))
+                year, week_num, _ = target_date.isocalendar()
+                week_key = f"{year}-W{week_num:02d}"
+                count = week_counts.get(week_key, 0)
                 breakdown.append(ActivityBreakdown(
                     period="weekly",
                     count=count,
-                    label=f"Week {week_num}"
+                    label=f"Week {week_num} ({year})"
                 ))
 
         # Calculate streaks
@@ -816,18 +830,25 @@ async def get_storage_stats(
         largest_memories_objs = await storage.get_largest_memories(n=10)
         largest_memories = []
         for memory in largest_memories_objs:
-            largest_memories.append({
-                "hash": memory.content_hash,
-                "size": len(memory.content or ""),
-                "created_at": memory.created_at,
-                "tags": memory.tags or [],
-                "content_preview": (memory.content or "")[:100] + "..." if len(memory.content or "") > 100 else memory.content or ""
-            })
+            size_bytes = len(memory.content or "")
+            content = memory.content or ""
+            largest_memories.append(LargestMemory(
+                content_hash=memory.content_hash,
+                size_bytes=size_bytes,
+                size_kb=round(size_bytes / 1024, 2),
+                created_at=datetime.fromtimestamp(memory.created_at, tz=timezone.utc).isoformat() if memory.created_at else None,
+                tags=memory.tags or [],
+                preview=content[:100] + "..." if len(content) > 100 else content
+            ))
 
         # Placeholder growth trend (would need historical data)
+        now = datetime.now(timezone.utc)
         growth_trend = [
-            {"date": (datetime.now(timezone.utc) - timedelta(days=i)).date().isoformat(),
-             "size_mb": total_size_mb * (0.9 + i * 0.01)}  # Simulated growth
+            GrowthTrendPoint(
+                date=(now - timedelta(days=i)).date().isoformat(),
+                total_size_mb=round(total_size_mb * (0.9 + i * 0.01), 2),
+                memory_count=int(total_memories * (0.9 + i * 0.01))
+            )
             for i in range(30, 0, -1)
         ]
 

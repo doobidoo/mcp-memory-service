@@ -307,7 +307,35 @@ class MemoryStorage(ABC):
     async def get_memory_connections(self) -> Dict[str, int]:
         """Get memory connection statistics. Override for specific implementations."""
         return {}
-    
+
     async def get_access_patterns(self) -> Dict[str, datetime]:
         """Get memory access pattern statistics. Override for specific implementations."""
         return {}
+
+    async def get_memory_timestamps(self, days: Optional[int] = None) -> List[float]:
+        """
+        Get memory creation timestamps only, without loading full memory objects.
+
+        This is an optimized method for analytics that only needs timestamps,
+        avoiding the overhead of loading full memory content and embeddings.
+
+        Args:
+            days: Optional filter to only get memories from last N days
+
+        Returns:
+            List of Unix timestamps (float) in descending order (newest first)
+        """
+        # Default implementation falls back to get_recent_memories
+        # Concrete backends should override with optimized SQL queries
+        n = 5000 if days is None else days * 100  # Rough estimate
+        memories = await self.get_recent_memories(n=n)
+        timestamps = [m.created_at for m in memories if m.created_at]
+
+        # Filter by days if specified
+        if days is not None:
+            from datetime import datetime, timezone, timedelta
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+            cutoff_timestamp = cutoff.timestamp()
+            timestamps = [ts for ts in timestamps if ts >= cutoff_timestamp]
+
+        return sorted(timestamps, reverse=True)

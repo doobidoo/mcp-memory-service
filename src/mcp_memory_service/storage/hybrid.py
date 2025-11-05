@@ -948,6 +948,20 @@ class HybridMemoryStorage(MemoryStorage):
         """Get largest memories by content length from primary storage."""
         return await self.primary.get_largest_memories(n)
 
+    async def get_memory_timestamps(self, days: Optional[int] = None) -> List[float]:
+        """
+        Get memory creation timestamps only, without loading full memory objects.
+
+        Delegates to primary storage (SQLite-vec) for optimal performance.
+
+        Args:
+            days: Optional filter to only get memories from last N days
+
+        Returns:
+            List of Unix timestamps (float) in descending order (newest first)
+        """
+        return await self.primary.get_memory_timestamps(days)
+
     async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None) -> List[MemoryQueryResult]:
         """
         Retrieve memories with combined time filtering and optional semantic search.
