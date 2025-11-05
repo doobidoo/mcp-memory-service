@@ -690,7 +690,11 @@ class MemoryServer:
                 storage_type = self.storage.__class__.__name__
                 logger.info(f"🎉 LAZY INIT: Storage backend ({STORAGE_BACKEND}) initialization successful")
                 logger.info(f"🔍 LAZY INIT: Final storage type verification: {storage_type}")
-                
+
+                # Initialize MemoryService with shared business logic
+                self.memory_service = MemoryService(self.storage)
+                logger.info(f"✅ LAZY INIT: MemoryService initialized with {STORAGE_BACKEND} storage")
+
                 # Initialize consolidation system after storage is ready
                 await self._initialize_consolidation()
                 
@@ -700,6 +704,7 @@ class MemoryServer:
                 logger.error(traceback.format_exc())
                 # Set storage to None to indicate failure
                 self.storage = None
+                self.memory_service = None
                 self._storage_initialized = False
                 raise
         return self.storage
