@@ -55,6 +55,7 @@ dependencies = [
     "sentence-transformers>=2.2.2",
     "torch>=2.0.0",
     "typing-extensions>=4.0.0; python_version < '3.11'",
+    "toon-format>=0.1.0",
 ]
 
 [project.optional-dependencies]
