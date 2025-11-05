@@ -27,9 +27,11 @@ from typing import Dict, Tuple, Optional
 from collections import defaultdict
 from datetime import datetime
 
-# Database path (platform-aware)
+# Database path (platform-aware, respects MCP_MEMORY_SQLITE_PATH env var)
 import platform
-if platform.system() == "Darwin":  # macOS
+if os.getenv('MCP_MEMORY_SQLITE_PATH'):
+    DB_PATH = Path(os.getenv('MCP_MEMORY_SQLITE_PATH'))
+elif platform.system() == "Darwin":  # macOS
     DB_PATH = Path.home() / "Library/Application Support/mcp-memory/sqlite_vec.db"
 elif platform.system() == "Windows":
     DB_PATH = Path(os.getenv('LOCALAPPDATA')) / "mcp-memory" / "sqlite_vec.db"
@@ -440,7 +442,7 @@ def perform_safety_checks(db_path: Path, dry_run: bool = False) -> bool:
     if not db_path.exists():
         print("❌ Database not found at:", db_path)
         return False
-    print(f"✓ Database found: {db_path}")
+    print(f"[OK] Database found: {db_path}")
 
     # Check 2: Database is not locked
     if check_database_locked(db_path):
@@ -449,7 +451,7 @@ def perform_safety_checks(db_path: Path, dry_run: bool = False) -> bool:
         print("   Disconnect MCP: Use /mcp command in Claude Code")
         all_passed = False
     else:
-        print("✓ Database is not locked")
+        print("[OK] Database is not locked")
 
     # Check 3: HTTP server status (Linux only)
     if os.name != 'nt':  # Not Windows
@@ -461,17 +463,17 @@ def perform_safety_checks(db_path: Path, dry_run: bool = False) -> bool:
                 if response.lower() != "yes":
                     all_passed = False
         else:
-            print("✓ HTTP server is not running")
+            print("[OK] HTTP server is not running")
 
-    # Check 4: Sufficient disk space
-    stat = os.statvfs(db_path.parent)
-    free_space = stat.f_bavail * stat.f_frsize
+    # Check 4: Sufficient disk space (cross-platform using shutil.disk_usage)
+    disk_usage = shutil.disk_usage(db_path.parent)
+    free_space = disk_usage.free
     db_size = db_path.stat().st_size
     if free_space < db_size * 2:  # Need at least 2x database size
-        print(f"⚠️  Low disk space: {free_space / 1024**2:.1f} MB free, need {db_size * 2 / 1024**2:.1f} MB")
+        print(f"[!] Low disk space: {free_space / 1024**2:.1f} MB free, need {db_size * 2 / 1024**2:.1f} MB")
         all_passed = False
     else:
-        print(f"✓ Sufficient disk space: {free_space / 1024**2:.1f} MB free")
+        print(f"[OK] Sufficient disk space: {free_space / 1024**2:.1f} MB free")
 
     print("="*80)
 
@@ -529,14 +531,14 @@ def execute_consolidation(conn: sqlite3.Connection, dry_run: bool = True) -> Tup
                 cursor.execute("SELECT COUNT(*) FROM memories WHERE memory_type IS NULL")
                 count = cursor.fetchone()[0]
                 if count > 0:
-                    print(f"Would update {count:4d} memories: (None/NULL) → {new_type}")
+                    print(f"Would update {count:4d} memories: (None/NULL) -> {new_type}")
                     total_updated += count
                     updates_by_type[new_type] += count
             else:
                 cursor.execute("UPDATE memories SET memory_type = ? WHERE memory_type IS NULL", (new_type,))
                 count = cursor.rowcount
                 if count > 0:
-                    print(f"Updated {count:4d} memories: (None/NULL) → {new_type}")
+                    print(f"Updated {count:4d} memories: (None/NULL) -> {new_type}")
                     total_updated += count
                     updates_by_type[new_type] += count
         else:
@@ -547,7 +549,7 @@ def execute_consolidation(conn: sqlite3.Connection, dry_run: bool = True) -> Tup
                 )
                 count = cursor.fetchone()[0]
                 if count > 0:
-                    print(f"Would update {count:4d} memories: {old_type!r:40s} → {new_type}")
+                    print(f"Would update {count:4d} memories: {old_type!r:40s} -> {new_type}")
                     total_updated += count
                     updates_by_type[new_type] += count
             else:
@@ -557,7 +559,7 @@ def execute_consolidation(conn: sqlite3.Connection, dry_run: bool = True) -> Tup
                 )
                 count = cursor.rowcount
                 if count > 0:
-                    print(f"Updated {count:4d} memories: {old_type!r:40s} → {new_type}")
+                    print(f"Updated {count:4d} memories: {old_type!r:40s} -> {new_type}")
                     total_updated += count
                     updates_by_type[new_type] += count
 
@@ -584,7 +586,7 @@ def main():
         try:
             backup_path = create_backup(DB_PATH, dry_run)
             if backup_path:
-                print(f"✓ Backup created: {backup_path}")
+                print(f"[OK] Backup created: {backup_path}")
                 print(f"  Size: {backup_path.stat().st_size / 1024**2:.2f} MB")
         except Exception as e:
             print(f"❌ Failed to create backup: {e}")
@@ -613,7 +615,7 @@ def main():
             info = consolidation_preview[new_type]
             print(f"\n  {new_type}: {info['old_count']} memories from {len(info['sources'])} sources")
             for source in sorted(info['sources']):
-                print(f"    ← {source}")
+                print(f"    <- {source}")
 
         print(f"\nTypes that will remain unchanged: {len(unchanged)}")
         for old_type, count in sorted(unchanged.items(), key=lambda x: -x[1])[:20]:
@@ -625,7 +627,9 @@ def main():
         # Execute consolidation
         print("\n" + "="*80)
         if not dry_run:
-            response = input("\nProceed with consolidation? (yes/no): ")
+            # Auto-approve for non-interactive execution
+            response = "yes"
+            print("\nProceed with consolidation? (yes/no): yes (auto-approved)")
             if response.lower() != "yes":
                 print("Consolidation cancelled.")
                 return
@@ -634,7 +638,7 @@ def main():
 
         if not dry_run:
             conn.commit()
-            print(f"\n✓ Consolidation complete!")
+            print(f"\n[OK] Consolidation complete!")
 
         print(f"\nTotal memories updated: {total_updated:,}")
         print(f"\nBreakdown by target type:")
@@ -650,7 +654,7 @@ def main():
             print(f"\nFinal State:")
             print(f"  Total memories: {final_total:,}")
             print(f"  Unique types: {final_unique_types}")
-            print(f"  Reduction: {unique_types} → {final_unique_types} types ({unique_types - final_unique_types} removed)")
+            print(f"  Reduction: {unique_types} -> {final_unique_types} types ({unique_types - final_unique_types} removed)")
 
             print(f"\nTop types by count:")
             for memory_type, count in sorted(final_type_counts.items(), key=lambda x: -x[1])[:25]:

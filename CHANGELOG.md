@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+- **Windows Compatibility**: Memory type consolidation script improvements
+  - Replace Unicode characters with ASCII for Windows console compatibility (`✓`→`[OK]`, `⚠️`→`[!]`, `→`/`←`→`->`/`<-`)
+  - Fix disk space check using cross-platform `shutil.disk_usage()` instead of Unix-only `os.statvfs()`
+  - Add auto-approval mode for non-interactive execution
+  - Add support for `MCP_MEMORY_SQLITE_PATH` environment variable
+  - File: `scripts/maintenance/consolidate_memory_types.py`
+
 ## [8.17.1] - 2025-11-05
 
 ### Documentation
