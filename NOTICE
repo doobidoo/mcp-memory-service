@@ -1,7 +1,35 @@
 MCP Memory Service
-Copyright 2024 Heinrich Krupp
+Copyright 2024 Heinrich Krupp (Original work - Apache License 2.0)
+Copyright 2025 Ray Walker (Derivative work - WTFPL)
 
-This product includes software developed by Heinrich Krupp.
+==============================================================================
+DUAL LICENSING NOTICE
+==============================================================================
+
+This derivative work is licensed under the WTFPL (Do What The Fuck You Want
+To Public License). However, it is based on original work by Heinrich Krupp
+that was licensed under Apache License 2.0.
+
+ORIGINAL WORK:
+- Author: Heinrich Krupp
+- License: Apache License 2.0 (see LICENSE.Apache-2.0)
+- Copyright: 2024
+
+DERIVATIVE WORK:
+- Author: Ray Walker
+- License: WTFPL (see LICENSE)
+- Copyright: 2025
+
+ATTRIBUTION REQUIREMENTS:
+Users of this software must comply with Apache 2.0 attribution requirements
+for the original work by Heinrich Krupp, while the modifications by Ray Walker
+are available under WTFPL with no restrictions.
+
+SIGNIFICANT CHANGES BY RAY WALKER:
+- Architecture refactoring and code cleanup
+- Enhanced configuration management and validation
+- Performance optimizations and bug fixes
+- Improved documentation and deployment workflows
 
 This project uses the following third-party libraries:
 
