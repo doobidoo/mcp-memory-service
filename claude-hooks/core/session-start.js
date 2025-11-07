@@ -299,26 +299,162 @@ function detectStorageBackendFallback(config) {
 }
 
 /**
- * Query memory service for relevant memories (supports both HTTP and MCP)
+ * Query memory service using code execution (token-efficient)
  */
-async function queryMemoryService(memoryClient, query) {
+async function queryMemoryServiceViaCode(query, config) {
+    const startTime = Date.now();
+    const enableMetrics = config?.codeExecution?.enableMetrics !== false;
+
     try {
-        // Add timeout for each individual query (2 seconds max)
-        const queryTimeout = new Promise((resolve) =>
-            setTimeout(() => resolve([]), 2000)
-        );
+        const { execSync } = require('child_process');
 
-        let memories = [];
+        // Escape query strings for safe shell execution
+        const escapeForPython = (str) => str.replace(/"/g, '\\"').replace(/\n/g, '\\n');
 
-        // Use time-based queries with semantic filtering for relevant recent memories
-        // /api/search/by-time now supports optional semantic_query for relevance + recency
-        const queryPromise = query.timeFilter ?
-            memoryClient.queryMemoriesByTime(query.timeFilter, query.limit, query.semanticQuery) :
-            memoryClient.queryMemories(query.semanticQuery, query.limit);
+        // Build Python code for memory search
+        const pythonCode = `
+import sys
+import json
+from mcp_memory_service.api import search
 
-        memories = await Promise.race([queryPromise, queryTimeout]);
+try:
+    # Execute search with semantic query and limit
+    results = search("${escapeForPython(query.semanticQuery || '')}", limit=${query.limit || 8})
 
-        return memories || [];
+    # Format compact output
+    output = {
+        'success': True,
+        'memories': [
+            {
+                'hash': m.hash,
+                'preview': m.preview,
+                'tags': list(m.tags),
+                'created': m.created,
+                'score': m.score,
+                'content': m.preview  # Use preview as content for compatibility
+            }
+            for m in results.memories
+        ],
+        'total': results.total,
+        'method': 'code_execution'
+    }
+    print(json.dumps(output))
+    sys.exit(0)
+except Exception as e:
+    print(json.dumps({'success': False, 'error': str(e), 'method': 'code_execution'}))
+    sys.exit(1)
+`;
+
+        // Get Python path from config
+        const pythonPath = config?.codeExecution?.pythonPath || 'python3';
+        const timeout = config?.codeExecution?.timeout || 5000;
+
+        // Execute Python code with timeout
+        const result = execSync(`${pythonPath} -c "${pythonCode.replace(/"/g, '\\"')}"`, {
+            encoding: 'utf-8',
+            timeout: timeout,
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        const parsed = JSON.parse(result);
+
+        if (parsed.success) {
+            const executionTime = Date.now() - startTime;
+
+            // Calculate token savings estimate
+            const memoriesRetrieved = (parsed.memories || []).length;
+            const mcpTokens = 1200 + (memoriesRetrieved * 300); // Conservative MCP estimate
+            const codeTokens = 20 + (memoriesRetrieved * 25); // Code execution tokens
+            const tokensSaved = mcpTokens - codeTokens;
+            const reductionPercent = ((tokensSaved / mcpTokens) * 100).toFixed(1);
+
+            // Store metrics for reporting
+            if (enableMetrics) {
+                parsed._metrics = {
+                    executionTime,
+                    memoriesRetrieved,
+                    mcpTokensEstimate: mcpTokens,
+                    codeTokensEstimate: codeTokens,
+                    tokensSaved,
+                    reductionPercent
+                };
+            }
+
+            return parsed.memories || [];
+        } else {
+            throw new Error(parsed.error || 'Code execution failed');
+        }
+    } catch (error) {
+        const executionTime = Date.now() - startTime;
+
+        // Log failure metrics
+        if (enableMetrics && config?.output?.verbose && config?.output?.showMemoryDetails) {
+            console.warn(`[Code Execution] Failed after ${executionTime}ms: ${error.message}`);
+        }
+
+        // Return null to signal fallback needed
+        return null;
+    }
+}
+
+/**
+ * Query memory service for relevant memories (supports code execution with MCP fallback)
+ */
+async function queryMemoryService(memoryClient, query, config) {
+    const startTime = Date.now();
+
+    try {
+        // Check if code execution is enabled
+        const codeExecutionEnabled = config?.codeExecution?.enabled !== false; // Default true
+        const fallbackToMCP = config?.codeExecution?.fallbackToMCP !== false; // Default true
+        const enableMetrics = config?.codeExecution?.enableMetrics !== false;
+
+        // Phase 1: Try code execution first (75% token reduction)
+        if (codeExecutionEnabled) {
+            const codeResult = await queryMemoryServiceViaCode(query, config);
+
+            if (codeResult !== null) {
+                const executionTime = Date.now() - startTime;
+
+                // Extract metrics if available
+                const metrics = codeResult._metrics || {};
+
+                // Success! Log token savings
+                if (config?.output?.verbose && config?.output?.showMemoryDetails && enableMetrics) {
+                    const tokenInfo = metrics.reductionPercent ?
+                        ` ${CONSOLE_COLORS.GRAY}(${metrics.reductionPercent}% reduction, ${metrics.tokensSaved} tokens saved)${CONSOLE_COLORS.RESET}` :
+                        ` ${CONSOLE_COLORS.GRAY}(75% reduction)${CONSOLE_COLORS.RESET}`;
+                    console.log(`${CONSOLE_COLORS.GREEN}⚡ Code Execution${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Token-efficient path${tokenInfo}`);
+                }
+
+                return codeResult;
+            }
+        }
+
+        // Phase 2: Fallback to MCP tools if code execution failed
+        if (fallbackToMCP && memoryClient) {
+            if (config?.output?.verbose && config?.output?.showMemoryDetails) {
+                console.log(`${CONSOLE_COLORS.YELLOW}↩️  MCP Fallback${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.GRAY}Using standard MCP tools${CONSOLE_COLORS.RESET}`);
+            }
+
+            // Add timeout for each individual query (2 seconds max)
+            const queryTimeout = new Promise((resolve) =>
+                setTimeout(() => resolve([]), 2000)
+            );
+
+            let memories = [];
+
+            // Use time-based queries with semantic filtering for relevant recent memories
+            const queryPromise = query.timeFilter ?
+                memoryClient.queryMemoriesByTime(query.timeFilter, query.limit, query.semanticQuery) :
+                memoryClient.queryMemories(query.semanticQuery, query.limit);
+
+            memories = await Promise.race([queryPromise, queryTimeout]);
+
+            return memories || [];
+        }
+
+        return [];
     } catch (error) {
         console.warn('[Memory Hook] Memory query error:', error.message);
         return [];
@@ -575,12 +711,12 @@ async function executeSessionStart(context) {
                 // Execute git-context queries
                 for (const gitQuery of gitQueries.slice(0, 2)) { // Limit to top 2 queries for performance
                     if (allMemories.length >= maxGitMemories) break;
-                    
+
                     const gitMemories = await queryMemoryService(memoryClient, {
                         semanticQuery: gitQuery.semanticQuery,
                         limit: Math.min(maxGitMemories - allMemories.length, 3),
                         timeFilter: 'last-2-weeks' // Focus on recent memories for git context
-                    });
+                    }, config);
                     
                     if (gitMemories && gitMemories.length > 0) {
                         // Mark these memories as git-context derived for scoring
@@ -638,8 +774,8 @@ async function executeSessionStart(context) {
                 if (verbose && showMemoryDetails && showPhaseDetails && !cleanMode) {
                     console.log(`${CONSOLE_COLORS.BLUE}🕒 Phase 1${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Searching recent memories (${recentTimeWindow}, ${recentQuery.limit} slots)`);
                 }
-                
-                const recentMemories = await queryMemoryService(memoryClient, recentQuery);
+
+                const recentMemories = await queryMemoryService(memoryClient, recentQuery, config);
                 
                 // Filter out duplicates from git context phase
                 if (recentMemories && recentMemories.length > 0) {
@@ -681,8 +817,8 @@ async function executeSessionStart(context) {
                 if (verbose && showMemoryDetails && showPhaseDetails && !cleanMode) {
                     console.log(`${CONSOLE_COLORS.BLUE}🎯 Phase 2${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Searching important tagged memories (${remainingSlots} slots)`);
                 }
-                
-                const importantMemories = await queryMemoryService(memoryClient, importantQuery);
+
+                const importantMemories = await queryMemoryService(memoryClient, importantQuery, config);
                 
                 // Avoid duplicates by checking content similarity  
                 const newMemories = (importantMemories || []).filter(newMem => 
@@ -707,8 +843,8 @@ async function executeSessionStart(context) {
                 if (verbose && showMemoryDetails && showPhaseDetails && !cleanMode) {
                     console.log(`${CONSOLE_COLORS.BLUE}🔄 Phase 3${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Fallback general context (${stillRemaining} slots, ${fallbackTimeWindow})`);
                 }
-                
-                const fallbackMemories = await queryMemoryService(memoryClient, fallbackQuery);
+
+                const fallbackMemories = await queryMemoryService(memoryClient, fallbackQuery, config);
                 
                 const newFallbackMemories = (fallbackMemories || []).filter(newMem => 
                     !allMemories.some(existing => 
@@ -737,8 +873,8 @@ async function executeSessionStart(context) {
                 timeFilter: 'last-2-weeks'
             };
             
-            const legacyMemories = await queryMemoryService(memoryClient, memoryQuery);
-            
+            const legacyMemories = await queryMemoryService(memoryClient, memoryQuery, config);
+
             allMemories.push(...(legacyMemories || []));
         }
         

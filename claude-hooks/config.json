@@ -192,5 +192,12 @@
     "enableDebug": true,
     "logToFile": true,
     "logFilePath": "./claude-hooks.log"
+  },
+  "codeExecution": {
+    "enabled": true,
+    "timeout": 8000,
+    "fallbackToMCP": true,
+    "pythonPath": "python3",
+    "enableMetrics": true
   }
 }
