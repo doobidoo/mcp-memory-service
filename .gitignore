@@ -159,6 +159,9 @@ data/
 # GitHub wiki clone (managed separately)
 .wiki/
 
+# Local hook configurations
+claude-hooks/config.json
+
 # Keep directory structure but ignore content
 !.claude/amp/prompts/pending/.gitkeep
 !.claude/amp/responses/ready/.gitkeep
