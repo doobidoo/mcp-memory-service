@@ -17,7 +17,7 @@ The Code Execution Interface provides a token-efficient Python API for direct me
 | health() | ~125 tokens | ~20 tokens | **84%** |
 
 **Annual Savings (Conservative):**
-- 10 users × 5 sessions/day × 365 days × 6,000 tokens = 109.5M tokens/year
+- 10 users x 5 sessions/day x 365 days x 6,000 tokens = 109.5M tokens/year
 - At $0.15/1M tokens: **$16.43/year saved** per 10-user deployment
 
 ## Installation
@@ -189,7 +189,7 @@ class CompactSearchResult(NamedTuple):
         return f"SearchResult(found={self.total}, shown={len(self.memories)})"
 ```
 
-**Token Cost:** ~10 tokens + (73 × num_memories)
+**Token Cost:** ~10 tokens + (73 x num_memories)
 
 #### CompactHealthInfo
 

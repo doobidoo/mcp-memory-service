@@ -199,7 +199,7 @@ src/mcp_memory_service/
 ## Recommended Reading
 
 ### Full Research Document
-- `/Users/hkr/Documents/GitHub/mcp-memory-service/docs/research/code-execution-interface-implementation.md`
+- `docs/research/code-execution-interface-implementation.md`
   - Comprehensive analysis (10,000+ words)
   - Detailed code examples
   - Industry research findings

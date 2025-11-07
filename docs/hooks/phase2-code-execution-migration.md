@@ -181,9 +181,9 @@ node claude-hooks/tests/test-code-execution.js | grep "Token reduction"
 - **Savings**: 2,700 tokens (75%)
 
 **Annual Savings (10 users, 5 sessions/day)**:
-- Daily: 10 users × 5 sessions × 2,700 tokens = 135,000 tokens
-- Annual: 135,000 × 365 = **49,275,000 tokens/year**
-- Cost Savings: 49.3M tokens × $0.15/1M = **$7.39/year** per 10-user deployment
+- Daily: 10 users x 5 sessions x 2,700 tokens = 135,000 tokens
+- Annual: 135,000 x 365 = **49,275,000 tokens/year**
+- Cost Savings: 49.3M tokens x $0.15/1M = **$7.39/year** per 10-user deployment
 
 ### Multi-Phase Breakdown
 

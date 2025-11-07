@@ -226,7 +226,7 @@ async def health() -> CompactHealthInfo:
     """
     try:
         # Get storage instance
-        storage = get_storage()
+        storage = await get_storage_async()
 
         # Get storage statistics
         stats = await storage.get_stats()

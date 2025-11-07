@@ -78,7 +78,7 @@
 | **Warm Start** | 0.5-2s | 0.05-0.2s | **80% faster** |
 | **Repeated Queries** | 0.5-2s | 0.05-0.1s | **90% faster** |
 | **Tag Searches** | 1-3s | 0.1-0.5s | **70% faster** |
-| **Batch Operations** | N×0.2s | 0.1-0.3s total | **75% faster** |
+| **Batch Operations** | Nx0.2s | 0.1-0.3s total | **75% faster** |
 | **Memory Usage** | High | Reduced ~40% | **Better efficiency** |
 
 ## 🔧 **Key Technical Optimizations**

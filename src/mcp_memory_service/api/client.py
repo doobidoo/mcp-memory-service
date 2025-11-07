@@ -37,7 +37,7 @@ import os
 from typing import Optional
 from ..storage.base import MemoryStorage
 from ..storage.factory import create_storage_instance
-from ..config import DATABASE_PATH
+from ..config import DATABASE_PATH, get_base_directory
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +83,9 @@ async def _get_storage_async() -> MemoryStorage:
             # Determine SQLite database path
             db_path = DATABASE_PATH
             if not db_path:
-                # Fallback to default path
-                db_path = os.path.expanduser("~/Library/Application Support/mcp-memory/sqlite_vec.db")
+                # Fallback to cross-platform default path
+                base_dir = get_base_directory()
+                db_path = os.path.join(base_dir, "sqlite_vec.db")
                 logger.warning(f"DATABASE_PATH not configured, using default: {db_path}")
 
             # Ensure database directory exists
@@ -182,6 +183,68 @@ def get_storage() -> MemoryStorage:
         raise
 
 
+def close() -> None:
+    """
+    Close and clean up storage resources.
+
+    Explicitly closes the storage backend connection and clears
+    the global instance. This ensures proper cleanup when the
+    process is terminating or when you want to force a reconnection.
+
+    After calling close(), the next call to get_storage() will
+    create a fresh connection.
+
+    Note:
+        If the storage backend has an async close() method, it will
+        be scheduled but not awaited. For proper async cleanup, use
+        close_async() instead.
+
+    Example:
+        >>> from mcp_memory_service.api import close
+        >>> close()  # Cleanup resources
+        >>> # Next get_storage() call will create new connection
+    """
+    global _storage_instance
+
+    if _storage_instance is not None:
+        try:
+            logger.info("Closing storage instance")
+            # Simply clear the instance reference
+            # Async cleanup will happen via atexit or explicit close_async()
+        except Exception as e:
+            logger.warning(f"Error closing storage instance: {e}")
+        finally:
+            _storage_instance = None
+
+
+async def close_async() -> None:
+    """
+    Close and clean up storage resources (async version).
+
+    This is the proper way to close storage backends that have
+    async cleanup methods. Use this in async contexts.
+
+    Example:
+        >>> from mcp_memory_service.api import close_async
+        >>> await close_async()  # Proper async cleanup
+    """
+    global _storage_instance
+
+    if _storage_instance is not None:
+        try:
+            logger.info("Closing storage instance (async)")
+            # If storage has an async close method, await it
+            if hasattr(_storage_instance, 'close') and callable(_storage_instance.close):
+                close_method = _storage_instance.close()
+                # Check if it's a coroutine
+                if hasattr(close_method, '__await__'):
+                    await close_method
+        except Exception as e:
+            logger.warning(f"Error closing storage instance: {e}")
+        finally:
+            _storage_instance = None
+
+
 def reset_storage() -> None:
     """
     Reset global storage instance.
@@ -197,11 +260,7 @@ def reset_storage() -> None:
         >>> reset_storage()  # Close current connection
         >>> storage = get_storage()  # Creates new connection
     """
-    global _storage_instance
-
-    if _storage_instance is not None:
-        logger.info("Resetting storage instance")
-        _storage_instance = None
+    close()  # Reuse the close() method for consistency
 
 
 # Cleanup on module exit

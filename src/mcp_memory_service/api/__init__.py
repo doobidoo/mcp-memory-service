@@ -72,12 +72,15 @@ For More Information:
 
 from .types import CompactMemory, CompactSearchResult, CompactHealthInfo
 from .operations import search, store, health
+from .client import close, close_async
 
 __all__ = [
     # Core operations
     'search',           # Semantic search with compact results
     'store',            # Store new memory
     'health',           # Service health check
+    'close',            # Close and cleanup storage resources (sync)
+    'close_async',      # Close and cleanup storage resources (async)
 
     # Compact data types
     'CompactMemory',

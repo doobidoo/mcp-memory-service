@@ -1173,11 +1173,11 @@ try {
 | Document ingestion (50 PDFs) | 57,400 | 8,610 | 85% |
 
 **Annual Savings (Conservative):**
-- 10 users × 5 sessions/day × 365 days × 6,000 tokens saved = **109.5M tokens/year**
+- 10 users x 5 sessions/day x 365 days x 6,000 tokens saved = **109.5M tokens/year**
 - At $0.15/1M tokens (Claude Opus input): **$16.43/year saved** per 10-user deployment
 
 **Annual Savings (Aggressive - 100 users):**
-- 100 users × 10 sessions/day × 365 days × 6,000 tokens = **2.19B tokens/year**
+- 100 users x 10 sessions/day x 365 days x 6,000 tokens = **2.19B tokens/year**
 - At $0.15/1M tokens: **$328.50/year saved**
 
 ### 8.2 Performance Metrics
@@ -1334,9 +1334,9 @@ Week 6+: Polish & Extensions
 
 ### Internal Documentation
 
-- `/Users/hkr/Documents/GitHub/mcp-memory-service/src/mcp_memory_service/storage/base.py` - Storage interface
-- `/Users/hkr/Documents/GitHub/mcp-memory-service/src/mcp_memory_service/models/memory.py` - Memory model
-- `/Users/hkr/Documents/GitHub/mcp-memory-service/src/mcp_memory_service/server.py` - MCP server (3,721 lines)
+- `src/mcp_memory_service/storage/base.py` - Storage interface
+- `src/mcp_memory_service/models/memory.py` - Memory model
+- `src/mcp_memory_service/server.py` - MCP server (3,721 lines)
 - `~/.claude/hooks/core/session-start.js` - Current hook implementation
 
 ---

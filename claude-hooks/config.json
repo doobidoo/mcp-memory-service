@@ -1,4 +1,11 @@
 {
+  "codeExecution": {
+    "enabled": true,
+    "timeout": 8000,
+    "fallbackToMCP": true,
+    "enableMetrics": true,
+    "pythonPath": "python3"
+  },
   "memoryService": {
     "protocol": "auto",
     "preferredProtocol": "http",
