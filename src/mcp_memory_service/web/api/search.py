@@ -59,6 +59,7 @@ class TagSearchRequest(BaseModel):
     """Request model for tag-based search."""
     tags: List[str] = Field(..., description="List of tags to search for (ANY match)")
     match_all: bool = Field(default=False, description="If true, memory must have ALL tags; if false, ANY tag")
+    time_filter: Optional[str] = Field(None, description="Optional natural language time filter (e.g., 'last week', 'yesterday')")
 
 
 class TimeSearchRequest(BaseModel):
@@ -172,21 +173,32 @@ async def tag_search(
     user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
-    Search memories by tags.
-    
+    Search memories by tags with optional time filtering.
+
     Finds memories that contain any of the specified tags (OR search) or
     all of the specified tags (AND search) based on the match_all parameter.
+
+    Optionally filters by time range using natural language expressions like
+    'last week', 'yesterday', 'this month', etc.
     """
     import time
     start_time = time.time()
-    
+
     try:
         if not request.tags:
             raise HTTPException(status_code=400, detail="At least one tag must be specified")
-        
-        # Use the storage layer's tag search
-        memories = await storage.search_by_tag(request.tags)
-        
+
+        # Parse time filter if provided
+        time_start = None
+        if request.time_filter:
+            time_range = parse_time_query(request.time_filter)
+            if time_range:
+                start_dt = time_range.get('start')
+                time_start = start_dt.timestamp() if start_dt else None
+
+        # Use the storage layer's tag search with optional time filtering
+        memories = await storage.search_by_tag(request.tags, time_start=time_start)
+
         # If match_all is True, filter to only memories that have ALL tags
         if request.match_all and len(request.tags) > 1:
             tag_set = set(request.tags)
@@ -194,7 +206,7 @@ async def tag_search(
                 memory for memory in memories
                 if tag_set.issubset(set(memory.tags))
             ]
-        
+
         # Convert to search results
         match_type = "ALL" if request.match_all else "ANY"
         search_results = [
@@ -204,11 +216,14 @@ async def tag_search(
             )
             for memory in memories
         ]
-        
+
         processing_time = (time.time() - start_time) * 1000
-        
+
+        # Build query string with time filter info if present
         query_string = f"Tags: {', '.join(request.tags)} ({match_type})"
-        
+        if request.time_filter:
+            query_string += f" | Time: {request.time_filter}"
+
         # Broadcast SSE event for search completion
         try:
             event = create_search_completed_event(
@@ -220,7 +235,7 @@ async def tag_search(
             await sse_manager.broadcast_event(event)
         except Exception as e:
             logger.warning(f"Failed to broadcast search_completed event: {e}")
-        
+
         return SearchResponse(
             results=search_results,
             total_found=len(search_results),
@@ -228,7 +243,7 @@ async def tag_search(
             search_type="tag",
             processing_time_ms=processing_time
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:

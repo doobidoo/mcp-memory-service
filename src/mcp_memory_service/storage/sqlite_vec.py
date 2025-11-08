@@ -923,25 +923,39 @@ SOLUTIONS:
             logger.error(traceback.format_exc())
             return []
     
-    async def search_by_tag(self, tags: List[str]) -> List[Memory]:
-        """Search memories by tags."""
+    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
+        """Search memories by tags with optional time filtering.
+
+        Args:
+            tags: List of tags to search for (OR logic)
+            time_start: Optional Unix timestamp (in seconds) to filter memories created after this time
+
+        Returns:
+            List of Memory objects matching the tag criteria and time filter
+        """
         try:
             if not self.conn:
                 logger.error("Database not initialized")
                 return []
-            
+
             if not tags:
                 return []
-            
+
             # Build query for tag search (OR logic)
             tag_conditions = " OR ".join(["tags LIKE ?" for _ in tags])
             tag_params = [f"%{tag}%" for tag in tags]
-            
+
+            # Add time filter to WHERE clause if provided
+            where_clause = f"WHERE ({tag_conditions})"
+            if time_start is not None:
+                where_clause += " AND created_at >= ?"
+                tag_params.append(time_start)
+
             cursor = self.conn.execute(f'''
                 SELECT content_hash, content, tags, memory_type, metadata,
                        created_at, updated_at, created_at_iso, updated_at_iso
                 FROM memories
-                WHERE {tag_conditions}
+                {where_clause}
                 ORDER BY created_at DESC
             ''', tag_params)
             

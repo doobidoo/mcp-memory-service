@@ -186,25 +186,46 @@ class HTTPClientStorage(MemoryStorage):
         except Exception as e:
             return self._handle_http_error(e, "retrieve", return_empty_list=True)
     
-    async def search_by_tag(self, tags: List[str]) -> List[Memory]:
-        """Search memories by tags via HTTP API."""
+    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
+        """Search memories by tags via HTTP API with optional time filtering.
+
+        Args:
+            tags: List of tags to search for
+            time_start: Optional Unix timestamp (in seconds) to filter memories created after this time
+
+        Returns:
+            List of Memory objects matching the tag criteria and time filter
+        """
         if not self._initialized or not self.session:
             logger.error("HTTP client not initialized")
             return []
-        
+
         try:
-            search_url = f"{self.base_url}/api/search/tags"
+            search_url = f"{self.base_url}/api/search/by-tag"
             payload = {
                 "tags": tags,
                 "match_all": False  # Use ANY match (OR logic)
             }
-            
+
+            # Add time filter if provided
+            if time_start is not None:
+                # Convert timestamp to natural language time expression
+                # For simplicity, we'll pass a generic time filter that the API can parse
+                # A more sophisticated approach would convert the timestamp to a specific date range
+                from datetime import datetime, timezone
+                dt = datetime.fromtimestamp(time_start, tz=timezone.utc)
+                # For now, we'll just pass the timestamp as-is and let the server handle it
+                # This is a simplified approach - in production, you might want to convert to a natural language expression
+                payload["time_filter"] = f"after {dt.isoformat()}"
+
             async with self.session.post(search_url, json=payload) as response:
                 if response.status == 200:
                     data = await response.json()
                     results = []
-                    
-                    for memory_data in data.get("memories", []):
+
+                    # Updated to match the new SearchResponse format
+                    for result_item in data.get("results", []):
+                        memory_data = result_item.get("memory", {})
                         memory = Memory(
                             content=memory_data.get("content", ""),
                             content_hash=memory_data.get("content_hash", ""),
@@ -217,13 +238,13 @@ class HTTPClientStorage(MemoryStorage):
                             updated_at_iso=memory_data.get("updated_at_iso")
                         )
                         results.append(memory)
-                    
+
                     logger.info(f"Found {len(results)} memories via HTTP with tags: {tags}")
                     return results
                 else:
                     logger.error(f"HTTP tag search error: {response.status}")
                     return []
-                    
+
         except Exception as e:
             return self._handle_http_error(e, "tag search", return_empty_list=True)
     

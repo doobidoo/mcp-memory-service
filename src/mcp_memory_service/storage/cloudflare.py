@@ -556,39 +556,56 @@ class CloudflareStorage(MemoryStorage):
         
         return []
     
-    async def search_by_tag(self, tags: List[str]) -> List[Memory]:
-        """Search memories by tags."""
+    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
+        """Search memories by tags with optional time filtering.
+
+        Args:
+            tags: List of tags to search for
+            time_start: Optional Unix timestamp (in seconds) to filter memories created after this time
+
+        Returns:
+            List of Memory objects matching the tag criteria and time filter
+        """
         try:
             if not tags:
                 return []
-            
+
             # Build SQL query for tag search
             placeholders = ",".join(["?"] * len(tags))
-            sql = f"""
+            sql_parts = [f"""
             SELECT DISTINCT m.* FROM memories m
             JOIN memory_tags mt ON m.id = mt.memory_id
             JOIN tags t ON mt.tag_id = t.id
             WHERE t.name IN ({placeholders})
-            ORDER BY m.created_at DESC
-            """
-            
-            payload = {"sql": sql, "params": tags}
+            """]
+
+            params = list(tags)
+
+            # Add time filter if provided
+            if time_start is not None:
+                sql_parts.append("AND m.created_at >= ?")
+                params.append(time_start)
+
+            sql_parts.append("ORDER BY m.created_at DESC")
+            sql = " ".join(sql_parts)
+
+            payload = {"sql": sql, "params": params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
-            
+
             if not result.get("success"):
                 raise ValueError(f"D1 tag search failed: {result}")
-            
+
             memories = []
             if result.get("result", [{}])[0].get("results"):
                 for row in result["result"][0]["results"]:
                     memory = await self._load_memory_from_row(row)
                     if memory:
                         memories.append(memory)
-            
+
             logger.info(f"Found {len(memories)} memories with tags: {tags}")
             return memories
-            
+
         except Exception as e:
             logger.error(f"Failed to search by tags: {e}")
             return []

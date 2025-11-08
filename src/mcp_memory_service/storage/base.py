@@ -97,8 +97,16 @@ class MemoryStorage(ABC):
         pass
     
     @abstractmethod
-    async def search_by_tag(self, tags: List[str]) -> List[Memory]:
-        """Search memories by tags."""
+    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
+        """Search memories by tags with optional time filtering.
+
+        Args:
+            tags: List of tags to search for
+            time_start: Optional Unix timestamp (in seconds) to filter memories created after this time
+
+        Returns:
+            List of Memory objects matching the tag criteria and time filter
+        """
         pass
 
     async def search_by_tag_chronological(self, tags: List[str], limit: int = None, offset: int = 0) -> List[Memory]:
