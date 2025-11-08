@@ -3,7 +3,7 @@
   "_instructions": [
     "Replace 'YOUR_USERNAME' with your actual Windows username",
     "Replace 'C:\\REPOSITORIES\\mcp-memory-service' with your actual repository path",
-    "Choose either ChromaDB or SQLite-vec backend by uncommenting the appropriate section"
+    "Supported backends: sqlite_vec, cloudflare, hybrid (ChromaDB removed in v8.0.0)"
   ],
   "mcpServers": {
     "memory": {
@@ -15,15 +15,10 @@
         "PYTHONPATH": "C://REPOSITORIES//mcp-memory-service",
         "_comment_backend_choice": "Choose one of the backend configurations below",
         
-        "_comment_sqlite_vec": "=== SQLite-vec Backend (Recommended for single-file storage) ===",
+        "_comment_sqlite_vec": "=== SQLite-vec Backend (Recommended for local storage) ===",
         "MCP_MEMORY_STORAGE_BACKEND": "sqlite_vec",
         "MCP_MEMORY_SQLITE_PATH": "C:\\Users\\YOUR_USERNAME\\AppData\\Local\\mcp-memory\\memory_migrated.db",
         "MCP_MEMORY_BACKUPS_PATH": "C:\\Users\\YOUR_USERNAME\\AppData\\Local\\mcp-memory\\backups",
-        
-        "_comment_chroma_alternative": "=== Alternative: ChromaDB Backend (comment out SQLite-vec above and uncomment below) ===",
-        "_MCP_MEMORY_STORAGE_BACKEND": "chroma",
-        "_MCP_MEMORY_CHROMA_PATH": "C:\\Users\\YOUR_USERNAME\\AppData\\Local\\mcp-memory\\chroma_db",
-        "_MCP_MEMORY_BACKUPS_PATH": "C:\\Users\\YOUR_USERNAME\\AppData\\Local\\mcp-memory\\backups",
         
         "_comment_offline": "=== Offline Mode Configuration (prevents PyTorch downloads) ===",
         "HF_HOME": "C:\\Users\\YOUR_USERNAME\\.cache\\huggingface",

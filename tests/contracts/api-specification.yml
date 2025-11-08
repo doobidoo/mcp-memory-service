@@ -53,7 +53,7 @@ paths:
                     type: number
                   storage_type:
                     type: string
-                    enum: [sqlite_vec, chroma, cloudflare]
+                    enum: [sqlite_vec, cloudflare, hybrid]
                   statistics:
                     type: object
                     properties:

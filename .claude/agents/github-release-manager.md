@@ -166,6 +166,7 @@ When creating pull requests:
       - Match tone and format of existing entries
 
    c. **CLAUDE.md**:
+      - **ALWAYS update** version reference in Overview section (line ~13): `> **vX.Y.Z**: Brief description...`
       - Add version callout in Overview section if significant changes
       - Update "Essential Commands" if new scripts/commands added
       - Update "Database Maintenance" section for new maintenance utilities

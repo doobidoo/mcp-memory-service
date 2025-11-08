@@ -1018,16 +1018,13 @@ def install_storage_backend(backend, system_info):
             return False
             
     elif backend == "chromadb":
-        try:
-            print_info("Installing ChromaDB...")
-            chromadb_version = "0.5.23"
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', f'chromadb=={chromadb_version}'])
-            print_success(f"ChromaDB {chromadb_version} installed successfully")
-            return True
-        except subprocess.SubprocessError as e:
-            print_error(f"Failed to install ChromaDB: {e}")
-            print_info("This is a known issue on some systems (especially older macOS Intel)")
-            return False
+        print_error("ChromaDB backend has been removed in v8.0.0")
+        print_info("Please use one of the supported backends:")
+        print_info("  - 'hybrid': Local speed + cloud persistence (recommended)")
+        print_info("  - 'sqlite_vec': Fast local storage")
+        print_info("  - 'cloudflare': Cloud storage only")
+        print_info("\nTo migrate from ChromaDB, run: python scripts/migration/migrate_to_sqlite_vec.py")
+        return False
             
     elif backend == "auto_detect":
         print_info("Attempting auto-detection...")
@@ -1183,23 +1180,11 @@ def install_sqlite_vec_python313(system_info):
     print_info("Option 3: Wait for sqlite-vec Python 3.13 support")
     print_info("  Check: https://github.com/asg017/sqlite-vec/issues")
     print_info("")
-    print_info("Option 4: Use ChromaDB backend instead")
-    print_info("  python install.py --storage-backend chromadb")
+    print_info("Option 4: Use hybrid or cloudflare backend")
+    print_info("  python install.py --storage-backend hybrid")
     print_info("")
-    
-    # Ask user if they want to try ChromaDB instead
-    if not system_info.get('non_interactive'):
-        try:
-            print("\n" + "=" * 60)
-            print("⚠️  USER INPUT REQUIRED")
-            print("=" * 60)
-            response = input("Would you like to try ChromaDB backend instead? (y/N): ").strip().lower()
-            print("=" * 60 + "\n")
-            if response in ['y', 'yes']:
-                print_info("Switching to ChromaDB backend...")
-                return install_storage_backend("chromadb", system_info)
-        except (EOFError, KeyboardInterrupt):
-            pass
+
+    # Note: ChromaDB option removed in v8.0.0
     
     return False
 

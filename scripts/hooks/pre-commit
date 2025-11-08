@@ -1,0 +1,117 @@
+#!/bin/bash
+# scripts/hooks/pre-commit - Pre-commit quality checks using Gemini CLI
+#
+# Installation: ln -s ../../scripts/hooks/pre-commit .git/hooks/pre-commit
+#
+# This hook checks:
+# 1. Code complexity (blocks if >8, warns if >7)
+# 2. Security vulnerabilities (blocks on any findings)
+# 3. Basic code quality issues
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+echo "Running pre-commit quality checks..."
+echo ""
+
+# Check if Gemini CLI is available
+if ! command -v gemini &> /dev/null; then
+    echo -e "${YELLOW}⚠️  Gemini CLI not found, skipping quality checks${NC}"
+    echo "Install Gemini CLI to enable automated quality gates"
+    exit 0
+fi
+
+# Get staged Python files
+staged_files=$(git diff --cached --name-only --diff-filter=AM | grep '\.py$' || echo "")
+
+if [ -z "$staged_files" ]; then
+    echo "No Python files staged, skipping checks"
+    exit 0
+fi
+
+echo "Checking staged files:"
+echo "$staged_files"
+echo ""
+
+high_complexity=0
+security_issues=0
+
+for file in $staged_files; do
+    if [ ! -f "$file" ]; then
+        continue
+    fi
+
+    echo "=== Checking: $file ==="
+
+    # Complexity check
+    echo "Checking complexity..."
+    complexity_result=$(gemini "Analyze code complexity. Rate each function 1-10. Report ONLY functions with score >7 in format: 'FunctionName: Score X'. Be concise. File:
+
+$(cat $file)" 2>&1 || echo "")
+
+    if echo "$complexity_result" | grep -qi "score [89]\|score 10"; then
+        echo -e "${RED}🔴 CRITICAL: Very high complexity detected${NC}"
+        echo "$complexity_result"
+        echo ""
+        echo "Functions with score >8 must be refactored before committing."
+        security_issues=1  # Block commit
+    elif echo "$complexity_result" | grep -qi "score 7"; then
+        echo -e "${YELLOW}⚠️  High complexity detected (score 7)${NC}"
+        echo "$complexity_result"
+        high_complexity=1
+    else
+        echo -e "${GREEN}✓${NC} Complexity OK"
+    fi
+    echo ""
+
+    # Security check
+    echo "Checking for security issues..."
+    security_result=$(gemini "Security scan. Check ONLY for: SQL injection (raw SQL), XSS (unescaped HTML), command injection (os.system, subprocess shell=True), hardcoded secrets. Report ONLY if found. File:
+
+$(cat $file)" 2>&1 || echo "")
+
+    if echo "$security_result" | grep -qi "vulnerability\|injection\|hardcoded\|security"; then
+        echo -e "${RED}🔴 SECURITY ISSUE DETECTED${NC}"
+        echo "$security_result"
+        echo ""
+        security_issues=1
+    else
+        echo -e "${GREEN}✓${NC} No security issues"
+    fi
+    echo ""
+done
+
+echo "=== Pre-commit Check Summary ==="
+echo ""
+
+if [ $security_issues -eq 1 ]; then
+    echo -e "${RED}❌ COMMIT BLOCKED${NC}"
+    echo ""
+    echo "Security issues or critical complexity detected."
+    echo "Please fix the issues above and try again."
+    echo ""
+    exit 1
+fi
+
+if [ $high_complexity -eq 1 ]; then
+    echo -e "${YELLOW}⚠️  HIGH COMPLEXITY WARNING${NC}"
+    echo ""
+    echo "Some functions have high complexity (score 7)."
+    echo "Consider refactoring to improve maintainability."
+    echo ""
+    echo -n "Continue with commit anyway? (y/n) "
+    read -r response
+    if [ "$response" != "y" ]; then
+        echo "Commit cancelled."
+        exit 1
+    fi
+fi
+
+echo -e "${GREEN}✅ Pre-commit checks passed${NC}"
+echo ""
+exit 0

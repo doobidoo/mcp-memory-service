@@ -3,10 +3,11 @@
     "memory": {
       "command": "python",
       "args": [
-        "C:\\REPOSITORIES\\mcp-memory-service\\memory_wrapper.py"
+        "-m",
+        "mcp_memory_service.server"
       ],
       "env": {
-        "MCP_MEMORY_CHROMA_PATH": "C:\\Users\\heinrich.krupp\\AppData\\Local\\mcp-memory",
+        "MCP_MEMORY_STORAGE_BACKEND": "sqlite_vec",
         "MCP_MEMORY_BACKUPS_PATH": "C:\\Users\\heinrich.krupp\\AppData\\Local\\mcp-memory"
       }
     }

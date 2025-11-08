@@ -232,7 +232,6 @@ class TestConfigurationConstants:
         """Test that all content limit constants are defined."""
         from src.mcp_memory_service.config import (
             CLOUDFLARE_MAX_CONTENT_LENGTH,
-            CHROMADB_MAX_CONTENT_LENGTH,
             SQLITEVEC_MAX_CONTENT_LENGTH,
             HYBRID_MAX_CONTENT_LENGTH,
             ENABLE_AUTO_SPLIT,
@@ -241,7 +240,6 @@ class TestConfigurationConstants:
         )
 
         assert CLOUDFLARE_MAX_CONTENT_LENGTH == 800
-        assert CHROMADB_MAX_CONTENT_LENGTH == 1500
         assert SQLITEVEC_MAX_CONTENT_LENGTH is None  # Unlimited
         assert HYBRID_MAX_CONTENT_LENGTH == CLOUDFLARE_MAX_CONTENT_LENGTH
         assert isinstance(ENABLE_AUTO_SPLIT, bool)
@@ -252,16 +250,11 @@ class TestConfigurationConstants:
         """Test that config values are sensible."""
         from src.mcp_memory_service.config import (
             CLOUDFLARE_MAX_CONTENT_LENGTH,
-            CHROMADB_MAX_CONTENT_LENGTH,
             CONTENT_SPLIT_OVERLAP
         )
 
         # Limits should be positive
         assert CLOUDFLARE_MAX_CONTENT_LENGTH > 0
-        assert CHROMADB_MAX_CONTENT_LENGTH > 0
-
-        # ChromaDB should have higher limit (larger model)
-        assert CHROMADB_MAX_CONTENT_LENGTH > CLOUDFLARE_MAX_CONTENT_LENGTH
 
         # Overlap should be reasonable
         assert 0 <= CONTENT_SPLIT_OVERLAP <= 500
