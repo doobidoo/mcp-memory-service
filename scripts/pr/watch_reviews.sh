@@ -25,6 +25,9 @@ echo "Check Interval: ${CHECK_INTERVAL}s"
 echo "Press Ctrl+C to stop"
 echo ""
 
+# Get repository from git remote (portable across forks)
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo "doobidoo/mcp-memory-service")
+
 # Track last review timestamp to detect new reviews
 last_review_time=""
 
@@ -32,14 +35,14 @@ while true; do
     echo "[$(date '+%H:%M:%S')] Checking for new reviews..."
 
     # Get latest Gemini review timestamp
-    current_review_time=$(gh api repos/doobidoo/mcp-memory-service/pulls/$PR_NUMBER/reviews 2>/dev/null | \
+    current_review_time=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" 2>/dev/null | \
         jq -r '[.[] | select(.user.login == "gemini-code-assist[bot]")] | last | .submitted_at' 2>/dev/null || echo "")
 
     # Get review state
     review_state=$(gh pr view $PR_NUMBER --json reviews --jq '[.reviews[] | select(.author.login == "gemini-code-assist[bot]")] | last | .state' 2>/dev/null || echo "")
 
     # Get inline comments count (from latest review)
-    comments_count=$(gh api repos/doobidoo/mcp-memory-service/pulls/$PR_NUMBER/comments 2>/dev/null | \
+    comments_count=$(gh api "repos/$REPO/pulls/$PR_NUMBER/comments" 2>/dev/null | \
         jq '[.[] | select(.user.login == "gemini-code-assist[bot]")] | length' 2>/dev/null || echo "0")
 
     echo "  Review State: ${review_state:-none}"
