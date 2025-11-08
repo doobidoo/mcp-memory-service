@@ -16,17 +16,20 @@
 
 ## 🚀 Quick Start (2 minutes)
 
-### 🆕 Latest Release: **v8.19.1** (Nov 7, 2025)
+### 🆕 Latest Release: **v8.20.0** (Nov 8, 2025)
 
-**Critical Bug Fixes** 🔧
+**PR Automation & Code Quality** 🤖🛡️
 
-**What's Fixed**:
-- 🔧 **MCP Tool Fixes** - Resolved retrieve_memory and search_by_tag regressions (Issue #211)
-- ✅ **Hybrid Storage** - Both tools now work correctly with hybrid backend
-- 🚀 **Code Execution API** - All v8.19.0 features remain available
+**What's New**:
+- 🤖 **PR Automation** - Automated Gemini review cycles (saves 10-30 min/PR)
+- 🛡️ **Code Quality Guard** - Pre-commit hooks prevent complexity >8, detect security issues
+- ⚡ **Groq Bridge** - 10x faster LLM calls for code analysis (200-300ms response time)
+- 📋 **TODO Tracking** - Automated prioritization with impact analysis
+- 🧹 **ChromaDB Cleanup** - Removed all deprecated artifacts from active code
 
-**v8.19.0 Features** (Released earlier today):
-- 🚀 **Code Execution API** - Revolutionary 75-90% token reduction for all memory operations
+**Previous Releases**:
+- **v8.19.1** - Critical MCP tool fixes (retrieve_memory, search_by_tag)
+- **v8.19.0** - Code Execution API (75-90% token reduction)
 - ⚡ **Session Hook Migration** - 75% reduction in session startup tokens
 - 📊 **Cost Savings** - $23-2,382/year depending on usage scale
 - 🔄 **Auto-Enabled** - New installations use code execution by default

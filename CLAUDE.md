@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop with SQLite-vec, Cloudflare, and Hybrid storage backends.
 
-> **v8.19.1**: Critical MCP Tool Fixes - Resolved retrieve_memory and search_by_tag regressions (Issue #211). See [CHANGELOG.md](CHANGELOG.md) for full version history.
+> **🆕 v8.20.0**: **PR Automation & Code Quality** - Automated Gemini review cycles (saves 10-30 min/PR), pre-commit hooks for complexity/security checks, Groq bridge integration (10x faster), and comprehensive agent ecosystem for development workflow automation. See [CHANGELOG.md](CHANGELOG.md) for full version history.
 >
 > **Note**: When releasing new versions, update this line with current version + brief description. Use `.claude/agents/github-release-manager.md` agent for complete release workflow.
 
@@ -352,6 +352,28 @@ Workflow automation agents using Gemini CLI, Groq API, and Amp CLI. All agents i
 | **gemini-pr-automator** | Gemini CLI | Automated PR review loops | Active | Post-PR creation |
 
 **Groq Bridge** (Optional): Ultra-fast inference for code-quality-guard agent (~10x faster than Gemini). Supports multiple models including Kimi K2 (256K context, excellent for agentic coding). See `docs/integrations/groq-bridge.md` for setup.
+
+### GitHub Release Manager
+
+Proactive release workflow automation with issue tracking, version management, and documentation updates.
+
+```bash
+# Proactive usage - invokes automatically on feature completion
+# Manual usage - invoke @agent when ready to release
+@agent github-release-manager "Check if we need a release"
+@agent github-release-manager "Create release for v8.20.0"
+```
+
+**Capabilities:**
+- **Version Management**: Three-file procedure (__init__.py → pyproject.toml → uv lock)
+- **CHANGELOG Management**: Format guidelines, conflict resolution (combine PR entries)
+- **Documentation Matrix**: Automatic CHANGELOG, CLAUDE.md, README.md updates
+- **Issue Tracking**: Auto-detects "fixes #", suggests closures with smart comments
+- **Release Procedure**: Merge → Tag → Push → Verify workflows (Docker Publish, HTTP-MCP Bridge)
+
+**Post-Release Workflow:** Retrieves issues from release, suggests closures with PR links and CHANGELOG entries.
+
+See [.claude/agents/github-release-manager.md](.claude/agents/github-release-manager.md) for complete workflows.
 
 ### Code Quality Guard (Gemini CLI / Groq API)
 

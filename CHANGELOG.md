@@ -10,6 +10,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [8.20.0] - 2025-11-08
+
+### Added
+- **PR Automation Workflow** - Comprehensive Gemini Code Assist integration
+  - `auto_review.sh` - Automated iterative PR review cycles (saves 10-30 min/PR)
+  - `quality_gate.sh` - Pre-PR quality checks (complexity, security, tests, breaking changes)
+  - `generate_tests.sh` - Auto-generate pytest tests for new code
+  - `detect_breaking_changes.sh` - API diff analysis with severity classification
+- **Code Quality Guard Agent** - Fast automated code quality analysis
+  - Pre-commit hook for complexity scoring (blocks >8, warns >7)
+  - Security pattern detection (SQL injection, XSS, command injection)
+  - TODO prioritization with impact analysis (Critical/High/Medium/Low)
+  - Integrated with Gemini CLI for fast analysis
+- **Gemini PR Automator Agent** - Eliminates manual review wait times
+  - Automated "Fix → Comment → /gemini review → Wait → Repeat" workflow
+  - Intelligent fix classification (safe vs unsafe)
+  - Comprehensive test generation for all new code
+  - Breaking change detection with severity levels
+- **Groq Bridge Integration** - 10x faster alternative to Gemini CLI
+  - Python CLI (`groq_agent_bridge.py`) for non-interactive LLM calls
+  - Support for llama-3.3-70b-versatile, Kimi K2 (256K context), and other Groq models
+  - Drop-in replacement for Gemini CLI with same interface
+  - Model comparison documentation with performance benchmarks
+- **Pre-commit Hook Infrastructure** - Quality gates before commit
+  - Symlinked hook: `.git/hooks/pre-commit` → `scripts/hooks/pre-commit`
+  - Automated complexity checks on staged Python files
+  - Security vulnerability scanning (blocks commit if found)
+  - Graceful degradation if Gemini CLI not installed
+
+### Documentation
+- Added `docs/integrations/groq-bridge.md` - Setup and usage guide for Groq integration
+- Added `docs/integrations/groq-integration-summary.md` - Integration overview
+- Added `docs/integrations/groq-model-comparison.md` - Performance benchmarks and model selection
+- Added `docs/amp-cli-bridge.md` - Amp CLI integration guide
+- Added `docs/development/todo-tracker.md` - Automated TODO tracking output
+- Added `docs/troubleshooting/hooks-quick-reference.md` - Hook debugging and troubleshooting
+- Added `docs/document-ingestion.md` - Document parsing guide
+- Added `docs/legacy/dual-protocol-hooks.md` - Historical hook configuration
+- Added `scripts/maintenance/memory-types.md` - Memory type taxonomy documentation
+
+### Changed
+- Updated `.claude/agents/github-release-manager.md` - Enhanced with latest release workflow
+- Updated `.env.example` - Removed deprecated ChromaDB backend references
+- Updated API specification - Removed `chroma` from backend enum
+- Updated example configs - Modernized to use Python module approach
+
+### Fixed
+- Removed all ChromaDB artifacts from active code (deprecated in v8.0.0)
+  - Fixed broken test imports (`CHROMADB_MAX_CONTENT_LENGTH` removed)
+  - Updated integration tests to remove `--chroma-path` CLI assertions
+  - Cleaned up example configurations
+  - Added clear deprecation warnings in `install.py`
+
+### Performance
+- Groq bridge provides 10x faster inference vs Gemini CLI
+  - llama-3.3-70b: ~300ms response time
+  - Kimi K2: ~200ms response time (fastest)
+  - llama-3.1-8b-instant: ~300ms response time
+- Pre-commit hooks minimize developer wait time with complexity checks
+
 ## [8.19.1] - 2025-11-07
 
 ### Fixed
