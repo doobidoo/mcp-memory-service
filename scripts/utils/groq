@@ -1,14 +1,15 @@
 #!/bin/bash
 # Wrapper script for groq_agent_bridge.py
 # Usage: groq "your prompt" [--options]
-
-# Load GROQ_API_KEY from bashrc if not already set
-if [ -z "$GROQ_API_KEY" ] && [ -f "$HOME/.bashrc" ]; then
-    export GROQ_API_KEY=$(grep -oP 'export GROQ_API_KEY="\K[^"]+' "$HOME/.bashrc")
-fi
+#
+# Prerequisites:
+#   - GROQ_API_KEY environment variable must be set
+#   - Set it in your shell profile (e.g., .bashrc, .zshrc, .profile)
+#   - Example: export GROQ_API_KEY="your-api-key-here"
 
 # Get the script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Run groq_agent_bridge.py with uv and pass all arguments
+# The Python script will check for GROQ_API_KEY and provide a clear error if missing
 exec uv run python "$SCRIPT_DIR/groq_agent_bridge.py" "$@"

@@ -1,36 +1,34 @@
 # TODO Tracker
 
-**Last Updated:** 2025-11-08 08:43:00
-**Scan Directory:** src/mcp_memory_service/storage
-**Total TODOs:** 1
+**Last Updated:** 2025-11-08 10:25:25
+**Scan Directory:** src
+**Total TODOs:** 5
 
 ## Summary
 
 | Priority | Count | Description |
 |----------|-------|-------------|
-| CRITICAL (P0) | 0
-0 | Security, data corruption, blocking bugs |
-| HIGH (P1) | 3 | Performance, user-facing, incomplete features |
-| MEDIUM (P2) | 1 | Code quality, optimizations, technical debt |
-| LOW (P3) | 1 | Documentation, cosmetic, nice-to-haves |
+| CRITICAL (P0) | 1 | Security, data corruption, blocking bugs |
+| HIGH (P1) | 2 | Performance, user-facing, incomplete features |
+| MEDIUM (P2) | 2 | Code quality, optimizations, technical debt |
+| LOW (P3) | 0
+0 | Documentation, cosmetic, nice-to-haves |
 
 ---
 
-Loaded cached credentials.
-[ERROR] [IDEClient] Failed to connect to IDE companion extension in IDE. Please ensure the extension is running. To install the extension, run /ide install.
-[ERROR] Error during discovery for server 'memory-service': Connection failed for 'memory-service': fetch failed
-[ERROR] Error during discovery for server 'context7': Connection failed for 'context7': SSE error: Non-200 status code (404)
+## CRITICAL (P0)
+- `src/mcp_memory_service/web/api/analytics.py:625` - Period filtering is not implemented, leading to incorrect analytics data.
+
 ## HIGH (P1)
-- `src/mcp_memory_service/web/api/analytics.py:625` - Period filtering is not implemented in the analytics API, which could lead to incorrect data being returned.
-- `src/mcp_memory_service/web/api/manage.py:231` - Inefficient queries for `last_used` and `memory_types` may cause performance bottlenecks.
-- `src/mcp_memory_service/storage/cloudflare.py:185` - Lack of a fallback for embedding generation makes the feature unavailable if the primary service fails.
+- `src/mcp_memory_service/storage/cloudflare.py:185` - Lack of a fallback for embedding generation makes the service vulnerable to external API failures.
+- `src/mcp_memory_service/web/api/manage.py:231` - Inefficient queries can cause significant performance bottlenecks, especially with large datasets.
 
 ## MEDIUM (P2)
-- `scripts/development/fix_sitecustomize.py:136` - A workaround for a `setuptools` issue, representing technical debt in a development script.
+- `src/mcp_memory_service/web/api/documents.py:592` - Using a deprecated FastAPI event handler; should be migrated to the modern `lifespan` context manager to reduce technical debt.
+- `src/mcp_memory_service/web/api/analytics.py:213` - The `storage.get_stats()` method is missing a data point, leading to API inconsistency.
 
 ## LOW (P3)
-- `src/mcp_memory_service/web/api/documents.py:592` - A suggestion to migrate to a newer FastAPI feature, which is a code quality improvement.
-- `src/mcp_memory_service/web/api/analytics.py:213` - A minor enhancement to improve API consistency.
+*(None in this list)*
 
 ---
 

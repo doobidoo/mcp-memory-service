@@ -28,7 +28,7 @@ class GroqAgentBridge:
         
         Args:
             prompt: User prompt to send to the model
-            model: Model to use (default: mixtral-8x7b-32768)
+            model: Model to use (default: llama-3.3-70b-versatile)
             max_tokens: Maximum tokens in response
             temperature: Sampling temperature
             system_message: Optional system context message

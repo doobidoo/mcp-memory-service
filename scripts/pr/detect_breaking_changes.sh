@@ -85,7 +85,7 @@ If breaking changes found:
 **Migration:** <instructions>
 
 If no breaking changes:
-No breaking changes detected." 2>&1)
+No breaking changes detected.")
 
 echo "$result"
 echo ""

@@ -57,7 +57,7 @@ Provide specific, actionable feedback."
 
     # Fetch latest review comments
     echo "Fetching review feedback..."
-    review_comments=$(gh pr view $PR_NUMBER --json comments --jq '.comments[-1].body')
+    review_comments=$(gh pr view $PR_NUMBER --json comments --jq '[.comments[] | select(.author.login == "gemini-code-assist")] | last | .body')
 
     echo ""
     echo "--- Review Feedback ---"

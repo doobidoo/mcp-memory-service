@@ -52,7 +52,7 @@ for file in $staged_files; do
     echo "Checking complexity..."
     complexity_result=$(gemini "Analyze code complexity. Rate each function 1-10. Report ONLY functions with score >7 in format: 'FunctionName: Score X'. Be concise. File:
 
-$(cat $file)" 2>&1 || echo "")
+$(cat $file)" || echo "")
 
     if echo "$complexity_result" | grep -qi "score [89]\|score 10"; then
         echo -e "${RED}🔴 CRITICAL: Very high complexity detected${NC}"
@@ -73,7 +73,7 @@ $(cat $file)" 2>&1 || echo "")
     echo "Checking for security issues..."
     security_result=$(gemini "Security scan. Check ONLY for: SQL injection (raw SQL), XSS (unescaped HTML), command injection (os.system, subprocess shell=True), hardcoded secrets. Report ONLY if found. File:
 
-$(cat $file)" 2>&1 || echo "")
+$(cat $file)" || echo "")
 
     if echo "$security_result" | grep -qi "vulnerability\|injection\|hardcoded\|security"; then
         echo -e "${RED}🔴 SECURITY ISSUE DETECTED${NC}"

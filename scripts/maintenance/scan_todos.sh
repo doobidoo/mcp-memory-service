@@ -71,7 +71,7 @@ Output format (be concise):
 - file.py:789 - Brief description
 
 ## LOW (P3)
-- file.py:012 - Brief description" 2>&1)
+- file.py:012 - Brief description")
 
 echo "$prioritized" > /tmp/todos_prioritized.txt
 
