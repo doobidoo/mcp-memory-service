@@ -49,6 +49,8 @@ while [ $iteration -le $MAX_ITERATIONS ] && [ "$approved" = false ]; do
 - Breaking changes
 - Test coverage
 
+IMPORTANT: If the PR is approved and ready to merge, include the exact text: **AUTOMATED_APPROVAL_OK**
+
 Provide specific, actionable feedback."
 
     # Wait for Gemini to process
@@ -65,8 +67,8 @@ Provide specific, actionable feedback."
     echo "--- End Feedback ---"
     echo ""
 
-    # Check if approved
-    if echo "$review_comments" | grep -qi "looks good\|approved\|lgtm\|ready to merge"; then
+    # Check if approved (using unique keyword)
+    if echo "$review_comments" | grep -q "AUTOMATED_APPROVAL_OK"; then
         echo "✅ PR approved by Gemini!"
         approved=true
         break
@@ -79,32 +81,28 @@ Provide specific, actionable feedback."
         # Get PR diff
         pr_diff=$(gh pr diff $PR_NUMBER)
 
-        # Use Gemini to categorize issues
-        categorization=$(gemini "Categorize these code review comments:
+        # Use Gemini to categorize issues (request JSON format)
+        categorization=$(gemini "Categorize these code review comments into a JSON object.
 
 Review feedback:
 $review_comments
 
 Categories:
-- SAFE: Simple fixes (formatting, imports, type hints, docstrings, variable renaming)
-- UNSAFE: Logic changes, API modifications, security-critical code
-- NON_CODE: Documentation, discussion, questions
+- safe: Simple fixes (formatting, imports, type hints, docstrings, variable renaming)
+- unsafe: Logic changes, API modifications, security-critical code
+- non_code: Documentation, discussion, questions
 
-Output format:
-SAFE:
-- [specific issue 1]
-- [specific issue 2]
-
-UNSAFE:
-- [specific issue 1]
-
-NON_CODE:
-- [specific comment 1]")
+IMPORTANT: Output ONLY valid JSON in this exact format:
+{
+  \"safe\": [\"issue 1\", \"issue 2\"],
+  \"unsafe\": [\"issue 1\"],
+  \"non_code\": [\"comment 1\"]
+}")
 
         echo "$categorization"
 
-        # Extract safe issues
-        safe_issues=$(echo "$categorization" | sed -n '/SAFE:/,/UNSAFE:/p' | grep '^-' | sed 's/^- //')
+        # Extract safe issues using jq
+        safe_issues=$(echo "$categorization" | jq -r '.safe[]' 2>/dev/null || echo "")
 
         if [ -z "$safe_issues" ]; then
             echo "No safe auto-fixable issues found. Manual intervention required."

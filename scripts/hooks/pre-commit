@@ -71,13 +71,18 @@ $(cat $file)" || echo "")
 
     # Security check
     echo "Checking for security issues..."
-    security_result=$(gemini "Security scan. Check ONLY for: SQL injection (raw SQL), XSS (unescaped HTML), command injection (os.system, subprocess shell=True), hardcoded secrets. Report ONLY if found. File:
+    security_result=$(gemini "Security scan. Check ONLY for: SQL injection (raw SQL), XSS (unescaped HTML), command injection (os.system, subprocess shell=True), hardcoded secrets.
 
-$(cat $file)" || echo "")
+IMPORTANT: Output format:
+- If ANY vulnerability found, start response with: VULNERABILITY_DETECTED: [type]
+- If NO vulnerabilities found, start response with: SECURITY_CLEAN
+- Then provide details
 
-    # Check for actual security findings (exclude negative responses like "No ... found")
-    if echo "$security_result" | grep -qiE "(found|detected|vulnerable|present|exists).*(injection|hardcoded|security|vulnerability)" && \
-       ! echo "$security_result" | grep -qiE "no.*(injection|hardcoded|vulnerability|security|issues?|problems?)"; then
+File to scan:
+$(cat $file)" || echo "SECURITY_CLEAN")
+
+    # Check for machine-parseable vulnerability marker
+    if echo "$security_result" | grep -q "^VULNERABILITY_DETECTED:"; then
         echo -e "${RED}🔴 SECURITY ISSUE DETECTED${NC}"
         echo "$security_result"
         echo ""
