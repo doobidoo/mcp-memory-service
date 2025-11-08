@@ -33,14 +33,14 @@ while true; do
 
     # Get latest Gemini review timestamp
     current_review_time=$(gh api repos/doobidoo/mcp-memory-service/pulls/$PR_NUMBER/reviews 2>/dev/null | \
-        jq -r '[.[] | select(.user.login == "gemini-code-assist")] | last | .submitted_at' 2>/dev/null || echo "")
+        jq -r '[.[] | select(.user.login == "gemini-code-assist[bot]")] | last | .submitted_at' 2>/dev/null || echo "")
 
     # Get review state
-    review_state=$(gh pr view $PR_NUMBER --json reviews --jq '[.reviews[] | select(.author.login == "gemini-code-assist")] | last | .state' 2>/dev/null || echo "")
+    review_state=$(gh pr view $PR_NUMBER --json reviews --jq '[.reviews[] | select(.author.login == "gemini-code-assist[bot]")] | last | .state' 2>/dev/null || echo "")
 
     # Get inline comments count (from latest review)
     comments_count=$(gh api repos/doobidoo/mcp-memory-service/pulls/$PR_NUMBER/comments 2>/dev/null | \
-        jq '[.[] | select(.user.login == "gemini-code-assist")] | length' 2>/dev/null || echo "0")
+        jq '[.[] | select(.user.login == "gemini-code-assist[bot]")] | length' 2>/dev/null || echo "0")
 
     echo "  Review State: ${review_state:-none}"
     echo "  Inline Comments: $comments_count"
