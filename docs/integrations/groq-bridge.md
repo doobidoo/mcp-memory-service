@@ -70,9 +70,9 @@ print(result)
 ./scripts/utils/groq "Rate complexity 1-10: def add(a,b): return a+b" \
   --model "llama-3.1-8b-instant"
 
-# Full options
+# Full options with default model
 ./scripts/utils/groq "Generate a SQL query" \
-  --model "moonshotai/kimi-k2-instruct" \
+  --model "llama-3.3-70b-versatile" \
   --max-tokens 200 \
   --temperature 0.5 \
   --system "You are a database expert" \

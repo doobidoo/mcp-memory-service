@@ -32,7 +32,7 @@ Execute **fast, high-quality code changes** using Amp CLI's automation capabilit
 - `Grep` - Fast keyword search
 - `glob` - File pattern matching
 - `librarian` - Specialized codebase understanding agent (for architecture analysis)
-- `oracle` - GPT-5 reasoning model for planning, review, expert guidance
+- `oracle` - GPT-5 (hypothetical future model) reasoning model for planning, review, expert guidance
 - `Task` - Sub-agents for complex multi-step workflows
 - `undo_edit` - Roll back changes
 - `read_thread` - Access previous Amp thread results

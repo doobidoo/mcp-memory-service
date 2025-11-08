@@ -329,7 +329,7 @@ echo "Starting automated PR review for #$PR_NUMBER"
 
 # Step 1: Run code quality checks
 echo "Step 1: Code quality analysis..."
-bash scripts/pr/run_quality_checks.sh $PR_NUMBER
+bash scripts/pr/quality_gate.sh $PR_NUMBER
 if [ $? -ne 0 ]; then
     echo "❌ Quality checks failed, fix issues first"
     exit 1
@@ -538,7 +538,8 @@ last_review_time=""
 
 while true; do
     # Get latest Gemini review timestamp
-    current_review_time=$(gh api repos/doobidoo/mcp-memory-service/pulls/$PR_NUMBER/reviews | \
+    repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+    current_review_time=$(gh api "repos/$repo/pulls/$PR_NUMBER/reviews" | \
         jq -r '[.[] | select(.user.login == "gemini-code-assist")] | last | .submitted_at')
 
     # Detect new review
@@ -551,7 +552,7 @@ while true; do
             '[.reviews[] | select(.author.login == "gemini-code-assist")] | last | .state')
 
         # Get inline comments count
-        comments_count=$(gh api repos/doobidoo/mcp-memory-service/pulls/$PR_NUMBER/comments | \
+        comments_count=$(gh api "repos/$repo/pulls/$PR_NUMBER/comments" | \
             jq '[.[] | select(.user.login == "gemini-code-assist")] | length')
 
         echo "  State: $review_state"

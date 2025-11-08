@@ -31,19 +31,19 @@ Ultra-fast inference using Groq's optimized infrastructure. Ideal for CI/CD and 
 
 ```bash
 # Gemini CLI (default)
-gemini "Analyze the complexity of this Python file and rate each function 1-10. File: $(cat src/file.py)"
+gemini "Analyze the complexity of this Python file and rate each function 1-10. File: $(cat "src/file.py")"
 
 # Groq Bridge (faster alternative)
-python scripts/utils/groq_agent_bridge.py "Analyze the complexity of this Python file and rate each function 1-10. File: $(cat src/file.py)"
+python scripts/utils/groq_agent_bridge.py "Analyze the complexity of this Python file and rate each function 1-10. File: $(cat "src/file.py")"
 
 # Suggest refactoring
-gemini "Identify code smells in this file and suggest specific refactorings: $(cat src/file.py)"
+gemini "Identify code smells in this file and suggest specific refactorings: $(cat "src/file.py")"
 
 # Scan for TODOs
 gemini "Extract all TODO comments from this codebase and prioritize by impact: $(find src -name '*.py' -exec cat {} \; | grep -n TODO)"
 
 # Security analysis
-gemini "Check this code for security vulnerabilities (SQL injection, XSS, command injection): $(cat src/file.py)"
+gemini "Check this code for security vulnerabilities (SQL injection, XSS, command injection): $(cat "src/file.py")"
 ```
 
 ### Complexity Analysis Workflow
@@ -135,7 +135,7 @@ for file in $staged_files; do
     fi
 
     # Security check
-    security=$(gemini "Check for security issues: SQL injection, XSS, command injection. Report ONLY if found. $(cat $file)")
+    security=$(gemini "Check for security issues: SQL injection, XSS, command injection. Report ONLY if found. $(cat "$file")")
 
     if [ ! -z "$security" ]; then
         echo "🔴 Security issue detected in $file:"
@@ -166,19 +166,21 @@ exit 0
 echo "Scanning codebase for TODOs..."
 
 # Extract all TODOs with file and line number
-todos=$(find src -name '*.py' -exec grep -Hn "TODO" {} \;)
+todos=$(grep -rn "TODO\|FIXME\|XXX" src --include="*.py")
 
 if [ -z "$todos" ]; then
     echo "No TODOs found."
     exit 0
 fi
 
-echo "$todos" > /tmp/todos.txt
+# Use mktemp for secure temporary file
+temp_todos=$(mktemp)
+echo "$todos" > "$temp_todos"
 
 # Use Gemini to prioritize
 gemini "Analyze these TODOs and categorize by priority (Critical/High/Medium/Low). Consider: security impact, feature completeness, performance implications, technical debt accumulation. Format: [Priority] File:Line - Brief description
 
-$(cat /tmp/todos.txt)
+$(cat "$temp_todos")
 
 Output in this exact format:
 [CRITICAL] file.py:line - description
@@ -195,6 +197,9 @@ echo "Critical: $(grep -c '^\[CRITICAL\]' /tmp/todos_prioritized.txt)"
 echo "High: $(grep -c '^\[HIGH\]' /tmp/todos_prioritized.txt)"
 echo "Medium: $(grep -c '^\[MEDIUM\]' /tmp/todos_prioritized.txt)"
 echo "Low: $(grep -c '^\[LOW\]' /tmp/todos_prioritized.txt)"
+
+# Cleanup
+rm -f "$temp_todos"
 ```
 
 ### 3. Refactoring Opportunity Finder
@@ -211,8 +216,8 @@ echo "Scanning $target_dir for refactoring opportunities..."
 find "$target_dir" -name '*.py' -print0 | while IFS= read -r -d '' file; do
     echo "Analyzing: $file"
 
-    gemini "Identify code smells and refactoring opportunities in this file. Focus on: duplicate code, long functions (>50 lines), god classes, tight coupling. Be specific with line numbers if possible. File: $(cat $file)" \
-        > "/tmp/refactor_$(basename $file).txt"
+    gemini "Identify code smells and refactoring opportunities in this file. Focus on: duplicate code, long functions (>50 lines), god classes, tight coupling. Be specific with line numbers if possible. File: $(cat "$file")" \
+        > "/tmp/refactor_$(basename "$file").txt"
 done
 
 # Aggregate results
@@ -235,7 +240,7 @@ echo "Scanning for security vulnerabilities..."
 vulnerabilities_found=0
 
 find src -name '*.py' -print0 | while IFS= read -r -d '' file; do
-    result=$(gemini "Security audit this Python file. Check for: SQL injection (raw SQL queries), XSS (unescaped HTML), command injection (os.system, subprocess with shell=True), path traversal, hardcoded secrets. Report ONLY if vulnerabilities found with line numbers. File: $(cat $file)")
+    result=$(gemini "Security audit this Python file. Check for: SQL injection (raw SQL queries), XSS (unescaped HTML), command injection (os.system, subprocess with shell=True), path traversal, hardcoded secrets. Report ONLY if vulnerabilities found with line numbers. File: $(cat "$file")")
 
     if [ ! -z "$result" ]; then
         echo "🔴 VULNERABILITY in $file:"
@@ -306,7 +311,7 @@ fi
 
 ```bash
 # Check a single file
-gemini "Rate complexity 1-10 for each function. List high complexity (>7) first: $(cat src/mcp_memory_service/storage/hybrid.py)"
+gemini "Rate complexity 1-10 for each function. List high complexity (>7) first: $(cat "src/mcp_memory_service/storage/hybrid.py")"
 ```
 
 ### Pre-PR Quality Gate
@@ -315,7 +320,7 @@ gemini "Rate complexity 1-10 for each function. List high complexity (>7) first:
 # Run before creating PR
 git diff main...HEAD --name-only | grep '\.py$' | while IFS= read -r file; do
     echo "=== $file ==="
-    gemini "Quick code review: complexity score, security issues, refactoring suggestions. 3 sentences max. $(cat $file)"
+    gemini "Quick code review: complexity score, security issues, refactoring suggestions. 3 sentences max. $(cat "$file")"
     echo ""
 done
 ```
@@ -373,14 +378,14 @@ git commit -m "chore: update TODO tracker"
 
 ```bash
 # Complexity
-gemini "Complexity 1-10 per function, high (>7) first: $(cat file.py)"
+gemini "Complexity 1-10 per function, high (>7) first: $(cat "file.py")"
 
 # Security
-gemini "Security: SQL injection, XSS, command injection: $(cat file.py)"
+gemini "Security: SQL injection, XSS, command injection: $(cat "file.py")"
 
 # TODOs
-gemini "Prioritize these TODOs (Critical/High/Medium/Low): $(grep -rn TODO src/)"
+gemini "Prioritize these TODOs (Critical/High/Medium/Low): $(grep -rn "TODO\|FIXME\|XXX" src/)"
 
 # Refactoring
-gemini "Code smells & refactoring opportunities: $(cat file.py)"
+gemini "Code smells & refactoring opportunities: $(cat "file.py")"
 ```
