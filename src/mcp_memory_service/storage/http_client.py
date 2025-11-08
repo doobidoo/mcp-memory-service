@@ -22,7 +22,7 @@ import asyncio
 import json
 import logging
 from typing import List, Dict, Any, Tuple, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .base import MemoryStorage
 from ..models.memory import Memory, MemoryQueryResult
@@ -209,14 +209,10 @@ class HTTPClientStorage(MemoryStorage):
 
             # Add time filter if provided
             if time_start is not None:
-                # Convert timestamp to natural language time expression
-                # For simplicity, we'll pass a generic time filter that the API can parse
-                # A more sophisticated approach would convert the timestamp to a specific date range
-                from datetime import datetime, timezone
+                # The API's time_filter expects a natural language string or a parsable date.
+                # We convert the timestamp to an ISO date string for the server to parse.
                 dt = datetime.fromtimestamp(time_start, tz=timezone.utc)
-                # For now, we'll just pass the timestamp as-is and let the server handle it
-                # This is a simplified approach - in production, you might want to convert to a natural language expression
-                payload["time_filter"] = f"after {dt.isoformat()}"
+                payload["time_filter"] = dt.date().isoformat()
 
             async with self.session.post(search_url, json=payload) as response:
                 if response.status == 200:

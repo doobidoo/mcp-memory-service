@@ -572,22 +572,21 @@ class CloudflareStorage(MemoryStorage):
 
             # Build SQL query for tag search
             placeholders = ",".join(["?"] * len(tags))
-            sql_parts = [f"""
-            SELECT DISTINCT m.* FROM memories m
-            JOIN memory_tags mt ON m.id = mt.memory_id
-            JOIN tags t ON mt.tag_id = t.id
-            WHERE t.name IN ({placeholders})
-            """]
-
             params = list(tags)
+            where_conditions = [f"t.name IN ({placeholders})"]
 
             # Add time filter if provided
             if time_start is not None:
-                sql_parts.append("AND m.created_at >= ?")
+                where_conditions.append("m.created_at >= ?")
                 params.append(time_start)
 
-            sql_parts.append("ORDER BY m.created_at DESC")
-            sql = " ".join(sql_parts)
+            sql = (
+                "SELECT DISTINCT m.* FROM memories m "
+                "JOIN memory_tags mt ON m.id = mt.memory_id "
+                "JOIN tags t ON mt.tag_id = t.id "
+                f"WHERE {' AND '.join(where_conditions)} "
+                "ORDER BY m.created_at DESC"
+            )
 
             payload = {"sql": sql, "params": params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)

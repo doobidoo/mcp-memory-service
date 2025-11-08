@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from ...storage.base import MemoryStorage
 from ...models.memory import Memory, MemoryQueryResult
 from ...config import OAUTH_ENABLED
+from ...utils.time_parser import parse_time_expression
 from ..dependencies import get_storage
 from .memories import MemoryResponse, memory_to_response
 from ..sse import sse_manager, create_search_completed_event
@@ -191,10 +192,8 @@ async def tag_search(
         # Parse time filter if provided
         time_start = None
         if request.time_filter:
-            time_range = parse_time_query(request.time_filter)
-            if time_range:
-                start_dt = time_range.get('start')
-                time_start = start_dt.timestamp() if start_dt else None
+            start_ts, _ = parse_time_expression(request.time_filter)
+            time_start = start_ts if start_ts else None
 
         # Use the storage layer's tag search with optional time filtering
         memories = await storage.search_by_tag(request.tags, time_start=time_start)
@@ -267,21 +266,14 @@ async def time_search(
     start_time = time.time()
     
     try:
-        # Parse time query (basic implementation)
-        time_filter = parse_time_query(request.query)
-        
-        if not time_filter:
+        # Parse time query using robust time_parser
+        start_ts, end_ts = parse_time_expression(request.query)
+
+        if start_ts is None and end_ts is None:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Could not parse time query: '{request.query}'. Try 'yesterday', 'last week', 'this month', etc."
             )
-        
-        # FIXED: Get memories by time range FIRST, then apply semantic ranking
-        # Use recall() with time range to get all memories from that period
-        start_dt = time_filter.get('start')
-        end_dt = time_filter.get('end')
-        start_ts = start_dt.timestamp() if start_dt else None
-        end_ts = end_dt.timestamp() if end_dt else None
 
         # Retrieve memories within time range (with larger candidate pool if semantic query provided)
         candidate_pool_size = _TIME_SEARCH_CANDIDATE_POOL_SIZE if request.semantic_query else request.n_results
@@ -384,64 +376,3 @@ async def find_similar(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Similar search failed: {str(e)}")
-
-
-# Helper functions for time parsing
-def parse_time_query(query: str) -> Optional[Dict[str, Any]]:
-    """
-    Parse natural language time queries into time ranges.
-
-    This is a basic implementation - can be enhanced with more sophisticated
-    natural language processing later.
-    """
-    query_lower = query.lower().strip()
-    now = datetime.now(timezone.utc)
-    
-    # Define time mappings
-    if query_lower in ['yesterday']:
-        start = now - timedelta(days=1)
-        end = now
-        return {'start': start.replace(hour=0, minute=0, second=0), 'end': start.replace(hour=23, minute=59, second=59)}
-    
-    elif query_lower in ['today']:
-        return {'start': now.replace(hour=0, minute=0, second=0), 'end': now}
-    
-    elif query_lower in ['last week', 'past week']:
-        start = now - timedelta(weeks=1)
-        return {'start': start, 'end': now}
-    
-    elif query_lower in ['last month', 'past month']:
-        start = now - timedelta(days=30)
-        return {'start': start, 'end': now}
-    
-    elif query_lower in ['this week']:
-        # Start of current week (Monday)
-        days_since_monday = now.weekday()
-        start = now - timedelta(days=days_since_monday)
-        return {'start': start.replace(hour=0, minute=0, second=0), 'end': now}
-    
-    elif query_lower in ['this month']:
-        start = now.replace(day=1, hour=0, minute=0, second=0)
-        return {'start': start, 'end': now}
-
-    elif query_lower in ['last 2 weeks', 'past 2 weeks', 'last-2-weeks']:
-        start = now - timedelta(weeks=2)
-        return {'start': start, 'end': now}
-
-    # Add more time expressions as needed
-    return None
-
-
-def is_within_time_range(memory_time: datetime, time_filter: Dict[str, Any]) -> bool:
-    """Check if a memory's timestamp falls within the specified time range."""
-    start_time = time_filter.get('start')
-    end_time = time_filter.get('end')
-    
-    if start_time and end_time:
-        return start_time <= memory_time <= end_time
-    elif start_time:
-        return memory_time >= start_time
-    elif end_time:
-        return memory_time <= end_time
-    
-    return True
