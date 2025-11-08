@@ -54,8 +54,13 @@ while [ $iteration -le $MAX_ITERATIONS ] && [ "$approved" = false ]; do
     # Get review state (APPROVED, CHANGES_REQUESTED, COMMENTED)
     review_state=$(gh pr view $PR_NUMBER --json reviews --jq '[.reviews[] | select(.author.login == "gemini-code-assist[bot]")] | last | .state')
 
-    # Get inline review comments count
+    # Get inline review comments count and content
     review_comments_count=$(gh api repos/doobidoo/mcp-memory-service/pulls/$PR_NUMBER/comments | jq '[.[] | select(.user.login == "gemini-code-assist[bot]")] | length')
+
+    # Fetch actual comment bodies for categorization
+    review_comments=$(gh api repos/doobidoo/mcp-memory-service/pulls/$PR_NUMBER/comments | \
+        jq -r '[.[] | select(.user.login == "gemini-code-assist[bot]")] | .[] | "- \(.path):\(.line) - \(.body[0:200])"' | \
+        head -50)
 
     echo "Review State: $review_state"
     echo "Inline Comments: $review_comments_count"
