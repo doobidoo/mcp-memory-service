@@ -40,36 +40,37 @@ approved=false
 while [ $iteration -le $MAX_ITERATIONS ] && [ "$approved" = false ]; do
     echo "=== Iteration $iteration/$MAX_ITERATIONS ==="
 
-    # Trigger Gemini review (comment on PR)
-    echo "Requesting Gemini review..."
-    gh pr comment $PR_NUMBER --body "Please review this PR for code quality, security, and best practices. Focus on:
-- Code complexity and readability
-- Security vulnerabilities
-- Performance implications
-- Breaking changes
-- Test coverage
-
-IMPORTANT: If the PR is approved and ready to merge, include the exact text: **AUTOMATED_APPROVAL_OK**
-
-Provide specific, actionable feedback."
+    # Trigger Gemini review (use /gemini review for inline comments)
+    echo "Requesting Gemini code review (inline comments)..."
+    gh pr comment $PR_NUMBER --body "/gemini review"
 
     # Wait for Gemini to process
     echo "Waiting for Gemini review (90 seconds)..."
     sleep 90
 
-    # Fetch latest review comments
+    # Fetch latest review status and comments
     echo "Fetching review feedback..."
-    review_comments=$(gh pr view $PR_NUMBER --json comments --jq '[.comments[] | select(.author.login == "gemini-code-assist")] | last | .body')
 
-    echo ""
-    echo "--- Review Feedback ---"
-    echo "$review_comments"
-    echo "--- End Feedback ---"
+    # Get review state (APPROVED, CHANGES_REQUESTED, COMMENTED)
+    review_state=$(gh pr view $PR_NUMBER --json reviews --jq '[.reviews[] | select(.author.login == "gemini-code-assist")] | last | .state')
+
+    # Get inline review comments count
+    review_comments_count=$(gh api repos/doobidoo/mcp-memory-service/pulls/$PR_NUMBER/comments | jq '[.[] | select(.user.login == "gemini-code-assist")] | length')
+
+    echo "Review State: $review_state"
+    echo "Inline Comments: $review_comments_count"
     echo ""
 
-    # Check if approved (using unique keyword)
-    if echo "$review_comments" | grep -q "AUTOMATED_APPROVAL_OK"; then
+    # Check if approved
+    if [ "$review_state" = "APPROVED" ]; then
         echo "✅ PR approved by Gemini!"
+        approved=true
+        break
+    fi
+
+    # If no inline comments, we're done
+    if [ "$review_comments_count" -eq 0 ] && [ "$review_state" != "CHANGES_REQUESTED" ]; then
+        echo "✅ No issues found in review"
         approved=true
         break
     fi
