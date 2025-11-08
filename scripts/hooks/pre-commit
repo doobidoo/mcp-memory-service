@@ -75,7 +75,9 @@ $(cat $file)" || echo "")
 
 $(cat $file)" || echo "")
 
-    if echo "$security_result" | grep -qi "vulnerability\|injection\|hardcoded\|security"; then
+    # Check for actual security findings (exclude negative responses like "No ... found")
+    if echo "$security_result" | grep -qiE "(found|detected|vulnerable|present|exists).*(injection|hardcoded|security|vulnerability)" && \
+       ! echo "$security_result" | grep -qiE "no.*(injection|hardcoded|vulnerability|security|issues?|problems?)"; then
         echo -e "${RED}🔴 SECURITY ISSUE DETECTED${NC}"
         echo "$security_result"
         echo ""
