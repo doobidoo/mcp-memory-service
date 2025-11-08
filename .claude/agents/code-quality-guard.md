@@ -205,7 +205,7 @@ target_dir="${1:-src/mcp_memory_service}"
 echo "Scanning $target_dir for refactoring opportunities..."
 
 # Analyze each Python file
-find "$target_dir" -name '*.py' | while read file; do
+find "$target_dir" -name '*.py' -print0 | while IFS= read -r -d '' file; do
     echo "Analyzing: $file"
 
     gemini "Identify code smells and refactoring opportunities in this file. Focus on: duplicate code, long functions (>50 lines), god classes, tight coupling. Be specific with line numbers if possible. File: $(cat $file)" \
@@ -231,7 +231,7 @@ echo "Scanning for security vulnerabilities..."
 
 vulnerabilities_found=0
 
-find src -name '*.py' | while read file; do
+find src -name '*.py' -print0 | while IFS= read -r -d '' file; do
     result=$(gemini "Security audit this Python file. Check for: SQL injection (raw SQL queries), XSS (unescaped HTML), command injection (os.system, subprocess with shell=True), path traversal, hardcoded secrets. Report ONLY if vulnerabilities found with line numbers. File: $(cat $file)")
 
     if [ ! -z "$result" ]; then
@@ -310,7 +310,7 @@ gemini "Rate complexity 1-10 for each function. List high complexity (>7) first:
 
 ```bash
 # Run before creating PR
-git diff main...HEAD --name-only | grep '\.py$' | while read file; do
+git diff main...HEAD --name-only | grep '\.py$' | while IFS= read -r file; do
     echo "=== $file ==="
     gemini "Quick code review: complexity score, security issues, refactoring suggestions. 3 sentences max. $(cat $file)"
     echo ""

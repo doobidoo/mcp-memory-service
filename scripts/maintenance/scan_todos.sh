@@ -85,11 +85,11 @@ high_count=$(grep -c '## HIGH' /tmp/todos_prioritized.txt || echo "0")
 medium_count=$(grep -c '## MEDIUM' /tmp/todos_prioritized.txt || echo "0")
 low_count=$(grep -c '## LOW' /tmp/todos_prioritized.txt || echo "0")
 
-# Count actual items (lines starting with -)
-critical_items=$(sed -n '/## CRITICAL/,/## HIGH/p' /tmp/todos_prioritized.txt | grep -c '^-' || echo "0")
-high_items=$(sed -n '/## HIGH/,/## MEDIUM/p' /tmp/todos_prioritized.txt | grep -c '^-' || echo "0")
-medium_items=$(sed -n '/## MEDIUM/,/## LOW/p' /tmp/todos_prioritized.txt | grep -c '^-' || echo "0")
-low_items=$(sed -n '/## LOW/,/$/p' /tmp/todos_prioritized.txt | grep -c '^-' || echo "0")
+# Count actual items using awk (order-independent parsing)
+critical_items=$(awk '/^## CRITICAL/,/^## [A-Z]/ {if (/^-/) count++} END {print count+0}' /tmp/todos_prioritized.txt)
+high_items=$(awk '/^## HIGH/,/^## [A-Z]/ {if (/^-/) count++} END {print count+0}' /tmp/todos_prioritized.txt)
+medium_items=$(awk '/^## MEDIUM/,/^## [A-Z]/ {if (/^-/) count++} END {print count+0}' /tmp/todos_prioritized.txt)
+low_items=$(awk '/^## LOW/,/^$/ {if (/^-/) count++} END {print count+0}' /tmp/todos_prioritized.txt)
 
 echo "=== Summary ==="
 echo "Total TODOs: $todo_count"

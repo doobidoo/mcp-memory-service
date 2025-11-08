@@ -8,6 +8,7 @@ import json
 import os
 import sys
 from groq import Groq
+from groq import APIError, AuthenticationError, RateLimitError, APIConnectionError
 
 
 class GroqAgentBridge:
@@ -55,11 +56,41 @@ class GroqAgentBridge:
                 "model": model,
                 "tokens_used": response.usage.total_tokens
             }
-            
-        except Exception as e:
+
+        except AuthenticationError as e:
             return {
-                "status": "error", 
-                "error": str(e),
+                "status": "error",
+                "error": f"Authentication failed: {str(e)}. Check GROQ_API_KEY environment variable.",
+                "error_type": "authentication",
+                "model": model
+            }
+        except RateLimitError as e:
+            return {
+                "status": "error",
+                "error": f"Rate limit exceeded: {str(e)}. Please try again later.",
+                "error_type": "rate_limit",
+                "model": model
+            }
+        except APIConnectionError as e:
+            return {
+                "status": "error",
+                "error": f"Network connection failed: {str(e)}. Check your internet connection.",
+                "error_type": "connection",
+                "model": model
+            }
+        except APIError as e:
+            return {
+                "status": "error",
+                "error": f"Groq API error: {str(e)}",
+                "error_type": "api_error",
+                "model": model
+            }
+        except Exception as e:
+            # Catch-all for unexpected errors
+            return {
+                "status": "error",
+                "error": f"Unexpected error: {str(e)}",
+                "error_type": "unknown",
                 "model": model
             }
     

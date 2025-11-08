@@ -84,8 +84,8 @@ echo ""
 
 # Check 3: Test coverage
 echo "=== Check 3: Test Coverage ==="
-test_files=$(gh pr diff $PR_NUMBER --name-only | grep '^tests/.*\.py$' | wc -l)
-code_files=$(echo "$changed_files" | grep -v '^tests/' | wc -l)
+test_files=$(gh pr diff $PR_NUMBER --name-only | grep -c '^tests/.*\.py$' || echo "0")
+code_files=$(echo "$changed_files" | grep -vc '^tests/' || echo "0")
 
 if [ $code_files -gt 0 ] && [ $test_files -eq 0 ]; then
     warnings+=("No test files added/modified despite $code_files code file(s) changed")

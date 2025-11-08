@@ -48,9 +48,11 @@ for file in $changed_files; do
 
     echo "=== Processing: $file ==="
 
-    # Determine test file path
-    base_name=$(basename "$file")
-    test_file="tests/test_${base_name}"
+    # Determine test file path (mirror source structure)
+    # e.g., src/api/utils.py -> tests/api/test_utils.py
+    test_dir="tests/$(dirname "${file#src/}")"
+    mkdir -p "$test_dir"
+    test_file="$test_dir/test_$(basename "$file")"
 
     if [ -f "$test_file" ]; then
         echo "Test file exists: $test_file"

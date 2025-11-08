@@ -41,7 +41,7 @@ echo ""
 high_complexity=0
 security_issues=0
 
-for file in $staged_files; do
+while IFS= read -r file; do
     if [ ! -f "$file" ]; then
         continue
     fi
@@ -91,7 +91,7 @@ $(cat $file)" || echo "SECURITY_CLEAN")
         echo -e "${GREEN}✓${NC} No security issues"
     fi
     echo ""
-done
+done < <(git diff --cached --name-only --diff-filter=AM | grep '\.py$')
 
 echo "=== Pre-commit Check Summary ==="
 echo ""

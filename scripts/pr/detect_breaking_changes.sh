@@ -46,7 +46,14 @@ fi
 echo "API changes detected. Analyzing for breaking changes..."
 echo ""
 
-# Analyze with Gemini
+# Check diff size and warn if large
+diff_lines=$(echo "$api_changes" | wc -l)
+if [ $diff_lines -gt 200 ]; then
+    echo "⚠️  Warning: Large diff ($diff_lines lines) - analysis may miss changes beyond model context window"
+    echo "   Consider reviewing the full diff manually for breaking changes"
+fi
+
+# Analyze with Gemini (full diff, not truncated)
 result=$(gemini "Analyze these API changes for BREAKING CHANGES ONLY.
 
 A breaking change is:
@@ -73,7 +80,7 @@ For each breaking change, provide:
 
 API Changes:
 \`\`\`diff
-$(echo "$api_changes" | head -200)
+$api_changes
 \`\`\`
 
 Output format:

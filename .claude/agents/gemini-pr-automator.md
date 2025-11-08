@@ -428,8 +428,8 @@ done
 
 # Check 3: Test coverage
 echo "Check 3: Test coverage..."
-test_files=$(gh pr diff $PR_NUMBER --name-only | grep '^tests/.*\.py$' | wc -l)
-code_files=$(gh pr diff $PR_NUMBER --name-only | grep '\.py$' | grep -v '^tests/' | wc -l)
+test_files=$(gh pr diff $PR_NUMBER --name-only | grep -c '^tests/.*\.py$' || echo "0")
+code_files=$(gh pr diff $PR_NUMBER --name-only | grep '\.py$' | grep -vc '^tests/' || echo "0")
 
 if [ $code_files -gt 0 ] && [ $test_files -eq 0 ]; then
     echo "⚠️  No test files added/modified despite code changes"

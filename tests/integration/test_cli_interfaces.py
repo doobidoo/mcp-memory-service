@@ -200,19 +200,26 @@ class TestCLIRobustness:
     """Test CLI robustness and edge cases."""
     
     def test_environment_variable_passing(self):
-        """Test that environment variables are properly set by CLI commands."""
+        """Test that CLI arguments correctly set environment variables."""
         import os
         import subprocess
-        
-        # Test memory server command (chroma-path removed in v8.0.0)
+
+        # Test that --debug flag affects application behavior
         env = os.environ.copy()
+        env.pop('MCP_DEBUG', None)  # Ensure not already set
+
         result = subprocess.run(
             ["uv", "run", "python", "-c", """
 import os
-from mcp_memory_service.cli.main import cli
 import sys
-sys.argv = ['memory', 'server', '--help']
-# Just test that CLI loads without errors
+from mcp_memory_service.cli.main import cli
+from click.testing import CliRunner
+
+# Test that --debug flag is recognized and sets debug mode
+runner = CliRunner()
+result = runner.invoke(cli, ['server', '--debug', '--help'])
+print(f'EXIT_CODE:{result.exit_code}')
+print(f'DEBUG_IN_OUTPUT:{\"--debug\" in result.output}')
 """],
             capture_output=True,
             text=True,
@@ -221,8 +228,10 @@ sys.argv = ['memory', 'server', '--help']
             timeout=10
         )
 
-        # Should succeed showing help
+        # Should succeed and recognize --debug flag
         assert result.returncode == 0
+        assert 'EXIT_CODE:0' in result.stdout
+        assert 'DEBUG_IN_OUTPUT:True' in result.stdout
     
     def test_cli_error_handling(self):
         """Test that CLI handles errors gracefully."""
