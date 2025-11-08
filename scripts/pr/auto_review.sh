@@ -70,13 +70,13 @@ while [ $iteration -le $MAX_ITERATIONS ] && [ "$approved" = false ]; do
     # Get review state (APPROVED, CHANGES_REQUESTED, COMMENTED)
     review_state=$(gh pr view $PR_NUMBER --json reviews --jq '[.reviews[] | select(.author.login == "gemini-code-assist[bot]")] | last | .state')
 
-    # Get inline review comments count and content
-    review_comments_count=$(gh api "repos/$REPO/pulls/$PR_NUMBER/comments" | jq '[.[] | select(.user.login == "gemini-code-assist[bot]")] | length')
-
-    # Fetch actual comment bodies for categorization
+    # Fetch actual comment bodies for categorization first
     review_comments=$(gh api "repos/$REPO/pulls/$PR_NUMBER/comments" | \
         jq -r '[.[] | select(.user.login == "gemini-code-assist[bot]")] | .[] | "- \(.path):\(.line) - \(.body[0:200])"' | \
         head -50)
+
+    # Get inline review comments count
+    review_comments_count=$(gh api "repos/$REPO/pulls/$PR_NUMBER/comments" | jq '[.[] | select(.user.login == "gemini-code-assist[bot]")] | length')
 
     echo "Review State: $review_state"
     echo "Inline Comments: $review_comments_count"
@@ -158,12 +158,14 @@ $pr_diff
 
 Output only the git diff patch that can be applied with 'git apply'. Include file paths and line numbers.")
 
-        echo "$fixes" > /tmp/pr_fixes_${PR_NUMBER}_${iteration}.patch
+        # Use mktemp for patch file
+        patch_file=$(mktemp -t pr_fixes_${PR_NUMBER}_${iteration}.XXXXXX)
+        echo "$fixes" > "$patch_file"
 
         # Attempt to apply fixes
         echo "Attempting to apply fixes..."
-        if git apply --check /tmp/pr_fixes_${PR_NUMBER}_${iteration}.patch 2>/dev/null; then
-            git apply /tmp/pr_fixes_${PR_NUMBER}_${iteration}.patch
+        if git apply --check "$patch_file" 2>/dev/null; then
+            git apply "$patch_file"
             git add -A
 
             # Create commit message
@@ -194,8 +196,11 @@ Co-Authored-By: Gemini Code Assist <gemini@google.com>"
                     echo "ℹ️  No threads needed resolution"
                 fi
             fi
+
+            # Clean up temp file
+            rm -f "$patch_file"
         else
-            echo "⚠️  Could not auto-apply fixes. Patch saved to /tmp/pr_fixes_${PR_NUMBER}_${iteration}.patch"
+            echo "⚠️  Could not auto-apply fixes. Patch saved to $patch_file"
             echo "Manual application required."
             break
         fi

@@ -45,7 +45,11 @@ echo ""
 
 # Check 1: Code complexity
 echo "=== Check 1: Code Complexity ==="
-for file in $changed_files; do
+echo "$changed_files" | while IFS= read -r file; do
+    if [ -z "$file" ]; then
+        continue
+    fi
+
     if [ ! -f "$file" ]; then
         echo "Skipping $file (file not found in working directory)"
         continue
@@ -65,17 +69,29 @@ echo ""
 
 # Check 2: Security scan
 echo "=== Check 2: Security Vulnerabilities ==="
-for file in $changed_files; do
+echo "$changed_files" | while IFS= read -r file; do
+    if [ -z "$file" ]; then
+        continue
+    fi
+
     if [ ! -f "$file" ]; then
         continue
     fi
 
     echo "Scanning: $file"
-    result=$(gemini "Security audit. Check for: SQL injection (raw SQL), XSS (unescaped HTML), command injection (os.system, subprocess with shell=True), path traversal, hardcoded secrets. Report ONLY if vulnerabilities found. File content:
+    # Request machine-parseable output (similar to pre-commit hook)
+    result=$(gemini "Security audit. Check for: SQL injection (raw SQL), XSS (unescaped HTML), command injection (os.system, subprocess with shell=True), path traversal, hardcoded secrets.
 
-$(cat $file)" 2>&1 || echo "")
+IMPORTANT: Output format:
+- If ANY vulnerability found, start response with: VULNERABILITY_DETECTED: [type]
+- If NO vulnerabilities found, start response with: SECURITY_CLEAN
+- Then provide details
 
-    if echo "$result" | grep -qi "vulnerability\|injection\|hardcoded\|security issue"; then
+File content:
+$(cat "$file")" 2>&1 || echo "SECURITY_CLEAN")
+
+    # Check for machine-parseable vulnerability marker (more reliable than grep)
+    if echo "$result" | grep -q "^VULNERABILITY_DETECTED:"; then
         critical_issues+=("🔴 Security issue in $file: $result")
         exit_code=2
     fi
@@ -85,7 +101,8 @@ echo ""
 # Check 3: Test coverage
 echo "=== Check 3: Test Coverage ==="
 test_files=$(gh pr diff $PR_NUMBER --name-only | grep -c '^tests/.*\.py$' || echo "0")
-code_files=$(echo "$changed_files" | grep -vc '^tests/' || echo "0")
+# Count code files directly from changed_files
+code_files=$(echo "$changed_files" | grep -c '\.py$' || echo "0")
 
 if [ $code_files -gt 0 ] && [ $test_files -eq 0 ]; then
     warnings+=("No test files added/modified despite $code_files code file(s) changed")
@@ -109,9 +126,11 @@ api_changes=$(git diff origin/main...origin/$head_branch -- \
 
 if [ ! -z "$api_changes" ]; then
     echo "Analyzing API changes..."
+    # Truncate to 200 lines (increased from 100) to capture more context while preventing overflow
+    # Note: Large PRs may still lose context, but this is a reasonable trade-off for performance
     breaking_result=$(gemini "Analyze for breaking changes. Breaking changes include: removed functions/endpoints, changed signatures (parameters removed/reordered), changed return types, renamed public APIs, changed HTTP paths/methods. Report ONLY if breaking changes found with severity (CRITICAL/HIGH/MEDIUM). Changes:
 
-$(echo "$api_changes" | head -100)" 2>&1 || echo "")
+$(echo "$api_changes" | head -200)" 2>&1 || echo "")
 
     if echo "$breaking_result" | grep -qi "breaking\|CRITICAL\|HIGH"; then
         warnings+=("⚠️  Potential breaking changes detected: $breaking_result")

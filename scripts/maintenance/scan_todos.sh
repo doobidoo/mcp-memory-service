@@ -35,8 +35,9 @@ todo_count=$(echo "$todos" | wc -l)
 echo "Found $todo_count TODO comments"
 echo ""
 
-# Save to temp file
-echo "$todos" > /tmp/todos_raw.txt
+# Save to temp file using mktemp
+todos_raw=$(mktemp -t todos_raw.XXXXXX)
+echo "$todos" > "$todos_raw"
 
 echo "Analyzing and prioritizing TODOs with Gemini..."
 echo ""
@@ -58,7 +59,7 @@ Consider:
 - Technical debt accumulation
 
 TODO comments (format: file:line:comment):
-$(cat /tmp/todos_raw.txt)
+$(cat "$todos_raw")
 
 Output format (be concise):
 ## CRITICAL (P0)
@@ -73,25 +74,20 @@ Output format (be concise):
 ## LOW (P3)
 - file.py:012 - Brief description")
 
-echo "$prioritized" > /tmp/todos_prioritized.txt
+todos_prioritized=$(mktemp -t todos_prioritized.XXXXXX)
+echo "$prioritized" > "$todos_prioritized"
 
 # Display results
-cat /tmp/todos_prioritized.txt
+cat "$todos_prioritized"
 echo ""
-
-# Generate summary
-critical_count=$(grep -c '## CRITICAL' /tmp/todos_prioritized.txt || echo "0")
-high_count=$(grep -c '## HIGH' /tmp/todos_prioritized.txt || echo "0")
-medium_count=$(grep -c '## MEDIUM' /tmp/todos_prioritized.txt || echo "0")
-low_count=$(grep -c '## LOW' /tmp/todos_prioritized.txt || echo "0")
 
 # Count actual items using awk (robust, order-independent parsing)
 # Pattern: count lines starting with '-' within each priority section
-critical_items=$(awk '/^## CRITICAL/,/^## [A-Z]/ {if (/^-/ && !/^## /) count++} END {print count+0}' /tmp/todos_prioritized.txt)
-high_items=$(awk '/^## HIGH/,/^## [A-Z]/ {if (/^-/ && !/^## /) count++} END {print count+0}' /tmp/todos_prioritized.txt)
-medium_items=$(awk '/^## MEDIUM/,/^## [A-Z]/ {if (/^-/ && !/^## /) count++} END {print count+0}' /tmp/todos_prioritized.txt)
+critical_items=$(awk '/^## CRITICAL/,/^## [A-Z]/ {if (/^-/ && !/^## /) count++} END {print count+0}' "$todos_prioritized")
+high_items=$(awk '/^## HIGH/,/^## [A-Z]/ {if (/^-/ && !/^## /) count++} END {print count+0}' "$todos_prioritized")
+medium_items=$(awk '/^## MEDIUM/,/^## [A-Z]/ {if (/^-/ && !/^## /) count++} END {print count+0}' "$todos_prioritized")
 # LOW section: handle both cases (followed by another section or end of file)
-low_items=$(awk '/^## LOW/ {in_low=1; next} /^## [A-Z]/ && in_low {in_low=0} in_low && /^-/ {count++} END {print count+0}' /tmp/todos_prioritized.txt)
+low_items=$(awk '/^## LOW/ {in_low=1; next} /^## [A-Z]/ && in_low {in_low=0} in_low && /^-/ {count++} END {print count+0}' "$todos_prioritized")
 
 echo "=== Summary ==="
 echo "Total TODOs: $todo_count"
@@ -124,7 +120,7 @@ if [ -d "docs/development" ]; then
 
 ---
 
-$(cat /tmp/todos_prioritized.txt)
+$(cat "$todos_prioritized")
 
 ---
 
@@ -141,6 +137,9 @@ Run: \`bash scripts/maintenance/scan_todos.sh\`
 EOF
     echo "✅ Saved to docs/development/todo-tracker.md"
 fi
+
+# Clean up temp files
+rm -f "$todos_raw" "$todos_prioritized"
 
 # Exit with warning if critical TODOs found
 if [ $critical_items -gt 0 ]; then

@@ -40,7 +40,12 @@ echo ""
 
 tests_generated=0
 
-for file in $changed_files; do
+# Process files safely (handle spaces in filenames)
+echo "$changed_files" | while IFS= read -r file; do
+    if [ -z "$file" ]; then
+        continue
+    fi
+
     if [ ! -f "$file" ]; then
         echo "Skipping $file (not found in working directory)"
         continue
@@ -90,7 +95,8 @@ Requirements:
 
 Format: Complete Python test functions ready to append.")
 
-        output_file="/tmp/test_additions_${base_name}"
+        # Use mktemp for output file
+        output_file=$(mktemp -t test_additions_${base_name}.XXXXXX)
         echo "$additional_tests" > "$output_file"
 
         echo "Additional tests generated: $output_file"
@@ -127,7 +133,8 @@ Requirements:
 
 Format: Complete, ready-to-use Python test file.")
 
-        output_file="/tmp/test_new_${base_name}"
+        # Use mktemp for output file
+        output_file=$(mktemp -t test_new_${base_name}.XXXXXX)
         echo "$new_tests" > "$output_file"
 
         echo "New test file generated: $output_file"

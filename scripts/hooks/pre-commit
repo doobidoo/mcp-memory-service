@@ -26,7 +26,7 @@ if ! command -v gemini &> /dev/null; then
     exit 0
 fi
 
-# Get staged Python files
+# Get staged Python files (store once for efficiency)
 staged_files=$(git diff --cached --name-only --diff-filter=AM | grep '\.py$' || echo "")
 
 if [ -z "$staged_files" ]; then
@@ -79,7 +79,7 @@ IMPORTANT: Output format:
 - Then provide details
 
 File to scan:
-$(cat $file)" || echo "SECURITY_CLEAN")
+$(cat "$file")" || echo "SECURITY_CLEAN")
 
     # Check for machine-parseable vulnerability marker
     if echo "$security_result" | grep -q "^VULNERABILITY_DETECTED:"; then
@@ -91,7 +91,7 @@ $(cat $file)" || echo "SECURITY_CLEAN")
         echo -e "${GREEN}✓${NC} No security issues"
     fi
     echo ""
-done < <(git diff --cached --name-only --diff-filter=AM | grep '\.py$')
+done <<< "$staged_files"
 
 echo "=== Pre-commit Check Summary ==="
 echo ""
