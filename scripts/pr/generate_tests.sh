@@ -48,6 +48,9 @@ for file in $changed_files; do
 
     echo "=== Processing: $file ==="
 
+    # Extract basename for temp files
+    base_name=$(basename "$file" .py)
+
     # Determine test file path (mirror source structure)
     # e.g., src/api/utils.py -> tests/api/test_utils.py
     test_dir="tests/$(dirname "${file#src/}")"

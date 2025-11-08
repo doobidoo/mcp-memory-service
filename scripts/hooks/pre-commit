@@ -52,7 +52,7 @@ while IFS= read -r file; do
     echo "Checking complexity..."
     complexity_result=$(gemini "Analyze code complexity. Rate each function 1-10. Report ONLY functions with score >7 in format: 'FunctionName: Score X'. Be concise. File:
 
-$(cat $file)" || echo "")
+$(cat "$file")" || echo "")
 
     if echo "$complexity_result" | grep -qi "score [89]\|score 10"; then
         echo -e "${RED}🔴 CRITICAL: Very high complexity detected${NC}"

@@ -57,8 +57,11 @@ modified_files=$(git diff --name-only --diff-filter=AM | grep '\.py$')
 
 for file in $modified_files; do
     echo "=== Analyzing: $file ==="
-    gemini "Analyze this Python file for complexity. Rate each function 1-10 (1=simple, 10=very complex). List functions with score >7 first. Be concise. File: $(cat $file)" \
-        > "/tmp/complexity_${file//\//_}.txt"
+    # Note: Use mktemp in production for secure temp files
+    temp_file=$(mktemp)
+    gemini "Analyze this Python file for complexity. Rate each function 1-10 (1=simple, 10=very complex). List functions with score >7 first. Be concise. File: $(cat "$file")" \
+        > "$temp_file"
+    mv "$temp_file" "/tmp/complexity_${file//\//_}.txt"
 done
 
 # Aggregate results
@@ -123,7 +126,7 @@ for file in $staged_files; do
     echo "Checking: $file"
 
     # Complexity check
-    result=$(gemini "Analyze this file. Report ONLY functions with complexity >7 in format 'FunctionName: Score'. $(cat $file)")
+    result=$(gemini "Analyze this file. Report ONLY functions with complexity >7 in format 'FunctionName: Score'. $(cat "$file")")
 
     if [ ! -z "$result" ]; then
         echo "⚠️  High complexity detected in $file:"

@@ -48,7 +48,7 @@ print(response)
 # Advanced call with options
 result = bridge.call_model(
     prompt="Generate Python code for a binary search tree",
-    model="mixtral-8x7b-32768",
+    model="llama-3.3-70b-versatile",
     max_tokens=500,
     temperature=0.3,
     system_message="You are an expert Python programmer"

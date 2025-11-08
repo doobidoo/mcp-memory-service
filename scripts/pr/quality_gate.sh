@@ -54,7 +54,7 @@ for file in $changed_files; do
     echo "Analyzing: $file"
     result=$(gemini "Analyze code complexity. Rate each function 1-10 (1=simple, 10=very complex). Report ONLY functions with score >7 in format 'FunctionName: Score X - Reason'. File content:
 
-$(cat $file)" 2>&1 || echo "")
+$(cat "$file")" 2>&1 || echo "")
 
     if echo "$result" | grep -qi "score [89]\|score 10"; then
         warnings+=("High complexity in $file: $result")
