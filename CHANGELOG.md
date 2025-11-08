@@ -10,6 +10,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [8.21.0] - 2025-11-08
+
+### Added
+- **Tag + Time Filtering** (PR #215, Issue #214) - Enhanced memory retrieval with combined tag and time constraints
+  - New API endpoint: `/api/search/by-tag` with optional `time_start` and `time_end` parameters
+  - Client method: `queryMemoriesByTagsAndTime()` in memory-client.js
+  - Storage backend support: time_start parameter across all backends (sqlite-vec, cloudflare, hybrid)
+  - Session-start hook improvements: Phase 2 important memory filtering now uses tag+time queries
+  - **Performance**: 5-10ms (indexed tag query) vs 50-200ms (semantic query)
+  - **Precision**: Exact tag match eliminates semantic over-filtering ambiguity
+  - **Impact**: Session-start hook accuracy improved from 0 → 20 memories retrieved
+  - Backward compatible: time parameters are optional
+
+### Fixed
+- **recall_memory Semantic Over-Filtering** (Issue #214) - Fixed bug where combined time + semantic queries filtered out relevant memories
+  - Tag-based architecture prevents semantic matching from over-filtering time-ranged results
+  - Example: `recall_memory("today mcp-memory-service")` now correctly returns all 20 memories instead of 0
+  - Parameterized SQL queries ensure safe time filtering across all backends
+- **Pre-commit Hook OAuth Interruption** - Groq API now primary LLM for code quality checks
+  - Eliminated OAuth browser authentication interruptions during git commits
+  - Fallback to Gemini CLI if Groq unavailable
+  - 10x faster inference (200-300ms vs 2-3s)
+
+### Documentation
+- Enhanced CLAUDE.md with agent-first development principles
+- Added version management best practices and manual vs agent comparison
+- Updated release workflow documentation with hotfix procedures
+
 ## [8.20.1] - 2025-11-08
 
 ### Fixed

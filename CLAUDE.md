@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop with SQLite-vec, Cloudflare, and Hybrid storage backends.
 
-> **🆕 v8.20.0**: **PR Automation & Code Quality** - Automated Gemini review cycles (saves 10-30 min/PR), pre-commit hooks for complexity/security checks, Groq bridge integration (10x faster), and comprehensive agent ecosystem for development workflow automation. See [CHANGELOG.md](CHANGELOG.md) for full version history.
+> **🆕 v8.21.0**: **Tag + Time Filtering** - Enhanced memory retrieval with combined tag and time constraints (PR #215, Issue #214). 10x faster indexed queries (5-10ms vs 50-200ms), fixes semantic over-filtering, and Groq primary LLM for pre-commit hooks (no OAuth interruption). See [CHANGELOG.md](CHANGELOG.md) for full version history.
 >
 > **Note**: When releasing new versions, update this line with current version + brief description. Use `.claude/agents/github-release-manager.md` agent for complete release workflow.
 
@@ -317,7 +317,8 @@ Use 24 core types: `note`, `reference`, `document`, `guide`, `session`, `impleme
 |------|-------|-----|
 | **Any release** (major/minor/patch/hotfix) | github-release-manager | Ensures README.md, CHANGELOG.md, GitHub Release, issue tracking |
 | **Batch code fixes** | amp-bridge | Fast parallel execution, syntax validation |
-| **PR review automation** | gemini-pr-automator | Saves 10-30 min/PR, auto-resolves threads |
+| **PR review automation (auto-fix)** | gemini-pr-automator | Saves 10-30 min/PR, auto-applies fixes, auto-resolves threads |
+| **PR review automation (manual)** | amp-pr-automator | Free tier, no OAuth, parallel analysis, cost-effective alternative |
 | **Code quality checks** | code-quality-guard | Pre-commit complexity/security scanning |
 
 **Manual vs Agent Comparison:**
@@ -378,7 +379,8 @@ Workflow automation agents using Gemini CLI, Groq API, and Amp CLI. All agents i
 | **github-release-manager** | GitHub CLI | Complete release workflow | Production | Proactive on feature completion |
 | **amp-bridge** | Amp CLI | Research without Claude credits | Production | File-based prompts |
 | **code-quality-guard** | Gemini CLI / Groq API | Fast code quality analysis | Active | Pre-commit, pre-PR |
-| **gemini-pr-automator** | Gemini CLI | Automated PR review loops | Active | Post-PR creation |
+| **gemini-pr-automator** | Gemini CLI | Automated PR review + auto-fix | Active | Post-PR creation (high-trust, auto-fix) |
+| **amp-pr-automator** | Amp CLI | Cost-effective PR analysis | Active | Post-PR creation (manual review, free-tier) |
 
 **Groq Bridge** (RECOMMENDED): Ultra-fast inference for code-quality-guard agent (~10x faster than Gemini, 200-300ms vs 2-3s). Supports multiple models including Kimi K2 (256K context, excellent for agentic coding). **Pre-commit hooks now use Groq as primary LLM** with Gemini fallback, avoiding OAuth browser authentication interruptions. See `docs/integrations/groq-bridge.md` for setup.
 
@@ -442,7 +444,7 @@ See [.claude/agents/code-quality-guard.md](.claude/agents/code-quality-guard.md)
 
 ### Gemini PR Automator
 
-Eliminates manual "Wait 1min → /gemini review" cycles with fully automated review iteration.
+Eliminates manual "Wait 1min → /gemini review" cycles with fully automated review iteration and auto-fix application.
 
 ```bash
 # Full automated review (5 iterations, safe fixes enabled)
@@ -458,7 +460,27 @@ bash scripts/pr/generate_tests.sh <PR_NUMBER>
 bash scripts/pr/detect_breaking_changes.sh main <BRANCH>
 ```
 
-**Time Savings:** ~10-30 minutes per PR vs manual iteration. See [.claude/agents/gemini-pr-automator.md](.claude/agents/gemini-pr-automator.md) for workflows.
+**Time Savings:** ~10-30 minutes per PR vs manual iteration. **Best for:** Auto-fix workflows, high-trust teams. See [.claude/agents/gemini-pr-automator.md](.claude/agents/gemini-pr-automator.md) for workflows.
+
+### Amp PR Automator
+
+Cost-effective alternative to Gemini PR Automator using free-tier Amp CLI with parallel analysis and no OAuth friction.
+
+```bash
+# Full parallel analysis (no auto-fix, manual review required)
+bash scripts/pr/amp_pr_review.sh <PR_NUMBER>
+
+# Quality gate only (3-4x faster via parallelism)
+bash scripts/pr/amp_quality_gate.sh <PR_NUMBER>
+
+# Suggest fixes (categorized as SAFE/NEEDS_REVIEW/ARCHITECTURAL)
+bash scripts/pr/amp_suggest_fixes.sh <PR_NUMBER>
+
+# Generate tests
+bash scripts/pr/amp_generate_tests.sh <PR_NUMBER>
+```
+
+**Time Savings:** ~30 seconds per analysis vs 60-90s per Gemini review. **Best for:** Cost-conscious teams, OAuth-free workflows, large multi-file PRs. See [.claude/agents/amp-pr-automator.md](.claude/agents/amp-pr-automator.md) for comparison matrix and detailed workflows.
 
 ### Amp CLI Bridge
 

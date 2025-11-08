@@ -16,14 +16,15 @@
 
 ## 🚀 Quick Start (2 minutes)
 
-### 🆕 Latest Release: **v8.20.1** (Nov 8, 2025)
+### 🆕 Latest Release: **v8.21.0** (Nov 8, 2025)
 
-**Hotfix: retrieve_memory MCP Tool** 🐛
+**Tag + Time Filtering - Enhanced Memory Retrieval** 🔍
 
-**What's Fixed**:
-- 🔧 **retrieve_memory serialization** - Fixed MemoryQueryResult object handling (Issue #211)
-- ✨ **similarity_score** - Added to response for consistency with recall_memory
-- 🎯 **All backends** - Fix applies to sqlite-vec, cloudflare, and hybrid
+**What's New**:
+- 🏷️ **Tag + Time Queries** - Combined tag and time filtering for precise memory retrieval (PR #215)
+- ⚡ **10x Performance** - 5-10ms indexed tag queries vs 50-200ms semantic queries
+- 🎯 **Bug Fix** - Resolved semantic over-filtering in recall_memory (Issue #214)
+- 🔧 **Pre-commit Speed** - Groq API primary LLM (200ms vs 2-3s, no OAuth interruption)
 
 **Previous Releases**:
 - **v8.20.0** - PR Automation & Code Quality (Gemini review cycles, Groq bridge, pre-commit hooks)
