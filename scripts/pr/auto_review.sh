@@ -6,6 +6,18 @@
 
 set -e
 
+# Get script directory for sourcing helpers
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source GraphQL helpers for thread resolution
+if [ -f "$SCRIPT_DIR/lib/graphql_helpers.sh" ]; then
+    source "$SCRIPT_DIR/lib/graphql_helpers.sh"
+    GRAPHQL_AVAILABLE=true
+else
+    echo "Warning: GraphQL helpers not available, thread auto-resolution disabled"
+    GRAPHQL_AVAILABLE=false
+fi
+
 PR_NUMBER=$1
 MAX_ITERATIONS=${2:-5}
 SAFE_FIX_MODE=${3:-true}
@@ -32,6 +44,7 @@ echo "=== Automated PR Review Loop ==="
 echo "PR Number: #$PR_NUMBER"
 echo "Max Iterations: $MAX_ITERATIONS"
 echo "Safe Fix Mode: $SAFE_FIX_MODE"
+echo "GraphQL Thread Resolution: $([ "$GRAPHQL_AVAILABLE" = true ] && echo "Enabled" || echo "Disabled")"
 echo ""
 
 # Get repository from git remote (portable across forks)
@@ -67,6 +80,16 @@ while [ $iteration -le $MAX_ITERATIONS ] && [ "$approved" = false ]; do
 
     echo "Review State: $review_state"
     echo "Inline Comments: $review_comments_count"
+
+    # Display thread status if GraphQL available
+    if [ "$GRAPHQL_AVAILABLE" = true ]; then
+        thread_stats=$(get_thread_stats "$PR_NUMBER" 2>/dev/null || echo '{"total":0,"resolved":0,"unresolved":0}')
+        total_threads=$(echo "$thread_stats" | jq -r '.total // 0')
+        resolved_threads=$(echo "$thread_stats" | jq -r '.resolved // 0')
+        unresolved_threads=$(echo "$thread_stats" | jq -r '.unresolved // 0')
+        echo "Review Threads: $total_threads total, $resolved_threads resolved, $unresolved_threads unresolved"
+    fi
+
     echo ""
 
     # Check if approved
@@ -155,6 +178,22 @@ Co-Authored-By: Gemini Code Assist <gemini@google.com>"
             git push
 
             echo "✅ Fixes applied and pushed"
+
+            # Auto-resolve review threads for files we just fixed
+            if [ "$GRAPHQL_AVAILABLE" = true ]; then
+                echo ""
+                echo "Resolving review threads for fixed code..."
+
+                # Get the commit SHA we just created
+                latest_commit=$(git rev-parse HEAD)
+
+                # Run thread resolution in auto mode
+                if bash "$SCRIPT_DIR/resolve_threads.sh" "$PR_NUMBER" "$latest_commit" --auto 2>&1 | grep -q "Resolved:"; then
+                    echo "✅ Review threads auto-resolved"
+                else
+                    echo "ℹ️  No threads needed resolution"
+                fi
+            fi
         else
             echo "⚠️  Could not auto-apply fixes. Patch saved to /tmp/pr_fixes_${PR_NUMBER}_${iteration}.patch"
             echo "Manual application required."

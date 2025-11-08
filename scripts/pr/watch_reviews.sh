@@ -8,6 +8,18 @@
 
 set -e
 
+# Get script directory for sourcing helpers
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source GraphQL helpers for thread resolution
+if [ -f "$SCRIPT_DIR/lib/graphql_helpers.sh" ]; then
+    source "$SCRIPT_DIR/lib/graphql_helpers.sh"
+    GRAPHQL_AVAILABLE=true
+else
+    echo "Warning: GraphQL helpers not available, thread status disabled"
+    GRAPHQL_AVAILABLE=false
+fi
+
 PR_NUMBER=$1
 CHECK_INTERVAL=${2:-180}  # Default: 3 minutes
 
@@ -22,6 +34,7 @@ echo "  Gemini PR Review Watch Mode"
 echo "========================================"
 echo "PR Number: #$PR_NUMBER"
 echo "Check Interval: ${CHECK_INTERVAL}s"
+echo "GraphQL Thread Tracking: $([ "$GRAPHQL_AVAILABLE" = true ] && echo "Enabled" || echo "Disabled")"
 echo "Press Ctrl+C to stop"
 echo ""
 
@@ -49,6 +62,15 @@ while true; do
     echo "  Inline Comments: $comments_count"
     echo "  Last Review: ${current_review_time:-never}"
 
+    # Display thread status if GraphQL available
+    if [ "$GRAPHQL_AVAILABLE" = true ]; then
+        thread_stats=$(get_thread_stats "$PR_NUMBER" 2>/dev/null || echo '{"total":0,"resolved":0,"unresolved":0}')
+        total_threads=$(echo "$thread_stats" | jq -r '.total // 0')
+        resolved_threads=$(echo "$thread_stats" | jq -r '.resolved // 0')
+        unresolved_threads=$(echo "$thread_stats" | jq -r '.unresolved // 0')
+        echo "  Review Threads: $total_threads total, $resolved_threads resolved, $unresolved_threads unresolved"
+    fi
+
     # Check if there's a new review
     if [ -n "$current_review_time" ] && [ "$current_review_time" != "$last_review_time" ]; then
         echo ""
@@ -72,14 +94,27 @@ while true; do
         elif [ "$review_state" = "CHANGES_REQUESTED" ] || [ "$comments_count" -gt 0 ]; then
             echo "📝 Review feedback received ($comments_count inline comments)"
             echo ""
+
+            # Display detailed thread status if GraphQL available
+            if [ "$GRAPHQL_AVAILABLE" = true ] && [ "$unresolved_threads" -gt 0 ]; then
+                echo "Thread Status:"
+                bash "$SCRIPT_DIR/thread_status.sh" "$PR_NUMBER" --unresolved 2>/dev/null || true
+                echo ""
+            fi
+
             echo "Options:"
-            echo "  1. View inline comments:"
+            echo "  1. View detailed thread status:"
+            echo "     bash scripts/pr/thread_status.sh $PR_NUMBER"
+            echo ""
+            echo "  2. View inline comments on GitHub:"
             echo "     gh pr view $PR_NUMBER --web"
             echo ""
-            echo "  2. Run auto-review to fix issues automatically:"
+            echo "  3. Run auto-review to fix issues automatically:"
             echo "     bash scripts/pr/auto_review.sh $PR_NUMBER 5 true"
             echo ""
-            echo "  3. Fix manually and push, then trigger new review:"
+            echo "  4. Fix manually, push, and resolve threads:"
+            echo "     # After pushing fixes:"
+            echo "     bash scripts/pr/resolve_threads.sh $PR_NUMBER HEAD --auto"
             echo "     gh pr comment $PR_NUMBER --body '/gemini review'"
             echo ""
 

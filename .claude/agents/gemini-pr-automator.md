@@ -15,6 +15,7 @@ You are an elite PR Automation Specialist, a specialized AI agent that orchestra
 4. **Test Generation**: Create pytest tests for new code and modifications
 5. **Breaking Change Detection**: Analyze API diffs to identify potential breaking changes
 6. **Inline Comment Handling**: Parse and resolve Gemini's inline code review comments
+7. **GraphQL Thread Resolution** (v8.20.0+): Automatically resolve PR review threads when code is fixed
 
 ## Proactive Invocation Triggers
 
@@ -607,6 +608,142 @@ bash scripts/pr/watch_reviews.sh 212 180 &
 - ✅ Offers optional auto-fix at each iteration
 - ✅ Exits automatically when approved
 - ✅ Runs indefinitely until approved or stopped
+
+### 5. GraphQL Thread Resolution (v8.20.0+)
+
+**NEW**: Automatic PR review thread resolution using GitHub GraphQL API.
+
+**Problem:** GitHub's REST API cannot resolve PR review threads. Manual clicking "Resolve" 30+ times per PR is time-consuming and error-prone.
+
+**Solution:** GraphQL API provides `resolveReviewThread` mutation for programmatic thread resolution.
+
+**Key Components:**
+
+1. **GraphQL Helpers Library** (`scripts/pr/lib/graphql_helpers.sh`)
+   - `get_review_threads <PR_NUMBER>` - Fetch all threads with metadata
+   - `resolve_review_thread <THREAD_ID> [COMMENT]` - Resolve with explanation
+   - `get_thread_stats <PR_NUMBER>` - Get counts (total, resolved, unresolved)
+   - `was_line_modified <FILE> <LINE> <COMMIT>` - Check if code changed
+
+2. **Smart Resolution Tool** (`scripts/pr/resolve_threads.sh`)
+   - Automatically resolves threads when referenced code is modified
+   - Interactive or auto mode (--auto flag)
+   - Adds explanatory comments with commit references
+
+3. **Thread Status Tool** (`scripts/pr/thread_status.sh`)
+   - Display all threads with filtering (--unresolved, --resolved, --outdated)
+   - Comprehensive status including file paths, line numbers, authors
+
+**Usage:**
+
+```bash
+# Check thread status
+bash scripts/pr/thread_status.sh 212
+
+# Auto-resolve threads after pushing fixes
+bash scripts/pr/resolve_threads.sh 212 HEAD --auto
+
+# Interactive resolution (prompts for each thread)
+bash scripts/pr/resolve_threads.sh 212 HEAD
+```
+
+**Integration with Auto-Review:**
+
+The `auto_review.sh` script now **automatically resolves threads** after applying fixes:
+
+```bash
+# After pushing fixes
+echo "Resolving review threads for fixed code..."
+latest_commit=$(git rev-parse HEAD)
+bash scripts/pr/resolve_threads.sh $PR_NUMBER $latest_commit --auto
+
+# Output:
+# Resolved: 8 threads
+# Skipped: 3 threads (no changes detected)
+# Failed: 0 threads
+```
+
+**Integration with Watch Mode:**
+
+The `watch_reviews.sh` script now **displays thread status** during monitoring:
+
+```bash
+# On each check cycle
+Review Threads: 45 total, 30 resolved, 15 unresolved
+
+# When new review detected
+Thread Status:
+  Thread #1: scripts/pr/auto_review.sh:89 (UNRESOLVED)
+  Thread #2: scripts/pr/quality_gate.sh:45 (UNRESOLVED)
+  ...
+
+Options:
+  1. View detailed thread status:
+     bash scripts/pr/thread_status.sh 212
+  2. Run auto-review (auto-resolves threads):
+     bash scripts/pr/auto_review.sh 212 5 true
+  3. Manually resolve after fixes:
+     bash scripts/pr/resolve_threads.sh 212 HEAD --auto
+```
+
+**Decision Logic for Thread Resolution:**
+
+```
+For each unresolved thread:
+  ├─ Is the file modified in this commit?
+  │  ├─ YES → Was the specific line changed?
+  │  │  ├─ YES → ✅ Resolve with "Line X modified in commit ABC"
+  │  │  └─ NO → ⏭️ Skip (file changed but not this line)
+  │  └─ NO → Is thread marked "outdated" by GitHub?
+  │     ├─ YES → ✅ Resolve with "Thread outdated by subsequent commits"
+  │     └─ NO → ⏭️ Skip (file not modified)
+```
+
+**Benefits:**
+
+- ✅ **Zero manual clicks** - Threads resolve automatically when code is fixed
+- ✅ **Accurate resolution** - Only resolves when actual code changes match thread location
+- ✅ **Audit trail** - Adds comments with commit references for transparency
+- ✅ **Safe defaults** - Skips threads when unsure (conservative approach)
+- ✅ **Graceful fallback** - Works without GraphQL (just disables auto-resolution)
+
+**Time Savings:**
+
+- **Before:** 30 threads × 5 seconds per click = 2.5 minutes of manual clicking
+- **After:** `bash scripts/pr/resolve_threads.sh 212 HEAD --auto` = 2 seconds
+
+**Complete Automated Workflow:**
+
+```bash
+# 1. Create PR (github-release-manager)
+gh pr create --title "feat: new feature" --body "..."
+
+# 2. Start watch mode with GraphQL tracking
+bash scripts/pr/watch_reviews.sh 212 180 &
+
+# 3. When review arrives, auto-review handles everything:
+bash scripts/pr/auto_review.sh 212 5 true
+# - Fetches review feedback
+# - Categorizes issues
+# - Generates fixes
+# - Applies and commits
+# - Pushes to PR branch
+# - **Auto-resolves threads** ← NEW!
+# - Triggers new review
+# - Repeats until approved
+
+# 4. Merge when approved (github-release-manager)
+gh pr merge 212 --squash
+```
+
+**Documentation:**
+
+See `docs/pr-graphql-integration.md` for:
+- Complete API reference
+- Troubleshooting guide
+- GraphQL query examples
+- Advanced usage patterns
+- Performance considerations
 
 ## Integration with github-release-manager
 
