@@ -55,14 +55,121 @@ curl -sk "https://localhost:8000/api/health"
 
 **Example Output**:
 ```
-🧠 Memory Hook → Initializing session awareness...
-📂 Project Detector → Analyzing mcp-memory-service
-📊 Git Context → 10 commits, 3 changelog entries
-🔑 Keywords → docs, chore, version, v8.22.0, fix
-↩️  MCP Fallback → Using standard MCP tools
-↩️  MCP Fallback → Using standard MCP tools
-↩️  MCP Fallback → Using standard MCP tools
-📭 Memory Search → No relevant memories found
+ ▐▛███▜▌   Claude Code v2.0.36
+▝▜█████▛▘  Sonnet 4.5 · Claude Max
+  ▘▘ ▝▝    /home/hkr/Repositories/mcp-memory-service
+  ⎿  SessionStart:startup hook succeeded: 🧠 Memory Hook → Initializing session awareness...
+     📂 Project Detector → Analyzing mcp-memory-service
+     📊 Detection Result → mcp-memory-service (Documentation) • 100%
+     📂 Project Detector → Analyzing mcp-memory-service (Documentation)
+     🔗 Connection → Using HTTP protocol
+     💾 Storage → 🪶 sqlite-vec (Connected) • 2529 memories • 8.51MB
+     📍 Path → Unknown location
+     📊 Git Analysis → Analyzing repository context...
+     [Git Analyzer] Analyzed 20 commits, 3 changelog entries
+     [Git Analyzer] Keywords: docs, memory, http, chore, version, v8.22.0, fix, session, v8.21.0, feat, release, v8.20.1, v8.20.0, v8.19.1, mcp, v8.19.0, api, fixed, added, bug
+     📊 Git Context → 10 commits, 3 changelog entries
+     🔑 Keywords → docs, memory, http, chore, version
+     ↩️  MCP Fallback → Using standard MCP tools
+     ↩️  MCP Fallback → Using standard MCP tools
+     📚 Memory Search → Found 8 relevant memories (4 recent)
+     [Memory Age Analyzer] {
+       avgAge: 5,
+       medianAge: 9,
+       p75Age: 12,
+       recentPercent: 100,
+       isStale: false,
+       adjustments: 'Recent memory set (avg: 5d old)'
+     }
+     [Memory Scorer] Scoring 8 memories for project: mcp-memory-service
+     [Memory Scorer] Top scored memories:
+       1. Score: 0.996 - # Session Summary - mcp-memory-service
+     **Project**: mcp-memo...
+       2. Score: 0.996 - # Session Summary - mcp-memory-service
+     **Project**: mcp-memo...
+       3. Score: 0.887 - MCP Memory Service Repository Statistics - 10 Month Analysis...
+     [Memory Scorer] Top memory breakdown: TimeDecay=100%, TagMatch=100%, Content=86%, Quality=84%, RecencyBonus=0%
+     🎯 Scoring → Top relevance: 100%🕒 (today), 100%🕒 (today), 89% (8d ago)
+     [Context Formatter] Selected 8 from 516 collected memories
+     🔄 Processing → 8 memories selected
+     [Context Formatter] Deduplicated 8 → 7 memories
+
+     ┌─ 🧠 Injected Memory Context → mcp-memory-service, FastAPI, Environment Config, Python
+     │
+     ├─ 🪶 sqlite-vec (Connected) • 2529 memories
+     ├─ 📍 Unknown location
+     ├─ 📚 8 memories loaded
+     │
+     ├─ 🔥 Recent Work:
+     │  ├─ Session Summary - mcp-memory-service Project: mcp-memory-service
+     │  │        (Documentation) ## 🎯 Topics Discussed implementation
+     │  │        architecture performance testing ## 🏛️ Decisions Made We
+     │  │        decided to use hooks for session management and implement
+     │  │        automatic context injection ## 💡 Key Insights 🕒 today
+     │  ├─ bug causing incorrect memory retrieval Solution: Enhanced
+     │  │        searchbytag() with optional timestart parameter across all
+     │  │        backends Replaced limited parsetimequery with robust
+     │  │        parsetimeexpression from utils. 🕒 today
+     │  └─ Time parser tests: 14/14 PASS (100%) ## Impact Amp PR Automator:
+     │        Provides lightweight, credit-efficient alternative to Gemini
+     │        automation Eliminates OAuth friction in automation workflows
+     │        Enables parallel quality checks for faster PR processing Bug
+     │        Fix**: Restores correct tag+time filtering behavior Ensures
+     │        memory hooks retrieve relevant context 🕒 today
+     │
+     ├─ ⚠️ Current Problems:
+     │  └─ day).getDay() (local timezone throughout) Documentation: Issue
+     │        #173: MCP schema caching is protocol limitation, not bug
+     │        Comprehensive troubleshooting in CLAUDE. 📅 Oct 29
+     │
+     └─ 📋 Additional Context:
+        ├─ MCP Memory Service Repository Statistics - 10 Month Analysis
+        │        (Dec 2024 - Oct 2025) ## Executive Summary Total Activity: 1,536
+        │        commits across 10 months (~5 commits/day average) 173 releases
+        │        (~17 releases/month) 1,040,315 lines added, 729,217 removed (net
+        │        +311,098) 10,583 file changes 98 GitHub issues (96% closure
+        │        rate) 📅 Oct 31
+        ├─ MCP and API still had different code paths ### v8.12. 📅 Oct 28
+        └─ CORRECTED: DRY Refactoring Timeline v8.8. 📅 Oct 28
+
+
+     ┌─ 🧠 Injected Memory Context → mcp-memory-service, FastAPI, Environment Config, Python
+     │
+     ├─ 🪶 sqlite-vec (Connected) • 2529 memories
+     ├─ 📍 Unknown location
+     ├─ 📚 8 memories loaded
+     │
+     ├─ 🔥 Recent Work:
+     │  ├─ Session Summary - mcp-memory-service Project: mcp-memory-service
+     │  │        (Documentation) ## 🎯 Topics Discussed implementation
+     │  │        architecture performance testing ## 🏛️ Decisions Made We
+     │  │        decided to use hooks for session management and implement
+     │  │        automatic context injection ## 💡 Key Insights 🕒 today
+     │  ├─ bug causing incorrect memory retrieval Solution: Enhanced
+     │  │        searchbytag() with optional timestart parameter across all
+     │  │        backends Replaced limited parsetimequery with robust
+     │  │        parsetimeexpression from utils. 🕒 today
+     │  └─ Time parser tests: 14/14 PASS (100%) ## Impact Amp PR Automator:
+     │        Provides lightweight, credit-efficient alternative to Gemini
+     │        automation Eliminates OAuth friction in automation workflows
+     │        Enables parallel quality checks for faster PR processing Bug
+     │        Fix**: Restores correct tag+time filtering behavior Ensures
+     │        memory hooks retrieve relevant context 🕒 today
+     │
+     ├─ ⚠️ Current Problems:
+     │  └─ day).getDay() (local timezone throughout) Documentation: Issue
+     │        #173: MCP schema caching is protocol limitation, not bug
+     │        Comprehensive troubleshooting in CLAUDE. 📅 Oct 29
+     │
+     └─ 📋 Additional Context:
+        ├─ MCP Memory Service Repository Statistics - 10 Month Analysis
+        │        (Dec 2024 - Oct 2025) ## Executive Summary Total Activity: 1,536
+        │        commits across 10 months (~5 commits/day average) 173 releases
+        │        (~17 releases/month) 1,040,315 lines added, 729,217 removed (net
+        │        +311,098) 10,583 file changes 98 GitHub issues (96% closure
+        │        rate) 📅 Oct 31
+        ├─ MCP and API still had different code paths ### v8.12. 📅 Oct 28
+        └─ CORRECTED: DRY Refactoring Timeline v8.8. 📅 Oct 28
 ```
 
 **Root Cause**: HTTP/HTTPS protocol mismatch between hook configuration and server
