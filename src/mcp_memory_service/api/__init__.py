@@ -70,9 +70,12 @@ For More Information:
     - Issue: https://github.com/doobidoo/mcp-memory-service/issues/206
 """
 
-from .types import CompactMemory, CompactSearchResult, CompactHealthInfo
-from .operations import search, store, health
-from .client import close, close_async
+from .types import (
+    CompactMemory, CompactSearchResult, CompactHealthInfo,
+    CompactConsolidationResult, CompactSchedulerStatus
+)
+from .operations import search, store, health, consolidate, scheduler_status
+from .client import close, close_async, set_consolidator, set_scheduler
 
 __all__ = [
     # Core operations
@@ -82,10 +85,20 @@ __all__ = [
     'close',            # Close and cleanup storage resources (sync)
     'close_async',      # Close and cleanup storage resources (async)
 
+    # Consolidation operations
+    'consolidate',      # Trigger memory consolidation
+    'scheduler_status', # Get consolidation scheduler status
+
+    # Consolidation management (internal use by HTTP server)
+    'set_consolidator', # Set global consolidator instance
+    'set_scheduler',    # Set global scheduler instance
+
     # Compact data types
     'CompactMemory',
     'CompactSearchResult',
     'CompactHealthInfo',
+    'CompactConsolidationResult',
+    'CompactSchedulerStatus',
 ]
 
 # API version for compatibility tracking

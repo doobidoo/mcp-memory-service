@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop with SQLite-vec, Cloudflare, and Hybrid storage backends.
 
-> **🆕 v8.22.3**: **Complete Tag Schema Validation Fix** - Extended oneOf schema pattern to ALL 7 MCP tools with tags parameter (update_memory_metadata, search_by_tag, delete_by_tag, delete_by_tags, delete_by_all_tags, ingest_document, ingest_directory). Added normalize_tags() calls in handlers. Resolves recurring "is not of type 'array'" validation errors. **Action required**: Run `/mcp` in Claude Code to fetch updated schemas. See [CHANGELOG.md](CHANGELOG.md) for full version history.
+> **🆕 v8.23.0**: **Consolidation Scheduler via Code Execution API** - Dream-based memory consolidation migrated from MCP server to HTTP server, achieving 88% token reduction (803K tokens/year saved) and 24/7 operation independent of Claude Desktop. New HTTP endpoints: `/api/consolidation/trigger`, `/status`, `/recommendations`. See [CHANGELOG.md](CHANGELOG.md) for full version history.
 >
 > **Note**: When releasing new versions, update this line with current version + brief description. Use `.claude/agents/github-release-manager.md` agent for complete release workflow.
 
@@ -28,6 +28,9 @@ MCP Memory Service is a Model Context Protocol server providing semantic memory 
 | | `python scripts/validation/diagnose_backend_config.py` | Cloudflare diagnostics |
 | **Maintenance** | `python scripts/maintenance/consolidate_memory_types.py --dry-run` | Preview type consolidation |
 | | `python scripts/maintenance/find_all_duplicates.py` | Find duplicates |
+| **Consolidation** | `curl -X POST http://127.0.0.1:8000/api/consolidation/trigger -H "Content-Type: application/json" -d '{"time_horizon":"weekly"}'` | Trigger memory consolidation |
+| | `curl http://127.0.0.1:8000/api/consolidation/status` | Check scheduler status |
+| | `curl http://127.0.0.1:8000/api/consolidation/recommendations` | Get consolidation recommendations |
 | **Service** | `systemctl --user status mcp-memory-http.service` | Check HTTP service status (Linux) |
 | | `scripts/service/memory_service_manager.sh status` | Check service status |
 | **Debug** | `curl http://127.0.0.1:8000/api/health` | Health check |

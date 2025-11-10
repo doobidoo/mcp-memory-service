@@ -45,6 +45,10 @@ logger = logging.getLogger(__name__)
 _storage_instance: Optional[MemoryStorage] = None
 _initialization_lock = asyncio.Lock()
 
+# Global consolidation instances (set by HTTP server)
+_consolidator_instance: Optional["DreamInspiredConsolidator"] = None
+_scheduler_instance: Optional["ConsolidationScheduler"] = None
+
 
 async def _get_storage_async() -> MemoryStorage:
     """
@@ -276,3 +280,53 @@ def _cleanup_storage():
 
 
 atexit.register(_cleanup_storage)
+
+
+def set_consolidator(consolidator: "DreamInspiredConsolidator") -> None:
+    """
+    Set global consolidator instance (called by HTTP server).
+
+    This allows the API to access the consolidator instance
+    that's managed by the HTTP server lifecycle.
+
+    Args:
+        consolidator: DreamInspiredConsolidator instance
+    """
+    global _consolidator_instance
+    _consolidator_instance = consolidator
+    logger.info("Global consolidator instance set")
+
+
+def set_scheduler(scheduler: "ConsolidationScheduler") -> None:
+    """
+    Set global scheduler instance (called by HTTP server).
+
+    This allows the API to access the scheduler instance
+    that's managed by the HTTP server lifecycle.
+
+    Args:
+        scheduler: ConsolidationScheduler instance
+    """
+    global _scheduler_instance
+    _scheduler_instance = scheduler
+    logger.info("Global scheduler instance set")
+
+
+def get_consolidator() -> Optional["DreamInspiredConsolidator"]:
+    """
+    Get global consolidator instance.
+
+    Returns:
+        DreamInspiredConsolidator instance or None if not set
+    """
+    return _consolidator_instance
+
+
+def get_scheduler() -> Optional["ConsolidationScheduler"]:
+    """
+    Get global scheduler instance.
+
+    Returns:
+        ConsolidationScheduler instance or None if not set
+    """
+    return _scheduler_instance

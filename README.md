@@ -16,22 +16,23 @@
 
 ## 🚀 Quick Start (2 minutes)
 
-### 🆕 Latest Release: **v8.22.3** (Nov 10, 2025)
+### 🆕 Latest Release: **v8.23.0** (Nov 10, 2025)
 
-**Complete Tag Schema Validation Fix** 🐛🔧
+**Consolidation Scheduler via Code Execution API** ⚡🧠
 
-**Extended oneOf pattern to ALL MCP tool schemas**:
-- 🔧 **7 tool schemas fixed** - Now accept both array and comma-separated string formats
-- 📋 **Tools updated**: update_memory_metadata, search_by_tag, delete_by_tag, delete_by_tags, delete_by_all_tags, ingest_document, ingest_directory
-- 🔄 **Handler normalization** - Added normalize_tags() calls to all affected handlers
-- ⚠️ **Action required**: Run `/mcp` in Claude Code to fetch updated schemas
-- ✅ **Resolves**: Recurring "is not of type 'array'" validation errors
+**Dream-based memory consolidation now independent of MCP server**:
+- ⚡ **88% token reduction** - 803K tokens/year saved via compact API responses
+- 🔄 **24/7 operation** - Runs continuously via HTTP server, independent of Claude Desktop
+- 🏗️ **Architecture shift** - Migrated from MCP server to HTTP server using Code Execution API
+- 📡 **New HTTP endpoints** - `/api/consolidation/trigger`, `/status`, `/recommendations`
+- 🔧 **Backward compatible** - Existing MCP tools continue working via Code Execution API
+- 📦 **Required dependency** - `apscheduler>=3.11.0` now included by default
 
 **Previous Releases**:
+- **v8.22.3** - Complete tag schema validation fix (7 MCP tools updated)
 - **v8.22.1** - Document ingestion tag parsing fix (13 memories repaired)
 - **v8.21.0** - Amp PR Automator & memory hook fix (Issue #214, PR #215)
 - **v8.20.1** - retrieve_memory serialization fix (Issue #211)
-- **v8.20.0** - PR Automation & Code Quality (Gemini review cycles, Groq bridge)
 
 **📖 Full Details**: [CHANGELOG.md](CHANGELOG.md#8222---2025-11-09) | [All Releases](https://github.com/doobidoo/mcp-memory-service/releases)
 

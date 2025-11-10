@@ -122,3 +122,85 @@ class CompactHealthInfo(NamedTuple):
     status: str         # 'healthy' | 'degraded' | 'error' (~5 tokens)
     count: int          # Total memories (~5 tokens)
     backend: str        # Storage backend type (~10 tokens)
+
+
+class CompactConsolidationResult(NamedTuple):
+    """
+    Consolidation operation result with minimal overhead.
+
+    Provides consolidation results in a token-efficient format with essential
+    metrics for monitoring and analysis.
+
+    Token Cost: ~40 tokens (vs ~250 for full result, 84% reduction)
+
+    Fields:
+        status: Operation status ('completed' | 'running' | 'failed')
+        horizon: Time horizon ('daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly')
+        processed: Number of memories processed
+        compressed: Number of memories compressed
+        forgotten: Number of memories forgotten/archived
+        duration: Operation duration in seconds
+
+    Example:
+        >>> result = CompactConsolidationResult(
+        ...     status='completed',
+        ...     horizon='weekly',
+        ...     processed=2418,
+        ...     compressed=156,
+        ...     forgotten=43,
+        ...     duration=24.2
+        ... )
+        >>> print(f"Consolidated {result.processed} memories in {result.duration}s")
+        Consolidated 2418 memories in 24.2s
+    """
+    status: str         # Operation status (~5 tokens)
+    horizon: str        # Time horizon (~5 tokens)
+    processed: int      # Memories processed (~5 tokens)
+    compressed: int     # Memories compressed (~5 tokens)
+    forgotten: int      # Memories forgotten (~5 tokens)
+    duration: float     # Duration in seconds (~5 tokens)
+
+    def __repr__(self) -> str:
+        """Compact string representation for minimal token usage."""
+        return f"Consolidation({self.status}, {self.horizon}, {self.processed} processed)"
+
+
+class CompactSchedulerStatus(NamedTuple):
+    """
+    Consolidation scheduler status with minimal overhead.
+
+    Provides scheduler state and next run information in a compact format.
+
+    Token Cost: ~25 tokens (vs ~150 for full status, 83% reduction)
+
+    Fields:
+        running: Whether scheduler is active
+        next_daily: Unix timestamp of next daily run (or None)
+        next_weekly: Unix timestamp of next weekly run (or None)
+        next_monthly: Unix timestamp of next monthly run (or None)
+        jobs_executed: Total jobs executed since start
+        jobs_failed: Total jobs that failed
+
+    Example:
+        >>> status = CompactSchedulerStatus(
+        ...     running=True,
+        ...     next_daily=1730928000.0,
+        ...     next_weekly=1731187200.0,
+        ...     next_monthly=1732406400.0,
+        ...     jobs_executed=42,
+        ...     jobs_failed=0
+        ... )
+        >>> print(f"Scheduler: {'active' if status.running else 'inactive'}")
+        Scheduler: active
+    """
+    running: bool       # Scheduler status (~3 tokens)
+    next_daily: float | None    # Next daily run timestamp (~5 tokens)
+    next_weekly: float | None   # Next weekly run timestamp (~5 tokens)
+    next_monthly: float | None  # Next monthly run timestamp (~5 tokens)
+    jobs_executed: int  # Total successful jobs (~3 tokens)
+    jobs_failed: int    # Total failed jobs (~3 tokens)
+
+    def __repr__(self) -> str:
+        """Compact string representation for minimal token usage."""
+        state = "running" if self.running else "stopped"
+        return f"Scheduler({state}, executed={self.jobs_executed}, failed={self.jobs_failed})"

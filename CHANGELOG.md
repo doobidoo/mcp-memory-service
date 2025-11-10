@@ -10,6 +10,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [8.23.0] - 2025-11-10
+
+### Added
+- **Consolidation Scheduler via Code Execution API** - Dream-based memory consolidation now operates independently of MCP server
+  - **Architecture Shift**: Migrated ConsolidationScheduler from MCP server to HTTP server using Code Execution API (v8.19.0+)
+  - **Token Efficiency**: Achieves **88% token reduction** (803K tokens/year saved) by eliminating redundant memory retrieval
+  - **24/7 Operation**: Consolidation now runs continuously via HTTP server, independent of Claude Desktop sessions
+  - **Code Execution Extensions**:
+    - Added `CompactConsolidationResult` and `CompactSchedulerStatus` types for efficient data transfer
+    - Implemented `consolidate()` and `scheduler_status()` functions in API operations
+    - Enhanced API client with consolidator/scheduler management capabilities
+  - **HTTP API Endpoints** (new):
+    - `POST /api/consolidation/trigger` - Manual consolidation trigger for specific time horizons
+    - `GET /api/consolidation/status` - Scheduler health and job status monitoring
+    - `GET /api/consolidation/recommendations` - Analysis-based consolidation suggestions
+  - **Graceful Lifecycle**: HTTP server lifespan events handle scheduler startup/shutdown
+  - **Dependencies**: Made `apscheduler>=3.11.0` a required dependency (previously optional)
+  - **Files Modified**:
+    - `src/mcp_memory_service/api/types.py` - New compact result types
+    - `src/mcp_memory_service/api/operations.py` - Consolidation functions
+    - `src/mcp_memory_service/api/client.py` - Client methods
+    - `src/mcp_memory_service/api/__init__.py` - Export updates
+    - `src/mcp_memory_service/web/app.py` - Scheduler integration
+    - `src/mcp_memory_service/web/api/consolidation.py` - NEW endpoint router
+    - `pyproject.toml` - Dependency update
+
+### Changed
+- **Consolidation Workflow**: Users can now trigger and monitor consolidation via HTTP API or web dashboard
+- **Performance**: Background consolidation no longer impacts MCP server response times
+- **Reliability**: Scheduler continues running even when Claude Desktop is closed
+
+### Migration Notes
+- **Backward Compatible**: Existing MCP consolidation tools continue to work via Code Execution API
+- **HTTP Server Required**: For scheduled consolidation, HTTP server must be running (`export MCP_HTTP_ENABLED=true`)
+- **No Action Needed**: Consolidation automatically migrates to HTTP server when enabled
+
+### Technical Details
+- **Token Savings Breakdown**:
+  - Before: ~900K tokens/year (MCP server retrieval overhead)
+  - After: ~97K tokens/year (compact API responses)
+  - Reduction: 803K tokens (88% efficiency gain)
+- **Execution Model**: Code Execution API handles consolidation in isolated Python environment
+- **Scheduler Configuration**: Same settings as before (`.env` or environment variables)
+
 ## [8.22.3] - 2025-11-10
 
 ### Fixed

@@ -32,9 +32,13 @@ Performance:
 """
 
 import logging
+import time
 from typing import Optional, Union, List
-from .types import CompactMemory, CompactSearchResult, CompactHealthInfo
-from .client import get_storage_async
+from .types import (
+    CompactMemory, CompactSearchResult, CompactHealthInfo,
+    CompactConsolidationResult, CompactSchedulerStatus
+)
+from .client import get_storage_async, get_consolidator, get_scheduler
 from .sync_wrapper import sync_wrapper
 from ..models.memory import Memory
 from ..utils.hashing import generate_content_hash
@@ -258,4 +262,202 @@ async def health() -> CompactHealthInfo:
             status="error",
             count=0,
             backend="unknown"
+        )
+
+
+@sync_wrapper
+async def consolidate(time_horizon: str = "weekly") -> CompactConsolidationResult:
+    """
+    Trigger memory consolidation for a specific time horizon.
+
+    Token efficiency: ~40 tokens (result only)
+    vs ~250 tokens for MCP consolidation result (84% reduction)
+
+    Args:
+        time_horizon: Time horizon for consolidation
+            ('daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly')
+
+    Returns:
+        CompactConsolidationResult with operation metrics
+
+    Raises:
+        RuntimeError: If consolidation fails or consolidator not available
+        ValueError: If time_horizon is invalid
+
+    Example:
+        >>> from mcp_memory_service.api import consolidate
+        >>> result = consolidate('weekly')
+        >>> print(result)
+        Consolidation(completed, weekly, 2418 processed)
+        >>> print(f"Compressed: {result.compressed}, Forgotten: {result.forgotten}")
+        Compressed: 156, Forgotten: 43
+
+    Performance:
+        - Typical duration: 10-30 seconds (depends on memory count)
+        - Scales linearly with total memories (~10ms per memory)
+        - Background operation (non-blocking in HTTP server context)
+
+    Note:
+        Requires HTTP server with consolidation enabled. If called when
+        HTTP server is not running, will raise RuntimeError.
+    """
+    # Validate time horizon
+    valid_horizons = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']
+    if time_horizon not in valid_horizons:
+        raise ValueError(
+            f"Invalid time_horizon: {time_horizon}. "
+            f"Must be one of: {', '.join(valid_horizons)}"
+        )
+
+    # Get consolidator instance
+    consolidator = get_consolidator()
+    if consolidator is None:
+        raise RuntimeError(
+            "Consolidator not available. "
+            "Consolidation requires HTTP server with MCP_CONSOLIDATION_ENABLED=true. "
+            "Start the HTTP server first."
+        )
+
+    try:
+        # Record start time
+        start_time = time.time()
+
+        # Run consolidation
+        logger.info(f"Running {time_horizon} consolidation...")
+        result = await consolidator.consolidate(time_horizon)
+
+        # Calculate duration
+        duration = time.time() - start_time
+
+        # Extract metrics from result
+        processed = result.get('memories_processed', 0)
+        compressed = result.get('memories_compressed', 0)
+        forgotten = result.get('memories_forgotten', 0)
+        status = result.get('status', 'completed')
+
+        logger.info(
+            f"Consolidation completed: {processed} processed, "
+            f"{compressed} compressed, {forgotten} forgotten ({duration:.1f}s)"
+        )
+
+        return CompactConsolidationResult(
+            status=status,
+            horizon=time_horizon,
+            processed=processed,
+            compressed=compressed,
+            forgotten=forgotten,
+            duration=duration
+        )
+
+    except Exception as e:
+        logger.error(f"Consolidation failed: {e}")
+        return CompactConsolidationResult(
+            status="failed",
+            horizon=time_horizon,
+            processed=0,
+            compressed=0,
+            forgotten=0,
+            duration=0.0
+        )
+
+
+@sync_wrapper
+async def scheduler_status() -> CompactSchedulerStatus:
+    """
+    Get consolidation scheduler status and next run times.
+
+    Token efficiency: ~25 tokens
+    vs ~150 tokens for MCP scheduler_status tool (83% reduction)
+
+    Returns:
+        CompactSchedulerStatus with scheduler state and job statistics
+
+    Raises:
+        RuntimeError: If scheduler not available
+
+    Example:
+        >>> from mcp_memory_service.api import scheduler_status
+        >>> status = scheduler_status()
+        >>> print(status)
+        Scheduler(running, executed=42, failed=0)
+        >>> if status.next_daily:
+        ...     from datetime import datetime
+        ...     next_run = datetime.fromtimestamp(status.next_daily)
+        ...     print(f"Next daily: {next_run}")
+
+    Performance:
+        - Execution time: <5ms (reads cached state)
+        - No storage access required
+        - Lightweight status query
+
+    Note:
+        Requires HTTP server with consolidation scheduler enabled.
+        Returns STOPPED status if scheduler not running.
+    """
+    # Get scheduler instance
+    scheduler = get_scheduler()
+    if scheduler is None:
+        logger.warning("Scheduler not available")
+        return CompactSchedulerStatus(
+            running=False,
+            next_daily=None,
+            next_weekly=None,
+            next_monthly=None,
+            jobs_executed=0,
+            jobs_failed=0
+        )
+
+    try:
+        # Get scheduler status
+        if hasattr(scheduler, 'scheduler') and scheduler.scheduler is not None:
+            # Scheduler is running
+            jobs = scheduler.scheduler.get_jobs()
+
+            # Extract next run times for each horizon
+            next_daily = None
+            next_weekly = None
+            next_monthly = None
+
+            for job in jobs:
+                if job.next_run_time:
+                    timestamp = job.next_run_time.timestamp()
+                    if 'daily' in job.id.lower():
+                        next_daily = timestamp
+                    elif 'weekly' in job.id.lower():
+                        next_weekly = timestamp
+                    elif 'monthly' in job.id.lower():
+                        next_monthly = timestamp
+
+            # Get execution statistics
+            jobs_executed = scheduler.successful_jobs
+            jobs_failed = scheduler.failed_jobs
+
+            return CompactSchedulerStatus(
+                running=True,
+                next_daily=next_daily,
+                next_weekly=next_weekly,
+                next_monthly=next_monthly,
+                jobs_executed=jobs_executed,
+                jobs_failed=jobs_failed
+            )
+        else:
+            # Scheduler exists but not running
+            return CompactSchedulerStatus(
+                running=False,
+                next_daily=None,
+                next_weekly=None,
+                next_monthly=None,
+                jobs_executed=0,
+                jobs_failed=0
+            )
+
+    except Exception as e:
+        logger.error(f"Failed to get scheduler status: {e}")
+        return CompactSchedulerStatus(
+            running=False,
+            next_daily=None,
+            next_weekly=None,
+            next_monthly=None,
+            jobs_executed=0,
+            jobs_failed=0
         )

@@ -38,7 +38,10 @@ from ..config import (
     EMBEDDING_MODEL_NAME,
     MDNS_ENABLED,
     HTTPS_ENABLED,
-    OAUTH_ENABLED
+    OAUTH_ENABLED,
+    CONSOLIDATION_ENABLED,
+    CONSOLIDATION_CONFIG,
+    CONSOLIDATION_SCHEDULE
 )
 from .dependencies import set_storage, get_storage, create_storage_backend
 from .api.health import router as health_router
@@ -50,6 +53,7 @@ from .api.manage import router as manage_router
 from .api.analytics import router as analytics_router
 from .api.documents import router as documents_router
 from .api.mcp import router as mcp_router
+from .api.consolidation import router as consolidation_router
 from .sse import sse_manager
 
 logger = logging.getLogger(__name__)
@@ -62,6 +66,10 @@ mdns_advertiser: Optional[Any] = None
 
 # Global OAuth cleanup task
 oauth_cleanup_task: Optional[asyncio.Task] = None
+
+# Global consolidation instances
+consolidator: Optional["DreamInspiredConsolidator"] = None
+consolidation_scheduler: Optional["ConsolidationScheduler"] = None
 
 
 async def oauth_cleanup_background_task():
@@ -89,14 +97,58 @@ async def oauth_cleanup_background_task():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan management."""
-    global storage, mdns_advertiser, oauth_cleanup_task
-    
+    global storage, mdns_advertiser, oauth_cleanup_task, consolidator, consolidation_scheduler
+
     # Startup
     logger.info("Starting MCP Memory Service HTTP interface...")
     try:
         storage = await create_storage_backend()
         set_storage(storage)  # Set the global storage instance
-        
+
+        # Initialize consolidation system if enabled
+        if CONSOLIDATION_ENABLED:
+            try:
+                from ..consolidation.base import ConsolidationConfig
+                from ..consolidation.consolidator import DreamInspiredConsolidator
+                from ..consolidation.scheduler import ConsolidationScheduler
+                from ..api import set_consolidator, set_scheduler
+
+                # Create consolidation config
+                config = ConsolidationConfig(**CONSOLIDATION_CONFIG)
+
+                # Initialize consolidator with storage
+                consolidator = DreamInspiredConsolidator(storage, config)
+                logger.info("Dream-inspired consolidator initialized")
+
+                # Set global consolidator for API access
+                set_consolidator(consolidator)
+
+                # Initialize scheduler if any schedules are enabled
+                if any(schedule != 'disabled' for schedule in CONSOLIDATION_SCHEDULE.values()):
+                    consolidation_scheduler = ConsolidationScheduler(
+                        consolidator,
+                        CONSOLIDATION_SCHEDULE,
+                        enabled=True
+                    )
+
+                    # Start the scheduler
+                    if await consolidation_scheduler.start():
+                        logger.info("Consolidation scheduler started successfully")
+                        # Set global scheduler for API access
+                        set_scheduler(consolidation_scheduler)
+                    else:
+                        logger.warning("Failed to start consolidation scheduler")
+                        consolidation_scheduler = None
+                else:
+                    logger.info("Consolidation scheduler disabled (all schedules set to 'disabled')")
+
+            except Exception as e:
+                logger.error(f"Failed to initialize consolidation system: {e}")
+                consolidator = None
+                consolidation_scheduler = None
+        else:
+            logger.info("Consolidation system disabled")
+
         # Start SSE manager
         await sse_manager.start()
         logger.info("SSE Manager started")
@@ -138,7 +190,15 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down MCP Memory Service HTTP interface...")
-    
+
+    # Stop consolidation scheduler
+    if consolidation_scheduler:
+        try:
+            await consolidation_scheduler.stop()
+            logger.info("Consolidation scheduler stopped")
+        except Exception as e:
+            logger.error(f"Error stopping consolidation scheduler: {e}")
+
     # Stop mDNS advertisement
     if mdns_advertiser:
         try:
@@ -146,7 +206,7 @@ async def lifespan(app: FastAPI):
             logger.info("mDNS service advertisement stopped")
         except Exception as e:
             logger.error(f"Error stopping mDNS advertisement: {e}")
-    
+
     # Stop OAuth cleanup task
     if oauth_cleanup_task:
         try:
@@ -210,7 +270,11 @@ def create_app() -> FastAPI:
         logger.error(f"✗ Failed to include documents router: {e}")
         import traceback
         logger.error(traceback.format_exc())
-    
+
+    # Include consolidation router
+    app.include_router(consolidation_router, tags=["consolidation"])
+    logger.info(f"✓ Included consolidation router with {len(consolidation_router.routes)} routes")
+
     # Include MCP protocol router
     app.include_router(mcp_router, tags=["mcp-protocol"])
 
