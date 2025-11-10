@@ -265,41 +265,12 @@ async def health() -> CompactHealthInfo:
         )
 
 
-@sync_wrapper
-async def consolidate(time_horizon: str = "weekly") -> CompactConsolidationResult:
+async def _consolidate_async(time_horizon: str) -> CompactConsolidationResult:
     """
-    Trigger memory consolidation for a specific time horizon.
+    Internal async implementation of consolidation.
 
-    Token efficiency: ~40 tokens (result only)
-    vs ~250 tokens for MCP consolidation result (84% reduction)
-
-    Args:
-        time_horizon: Time horizon for consolidation
-            ('daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly')
-
-    Returns:
-        CompactConsolidationResult with operation metrics
-
-    Raises:
-        RuntimeError: If consolidation fails or consolidator not available
-        ValueError: If time_horizon is invalid
-
-    Example:
-        >>> from mcp_memory_service.api import consolidate
-        >>> result = consolidate('weekly')
-        >>> print(result)
-        Consolidation(completed, weekly, 2418 processed)
-        >>> print(f"Compressed: {result.compressed}, Forgotten: {result.forgotten}")
-        Compressed: 156, Forgotten: 43
-
-    Performance:
-        - Typical duration: 10-30 seconds (depends on memory count)
-        - Scales linearly with total memories (~10ms per memory)
-        - Background operation (non-blocking in HTTP server context)
-
-    Note:
-        Requires HTTP server with consolidation enabled. If called when
-        HTTP server is not running, will raise RuntimeError.
+    This function contains the core consolidation logic and is used by both
+    the sync-wrapped API function and the FastAPI endpoint to avoid duplication.
     """
     # Validate time horizon
     valid_horizons = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']
@@ -362,37 +333,50 @@ async def consolidate(time_horizon: str = "weekly") -> CompactConsolidationResul
 
 
 @sync_wrapper
-async def scheduler_status() -> CompactSchedulerStatus:
+async def consolidate(time_horizon: str = "weekly") -> CompactConsolidationResult:
     """
-    Get consolidation scheduler status and next run times.
+    Trigger memory consolidation for a specific time horizon.
 
-    Token efficiency: ~25 tokens
-    vs ~150 tokens for MCP scheduler_status tool (83% reduction)
+    Token efficiency: ~40 tokens (result only)
+    vs ~250 tokens for MCP consolidation result (84% reduction)
+
+    Args:
+        time_horizon: Time horizon for consolidation
+            ('daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly')
 
     Returns:
-        CompactSchedulerStatus with scheduler state and job statistics
+        CompactConsolidationResult with operation metrics
 
     Raises:
-        RuntimeError: If scheduler not available
+        RuntimeError: If consolidation fails or consolidator not available
+        ValueError: If time_horizon is invalid
 
     Example:
-        >>> from mcp_memory_service.api import scheduler_status
-        >>> status = scheduler_status()
-        >>> print(status)
-        Scheduler(running, executed=42, failed=0)
-        >>> if status.next_daily:
-        ...     from datetime import datetime
-        ...     next_run = datetime.fromtimestamp(status.next_daily)
-        ...     print(f"Next daily: {next_run}")
+        >>> from mcp_memory_service.api import consolidate
+        >>> result = consolidate('weekly')
+        >>> print(result)
+        Consolidation(completed, weekly, 2418 processed)
+        >>> print(f"Compressed: {result.compressed}, Forgotten: {result.forgotten}")
+        Compressed: 156, Forgotten: 43
 
     Performance:
-        - Execution time: <5ms (reads cached state)
-        - No storage access required
-        - Lightweight status query
+        - Typical duration: 10-30 seconds (depends on memory count)
+        - Scales linearly with total memories (~10ms per memory)
+        - Background operation (non-blocking in HTTP server context)
 
     Note:
-        Requires HTTP server with consolidation scheduler enabled.
-        Returns STOPPED status if scheduler not running.
+        Requires HTTP server with consolidation enabled. If called when
+        HTTP server is not running, will raise RuntimeError.
+    """
+    return await _consolidate_async(time_horizon)
+
+
+async def _scheduler_status_async() -> CompactSchedulerStatus:
+    """
+    Internal async implementation of scheduler status.
+
+    This function contains the core status logic and is used by both
+    the sync-wrapped API function and the FastAPI endpoint to avoid duplication.
     """
     # Get scheduler instance
     scheduler = get_scheduler()
@@ -429,8 +413,8 @@ async def scheduler_status() -> CompactSchedulerStatus:
                         next_monthly = timestamp
 
             # Get execution statistics
-            jobs_executed = scheduler.successful_jobs
-            jobs_failed = scheduler.failed_jobs
+            jobs_executed = scheduler.execution_stats.get('successful_jobs', 0)
+            jobs_failed = scheduler.execution_stats.get('failed_jobs', 0)
 
             return CompactSchedulerStatus(
                 running=True,
@@ -461,3 +445,39 @@ async def scheduler_status() -> CompactSchedulerStatus:
             jobs_executed=0,
             jobs_failed=0
         )
+
+
+@sync_wrapper
+async def scheduler_status() -> CompactSchedulerStatus:
+    """
+    Get consolidation scheduler status and next run times.
+
+    Token efficiency: ~25 tokens
+    vs ~150 tokens for MCP scheduler_status tool (83% reduction)
+
+    Returns:
+        CompactSchedulerStatus with scheduler state and job statistics
+
+    Raises:
+        RuntimeError: If scheduler not available
+
+    Example:
+        >>> from mcp_memory_service.api import scheduler_status
+        >>> status = scheduler_status()
+        >>> print(status)
+        Scheduler(running, executed=42, failed=0)
+        >>> if status.next_daily:
+        ...     from datetime import datetime
+        ...     next_run = datetime.fromtimestamp(status.next_daily)
+        ...     print(f"Next daily: {next_run}")
+
+    Performance:
+        - Execution time: <5ms (reads cached state)
+        - No storage access required
+        - Lightweight status query
+
+    Note:
+        Requires HTTP server with consolidation scheduler enabled.
+        Returns STOPPED status if scheduler not running.
+    """
+    return await _scheduler_status_async()

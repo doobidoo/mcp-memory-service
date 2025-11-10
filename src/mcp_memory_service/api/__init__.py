@@ -74,7 +74,10 @@ from .types import (
     CompactMemory, CompactSearchResult, CompactHealthInfo,
     CompactConsolidationResult, CompactSchedulerStatus
 )
-from .operations import search, store, health, consolidate, scheduler_status
+from .operations import (
+    search, store, health, consolidate, scheduler_status,
+    _consolidate_async, _scheduler_status_async
+)
 from .client import close, close_async, set_consolidator, set_scheduler
 
 __all__ = [

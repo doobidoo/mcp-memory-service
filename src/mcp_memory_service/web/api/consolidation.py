@@ -100,57 +100,20 @@ async def trigger_consolidation(request: ConsolidationRequest) -> Dict[str, Any]
         }
     """
     try:
-        import time
-        from ...api.client import get_consolidator
+        from ...api.operations import _consolidate_async
 
-        # Validate time horizon
-        valid_horizons = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']
-        if request.time_horizon not in valid_horizons:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid time_horizon. Must be one of: {', '.join(valid_horizons)}"
-            )
+        # Call the shared async implementation
+        result = await _consolidate_async(request.time_horizon)
 
-        # Get consolidator instance directly (we're in async context)
-        consolidator = get_consolidator()
-        if consolidator is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Consolidator not available. Check server configuration."
-            )
+        # Convert to dict for HTTP response
+        return result._asdict()
 
-        # Record start time
-        start_time = time.time()
-
-        # Run consolidation
-        logger.info(f"Running {request.time_horizon} consolidation...")
-        result = await consolidator.consolidate(request.time_horizon)
-
-        # Calculate duration
-        duration = time.time() - start_time
-
-        # Extract metrics from result
-        processed = result.get('memories_processed', 0)
-        compressed = result.get('memories_compressed', 0)
-        forgotten = result.get('memories_forgotten', 0)
-        status = result.get('status', 'completed')
-
-        logger.info(
-            f"Consolidation completed: {processed} processed, "
-            f"{compressed} compressed, {forgotten} forgotten ({duration:.1f}s)"
-        )
-
-        return {
-            "status": status,
-            "horizon": request.time_horizon,
-            "processed": processed,
-            "compressed": compressed,
-            "forgotten": forgotten,
-            "duration": duration
-        }
-
-    except HTTPException:
-        raise
+    except ValueError as e:
+        # Invalid time horizon
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        # Consolidator not available
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error(f"Consolidation trigger failed: {e}")
         raise HTTPException(status_code=500, detail=f"Consolidation failed: {e}")
@@ -181,49 +144,21 @@ async def get_scheduler_status() -> Dict[str, Any]:
         }
     """
     try:
-        from ...api.client import get_scheduler
+        from datetime import datetime
+        from ...api.operations import _scheduler_status_async
 
-        # Get scheduler instance directly (we're in async context)
-        scheduler = get_scheduler()
-        if scheduler is None:
-            logger.warning("Scheduler not available")
-            return {
-                "running": False,
-                "next_daily": None,
-                "next_weekly": None,
-                "next_monthly": None,
-                "jobs_executed": 0,
-                "jobs_failed": 0
-            }
+        # Call the shared async implementation
+        result = await _scheduler_status_async()
 
-        # Get scheduler status
+        # Convert timestamps to ISO format for HTTP response
         status_data = {
-            "running": False,
-            "next_daily": None,
-            "next_weekly": None,
-            "next_monthly": None,
-            "jobs_executed": 0,
-            "jobs_failed": 0
+            "running": result.running,
+            "next_daily": datetime.fromtimestamp(result.next_daily).isoformat() if result.next_daily else None,
+            "next_weekly": datetime.fromtimestamp(result.next_weekly).isoformat() if result.next_weekly else None,
+            "next_monthly": datetime.fromtimestamp(result.next_monthly).isoformat() if result.next_monthly else None,
+            "jobs_executed": result.jobs_executed,
+            "jobs_failed": result.jobs_failed
         }
-
-        if hasattr(scheduler, 'scheduler') and scheduler.scheduler is not None:
-            # Scheduler is running
-            jobs = scheduler.scheduler.get_jobs()
-
-            # Extract next run times for each horizon
-            for job in jobs:
-                if job.next_run_time:
-                    iso_time = job.next_run_time.isoformat()
-                    if 'daily' in job.id.lower():
-                        status_data["next_daily"] = iso_time
-                    elif 'weekly' in job.id.lower():
-                        status_data["next_weekly"] = iso_time
-                    elif 'monthly' in job.id.lower():
-                        status_data["next_monthly"] = iso_time
-
-            status_data["running"] = True
-            status_data["jobs_executed"] = scheduler.execution_stats.get('successful_jobs', 0)
-            status_data["jobs_failed"] = scheduler.execution_stats.get('failed_jobs', 0)
 
         return status_data
 
