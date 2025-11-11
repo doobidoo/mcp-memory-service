@@ -273,16 +273,84 @@ class TestCloudflareStorage:
             "success": True,
             "result": [{"results": [{"name": "test"}]}]
         }
-        
+
         with patch.object(cloudflare_storage, '_retry_request') as mock_request:
             mock_request.side_effect = [mock_d1_response, mock_tags_response]
-            
+
             memories = await cloudflare_storage.search_by_tag(["test"])
-            
+
             assert len(memories) == 1
             assert memories[0].content == "Tagged memory"
             assert memories[0].content_hash == "test123"
-    
+
+    @pytest.mark.asyncio
+    async def test_search_by_tags_or_operation(self, cloudflare_storage):
+        """Test search_by_tags uses OR semantics by default."""
+        mock_d1_response = Mock()
+        mock_d1_response.json.return_value = {
+            "success": True,
+            "result": [{
+                "results": [{
+                    "id": 2,
+                    "content_hash": "abc123",
+                    "content": "Multi tag memory",
+                    "memory_type": "standard"
+                }]
+            }]
+        }
+
+        mock_tags_response = Mock()
+        mock_tags_response.json.return_value = {
+            "success": True,
+            "result": [{"results": [{"name": "alpha"}, {"name": "beta"}]}]
+        }
+
+        with patch.object(cloudflare_storage, '_retry_request') as mock_request:
+            mock_request.side_effect = [mock_d1_response, mock_tags_response]
+
+            memories = await cloudflare_storage.search_by_tags(["alpha", "beta"], operation="OR")
+
+            assert len(memories) == 1
+            assert memories[0].content_hash == "abc123"
+
+            query_payload = mock_request.call_args_list[0].kwargs["json"]
+            assert "HAVING" not in query_payload["sql"].upper()
+            assert query_payload["params"] == ["alpha", "beta"]
+
+    @pytest.mark.asyncio
+    async def test_search_by_tags_and_operation(self, cloudflare_storage):
+        """Test search_by_tags enforces AND semantics when requested."""
+        mock_d1_response = Mock()
+        mock_d1_response.json.return_value = {
+            "success": True,
+            "result": [{
+                "results": [{
+                    "id": 3,
+                    "content_hash": "def456",
+                    "content": "All tag match",
+                    "memory_type": "standard"
+                }]
+            }]
+        }
+
+        mock_tags_response = Mock()
+        mock_tags_response.json.return_value = {
+            "success": True,
+            "result": [{"results": [{"name": "alpha"}, {"name": "beta"}]}]
+        }
+
+        with patch.object(cloudflare_storage, '_retry_request') as mock_request:
+            mock_request.side_effect = [mock_d1_response, mock_tags_response]
+
+            memories = await cloudflare_storage.search_by_tags(["alpha", "beta"], operation="AND")
+
+            assert len(memories) == 1
+            assert memories[0].content_hash == "def456"
+
+            query_payload = mock_request.call_args_list[0].kwargs["json"]
+            assert "HAVING COUNT(DISTINCT T.NAME) = ?" in query_payload["sql"].upper()
+            assert query_payload["params"] == ["alpha", "beta", 2]
+
     @pytest.mark.asyncio
     async def test_delete_memory(self, cloudflare_storage):
         """Test deleting a memory."""

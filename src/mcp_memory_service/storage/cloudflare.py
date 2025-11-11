@@ -556,37 +556,68 @@ class CloudflareStorage(MemoryStorage):
         
         return []
     
+    async def search_by_tags(self, tags: List[str], operation: str = "AND") -> List[Memory]:
+        """Search memories by tags with AND/OR semantics."""
+        return await self._search_by_tags_internal(tags=tags, operation=operation)
+
     async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
-        """Search memories by tags with optional time filtering.
+        """Search memories by tags with optional time filtering (legacy OR behavior)."""
+        return await self._search_by_tags_internal(
+            tags=tags,
+            operation="OR",
+            time_start=time_start
+        )
 
-        Args:
-            tags: List of tags to search for
-            time_start: Optional Unix timestamp (in seconds) to filter memories created after this time
-
-        Returns:
-            List of Memory objects matching the tag criteria and time filter
-        """
+    async def _search_by_tags_internal(
+        self,
+        tags: List[str],
+        operation: Optional[str] = None,
+        time_start: Optional[float] = None
+    ) -> List[Memory]:
+        """Shared implementation for tag-based queries with optional time filtering."""
         try:
             if not tags:
                 return []
 
-            # Build SQL query for tag search
-            placeholders = ",".join(["?"] * len(tags))
-            params = list(tags)
-            where_conditions = [f"t.name IN ({placeholders})"]
+            # Normalize tags (deduplicate, drop empty strings)
+            deduped_tags = list(dict.fromkeys([tag for tag in tags if tag]))
+            if not deduped_tags:
+                return []
 
-            # Add time filter if provided
-            if time_start is not None:
-                where_conditions.append("m.created_at >= ?")
-                params.append(time_start)
+            normalized_operation = (operation or "AND")
+            if isinstance(normalized_operation, str):
+                normalized_operation = normalized_operation.strip().upper() or "AND"
+            else:
+                normalized_operation = "AND"
+
+            if normalized_operation not in {"AND", "OR"}:
+                logger.warning(
+                    "Unsupported tag search operation '%s'; defaulting to AND",
+                    operation
+                )
+                normalized_operation = "AND"
+
+            placeholders = ",".join(["?"] * len(deduped_tags))
+            params: List[Any] = list(deduped_tags)
 
             sql = (
-                "SELECT DISTINCT m.* FROM memories m "
+                "SELECT m.* FROM memories m "
                 "JOIN memory_tags mt ON m.id = mt.memory_id "
                 "JOIN tags t ON mt.tag_id = t.id "
-                f"WHERE {' AND '.join(where_conditions)} "
-                "ORDER BY m.created_at DESC"
+                f"WHERE t.name IN ({placeholders})"
             )
+
+            if time_start is not None:
+                sql += " AND m.created_at >= ?"
+                params.append(time_start)
+
+            sql += " GROUP BY m.id"
+
+            if normalized_operation == "AND":
+                sql += " HAVING COUNT(DISTINCT t.name) = ?"
+                params.append(len(deduped_tags))
+
+            sql += " ORDER BY m.created_at DESC"
 
             payload = {"sql": sql, "params": params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
@@ -595,18 +626,29 @@ class CloudflareStorage(MemoryStorage):
             if not result.get("success"):
                 raise ValueError(f"D1 tag search failed: {result}")
 
-            memories = []
-            if result.get("result", [{}])[0].get("results"):
-                for row in result["result"][0]["results"]:
-                    memory = await self._load_memory_from_row(row)
-                    if memory:
-                        memories.append(memory)
+            rows = result.get("result", [{}])[0].get("results") or []
+            memories: List[Memory] = []
 
-            logger.info(f"Found {len(memories)} memories with tags: {tags}")
+            for row in rows:
+                memory = await self._load_memory_from_row(row)
+                if memory:
+                    memories.append(memory)
+
+            logger.info(
+                "Found %d memories with tags: %s (operation: %s)",
+                len(memories),
+                deduped_tags,
+                normalized_operation
+            )
             return memories
 
         except Exception as e:
-            logger.error(f"Failed to search by tags: {e}")
+            logger.error(
+                "Failed to search memories by tags %s with operation %s: %s",
+                tags,
+                operation,
+                e
+            )
             return []
     
     async def _load_memory_from_row(self, row: Dict[str, Any]) -> Optional[Memory]:
