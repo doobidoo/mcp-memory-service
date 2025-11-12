@@ -98,7 +98,7 @@ changelog_file = "CHANGELOG.md"
 build_command = "pip install build && python -m build"
 build_command_env = []
 dist_path = "dist/"
-upload_to_pypi = false
+upload_to_pypi = true
 upload_to_release = true
 commit_message = "chore(release): bump version to {version}"
 
