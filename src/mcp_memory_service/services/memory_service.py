@@ -291,14 +291,22 @@ class MemoryService:
     async def search_by_tag(
         self,
         tags: Union[str, List[str]],
-        match_all: bool = False
+        match_all: bool = False,
+        limit: int = 10,
+        offset: int = 0,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
     ) -> Dict[str, Union[List[MemoryResult], str, bool, int]]:
         """
-        Search memories by tags with flexible matching options.
+        Search memories by tags with flexible matching options and optional date filtering.
 
         Args:
             tags: Tag or list of tags to search for
             match_all: If True, memory must have ALL tags; if False, ANY tag
+            limit: Maximum number of results to return (default: 10)
+            offset: Number of results to skip for pagination (default: 0)
+            start_date: Filter memories from this date (YYYY-MM-DD format)
+            end_date: Filter memories until this date (YYYY-MM-DD format)
 
         Returns:
             Dictionary with matching memories
@@ -308,9 +316,28 @@ class MemoryService:
             if isinstance(tags, str):
                 tags = [tags]
 
+            # Convert date strings to timestamps if provided
+            from datetime import datetime
+            start_timestamp = None
+            end_timestamp = None
+
+            if start_date:
+                dt = datetime.fromisoformat(start_date)
+                start_timestamp = datetime(dt.year, dt.month, dt.day).timestamp()
+
+            if end_date:
+                dt = datetime.fromisoformat(end_date)
+                end_timestamp = datetime(dt.year, dt.month, dt.day, 23, 59, 59).timestamp()
+
             # Search using database-level filtering
             # Note: Using search_by_tag from base class (singular)
-            memories = await self.storage.search_by_tag(tags=tags)
+            memories = await self.storage.search_by_tag(
+                tags=tags,
+                limit=limit,
+                offset=offset,
+                start_timestamp=start_timestamp,
+                end_timestamp=end_timestamp
+            )
 
             # Format results
             results = []
@@ -350,10 +377,8 @@ class MemoryService:
             Dictionary with memory data or error
         """
         try:
-            # Get all memories and find by hash (storage base doesn't have get_memory)
-            # This is inefficient but maintains compatibility
-            all_memories = await self.storage.get_all_memories(limit=None, offset=0)
-            memory = next((m for m in all_memories if m.content_hash == content_hash), None)
+            # Use efficient database-level hash lookup
+            memory = await self.storage.get_memory_by_hash(content_hash)
 
             if memory:
                 return {

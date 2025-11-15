@@ -24,29 +24,50 @@ This implementation provides the best of both worlds:
 
 import asyncio
 import logging
+import os
+import sys
 import time
 from typing import List, Dict, Any, Tuple, Optional
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 
 from .base import MemoryStorage
 from .sqlite_vec import SqliteVecMemoryStorage
 from .cloudflare import CloudflareStorage
 from ..models.memory import Memory, MemoryQueryResult
 
+# Platform-specific file locking imports
+if sys.platform == 'win32':
+    import msvcrt
+else:
+    import fcntl
+
 # Import config to check if limit constants are available
 from .. import config as app_config
 
-# Use getattr to provide fallbacks if attributes don't exist (prevents duplicate defaults)
-CLOUDFLARE_D1_MAX_SIZE_GB = getattr(app_config, 'CLOUDFLARE_D1_MAX_SIZE_GB', 10)
-CLOUDFLARE_VECTORIZE_MAX_VECTORS = getattr(app_config, 'CLOUDFLARE_VECTORIZE_MAX_VECTORS', 5_000_000)
-CLOUDFLARE_MAX_METADATA_SIZE_KB = getattr(app_config, 'CLOUDFLARE_MAX_METADATA_SIZE_KB', 10)
-CLOUDFLARE_WARNING_THRESHOLD_PERCENT = getattr(app_config, 'CLOUDFLARE_WARNING_THRESHOLD_PERCENT', 80)
-CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT = getattr(app_config, 'CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT', 95)
-HYBRID_SYNC_ON_STARTUP = getattr(app_config, 'HYBRID_SYNC_ON_STARTUP', True)
-HYBRID_MAX_CONTENT_LENGTH = getattr(app_config, 'HYBRID_MAX_CONTENT_LENGTH', 800)
-HYBRID_MAX_EMPTY_BATCHES = getattr(app_config, 'HYBRID_MAX_EMPTY_BATCHES', 20)
-HYBRID_MIN_CHECK_COUNT = getattr(app_config, 'HYBRID_MIN_CHECK_COUNT', 1000)
+# Import config values (defaults handled by pydantic-settings)
+CLOUDFLARE_D1_MAX_SIZE_GB = app_config.CLOUDFLARE_D1_MAX_SIZE_GB
+CLOUDFLARE_VECTORIZE_MAX_VECTORS = app_config.CLOUDFLARE_VECTORIZE_MAX_VECTORS
+CLOUDFLARE_MAX_METADATA_SIZE_KB = app_config.CLOUDFLARE_MAX_METADATA_SIZE_KB
+CLOUDFLARE_WARNING_THRESHOLD_PERCENT = app_config.CLOUDFLARE_WARNING_THRESHOLD_PERCENT
+CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT = app_config.CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT
+HYBRID_SYNC_ON_STARTUP = app_config.HYBRID_SYNC_ON_STARTUP
+HYBRID_MAX_CONTENT_LENGTH = app_config.HYBRID_MAX_CONTENT_LENGTH
+HYBRID_MAX_EMPTY_BATCHES = app_config.HYBRID_MAX_EMPTY_BATCHES
+HYBRID_MIN_CHECK_COUNT = app_config.HYBRID_MIN_CHECK_COUNT
+
+# Leader election configuration
+HYBRID_LEADER_ELECTION_ENABLED = app_config.HYBRID_LEADER_ELECTION_ENABLED
+HYBRID_LEADER_HEALTH_CHECK_INTERVAL = app_config.HYBRID_LEADER_HEALTH_CHECK_INTERVAL
+HYBRID_LEADER_HEARTBEAT_INTERVAL = app_config.HYBRID_LEADER_HEARTBEAT_INTERVAL
+HYBRID_LEADER_STALE_THRESHOLD = app_config.HYBRID_LEADER_STALE_THRESHOLD
+
+# Adaptive sync configuration
+HYBRID_ADAPTIVE_SYNC_ENABLED = app_config.HYBRID_ADAPTIVE_SYNC_ENABLED
+HYBRID_SYNC_ACTIVE_INTERVAL = app_config.HYBRID_SYNC_ACTIVE_INTERVAL
+HYBRID_SYNC_IDLE_INTERVAL = app_config.HYBRID_SYNC_IDLE_INTERVAL
+HYBRID_IDLE_THRESHOLD = app_config.HYBRID_IDLE_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +86,235 @@ class SyncOperation:
         if self.timestamp is None:
             self.timestamp = time.time()
 
+
+class LeaderElection:
+    """
+    Cross-platform leader election mechanism for single-writer SQLite access.
+
+    Uses file locking to ensure only one process can write to SQLite at a time.
+    Implements automatic failover when leader becomes stale.
+    """
+
+    def __init__(self, lock_dir: Path, process_id: str = None):
+        """
+        Initialize leader election.
+
+        Args:
+            lock_dir: Directory for lock and heartbeat files
+            process_id: Unique process identifier (defaults to PID)
+        """
+        self.lock_dir = Path(lock_dir)
+        self.lock_dir.mkdir(parents=True, exist_ok=True)
+
+        self.process_id = process_id or f"{os.getpid()}"
+        self.lock_file_path = self.lock_dir / "leader.lock"
+        self.heartbeat_file_path = self.lock_dir / "leader.heartbeat"
+
+        self.lock_file = None
+        self.is_leader = False
+        self.heartbeat_task = None
+        self.health_check_task = None
+
+    def try_acquire_leadership(self) -> bool:
+        """
+        Attempt to acquire leader lock.
+
+        Returns:
+            True if lock acquired (now leader), False otherwise
+        """
+        try:
+            # Try to open/create lock file
+            self.lock_file = open(self.lock_file_path, 'w')
+
+            if sys.platform == 'win32':
+                # Windows file locking
+                import msvcrt
+                try:
+                    msvcrt.locking(self.lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                    self.is_leader = True
+                    logger.info(f"✅ Process {self.process_id} acquired leadership (Windows)")
+                except OSError:
+                    self.is_leader = False
+                    self.lock_file.close()
+                    self.lock_file = None
+            else:
+                # Unix file locking (fcntl)
+                import fcntl
+                try:
+                    fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    self.is_leader = True
+                    logger.info(f"✅ Process {self.process_id} acquired leadership (Unix)")
+                except (OSError, BlockingIOError):
+                    self.is_leader = False
+                    self.lock_file.close()
+                    self.lock_file = None
+
+            if self.is_leader:
+                # Write process ID to lock file
+                self.lock_file.write(self.process_id)
+                self.lock_file.flush()
+                self._write_heartbeat()
+
+            return self.is_leader
+
+        except Exception as e:
+            logger.error(f"Error acquiring leadership: {e}")
+            self.is_leader = False
+            if self.lock_file:
+                try:
+                    self.lock_file.close()
+                except:
+                    pass
+                self.lock_file = None
+            return False
+
+    def release_leadership(self):
+        """Release leader lock."""
+        if not self.is_leader:
+            return
+
+        try:
+            if self.lock_file:
+                if sys.platform == 'win32':
+                    import msvcrt
+                    try:
+                        msvcrt.locking(self.lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                    except:
+                        pass
+                else:
+                    import fcntl
+                    try:
+                        fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_UN)
+                    except:
+                        pass
+
+                self.lock_file.close()
+                self.lock_file = None
+
+            # Clean up heartbeat file
+            if self.heartbeat_file_path.exists():
+                self.heartbeat_file_path.unlink()
+
+            self.is_leader = False
+            logger.info(f"Process {self.process_id} released leadership")
+
+        except Exception as e:
+            logger.error(f"Error releasing leadership: {e}")
+
+    def _write_heartbeat(self):
+        """Write current timestamp to heartbeat file."""
+        try:
+            with open(self.heartbeat_file_path, 'w') as f:
+                f.write(f"{time.time()}\n{self.process_id}")
+        except Exception as e:
+            logger.error(f"Error writing heartbeat: {e}")
+
+    def _read_heartbeat(self) -> Optional[Tuple[float, str]]:
+        """
+        Read heartbeat file.
+
+        Returns:
+            Tuple of (timestamp, process_id) or None if file doesn't exist
+        """
+        try:
+            if not self.heartbeat_file_path.exists():
+                return None
+
+            with open(self.heartbeat_file_path, 'r') as f:
+                lines = f.read().strip().split('\n')
+                if len(lines) >= 2:
+                    return float(lines[0]), lines[1]
+                elif len(lines) == 1:
+                    return float(lines[0]), "unknown"
+        except Exception as e:
+            logger.warning(f"Error reading heartbeat: {e}")
+        return None
+
+    def is_leader_stale(self) -> bool:
+        """
+        Check if current leader is stale (hasn't written heartbeat recently).
+
+        Returns:
+            True if leader is stale or doesn't exist
+        """
+        heartbeat = self._read_heartbeat()
+        if not heartbeat:
+            return True
+
+        timestamp, process_id = heartbeat
+        age = time.time() - timestamp
+
+        is_stale = age > HYBRID_LEADER_STALE_THRESHOLD
+        if is_stale:
+            logger.warning(f"Leader {process_id} is stale (heartbeat {age:.1f}s old, threshold {HYBRID_LEADER_STALE_THRESHOLD}s)")
+
+        return is_stale
+
+    async def start_leader_heartbeat(self):
+        """Start background task to write heartbeats (leader only)."""
+        if not self.is_leader:
+            return
+
+        async def heartbeat_loop():
+            while self.is_leader:
+                try:
+                    self._write_heartbeat()
+                    await asyncio.sleep(HYBRID_LEADER_HEARTBEAT_INTERVAL)
+                except Exception as e:
+                    logger.error(f"Error in heartbeat loop: {e}")
+                    await asyncio.sleep(1)
+
+        self.heartbeat_task = asyncio.create_task(heartbeat_loop())
+        logger.info(f"Leader heartbeat started (interval: {HYBRID_LEADER_HEARTBEAT_INTERVAL}s)")
+
+    async def start_follower_health_check(self, on_leader_stale_callback):
+        """
+        Start background task to monitor leader health (follower only).
+
+        Args:
+            on_leader_stale_callback: Async function to call when leader becomes stale
+        """
+        if self.is_leader:
+            return
+
+        async def health_check_loop():
+            while not self.is_leader:
+                try:
+                    if self.is_leader_stale():
+                        logger.warning(f"Follower {self.process_id} detected stale leader, attempting takeover")
+                        if self.try_acquire_leadership():
+                            logger.info(f"🎉 Follower {self.process_id} promoted to leader!")
+                            await on_leader_stale_callback()
+                            break
+
+                    await asyncio.sleep(HYBRID_LEADER_HEALTH_CHECK_INTERVAL)
+                except Exception as e:
+                    logger.error(f"Error in health check loop: {e}")
+                    await asyncio.sleep(1)
+
+        self.health_check_task = asyncio.create_task(health_check_loop())
+        logger.info(f"Follower health check started (interval: {HYBRID_LEADER_HEALTH_CHECK_INTERVAL}s)")
+
+    async def stop(self):
+        """Stop background tasks and release leadership."""
+        # Cancel background tasks
+        if self.heartbeat_task:
+            self.heartbeat_task.cancel()
+            try:
+                await self.heartbeat_task
+            except asyncio.CancelledError:
+                pass
+
+        if self.health_check_task:
+            self.health_check_task.cancel()
+            try:
+                await self.health_check_task
+            except asyncio.CancelledError:
+                pass
+
+        # Release leadership
+        self.release_leadership()
+
 class BackgroundSyncService:
     """
     Handles background synchronization between SQLite-vec and Cloudflare.
@@ -74,6 +324,7 @@ class BackgroundSyncService:
     - Retry logic with exponential backoff
     - Health monitoring and error handling
     - Configurable sync intervals and batch sizes
+    - Adaptive sync intervals (5s active, 60s idle)
     - Graceful degradation when cloud is unavailable
     """
 
@@ -82,12 +333,14 @@ class BackgroundSyncService:
                  secondary_storage: CloudflareStorage,
                  sync_interval: int = 300,  # 5 minutes
                  batch_size: int = 50,
-                 max_queue_size: int = 1000):
+                 max_queue_size: int = 1000,
+                 is_leader: bool = True):
         self.primary = primary_storage
         self.secondary = secondary_storage
         self.sync_interval = sync_interval
         self.batch_size = batch_size
         self.max_queue_size = max_queue_size
+        self.is_leader = is_leader
 
         # Sync queues and state
         self.operation_queue = asyncio.Queue(maxsize=max_queue_size)
@@ -115,6 +368,37 @@ class BackgroundSyncService:
             'approaching_limits': False,
             'limit_warnings': []
         }
+
+        # Adaptive sync tracking
+        self.last_write_time = time.time()
+        self.adaptive_sync_enabled = HYBRID_ADAPTIVE_SYNC_ENABLED
+        self.sync_active_interval = HYBRID_SYNC_ACTIVE_INTERVAL
+        self.sync_idle_interval = HYBRID_SYNC_IDLE_INTERVAL
+        self.idle_threshold = HYBRID_IDLE_THRESHOLD
+
+    def record_write_activity(self):
+        """Record that a write operation occurred (for adaptive sync)."""
+        self.last_write_time = time.time()
+
+    def get_current_sync_interval(self) -> int:
+        """
+        Calculate current sync interval based on activity.
+
+        Returns:
+            Sync interval in seconds (5s if active, 60s if idle)
+        """
+        if not self.adaptive_sync_enabled:
+            return self.sync_interval
+
+        # Check time since last write
+        time_since_write = time.time() - self.last_write_time
+
+        if time_since_write < self.idle_threshold:
+            # Active: sync frequently
+            return self.sync_active_interval
+        else:
+            # Idle: sync less frequently
+            return self.sync_idle_interval
 
     async def start(self):
         """Start the background sync service."""
@@ -341,7 +625,7 @@ class BackgroundSyncService:
             }
 
     async def _sync_loop(self):
-        """Main background sync loop."""
+        """Main background sync loop with adaptive intervals."""
         logger.info("Background sync loop started")
 
         while self.is_running:
@@ -349,11 +633,15 @@ class BackgroundSyncService:
                 # Process queued operations
                 await self._process_operation_queue()
 
+                # Calculate current sync interval based on activity
+                current_sync_interval = self.get_current_sync_interval()
+
                 # Periodic full sync if enough time has passed
                 current_time = time.time()
-                if current_time - self.last_sync_time >= self.sync_interval:
+                if current_time - self.last_sync_time >= current_sync_interval:
                     await self._periodic_sync()
                     self.last_sync_time = current_time
+                    logger.debug(f"Next sync in {current_sync_interval}s (adaptive: {'active' if current_sync_interval == self.sync_active_interval else 'idle'})")
 
                 # Sleep before next iteration
                 await asyncio.sleep(5)  # Check every 5 seconds
@@ -451,6 +739,9 @@ class BackgroundSyncService:
     async def _process_single_operation(self, operation: SyncOperation):
         """Process a single sync operation to secondary storage."""
         try:
+            # Record write activity for adaptive sync
+            self.record_write_activity()
+
             if operation.operation == 'store' and operation.memory:
                 # Validate memory before syncing
                 is_valid, validation_error = await self.validate_memory_for_cloudflare(operation.memory)
@@ -587,9 +878,27 @@ class HybridMemoryStorage(MemoryStorage):
         self.initial_sync_completed = 0
         self.initial_sync_finished = False
 
+        # Leader election for single-writer SQLite access
+        self.leader_election = None
+        if HYBRID_LEADER_ELECTION_ENABLED:
+            # Use SQLite db directory for lock files
+            lock_dir = Path(sqlite_db_path).parent / ".hybrid_locks"
+            self.leader_election = LeaderElection(lock_dir=lock_dir)
+
     async def initialize(self) -> None:
         """Initialize the hybrid storage system."""
         logger.info("Initializing hybrid memory storage...")
+
+        # Try to acquire leadership if leader election is enabled
+        is_leader = True
+        if self.leader_election:
+            is_leader = self.leader_election.try_acquire_leadership()
+            if is_leader:
+                logger.info("🎖️  This process is the LEADER - will write to both SQLite and Cloudflare")
+                # Start leader heartbeat
+                await self.leader_election.start_leader_heartbeat()
+            else:
+                logger.info("👥 This process is a FOLLOWER - will write to Cloudflare only")
 
         # Always initialize primary storage
         await self.primary.initialize()
@@ -606,13 +915,21 @@ class HybridMemoryStorage(MemoryStorage):
                     self.primary,
                     self.secondary,
                     sync_interval=self.sync_interval,
-                    batch_size=self.batch_size
+                    batch_size=self.batch_size,
+                    is_leader=is_leader
                 )
                 await self.sync_service.start()
                 logger.info("Background sync service started")
 
+                # Start follower health check if not leader
+                if self.leader_election and not is_leader:
+                    await self.leader_election.start_follower_health_check(
+                        on_leader_stale_callback=self._on_promoted_to_leader
+                    )
+
                 # Schedule initial sync to run after server startup (non-blocking)
-                if HYBRID_SYNC_ON_STARTUP:
+                # Only leader performs initial sync to avoid redundant work
+                if HYBRID_SYNC_ON_STARTUP and is_leader:
                     asyncio.create_task(self._perform_initial_sync_after_startup())
                     logger.info("Initial sync scheduled to run after server startup")
 
@@ -622,6 +939,25 @@ class HybridMemoryStorage(MemoryStorage):
 
         self.initialized = True
         logger.info("Hybrid memory storage initialization completed")
+
+    async def _on_promoted_to_leader(self):
+        """
+        Callback when a follower is promoted to leader.
+
+        Starts leader heartbeat and updates sync service.
+        """
+        logger.info("🎖️  Promoted to LEADER - starting leader heartbeat and sync")
+        if self.leader_election:
+            await self.leader_election.start_leader_heartbeat()
+
+        # Update sync service to leader mode
+        if self.sync_service:
+            self.sync_service.is_leader = True
+
+            # Trigger initial sync to catch up on any missed writes
+            if HYBRID_SYNC_ON_STARTUP:
+                asyncio.create_task(self._perform_initial_sync_after_startup())
+                logger.info("Initial sync scheduled after leader promotion")
 
     async def _perform_initial_sync_after_startup(self) -> None:
         """
@@ -796,16 +1132,33 @@ class HybridMemoryStorage(MemoryStorage):
         }
 
     async def store(self, memory: Memory) -> Tuple[bool, str]:
-        """Store a memory in primary storage and queue for secondary sync."""
-        # Always store in primary first for immediate availability
-        success, message = await self.primary.store(memory)
+        """
+        Store a memory with leader-based routing.
 
-        if success and self.sync_service:
-            # Queue for background sync to secondary
-            operation = SyncOperation(operation='store', memory=memory)
-            await self.sync_service.enqueue_operation(operation)
+        Leader: Writes to SQLite (fast), queues Cloudflare sync
+        Follower: Writes to Cloudflare only (avoids SQLite write contention)
+        """
+        is_leader = self.leader_election.is_leader if self.leader_election else True
 
-        return success, message
+        if is_leader:
+            # Leader: Write to SQLite first for immediate availability
+            success, message = await self.primary.store(memory)
+
+            if success and self.sync_service:
+                # Queue for background sync to secondary
+                operation = SyncOperation(operation='store', memory=memory)
+                await self.sync_service.enqueue_operation(operation)
+
+            return success, message
+        else:
+            # Follower: Write to Cloudflare only to avoid SQLite contention
+            if self.secondary:
+                success, message = await self.secondary.store(memory)
+                if success:
+                    logger.debug(f"Follower stored memory to Cloudflare: {memory.content_hash[:8]}")
+                return success, message
+            else:
+                return False, "Follower mode requires Cloudflare backend"
 
     async def retrieve(
         self,
@@ -829,26 +1182,63 @@ class HybridMemoryStorage(MemoryStorage):
         """Search memories in primary storage."""
         return await self.primary.search(query, n_results, tags, memory_type, min_similarity)
 
-    async def search_by_tag(self, tags: List[str], match_all: bool = False) -> List[Memory]:
-        """Search memories by tags in primary storage."""
+    async def search_by_tag(
+        self,
+        tags: List[str],
+        match_all: bool = False,
+        limit: int = 10,
+        offset: int = 0,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None
+    ) -> List[Memory]:
+        """Search memories by tags in primary storage with pagination and date filtering."""
         operation = "AND" if match_all else "OR"
-        return await self.primary.search_by_tags(tags, operation=operation)
+        return await self.primary.search_by_tags(
+            tags,
+            operation=operation,
+            limit=limit,
+            offset=offset,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp
+        )
 
-    async def search_by_tags(self, tags: List[str], match_all: bool = False) -> List[Memory]:
-        """Search memories by tags (alternative method signature)."""
+    async def search_by_tags(self, tags: List[str], match_all: bool = False, limit: int = 10, offset: int = 0) -> List[Memory]:
+        """Search memories by tags (alternative method signature) with pagination."""
         operation = "AND" if match_all else "OR"
-        return await self.primary.search_by_tags(tags, operation=operation)
+        return await self.primary.search_by_tags(tags, operation=operation, limit=limit, offset=offset)
+
+    async def get_memory_by_hash(self, content_hash: str) -> Optional[Memory]:
+        """Retrieve a specific memory by its content hash from primary storage."""
+        return await self.primary.get_memory_by_hash(content_hash)
 
     async def delete(self, content_hash: str) -> Tuple[bool, str]:
-        """Delete a memory from primary storage and queue for secondary sync."""
-        success, message = await self.primary.delete(content_hash)
+        """
+        Delete a memory with leader-based routing.
 
-        if success and self.sync_service:
-            # Queue for background sync to secondary
-            operation = SyncOperation(operation='delete', content_hash=content_hash)
-            await self.sync_service.enqueue_operation(operation)
+        Leader: Deletes from SQLite, queues Cloudflare sync
+        Follower: Deletes from Cloudflare only
+        """
+        is_leader = self.leader_election.is_leader if self.leader_election else True
 
-        return success, message
+        if is_leader:
+            # Leader: Delete from SQLite
+            success, message = await self.primary.delete(content_hash)
+
+            if success and self.sync_service:
+                # Queue for background sync to secondary
+                operation = SyncOperation(operation='delete', content_hash=content_hash)
+                await self.sync_service.enqueue_operation(operation)
+
+            return success, message
+        else:
+            # Follower: Delete from Cloudflare only
+            if self.secondary:
+                success, message = await self.secondary.delete(content_hash)
+                if success:
+                    logger.debug(f"Follower deleted memory from Cloudflare: {content_hash[:8]}")
+                return success, message
+            else:
+                return False, "Follower mode requires Cloudflare backend"
 
     async def delete_by_tag(self, tag: str) -> Tuple[int, str]:
         """Delete memories by tag from primary storage and queue for secondary sync."""
@@ -920,19 +1310,37 @@ class HybridMemoryStorage(MemoryStorage):
         return await self.primary.cleanup_duplicates()
 
     async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
-        """Update memory metadata in primary storage and queue for secondary sync."""
-        success, message = await self.primary.update_memory_metadata(content_hash, updates, preserve_timestamps)
+        """
+        Update memory metadata with leader-based routing.
 
-        if success and self.sync_service:
-            # Queue for background sync to secondary
-            operation = SyncOperation(
-                operation='update',
-                content_hash=content_hash,
-                updates=updates
-            )
-            await self.sync_service.enqueue_operation(operation)
+        Leader: Updates SQLite, queues Cloudflare sync
+        Follower: Updates Cloudflare only
+        """
+        is_leader = self.leader_election.is_leader if self.leader_election else True
 
-        return success, message
+        if is_leader:
+            # Leader: Update SQLite
+            success, message = await self.primary.update_memory_metadata(content_hash, updates, preserve_timestamps)
+
+            if success and self.sync_service:
+                # Queue for background sync to secondary
+                operation = SyncOperation(
+                    operation='update',
+                    content_hash=content_hash,
+                    updates=updates
+                )
+                await self.sync_service.enqueue_operation(operation)
+
+            return success, message
+        else:
+            # Follower: Update Cloudflare only
+            if self.secondary:
+                success, message = await self.secondary.update_memory_metadata(content_hash, updates, preserve_timestamps)
+                if success:
+                    logger.debug(f"Follower updated memory in Cloudflare: {content_hash[:8]}")
+                return success, message
+            else:
+                return False, "Follower mode requires Cloudflare backend"
 
     async def get_stats(self) -> Dict[str, Any]:
         """Get comprehensive statistics from both storage backends."""
@@ -952,10 +1360,36 @@ class HybridMemoryStorage(MemoryStorage):
             "sync_enabled": self.sync_service is not None
         }
 
+        # Add leader election status
+        if self.leader_election:
+            heartbeat = self.leader_election._read_heartbeat()
+            stats["leader_election"] = {
+                "enabled": True,
+                "is_leader": self.leader_election.is_leader,
+                "process_id": self.leader_election.process_id,
+                "leader_process_id": heartbeat[1] if heartbeat else "unknown",
+                "leader_heartbeat_age_seconds": round(time.time() - heartbeat[0], 1) if heartbeat else None,
+                "leader_stale_threshold": HYBRID_LEADER_STALE_THRESHOLD
+            }
+        else:
+            stats["leader_election"] = {"enabled": False}
+
         # Add sync service statistics if available
         if self.sync_service:
             sync_status = await self.sync_service.get_sync_status()
             stats["sync_status"] = sync_status
+
+            # Add adaptive sync info
+            if self.sync_service.adaptive_sync_enabled:
+                current_interval = self.sync_service.get_current_sync_interval()
+                time_since_write = time.time() - self.sync_service.last_write_time
+                stats["adaptive_sync"] = {
+                    "enabled": True,
+                    "current_interval": current_interval,
+                    "is_active": current_interval == self.sync_service.sync_active_interval,
+                    "time_since_last_write": round(time_since_write, 1),
+                    "idle_threshold": self.sync_service.idle_threshold
+                }
 
         # Add secondary stats if available and healthy
         if self.secondary and self.sync_service and self.sync_service.sync_stats['cloudflare_available']:
@@ -1018,7 +1452,11 @@ class HybridMemoryStorage(MemoryStorage):
         """Clean shutdown of hybrid storage system."""
         logger.info("Shutting down hybrid memory storage...")
 
-        # Stop sync service first
+        # Stop leader election first
+        if self.leader_election:
+            await self.leader_election.stop()
+
+        # Stop sync service
         if self.sync_service:
             await self.sync_service.stop()
 

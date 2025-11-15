@@ -201,18 +201,33 @@ class HTTPClientStorage(MemoryStorage):
         except Exception as e:
             return self._handle_http_error(e, "retrieve", return_empty_list=True)
     
-    async def search_by_tag(self, tags: List[str]) -> List[Memory]:
-        """Search memories by tags via HTTP API."""
+    async def search_by_tag(
+        self,
+        tags: List[str],
+        limit: int = 10,
+        offset: int = 0,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None
+    ) -> List[Memory]:
+        """Search memories by tags via HTTP API with pagination and date filtering."""
         if not self._initialized or not self.session:
             logger.error("HTTP client not initialized")
             return []
-        
+
         try:
             search_url = f"{self.base_url}/api/search/tags"
             payload = {
                 "tags": tags,
-                "match_all": False  # Use ANY match (OR logic)
+                "match_all": False,  # Use ANY match (OR logic)
+                "limit": limit,
+                "offset": offset
             }
+
+            # Add date filters if provided
+            if start_timestamp is not None:
+                payload["start_timestamp"] = start_timestamp
+            if end_timestamp is not None:
+                payload["end_timestamp"] = end_timestamp
             
             async with self.session.post(search_url, json=payload) as response:
                 if response.status == 200:
@@ -241,7 +256,43 @@ class HTTPClientStorage(MemoryStorage):
                     
         except Exception as e:
             return self._handle_http_error(e, "tag search", return_empty_list=True)
-    
+
+    async def get_memory_by_hash(self, content_hash: str) -> Optional[Memory]:
+        """Retrieve a specific memory by its content hash via HTTP API."""
+        if not self._initialized or not self.session:
+            logger.error("HTTP client not initialized")
+            return None
+
+        try:
+            memory_url = f"{self.base_url}/api/memories/{content_hash}"
+
+            async with self.session.get(memory_url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    memory_data = data.get("memory")
+
+                    if memory_data:
+                        return Memory(
+                            content=memory_data.get("content", ""),
+                            content_hash=memory_data.get("content_hash", ""),
+                            tags=memory_data.get("tags", []),
+                            memory_type=memory_data.get("memory_type"),
+                            metadata=memory_data.get("metadata", {}),
+                            created_at=memory_data.get("created_at"),
+                            updated_at=memory_data.get("updated_at"),
+                            created_at_iso=memory_data.get("created_at_iso"),
+                            updated_at_iso=memory_data.get("updated_at_iso")
+                        )
+                elif response.status == 404:
+                    return None
+                else:
+                    logger.error(f"HTTP get memory failed: {response.status}")
+                    return None
+
+        except Exception as e:
+            logger.error(f"HTTP get memory error: {e}")
+            return None
+
     async def delete(self, content_hash: str) -> Tuple[bool, str]:
         """Delete a memory by content hash via HTTP API."""
         if not self._initialized or not self.session:

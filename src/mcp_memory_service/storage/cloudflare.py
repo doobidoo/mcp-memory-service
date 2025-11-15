@@ -580,23 +580,49 @@ class CloudflareStorage(MemoryStorage):
         
         return []
     
-    async def search_by_tag(self, tags: List[str]) -> List[Memory]:
-        """Search memories by tags."""
+    async def search_by_tag(
+        self,
+        tags: List[str],
+        limit: int = 10,
+        offset: int = 0,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None
+    ) -> List[Memory]:
+        """Search memories by tags with pagination and optional date filtering."""
         try:
             if not tags:
                 return []
-            
-            # Build SQL query for tag search
+
+            # Build SQL query for tag search with pagination and date filtering
             placeholders = ",".join(["?"] * len(tags))
+
+            # Build date filter clauses
+            date_clauses = []
+            params = list(tags)
+
+            if start_timestamp is not None:
+                date_clauses.append("m.created_at >= ?")
+                params.append(start_timestamp)
+
+            if end_timestamp is not None:
+                date_clauses.append("m.created_at <= ?")
+                params.append(end_timestamp)
+
+            # Combine WHERE clauses
+            where_clause = f"t.name IN ({placeholders})"
+            if date_clauses:
+                where_clause += " AND " + " AND ".join(date_clauses)
+
             sql = f"""
             SELECT DISTINCT m.* FROM memories m
             JOIN memory_tags mt ON m.id = mt.memory_id
             JOIN tags t ON mt.tag_id = t.id
-            WHERE t.name IN ({placeholders})
+            WHERE {where_clause}
             ORDER BY m.created_at DESC
+            LIMIT ? OFFSET ?
             """
-            
-            payload = {"sql": sql, "params": tags}
+
+            payload = {"sql": sql, "params": params + [limit, offset]}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
             
@@ -645,7 +671,26 @@ class CloudflareStorage(MemoryStorage):
         except Exception as e:
             logger.error(f"Failed to load memory from row: {e}")
             return None
-    
+
+    async def get_memory_by_hash(self, content_hash: str) -> Optional[Memory]:
+        """Retrieve a specific memory by its content hash."""
+        try:
+            # Query D1 for memory by content hash
+            sql = "SELECT * FROM memories WHERE content_hash = ?"
+            payload = {"sql": sql, "params": [content_hash]}
+            response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+            result = response.json()
+
+            if not result.get("success") or not result.get("result", [{}])[0].get("results"):
+                return None
+
+            row = result["result"][0]["results"][0]
+            return await self._load_memory_from_row(row)
+
+        except Exception as e:
+            logger.error(f"Failed to get memory by hash: {e}")
+            return None
+
     async def delete(self, content_hash: str) -> Tuple[bool, str]:
         """Delete a memory by its hash."""
         try:

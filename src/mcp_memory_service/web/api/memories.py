@@ -21,7 +21,7 @@ import socket
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Depends, Query, Request
+from fastapi import APIRouter, HTTPException, Depends, Query, Request, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from ...storage.base import MemoryStorage
@@ -31,6 +31,7 @@ from ...utils.hashing import generate_content_hash
 from ...config import INCLUDE_HOSTNAME, OAUTH_ENABLED
 from ..dependencies import get_storage, get_memory_service
 from ..sse import sse_manager, create_memory_stored_event, create_memory_deleted_event
+from ..write_queue import write_queue
 
 # OAuth authentication imports (conditional)
 if OAUTH_ENABLED or TYPE_CHECKING:
@@ -137,6 +138,7 @@ def memory_to_response(memory: Memory) -> MemoryResponse:
 async def store_memory(
     request: MemoryCreateRequest,
     http_request: Request,
+    background_tasks: BackgroundTasks,
     memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
 ):
@@ -144,7 +146,8 @@ async def store_memory(
     Store a new memory.
 
     Uses the MemoryService for consistent business logic including content processing,
-    hostname tagging, and metadata enrichment.
+    hostname tagging, and metadata enrichment. Write operations are queued to prevent
+    SQLite contention from concurrent requests.
     """
     try:
         # Resolve hostname for consistent tagging (logic stays in API layer, tagging in service)
@@ -161,14 +164,22 @@ async def store_memory(
             else:
                 client_hostname = socket.gethostname()
 
-        # Use injected MemoryService for consistent business logic (hostname tagging handled internally)
-        result = await memory_service.store_memory(
+        # Enqueue write operation to prevent SQLite contention
+        # Returns a Future that will contain the result when processed
+        result_future = await write_queue.enqueue(
+            memory_service.store_memory,
             content=request.content,
-        tags=request.tags,
-        memory_type=request.memory_type,
-        metadata=request.metadata,
-        client_hostname=client_hostname
+            tags=request.tags,
+            memory_type=request.memory_type,
+            metadata=request.metadata,
+            client_hostname=client_hostname
         )
+
+        # Add background task to process the queue
+        background_tasks.add_task(write_queue.process_queue)
+
+        # Wait for the result (queue processes immediately in background)
+        result = await result_future
 
         if result["success"]:
             # Broadcast SSE event for successful memory storage

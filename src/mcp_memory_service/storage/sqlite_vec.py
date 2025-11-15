@@ -1028,13 +1028,20 @@ SOLUTIONS:
             logger.error(traceback.format_exc())
             return []
     
-    async def search_by_tag(self, tags: List[str]) -> List[Memory]:
-        """Search memories by tags."""
+    async def search_by_tag(
+        self,
+        tags: List[str],
+        limit: int = 10,
+        offset: int = 0,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None
+    ) -> List[Memory]:
+        """Search memories by tags with pagination and optional date filtering."""
         try:
             if not self.conn:
                 logger.error("Database not initialized")
                 return []
-            
+
             if not tags:
                 return []
 
@@ -1042,15 +1049,33 @@ SOLUTIONS:
             # This uses index on tags(name) for O(log n) performance
             tag_placeholders = ",".join(["?" for _ in tags])
 
+            # Build date filter clauses
+            date_clauses = []
+            params = list(tags)
+
+            if start_timestamp is not None:
+                date_clauses.append("m.created_at >= ?")
+                params.append(start_timestamp)
+
+            if end_timestamp is not None:
+                date_clauses.append("m.created_at <= ?")
+                params.append(end_timestamp)
+
+            # Combine WHERE clauses
+            where_clause = f"t.name IN ({tag_placeholders})"
+            if date_clauses:
+                where_clause += " AND " + " AND ".join(date_clauses)
+
             cursor = self.conn.execute(f'''
                 SELECT DISTINCT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
                        m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso
                 FROM memories m
                 JOIN memory_tags mt ON m.id = mt.memory_id
                 JOIN tags t ON mt.tag_id = t.id
-                WHERE t.name IN ({tag_placeholders})
+                WHERE {where_clause}
                 ORDER BY m.created_at DESC
-            ''', tags)
+                LIMIT ? OFFSET ?
+            ''', params + [limit, offset])
             
             results = []
             for row in cursor.fetchall():
@@ -1088,43 +1113,83 @@ SOLUTIONS:
             logger.error(traceback.format_exc())
             return []
     
-    async def search_by_tags(self, tags: List[str], operation: str = "AND") -> List[Memory]:
-        """Search memories by tags with AND/OR operation support."""
+    async def search_by_tags(
+        self,
+        tags: List[str],
+        operation: str = "AND",
+        limit: int = 10,
+        offset: int = 0,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None
+    ) -> List[Memory]:
+        """Search memories by tags with AND/OR operation support, pagination, and date filtering."""
         try:
             if not self.conn:
                 logger.error("Database not initialized")
                 return []
-            
+
             if not tags:
                 return []
-            
+
             # Build query based on operation using relational JOIN
             # This uses index on tags(name) for O(log n) performance
             tag_placeholders = ",".join(["?" for _ in tags])
 
+            # Build date filter clauses
+            date_clauses = []
+            if start_timestamp is not None:
+                date_clauses.append("m.created_at >= ?")
+
+            if end_timestamp is not None:
+                date_clauses.append("m.created_at <= ?")
+
             if operation.upper() == "AND":
                 # All tags must be present - use GROUP BY with HAVING COUNT
+                where_clause = f"t.name IN ({tag_placeholders})"
+                if date_clauses:
+                    where_clause += " AND " + " AND ".join(date_clauses)
+
+                params = list(tags)
+                if start_timestamp is not None:
+                    params.append(start_timestamp)
+                if end_timestamp is not None:
+                    params.append(end_timestamp)
+                params.extend([len(tags), limit, offset])
+
                 cursor = self.conn.execute(f'''
                     SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
                            m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso
                     FROM memories m
                     JOIN memory_tags mt ON m.id = mt.memory_id
                     JOIN tags t ON mt.tag_id = t.id
-                    WHERE t.name IN ({tag_placeholders})
+                    WHERE {where_clause}
                     GROUP BY m.id
                     HAVING COUNT(DISTINCT t.name) = ?
                     ORDER BY m.updated_at DESC
-                ''', tags + [len(tags)])
+                    LIMIT ? OFFSET ?
+                ''', params)
             else:  # OR operation (default for backward compatibility)
+                where_clause = f"t.name IN ({tag_placeholders})"
+                if date_clauses:
+                    where_clause += " AND " + " AND ".join(date_clauses)
+
+                params = list(tags)
+                if start_timestamp is not None:
+                    params.append(start_timestamp)
+                if end_timestamp is not None:
+                    params.append(end_timestamp)
+                params.extend([limit, offset])
+
                 cursor = self.conn.execute(f'''
                     SELECT DISTINCT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
                            m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso
                     FROM memories m
                     JOIN memory_tags mt ON m.id = mt.memory_id
                     JOIN tags t ON mt.tag_id = t.id
-                    WHERE t.name IN ({tag_placeholders})
+                    WHERE {where_clause}
                     ORDER BY m.updated_at DESC
-                ''', tags)
+                    LIMIT ? OFFSET ?
+                ''', params)
             
             results = []
             for row in cursor.fetchall():
@@ -1237,6 +1302,48 @@ SOLUTIONS:
             logger.error(f"Failed to search by tags chronologically: {str(e)}")
             logger.error(traceback.format_exc())
             return []
+
+    async def get_memory_by_hash(self, content_hash: str) -> Optional[Memory]:
+        """Retrieve a specific memory by its content hash."""
+        try:
+            if not self.conn:
+                logger.error("Database not initialized")
+                return None
+
+            cursor = self.conn.execute('''
+                SELECT content_hash, content, tags, memory_type, metadata,
+                       created_at, updated_at, created_at_iso, updated_at_iso
+                FROM memories
+                WHERE content_hash = ?
+            ''', (content_hash,))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            content_hash, content, tags_str, memory_type, metadata_str = row[:5]
+            created_at, updated_at, created_at_iso, updated_at_iso = row[5:]
+
+            # Parse tags and metadata
+            memory_tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()] if tags_str else []
+            metadata = self._safe_json_loads(metadata_str, "memory_metadata")
+
+            return Memory(
+                content=content,
+                content_hash=content_hash,
+                tags=memory_tags,
+                memory_type=memory_type,
+                metadata=metadata,
+                created_at=created_at,
+                updated_at=updated_at,
+                created_at_iso=created_at_iso,
+                updated_at_iso=updated_at_iso
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to get memory by hash: {str(e)}")
+            logger.error(traceback.format_exc())
+            return None
 
     async def delete(self, content_hash: str) -> Tuple[bool, str]:
         """Delete a memory by its content hash."""

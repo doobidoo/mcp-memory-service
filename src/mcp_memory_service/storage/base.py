@@ -116,8 +116,27 @@ class MemoryStorage(ABC):
         pass
     
     @abstractmethod
-    async def search_by_tag(self, tags: List[str]) -> List[Memory]:
-        """Search memories by tags."""
+    async def search_by_tag(
+        self,
+        tags: List[str],
+        limit: int = 10,
+        offset: int = 0,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None
+    ) -> List[Memory]:
+        """
+        Search memories by tags with optional date filtering.
+
+        Args:
+            tags: List of tags to search for
+            limit: Maximum number of results to return (default: 10)
+            offset: Number of results to skip for pagination (default: 0)
+            start_timestamp: Filter memories from this timestamp (inclusive)
+            end_timestamp: Filter memories until this timestamp (inclusive)
+
+        Returns:
+            List of Memory objects
+        """
         pass
 
     async def search_by_tag_chronological(self, tags: List[str], limit: int = None, offset: int = 0) -> List[Memory]:
@@ -132,18 +151,29 @@ class MemoryStorage(ABC):
         Returns:
             List of Memory objects ordered by created_at DESC
         """
-        # Default implementation: use search_by_tag then sort
-        memories = await self.search_by_tag(tags)
+        # Use search_by_tag with pagination (most backends handle ordering)
+        # If limit is None, use a high default for backward compatibility
+        effective_limit = limit if limit is not None else 10000
+        memories = await self.search_by_tag(tags, limit=effective_limit, offset=offset)
+
+        # Ensure chronological ordering (newest first)
         memories.sort(key=lambda m: m.created_at or 0, reverse=True)
 
-        # Apply pagination
-        if offset > 0:
-            memories = memories[offset:]
-        if limit is not None:
-            memories = memories[:limit]
-
         return memories
-    
+
+    @abstractmethod
+    async def get_memory_by_hash(self, content_hash: str) -> Optional[Memory]:
+        """
+        Retrieve a specific memory by its content hash.
+
+        Args:
+            content_hash: The content hash of the memory
+
+        Returns:
+            Memory object if found, None otherwise
+        """
+        pass
+
     @abstractmethod
     async def delete(self, content_hash: str) -> Tuple[bool, str]:
         """Delete a memory by its hash."""

@@ -29,6 +29,7 @@ from ...storage.base import MemoryStorage
 from ..dependencies import get_storage
 from ... import __version__
 from ...config import OAUTH_ENABLED
+from ..write_queue import write_queue
 
 # OAuth authentication imports (conditional)
 if OAUTH_ENABLED or TYPE_CHECKING:
@@ -47,6 +48,7 @@ class HealthResponse(BaseModel):
     version: str
     timestamp: str
     uptime_seconds: float
+    write_queue: Dict[str, Any] = None
 
 
 class DetailedHealthResponse(BaseModel):
@@ -67,12 +69,13 @@ _startup_time = time.time()
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Basic health check endpoint."""
+    """Basic health check endpoint with write queue statistics."""
     return HealthResponse(
         status="healthy",
         version=__version__,
         timestamp=datetime.now(timezone.utc).isoformat(),
-        uptime_seconds=time.time() - _startup_time
+        uptime_seconds=time.time() - _startup_time,
+        write_queue=write_queue.get_stats()
     )
 
 

@@ -1331,11 +1331,15 @@ class MemoryServer:
                     ),
                     types.Tool(
                         name="search_by_tag",
-                        description="Search memories by tags (returns ANY match).",
+                        description="Search memories by tags (returns ANY match) with optional pagination and date filtering.",
                         inputSchema={
                             "type": "object",
                             "properties": {
-                                "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to search"}
+                                "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to search"},
+                                "limit": {"type": "number", "default": 10, "description": "Max results (default: 10, max: 100)"},
+                                "offset": {"type": "number", "default": 0, "description": "Results offset for pagination"},
+                                "start_date": {"type": "string", "format": "date", "description": "Filter memories from this date (YYYY-MM-DD)"},
+                                "end_date": {"type": "string", "format": "date", "description": "Filter memories until this date (YYYY-MM-DD)"}
                             },
                             "required": ["tags"]
                         }
@@ -1799,16 +1803,26 @@ class MemoryServer:
 
     async def handle_search_by_tag(self, arguments: dict) -> List[types.TextContent]:
         tags = arguments.get("tags", [])
-        
+        limit = min(arguments.get("limit", 10), 100)  # Enforce max 100
+        offset = arguments.get("offset", 0)
+        start_date = arguments.get("start_date")
+        end_date = arguments.get("end_date")
+
         if not tags:
             return [types.TextContent(type="text", text="Error: Tags are required")]
-        
+
         try:
             # Initialize storage lazily when needed (also initializes memory_service)
             await self._ensure_storage_initialized()
 
             # Call shared MemoryService business logic
-            result = await self.memory_service.search_by_tag(tags=tags)
+            result = await self.memory_service.search_by_tag(
+                tags=tags,
+                limit=limit,
+                offset=offset,
+                start_date=start_date,
+                end_date=end_date
+            )
 
             if result.get("error"):
                 return [types.TextContent(type="text", text=f"Error searching by tags: {result['error']}")]
@@ -2412,12 +2426,12 @@ Memories Archived: {report.memories_archived}"""
     async def handle_recall_memory(self, arguments: dict) -> List[types.TextContent]:
         """
         Handle memory recall requests with natural language time expressions.
-        
+
         This handler parses natural language time expressions from the query,
         extracts time ranges, and combines them with optional semantic search.
         """
         query = arguments.get("query", "")
-        n_results = arguments.get("n_results", 5)
+        n_results = min(arguments.get("n_results", 5), 100)  # Enforce max 100
         
         if not query:
             return [types.TextContent(type="text", text="Error: Query is required")]
@@ -2787,14 +2801,14 @@ Memories Archived: {report.memories_archived}"""
     async def handle_recall_by_timeframe(self, arguments: dict) -> List[types.TextContent]:
         """Handle recall by timeframe requests."""
         from datetime import datetime
-        
+
         try:
             # Initialize storage lazily when needed
             storage = await self._ensure_storage_initialized()
-            
+
             start_date = datetime.fromisoformat(arguments["start_date"]).date()
             end_date = datetime.fromisoformat(arguments.get("end_date", arguments["start_date"])).date()
-            n_results = arguments.get("n_results", 5)
+            n_results = min(arguments.get("n_results", 5), 100)  # Enforce max 100
             
             # Get timestamp range
             start_timestamp = datetime(start_date.year, start_date.month, start_date.day).timestamp()
