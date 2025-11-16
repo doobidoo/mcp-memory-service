@@ -96,19 +96,20 @@ async def main():
         db_path = app_config.SQLITE_VEC_PATH
 
         # Build Cloudflare config from environment
+        cloudflare_keys = [
+            'CLOUDFLARE_API_TOKEN',
+            'CLOUDFLARE_ACCOUNT_ID',
+            'CLOUDFLARE_D1_DATABASE_ID',
+            'CLOUDFLARE_VECTORIZE_INDEX',
+            'CLOUDFLARE_R2_BUCKET',
+            'CLOUDFLARE_EMBEDDING_MODEL',
+            'CLOUDFLARE_LARGE_CONTENT_THRESHOLD',
+            'CLOUDFLARE_MAX_RETRIES',
+            'CLOUDFLARE_BASE_DELAY',
+        ]
         cloudflare_config = {
             key.lower().replace('cloudflare_', ''): getattr(app_config, key, None)
-            for key in [
-                'CLOUDFLARE_API_TOKEN',
-                'CLOUDFLARE_ACCOUNT_ID',
-                'CLOUDFLARE_D1_DATABASE_ID',
-                'CLOUDFLARE_VECTORIZE_INDEX',
-                'CLOUDFLARE_R2_BUCKET',
-                'CLOUDFLARE_EMBEDDING_MODEL',
-                'CLOUDFLARE_LARGE_CONTENT_THRESHOLD',
-                'CLOUDFLARE_MAX_RETRIES',
-                'CLOUDFLARE_BASE_DELAY',
-            ]
+            for key in cloudflare_keys
         }
 
         storage = HybridMemoryStorage(
