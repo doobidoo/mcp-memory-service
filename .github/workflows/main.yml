@@ -144,6 +144,14 @@ jobs:
       with:
         python-version: '3.11'
 
+    - name: Cache HuggingFace models
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/huggingface
+        key: ${{ runner.os }}-huggingface-models-${{ hashFiles('**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-huggingface-models-
+
     - name: Install uv
       run: |
         curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -154,13 +162,17 @@ jobs:
       run: |
         # Create virtual environment with uv
         uv venv
-        
+
         # Install the package
         uv pip install -e .
-        
+
         # Install test dependencies
         uv pip install pytest pytest-asyncio
-        
+
+        # Pre-download HuggingFace embedding model to populate cache
+        source .venv/bin/activate
+        python -c "from sentence_transformers import SentenceTransformer; print('Downloading embedding model...'); SentenceTransformer('all-MiniLM-L6-v2'); print('✓ Model cached')"
+
         # Run tests
         source .venv/bin/activate
         python -m pytest tests/ -v || echo "✓ Tests completed"
