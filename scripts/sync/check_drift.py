@@ -92,9 +92,21 @@ async def main():
         return 1
 
     try:
-        # Initialize hybrid storage with db path from config
-        db_path = getattr(app_config, 'SQLITE_DB_PATH', 'data/memory.db')
-        storage = HybridMemoryStorage(sqlite_db_path=db_path)
+        # Initialize hybrid storage with db path and Cloudflare config
+        db_path = app_config.SQLITE_VEC_PATH
+
+        # Build Cloudflare config from environment
+        cloudflare_config = {
+            'api_token': app_config.CLOUDFLARE_API_TOKEN,
+            'account_id': app_config.CLOUDFLARE_ACCOUNT_ID,
+            'd1_database_id': app_config.CLOUDFLARE_D1_DATABASE_ID,
+            'vectorize_index': app_config.CLOUDFLARE_VECTORIZE_INDEX,
+        }
+
+        storage = HybridMemoryStorage(
+            sqlite_db_path=db_path,
+            cloudflare_config=cloudflare_config
+        )
         await storage.initialize()
 
         # Check that sync service is available
