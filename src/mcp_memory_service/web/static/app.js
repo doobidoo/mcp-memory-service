@@ -283,6 +283,25 @@ class MemoryDashboard {
                 }
             };
 
+            // Add specific event listeners for sync progress
+            this.eventSource.addEventListener('sync_progress', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handleSyncProgress(data);
+                } catch (error) {
+                    console.error('Error parsing sync_progress event:', error);
+                }
+            });
+
+            this.eventSource.addEventListener('sync_completed', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handleSyncCompleted(data);
+                } catch (error) {
+                    console.error('Error parsing sync_completed event:', error);
+                }
+            });
+
             this.eventSource.onerror = (error) => {
                 console.error('SSE connection error:', error);
                 this.updateConnectionStatus('disconnected');
@@ -324,6 +343,61 @@ class MemoryDashboard {
             default:
                 // Unknown event type - ignore silently
         }
+    }
+
+    /**
+     * Handle sync progress updates from SSE
+     */
+    handleSyncProgress(data) {
+        console.log('Sync progress:', data);
+
+        // Update sync status display if visible
+        const syncStatus = document.getElementById('syncStatus');
+        if (syncStatus) {
+            const progressText = `Syncing: ${data.synced_count}/${data.total_count} (${data.progress_percentage}%)`;
+            syncStatus.textContent = progressText;
+            syncStatus.className = 'sync-status syncing';
+        }
+
+        // Update memory count in real-time if on dashboard
+        if (this.currentView === 'dashboard') {
+            const memoryCountElement = document.getElementById('totalMemories');
+            if (memoryCountElement && data.synced_count) {
+                // Refresh the detailed health to get accurate count
+                this.loadDashboardData().catch(err => console.error('Error refreshing dashboard:', err));
+            }
+        }
+
+        // Show toast notification for manual sync
+        if (data.sync_type === 'manual') {
+            this.showToast(data.message || `Syncing: ${data.synced_count}/${data.total_count}`, 'info');
+        }
+    }
+
+    /**
+     * Handle sync completion from SSE
+     */
+    handleSyncCompleted(data) {
+        console.log('Sync completed:', data);
+
+        // Update sync status display
+        const syncStatus = document.getElementById('syncStatus');
+        if (syncStatus) {
+            syncStatus.textContent = 'Synced';
+            syncStatus.className = 'sync-status synced';
+        }
+
+        // Refresh dashboard data to show updated counts
+        if (this.currentView === 'dashboard') {
+            this.loadDashboardData().catch(err => console.error('Error refreshing dashboard:', err));
+        }
+
+        // Also refresh sync status for hybrid mode
+        this.checkSyncStatus().catch(err => console.error('Error checking sync status:', err));
+
+        // Show completion notification
+        const message = data.message || `Sync completed: ${data.synced_count} memories synced`;
+        this.showToast(message, 'success');
     }
 
     /**

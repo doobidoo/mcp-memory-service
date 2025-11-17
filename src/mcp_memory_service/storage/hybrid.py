@@ -34,6 +34,13 @@ from .sqlite_vec import SqliteVecMemoryStorage
 from .cloudflare import CloudflareStorage
 from ..models.memory import Memory, MemoryQueryResult
 
+# Import SSE for real-time progress updates
+try:
+    from ..web.sse import sse_manager, create_sync_progress_event, create_sync_completed_event
+    SSE_AVAILABLE = True
+except ImportError:
+    SSE_AVAILABLE = False
+
 # Import config to check if limit constants are available
 from .. import config as app_config
 
@@ -802,6 +809,10 @@ class HybridMemoryStorage(MemoryStorage):
         self.initial_sync_completed = 0
         self.initial_sync_finished = False
 
+        # Track sync start time for SSE completion event
+        import time
+        sync_start_time = time.time()
+
         try:
             # Get memory count from both storages to compare
             primary_stats = await self.primary.get_stats()
@@ -824,7 +835,9 @@ class HybridMemoryStorage(MemoryStorage):
 
             # Get all Cloudflare memories using cursor-based pagination to avoid D1 OFFSET limitations
             synced_count = 0
-            batch_size = min(100, self.batch_size * 2)  # Use larger batch for initial sync
+            # OPTIMIZATION: Use much larger batches for initial sync (v8.27.0+)
+            # Larger batches = fewer network round-trips = faster sync
+            batch_size = min(500, self.batch_size * 5)  # 5x larger batches for initial sync
             cursor = None  # Start from most recent (no cursor)
             processed_count = 0
             consecutive_empty_batches = 0  # Track empty batches for early break detection
@@ -856,49 +869,82 @@ class HybridMemoryStorage(MemoryStorage):
                     batch_missing = 0
                     batch_synced = 0
 
-                    # Check which memories are missing in primary storage
-                    for cf_memory in cloudflare_memories:
-                        batch_checked += 1
-                        processed_count += 1
-                        try:
-                            # Check if memory exists in primary storage
-                            existing = await self.primary.get_by_hash(cf_memory.content_hash)
-                            if not existing:
-                                batch_missing += 1
-                                # Memory doesn't exist locally, sync it
-                                success, message = await self.primary.store(cf_memory)
-                                if success:
-                                    batch_synced += 1
-                                    synced_count += 1
-                                    self.initial_sync_completed = synced_count
-                                    if synced_count % 10 == 0:  # Log progress every 10 memories
-                                        logger.info(f"Initial sync progress: {synced_count}/{missing_count} memories synced")
-                                else:
-                                    logger.warning(f"Failed to sync memory {cf_memory.content_hash}: {message}")
-                            elif self.sync_service.drift_check_enabled:
-                                # Memory exists - check for metadata drift (v8.25.0+)
-                                cf_updated = cf_memory.updated_at or 0
-                                local_updated = existing.updated_at or 0
+                    # OPTIMIZATION: Get all local hashes once for O(1) lookup instead of individual queries
+                    local_hashes = await self.primary.get_all_content_hashes()
+                    logger.debug(f"Loaded {len(local_hashes)} local content hashes for existence checking")
 
-                                # If Cloudflare version is newer, sync metadata (1 second tolerance)
-                                if cf_updated > local_updated + 1.0:
-                                    logger.debug(f"Metadata drift detected during initial sync: {cf_memory.content_hash[:8]}")
-                                    success, _ = await self.primary.update_memory_metadata(
-                                        cf_memory.content_hash,
-                                        {
-                                            'tags': cf_memory.tags,
-                                            'memory_type': cf_memory.memory_type,
-                                            'metadata': cf_memory.metadata,
-                                        },
-                                        preserve_timestamps=False
-                                    )
+                    # OPTIMIZATION: Parallel processing with concurrency limit (v8.27.0+)
+                    semaphore = asyncio.Semaphore(15)  # Limit to 15 concurrent operations
+
+                    async def sync_single_memory(cf_memory):
+                        """Process a single memory with concurrency control."""
+                        nonlocal batch_checked, batch_missing, batch_synced, synced_count, processed_count
+
+                        async with semaphore:
+                            batch_checked += 1
+                            processed_count += 1
+                            try:
+                                # Fast O(1) existence check using pre-loaded hashes
+                                if cf_memory.content_hash not in local_hashes:
+                                    batch_missing += 1
+                                    # Memory doesn't exist locally, sync it
+                                    success, message = await self.primary.store(cf_memory)
                                     if success:
                                         batch_synced += 1
                                         synced_count += 1
-                                        logger.debug(f"Synced metadata for existing memory: {cf_memory.content_hash[:8]}")
-                        except Exception as e:
-                            logger.warning(f"Error checking/syncing memory {cf_memory.content_hash}: {e}")
-                            continue
+                                        self.initial_sync_completed = synced_count
+                                        if synced_count % 10 == 0:  # Log progress every 10 memories
+                                            logger.info(f"Initial sync progress: {synced_count}/{missing_count} memories synced")
+
+                                            # Broadcast SSE progress event for real-time dashboard updates
+                                            if SSE_AVAILABLE:
+                                                try:
+                                                    progress_event = create_sync_progress_event(
+                                                        synced_count=synced_count,
+                                                        total_count=missing_count,
+                                                        sync_type="initial"
+                                                    )
+                                                    await sse_manager.broadcast_event(progress_event)
+                                                except Exception as e:
+                                                    logger.debug(f"Failed to broadcast SSE progress event: {e}")
+
+                                        return ('synced', cf_memory.content_hash)
+                                    else:
+                                        logger.warning(f"Failed to sync memory {cf_memory.content_hash}: {message}")
+                                        return ('failed', cf_memory.content_hash, message)
+                                elif self.sync_service.drift_check_enabled:
+                                    # Memory exists - check for metadata drift (v8.25.0+)
+                                    # Note: This requires fetching the existing memory, so we do it only if drift check is enabled
+                                    existing = await self.primary.get_by_hash(cf_memory.content_hash)
+                                    if existing:
+                                        cf_updated = cf_memory.updated_at or 0
+                                        local_updated = existing.updated_at or 0
+
+                                        # If Cloudflare version is newer, sync metadata (1 second tolerance)
+                                        if cf_updated > local_updated + 1.0:
+                                            logger.debug(f"Metadata drift detected during initial sync: {cf_memory.content_hash[:8]}")
+                                            success, _ = await self.primary.update_memory_metadata(
+                                                cf_memory.content_hash,
+                                                {
+                                                    'tags': cf_memory.tags,
+                                                    'memory_type': cf_memory.memory_type,
+                                                    'metadata': cf_memory.metadata,
+                                                },
+                                                preserve_timestamps=False
+                                            )
+                                            if success:
+                                                batch_synced += 1
+                                                synced_count += 1
+                                                logger.debug(f"Synced metadata for existing memory: {cf_memory.content_hash[:8]}")
+                                                return ('drift_synced', cf_memory.content_hash)
+                                return ('skipped', cf_memory.content_hash)
+                            except Exception as e:
+                                logger.warning(f"Error checking/syncing memory {cf_memory.content_hash}: {e}")
+                                return ('error', cf_memory.content_hash, str(e))
+
+                    # Process batch in parallel with concurrency control
+                    tasks = [sync_single_memory(mem) for mem in cloudflare_memories]
+                    await asyncio.gather(*tasks, return_exceptions=True)
 
                     logger.debug(f"Batch complete: checked={batch_checked}, missing={batch_missing}, synced={batch_synced}")
 
@@ -943,6 +989,20 @@ class HybridMemoryStorage(MemoryStorage):
                         break
 
             logger.info(f"Initial sync completed: {synced_count} memories downloaded from Cloudflare to local SQLite")
+
+            # Broadcast SSE completion event for real-time dashboard updates
+            if SSE_AVAILABLE and missing_count > 0:
+                try:
+                    time_taken = time.time() - sync_start_time
+                    completion_event = create_sync_completed_event(
+                        synced_count=synced_count,
+                        total_count=missing_count,
+                        time_taken_seconds=time_taken,
+                        sync_type="initial"
+                    )
+                    await sse_manager.broadcast_event(completion_event)
+                except Exception as e:
+                    logger.debug(f"Failed to broadcast SSE completion event: {e}")
 
             # Update sync tracking to reflect actual sync completion
             if synced_count == 0:
@@ -1213,6 +1273,146 @@ class HybridMemoryStorage(MemoryStorage):
             }
 
         return await self.sync_service.force_sync()
+
+    async def force_pull_sync(self) -> Dict[str, Any]:
+        """
+        Force immediate pull synchronization FROM Cloudflare TO local SQLite.
+
+        This triggers the same logic as initial_sync but can be called on demand.
+        Useful for manually refreshing local storage with memories stored via MCP.
+
+        Returns:
+            Dict with sync results including:
+            - success: bool
+            - message: str
+            - memories_pulled: int
+            - time_taken_seconds: float
+        """
+        import time
+        start_time = time.time()
+
+        try:
+            # Get counts from both backends
+            primary_count = await self.primary.get_stats()
+            primary_count = primary_count.get('total_memories', 0)
+
+            secondary_stats = await self.secondary.get_stats()
+            secondary_count = secondary_stats.get('total_memories', 0)
+
+            logger.info(f"Force pull sync: Local={primary_count}, Cloudflare={secondary_count}")
+
+            if secondary_count <= primary_count:
+                return {
+                    'success': True,
+                    'message': 'No new memories to pull from Cloudflare',
+                    'memories_pulled': 0,
+                    'time_taken_seconds': round(time.time() - start_time, 3)
+                }
+
+            # Pull missing memories from Cloudflare using optimized batch processing
+            missing_count = secondary_count - primary_count
+            synced_count = 0
+            batch_size = min(500, self.batch_size * 5)
+            cursor = None
+            processed_count = 0
+
+            # Get all local hashes once for O(1) lookup
+            local_hashes = await self.primary.get_all_content_hashes()
+            logger.info(f"Pulling {missing_count} potential memories from Cloudflare...")
+
+            while True:
+                # Get batch from Cloudflare
+                if hasattr(self.secondary, 'get_all_memories_cursor'):
+                    cloudflare_memories = await self.secondary.get_all_memories_cursor(
+                        limit=batch_size,
+                        cursor=cursor
+                    )
+                else:
+                    cloudflare_memories = await self.secondary.get_all_memories(
+                        limit=batch_size,
+                        offset=processed_count
+                    )
+
+                if not cloudflare_memories:
+                    break
+
+                # Parallel processing with concurrency limit
+                semaphore = asyncio.Semaphore(15)
+
+                async def sync_single_memory(cf_memory):
+                    nonlocal synced_count
+                    async with semaphore:
+                        try:
+                            if cf_memory.content_hash not in local_hashes:
+                                success, message = await self.primary.store(cf_memory)
+                                if success:
+                                    synced_count += 1
+                                    local_hashes.add(cf_memory.content_hash)  # Update local cache
+                                    if synced_count % 10 == 0:
+                                        logger.info(f"Pull sync progress: {synced_count} memories pulled")
+
+                                        # Broadcast SSE progress event for real-time dashboard updates
+                                        if SSE_AVAILABLE:
+                                            try:
+                                                progress_event = create_sync_progress_event(
+                                                    synced_count=synced_count,
+                                                    total_count=missing_count,
+                                                    sync_type="manual"
+                                                )
+                                                await sse_manager.broadcast_event(progress_event)
+                                            except Exception as e:
+                                                logger.debug(f"Failed to broadcast SSE progress event: {e}")
+                                    return True
+                        except Exception as e:
+                            logger.warning(f"Error pulling memory {cf_memory.content_hash}: {e}")
+                        return False
+
+                # Process batch in parallel
+                await asyncio.gather(*[sync_single_memory(mem) for mem in cloudflare_memories], return_exceptions=True)
+
+                processed_count += len(cloudflare_memories)
+
+                # Update cursor for next batch
+                if cloudflare_memories and hasattr(self.secondary, 'get_all_memories_cursor'):
+                    cursor = min(memory.created_at for memory in cloudflare_memories if memory.created_at)
+
+                # Break if we've processed enough or no new memories found
+                if processed_count >= secondary_count or len(cloudflare_memories) < batch_size:
+                    break
+
+                await asyncio.sleep(0.01)
+
+            time_taken = time.time() - start_time
+            logger.info(f"Force pull sync completed: {synced_count} memories pulled in {time_taken:.2f}s")
+
+            # Broadcast SSE completion event for real-time dashboard updates
+            if SSE_AVAILABLE and synced_count > 0:
+                try:
+                    completion_event = create_sync_completed_event(
+                        synced_count=synced_count,
+                        total_count=missing_count,
+                        time_taken_seconds=time_taken,
+                        sync_type="manual"
+                    )
+                    await sse_manager.broadcast_event(completion_event)
+                except Exception as e:
+                    logger.debug(f"Failed to broadcast SSE completion event: {e}")
+
+            return {
+                'success': True,
+                'message': f'Successfully pulled {synced_count} memories from Cloudflare',
+                'memories_pulled': synced_count,
+                'time_taken_seconds': round(time_taken, 3)
+            }
+
+        except Exception as e:
+            logger.error(f"Force pull sync failed: {e}")
+            return {
+                'success': False,
+                'message': f'Failed to pull from Cloudflare: {str(e)}',
+                'memories_pulled': 0,
+                'time_taken_seconds': round(time.time() - start_time, 3)
+            }
 
     async def get_sync_status(self) -> Dict[str, Any]:
         """Get current background sync status and statistics."""
