@@ -352,6 +352,104 @@ class TestCloudflareStorage:
             assert query_payload["params"] == ["alpha", "beta", 2]
 
     @pytest.mark.asyncio
+    async def test_get_all_tags(self, cloudflare_storage):
+        """Test retrieving all distinct tags from Cloudflare storage."""
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "success": True,
+            "result": [{
+                "results": [
+                    {"name": "alpha"},
+                    {"name": "beta"}
+                ]
+            }]
+        }
+
+        with patch.object(cloudflare_storage, '_retry_request', return_value=mock_response) as mock_request:
+            tags = await cloudflare_storage.get_all_tags()
+            assert tags == ["alpha", "beta"]
+            assert mock_request.called
+
+    @pytest.mark.asyncio
+    async def test_get_all_tags_with_counts(self, cloudflare_storage):
+        """Test retrieving tag usage counts using memory_tags join."""
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "success": True,
+            "result": [{
+                "results": [
+                    {"tag": "alpha", "count": 5},
+                    {"tag": "beta", "count": 2}
+                ]
+            }]
+        }
+
+        with patch.object(cloudflare_storage, '_retry_request', return_value=mock_response) as mock_request:
+            tags_with_counts = await cloudflare_storage.get_all_tags_with_counts()
+            assert tags_with_counts == [
+                {"tag": "alpha", "count": 5},
+                {"tag": "beta", "count": 2}
+            ]
+            sql_payload = mock_request.call_args.kwargs["json"]["sql"].lower()
+            assert "left join" in sql_payload and "group by" in sql_payload
+
+    @pytest.mark.asyncio
+    async def test_get_all_memories_with_tag_filter(self, cloudflare_storage):
+        """Ensure list_memories SQL filters through memory_tags join."""
+        memory_row = {
+            "id": 1,
+            "content_hash": "abc123",
+            "content": "filtered content",
+            "memory_type": "standard",
+            "metadata_json": "{}",
+            "created_at": 123,
+            "created_at_iso": "2025-11-17T00:00:00Z",
+            "updated_at": None,
+            "updated_at_iso": None
+        }
+
+        mock_memories_response = Mock()
+        mock_memories_response.json.return_value = {
+            "success": True,
+            "result": [{"results": [memory_row]}]
+        }
+
+        mock_tags_response = Mock()
+        mock_tags_response.json.return_value = {
+            "success": True,
+            "result": [{"results": [{"name": "status:initialized"}]}]
+        }
+
+        with patch.object(cloudflare_storage, '_retry_request') as mock_request:
+            mock_request.side_effect = [mock_memories_response, mock_tags_response]
+
+            memories = await cloudflare_storage.get_all_memories(limit=10, tags=["status:initialized"])
+
+            assert len(memories) == 1
+            sql_payload = mock_request.call_args_list[0].kwargs["json"]
+            sql_text = sql_payload["sql"].upper()
+            assert "JOIN MEMORY_TAGS" in sql_text and "HAVING COUNT(DISTINCT T.NAME) = ?" in sql_text
+            assert sql_payload["params"] == ["status:initialized", 1, 10]
+
+    @pytest.mark.asyncio
+    async def test_count_all_memories_with_tag_filter(self, cloudflare_storage):
+        """Ensure count uses distinct memory IDs and tag filtering."""
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "success": True,
+            "result": [{"results": [{"count": 3}]}]
+        }
+
+        with patch.object(cloudflare_storage, '_retry_request', return_value=mock_response) as mock_request:
+            count = await cloudflare_storage.count_all_memories(tags=["alpha", "beta"])
+
+            assert count == 3
+            sql_payload = mock_request.call_args.kwargs["json"]
+            sql_text = sql_payload["sql"].upper()
+            assert "COUNT(*) AS COUNT FROM" in sql_text and "HAVING COUNT(DISTINCT T.NAME) = ?" in sql_text
+            assert sql_payload["params"] == ["alpha", "beta", 2]
+
+    @pytest.mark.asyncio
     async def test_delete_memory(self, cloudflare_storage):
         """Test deleting a memory."""
         mock_find_response = Mock()

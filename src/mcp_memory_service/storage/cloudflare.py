@@ -1017,14 +1017,37 @@ class CloudflareStorage(MemoryStorage):
             payload = {"sql": sql}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
-            
+
             if result.get("success") and result.get("result", [{}])[0].get("results"):
                 return [row["name"] for row in result["result"][0]["results"]]
-            
+
             return []
-            
+
         except Exception as e:
             logger.error(f"Failed to get all tags: {e}")
+            return []
+
+    async def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:
+        """Get all tags with their usage counts."""
+        try:
+            sql = """
+                SELECT t.name as tag, COUNT(mt.memory_id) as count
+                FROM tags t
+                LEFT JOIN memory_tags mt ON t.id = mt.tag_id
+                GROUP BY t.id
+                ORDER BY count DESC, t.name ASC
+            """
+            payload = {"sql": sql}
+            response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+            result = response.json()
+
+            if result.get("success") and result.get("result", [{}])[0].get("results"):
+                return [row for row in result["result"][0]["results"]]
+
+            return []
+
+        except Exception as e:
+            logger.error(f"Failed to get tags with counts: {e}")
             return []
     
     async def get_recent_memories(self, n: int = 10) -> List[Memory]:
@@ -1271,36 +1294,50 @@ class CloudflareStorage(MemoryStorage):
         """
         try:
             # Build SQL query with optional memory_type and tags filters
-            sql = "SELECT * FROM memories"
-            params = []
+            sql = "SELECT m.* FROM memories m"
+            joins = ""
             where_conditions = []
+            params: List[Any] = []
 
-            # Add memory_type filter if specified
             if memory_type is not None:
-                where_conditions.append("memory_type = ?")
+                where_conditions.append("m.memory_type = ?")
                 params.append(memory_type)
 
-            # Add tags filter if specified (using LIKE for tag matching)
-            if tags and len(tags) > 0:
-                tag_conditions = " OR ".join(["tags LIKE ?" for _ in tags])
-                where_conditions.append(f"({tag_conditions})")
-                params.extend([f"%{tag}%" for tag in tags])
+            tag_count = 0
+            if tags:
+                tag_count = len(tags)
+                placeholders = ",".join(["?"] * tag_count)
+                joins += " " + """
+                    INNER JOIN memory_tags mt ON m.id = mt.memory_id
+                    INNER JOIN tags t ON mt.tag_id = t.id
+                """.strip().replace("\n", " ")
+                where_conditions.append(f"t.name IN ({placeholders})")
+                params.extend(tags)
 
-            # Apply WHERE clause if we have any conditions
+            if joins:
+                sql += joins
+
             if where_conditions:
                 sql += " WHERE " + " AND ".join(where_conditions)
 
-            sql += " ORDER BY created_at DESC"
+            if tags:
+                sql += " GROUP BY m.id HAVING COUNT(DISTINCT t.name) = ?"
+
+            sql += " ORDER BY m.created_at DESC"
+
+            query_params = params.copy()
+            if tags:
+                query_params.append(tag_count)
 
             if limit is not None:
                 sql += " LIMIT ?"
-                params.append(limit)
+                query_params.append(limit)
 
             if offset > 0:
                 sql += " OFFSET ?"
-                params.append(offset)
+                query_params.append(offset)
 
-            payload = {"sql": sql, "params": params}
+            payload = {"sql": sql, "params": query_params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
 
@@ -1512,28 +1549,40 @@ class CloudflareStorage(MemoryStorage):
         """
         try:
             # Build query with filters
+            base_sql = "SELECT m.id FROM memories m"
+            joins = ""
             conditions = []
-            params = []
+            params: List[Any] = []
 
             if memory_type is not None:
-                conditions.append('memory_type = ?')
+                conditions.append('m.memory_type = ?')
                 params.append(memory_type)
 
+            tag_count = 0
             if tags:
-                # Filter by tags - match ANY tag (OR logic)
-                tag_conditions = ' OR '.join(['tags LIKE ?' for _ in tags])
-                conditions.append(f'({tag_conditions})')
-                # Add each tag with wildcards for LIKE matching
-                for tag in tags:
-                    params.append(f'%{tag}%')
+                tag_count = len(tags)
+                placeholders = ','.join(['?'] * tag_count)
+                joins += " " + """
+                    INNER JOIN memory_tags mt ON m.id = mt.memory_id
+                    INNER JOIN tags t ON mt.tag_id = t.id
+                """.strip().replace("\n", " ")
+                conditions.append(f't.name IN ({placeholders})')
+                params.extend(tags)
 
-            # Build final query
+            sql = base_sql + joins
             if conditions:
-                sql = 'SELECT COUNT(*) as count FROM memories WHERE ' + ' AND '.join(conditions)
-            else:
-                sql = 'SELECT COUNT(*) as count FROM memories'
+                sql += ' WHERE ' + ' AND '.join(conditions)
 
-            payload = {"sql": sql, "params": params}
+            if tags:
+                sql += ' GROUP BY m.id HAVING COUNT(DISTINCT t.name) = ?'
+
+            count_sql = f'SELECT COUNT(*) as count FROM ({sql}) AS subquery'
+
+            count_params = params.copy()
+            if tags:
+                count_params.append(tag_count)
+
+            payload = {"sql": count_sql, "params": count_params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
 
