@@ -140,7 +140,7 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
 
             # Initialize storage backend using shared factory
             from .storage.factory import create_storage_instance
-            storage = await create_storage_instance(SQLITE_VEC_PATH)
+            storage = await create_storage_instance(SQLITE_VEC_PATH, server_type="mcp")
 
             # Cache the storage instance
             _STORAGE_CACHE[cache_key] = storage

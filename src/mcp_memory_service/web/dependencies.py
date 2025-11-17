@@ -62,4 +62,4 @@ async def create_storage_backend() -> MemoryStorage:
     logger.info("Creating storage backend for web interface...")
 
     # Use shared factory with DATABASE_PATH for web interface
-    return await create_storage_instance(DATABASE_PATH)
+    return await create_storage_instance(DATABASE_PATH, server_type="http")

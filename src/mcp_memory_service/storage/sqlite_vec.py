@@ -1200,11 +1200,32 @@ SOLUTIONS:
             )
             
             return memory
-            
+
         except Exception as e:
             logger.error(f"Failed to get memory by hash {content_hash}: {str(e)}")
             return None
-    
+
+    async def get_all_content_hashes(self) -> Set[str]:
+        """
+        Get all content hashes in database for bulk existence checking.
+
+        This is optimized for sync operations to avoid individual existence checks.
+        Returns a set for O(1) lookup performance.
+
+        Returns:
+            Set of all content_hash values currently in the database
+        """
+        try:
+            if not self.conn:
+                return set()
+
+            cursor = self.conn.execute('SELECT content_hash FROM memories')
+            return {row[0] for row in cursor.fetchall()}
+
+        except Exception as e:
+            logger.error(f"Failed to get all content hashes: {str(e)}")
+            return set()
+
     async def delete_by_tag(self, tag: str) -> Tuple[int, str]:
         """Delete memories by tag."""
         try:

@@ -421,6 +421,11 @@ if STORAGE_BACKEND == 'hybrid':
     HYBRID_MAX_QUEUE_SIZE = int(os.getenv('MCP_HYBRID_MAX_QUEUE_SIZE', '1000'))
     HYBRID_MAX_RETRIES = int(os.getenv('MCP_HYBRID_MAX_RETRIES', '3'))
 
+    # Sync ownership control (v8.27.0+) - Prevents duplicate sync queues
+    # Values: "http" (HTTP server only), "mcp" (MCP server only), "both" (both servers sync)
+    # Recommended: "http" to avoid duplicate sync work
+    HYBRID_SYNC_OWNER = os.getenv('MCP_HYBRID_SYNC_OWNER', 'both').lower()
+
     # Performance tuning
     HYBRID_ENABLE_HEALTH_CHECKS = os.getenv('MCP_HYBRID_ENABLE_HEALTH_CHECKS', 'true').lower() == 'true'
     HYBRID_HEALTH_CHECK_INTERVAL = int(os.getenv('MCP_HYBRID_HEALTH_CHECK_INTERVAL', '60'))  # 1 minute
@@ -471,6 +476,7 @@ else:
     HYBRID_BATCH_SIZE = None
     HYBRID_MAX_QUEUE_SIZE = None
     HYBRID_MAX_RETRIES = None
+    HYBRID_SYNC_OWNER = None
     HYBRID_ENABLE_HEALTH_CHECKS = None
     HYBRID_HEALTH_CHECK_INTERVAL = None
     HYBRID_SYNC_ON_STARTUP = None

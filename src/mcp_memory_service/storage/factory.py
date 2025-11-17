@@ -73,30 +73,41 @@ def get_storage_backend_class() -> Type[MemoryStorage]:
         return SqliteVecMemoryStorage
 
 
-async def create_storage_instance(sqlite_path: str) -> MemoryStorage:
+async def create_storage_instance(sqlite_path: str, server_type: str = None) -> MemoryStorage:
     """
     Create and initialize storage backend instance based on configuration.
 
     Args:
         sqlite_path: Path to SQLite database file (used for SQLite-vec and Hybrid backends)
+        server_type: Optional server type identifier ("mcp" or "http") to control hybrid sync ownership
 
     Returns:
         Initialized storage backend instance
     """
     from ..config import (
-        EMBEDDING_MODEL_NAME,
+        STORAGE_BACKEND, EMBEDDING_MODEL_NAME,
         CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID,
         CLOUDFLARE_VECTORIZE_INDEX, CLOUDFLARE_D1_DATABASE_ID,
         CLOUDFLARE_R2_BUCKET, CLOUDFLARE_EMBEDDING_MODEL,
         CLOUDFLARE_LARGE_CONTENT_THRESHOLD, CLOUDFLARE_MAX_RETRIES,
         CLOUDFLARE_BASE_DELAY,
-        HYBRID_SYNC_INTERVAL, HYBRID_BATCH_SIZE
+        HYBRID_SYNC_INTERVAL, HYBRID_BATCH_SIZE, HYBRID_SYNC_OWNER
     )
 
-    logger.info(f"Creating storage backend instance (sqlite_path: {sqlite_path})...")
+    logger.info(f"Creating storage backend instance (sqlite_path: {sqlite_path}, server_type: {server_type})...")
 
-    # Get storage class based on configuration
-    StorageClass = get_storage_backend_class()
+    # Check if we should override hybrid backend based on sync ownership (v8.27.0+)
+    effective_backend = STORAGE_BACKEND
+    if STORAGE_BACKEND == 'hybrid' and server_type and HYBRID_SYNC_OWNER != 'both':
+        if HYBRID_SYNC_OWNER != server_type:
+            logger.info(
+                f"Sync ownership configured for '{HYBRID_SYNC_OWNER}' but this is '{server_type}' server. "
+                f"Using SQLite-vec storage instead of Hybrid to avoid duplicate sync queues."
+            )
+            effective_backend = 'sqlite_vec'
+
+    # Get storage class based on effective configuration
+    StorageClass = get_storage_backend_class() if effective_backend == STORAGE_BACKEND else _fallback_to_sqlite_vec()
 
     # Create storage instance based on backend type
     if StorageClass.__name__ == "SqliteVecMemoryStorage":

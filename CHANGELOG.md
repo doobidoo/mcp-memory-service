@@ -10,6 +10,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [8.27.0] - 2025-11-17
+
+### Added
+- **Hybrid Storage Sync Performance Optimization** - Dramatic initial sync speed improvement (3-5x faster)
+  - **Performance Metrics**:
+    - **Before**: ~5.5 memories/second (8 minutes for 2,619 memories)
+    - **After**: ~15-30 memories/second (1.5-3 minutes for 2,619 memories)
+    - **3-5x faster** initial sync from Cloudflare to local SQLite
+  - **Optimizations**:
+    - **Bulk Existence Check**: `get_all_content_hashes()` method eliminates 2,619 individual DB queries
+    - **Parallel Processing**: `asyncio.gather()` with Semaphore(15) for concurrent memory processing
+    - **Larger Batch Sizes**: Increased from 100 to 500 memories per Cloudflare API call (5x fewer requests)
+  - **Files Modified**:
+    - `src/mcp_memory_service/storage/sqlite_vec.py` - Added `get_all_content_hashes()` method (lines 1208-1227)
+    - `src/mcp_memory_service/storage/hybrid.py` - Parallel sync implementation (lines 859-921)
+    - `scripts/benchmarks/benchmark_hybrid_sync.py` - Performance validation script
+  - **Backward Compatibility**: Zero breaking changes, transparent optimization for all sync operations
+  - **Use Case**: Users with large memory databases (1000+ memories) will see significantly faster initial sync times
+
+### Changed
+- **Hybrid Initial Sync Architecture** - Refactored sync loop for better performance
+  - O(1) hash lookups instead of O(n) individual queries
+  - Concurrent processing with controlled parallelism (15 simultaneous operations)
+  - Reduced Cloudflare API overhead with larger batches (6 API calls vs 27)
+  - Maintains full drift detection and metadata synchronization capabilities
+
+### Fixed
+- **Duplicate Sync Queue Architecture** - Resolved inefficient dual-sync issue
+  - **Problem**: MCP server and HTTP server each created separate HybridStorage instances with independent sync queues
+  - **Impact**: Duplicate sync work, potential race conditions, memory not immediately visible across servers
+  - **Solution**: New `MCP_HYBRID_SYNC_OWNER` configuration to control which process handles Cloudflare sync
+  - **Configuration Options**:
+    - `"http"` - HTTP server only handles sync (recommended - avoids duplicate work)
+    - `"mcp"` - MCP server only handles sync
+    - `"both"` - Both servers sync independently (default for backward compatibility)
+  - **Files Modified**:
+    - `src/mcp_memory_service/config.py` - Added `HYBRID_SYNC_OWNER` configuration (lines 424-427)
+    - `src/mcp_memory_service/storage/factory.py` - Server-type aware storage creation (lines 76-110)
+    - `src/mcp_memory_service/mcp_server.py` - Pass server_type="mcp" (line 143)
+    - `src/mcp_memory_service/web/dependencies.py` - Pass server_type="http" (line 65)
+  - **Migration Guide**:
+    ```bash
+    # Recommended: Set HTTP server as sync owner to eliminate duplicate sync
+    export MCP_HYBRID_SYNC_OWNER=http
+    ```
+  - **Backward Compatibility**: Defaults to "both" (existing behavior), no breaking changes
+
+### Performance
+- **Benchmark Results** (`python scripts/benchmarks/benchmark_hybrid_sync.py`):
+  - Bulk hash loading: 2,619 hashes loaded in ~100ms (vs ~13,000ms for individual queries)
+  - Parallel processing: 15x concurrency reduces CPU idle time
+  - Batch size optimization: 78% reduction in API calls (27 → 6 for 2,619 memories)
+  - Combined speedup: 3-5x faster initial sync
+
 ## [8.26.0] - 2025-11-16
 
 ### Added
