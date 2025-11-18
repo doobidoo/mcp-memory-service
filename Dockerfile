@@ -9,25 +9,24 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create virtual environment
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+# Install uv (standalone binary)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Copy dependency files and source code (required for pip install -e .)
-COPY pyproject.toml README.md ./
+# Copy dependency files first (for layer caching)
+COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 
-# Install dependencies and build tools (cached unless deps change)
-RUN pip install --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -e . && \
-    pip install gunicorn
+# Install dependencies using uv (deterministic, fast)
+RUN uv sync --frozen --no-dev && \
+    uv pip install gunicorn
 
 # Pre-export ONNX model (expensive, cached with dependencies)
 RUN echo "Pre-exporting intfloat/e5-small to ONNX..." && \
-    python -c "from sentence_transformers import SentenceTransformer; model = SentenceTransformer('intfloat/e5-small', backend='onnx'); model.save_pretrained('intfloat-e5-small'); print('✓ ONNX export complete and saved')"
+    .venv/bin/python -c "from sentence_transformers import SentenceTransformer; model = SentenceTransformer('intfloat/e5-small', backend='onnx'); model.save_pretrained('intfloat-e5-small'); print('✓ ONNX export complete and saved')"
 
 # Runtime stage
 FROM python:3.12-slim
@@ -39,8 +38,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy virtual environment from builder
-COPY --from=builder /opt/venv /opt/venv
+# Copy uv environment from builder
+COPY --from=builder /app/.venv /app/.venv
 
 # Copy pre-exported ONNX model from builder
 COPY --from=builder /root/.cache/huggingface /root/.cache/huggingface
@@ -53,7 +52,7 @@ COPY --from=builder /app/src /app/src
 COPY --from=builder /app/scripts /app/scripts
 
 # Set environment variables for model loading and offline operation
-ENV PATH="/opt/venv/bin:$PATH" \
+ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     HF_HOME=/root/.cache/huggingface \
