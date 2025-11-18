@@ -10,10 +10,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-## [8.27.0] - 2025-11-17
+## [8.27.0] - 2025-11-18
 
 ### Added
-- **Hybrid Storage Sync Performance Optimization** - Dramatic initial sync speed improvement (3-5x faster)
+- **Bi-directional Sync with Real-time SSE Progress** - Complete hybrid storage synchronization (PR #229)
+  - **Bi-directional Sync**: "Sync now" button performs PULL from Cloudflare + PUSH to Cloudflare
+  - **Problem Solved**: MCP-created memories (direct Cloudflare writes) previously required server restart to appear locally
+  - **Real-time Progress**: Live SSE events broadcast sync progress every 10 memories
+  - **User Experience**:
+    - Progress updates: "Syncing: 50/100 (50%)"
+    - Completion notifications: "Pulled 50 from Cloudflare, pushed 25 to Cloudflare"
+    - Dashboard auto-refreshes when sync completes
+  - **Implementation**:
+    - New `force_pull_sync()` method in HybridMemoryStorage
+    - SSE events: `sync_progress` and `sync_completed`
+    - Modified `/api/sync/force` endpoint for bi-directional sync
+  - **Files Modified**:
+    - `src/mcp_memory_service/storage/hybrid.py` (+238, -90) - Bi-directional sync implementation
+    - `src/mcp_memory_service/web/api/sync.py` (+39, -8) - API endpoint updates
+    - `src/mcp_memory_service/web/sse.py` (+41) - SSE progress events
+    - `src/mcp_memory_service/web/static/app.js` (+74) - Frontend SSE listeners
+  - **Performance**: Uses optimized batch processing (500 memories per batch) and parallel operations (15 concurrent)
+  - **Backward Compatibility**: Zero breaking changes, enhanced functionality for existing sync operations
+
+- **Hybrid Storage Sync Performance Optimization** - Dramatic initial sync speed improvement (3-5x faster) (PR #230)
   - **Performance Metrics**:
     - **Before**: ~5.5 memories/second (8 minutes for 2,619 memories)
     - **After**: ~15-30 memories/second (1.5-3 minutes for 2,619 memories)

@@ -23,18 +23,19 @@
 
 ## 🚀 Quick Start (2 minutes)
 
-### 🆕 Latest Release: **v8.26.0** (Nov 16, 2025)
+### 🆕 Latest Release: **v8.27.0** (Nov 18, 2025)
 
-**Revolutionary Performance Improvement** ⚡🚀
+**Hybrid Storage Performance & Real-time Sync** 🔄⚡
 
-- ⚡ **534,628x faster MCP tools** - Global caching reduces latency from 1,810ms to 0.01ms (PR #227)
-- 🏆 **MCP tools now fastest method** - 41x faster than HTTP API after warm-up
-- 📊 **90%+ cache hit rate** - Sub-millisecond response times for interactive memory operations
-- 🛡️ **Zero breaking changes** - Transparent caching for all MCP clients (Claude Desktop, Claude Code)
-- 📈 **New monitoring tool** - `get_cache_stats` for real-time performance tracking
-- 🔒 **Security fix** - Removed unsafe eval() usage in benchmark scripts
+- 🔄 **Bi-directional sync with live progress** - "Sync now" pulls from Cloudflare AND pushes to cloud (PR #229)
+- 📊 **Real-time SSE updates** - Live sync progress: "Syncing: 50/100 (50%)" with auto-refresh dashboard
+- ⚡ **3-5x faster initial sync** - Optimized batch processing (500 memories/batch) and parallel operations (15 concurrent) (PR #230)
+- 🚀 **Performance metrics** - Initial sync: 5.5→30 memories/sec (8 min→1.5 min for 2,619 memories)
+- 🎯 **MCP memory visibility** - MCP-created memories now instantly available locally after manual sync
+- 🛡️ **Zero breaking changes** - Enhanced hybrid storage with backward compatibility
 
 **Previous Releases**:
+- **v8.26.0** - Revolutionary MCP Performance (534,628x faster tools, 90%+ cache hit rate)
 - **v8.25.0** - Hybrid Backend Drift Detection (automatic metadata sync, bidirectional awareness)
 - **v8.24.4** - Code Quality Improvements from Gemini Code Assist (regex sanitization, DOM caching)
 - **v8.24.3** - Test Coverage & Release Agent Improvements (tag+time filtering tests, version history fix)
@@ -43,7 +44,6 @@
 - **v8.24.0** - PyPI Publishing Enabled (automated package publishing via GitHub Actions)
 - **v8.23.1** - Stale Virtual Environment Prevention System (6-layer developer protection)
 - **v8.23.0** - Consolidation Scheduler via Code Execution API (88% token reduction)
-- **v8.22.3** - Complete tag schema validation fix (7 MCP tools updated)
 
 **📖 Full Details**: [CHANGELOG.md](CHANGELOG.md#8222---2025-11-09) | [All Releases](https://github.com/doobidoo/mcp-memory-service/releases)
 
