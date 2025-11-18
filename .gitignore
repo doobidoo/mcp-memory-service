@@ -5,3 +5,4 @@ sessions/sessions-state.json
 sessions/package.json
 sessions/transcripts/
 sessions/.archived/
+.spec-workflow/approvals/

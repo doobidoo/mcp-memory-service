@@ -1,0 +1,107 @@
+services:
+  # Qdrant vector database server
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: mcp-memory-qdrant
+    ports:
+      - "6333:6333"  # HTTP API
+      - "6334:6334"  # gRPC (optional)
+    volumes:
+      - qdrant-server-data:/qdrant/storage
+    restart: unless-stopped
+    # Healthcheck disabled - Qdrant image doesn't include curl/wget
+    # healthcheck:
+    #   test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6333/ || exit 1"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 512M
+    networks:
+      - mcp-memory-network
+
+  # Unified MCP Memory Service (HTTP + MCP SSE)
+  mcp-memory:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcp-memory-unified
+    depends_on:
+      - qdrant  # Wait for qdrant to start (no healthcheck)
+    ports:
+      - "8000:8000"  # HTTP API
+      - "8001:8001"  # MCP SSE Server
+    environment:
+      # Storage backend
+      - MCP_MEMORY_STORAGE_BACKEND=qdrant
+
+      # Qdrant server mode configuration
+      - MCP_QDRANT_URL=http://qdrant:6333
+      - MCP_QDRANT_QUANTIZATION_ENABLED=false
+      - MCP_EMBEDDING_MODEL=intfloat/e5-small
+
+      # HTTP Server configuration (enabled)
+      - MCP_HTTP_ENABLED=true
+      - MCP_HTTPS_ENABLED=false
+      - MCP_API_PORT=8000
+
+      # MCP Server configuration (SSE transport for multi-client support)
+      # This serves the MCP protocol over HTTP on port 8001
+      - MCP_TRANSPORT_MODE=streamable-http
+      - MCP_SERVER_PORT=8001
+      - MCP_SERVER_HOST=0.0.0.0
+
+      # OAuth (disable for local development)
+      - MCP_OAUTH_ENABLED=false
+      - MCP_ALLOW_ANONYMOUS_ACCESS=true
+
+      # Logging
+      - MCP_LOG_LEVEL=INFO
+
+    volumes:
+      # Optional: SQLite-vec backup
+      - mcp-memory-backups:/root/.local/share/mcp-memory/backups
+      # Note: HuggingFace cache removed - ONNX model is baked into image
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    networks:
+      - mcp-memory-network
+
+volumes:
+  # Qdrant server persistent storage
+  qdrant-server-data:
+    driver: local
+  # Legacy volumes (keep temporarily for migration)
+  mcp-memory-data:
+    driver: local
+  mcp-memory-data-mcp:
+    driver: local
+  mcp-memory-backups:
+    driver: local
+
+networks:
+  mcp-memory-network:
+    driver: bridge

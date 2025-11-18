@@ -1,0 +1,6 @@
+# ARM64-specific override for Apple Silicon, Graviton, or other ARM64 platforms
+# Automatically applied when docker-compose.override.yml exists
+
+services:
+  mcp-memory:
+    platform: linux/arm64
