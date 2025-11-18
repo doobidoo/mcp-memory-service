@@ -590,3 +590,169 @@ class TestEdgeCases:
 
         assert isinstance(result, str)
         assert media_type == "text/plain"
+
+
+class TestPaginationMetadata:
+    """Test pagination metadata header in TOON output."""
+
+    def test_pagination_header_included_with_metadata(self):
+        """Test that pagination header is included when pagination metadata provided."""
+        memories = [
+            {
+                "content": "Test memory",
+                "tags": ["test"],
+                "metadata": {},
+                "created_at": "2025-11-19T00:00:00Z",
+                "updated_at": "2025-11-19T00:00:00Z",
+                "content_hash": "abc123",
+            }
+        ]
+
+        pagination = {
+            "page": 2,
+            "total": 47,
+            "page_size": 10,
+            "has_more": True,
+            "total_pages": 5,
+        }
+
+        result, media_type = format_search_results_as_toon(memories, pagination=pagination)
+
+        assert isinstance(result, str)
+        assert media_type == "text/plain"
+        # Should have pagination header as first line
+        lines = result.split("\n")
+        assert lines[0].startswith("#")
+        assert "page=2" in lines[0]
+        assert "total=47" in lines[0]
+        assert "page_size=10" in lines[0]
+        assert "has_more=true" in lines[0]
+        assert "total_pages=5" in lines[0]
+
+    def test_pagination_header_not_included_without_metadata(self):
+        """Test that pagination header is not included when pagination is None."""
+        memories = [
+            {
+                "content": "Test memory",
+                "tags": ["test"],
+                "metadata": {},
+                "created_at": "2025-11-19T00:00:00Z",
+                "updated_at": "2025-11-19T00:00:00Z",
+                "content_hash": "abc123",
+            }
+        ]
+
+        result, media_type = format_search_results_as_toon(memories, pagination=None)
+
+        assert isinstance(result, str)
+        assert media_type == "text/plain"
+        # Should not start with pagination header
+        assert not result.startswith("#")
+
+    def test_pagination_with_empty_results(self):
+        """Test pagination header with empty results."""
+        memories: List[Dict[str, Any]] = []
+        pagination = {
+            "page": 1,
+            "total": 0,
+            "page_size": 10,
+            "has_more": False,
+            "total_pages": 0,
+        }
+
+        result, media_type = format_search_results_as_toon(memories, pagination=pagination)
+
+        assert "No memories found matching your query." in result
+        assert media_type == "text/plain"
+        # Should still have pagination header
+        lines = result.split("\n")
+        assert lines[0].startswith("#")
+        assert "page=1" in lines[0]
+        assert "total=0" in lines[0]
+
+    def test_pagination_first_page(self):
+        """Test pagination header for first page."""
+        memories = [
+            {
+                "content": f"Memory {i}",
+                "tags": [f"tag{i}"],
+                "metadata": {},
+                "created_at": "2025-11-19T00:00:00Z",
+                "updated_at": "2025-11-19T00:00:00Z",
+                "content_hash": f"hash{i}",
+            }
+            for i in range(3)
+        ]
+
+        pagination = {
+            "page": 1,
+            "total": 47,
+            "page_size": 3,
+            "has_more": True,
+            "total_pages": 16,
+        }
+
+        result, media_type = format_search_results_as_toon(memories, pagination=pagination)
+
+        lines = result.split("\n")
+        assert lines[0].startswith("#")
+        assert "page=1" in lines[0]
+        assert "has_more=true" in lines[0]
+
+    def test_pagination_last_page(self):
+        """Test pagination header for last page."""
+        memories = [
+            {
+                "content": "Last memory",
+                "tags": ["last"],
+                "metadata": {},
+                "created_at": "2025-11-19T00:00:00Z",
+                "updated_at": "2025-11-19T00:00:00Z",
+                "content_hash": "last123",
+            }
+        ]
+
+        pagination = {
+            "page": 5,
+            "total": 47,
+            "page_size": 10,
+            "has_more": False,
+            "total_pages": 5,
+        }
+
+        result, media_type = format_search_results_as_toon(memories, pagination=pagination)
+
+        lines = result.split("\n")
+        assert lines[0].startswith("#")
+        assert "page=5" in lines[0]
+        assert "has_more=false" in lines[0]
+        assert "total_pages=5" in lines[0]
+
+    def test_pagination_header_format(self):
+        """Test exact format of pagination header."""
+        memories = [
+            {
+                "content": "Test",
+                "tags": [],
+                "metadata": {},
+                "created_at": "2025-11-19T00:00:00Z",
+                "updated_at": "2025-11-19T00:00:00Z",
+                "content_hash": "test123",
+            }
+        ]
+
+        pagination = {
+            "page": 3,
+            "total": 100,
+            "page_size": 20,
+            "has_more": True,
+            "total_pages": 5,
+        }
+
+        result, media_type = format_search_results_as_toon(memories, pagination=pagination)
+
+        lines = result.split("\n")
+        header = lines[0]
+        # Should follow exact format: # page=X total=Y page_size=Z has_more=bool total_pages=N
+        expected = "# page=3 total=100 page_size=20 has_more=true total_pages=5"
+        assert header == expected

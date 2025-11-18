@@ -277,8 +277,12 @@ async def retrieve_memory(
 
     Response Format:
         Returns memories in TOON (Terser Object Notation) format - a compact, pipe-delimited
-        format optimized for LLM token efficiency. Each memory is a single line with fields:
+        format optimized for LLM token efficiency.
 
+        First line contains pagination metadata:
+        # page=2 total=250 page_size=10 has_more=true total_pages=25
+
+        Followed by memory records, each on a single line with fields:
         content|tags|metadata|created_at|updated_at|content_hash|similarity_score
 
         For complete TOON specification, see resource: toon://format/documentation
@@ -291,8 +295,17 @@ async def retrieve_memory(
         query=query, page=page, page_size=page_size, min_similarity=min_similarity
     )
 
-    # Convert results to TOON format
-    toon_output, _ = format_search_results_as_toon(result["memories"])
+    # Extract pagination metadata
+    pagination = {
+        "page": result.get("page", page),
+        "total": result.get("total", 0),
+        "page_size": result.get("page_size", page_size),
+        "has_more": result.get("has_more", False),
+        "total_pages": result.get("total_pages", 0)
+    }
+
+    # Convert results to TOON format with pagination
+    toon_output, _ = format_search_results_as_toon(result["memories"], pagination=pagination)
     return toon_output
 
 
@@ -322,8 +335,12 @@ async def search_by_tag(
 
     Response Format:
         Returns memories in TOON (Terser Object Notation) format - a compact, pipe-delimited
-        format optimized for LLM token efficiency. Each memory is a single line with fields:
+        format optimized for LLM token efficiency.
 
+        First line contains pagination metadata:
+        # page=2 total=250 page_size=10 has_more=true total_pages=25
+
+        Followed by memory records, each on a single line with fields:
         content|tags|metadata|created_at|updated_at|content_hash
 
         For complete TOON specification, see resource: toon://format/documentation
@@ -341,8 +358,17 @@ async def search_by_tag(
         tags=tags, match_all=match_all, page=page, page_size=page_size
     )
 
-    # Convert results to TOON format
-    toon_output, _ = format_search_results_as_toon(result["memories"])
+    # Extract pagination metadata
+    pagination = {
+        "page": result.get("page", page),
+        "total": result.get("total", 0),
+        "page_size": result.get("page_size", page_size),
+        "has_more": result.get("has_more", False),
+        "total_pages": result.get("total_pages", 0)
+    }
+
+    # Convert results to TOON format with pagination
+    toon_output, _ = format_search_results_as_toon(result["memories"], pagination=pagination)
     return toon_output
 
 
@@ -419,8 +445,12 @@ async def list_memories(
 
     Response Format:
         Returns memories in TOON (Terser Object Notation) format - a compact, pipe-delimited
-        format optimized for LLM token efficiency. Each memory is a single line with fields:
+        format optimized for LLM token efficiency.
 
+        First line contains pagination metadata:
+        # page=2 total=250 page_size=10 has_more=true total_pages=25
+
+        Followed by memory records, each on a single line with fields:
         content|tags|metadata|created_at|updated_at|content_hash
 
         For complete TOON specification, see resource: toon://format/documentation
@@ -439,8 +469,17 @@ async def list_memories(
         page=page, page_size=page_size, tag=tag, memory_type=memory_type
     )
 
-    # Convert results to TOON format
-    toon_output, _ = format_search_results_as_toon(result["memories"])
+    # Extract pagination metadata
+    pagination = {
+        "page": result.get("page", page),
+        "total": result.get("total", 0),
+        "page_size": result.get("page_size", page_size),
+        "has_more": result.get("has_more", False),
+        "total_pages": result.get("total_pages", 0)
+    }
+
+    # Convert results to TOON format with pagination
+    toon_output, _ = format_search_results_as_toon(result["memories"], pagination=pagination)
     return toon_output
 
 

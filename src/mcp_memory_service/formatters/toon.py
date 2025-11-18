@@ -153,7 +153,33 @@ def sanitize_header_value(value: str) -> str:
     return sanitized
 
 
-def format_search_results_as_toon(results: List[Dict[str, Any]]) -> Tuple[str, str]:
+def _format_pagination_header(pagination: Dict[str, Any]) -> str:
+    """Format pagination metadata as a header line.
+
+    Creates a comment-style header with pagination information:
+    # page=2 total=250 page_size=10 has_more=true total_pages=25
+
+    Args:
+        pagination: Dictionary with pagination metadata
+
+    Returns:
+        Formatted pagination header string
+    """
+    # Extract pagination fields with defaults
+    page = pagination.get("page", 1)
+    total = pagination.get("total", 0)
+    page_size = pagination.get("page_size", 10)
+    has_more = pagination.get("has_more", False)
+    total_pages = pagination.get("total_pages", 0)
+
+    # Format as space-separated key=value pairs
+    return f"# page={page} total={total} page_size={page_size} has_more={str(has_more).lower()} total_pages={total_pages}"
+
+
+def format_search_results_as_toon(
+    results: List[Dict[str, Any]],
+    pagination: Dict[str, Any] | None = None
+) -> Tuple[str, str]:
     """Convert memory search results to TOON format with security hardening.
 
     Extracts all memory fields and encodes to TOON with:
@@ -161,13 +187,15 @@ def format_search_results_as_toon(results: List[Dict[str, Any]]) -> Tuple[str, s
     - Metadata depth validation (1000 levels)
     - Encoding timeout (5 seconds)
     - Error sanitization for headers
+    - Optional pagination metadata header
 
     Args:
         results: List of memory dictionaries from search
+        pagination: Optional pagination metadata (total, page, page_size, has_more, total_pages)
 
     Returns:
         Tuple of (toon_string, media_type)
-        - toon_string: TOON-encoded memory results
+        - toon_string: TOON-encoded memory results with optional pagination header
         - media_type: Always "text/plain"
 
     Raises:
@@ -176,6 +204,10 @@ def format_search_results_as_toon(results: List[Dict[str, Any]]) -> Tuple[str, s
     """
     # Handle empty results
     if not results:
+        # Include pagination info even for empty results if provided
+        if pagination:
+            header = _format_pagination_header(pagination)
+            return (f"{header}\nNo memories found matching your query.", "text/plain")
         return ("No memories found matching your query.", "text/plain")
 
     try:
@@ -204,6 +236,11 @@ def format_search_results_as_toon(results: List[Dict[str, Any]]) -> Tuple[str, s
         # Encode with 5-second timeout protection
         with timeout_context(5):
             toon_output = encode(memories_for_encoding)
+
+        # Prepend pagination header if provided
+        if pagination:
+            header = _format_pagination_header(pagination)
+            toon_output = f"{header}\n{toon_output}"
 
         return (toon_output, "text/plain")
 
