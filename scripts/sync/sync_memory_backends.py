@@ -152,6 +152,7 @@ class MemorySync:
                         metadata=source_memory.get('metadata', {}),
                         memory_type=source_memory.get('memory_type'),
                         created_at=source_memory.get('created_at'),
+                        updated_at=source_memory.get('updated_at'),
                     )
                     success, message = await target_storage.store(memory_obj)
                     if success:
