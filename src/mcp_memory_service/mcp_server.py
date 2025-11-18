@@ -35,8 +35,7 @@ current_dir = Path(__file__).parent
 src_dir = current_dir.parent.parent
 sys.path.insert(0, str(src_dir))
 
-from mcp.server.fastmcp import FastMCP, Context
-from mcp.types import TextContent
+from fastmcp import FastMCP, Context
 
 # Import existing memory service components
 from .config import (
@@ -84,10 +83,17 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
     """Manage MCP server lifecycle with proper resource initialization and cleanup."""
     logger.info("Initializing MCP Memory Service components...")
 
-    # Initialize storage backend using shared factory
-    from .storage.factory import create_storage_instance
+    # Check if shared storage is already initialized (by unified_server)
+    from .shared_storage import get_shared_storage, is_storage_initialized
 
-    storage = await create_storage_instance(SQLITE_VEC_PATH)
+    if is_storage_initialized():
+        logger.info("Using pre-initialized shared storage instance")
+        storage = await get_shared_storage()
+    else:
+        # Fallback to creating storage if running standalone
+        logger.info("No shared storage found, initializing new instance (standalone mode)")
+        from .storage.factory import create_storage_instance
+        storage = await create_storage_instance(SQLITE_VEC_PATH)
 
     # Initialize memory service with shared business logic
     memory_service = MemoryService(storage)
@@ -95,20 +101,16 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
     try:
         yield MCPServerContext(storage=storage, memory_service=memory_service)
     finally:
-        # Cleanup on shutdown
-        logger.info("Shutting down MCP Memory Service components...")
-        if hasattr(storage, "close"):
-            await storage.close()
+        # Only close storage if we created it (standalone mode)
+        # Shared storage is managed by unified_server
+        if not is_storage_initialized():
+            logger.info("Shutting down MCP Memory Service components...")
+            if hasattr(storage, "close"):
+                await storage.close()
 
 
 # Create FastMCP server instance
-mcp = FastMCP(
-    name="MCP Memory Service",
-    host="0.0.0.0",  # Listen on all interfaces for remote access
-    port=8000,  # Default port
-    lifespan=mcp_server_lifespan,
-    stateless_http=True,  # Enable stateless HTTP for Claude Code compatibility
-)
+mcp = FastMCP("MCP Memory Service", lifespan=mcp_server_lifespan)
 
 # =============================================================================
 # TYPE DEFINITIONS
@@ -423,14 +425,14 @@ def main():
     logger.info(f"Storage backend: {STORAGE_BACKEND}")
 
     # Check transport mode from environment
-    transport_mode = os.getenv("MCP_TRANSPORT_MODE", "streamable-http")
+    transport_mode = os.getenv("MCP_TRANSPORT_MODE", "http")
 
     if transport_mode == "stdio":
         # Run server with stdio transport
-        mcp.run("stdio")
+        mcp.run(transport="stdio")
     else:
-        # Run server with streamable HTTP transport (default)
-        mcp.run("streamable-http")
+        # Run server with HTTP transport (FastMCP v2.0 uses 'http' instead of 'streamable-http')
+        mcp.run(transport="http", host=host, port=port)
 
 
 if __name__ == "__main__":

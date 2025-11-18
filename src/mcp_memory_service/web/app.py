@@ -90,11 +90,21 @@ async def oauth_cleanup_background_task():
 async def lifespan(app: FastAPI):
     """Application lifespan management."""
     global storage, mdns_advertiser, oauth_cleanup_task
-    
+
     # Startup
     logger.info("Starting MCP Memory Service HTTP interface...")
     try:
-        storage = await create_storage_backend()
+        # Check if shared storage is already initialized (by unified_server)
+        from ..shared_storage import get_shared_storage, is_storage_initialized
+
+        if is_storage_initialized():
+            logger.info("Using pre-initialized shared storage instance")
+            storage = await get_shared_storage()
+        else:
+            # Fallback to creating storage if running standalone
+            logger.info("No shared storage found, initializing new instance (standalone mode)")
+            storage = await create_storage_backend()
+
         set_storage(storage)  # Set the global storage instance
 
         # Pre-warm embedding model (eliminates cold start on first request)
@@ -175,7 +185,10 @@ async def lifespan(app: FastAPI):
     await sse_manager.stop()
     logger.info("SSE Manager stopped")
 
-    if storage:
+    # Only close storage if we created it (standalone mode)
+    # Shared storage is managed by unified_server
+    from ..shared_storage import is_storage_initialized
+    if storage and not is_storage_initialized():
         await storage.close()
 
 
