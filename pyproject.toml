@@ -60,8 +60,8 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "typing-extensions>=4.0.0; python_version < '3.11'",
     "tenacity>=8.0.0",
-    "optimum[onnxruntime]>=1.16.0",  # ONNX backend for 1.5-3x speedup on ARM64
     "onnxruntime>=1.17.0",  # Explicit ONNX Runtime for ARM64 optimization
+    "toon-format>=0.9.0b1",
 ]
 
 [project.optional-dependencies]
@@ -88,6 +88,9 @@ memory = "mcp_memory_service.cli.main:main"
 memory-server = "mcp_memory_service.cli.main:memory_server_main"
 mcp-memory-server = "mcp_memory_service.mcp_server:main"
 unified-memory-server = "mcp_memory_service.unified_server:main"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp_memory_service"]
