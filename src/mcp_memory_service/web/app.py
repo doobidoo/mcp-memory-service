@@ -96,7 +96,20 @@ async def lifespan(app: FastAPI):
     try:
         storage = await create_storage_backend()
         set_storage(storage)  # Set the global storage instance
-        
+
+        # Pre-warm embedding model (eliminates cold start on first request)
+        if hasattr(storage, 'generate_embedding'):
+            logger.info("Pre-warming embedding model with dummy data...")
+            try:
+                # Run in thread pool to avoid blocking async startup
+                await asyncio.to_thread(
+                    storage.generate_embedding,
+                    "warmup text to initialize model and trigger compilation"
+                )
+                logger.info("✓ Embedding model pre-warmed successfully")
+            except Exception as e:
+                logger.warning(f"Model pre-warming failed (non-fatal): {e}")
+
         # Start SSE manager
         await sse_manager.start()
         logger.info("SSE Manager started")

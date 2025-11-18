@@ -179,13 +179,13 @@ class StorageSettings(BaseSettings):
         extra='ignore'
     )
 
-    storage_backend: Literal['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid'] = Field(
+    storage_backend: Literal['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid', 'qdrant'] = Field(
         default='sqlite_vec',
         description="Storage backend to use"
     )
 
     embedding_model: str = Field(
-        default='all-MiniLM-L6-v2',
+        default='intfloat/e5-small',  # E5-small: 100% top-5 accuracy vs 56% for all-MiniLM-L6-v2
         description="Embedding model name (env: MCP_MEMORY_EMBEDDING_MODEL)"
     )
 
@@ -487,7 +487,7 @@ class OAuthSettings(BaseSettings):
         extra='ignore'
     )
 
-    enabled: bool = Field(default=True, alias='OAUTH_ENABLED')
+    enabled: bool = Field(default=True)
 
     # RSA key pair for JWT signing (SecretStr for security)
     private_key: Optional[SecretStr] = Field(default=None)
@@ -502,7 +502,7 @@ class OAuthSettings(BaseSettings):
     authorization_code_expire_minutes: int = Field(default=10, ge=1, le=60)
 
     # Security
-    allow_anonymous_access: bool = Field(default=False)
+    allow_anonymous_access: bool = Field(default=False, alias='MCP_ALLOW_ANONYMOUS_ACCESS')
 
     @model_validator(mode='after')
     def generate_keys_if_needed(self) -> 'OAuthSettings':
@@ -651,6 +651,83 @@ class ConsolidationSettings(BaseSettings):
     schedule_yearly: str = Field(default='disabled')
 
 
+class QdrantSettings(BaseSettings):
+    """Qdrant vector database configuration with auto-tuned HNSW parameters."""
+
+    model_config = SettingsConfigDict(
+        env_prefix='MCP_QDRANT_',
+        env_file='.env',
+        env_file_encoding='utf-8',
+        case_sensitive=False,
+        extra='ignore'
+    )
+
+    # User-facing configuration
+    url: Optional[str] = Field(
+        default=None,
+        description="Qdrant server URL (e.g., http://localhost:6333). If set, uses network mode instead of embedded."
+    )
+
+    storage_path: Optional[str] = Field(
+        default=None,
+        description="Path to Qdrant storage directory for embedded mode (auto-detected if not provided)"
+    )
+
+    quantization_enabled: bool = Field(
+        default=False,
+        description="Enable scalar quantization (32x memory savings, ~10% slower)"
+    )
+
+    # Auto-tuned constants (not configurable by users)
+    COLLECTION_NAME: str = "memories"
+    DISTANCE_METRIC: str = "Cosine"  # Qdrant Distance enum value
+
+    # HNSW parameters optimized for <1M vectors
+    HNSW_M: int = 16  # Number of edges per node (16 = balanced quality/speed)
+    HNSW_EF_CONSTRUCT: int = 100  # Construction time quality (100 = good quality)
+    HNSW_EF: int = 128  # Search quality (128 = high recall)
+    HNSW_FULL_SCAN_THRESHOLD: int = 10000  # Use brute force below this count
+
+    # Quantization config
+    QUANTIZATION_TYPE: str = "scalar"  # Only scalar supported for now
+    QUANTIZATION_ALWAYS_RAM: bool = True  # Keep quantized vectors in RAM
+
+    # Performance tuning
+    ON_DISK_PAYLOAD: bool = False  # Keep payload in memory (faster, <1M vectors)
+    INDEXING_THRESHOLD: int = 20000  # Start indexing after this many vectors
+
+    @model_validator(mode='after')
+    def set_platform_paths(self) -> 'QdrantSettings':
+        """Set platform-specific default storage path with secure permissions."""
+        # If URL is set, we're in server mode - skip storage path setup
+        if self.url:
+            logger.info(f"Qdrant server mode: {self.url}")
+            # Clear storage_path to make it explicit we're in network mode
+            self.storage_path = None
+            return self
+
+        # Embedded mode - set up storage path
+        if not self.storage_path:
+            home = str(Path.home())
+            if sys.platform == 'darwin':  # macOS
+                base = os.path.join(home, 'Library', 'Application Support', 'mcp-memory', 'qdrant')
+            elif sys.platform == 'win32':  # Windows
+                base = os.path.join(os.getenv('LOCALAPPDATA', ''), 'mcp-memory', 'qdrant')
+            else:  # Linux and others
+                base = os.path.join(home, '.local', 'share', 'mcp-memory', 'qdrant')
+
+            self.storage_path = base
+
+        # Create directory with secure permissions (0o700 - owner only)
+        abs_path = os.path.abspath(os.path.expanduser(self.storage_path))
+        os.makedirs(abs_path, mode=0o700, exist_ok=True)
+        self.storage_path = abs_path
+
+        logger.info(f"Qdrant embedded mode: {self.storage_path}")
+
+        return self
+
+
 class DebugSettings(BaseSettings):
     """Debug and development configuration."""
 
@@ -693,6 +770,7 @@ class Settings(BaseSettings):
     content_limits: ContentLimitsSettings = Field(default_factory=ContentLimitsSettings)
     cloudflare: CloudflareSettings = Field(default_factory=CloudflareSettings)
     hybrid: HybridSettings = Field(default_factory=HybridSettings)
+    qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
     http: HTTPSettings = Field(default_factory=HTTPSettings)
     oauth: OAuthSettings = Field(default_factory=OAuthSettings)
     document: DocumentSettings = Field(default_factory=DocumentSettings)
@@ -969,7 +1047,7 @@ def __getattr__(name: str):
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 # Constants that don't need lazy loading
-SUPPORTED_BACKENDS = ['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid']
+SUPPORTED_BACKENDS = ['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid', 'qdrant']
 
 # Note: All config values are now lazy-loaded via __getattr__ above
 # Do not add assignments here - they will trigger eager Settings() instantiation

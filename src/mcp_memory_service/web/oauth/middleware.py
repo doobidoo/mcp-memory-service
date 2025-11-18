@@ -341,11 +341,11 @@ async def get_current_user(
 
     # Allow anonymous access only if explicitly enabled
     if ALLOW_ANONYMOUS_ACCESS:
-        logger.debug("Anonymous access explicitly enabled, granting read-only access")
+        logger.debug("Anonymous access explicitly enabled, granting full access")
         return AuthenticationResult(
             authenticated=True,
             client_id="anonymous",
-            scope="read",  # Anonymous users get read-only access for security
+            scope="read write admin",  # Full access for local development (trusted network)
             auth_method="none"
         )
 

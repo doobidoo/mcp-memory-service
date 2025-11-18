@@ -337,19 +337,32 @@ class HTTPClientStorage(MemoryStorage):
         logger.warning("Update memory metadata not supported via HTTP client yet")
         return False, "Update memory metadata not supported via HTTP client yet"
     
-    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None) -> List[MemoryQueryResult]:
+    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None, offset: int = 0) -> List[MemoryQueryResult]:
         """
         Retrieve memories with time filtering and optional semantic search via HTTP API.
+
+        Args:
+            query: Optional semantic search query.
+            n_results: Maximum number of results to return.
+            start_timestamp: Optional start time for filtering.
+            end_timestamp: Optional end time for filtering.
+            offset: Number of results to skip for pagination (default: 0).
+
+        Returns:
+            List of MemoryQueryResult objects.
         """
         if not self._initialized or not self.session:
             logger.error("HTTP client not initialized")
             return []
-        
+
         try:
             recall_url = f"{self.base_url}/api/search/time"
+            # Convert offset to page number (API uses page/page_size)
+            page = (offset // n_results) + 1 if n_results > 0 else 1
             payload = {
                 "query": query or f"memories from {datetime.fromtimestamp(start_timestamp).isoformat() if start_timestamp else 'beginning'} to {datetime.fromtimestamp(end_timestamp).isoformat() if end_timestamp else 'now'}",
-                "n_results": n_results
+                "page": page,
+                "page_size": n_results
             }
             
             async with self.session.post(recall_url, json=payload) as response:

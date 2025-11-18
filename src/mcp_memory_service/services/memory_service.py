@@ -49,6 +49,33 @@ class MemoryService:
     def __init__(self, storage: MemoryStorage):
         self.storage = storage
 
+    def _build_pagination_metadata(
+        self,
+        total: int,
+        page: int,
+        page_size: int
+    ) -> Dict[str, Any]:
+        """
+        Build consistent pagination metadata for all endpoints.
+
+        DRY principle: Single source of truth for pagination structure.
+
+        Args:
+            total: Total number of matching records across all pages
+            page: Current page number (1-indexed)
+            page_size: Number of results per page
+
+        Returns:
+            Dictionary with pagination metadata
+        """
+        return {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "has_more": (page * page_size) < total,
+            "total_pages": (total + page_size - 1) // page_size if page_size > 0 else 1
+        }
+
     async def list_memories(
         self,
         page: int = 1,
@@ -97,10 +124,7 @@ class MemoryService:
 
             return {
                 "memories": results,
-                "page": page,
-                "page_size": page_size,
-                "total": total,
-                "has_more": offset + page_size < total
+                **self._build_pagination_metadata(total, page, page_size)
             }
 
         except Exception as e:
@@ -234,32 +258,46 @@ class MemoryService:
     async def retrieve_memories(
         self,
         query: str,
-        n_results: int = 10,
+        page: int = 1,
+        page_size: int = 10,
         tags: Optional[List[str]] = None,
         memory_type: Optional[str] = None,
         min_similarity: Optional[float] = None
     ) -> Dict[str, Any]:
         """
-        Retrieve memories by semantic search with optional filtering.
+        Retrieve memories by semantic search with optional filtering and pagination.
 
         Args:
             query: Search query string
-            n_results: Maximum number of results
+            page: Page number (1-indexed)
+            page_size: Number of results per page
             tags: Optional tag filtering
             memory_type: Optional memory type filtering
             min_similarity: Optional minimum similarity threshold (0.0 to 1.0)
 
         Returns:
-            Dictionary with search results
+            Dictionary with search results and pagination metadata
         """
         try:
-            # Pass filters directly to storage backend for database-level filtering
-            memories = await self.storage.retrieve(
+            # Calculate offset for pagination
+            offset = (page - 1) * page_size
+
+            # Get total count for pagination (expensive but accurate as per user requirement)
+            total = await self.storage.count_semantic_search(
                 query=query,
-                n_results=n_results,
                 tags=tags,
                 memory_type=memory_type,
                 min_similarity=min_similarity
+            )
+
+            # Pass filters directly to storage backend for database-level filtering
+            memories = await self.storage.retrieve(
+                query=query,
+                n_results=page_size,
+                tags=tags,
+                memory_type=memory_type,
+                min_similarity=min_similarity,
+                offset=offset
             )
 
             results = []
@@ -277,7 +315,7 @@ class MemoryService:
             return {
                 "memories": results,
                 "query": query,
-                "count": len(results)
+                **self._build_pagination_metadata(total, page, page_size)
             }
 
         except Exception as e:
@@ -292,29 +330,32 @@ class MemoryService:
         self,
         tags: Union[str, List[str]],
         match_all: bool = False,
-        limit: int = 10,
-        offset: int = 0,
+        page: int = 1,
+        page_size: int = 10,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None
     ) -> Dict[str, Union[List[MemoryResult], str, bool, int]]:
         """
-        Search memories by tags with flexible matching options and optional date filtering.
+        Search memories by tags with flexible matching options, pagination, and optional date filtering.
 
         Args:
             tags: Tag or list of tags to search for
             match_all: If True, memory must have ALL tags; if False, ANY tag
-            limit: Maximum number of results to return (default: 10)
-            offset: Number of results to skip for pagination (default: 0)
+            page: Page number (1-indexed)
+            page_size: Number of results per page
             start_date: Filter memories from this date (YYYY-MM-DD format)
             end_date: Filter memories until this date (YYYY-MM-DD format)
 
         Returns:
-            Dictionary with matching memories
+            Dictionary with matching memories and pagination metadata
         """
         try:
             # Normalize tags to list
             if isinstance(tags, str):
                 tags = [tags]
+
+            # Calculate offset for pagination
+            offset = (page - 1) * page_size
 
             # Convert date strings to timestamps if provided
             from datetime import datetime
@@ -329,12 +370,20 @@ class MemoryService:
                 dt = datetime.fromisoformat(end_date)
                 end_timestamp = datetime(dt.year, dt.month, dt.day, 23, 59, 59).timestamp()
 
+            # Get total count for pagination
+            total = await self.storage.count_tag_search(
+                tags=tags,
+                match_all=match_all,
+                start_timestamp=start_timestamp,
+                end_timestamp=end_timestamp
+            )
+
             # Search using database-level filtering
-            # Note: Using search_by_tag from base class (singular)
             memories = await self.storage.search_by_tag(
                 tags=tags,
-                limit=limit,
+                limit=page_size,
                 offset=offset,
+                match_all=match_all,
                 start_timestamp=start_timestamp,
                 end_timestamp=end_timestamp
             )
@@ -355,7 +404,7 @@ class MemoryService:
                 "memories": results,
                 "tags": tags,
                 "match_type": match_type,
-                "count": len(results)
+                **self._build_pagination_metadata(total, page, page_size)
             }
 
         except Exception as e:

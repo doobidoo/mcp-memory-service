@@ -67,6 +67,13 @@ def get_storage_backend_class() -> Type[MemoryStorage]:
         except ImportError as e:
             logger.error(f"Failed to import Hybrid storage: {e}")
             return _fallback_to_sqlite_vec()
+    elif backend == "qdrant":
+        try:
+            from .qdrant_storage import QdrantStorage
+            return QdrantStorage
+        except ImportError as e:
+            logger.error(f"Failed to import Qdrant storage: {e}")
+            raise ImportError("qdrant-client not installed. Install with: uv pip install qdrant-client") from e
     else:
         logger.warning(f"Unknown storage backend '{backend}', defaulting to SQLite-vec")
         from .sqlite_vec import SqliteVecMemoryStorage
@@ -90,7 +97,8 @@ async def create_storage_instance(sqlite_path: str) -> MemoryStorage:
         CLOUDFLARE_R2_BUCKET, CLOUDFLARE_EMBEDDING_MODEL,
         CLOUDFLARE_LARGE_CONTENT_THRESHOLD, CLOUDFLARE_MAX_RETRIES,
         CLOUDFLARE_BASE_DELAY,
-        HYBRID_SYNC_INTERVAL, HYBRID_BATCH_SIZE
+        HYBRID_SYNC_INTERVAL, HYBRID_BATCH_SIZE,
+        settings
     )
 
     logger.info(f"Creating storage backend instance (sqlite_path: {sqlite_path})...")
@@ -144,6 +152,29 @@ async def create_storage_instance(sqlite_path: str) -> MemoryStorage:
             batch_size=HYBRID_BATCH_SIZE
         )
         logger.info(f"Initialized hybrid storage with SQLite at {sqlite_path}")
+
+    elif StorageClass.__name__ == "QdrantStorage":
+        # Determine mode: server (URL) or embedded (path)
+        if settings.qdrant.url:
+            # Server mode - network client
+            storage = StorageClass(
+                url=settings.qdrant.url,
+                embedding_model=EMBEDDING_MODEL_NAME,
+                collection_name=settings.qdrant.COLLECTION_NAME,
+                quantization_enabled=settings.qdrant.quantization_enabled,
+                distance_metric=settings.qdrant.DISTANCE_METRIC
+            )
+            logger.info(f"Initialized Qdrant storage in server mode: {settings.qdrant.url}")
+        else:
+            # Embedded mode - file-based
+            storage = StorageClass(
+                storage_path=settings.qdrant.storage_path,
+                embedding_model=EMBEDDING_MODEL_NAME,
+                collection_name=settings.qdrant.COLLECTION_NAME,
+                quantization_enabled=settings.qdrant.quantization_enabled,
+                distance_metric=settings.qdrant.DISTANCE_METRIC
+            )
+            logger.info(f"Initialized Qdrant storage in embedded mode: {settings.qdrant.storage_path}")
 
     else:
         # Unknown storage backend - this should not happen as get_storage_backend_class

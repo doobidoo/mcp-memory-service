@@ -1166,10 +1166,11 @@ class HybridMemoryStorage(MemoryStorage):
         n_results: int = 5,
         tags: Optional[List[str]] = None,
         memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None
+        min_similarity: Optional[float] = None,
+        offset: int = 0
     ) -> List[MemoryQueryResult]:
-        """Retrieve memories from primary storage (fast)."""
-        return await self.primary.retrieve(query, n_results, tags, memory_type, min_similarity)
+        """Retrieve memories from primary storage (fast) with pagination."""
+        return await self.primary.retrieve(query, n_results, tags, memory_type, min_similarity, offset)
 
     async def search(
         self,
@@ -1417,7 +1418,7 @@ class HybridMemoryStorage(MemoryStorage):
         """Get largest memories by content length from primary storage."""
         return await self.primary.get_largest_memories(n)
 
-    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None) -> List[MemoryQueryResult]:
+    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None, offset: int = 0) -> List[MemoryQueryResult]:
         """
         Retrieve memories with combined time filtering and optional semantic search.
 
@@ -1426,11 +1427,12 @@ class HybridMemoryStorage(MemoryStorage):
             n_results: Maximum number of results to return.
             start_timestamp: Optional start time for filtering.
             end_timestamp: Optional end time for filtering.
+            offset: Number of results to skip for pagination (default: 0).
 
         Returns:
             List of MemoryQueryResult objects.
         """
-        return await self.primary.recall(query=query, n_results=n_results, start_timestamp=start_timestamp, end_timestamp=end_timestamp)
+        return await self.primary.recall(query=query, n_results=n_results, start_timestamp=start_timestamp, end_timestamp=end_timestamp, offset=offset)
 
     async def recall_memory(self, query: str, n_results: int = 5) -> List[Memory]:
         """Recall memories using natural language time expressions."""
@@ -1443,6 +1445,36 @@ class HybridMemoryStorage(MemoryStorage):
     async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None) -> int:
         """Get total count of memories from primary storage."""
         return await self.primary.count_all_memories(memory_type=memory_type, tags=tags)
+
+    async def count_semantic_search(
+        self,
+        query: str,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None,
+        min_similarity: Optional[float] = None
+    ) -> int:
+        """Count memories matching semantic search criteria in primary storage."""
+        return await self.primary.count_semantic_search(query, tags, memory_type, min_similarity)
+
+    async def count_tag_search(
+        self,
+        tags: List[str],
+        match_all: bool = False,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None
+    ) -> int:
+        """Count memories matching tag search in primary storage."""
+        return await self.primary.count_tag_search(tags, match_all, start_timestamp, end_timestamp)
+
+    async def count_time_range(
+        self,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None
+    ) -> int:
+        """Count memories within time range in primary storage."""
+        return await self.primary.count_time_range(start_timestamp, end_timestamp, tags, memory_type)
 
     async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
         """Get memories within time range from primary storage."""

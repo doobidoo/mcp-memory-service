@@ -31,6 +31,12 @@ from ... import __version__
 from ...config import OAUTH_ENABLED
 from ..write_queue import write_queue
 
+# Try importing QdrantStorage for type checking
+try:
+    from ...storage.qdrant_storage import QdrantStorage
+except ImportError:
+    QdrantStorage = None
+
 # OAuth authentication imports (conditional)
 if OAUTH_ENABLED or TYPE_CHECKING:
     from ..oauth.middleware import require_read_access, AuthenticationResult
@@ -67,9 +73,81 @@ class DetailedHealthResponse(BaseModel):
 _startup_time = time.time()
 
 
-@router.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Basic health check endpoint with write queue statistics."""
+@router.get("/health")
+async def health_check(storage: MemoryStorage = Depends(get_storage)):
+    """
+    Basic health check endpoint with write queue statistics and Qdrant-specific checks.
+
+    Returns 200 OK if healthy, 503 Service Unavailable if unhealthy.
+    """
+    from fastapi import Response
+    from fastapi.responses import JSONResponse
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Check if storage is Qdrant backend
+    is_qdrant = QdrantStorage is not None and isinstance(storage, QdrantStorage)
+
+    if is_qdrant:
+        try:
+            # Test actual connectivity
+            collections_response = storage.client.get_collections()
+
+            # Check circuit breaker status
+            circuit_status = "closed"
+            if hasattr(storage, '_circuit_open_until') and storage._circuit_open_until:
+                circuit_status = f"open_until_{storage._circuit_open_until.isoformat()}"
+
+            # Get failure count
+            failure_count = getattr(storage, '_failure_count', 0)
+
+            # If circuit breaker is open, service is unhealthy
+            if circuit_status != "closed":
+                logger.error(f"Health check failed: Qdrant circuit breaker is {circuit_status}")
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "status": "unhealthy",
+                        "version": __version__,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "uptime_seconds": time.time() - _startup_time,
+                        "backend": "qdrant",
+                        "circuit_breaker": circuit_status,
+                        "failure_count": failure_count,
+                        "error": "Qdrant circuit breaker is open - service unavailable"
+                    }
+                )
+
+            # Healthy response with Qdrant details
+            return {
+                "status": "healthy",
+                "version": __version__,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "uptime_seconds": time.time() - _startup_time,
+                "write_queue": write_queue.get_stats(),
+                "backend": "qdrant",
+                "circuit_breaker": circuit_status,
+                "failure_count": failure_count,
+                "qdrant_collections": [col.name for col in collections_response.collections]
+            }
+
+        except Exception as e:
+            logger.error(f"Health check failed: Qdrant connectivity error: {e}")
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "unhealthy",
+                    "version": __version__,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "uptime_seconds": time.time() - _startup_time,
+                    "backend": "qdrant",
+                    "error": str(e),
+                    "message": "Qdrant is unavailable - service cannot function. Check logs and fix configuration."
+                }
+            )
+
+    # Non-Qdrant backends: standard response
     return HealthResponse(
         status="healthy",
         version=__version__,

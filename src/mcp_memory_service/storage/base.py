@@ -98,10 +98,11 @@ class MemoryStorage(ABC):
         n_results: int = 5,
         tags: Optional[List[str]] = None,
         memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None
+        min_similarity: Optional[float] = None,
+        offset: int = 0
     ) -> List[MemoryQueryResult]:
         """
-        Retrieve memories by semantic search with optional filtering.
+        Retrieve memories by semantic search with optional filtering and pagination.
 
         Args:
             query: Search query text
@@ -109,6 +110,7 @@ class MemoryStorage(ABC):
             tags: Optional list of tags to filter by (matches ANY tag)
             memory_type: Optional memory type filter
             min_similarity: Optional minimum similarity threshold
+            offset: Number of results to skip for pagination (default: 0)
 
         Returns:
             List of MemoryQueryResult objects, filtered and sorted by relevance
@@ -121,6 +123,7 @@ class MemoryStorage(ABC):
         tags: List[str],
         limit: int = 10,
         offset: int = 0,
+        match_all: bool = False,
         start_timestamp: Optional[float] = None,
         end_timestamp: Optional[float] = None
     ) -> List[Memory]:
@@ -131,6 +134,7 @@ class MemoryStorage(ABC):
             tags: List of tags to search for
             limit: Maximum number of results to return (default: 10)
             offset: Number of results to skip for pagination (default: 0)
+            match_all: If True, memory must have ALL tags; if False, ANY tag (default: False)
             start_timestamp: Filter memories from this timestamp (inclusive)
             end_timestamp: Filter memories until this timestamp (inclusive)
 
@@ -303,11 +307,12 @@ class MemoryStorage(ABC):
         n_results: int = 5,
         tags: Optional[List[str]] = None,
         memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None
+        min_similarity: Optional[float] = None,
+        offset: int = 0
     ) -> List[Memory]:
         """Recall memories based on natural language time expression. Override for specific implementations."""
         # Default implementation just uses regular search
-        results = await self.retrieve(query, n_results, tags, memory_type, min_similarity)
+        results = await self.retrieve(query, n_results, tags, memory_type, min_similarity, offset)
         return [r.memory for r in results]
     
     async def search(
@@ -316,10 +321,11 @@ class MemoryStorage(ABC):
         n_results: int = 5,
         tags: Optional[List[str]] = None,
         memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None
+        min_similarity: Optional[float] = None,
+        offset: int = 0
     ) -> List[MemoryQueryResult]:
         """Search memories. Default implementation uses retrieve."""
-        return await self.retrieve(query, n_results, tags, memory_type, min_similarity)
+        return await self.retrieve(query, n_results, tags, memory_type, min_similarity, offset)
     
     async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None, tags: Optional[List[str]] = None) -> List[Memory]:
         """
@@ -362,6 +368,77 @@ class MemoryStorage(ABC):
         # Default implementation: search then count
         memories = await self.search_by_tag(tags)
         return len(memories)
+
+    @abstractmethod
+    async def count_semantic_search(
+        self,
+        query: str,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None,
+        min_similarity: Optional[float] = None
+    ) -> int:
+        """
+        Count memories matching semantic search criteria.
+
+        This enables pagination for semantic search without loading all results.
+        Should perform same filtering as retrieve() but return count only.
+
+        Args:
+            query: Search query text
+            tags: Optional list of tags to filter by (matches ANY tag)
+            memory_type: Optional memory type filter
+            min_similarity: Optional minimum similarity threshold
+
+        Returns:
+            Total number of memories matching the criteria
+        """
+        pass
+
+    @abstractmethod
+    async def count_tag_search(
+        self,
+        tags: List[str],
+        match_all: bool = False,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None
+    ) -> int:
+        """
+        Count memories matching tag search with optional date filtering.
+
+        Should use same filters as search_by_tag() for consistency.
+
+        Args:
+            tags: List of tags to search for
+            match_all: If True, memory must have ALL tags; if False, ANY tag (default)
+            start_timestamp: Filter memories from this timestamp (inclusive)
+            end_timestamp: Filter memories until this timestamp (inclusive)
+
+        Returns:
+            Total number of memories matching the criteria
+        """
+        pass
+
+    @abstractmethod
+    async def count_time_range(
+        self,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None
+    ) -> int:
+        """
+        Count memories within time range with optional filters.
+
+        Args:
+            start_timestamp: Filter from this time (inclusive)
+            end_timestamp: Filter until this time (inclusive)
+            tags: Optional tag filter (ANY match)
+            memory_type: Optional type filter
+
+        Returns:
+            Total number of memories matching the criteria
+        """
+        pass
 
     async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
         """Get memories within a time range. Override for specific implementations."""

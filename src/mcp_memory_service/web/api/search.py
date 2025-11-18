@@ -27,8 +27,9 @@ from pydantic import BaseModel, Field
 
 from ...storage.base import MemoryStorage
 from ...models.memory import Memory, MemoryQueryResult
+from ...services.memory_service import MemoryService
 from ...config import OAUTH_ENABLED
-from ..dependencies import get_storage
+from ..dependencies import get_storage, get_memory_service
 from .memories import MemoryResponse, memory_to_response
 from ..sse import sse_manager, create_search_completed_event
 
@@ -47,24 +48,44 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+# Pagination Models
+class PaginationParams(BaseModel):
+    """Reusable pagination request parameters."""
+    page: int = Field(default=1, ge=1, description="Page number (1-indexed)")
+    page_size: int = Field(default=10, ge=1, le=100, description="Number of results per page")
+
+
+class PaginationMetadata(BaseModel):
+    """Standard pagination response metadata."""
+    total: int = Field(..., description="Total number of matching records across all pages")
+    page: int = Field(..., description="Current page number (1-indexed)")
+    page_size: int = Field(..., description="Number of results per page")
+    has_more: bool = Field(..., description="Whether more pages exist")
+    total_pages: int = Field(..., description="Total number of pages available")
+
+
 # Request Models
 class SemanticSearchRequest(BaseModel):
     """Request model for semantic similarity search."""
     query: str = Field(..., description="The search query for semantic similarity")
-    n_results: int = Field(default=10, ge=1, le=100, description="Maximum number of results to return")
-    similarity_threshold: Optional[float] = Field(None, ge=0.0, le=1.0, description="Minimum similarity score")
+    page: int = Field(default=1, ge=1, description="Page number (1-indexed)")
+    page_size: int = Field(default=10, ge=1, le=100, description="Number of results per page")
+    similarity_threshold: Optional[float] = Field(default=0.6, ge=0.0, le=1.0, description="Minimum similarity score (default: 0.6 for quality filtering)")
 
 
 class TagSearchRequest(BaseModel):
     """Request model for tag-based search."""
-    tags: List[str] = Field(..., description="List of tags to search for (ANY match)")
+    tags: List[str] = Field(..., description="List of tags to search for")
     match_all: bool = Field(default=False, description="If true, memory must have ALL tags; if false, ANY tag")
+    page: int = Field(default=1, ge=1, description="Page number (1-indexed)")
+    page_size: int = Field(default=10, ge=1, le=100, description="Number of results per page")
 
 
 class TimeSearchRequest(BaseModel):
     """Request model for time-based search."""
     query: str = Field(..., description="Natural language time query (e.g., 'last week', 'yesterday')")
-    n_results: int = Field(default=10, ge=1, le=100, description="Maximum number of results to return")
+    page: int = Field(default=1, ge=1, description="Page number (1-indexed)")
+    page_size: int = Field(default=10, ge=1, le=100, description="Number of results per page")
     semantic_query: Optional[str] = Field(None, description="Optional semantic query for relevance filtering within time range")
 
 
@@ -79,9 +100,9 @@ class SearchResult(BaseModel):
 class SearchResponse(BaseModel):
     """Response model for search operations."""
     results: List[SearchResult]
-    total_found: int
     query: str
     search_type: str
+    pagination: PaginationMetadata
     processing_time_ms: Optional[float] = None
 
 
@@ -106,40 +127,52 @@ def memory_to_search_result(memory: Memory, reason: str = None) -> SearchResult:
 @router.post("/search", response_model=SearchResponse, tags=["search"])
 async def semantic_search(
     request: SemanticSearchRequest,
-    storage: MemoryStorage = Depends(get_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
-    Perform semantic similarity search on memory content.
-    
+    Perform semantic similarity search on memory content with pagination.
+
     Uses vector embeddings to find memories with similar meaning to the query,
     even if they don't share exact keywords.
     """
     import time
     start_time = time.time()
-    
+
     try:
-        # Perform semantic search using the storage layer
-        query_results = await storage.retrieve(
+        # Perform semantic search using the memory service
+        result = await memory_service.retrieve_memories(
             query=request.query,
-            n_results=request.n_results
+            page=request.page,
+            page_size=request.page_size,
+            min_similarity=request.similarity_threshold
         )
-        
-        # Filter by similarity threshold if specified
-        if request.similarity_threshold is not None:
-            query_results = [
-                result for result in query_results
-                if result.relevance_score and result.relevance_score >= request.similarity_threshold
-            ]
-        
-        # Convert to search results
-        search_results = [
-            memory_query_result_to_search_result(result)
-            for result in query_results
-        ]
-        
+
+        # Convert memories to search results
+        search_results = []
+        for memory_dict in result.get("memories", []):
+            # Extract similarity score if present
+            similarity_score = memory_dict.pop("similarity_score", None)
+
+            # Convert to MemoryResponse format and create SearchResult
+            search_result = SearchResult(
+                memory=MemoryResponse(**memory_dict),
+                similarity_score=similarity_score,
+                relevance_reason=f"Semantic similarity: {similarity_score:.3f}" if similarity_score else None
+            )
+            search_results.append(search_result)
+
         processing_time = (time.time() - start_time) * 1000
-        
+
+        # Build pagination metadata
+        pagination = PaginationMetadata(
+            total=result.get("total", 0),
+            page=result.get("page", request.page),
+            page_size=result.get("page_size", request.page_size),
+            has_more=result.get("has_more", False),
+            total_pages=result.get("total_pages", 1)
+        )
+
         # Broadcast SSE event for search completion
         try:
             event = create_search_completed_event(
@@ -151,15 +184,15 @@ async def semantic_search(
             await sse_manager.broadcast_event(event)
         except Exception as e:
             logger.warning(f"Failed to broadcast search_completed event: {e}")
-        
+
         return SearchResponse(
             results=search_results,
-            total_found=len(search_results),
             query=request.query,
             search_type="semantic",
+            pagination=pagination,
             processing_time_ms=processing_time
         )
-        
+
     except Exception as e:
         logger.error(f"Semantic search failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Search operation failed. Please try again.")
@@ -168,47 +201,58 @@ async def semantic_search(
 @router.post("/search/by-tag", response_model=SearchResponse, tags=["search"])
 async def tag_search(
     request: TagSearchRequest,
-    storage: MemoryStorage = Depends(get_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
-    Search memories by tags.
-    
+    Search memories by tags with pagination.
+
     Finds memories that contain any of the specified tags (OR search) or
     all of the specified tags (AND search) based on the match_all parameter.
     """
     import time
     start_time = time.time()
-    
+
     try:
         if not request.tags:
             raise HTTPException(status_code=400, detail="At least one tag must be specified")
-        
-        # Use the storage layer's tag search
-        memories = await storage.search_by_tag(request.tags)
-        
-        # If match_all is True, filter to only memories that have ALL tags
-        if request.match_all and len(request.tags) > 1:
-            tag_set = set(request.tags)
-            memories = [
-                memory for memory in memories
-                if tag_set.issubset(set(memory.tags))
-            ]
-        
-        # Convert to search results
-        match_type = "ALL" if request.match_all else "ANY"
-        search_results = [
-            memory_to_search_result(
-                memory,
-                reason=f"Tags match ({match_type}): {', '.join(set(memory.tags) & set(request.tags))}"
+
+        # Use the memory service's tag search with pagination
+        result = await memory_service.search_by_tag(
+            tags=request.tags,
+            match_all=request.match_all,
+            page=request.page,
+            page_size=request.page_size
+        )
+
+        # Convert memories to search results
+        match_type = result.get("match_type", "ALL" if request.match_all else "ANY")
+        search_results = []
+        for memory_dict in result.get("memories", []):
+            # Get tags for this memory to show which ones matched
+            memory_tags = memory_dict.get("tags", [])
+            matched_tags = set(memory_tags) & set(request.tags)
+
+            search_result = SearchResult(
+                memory=MemoryResponse(**memory_dict),
+                similarity_score=None,
+                relevance_reason=f"Tags match ({match_type}): {', '.join(matched_tags)}" if matched_tags else None
             )
-            for memory in memories
-        ]
-        
+            search_results.append(search_result)
+
         processing_time = (time.time() - start_time) * 1000
-        
+
         query_string = f"Tags: {', '.join(request.tags)} ({match_type})"
-        
+
+        # Build pagination metadata
+        pagination = PaginationMetadata(
+            total=result.get("total", 0),
+            page=result.get("page", request.page),
+            page_size=result.get("page_size", request.page_size),
+            has_more=result.get("has_more", False),
+            total_pages=result.get("total_pages", 1)
+        )
+
         # Broadcast SSE event for search completion
         try:
             event = create_search_completed_event(
@@ -220,15 +264,15 @@ async def tag_search(
             await sse_manager.broadcast_event(event)
         except Exception as e:
             logger.warning(f"Failed to broadcast search_completed event: {e}")
-        
+
         return SearchResponse(
             results=search_results,
-            total_found=len(search_results),
             query=query_string,
             search_type="tag",
+            pagination=pagination,
             processing_time_ms=processing_time
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -242,69 +286,85 @@ async def time_search(
     user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
 ):
     """
-    Search memories by time-based queries.
-    
+    Search memories by time-based queries with pagination.
+
     Supports natural language time expressions like 'yesterday', 'last week',
     'this month', etc. Currently implements basic time filtering - full natural
     language parsing can be enhanced later.
     """
     import time
     start_time = time.time()
-    
+
     try:
         # Parse time query (basic implementation)
         time_filter = parse_time_query(request.query)
-        
+
         if not time_filter:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Could not parse time query: '{request.query}'. Try 'yesterday', 'last week', 'this month', etc."
             )
-        
-        # FIXED: Get memories by time range FIRST, then apply semantic ranking
-        # Use recall() with time range to get all memories from that period
+
+        # Get time range timestamps
         start_dt = time_filter.get('start')
         end_dt = time_filter.get('end')
         start_ts = start_dt.timestamp() if start_dt else None
         end_ts = end_dt.timestamp() if end_dt else None
 
-        # Retrieve memories within time range (with larger candidate pool if semantic query provided)
-        candidate_pool_size = _TIME_SEARCH_CANDIDATE_POOL_SIZE if request.semantic_query else request.n_results
-        query_results = await storage.recall(
-            query=request.semantic_query.strip() if request.semantic_query and request.semantic_query.strip() else None,
-            n_results=candidate_pool_size,
+        # Calculate offset for pagination
+        offset = (request.page - 1) * request.page_size
+
+        # Get total count for pagination metadata
+        total = await storage.count_time_range(
             start_timestamp=start_ts,
-            end_timestamp=end_ts
+            end_timestamp=end_ts,
+            tags=None,
+            memory_type=None
         )
 
-        # If semantic query was provided, results are already ranked by relevance
-        # Otherwise, sort by recency (newest first)
+        # Retrieve memories within time range with pagination
+        query_results = await storage.recall(
+            query=request.semantic_query.strip() if request.semantic_query and request.semantic_query.strip() else None,
+            n_results=request.page_size,
+            start_timestamp=start_ts,
+            end_timestamp=end_ts,
+            offset=offset
+        )
+
+        # If no semantic query was provided, sort by recency (newest first)
+        # Note: This is only for display ordering within the page
         if not (request.semantic_query and request.semantic_query.strip()):
             query_results.sort(key=lambda r: r.memory.created_at or 0.0, reverse=True)
 
-        # Limit results
-        filtered_memories = query_results[:request.n_results]
-        
         # Convert to search results
         search_results = [
             memory_query_result_to_search_result(result)
-            for result in filtered_memories
+            for result in query_results
         ]
-        
+
         # Update relevance reason for time-based results
         for result in search_results:
             result.relevance_reason = f"Time match: {request.query}"
-        
+
         processing_time = (time.time() - start_time) * 1000
-        
+
+        # Build pagination metadata
+        pagination = PaginationMetadata(
+            total=total,
+            page=request.page,
+            page_size=request.page_size,
+            has_more=(request.page * request.page_size) < total,
+            total_pages=(total + request.page_size - 1) // request.page_size if request.page_size > 0 else 1
+        )
+
         return SearchResponse(
             results=search_results,
-            total_found=len(search_results),
             query=request.query,
             search_type="time",
+            pagination=pagination,
             processing_time_ms=processing_time
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -320,51 +380,61 @@ async def find_similar(
 ):
     """
     Find memories similar to a specific memory identified by its content hash.
-    
+
     Uses the content of the specified memory as a search query to find
     semantically similar memories.
     """
     import time
     start_time = time.time()
-    
+
     try:
         # First, get the target memory by searching with its hash
         # This is inefficient but works with current storage interface
         target_results = await storage.retrieve(content_hash, n_results=1)
-        
+
         if not target_results or target_results[0].memory.content_hash != content_hash:
             raise HTTPException(status_code=404, detail="Memory not found")
-        
+
         target_memory = target_results[0].memory
-        
+
         # Use the target memory's content to find similar memories
         similar_results = await storage.retrieve(
             query=target_memory.content,
             n_results=n_results + 1  # +1 because the original will be included
         )
-        
+
         # Filter out the original memory
         filtered_results = [
             result for result in similar_results
             if result.memory.content_hash != content_hash
         ][:n_results]
-        
+
         # Convert to search results
         search_results = [
             memory_query_result_to_search_result(result)
             for result in filtered_results
         ]
-        
+
         processing_time = (time.time() - start_time) * 1000
-        
+
+        # Build pagination metadata (single page, no actual pagination for this endpoint)
+        total = len(search_results)
+        pagination = PaginationMetadata(
+            total=total,
+            page=1,
+            page_size=n_results,
+            has_more=False,
+            total_pages=1
+        )
+
         return SearchResponse(
             results=search_results,
-            total_found=len(search_results),
             query=f"Similar to: {target_memory.content[:50]}...",
             search_type="similar",
+            pagination=pagination,
             processing_time_ms=processing_time
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:

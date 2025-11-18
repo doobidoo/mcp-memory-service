@@ -290,42 +290,62 @@ async def test_store_memory_unexpected_error(memory_service, mock_storage):
 
 @pytest.mark.asyncio
 async def test_retrieve_memories_basic(memory_service, mock_storage, sample_memories):
-    """Test basic semantic search retrieval."""
+    """Test basic semantic search retrieval with pagination."""
+    mock_storage.count_semantic_search.return_value = 10  # Total count
     mock_storage.retrieve.return_value = sample_memories[:3]
 
-    result = await memory_service.retrieve_memories(query="test query", n_results=3)
+    result = await memory_service.retrieve_memories(query="test query", page=1, page_size=3)
 
     assert result["query"] == "test query"
-    assert result["count"] == 3
+    assert result["total"] == 10
+    assert result["page"] == 1
+    assert result["page_size"] == 3
+    assert result["has_more"] is True
     assert len(result["memories"]) == 3
 
+    mock_storage.count_semantic_search.assert_called_once_with(
+        query="test query",
+        tags=None,
+        memory_type=None,
+        min_similarity=None
+    )
     mock_storage.retrieve.assert_called_once_with(
         query="test query",
         n_results=3,
         tags=None,
         memory_type=None,
-        min_similarity=None
+        min_similarity=None,
+        offset=0
     )
 
 
 @pytest.mark.asyncio
 async def test_retrieve_memories_with_filters(memory_service, mock_storage, sample_memories):
-    """Test retrieval with tag and type filters."""
+    """Test retrieval with tag and type filters and pagination."""
+    mock_storage.count_semantic_search.return_value = 1
     mock_storage.retrieve.return_value = sample_memories[:1]
 
     result = await memory_service.retrieve_memories(
         query="test",
-        n_results=5,
+        page=1,
+        page_size=5,
         tags=["tag1"],
         memory_type="note"
     )
 
+    mock_storage.count_semantic_search.assert_called_once_with(
+        query="test",
+        tags=["tag1"],
+        memory_type="note",
+        min_similarity=None
+    )
     mock_storage.retrieve.assert_called_once_with(
         query="test",
         n_results=5,
         tags=["tag1"],
         memory_type="note",
-        min_similarity=None
+        min_similarity=None,
+        offset=0
     )
 
 
@@ -345,19 +365,29 @@ async def test_retrieve_memories_error_handling(memory_service, mock_storage):
 
 @pytest.mark.asyncio
 async def test_search_by_tag_single_tag(memory_service, mock_storage, sample_memories):
-    """Test searching by a single tag."""
+    """Test searching by a single tag with pagination."""
+    mock_storage.count_tag_search.return_value = 5
     mock_storage.search_by_tag.return_value = sample_memories[:2]
 
     result = await memory_service.search_by_tag(tags="test")
 
     assert result["tags"] == ["test"]
     assert result["match_type"] == "ANY"
-    assert result["count"] == 2
+    assert result["total"] == 5
+    assert result["page"] == 1
+    assert result["page_size"] == 10
 
+    mock_storage.count_tag_search.assert_called_once_with(
+        tags=["test"],
+        match_all=False,
+        start_timestamp=None,
+        end_timestamp=None
+    )
     mock_storage.search_by_tag.assert_called_once_with(
         tags=["test"],
         limit=10,
         offset=0,
+        match_all=False,
         start_timestamp=None,
         end_timestamp=None
     )
@@ -365,27 +395,40 @@ async def test_search_by_tag_single_tag(memory_service, mock_storage, sample_mem
 
 @pytest.mark.asyncio
 async def test_search_by_tag_multiple_tags(memory_service, mock_storage, sample_memories):
-    """Test searching by multiple tags."""
+    """Test searching by multiple tags with pagination."""
+    mock_storage.count_tag_search.return_value = 3
     mock_storage.search_by_tag.return_value = sample_memories
 
     result = await memory_service.search_by_tag(tags=["tag1", "tag2"])
 
     assert result["tags"] == ["tag1", "tag2"]
     assert result["match_type"] == "ANY"
+    assert result["total"] == 3
+
+    mock_storage.count_tag_search.assert_called_once()
+    mock_storage.search_by_tag.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_search_by_tag_match_all(memory_service, mock_storage, sample_memories):
-    """Test searching with match_all=True."""
+    """Test searching with match_all=True and pagination."""
+    mock_storage.count_tag_search.return_value = 1
     mock_storage.search_by_tag.return_value = sample_memories[:1]
 
     result = await memory_service.search_by_tag(tags=["tag1", "tag2"], match_all=True)
 
     assert result["match_type"] == "ALL"
+    mock_storage.count_tag_search.assert_called_once_with(
+        tags=["tag1", "tag2"],
+        match_all=True,
+        start_timestamp=None,
+        end_timestamp=None
+    )
     mock_storage.search_by_tag.assert_called_once_with(
         tags=["tag1", "tag2"],
         limit=10,
         offset=0,
+        match_all=True,
         start_timestamp=None,
         end_timestamp=None
     )
@@ -545,6 +588,7 @@ async def test_store_and_retrieve_workflow(memory_service, mock_storage, sample_
     """Test complete workflow: store then retrieve."""
     # Setup mocks
     mock_storage.store.return_value = (True, "Success")
+    mock_storage.count_semantic_search.return_value = 1
     mock_storage.retrieve.return_value = [sample_memory]
 
     # Store memory

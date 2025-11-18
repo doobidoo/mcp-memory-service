@@ -612,40 +612,70 @@ SOLUTIONS:
             logger.info(f"Using device: {device}")
 
             # Configure for offline mode if models are cached
-            # Only set offline mode if we detect cached models to prevent initial downloads
-            hf_home = os.environ.get('HF_HOME', os.path.expanduser("~/.cache/huggingface"))
-            model_cache_path = os.path.join(hf_home, "hub", f"models--sentence-transformers--{self.embedding_model_name.replace('/', '--')}")
-            if os.path.exists(model_cache_path):
-                os.environ['HF_HUB_OFFLINE'] = '1'
-                os.environ['TRANSFORMERS_OFFLINE'] = '1'
-                logger.info("📦 Found cached model - enabling offline mode")
+            # DO NOT set HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE environment variables
+            # as they prevent proper cache resolution. Use local_files_only parameter instead.
 
             # Try to load from cache first, fallback to direct model name
             try:
                 # First try loading from Hugging Face cache
                 hf_home = os.environ.get('HF_HOME', os.path.expanduser("~/.cache/huggingface"))
-                cache_path = os.path.join(hf_home, "hub", f"models--sentence-transformers--{self.embedding_model_name.replace('/', '--')}")
+                cache_path = os.path.join(hf_home, "hub", f"models--{self.embedding_model_name.replace('/', '--')}")
+                logger.info(f"Checking cache path: {cache_path}")
                 if os.path.exists(cache_path):
-                    # Find the snapshot directory
-                    snapshots_path = os.path.join(cache_path, "snapshots")
-                    if os.path.exists(snapshots_path):
-                        snapshot_dirs = [d for d in os.listdir(snapshots_path) if os.path.isdir(os.path.join(snapshots_path, d))]
-                        if snapshot_dirs:
-                            model_path = os.path.join(snapshots_path, snapshot_dirs[0])
-                            logger.info(f"Loading model from cache: {model_path}")
+                    logger.info(f"Cache path exists")
+                    # Read refs/main to get the correct snapshot hash
+                    refs_main_path = os.path.join(cache_path, "refs", "main")
+                    logger.info(f"Checking refs/main: {refs_main_path}")
+                    if os.path.exists(refs_main_path):
+                        with open(refs_main_path, 'r') as f:
+                            snapshot_hash = f.read().strip()
+                        model_path = os.path.join(cache_path, "snapshots", snapshot_hash)
+                        logger.info(f"Snapshot path: {model_path}, exists: {os.path.exists(model_path)}")
+                        if os.path.exists(model_path):
+                            logger.info(f"Loading model from cache (snapshot {snapshot_hash[:8]}...): {model_path}")
                             self.embedding_model = SentenceTransformer(model_path, device=device)
+                            logger.info("✅ Successfully loaded model from direct snapshot path!")
                         else:
-                            raise FileNotFoundError("No snapshot found")
+                            raise FileNotFoundError(f"Snapshot {snapshot_hash} not found at {model_path}")
                     else:
-                        raise FileNotFoundError("No snapshots directory")
+                        # Fallback to newest snapshot if refs/main doesn't exist
+                        snapshots_path = os.path.join(cache_path, "snapshots")
+                        if os.path.exists(snapshots_path):
+                            snapshot_dirs = sorted([d for d in os.listdir(snapshots_path) if os.path.isdir(os.path.join(snapshots_path, d))], reverse=True)
+                            if snapshot_dirs:
+                                model_path = os.path.join(snapshots_path, snapshot_dirs[0])
+                                logger.info(f"Loading model from cache (latest snapshot): {model_path}")
+                                self.embedding_model = SentenceTransformer(model_path, device=device)
+                                logger.info("✅ Successfully loaded model from latest snapshot!")
+                            else:
+                                raise FileNotFoundError("No snapshot found")
+                        else:
+                            raise FileNotFoundError("No snapshots directory")
                 else:
-                    raise FileNotFoundError("No cache found")
+                    raise FileNotFoundError(f"No cache found at {cache_path}")
             except FileNotFoundError as cache_error:
                 logger.warning(f"Model not in cache: {cache_error}")
                 # Try to download the model (may fail in Docker without network)
                 try:
                     logger.info("Attempting to download model from Hugging Face...")
-                    self.embedding_model = SentenceTransformer(self.embedding_model_name, device=device)
+                    # Try local files first, then fallback to download
+                    # Explicitly pass cache_dir to ensure proper lookup
+                    hf_cache = os.environ.get('HF_HOME', os.path.expanduser("~/.cache/huggingface"))
+                    try:
+                        self.embedding_model = SentenceTransformer(
+                            self.embedding_model_name,
+                            device=device,
+                            cache_folder=hf_cache,
+                            local_files_only=True
+                        )
+                        logger.info("✅ Loaded model from HuggingFace cache using model name")
+                    except Exception as local_error:
+                        logger.warning(f"Local files only failed: {local_error}, attempting download...")
+                        self.embedding_model = SentenceTransformer(
+                            self.embedding_model_name,
+                            device=device,
+                            cache_folder=hf_cache
+                        )
                 except OSError as download_error:
                     # Check if this is a network connectivity issue
                     error_msg = str(download_error)
@@ -695,9 +725,6 @@ SOLUTIONS:
 
             logger.info(f"✅ Embedding model loaded successfully. Dimension: {self.embedding_dimension}")
 
-        except RuntimeError:
-            # Re-raise our custom errors with helpful messages
-            raise
         except Exception as e:
             logger.error(f"Failed to initialize embedding model: {str(e)}")
             logger.error(traceback.format_exc())
@@ -878,9 +905,10 @@ SOLUTIONS:
         n_results: int = 5,
         tags: Optional[List[str]] = None,
         memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None
+        min_similarity: Optional[float] = None,
+        offset: int = 0
     ) -> List[MemoryQueryResult]:
-        """Retrieve memories using semantic search with optional filtering."""
+        """Retrieve memories using semantic search with optional filtering and pagination."""
         try:
             if not self.conn:
                 logger.error("Database not initialized")
@@ -940,11 +968,11 @@ SOLUTIONS:
                                 WHERE ''' + filter_clause + '''
                             )
                             ORDER BY e.distance
-                            LIMIT ?
+                            LIMIT ? OFFSET ?
                         ) e ON m.id = e.rowid
                         ORDER BY e.distance
                     '''
-                    params = [serialize_float32(query_embedding)] + filter_params + [n_results]
+                    params = [serialize_float32(query_embedding)] + filter_params + [n_results, offset]
                 else:
                     # No filtering - original query
                     query_sql = '''
@@ -957,11 +985,11 @@ SOLUTIONS:
                             FROM memory_embeddings
                             WHERE content_embedding MATCH ?
                             ORDER BY distance
-                            LIMIT ?
+                            LIMIT ? OFFSET ?
                         ) e ON m.id = e.rowid
                         ORDER BY e.distance
                     '''
-                    params = [serialize_float32(query_embedding), n_results]
+                    params = [serialize_float32(query_embedding), n_results, offset]
 
                 cursor = self.conn.execute(query_sql, params)
 
@@ -1033,85 +1061,21 @@ SOLUTIONS:
         tags: List[str],
         limit: int = 10,
         offset: int = 0,
+        match_all: bool = False,
         start_timestamp: Optional[float] = None,
         end_timestamp: Optional[float] = None
     ) -> List[Memory]:
         """Search memories by tags with pagination and optional date filtering."""
-        try:
-            if not self.conn:
-                logger.error("Database not initialized")
-                return []
-
-            if not tags:
-                return []
-
-            # Build query for tag search (OR logic) using relational JOIN
-            # This uses index on tags(name) for O(log n) performance
-            tag_placeholders = ",".join(["?" for _ in tags])
-
-            # Build date filter clauses
-            date_clauses = []
-            params = list(tags)
-
-            if start_timestamp is not None:
-                date_clauses.append("m.created_at >= ?")
-                params.append(start_timestamp)
-
-            if end_timestamp is not None:
-                date_clauses.append("m.created_at <= ?")
-                params.append(end_timestamp)
-
-            # Combine WHERE clauses
-            where_clause = f"t.name IN ({tag_placeholders})"
-            if date_clauses:
-                where_clause += " AND " + " AND ".join(date_clauses)
-
-            cursor = self.conn.execute(f'''
-                SELECT DISTINCT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
-                       m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso
-                FROM memories m
-                JOIN memory_tags mt ON m.id = mt.memory_id
-                JOIN tags t ON mt.tag_id = t.id
-                WHERE {where_clause}
-                ORDER BY m.created_at DESC
-                LIMIT ? OFFSET ?
-            ''', params + [limit, offset])
-            
-            results = []
-            for row in cursor.fetchall():
-                try:
-                    content_hash, content, tags_str, memory_type, metadata_str = row[:5]
-                    created_at, updated_at, created_at_iso, updated_at_iso = row[5:]
-                    
-                    # Parse tags and metadata
-                    memory_tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()] if tags_str else []
-                    metadata = self._safe_json_loads(metadata_str, "memory_metadata")
-                    
-                    memory = Memory(
-                        content=content,
-                        content_hash=content_hash,
-                        tags=memory_tags,
-                        memory_type=memory_type,
-                        metadata=metadata,
-                        created_at=created_at,
-                        updated_at=updated_at,
-                        created_at_iso=created_at_iso,
-                        updated_at_iso=updated_at_iso
-                    )
-                    
-                    results.append(memory)
-                    
-                except Exception as parse_error:
-                    logger.warning(f"Failed to parse memory result: {parse_error}")
-                    continue
-            
-            logger.info(f"Found {len(results)} memories with tags: {tags}")
-            return results
-            
-        except Exception as e:
-            logger.error(f"Failed to search by tags: {str(e)}")
-            logger.error(traceback.format_exc())
-            return []
+        # Delegate to search_by_tags with appropriate operation
+        operation = "AND" if match_all else "OR"
+        return await self.search_by_tags(
+            tags=tags,
+            operation=operation,
+            limit=limit,
+            offset=offset,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp
+        )
     
     async def search_by_tags(
         self,
@@ -1738,16 +1702,17 @@ SOLUTIONS:
         # Return JSON string representation of the array
         return json.dumps(tags)
     
-    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None) -> List[MemoryQueryResult]:
+    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None, offset: int = 0) -> List[MemoryQueryResult]:
         """
         Retrieve memories with combined time filtering and optional semantic search.
-        
+
         Args:
             query: Optional semantic search query. If None, only time filtering is applied.
             n_results: Maximum number of results to return.
             start_timestamp: Optional start time for filtering.
             end_timestamp: Optional end time for filtering.
-            
+            offset: Number of results to skip for pagination (default: 0).
+
         Returns:
             List of MemoryQueryResult objects.
         """
@@ -1780,27 +1745,31 @@ SOLUTIONS:
                     query_embedding = self._generate_embedding(query)
                     
                     # Build SQL query with time filtering
+                    # Note: We need to get more results from the subquery to account for offset+limit
+                    # since we can't apply OFFSET in the subquery without knowing time filter results
+                    candidate_pool = n_results + offset
+
                     base_query = '''
                         SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
-                               m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso, 
+                               m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
                                e.distance
                         FROM memories m
                         JOIN (
-                            SELECT rowid, distance 
-                            FROM memory_embeddings 
+                            SELECT rowid, distance
+                            FROM memory_embeddings
                             WHERE content_embedding MATCH ?
                             ORDER BY distance
                             LIMIT ?
                         ) e ON m.id = e.rowid
                     '''
-                    
+
                     if time_where:
                         base_query += f" WHERE {time_where}"
-                    
-                    base_query += " ORDER BY e.distance"
-                    
-                    # Prepare parameters: embedding, limit, then time filter params
-                    query_params = [serialize_float32(query_embedding), n_results] + params
+
+                    base_query += " ORDER BY e.distance LIMIT ? OFFSET ?"
+
+                    # Prepare parameters: embedding, candidate_pool, then time filter params, then limit and offset
+                    query_params = [serialize_float32(query_embedding), candidate_pool] + params + [n_results, offset]
                     
                     cursor = self.conn.execute(base_query, query_params)
                     
@@ -1855,14 +1824,15 @@ SOLUTIONS:
                        created_at, updated_at, created_at_iso, updated_at_iso
                 FROM memories
             '''
-            
+
             if time_where:
                 base_query += f" WHERE {time_where}"
-            
-            base_query += " ORDER BY created_at DESC LIMIT ?"
-            
-            # Add limit parameter
+
+            base_query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+
+            # Add limit and offset parameters
             params.append(n_results)
+            params.append(offset)
             
             cursor = self.conn.execute(base_query, params)
             
@@ -2274,6 +2244,158 @@ SOLUTIONS:
 
         except Exception as e:
             logger.error(f"Error counting memories: {str(e)}")
+            return 0
+
+    async def count_semantic_search(
+        self,
+        query: str,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None,
+        min_similarity: Optional[float] = None
+    ) -> int:
+        """
+        Count memories matching semantic search criteria.
+
+        Note: This performs the full semantic search and counts results.
+        This is expensive but accurate (as per user requirement for count after semantic filtering).
+        """
+        try:
+            # Perform full semantic search to get accurate count
+            results = await self.retrieve(
+                query=query,
+                n_results=10000,  # High limit to get all matching results
+                tags=tags,
+                memory_type=memory_type,
+                min_similarity=min_similarity,
+                offset=0
+            )
+            return len(results)
+        except Exception as e:
+            logger.error(f"Error counting semantic search results: {str(e)}")
+            return 0
+
+    async def count_tag_search(
+        self,
+        tags: List[str],
+        match_all: bool = False,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None
+    ) -> int:
+        """Count memories matching tag search with optional date filtering."""
+        try:
+            await self.initialize()
+
+            if not tags:
+                return 0
+
+            # Build query based on operation using relational JOIN
+            tag_placeholders = ",".join(["?" for _ in tags])
+
+            # Build date filter clauses
+            date_clauses = []
+            if start_timestamp is not None:
+                date_clauses.append("m.created_at >= ?")
+            if end_timestamp is not None:
+                date_clauses.append("m.created_at <= ?")
+
+            if match_all:
+                # All tags must be present - use GROUP BY with HAVING COUNT
+                where_clause = f"t.name IN ({tag_placeholders})"
+                if date_clauses:
+                    where_clause += " AND " + " AND ".join(date_clauses)
+
+                params = list(tags)
+                if start_timestamp is not None:
+                    params.append(start_timestamp)
+                if end_timestamp is not None:
+                    params.append(end_timestamp)
+                params.append(len(tags))
+
+                cursor = self.conn.execute(f'''
+                    SELECT COUNT(DISTINCT m.id)
+                    FROM memories m
+                    JOIN memory_tags mt ON m.id = mt.memory_id
+                    JOIN tags t ON mt.tag_id = t.id
+                    WHERE {where_clause}
+                    GROUP BY m.id
+                    HAVING COUNT(DISTINCT t.name) = ?
+                ''', params)
+
+                # COUNT the grouped results
+                result = len(cursor.fetchall())
+                return result
+            else:
+                # OR operation - any tag matches
+                where_clause = f"t.name IN ({tag_placeholders})"
+                if date_clauses:
+                    where_clause += " AND " + " AND ".join(date_clauses)
+
+                params = list(tags)
+                if start_timestamp is not None:
+                    params.append(start_timestamp)
+                if end_timestamp is not None:
+                    params.append(end_timestamp)
+
+                cursor = self.conn.execute(f'''
+                    SELECT COUNT(DISTINCT m.id)
+                    FROM memories m
+                    JOIN memory_tags mt ON m.id = mt.memory_id
+                    JOIN tags t ON mt.tag_id = t.id
+                    WHERE {where_clause}
+                ''', params)
+
+                result = cursor.fetchone()
+                return result[0] if result else 0
+
+        except Exception as e:
+            logger.error(f"Error counting tag search results: {str(e)}")
+            return 0
+
+    async def count_time_range(
+        self,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None
+    ) -> int:
+        """Count memories within time range with optional filters."""
+        try:
+            await self.initialize()
+
+            # Build conditions
+            conditions = []
+            params = []
+
+            if start_timestamp is not None:
+                conditions.append('created_at >= ?')
+                params.append(start_timestamp)
+
+            if end_timestamp is not None:
+                conditions.append('created_at <= ?')
+                params.append(end_timestamp)
+
+            if memory_type is not None:
+                conditions.append('memory_type = ?')
+                params.append(memory_type)
+
+            if tags:
+                # Match ANY tag (OR logic)
+                tag_placeholders = ",".join(["?" for _ in tags])
+                conditions.append(f'id IN (SELECT memory_id FROM memory_tags mt JOIN tags t ON mt.tag_id = t.id WHERE t.name IN ({tag_placeholders}))')
+                params.extend(tags)
+
+            # Build final query
+            if conditions:
+                query = 'SELECT COUNT(*) FROM memories WHERE ' + ' AND '.join(conditions)
+                cursor = self.conn.execute(query, tuple(params))
+            else:
+                cursor = self.conn.execute('SELECT COUNT(*) FROM memories')
+
+            result = cursor.fetchone()
+            return result[0] if result else 0
+
+        except Exception as e:
+            logger.error(f"Error counting time range results: {str(e)}")
             return 0
 
     async def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:

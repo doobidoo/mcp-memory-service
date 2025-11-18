@@ -16,6 +16,7 @@
 Memory CRUD endpoints for the HTTP interface.
 """
 
+import asyncio
 import logging
 import socket
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
@@ -175,10 +176,10 @@ async def store_memory(
             client_hostname=client_hostname
         )
 
-        # Add background task to process the queue
-        background_tasks.add_task(write_queue.process_queue)
+        # Trigger queue processor immediately (not as post-response background task)
+        asyncio.create_task(write_queue.process_queue())
 
-        # Wait for the result (queue processes immediately in background)
+        # Wait for the result (queue processes concurrently)
         result = await result_future
 
         if result["success"]:

@@ -451,17 +451,20 @@ class CloudflareStorage(MemoryStorage):
         n_results: int = 5,
         tags: Optional[List[str]] = None,
         memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None
+        min_similarity: Optional[float] = None,
+        offset: int = 0
     ) -> List[MemoryQueryResult]:
-        """Retrieve memories by semantic search with optional filtering."""
+        """Retrieve memories by semantic search with optional filtering and pagination."""
         try:
             # Generate query embedding
             query_embedding = await self._generate_embedding(query)
 
             # Build search payload
+            # Note: Cloudflare Vectorize doesn't support offset natively in the API
+            # We'll fetch n_results + offset and slice the results
             search_payload = {
                 "vector": query_embedding,
-                "topK": n_results,
+                "topK": n_results + offset,
                 "returnMetadata": "all",
                 "returnValues": False
             }
@@ -484,6 +487,10 @@ class CloudflareStorage(MemoryStorage):
                 raise ValueError(f"Vectorize query failed: {result}")
 
             matches = result.get("result", {}).get("matches", [])
+
+            # Apply offset by slicing results
+            if offset > 0:
+                matches = matches[offset:]
 
             # Convert to MemoryQueryResult objects
             results = []
@@ -585,6 +592,7 @@ class CloudflareStorage(MemoryStorage):
         tags: List[str],
         limit: int = 10,
         offset: int = 0,
+        match_all: bool = False,
         start_timestamp: Optional[float] = None,
         end_timestamp: Optional[float] = None
     ) -> List[Memory]:
@@ -593,7 +601,7 @@ class CloudflareStorage(MemoryStorage):
             if not tags:
                 return []
 
-            # Build SQL query for tag search with pagination and date filtering
+            # Build SQL query for tag search with pagination, match_all, and date filtering
             placeholders = ",".join(["?"] * len(tags))
 
             # Build date filter clauses
@@ -608,21 +616,47 @@ class CloudflareStorage(MemoryStorage):
                 date_clauses.append("m.created_at <= ?")
                 params.append(end_timestamp)
 
-            # Combine WHERE clauses
-            where_clause = f"t.name IN ({placeholders})"
-            if date_clauses:
-                where_clause += " AND " + " AND ".join(date_clauses)
+            # Build SQL based on match_all logic
+            if match_all:
+                # AND logic - memory must have ALL tags
+                # Use GROUP BY with HAVING COUNT to ensure all tags are present
+                where_clause = f"t.name IN ({placeholders})"
+                if date_clauses:
+                    where_clause += " AND " + " AND ".join(date_clauses)
 
-            sql = f"""
-            SELECT DISTINCT m.* FROM memories m
-            JOIN memory_tags mt ON m.id = mt.memory_id
-            JOIN tags t ON mt.tag_id = t.id
-            WHERE {where_clause}
-            ORDER BY m.created_at DESC
-            LIMIT ? OFFSET ?
-            """
+                params.append(len(tags))  # For HAVING clause
+                params.append(limit)
+                params.append(offset)
 
-            payload = {"sql": sql, "params": params + [limit, offset]}
+                sql = f"""
+                SELECT DISTINCT m.* FROM memories m
+                JOIN memory_tags mt ON m.id = mt.memory_id
+                JOIN tags t ON mt.tag_id = t.id
+                WHERE {where_clause}
+                GROUP BY m.id
+                HAVING COUNT(DISTINCT t.name) = ?
+                ORDER BY m.created_at DESC
+                LIMIT ? OFFSET ?
+                """
+            else:
+                # OR logic - memory must have ANY tag
+                where_clause = f"t.name IN ({placeholders})"
+                if date_clauses:
+                    where_clause += " AND " + " AND ".join(date_clauses)
+
+                params.append(limit)
+                params.append(offset)
+
+                sql = f"""
+                SELECT DISTINCT m.* FROM memories m
+                JOIN memory_tags mt ON m.id = mt.memory_id
+                JOIN tags t ON mt.tag_id = t.id
+                WHERE {where_clause}
+                ORDER BY m.created_at DESC
+                LIMIT ? OFFSET ?
+                """
+
+            payload = {"sql": sql, "params": params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
             
@@ -1073,7 +1107,7 @@ class CloudflareStorage(MemoryStorage):
         # Return JSON string representation of the array
         return json.dumps(tags)
     
-    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None) -> List[MemoryQueryResult]:
+    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None, offset: int = 0) -> List[MemoryQueryResult]:
         """
         Retrieve memories with combined time filtering and optional semantic search.
 
@@ -1082,6 +1116,7 @@ class CloudflareStorage(MemoryStorage):
             n_results: Maximum number of results to return.
             start_timestamp: Optional start time for filtering.
             end_timestamp: Optional end time for filtering.
+            offset: Number of results to skip for pagination (default: 0).
 
         Returns:
             List of MemoryQueryResult objects.
@@ -1113,9 +1148,10 @@ class CloudflareStorage(MemoryStorage):
                     query_embedding = await self._generate_embedding(query)
 
                     # Search Vectorize with semantic query
+                    # Note: Vectorize doesn't support offset, so we get offset+n_results and slice client-side
                     search_payload = {
                         "vector": query_embedding,
-                        "topK": n_results,
+                        "topK": n_results + offset,
                         "returnMetadata": "all",
                         "returnValues": False
                     }
@@ -1152,7 +1188,8 @@ class CloudflareStorage(MemoryStorage):
                             results.append(query_result)
 
                     logger.info(f"Recall - Retrieved {len(results)} memories with semantic search and time filtering")
-                    return results[:n_results]  # Ensure we don't exceed n_results
+                    # Apply offset and limit client-side (Vectorize doesn't support offset)
+                    return results[offset:offset + n_results]
 
                 except Exception as e:
                     logger.error(f"Recall - Semantic search failed, falling back to time-based search: {e}")
@@ -1161,14 +1198,15 @@ class CloudflareStorage(MemoryStorage):
             # Time-based search only (or fallback)
             logger.info(f"Recall - Using time-based search only")
 
-            # Build D1 query for time-based retrieval
+            # Build D1 query for time-based retrieval with pagination
             if time_where:
-                sql = f"SELECT * FROM memories WHERE {time_where} ORDER BY created_at DESC LIMIT ?"
+                sql = f"SELECT * FROM memories WHERE {time_where} ORDER BY created_at DESC LIMIT ? OFFSET ?"
                 params.append(n_results)
+                params.append(offset)
             else:
                 # No time filters, get most recent
-                sql = "SELECT * FROM memories ORDER BY created_at DESC LIMIT ?"
-                params = [n_results]
+                sql = "SELECT * FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?"
+                params = [n_results, offset]
 
             payload = {"sql": sql, "params": params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
@@ -1439,6 +1477,202 @@ class CloudflareStorage(MemoryStorage):
 
         except Exception as e:
             logger.error(f"Error counting memories: {str(e)}")
+            return 0
+
+    async def count_semantic_search(
+        self,
+        query: str,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None,
+        min_similarity: Optional[float] = None
+    ) -> int:
+        """
+        Count memories matching semantic search criteria.
+
+        Note: This performs the full semantic search and counts results.
+        This is expensive but accurate (as per user requirement for count after semantic filtering).
+
+        Args:
+            query: Search query text
+            tags: Optional list of tags to filter by (matches ANY tag)
+            memory_type: Optional memory type filter
+            min_similarity: Optional minimum similarity threshold
+
+        Returns:
+            Total number of memories matching the criteria
+        """
+        try:
+            # Perform full semantic search to get accurate count
+            results = await self.retrieve(
+                query=query,
+                n_results=10000,  # High limit to get all matching results
+                tags=tags,
+                memory_type=memory_type,
+                min_similarity=min_similarity,
+                offset=0
+            )
+            return len(results)
+        except Exception as e:
+            logger.error(f"Error counting semantic search results: {str(e)}")
+            return 0
+
+    async def count_tag_search(
+        self,
+        tags: List[str],
+        match_all: bool = False,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None
+    ) -> int:
+        """
+        Count memories matching tag search with optional date filtering.
+
+        Args:
+            tags: List of tags to search for
+            match_all: If True, memory must have ALL tags; if False, ANY tag (default)
+            start_timestamp: Filter memories from this timestamp (inclusive)
+            end_timestamp: Filter memories until this timestamp (inclusive)
+
+        Returns:
+            Total number of memories matching the criteria
+        """
+        try:
+            if not tags:
+                return 0
+
+            # Build SQL COUNT query matching search_by_tag logic
+            placeholders = ",".join(["?"] * len(tags))
+
+            # Build date filter clauses
+            date_clauses = []
+            params = list(tags)
+
+            if start_timestamp is not None:
+                date_clauses.append("m.created_at >= ?")
+                params.append(start_timestamp)
+
+            if end_timestamp is not None:
+                date_clauses.append("m.created_at <= ?")
+                params.append(end_timestamp)
+
+            # Build SQL based on match_all logic
+            if match_all:
+                # AND logic - memory must have ALL tags
+                where_clause = f"t.name IN ({placeholders})"
+                if date_clauses:
+                    where_clause += " AND " + " AND ".join(date_clauses)
+
+                params.append(len(tags))  # For HAVING clause
+
+                sql = f"""
+                SELECT COUNT(DISTINCT m.id) as count
+                FROM memories m
+                JOIN memory_tags mt ON m.id = mt.memory_id
+                JOIN tags t ON mt.tag_id = t.id
+                WHERE {where_clause}
+                GROUP BY m.id
+                HAVING COUNT(DISTINCT t.name) = ?
+                """
+            else:
+                # OR logic - memory must have ANY tag
+                where_clause = f"t.name IN ({placeholders})"
+                if date_clauses:
+                    where_clause += " AND " + " AND ".join(date_clauses)
+
+                sql = f"""
+                SELECT COUNT(DISTINCT m.id) as count
+                FROM memories m
+                JOIN memory_tags mt ON m.id = mt.memory_id
+                JOIN tags t ON mt.tag_id = t.id
+                WHERE {where_clause}
+                """
+
+            payload = {"sql": sql, "params": params}
+            response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+            result = response.json()
+
+            if not result.get("success"):
+                raise ValueError(f"D1 count query failed: {result}")
+
+            if result.get("result", [{}])[0].get("results"):
+                # For match_all with GROUP BY, we need to count the number of rows returned
+                if match_all:
+                    return len(result["result"][0]["results"])
+                else:
+                    # For match_any, we have a simple COUNT
+                    count = result["result"][0]["results"][0].get("count", 0)
+                    return int(count)
+
+            return 0
+
+        except Exception as e:
+            logger.error(f"Error counting tag search results: {str(e)}")
+            return 0
+
+    async def count_time_range(
+        self,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None
+    ) -> int:
+        """
+        Count memories within time range with optional filters.
+
+        Args:
+            start_timestamp: Filter from this time (inclusive)
+            end_timestamp: Filter until this time (inclusive)
+            tags: Optional tag filter (ANY match)
+            memory_type: Optional type filter
+
+        Returns:
+            Total number of memories matching the criteria
+        """
+        try:
+            # Build SQL COUNT query with filters
+            conditions = []
+            params = []
+
+            if start_timestamp is not None:
+                conditions.append('created_at >= ?')
+                params.append(start_timestamp)
+
+            if end_timestamp is not None:
+                conditions.append('created_at <= ?')
+                params.append(end_timestamp)
+
+            if memory_type is not None:
+                conditions.append('memory_type = ?')
+                params.append(memory_type)
+
+            if tags:
+                # Match ANY tag - use subquery
+                tag_placeholders = ",".join(["?"] * len(tags))
+                conditions.append(
+                    f'id IN (SELECT memory_id FROM memory_tags mt JOIN tags t ON mt.tag_id = t.id WHERE t.name IN ({tag_placeholders}))'
+                )
+                params.extend(tags)
+
+            # Build final query
+            if conditions:
+                sql = 'SELECT COUNT(*) as count FROM memories WHERE ' + ' AND '.join(conditions)
+            else:
+                sql = 'SELECT COUNT(*) as count FROM memories'
+
+            payload = {"sql": sql, "params": params}
+            response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+            result = response.json()
+
+            if not result.get("success"):
+                raise ValueError(f"D1 count query failed: {result}")
+
+            if result.get("result", [{}])[0].get("results"):
+                count = result["result"][0]["results"][0].get("count", 0)
+                return int(count)
+
+            return 0
+
+        except Exception as e:
+            logger.error(f"Error counting time range results: {str(e)}")
             return 0
 
     async def close(self) -> None:
