@@ -59,6 +59,7 @@ class SyncForceResponse(BaseModel):
     success: bool
     message: str
     operations_synced: int
+    memories_pulled: int
     time_taken_seconds: float
     timestamp: str
 
@@ -140,10 +141,13 @@ async def force_sync(
     user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
 ):
     """
-    Manually trigger immediate sync to Cloudflare.
+    Manually trigger immediate bi-directional sync with Cloudflare.
 
-    Forces all pending operations to sync immediately instead of waiting
-    for the next scheduled sync interval.
+    Performs BOTH directions:
+    1. PULL: Download new memories FROM Cloudflare TO local SQLite
+    2. PUSH: Upload pending operations FROM local TO Cloudflare
+
+    This ensures complete synchronization between both backends.
     Only available when using hybrid storage backend.
     """
     # Check if storage supports force sync (hybrid mode only)
@@ -157,15 +161,42 @@ async def force_sync(
         import time
         start_time = time.time()
 
-        # Trigger force sync
-        sync_result = await storage.force_sync()
+        # Step 1: Pull FROM Cloudflare TO local (if method exists)
+        memories_pulled = 0
+        pull_message = ""
+        pull_result = None
+        if hasattr(storage, 'force_pull_sync'):
+            pull_result = await storage.force_pull_sync()
+            memories_pulled = pull_result.get('memories_pulled', 0)
+            pull_message = pull_result.get('message', '')
+
+        # Step 2: Push FROM local TO Cloudflare (existing behavior)
+        push_result = await storage.force_sync()
+        operations_synced = push_result.get('operations_synced', 0)
+        push_message = push_result.get('message', 'Sync completed')
+
+        # Check success flags from both operations
+        pull_success = pull_result.get('success', True) if pull_result else True
+        push_success = push_result.get('success', False)
+        overall_success = pull_success and push_success
 
         time_taken = time.time() - start_time
 
+        # Combine messages
+        if memories_pulled > 0 and operations_synced > 0:
+            combined_message = f"Pulled {memories_pulled} from Cloudflare, pushed {operations_synced} to Cloudflare"
+        elif memories_pulled > 0:
+            combined_message = f"Pulled {memories_pulled} from Cloudflare"
+        elif operations_synced > 0:
+            combined_message = f"Pushed {operations_synced} to Cloudflare"
+        else:
+            combined_message = "No changes to sync (already synchronized)"
+
         return SyncForceResponse(
-            success=sync_result.get('success', False),
-            message=sync_result.get('message', 'Sync completed'),
-            operations_synced=sync_result.get('operations_synced', 0),
+            success=overall_success,
+            message=combined_message,
+            operations_synced=operations_synced,
+            memories_pulled=memories_pulled,
             time_taken_seconds=round(time_taken, 3),
             timestamp=datetime.now(timezone.utc).isoformat()
         )

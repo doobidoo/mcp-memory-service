@@ -324,3 +324,44 @@ def create_health_update_event(status: str, details: Dict[str, Any] = None) -> S
             "message": f"System status: {status}"
         }
     )
+
+
+def create_sync_progress_event(
+    synced_count: int,
+    total_count: int,
+    sync_type: str = "initial",
+    message: str = None
+) -> SSEEvent:
+    """Create a sync_progress event for real-time sync updates."""
+    progress_percentage = (synced_count / total_count * 100) if total_count > 0 else 0
+
+    return SSEEvent(
+        event_type="sync_progress",
+        data={
+            "sync_type": sync_type,
+            "synced_count": synced_count,
+            "total_count": total_count,
+            "remaining_count": total_count - synced_count,
+            "progress_percentage": round(progress_percentage, 1),
+            "message": message or f"Syncing: {synced_count}/{total_count} memories ({progress_percentage:.1f}%)"
+        }
+    )
+
+
+def create_sync_completed_event(
+    synced_count: int,
+    total_count: int,
+    time_taken_seconds: float,
+    sync_type: str = "initial"
+) -> SSEEvent:
+    """Create a sync_completed event."""
+    return SSEEvent(
+        event_type="sync_completed",
+        data={
+            "sync_type": sync_type,
+            "synced_count": synced_count,
+            "total_count": total_count,
+            "time_taken_seconds": round(time_taken_seconds, 2),
+            "message": f"Sync completed: {synced_count} memories synced in {time_taken_seconds:.1f}s"
+        }
+    )

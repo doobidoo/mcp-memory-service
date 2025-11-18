@@ -34,6 +34,13 @@ from .sqlite_vec import SqliteVecMemoryStorage
 from .cloudflare import CloudflareStorage
 from ..models.memory import Memory, MemoryQueryResult
 
+# Import SSE for real-time progress updates
+try:
+    from ..web.sse import sse_manager, create_sync_progress_event, create_sync_completed_event
+    SSE_AVAILABLE = True
+except ImportError:
+    SSE_AVAILABLE = False
+
 # Import config to check if limit constants are available
 from .. import config as app_config
 
@@ -786,6 +793,239 @@ class HybridMemoryStorage(MemoryStorage):
         logger.info("Starting initial sync in background (server is now accessible)")
         await self._perform_initial_sync()
 
+    async def _sync_memories_from_cloudflare(
+        self,
+        sync_type: str = "initial",
+        broadcast_sse: bool = True,
+        enable_drift_check: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Shared logic for syncing memories FROM Cloudflare TO local storage.
+
+        Args:
+            sync_type: Type of sync ("initial" or "manual") for logging/SSE events
+            broadcast_sse: Whether to broadcast SSE progress events
+            enable_drift_check: Whether to check for metadata drift (only for initial sync)
+
+        Returns:
+            Dict with:
+            - success: bool
+            - memories_synced: int
+            - total_checked: int
+            - message: str
+            - time_taken_seconds: float
+        """
+        import time
+        sync_start_time = time.time()
+
+        try:
+            # Get memory count from both storages to compare
+            primary_stats = await self.primary.get_stats()
+            secondary_stats = await self.secondary.get_stats()
+
+            primary_count = primary_stats.get('total_memories', 0)
+            secondary_count = secondary_stats.get('total_memories', 0)
+
+            logger.info(f"{sync_type.capitalize()} sync: Local={primary_count}, Cloudflare={secondary_count}")
+
+            if secondary_count <= primary_count:
+                logger.info(f"No new memories to sync from Cloudflare ({sync_type} sync)")
+                return {
+                    'success': True,
+                    'memories_synced': 0,
+                    'total_checked': 0,
+                    'message': 'No new memories to pull from Cloudflare',
+                    'time_taken_seconds': round(time.time() - sync_start_time, 3)
+                }
+
+            # Pull missing memories from Cloudflare using optimized batch processing
+            missing_count = secondary_count - primary_count
+            synced_count = 0
+            batch_size = min(500, self.batch_size * 5)  # 5x larger batches for sync
+            cursor = None
+            processed_count = 0
+            consecutive_empty_batches = 0
+
+            # Get all local hashes once for O(1) lookup
+            local_hashes = await self.primary.get_all_content_hashes()
+            logger.info(f"Pulling {missing_count} potential memories from Cloudflare...")
+
+            while True:
+                try:
+                    # Get batch from Cloudflare using cursor-based pagination
+                    logger.debug(f"Fetching batch: cursor={cursor}, batch_size={batch_size}")
+
+                    if hasattr(self.secondary, 'get_all_memories_cursor'):
+                        cloudflare_memories = await self.secondary.get_all_memories_cursor(
+                            limit=batch_size,
+                            cursor=cursor
+                        )
+                    else:
+                        cloudflare_memories = await self.secondary.get_all_memories(
+                            limit=batch_size,
+                            offset=processed_count
+                        )
+
+                    if not cloudflare_memories:
+                        logger.debug(f"No more memories from Cloudflare at cursor {cursor}")
+                        break
+
+                    logger.debug(f"Processing batch of {len(cloudflare_memories)} memories")
+                    batch_checked = 0
+                    batch_missing = 0
+                    batch_synced = 0
+
+                    # Parallel processing with concurrency limit
+                    semaphore = asyncio.Semaphore(15)
+
+                    async def sync_single_memory(cf_memory):
+                        """Process a single memory with concurrency control."""
+                        nonlocal batch_checked, batch_missing, batch_synced, synced_count, processed_count
+
+                        async with semaphore:
+                            batch_checked += 1
+                            processed_count += 1
+                            try:
+                                # Fast O(1) existence check
+                                if cf_memory.content_hash not in local_hashes:
+                                    batch_missing += 1
+                                    # Memory doesn't exist locally, sync it
+                                    success, message = await self.primary.store(cf_memory)
+                                    if success:
+                                        batch_synced += 1
+                                        synced_count += 1
+                                        local_hashes.add(cf_memory.content_hash)  # Update cache
+
+                                        if sync_type == "initial":
+                                            self.initial_sync_completed = synced_count
+
+                                        if synced_count % 10 == 0:
+                                            logger.info(f"{sync_type.capitalize()} sync progress: {synced_count}/{missing_count} memories synced")
+
+                                            # Broadcast SSE progress event
+                                            if broadcast_sse and SSE_AVAILABLE:
+                                                try:
+                                                    progress_event = create_sync_progress_event(
+                                                        synced_count=synced_count,
+                                                        total_count=missing_count,
+                                                        sync_type=sync_type
+                                                    )
+                                                    await sse_manager.broadcast_event(progress_event)
+                                                except Exception as e:
+                                                    logger.debug(f"Failed to broadcast SSE progress: {e}")
+
+                                        return ('synced', cf_memory.content_hash)
+                                    else:
+                                        logger.warning(f"Failed to sync memory {cf_memory.content_hash}: {message}")
+                                        return ('failed', cf_memory.content_hash, message)
+                                elif enable_drift_check and self.sync_service and self.sync_service.drift_check_enabled:
+                                    # Memory exists - check for metadata drift
+                                    existing = await self.primary.get_by_hash(cf_memory.content_hash)
+                                    if existing:
+                                        cf_updated = cf_memory.updated_at or 0
+                                        local_updated = existing.updated_at or 0
+
+                                        # If Cloudflare version is newer, sync metadata
+                                        if cf_updated > local_updated + 1.0:
+                                            logger.debug(f"Metadata drift detected: {cf_memory.content_hash[:8]}")
+                                            success, _ = await self.primary.update_memory_metadata(
+                                                cf_memory.content_hash,
+                                                {
+                                                    'tags': cf_memory.tags,
+                                                    'memory_type': cf_memory.memory_type,
+                                                    'metadata': cf_memory.metadata,
+                                                },
+                                                preserve_timestamps=False
+                                            )
+                                            if success:
+                                                batch_synced += 1
+                                                synced_count += 1
+                                                logger.debug(f"Synced metadata for: {cf_memory.content_hash[:8]}")
+                                                return ('drift_synced', cf_memory.content_hash)
+                                return ('skipped', cf_memory.content_hash)
+                            except Exception as e:
+                                logger.warning(f"Error syncing memory {cf_memory.content_hash}: {e}")
+                                return ('error', cf_memory.content_hash, str(e))
+
+                    # Process batch in parallel
+                    tasks = [sync_single_memory(mem) for mem in cloudflare_memories]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    for result in results:
+                        if isinstance(result, Exception):
+                            logger.error(f"Error during {sync_type} sync batch processing: {result}")
+
+                    logger.debug(f"Batch complete: checked={batch_checked}, missing={batch_missing}, synced={batch_synced}")
+
+                    # Track consecutive empty batches
+                    if batch_synced == 0:
+                        consecutive_empty_batches += 1
+                        logger.debug(f"Empty batch: consecutive={consecutive_empty_batches}/{HYBRID_MAX_EMPTY_BATCHES}")
+                    else:
+                        consecutive_empty_batches = 0
+
+                    # Log progress summary
+                    if processed_count > 0 and processed_count % 100 == 0:
+                        logger.info(f"Sync progress: processed={processed_count}, synced={synced_count}/{missing_count}")
+
+                    # Update cursor for next batch
+                    if cloudflare_memories and hasattr(self.secondary, 'get_all_memories_cursor'):
+                        cursor = min(memory.created_at for memory in cloudflare_memories if memory.created_at)
+                        logger.debug(f"Next cursor: {cursor}")
+
+                    # Early break conditions
+                    if consecutive_empty_batches >= HYBRID_MAX_EMPTY_BATCHES and synced_count > 0:
+                        logger.info(f"Completed after {consecutive_empty_batches} empty batches - {synced_count}/{missing_count} synced")
+                        break
+                    elif processed_count >= HYBRID_MIN_CHECK_COUNT and synced_count == 0:
+                        logger.info(f"No missing memories after checking {processed_count} memories")
+                        break
+
+                    await asyncio.sleep(0.01)
+
+                except Exception as e:
+                    # Handle Cloudflare D1 errors
+                    if "400" in str(e) and not hasattr(self.secondary, 'get_all_memories_cursor'):
+                        logger.error(f"D1 OFFSET limitation at processed_count={processed_count}: {e}")
+                        logger.warning("Cloudflare D1 OFFSET limits reached - sync incomplete")
+                        break
+                    else:
+                        logger.error(f"Error during {sync_type} sync: {e}")
+                        break
+
+            time_taken = time.time() - sync_start_time
+            logger.info(f"{sync_type.capitalize()} sync completed: {synced_count} memories in {time_taken:.2f}s")
+
+            # Broadcast SSE completion event
+            if broadcast_sse and SSE_AVAILABLE and missing_count > 0:
+                try:
+                    completion_event = create_sync_completed_event(
+                        synced_count=synced_count,
+                        total_count=missing_count,
+                        time_taken_seconds=time_taken,
+                        sync_type=sync_type
+                    )
+                    await sse_manager.broadcast_event(completion_event)
+                except Exception as e:
+                    logger.debug(f"Failed to broadcast SSE completion: {e}")
+
+            return {
+                'success': True,
+                'memories_synced': synced_count,
+                'total_checked': processed_count,
+                'message': f'Successfully pulled {synced_count} memories from Cloudflare',
+                'time_taken_seconds': round(time_taken, 3)
+            }
+
+        except Exception as e:
+            logger.error(f"{sync_type.capitalize()} sync failed: {e}")
+            return {
+                'success': False,
+                'memories_synced': 0,
+                'total_checked': 0,
+                'message': f'Failed to pull from Cloudflare: {str(e)}',
+                'time_taken_seconds': round(time.time() - sync_start_time, 3)
+            }
+
     async def _perform_initial_sync(self) -> None:
         """
         Perform initial sync from Cloudflare to SQLite if enabled.
@@ -803,149 +1043,28 @@ class HybridMemoryStorage(MemoryStorage):
         self.initial_sync_finished = False
 
         try:
-            # Get memory count from both storages to compare
+            # Set initial_sync_total before calling the shared helper
             primary_stats = await self.primary.get_stats()
             secondary_stats = await self.secondary.get_stats()
-
             primary_count = primary_stats.get('total_memories', 0)
             secondary_count = secondary_stats.get('total_memories', 0)
 
-            logger.info(f"Memory count comparison - Local SQLite: {primary_count}, Cloudflare: {secondary_count}")
+            if secondary_count > primary_count:
+                self.initial_sync_total = secondary_count - primary_count
+            else:
+                self.initial_sync_total = 0
 
-            if secondary_count <= primary_count:
-                logger.info("Local SQLite has same or more memories than Cloudflare, skipping initial sync")
-                self.initial_sync_finished = True
-                return
+            # Call shared helper method with drift checking enabled
+            result = await self._sync_memories_from_cloudflare(
+                sync_type="initial",
+                broadcast_sse=True,
+                enable_drift_check=True
+            )
 
-            # Get all memories from Cloudflare to sync missing ones
-            missing_count = secondary_count - primary_count
-            self.initial_sync_total = missing_count
-            logger.info(f"Found {missing_count} memories in Cloudflare that need to be synced to local SQLite")
-
-            # Get all Cloudflare memories using cursor-based pagination to avoid D1 OFFSET limitations
-            synced_count = 0
-            batch_size = min(100, self.batch_size * 2)  # Use larger batch for initial sync
-            cursor = None  # Start from most recent (no cursor)
-            processed_count = 0
-            consecutive_empty_batches = 0  # Track empty batches for early break detection
-
-            while True:
-                try:
-                    # Get batch of memories from Cloudflare using cursor-based pagination
-                    logger.debug(f"Fetching batch from Cloudflare with cursor-based pagination: cursor={cursor}, batch_size={batch_size}")
-
-                    # Try cursor-based pagination first, fallback to offset if not supported
-                    if hasattr(self.secondary, 'get_all_memories_cursor'):
-                        cloudflare_memories = await self.secondary.get_all_memories_cursor(
-                            limit=batch_size,
-                            cursor=cursor
-                        )
-                    else:
-                        # Fallback for backends without cursor support
-                        cloudflare_memories = await self.secondary.get_all_memories(
-                            limit=batch_size,
-                            offset=processed_count
-                        )
-
-                    if not cloudflare_memories:
-                        logger.debug(f"No more memories returned from Cloudflare at cursor {cursor}")
-                        break
-
-                    logger.debug(f"Processing batch of {len(cloudflare_memories)} memories from Cloudflare")
-                    batch_checked = 0
-                    batch_missing = 0
-                    batch_synced = 0
-
-                    # Check which memories are missing in primary storage
-                    for cf_memory in cloudflare_memories:
-                        batch_checked += 1
-                        processed_count += 1
-                        try:
-                            # Check if memory exists in primary storage
-                            existing = await self.primary.get_by_hash(cf_memory.content_hash)
-                            if not existing:
-                                batch_missing += 1
-                                # Memory doesn't exist locally, sync it
-                                success, message = await self.primary.store(cf_memory)
-                                if success:
-                                    batch_synced += 1
-                                    synced_count += 1
-                                    self.initial_sync_completed = synced_count
-                                    if synced_count % 10 == 0:  # Log progress every 10 memories
-                                        logger.info(f"Initial sync progress: {synced_count}/{missing_count} memories synced")
-                                else:
-                                    logger.warning(f"Failed to sync memory {cf_memory.content_hash}: {message}")
-                            elif self.sync_service.drift_check_enabled:
-                                # Memory exists - check for metadata drift (v8.25.0+)
-                                cf_updated = cf_memory.updated_at or 0
-                                local_updated = existing.updated_at or 0
-
-                                # If Cloudflare version is newer, sync metadata (1 second tolerance)
-                                if cf_updated > local_updated + 1.0:
-                                    logger.debug(f"Metadata drift detected during initial sync: {cf_memory.content_hash[:8]}")
-                                    success, _ = await self.primary.update_memory_metadata(
-                                        cf_memory.content_hash,
-                                        {
-                                            'tags': cf_memory.tags,
-                                            'memory_type': cf_memory.memory_type,
-                                            'metadata': cf_memory.metadata,
-                                        },
-                                        preserve_timestamps=False
-                                    )
-                                    if success:
-                                        batch_synced += 1
-                                        synced_count += 1
-                                        logger.debug(f"Synced metadata for existing memory: {cf_memory.content_hash[:8]}")
-                        except Exception as e:
-                            logger.warning(f"Error checking/syncing memory {cf_memory.content_hash}: {e}")
-                            continue
-
-                    logger.debug(f"Batch complete: checked={batch_checked}, missing={batch_missing}, synced={batch_synced}")
-
-                    # Track consecutive batches with no new syncs
-                    if batch_synced == 0:
-                        consecutive_empty_batches += 1
-                        logger.debug(f"Empty batch detected: consecutive_empty_batches={consecutive_empty_batches}/{HYBRID_MAX_EMPTY_BATCHES}")
-                    else:
-                        consecutive_empty_batches = 0  # Reset counter when we find missing memories
-
-                    # Log progress summary
-                    if processed_count > 0 and processed_count % 100 == 0:  # Every 100 memories processed
-                        logger.info(f"Sync progress: processed={processed_count}, synced={synced_count}/{missing_count}, empty_batches={consecutive_empty_batches}")
-
-                    # Update cursor to the oldest timestamp from this batch for next iteration
-                    if cloudflare_memories and hasattr(self.secondary, 'get_all_memories_cursor'):
-                        # Get the oldest created_at timestamp from this batch for next cursor
-                        cursor = min(memory.created_at for memory in cloudflare_memories if memory.created_at)
-                        logger.debug(f"Next cursor set to: {cursor}")
-
-                    # Configurable early break conditions (v7.5.4+)
-                    # Break only if we've had many consecutive empty batches AND we've synced some memories
-                    if consecutive_empty_batches >= HYBRID_MAX_EMPTY_BATCHES and synced_count > 0:
-                        logger.info(f"Completed sync after {consecutive_empty_batches} consecutive empty batches (threshold: {HYBRID_MAX_EMPTY_BATCHES}) - {synced_count}/{missing_count} memories synced, {processed_count} total processed")
-                        break
-                    # Or if we've processed minimum threshold and found no missing memories (true no-op case)
-                    elif processed_count >= HYBRID_MIN_CHECK_COUNT and synced_count == 0:
-                        logger.info(f"No missing memories found after checking {processed_count} memories (threshold: {HYBRID_MIN_CHECK_COUNT}) - all Cloudflare memories already exist locally")
-                        break
-
-                    # Yield control to avoid blocking the event loop
-                    await asyncio.sleep(0.01)
-
-                except Exception as e:
-                    # Handle Cloudflare D1 errors (like 400 Bad Request from OFFSET limitations)
-                    if "400" in str(e) and not hasattr(self.secondary, 'get_all_memories_cursor'):
-                        logger.error(f"D1 OFFSET limitation hit at processed_count={processed_count}: {e}")
-                        logger.warning("Cloudflare D1 OFFSET limits reached - sync incomplete due to backend limitations")
-                        break
-                    else:
-                        logger.error(f"Error during cursor-based sync: {e}")
-                        break
-
-            logger.info(f"Initial sync completed: {synced_count} memories downloaded from Cloudflare to local SQLite")
+            synced_count = result['memories_synced']
 
             # Update sync tracking to reflect actual sync completion
-            if synced_count == 0:
+            if synced_count == 0 and self.initial_sync_total > 0:
                 # All memories were already present - this is a successful "no-op" sync
                 self.initial_sync_completed = self.initial_sync_total
                 logger.info(f"Sync completed successfully: All {self.initial_sync_total} memories were already present locally")
@@ -1213,6 +1332,35 @@ class HybridMemoryStorage(MemoryStorage):
             }
 
         return await self.sync_service.force_sync()
+
+    async def force_pull_sync(self) -> Dict[str, Any]:
+        """
+        Force immediate pull synchronization FROM Cloudflare TO local SQLite.
+
+        This triggers the same logic as initial_sync but can be called on demand.
+        Useful for manually refreshing local storage with memories stored via MCP.
+
+        Returns:
+            Dict with sync results including:
+            - success: bool
+            - message: str
+            - memories_pulled: int
+            - time_taken_seconds: float
+        """
+        # Call shared helper method without drift checking (manual sync doesn't need it)
+        result = await self._sync_memories_from_cloudflare(
+            sync_type="manual",
+            broadcast_sse=True,
+            enable_drift_check=False
+        )
+
+        # Map result to expected return format
+        return {
+            'success': result['success'],
+            'message': result['message'],
+            'memories_pulled': result['memories_synced'],
+            'time_taken_seconds': result['time_taken_seconds']
+        }
 
     async def get_sync_status(self) -> Dict[str, Any]:
         """Get current background sync status and statistics."""
