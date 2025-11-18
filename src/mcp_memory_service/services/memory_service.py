@@ -480,7 +480,7 @@ class MemoryService:
                 "error": f"Failed to delete memory: {str(e)}"
             }
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def check_database_health(self) -> Dict[str, Any]:
         """
         Perform a health check on the memory storage system.
 
