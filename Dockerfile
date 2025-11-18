@@ -15,14 +15,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv (standalone binary)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Copy dependency files first (for layer caching)
+# Copy dependency files ONLY (maximize layer cache)
 COPY pyproject.toml uv.lock README.md ./
+
+# Install dependencies FIRST (source not needed, cached unless deps change)
+RUN uv sync --frozen --no-dev --no-install-project && \
+    uv pip install gunicorn
+
+# THEN copy source (invalidates cache only on code changes)
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 
-# Install dependencies using uv (deterministic, fast)
-RUN uv sync --frozen --no-dev && \
-    uv pip install gunicorn
+# Install local package (fast, no dependency resolution)
+RUN uv sync --frozen --no-dev
 
 # Pre-export ONNX model (expensive, cached with dependencies)
 RUN echo "Pre-exporting intfloat/e5-small to ONNX..." && \
