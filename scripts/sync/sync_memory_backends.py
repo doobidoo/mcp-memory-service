@@ -82,6 +82,7 @@ class MemorySync:
                     'content': memory.content,
                     'metadata': memory.metadata,
                     'tags': memory.tags,
+                    'memory_type': memory.memory_type,
                     'created_at': memory.created_at,
                     'created_at_iso': memory.created_at_iso,
                     'updated_at': memory.updated_at,
@@ -149,6 +150,7 @@ class MemorySync:
                         content_hash=source_memory['content_hash'],
                         tags=source_memory.get('tags', []),
                         metadata=source_memory.get('metadata', {}),
+                        memory_type=source_memory.get('memory_type'),
                         created_at=source_memory.get('created_at'),
                     )
                     success, message = await target_storage.store(memory_obj)

@@ -23,28 +23,17 @@
 
 ## 🚀 Quick Start (2 minutes)
 
-### 🆕 Latest Release: **v8.27.1** (Nov 18, 2025)
+### 🆕 Latest Release: **v8.27.2** (Nov 18, 2025)
 
-**🚨 CRITICAL HOTFIX: Timestamp Regression** 🔧
+**Bug Fix: Memory Type Preservation in Sync Script**
 
-- 🐛 **Fixed timestamp corruption bug** - `created_at` timestamps no longer reset during metadata sync
-- 🔧 **Affected versions**: v8.25.0-v8.27.0 (hybrid backend users with drift detection)
-- 🛡️ **Data integrity restored** - All timestamp preservation tests passing
-- 🔄 **Recovery tools included** - Script to restore timestamps from Cloudflare backup
-- ✅ **Zero breaking changes** - Drop-in fix for affected installations
-
-**If you're on v8.25.0-v8.27.0 with hybrid backend:**
-```bash
-# Check for corrupted timestamps
-python scripts/validation/validate_timestamp_integrity.py
-
-# Recover from Cloudflare (if needed)
-python scripts/maintenance/recover_timestamps_from_cloudflare.py --dry-run
-python scripts/maintenance/recover_timestamps_from_cloudflare.py --apply
-```
+- 🐛 **Fixed memory_type loss** - Sync script now preserves `memory_type` during cf-to-sqlite sync
+- 📊 **Dashboard analytics restored** - No more 100% "untyped" memories after sync
+- 🔄 **Recovery**: Re-run sync from Cloudflare to restore memory types
+- ✅ **Zero breaking changes** - Drop-in fix for sync script users
 
 **Previous Releases**:
-- **v8.27.0** - Hybrid Storage Performance (3-5x faster sync, real-time progress, bidirectional sync)
+- **v8.27.1** - Critical Hotfix: Timestamp Regression (created_at preservation during metadata sync)
 - **v8.26.0** - Revolutionary MCP Performance (534,628x faster tools, 90%+ cache hit rate)
 - **v8.25.0** - Hybrid Backend Drift Detection (automatic metadata sync, bidirectional awareness)
 - **v8.24.4** - Code Quality Improvements from Gemini Code Assist (regex sanitization, DOM caching)

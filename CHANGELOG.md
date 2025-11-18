@@ -10,6 +10,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [8.27.2] - 2025-11-18
+
+### Fixed
+- **Memory Type Loss During Cloudflare-to-SQLite Sync** - Fixed `memory_type` not being preserved in sync script
+  - **Problem**: `scripts/sync/sync_memory_backends.py` did not extract or pass `memory_type` when syncing from Cloudflare to SQLite-vec
+  - **Impact**: All memories synced via `--direction cf-to-sqlite` showed as "untyped" (100%) in dashboard analytics
+  - **Root Cause**: Missing `memory_type` field in both memory dict extraction (line 85) and Memory object creation (line 153)
+  - **Solution**:
+    - Added `memory_type` to memory dictionary extraction from source
+    - Added `memory_type` parameter when creating Memory objects for target storage
+  - **Files Modified**:
+    - `scripts/sync/sync_memory_backends.py` - Added memory_type handling (lines 85, 153)
+  - **Affected Users**: Users who ran `python scripts/sync/sync_memory_backends.py --direction cf-to-sqlite`
+  - **Recovery**: Re-run sync from Cloudflare to restore memory types (Cloudflare preserves original types)
+
 ## [8.27.1] - 2025-11-18
 
 ### Fixed
