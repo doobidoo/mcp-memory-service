@@ -64,6 +64,8 @@ from .config import (
 )
 from .storage.base import MemoryStorage
 from .services.memory_service import MemoryService
+from .resources.toon_documentation import TOON_FORMAT_DOCUMENTATION
+from .formatters.toon import format_search_results_as_toon
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Default to INFO level
@@ -111,6 +113,23 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
 
 # Create FastMCP server instance
 mcp = FastMCP("MCP Memory Service", lifespan=mcp_server_lifespan)
+
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+
+
+@mcp.resource("toon://format/documentation")
+def toon_format_docs() -> str:
+    """
+    Return comprehensive TOON format specification for LLM consumption.
+
+    This resource provides the complete TOON (Terser Object Notation) format
+    specification, including structure, field types, parsing strategies, and examples.
+    Used by LLMs to understand the compact pipe-delimited format returned by memory tools.
+    """
+    return TOON_FORMAT_DOCUMENTATION
 
 # =============================================================================
 # TYPE DEFINITIONS
@@ -239,7 +258,7 @@ async def retrieve_memory(
     page: int = 1,
     page_size: int = 10,
     min_similarity: float = 0.6
-) -> Dict[str, Any]:
+) -> str:
     """
     Retrieve memories using semantic similarity search with automatic quality filtering.
 
@@ -256,21 +275,25 @@ async def retrieve_memory(
             - 0.9+: Nearly identical
             - Lower for exploratory search, higher for precision
 
-    Returns:
-        Dictionary with memories and pagination metadata:
-        - memories: List of matching memory objects
-        - total: Total matching memories across all pages
-        - page/page_size: Current pagination state
-        - has_more: Whether additional pages exist
-        - total_pages: Total pages available
+    Response Format:
+        Returns memories in TOON (Terser Object Notation) format - a compact, pipe-delimited
+        format optimized for LLM token efficiency. Each memory is a single line with fields:
+
+        content|tags|metadata|created_at|updated_at|content_hash|similarity_score
+
+        For complete TOON specification, see resource: toon://format/documentation
 
     Use this for: Finding relevant context, answering questions, discovering related information.
     """
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
-    return await memory_service.retrieve_memories(
+    result = await memory_service.retrieve_memories(
         query=query, page=page, page_size=page_size, min_similarity=min_similarity
     )
+
+    # Convert results to TOON format
+    toon_output, _ = format_search_results_as_toon(result["memories"])
+    return toon_output
 
 
 @mcp.tool()
@@ -280,7 +303,7 @@ async def search_by_tag(
     match_all: bool = False,
     page: int = 1,
     page_size: int = 10
-) -> Dict[str, Any]:
+) -> str:
     """
     Search memories by exact tag matches with flexible filtering.
 
@@ -297,12 +320,13 @@ async def search_by_tag(
         page: Page number (1-indexed, default: 1)
         page_size: Results per page (default: 10, max: 100)
 
-    Returns:
-        Dictionary with:
-        - memories: List of tagged memory objects
-        - tags: Tags that were searched
-        - match_type: "ANY" or "ALL"
-        - total/page/page_size/has_more/total_pages: Pagination metadata
+    Response Format:
+        Returns memories in TOON (Terser Object Notation) format - a compact, pipe-delimited
+        format optimized for LLM token efficiency. Each memory is a single line with fields:
+
+        content|tags|metadata|created_at|updated_at|content_hash
+
+        For complete TOON specification, see resource: toon://format/documentation
 
     Examples:
         - ["python", "api"] with match_all=False → memories tagged python OR api
@@ -313,9 +337,13 @@ async def search_by_tag(
     """
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
-    return await memory_service.search_by_tag(
+    result = await memory_service.search_by_tag(
         tags=tags, match_all=match_all, page=page, page_size=page_size
     )
+
+    # Convert results to TOON format
+    toon_output, _ = format_search_results_as_toon(result["memories"])
+    return toon_output
 
 
 @mcp.tool()
@@ -376,13 +404,12 @@ async def list_memories(
     page_size: int = 10,
     tag: Optional[str] = None,
     memory_type: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> str:
     """
     List memories in chronological order with optional filtering.
 
     Returns memories ordered by creation time (newest first), without semantic
     ranking. Use this for browsing recent memories or getting a chronological view.
-    For finding relevant content, use retrieve_memory (semantic) or search_by_tag instead.
 
     Args:
         page: Page number (1-indexed, default: 1)
@@ -390,10 +417,13 @@ async def list_memories(
         tag: Optional - return only memories with this specific tag
         memory_type: Optional - filter by type (note, decision, task, reference)
 
-    Returns:
-        Dictionary with:
-        - memories: List ordered by creation time (newest first)
-        - total/page/page_size/has_more/total_pages: Pagination metadata
+    Response Format:
+        Returns memories in TOON (Terser Object Notation) format - a compact, pipe-delimited
+        format optimized for LLM token efficiency. Each memory is a single line with fields:
+
+        content|tags|metadata|created_at|updated_at|content_hash
+
+        For complete TOON specification, see resource: toon://format/documentation
 
     Differences from other search tools:
         - retrieve_memory: Semantic similarity ranking (finds meaning)
@@ -405,9 +435,13 @@ async def list_memories(
     """
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
-    return await memory_service.list_memories(
+    result = await memory_service.list_memories(
         page=page, page_size=page_size, tag=tag, memory_type=memory_type
     )
+
+    # Convert results to TOON format
+    toon_output, _ = format_search_results_as_toon(result["memories"])
+    return toon_output
 
 
 # =============================================================================

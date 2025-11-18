@@ -11,20 +11,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project files
-COPY . .
-
 # Create virtual environment
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install dependencies and build wheel
+# Copy dependency files and source code (required for pip install -e .)
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
+COPY scripts/ ./scripts/
+
+# Install dependencies and build tools (cached unless deps change)
 RUN pip install --upgrade pip setuptools wheel && \
-    pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels . && \
-    pip install --no-cache-dir /app/wheels/*.whl && \
+    pip install --no-cache-dir -e . && \
     pip install gunicorn
 
-# Pre-export ONNX model using sentence-transformers (creates compatible ONNX format)
+# Pre-export ONNX model (expensive, cached with dependencies)
 RUN echo "Pre-exporting intfloat/e5-small to ONNX..." && \
     python -c "from sentence_transformers import SentenceTransformer; model = SentenceTransformer('intfloat/e5-small', backend='onnx'); model.save_pretrained('intfloat-e5-small'); print('✓ ONNX export complete and saved')"
 
@@ -47,7 +48,8 @@ COPY --from=builder /root/.cache/huggingface /root/.cache/huggingface
 # Copy saved ONNX model from builder
 COPY --from=builder /app/intfloat-e5-small /app/intfloat-e5-small
 
-# Copy only scripts directory (needed for run_http_server.py)
+# Copy source code and scripts (required for editable install to work in runtime)
+COPY --from=builder /app/src /app/src
 COPY --from=builder /app/scripts /app/scripts
 
 # Set environment variables for model loading and offline operation

@@ -51,6 +51,25 @@ LICENSE
 scripts/dev
 scripts/debug
 
+# Test files (not needed in production image)
+tests/
+*.test.py
+test_*.py
+
+# Deployment artifacts
+deployment/
+*.json
+!pyproject.toml
+
+# Migration and maintenance scripts (use runtime scripts/ only)
+scripts/migrate/
+scripts/migration/
+scripts/cleanup/
+scripts/verify/
+scripts/deploy/
+scripts/validation/
+scripts/installation/
+
 # Database files
 *.db
 *.db-shm

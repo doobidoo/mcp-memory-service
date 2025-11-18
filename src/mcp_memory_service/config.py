@@ -728,6 +728,28 @@ class QdrantSettings(BaseSettings):
         return self
 
 
+class TOONSettings(BaseSettings):
+    """TOON format encoding configuration."""
+
+    model_config = SettingsConfigDict(
+        env_prefix='MCP_',
+        env_file='.env',
+        env_file_encoding='utf-8',
+        case_sensitive=False,
+        extra='ignore'
+    )
+
+    enable_toon_format: bool = Field(
+        default=True,
+        description="Enable TOON format encoding (emergency kill switch)"
+    )
+
+    log_token_savings: bool = Field(
+        default=False,
+        description="Log token savings metrics during TOON encoding"
+    )
+
+
 class DebugSettings(BaseSettings):
     """Debug and development configuration."""
 
@@ -775,6 +797,7 @@ class Settings(BaseSettings):
     oauth: OAuthSettings = Field(default_factory=OAuthSettings)
     document: DocumentSettings = Field(default_factory=DocumentSettings)
     consolidation: ConsolidationSettings = Field(default_factory=ConsolidationSettings)
+    toon: TOONSettings = Field(default_factory=TOONSettings)
     debug: DebugSettings = Field(default_factory=DebugSettings)
 
     @model_validator(mode='after')
@@ -1032,6 +1055,10 @@ def __getattr__(name: str):
             'quarterly': _settings.consolidation.schedule_quarterly,
             'yearly': _settings.consolidation.schedule_yearly
         },
+
+        # TOON
+        'ENABLE_TOON_FORMAT': lambda: _settings.toon.enable_toon_format,
+        'LOG_TOKEN_SAVINGS': lambda: _settings.toon.log_token_savings,
 
         # Debug
         'EXPOSE_DEBUG_TOOLS': lambda: _settings.debug.expose_debug_tools,
