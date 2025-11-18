@@ -107,7 +107,13 @@ async def create_storage_instance(sqlite_path: str, server_type: str = None) -> 
             effective_backend = 'sqlite_vec'
 
     # Get storage class based on effective configuration
-    StorageClass = get_storage_backend_class() if effective_backend == STORAGE_BACKEND else _fallback_to_sqlite_vec()
+    if effective_backend == 'sqlite_vec':
+        # Intentional switch to SQLite-vec (not a fallback/error case)
+        from .sqlite_vec import SqliteVecMemoryStorage
+        StorageClass = SqliteVecMemoryStorage
+    else:
+        # Use configured backend (hybrid or cloudflare)
+        StorageClass = get_storage_backend_class()
 
     # Create storage instance based on backend type
     if StorageClass.__name__ == "SqliteVecMemoryStorage":
