@@ -995,8 +995,14 @@ SOLUTIONS:
             logger.error(traceback.format_exc())
             return []
     
-    async def search_by_tags(self, tags: List[str], operation: str = "AND") -> List[Memory]:
-        """Search memories by tags with AND/OR operation support."""
+    async def search_by_tags(
+        self,
+        tags: List[str],
+        operation: str = "AND",
+        time_start: Optional[float] = None,
+        time_end: Optional[float] = None
+    ) -> List[Memory]:
+        """Search memories by tags with AND/OR operation and optional time filtering."""
         try:
             if not self.conn:
                 logger.error("Database not initialized")
@@ -1005,20 +1011,30 @@ SOLUTIONS:
             if not tags:
                 return []
             
-            # Build query based on operation
-            if operation.upper() == "AND":
-                # All tags must be present (each tag must appear in the tags field)
-                tag_conditions = " AND ".join(["tags LIKE ?" for _ in tags])
-            else:  # OR operation (default for backward compatibility)
-                tag_conditions = " OR ".join(["tags LIKE ?" for _ in tags])
-            
+            normalized_operation = operation.strip().upper() if isinstance(operation, str) else "AND"
+            if normalized_operation not in {"AND", "OR"}:
+                logger.warning("Unsupported tag operation %s; defaulting to AND", operation)
+                normalized_operation = "AND"
+
+            comparator = " AND " if normalized_operation == "AND" else " OR "
+            tag_conditions = comparator.join(["tags LIKE ?" for _ in tags])
             tag_params = [f"%{tag}%" for tag in tags]
+
+            where_conditions = [f"({tag_conditions})"] if tag_conditions else []
+            if time_start is not None:
+                where_conditions.append("created_at >= ?")
+                tag_params.append(time_start)
+            if time_end is not None:
+                where_conditions.append("created_at <= ?")
+                tag_params.append(time_end)
+
+            where_clause = f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
             
             cursor = self.conn.execute(f'''
                 SELECT content_hash, content, tags, memory_type, metadata,
                        created_at, updated_at, created_at_iso, updated_at_iso
                 FROM memories 
-                WHERE {tag_conditions}
+                {where_clause}
                 ORDER BY updated_at DESC
             ''', tag_params)
             

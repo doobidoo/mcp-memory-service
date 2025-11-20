@@ -187,39 +187,63 @@ class HTTPClientStorage(MemoryStorage):
             return self._handle_http_error(e, "retrieve", return_empty_list=True)
     
     async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
-        """Search memories by tags via HTTP API with optional time filtering.
+        """Search memories by tags via HTTP API with optional time filtering."""
+        return await self._execute_tag_search(
+            tags=tags,
+            match_all=False,
+            time_start=time_start,
+            time_end=None
+        )
 
-        Args:
-            tags: List of tags to search for
-            time_start: Optional Unix timestamp (in seconds) to filter memories created after this time
+    async def search_by_tags(
+        self,
+        tags: List[str],
+        operation: str = "AND",
+        time_start: Optional[float] = None,
+        time_end: Optional[float] = None
+    ) -> List[Memory]:
+        """Search memories by tags with AND/OR semantics via HTTP API."""
+        normalized_operation = operation.strip().upper() if isinstance(operation, str) else "AND"
+        if normalized_operation not in {"AND", "OR"}:
+            logger.warning("Unsupported tag operation %s; defaulting to AND", operation)
+            normalized_operation = "AND"
 
-        Returns:
-            List of Memory objects matching the tag criteria and time filter
-        """
+        match_all = normalized_operation == "AND"
+        return await self._execute_tag_search(
+            tags=tags,
+            match_all=match_all,
+            time_start=time_start,
+            time_end=time_end
+        )
+
+    async def _execute_tag_search(
+        self,
+        tags: List[str],
+        match_all: bool,
+        time_start: Optional[float],
+        time_end: Optional[float]
+    ) -> List[Memory]:
+        """Internal helper to execute HTTP tag-based searches."""
         if not self._initialized or not self.session:
             logger.error("HTTP client not initialized")
             return []
 
         try:
             search_url = f"{self.base_url}/api/search/by-tag"
-            payload = {
+            payload: Dict[str, Any] = {
                 "tags": tags,
-                "match_all": False  # Use ANY match (OR logic)
+                "match_all": match_all
             }
 
-            # Add time filter if provided
-            if time_start is not None:
-                # The API's time_filter expects a natural language string or a parsable date.
-                # We convert the timestamp to an ISO date string for the server to parse.
-                dt = datetime.fromtimestamp(time_start, tz=timezone.utc)
-                payload["time_filter"] = dt.date().isoformat()
+            time_filter = self._build_time_filter(time_start, time_end)
+            if time_filter:
+                payload["time_filter"] = time_filter
 
             async with self.session.post(search_url, json=payload) as response:
                 if response.status == 200:
                     data = await response.json()
-                    results = []
+                    results: List[Memory] = []
 
-                    # Updated to match the new SearchResponse format
                     for result_item in data.get("results", []):
                         memory_data = result_item.get("memory", {})
                         memory = Memory(
@@ -235,14 +259,34 @@ class HTTPClientStorage(MemoryStorage):
                         )
                         results.append(memory)
 
-                    logger.info(f"Found {len(results)} memories via HTTP with tags: {tags}")
+                    logger.info(
+                        "Found %d memories via HTTP with tags %s (match_all=%s)",
+                        len(results),
+                        tags,
+                        match_all
+                    )
                     return results
-                else:
-                    logger.error(f"HTTP tag search error: {response.status}")
-                    return []
+
+                logger.error(f"HTTP tag search error: {response.status}")
+                return []
 
         except Exception as e:
             return self._handle_http_error(e, "tag search", return_empty_list=True)
+
+    @staticmethod
+    def _build_time_filter(time_start: Optional[float], time_end: Optional[float]) -> Optional[str]:
+        """Convert timestamps to the natural language format expected by the HTTP API."""
+        if time_start is None and time_end is None:
+            return None
+
+        def _to_date(ts: float) -> str:
+            return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
+
+        if time_start is not None and time_end is not None:
+            return f"between {_to_date(time_start)} and {_to_date(time_end)}"
+        if time_start is not None:
+            return _to_date(time_start)
+        return _to_date(time_end)
     
     async def delete(self, content_hash: str) -> Tuple[bool, str]:
         """Delete a memory by content hash via HTTP API."""

@@ -1131,10 +1131,25 @@ class HybridMemoryStorage(MemoryStorage):
         """
         return await self.primary.search_by_tag(tags, time_start=time_start)
 
-    async def search_by_tags(self, tags: List[str], match_all: bool = False) -> List[Memory]:
-        """Search memories by tags (alternative method signature)."""
-        operation = "AND" if match_all else "OR"
-        return await self.primary.search_by_tags(tags, operation=operation)
+    async def search_by_tags(
+        self,
+        tags: List[str],
+        operation: str = "AND",
+        time_start: Optional[float] = None,
+        time_end: Optional[float] = None
+    ) -> List[Memory]:
+        """Search memories by tags using consistent operation parameter across backends."""
+        normalized_operation = operation.strip().upper() if isinstance(operation, str) else "AND"
+        if normalized_operation not in {"AND", "OR"}:
+            logger.warning("Unsupported tag operation %s; defaulting to AND", operation)
+            normalized_operation = "AND"
+
+        return await self.primary.search_by_tags(
+            tags,
+            operation=normalized_operation,
+            time_start=time_start,
+            time_end=time_end
+        )
 
     async def delete(self, content_hash: str) -> Tuple[bool, str]:
         """Delete a memory from primary storage and queue for secondary sync."""

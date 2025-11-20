@@ -556,23 +556,36 @@ class CloudflareStorage(MemoryStorage):
         
         return []
     
-    async def search_by_tags(self, tags: List[str], operation: str = "AND") -> List[Memory]:
-        """Search memories by tags with AND/OR semantics."""
-        return await self._search_by_tags_internal(tags=tags, operation=operation)
+    async def search_by_tags(
+        self,
+        tags: List[str],
+        operation: str = "AND",
+        time_start: Optional[float] = None,
+        time_end: Optional[float] = None
+    ) -> List[Memory]:
+        """Search memories by tags with AND/OR semantics and optional time filtering."""
+        return await self._search_by_tags_internal(
+            tags=tags,
+            operation=operation,
+            time_start=time_start,
+            time_end=time_end
+        )
 
     async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
         """Search memories by tags with optional time filtering (legacy OR behavior)."""
         return await self._search_by_tags_internal(
             tags=tags,
             operation="OR",
-            time_start=time_start
+            time_start=time_start,
+            time_end=None
         )
 
     async def _search_by_tags_internal(
         self,
         tags: List[str],
         operation: Optional[str] = None,
-        time_start: Optional[float] = None
+        time_start: Optional[float] = None,
+        time_end: Optional[float] = None
     ) -> List[Memory]:
         """Shared implementation for tag-based queries with optional time filtering."""
         try:
@@ -584,9 +597,8 @@ class CloudflareStorage(MemoryStorage):
             if not deduped_tags:
                 return []
 
-            normalized_operation = (operation or "AND")
-            if isinstance(normalized_operation, str):
-                normalized_operation = normalized_operation.strip().upper() or "AND"
+            if isinstance(operation, str):
+                normalized_operation = operation.strip().upper() or "AND"
             else:
                 normalized_operation = "AND"
 
@@ -610,6 +622,9 @@ class CloudflareStorage(MemoryStorage):
             if time_start is not None:
                 sql += " AND m.created_at >= ?"
                 params.append(time_start)
+            if time_end is not None:
+                sql += " AND m.created_at <= ?"
+                params.append(time_end)
 
             sql += " GROUP BY m.id"
 

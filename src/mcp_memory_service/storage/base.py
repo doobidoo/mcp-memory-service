@@ -109,6 +109,27 @@ class MemoryStorage(ABC):
         """
         pass
 
+    @abstractmethod
+    async def search_by_tags(
+        self,
+        tags: List[str],
+        operation: str = "AND",
+        time_start: Optional[float] = None,
+        time_end: Optional[float] = None
+    ) -> List[Memory]:
+        """Search memories by tags with AND/OR semantics and time range filtering.
+
+        Args:
+            tags: List of tag names to search for
+            operation: "AND" (all tags must match) or "OR" (any tag matches)
+            time_start: Optional Unix timestamp for inclusive range start
+            time_end: Optional Unix timestamp for inclusive range end
+
+        Returns:
+            List of Memory objects matching the criteria
+        """
+        pass
+
     async def search_by_tag_chronological(self, tags: List[str], limit: int = None, offset: int = 0) -> List[Memory]:
         """
         Search memories by tags with chronological ordering (newest first).

@@ -79,6 +79,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [8.27.0] - 2025-11-17
 
 ### Added
+- **Cloudflare Tag Filtering** - AND/OR operations for tag searches with unified API contracts (#228)
+  - Added `search_by_tags(tags, operation, time_start, time_end)` to the storage base class and implemented it across SQLite, Cloudflare, Hybrid, and HTTP client backends
+  - Normalized Cloudflare SQL to use `GROUP BY` + `HAVING COUNT(DISTINCT ...)` for AND semantics while supporting optional time ranges
+  - Introduced `get_all_tags_with_counts()` for Cloudflare to power analytics dashboards without extra queries
+- **Hybrid Storage Sync Performance Optimization** - Dramatic initial sync speed improvement (3-5x faster)
+  - **Performance Metrics**:
 - **Hybrid Storage Sync Performance Optimization** - Dramatic initial sync speed improvement (3-5x faster)
   - **Performance Metrics**:
     - **Before**: ~5.5 memories/second (8 minutes for 2,619 memories)
@@ -96,6 +102,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - **Use Case**: Users with large memory databases (1000+ memories) will see significantly faster initial sync times
 
 ### Changed
+- **Tag Filtering Behavior** - `get_all_memories(tags=...)` now performs exact tag comparisons with AND logic instead of substring OR matching, and hybrid storage exposes the same `operation` parameter for parity across backends.
 - **Hybrid Initial Sync Architecture** - Refactored sync loop for better performance
   - O(1) hash lookups instead of O(n) individual queries
   - Concurrent processing with controlled parallelism (15 simultaneous operations)
