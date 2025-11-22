@@ -10,7 +10,7 @@ import logging
 from typing import Dict, List, Any, Optional, Union, TYPE_CHECKING
 from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from ..dependencies import get_storage
 from ...utils.hashing import generate_content_hash
@@ -39,7 +39,14 @@ class MCPRequest(BaseModel):
 
 
 class MCPResponse(BaseModel):
-    """MCP protocol response structure."""
+    """MCP protocol response structure.
+
+    Note: JSON-RPC 2.0 spec requires that successful responses EXCLUDE the 'error'
+    field entirely (not include it as null), and error responses EXCLUDE 'result'.
+    The exclude_none config ensures proper compliance.
+    """
+    model_config = ConfigDict(exclude_none=True)
+
     jsonrpc: str = "2.0"
     id: Optional[Union[str, int]] = None
     result: Optional[Dict[str, Any]] = None
@@ -142,6 +149,11 @@ MCP_TOOLS = [
 ]
 
 
+def _mcp_response(response: MCPResponse) -> JSONResponse:
+    """Return JSONResponse with proper JSON-RPC 2.0 serialization (exclude null fields)."""
+    return JSONResponse(content=response.model_dump(exclude_none=True))
+
+
 @router.post("/")
 @router.post("")
 async def mcp_endpoint(
@@ -151,9 +163,9 @@ async def mcp_endpoint(
     """Main MCP protocol endpoint for processing MCP requests."""
     try:
         storage = get_storage()
-        
+
         if request.method == "initialize":
-            return MCPResponse(
+            return _mcp_response(MCPResponse(
                 id=request.id,
                 result={
                     "protocolVersion": "2024-11-05",
@@ -165,24 +177,24 @@ async def mcp_endpoint(
                         "version": "4.1.1"
                     }
                 }
-            )
+            ))
 
         elif request.method == "tools/list":
-            return MCPResponse(
+            return _mcp_response(MCPResponse(
                 id=request.id,
                 result={
                     "tools": [tool.dict() for tool in MCP_TOOLS]
                 }
-            )
-        
+            ))
+
         elif request.method == "tools/call":
             tool_name = request.params.get("name") if request.params else None
             arguments = request.params.get("arguments", {}) if request.params else {}
-            
+
             result = await handle_tool_call(storage, tool_name, arguments)
-            
+
             import json
-            return MCPResponse(
+            return _mcp_response(MCPResponse(
                 id=request.id,
                 result={
                     "content": [
@@ -192,26 +204,26 @@ async def mcp_endpoint(
                         }
                     ]
                 }
-            )
-        
+            ))
+
         else:
-            return MCPResponse(
+            return _mcp_response(MCPResponse(
                 id=request.id,
                 error={
                     "code": -32601,
                     "message": f"Method not found: {request.method}"
                 }
-            )
-            
+            ))
+
     except Exception as e:
         logger.error(f"MCP endpoint error: {e}")
-        return MCPResponse(
+        return _mcp_response(MCPResponse(
             id=request.id,
             error={
                 "code": -32603,
                 "message": f"Internal error: {str(e)}"
             }
-        )
+        ))
 
 
 async def handle_tool_call(storage, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
