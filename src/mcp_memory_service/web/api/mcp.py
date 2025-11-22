@@ -6,6 +6,7 @@ to directly access memory operations using the MCP standard.
 """
 
 import asyncio
+import json
 import logging
 from typing import Dict, List, Any, Optional, Union, TYPE_CHECKING
 from fastapi import APIRouter, HTTPException, Request, Depends
@@ -149,11 +150,6 @@ MCP_TOOLS = [
 ]
 
 
-def _mcp_response(response: MCPResponse) -> JSONResponse:
-    """Return JSONResponse with proper JSON-RPC 2.0 serialization (exclude null fields)."""
-    return JSONResponse(content=response.model_dump(exclude_none=True))
-
-
 @router.post("/")
 @router.post("")
 async def mcp_endpoint(
@@ -165,7 +161,7 @@ async def mcp_endpoint(
         storage = get_storage()
 
         if request.method == "initialize":
-            return _mcp_response(MCPResponse(
+            return MCPResponse(
                 id=request.id,
                 result={
                     "protocolVersion": "2024-11-05",
@@ -177,15 +173,15 @@ async def mcp_endpoint(
                         "version": "4.1.1"
                     }
                 }
-            ))
+            )
 
         elif request.method == "tools/list":
-            return _mcp_response(MCPResponse(
+            return MCPResponse(
                 id=request.id,
                 result={
-                    "tools": [tool.dict() for tool in MCP_TOOLS]
+                    "tools": [tool.model_dump() for tool in MCP_TOOLS]
                 }
-            ))
+            )
 
         elif request.method == "tools/call":
             tool_name = request.params.get("name") if request.params else None
@@ -193,8 +189,7 @@ async def mcp_endpoint(
 
             result = await handle_tool_call(storage, tool_name, arguments)
 
-            import json
-            return _mcp_response(MCPResponse(
+            return MCPResponse(
                 id=request.id,
                 result={
                     "content": [
@@ -204,26 +199,26 @@ async def mcp_endpoint(
                         }
                     ]
                 }
-            ))
+            )
 
         else:
-            return _mcp_response(MCPResponse(
+            return MCPResponse(
                 id=request.id,
                 error={
                     "code": -32601,
                     "message": f"Method not found: {request.method}"
                 }
-            ))
+            )
 
     except Exception as e:
         logger.error(f"MCP endpoint error: {e}")
-        return _mcp_response(MCPResponse(
+        return MCPResponse(
             id=request.id,
             error={
                 "code": -32603,
                 "message": f"Internal error: {str(e)}"
             }
-        ))
+        )
 
 
 async def handle_tool_call(storage, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -241,7 +236,6 @@ async def handle_tool_call(storage, tool_name: str, arguments: Dict[str, Any]) -
         # Ensure metadata is a dict
         if isinstance(metadata, str):
             try:
-                import json
                 metadata = json.loads(metadata)
             except:
                 metadata = {}
