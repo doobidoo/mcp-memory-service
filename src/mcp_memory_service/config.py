@@ -551,6 +551,26 @@ logger.info(f"Document chunking: size={DOCUMENT_CHUNK_SIZE}, overlap={DOCUMENT_C
 # End Document Processing Configuration
 # =============================================================================
 
+# =============================================================================
+# Automatic Backup Configuration
+# =============================================================================
+
+BACKUP_ENABLED = safe_get_bool_env('MCP_BACKUP_ENABLED', True)
+BACKUP_INTERVAL = os.getenv('MCP_BACKUP_INTERVAL', 'daily').lower()  # 'hourly', 'daily', 'weekly'
+BACKUP_RETENTION = safe_get_int_env('MCP_BACKUP_RETENTION', 7, min_value=1, max_value=365)  # days
+BACKUP_MAX_COUNT = safe_get_int_env('MCP_BACKUP_MAX_COUNT', 10, min_value=1, max_value=100)  # max backups to keep
+
+# Validate backup interval
+if BACKUP_INTERVAL not in ['hourly', 'daily', 'weekly']:
+    logger.warning(f"Invalid backup interval: {BACKUP_INTERVAL}, falling back to 'daily'")
+    BACKUP_INTERVAL = 'daily'
+
+logger.info(f"Backup configuration: enabled={BACKUP_ENABLED}, interval={BACKUP_INTERVAL}, retention={BACKUP_RETENTION} days")
+
+# =============================================================================
+# End Automatic Backup Configuration
+# =============================================================================
+
 # Dream-inspired consolidation configuration
 CONSOLIDATION_ENABLED = os.getenv('MCP_CONSOLIDATION_ENABLED', 'false').lower() == 'true'
 

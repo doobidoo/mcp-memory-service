@@ -270,12 +270,16 @@ class BackgroundSyncService:
 
         status = {
             'is_running': self.is_running,
-            'queue_size': queue_size,
+            'is_paused': not self.is_running,
+            'pending_operations': queue_size,
             'failed_operations': len(self.failed_operations),
             'last_sync_time': self.last_sync_time,
             'consecutive_failures': self.consecutive_failures,
             'stats': self.sync_stats.copy(),
+            'operations_processed': self.sync_stats.get('operations_processed', 0),
+            'operations_failed': self.sync_stats.get('operations_failed', 0),
             'cloudflare_available': self.sync_stats['cloudflare_available'],
+            'sync_interval': self.sync_interval,
             'next_sync_in': max(0, self.sync_interval - (time.time() - self.last_sync_time)),
             'capacity': {
                 'vector_count': self.cloudflare_stats['vector_count'],
@@ -1398,6 +1402,68 @@ class HybridMemoryStorage(MemoryStorage):
             }
 
         return await self.sync_service.get_sync_status()
+
+    async def pause_sync(self) -> Dict[str, Any]:
+        """Pause background sync operations for safe database operations."""
+        if not self.sync_service:
+            return {
+                'success': False,
+                'message': 'Sync service not available'
+            }
+
+        try:
+            if not self.sync_service.is_running:
+                return {
+                    'success': True,
+                    'message': 'Sync already paused'
+                }
+
+            # Stop the sync service
+            await self.sync_service.stop()
+            logger.info("Background sync paused")
+
+            return {
+                'success': True,
+                'message': 'Sync paused successfully'
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to pause sync: {e}")
+            return {
+                'success': False,
+                'message': f'Failed to pause sync: {str(e)}'
+            }
+
+    async def resume_sync(self) -> Dict[str, Any]:
+        """Resume background sync operations after pause."""
+        if not self.sync_service:
+            return {
+                'success': False,
+                'message': 'Sync service not available'
+            }
+
+        try:
+            if self.sync_service.is_running:
+                return {
+                    'success': True,
+                    'message': 'Sync already running'
+                }
+
+            # Start the sync service
+            await self.sync_service.start()
+            logger.info("Background sync resumed")
+
+            return {
+                'success': True,
+                'message': 'Sync resumed successfully'
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to resume sync: {e}")
+            return {
+                'success': False,
+                'message': f'Failed to resume sync: {str(e)}'
+            }
 
     def sanitized(self, tags):
         """Sanitize and normalize tags to a JSON string.

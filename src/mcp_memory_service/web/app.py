@@ -54,6 +54,7 @@ from .api.analytics import router as analytics_router
 from .api.documents import router as documents_router
 from .api.mcp import router as mcp_router
 from .api.consolidation import router as consolidation_router
+from .api.backup import router as backup_router
 from .sse import sse_manager
 
 logger = logging.getLogger(__name__)
@@ -263,6 +264,8 @@ def create_app() -> FastAPI:
     logger.info(f"✓ Included events router with {len(events_router.routes)} routes")
     app.include_router(sync_router, prefix="/api", tags=["sync"])
     logger.info(f"✓ Included sync router with {len(sync_router.routes)} routes")
+    app.include_router(backup_router, prefix="/api", tags=["backup"])
+    logger.info(f"✓ Included backup router with {len(backup_router.routes)} routes")
     try:
         app.include_router(documents_router, prefix="/api/documents", tags=["documents"])
         logger.info(f"✓ Included documents router with {len(documents_router.routes)} routes")

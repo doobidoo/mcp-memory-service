@@ -3,6 +3,8 @@
  * Interactive frontend for memory management with real-time updates
  */
 
+console.log('⚡ app.js loading - TOP OF FILE');
+
 class MemoryDashboard {
     // Delay between individual file uploads to avoid overwhelming the server (ms)
     static INDIVIDUAL_UPLOAD_DELAY = 500;
@@ -111,6 +113,7 @@ class MemoryDashboard {
      * Set up event listeners for UI interactions
      */
     setupEventListeners() {
+        console.log('⚡ setupEventListeners() called');
         // Navigation
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', this.handleNavigation);
@@ -701,11 +704,14 @@ class MemoryDashboard {
             });
         });
 
-        // Force sync button
-        const forceSyncButton = document.getElementById('forceSyncButton');
-        if (forceSyncButton) {
-            forceSyncButton.addEventListener('click', () => {
-                this.forceSync();
+        // Sync buttons event listeners are attached in checkSyncStatus()
+        // after buttons are confirmed to be accessible in the DOM
+
+        // Backup now button
+        const backupNowButton = document.getElementById('backupNowButton');
+        if (backupNowButton) {
+            backupNowButton.addEventListener('click', () => {
+                this.createBackup();
             });
         }
 
@@ -1052,69 +1058,249 @@ class MemoryDashboard {
      * Check hybrid backend sync status
      */
     async checkSyncStatus() {
+        // Skip UI updates during force sync to prevent periodic polling from overwriting the syncing state
+        if (this._isForceSyncing) {
+            return;
+        }
+
         try {
             const syncStatus = await this.apiCall('/sync/status');
 
-            // Only show sync bar for hybrid mode
-            const syncBar = document.getElementById('syncStatusBar');
-            if (!syncBar) {
-                console.warn('Sync status bar element not found');
+            // Get compact sync control element
+            const syncControl = document.getElementById('syncControl');
+            if (!syncControl) {
+                console.warn('Sync control element not found');
                 return;
             }
-
-            console.log('Sync status:', syncStatus);
 
             if (!syncStatus.is_hybrid) {
-                console.log('Not hybrid mode, hiding sync bar');
-                syncBar.classList.remove('visible');
+                syncControl.style.display = 'none';
                 return;
             }
 
-            // Show sync bar for hybrid mode
-            console.log('Hybrid mode detected, showing sync bar');
-            syncBar.classList.add('visible');
+            // Show sync control for hybrid mode
+            syncControl.style.display = 'block';
 
-            // Update sync status UI
-            const statusIcon = document.getElementById('syncStatusIcon');
+            // Update sync status UI elements
             const statusText = document.getElementById('syncStatusText');
-            const statusDetails = document.getElementById('syncStatusDetails');
+            const syncProgress = document.getElementById('syncProgress');
+            const pauseButton = document.getElementById('pauseSyncButton');
+            const resumeButton = document.getElementById('resumeSyncButton');
             const syncButton = document.getElementById('forceSyncButton');
 
-            // Determine status and update UI
-            if (syncStatus.status === 'syncing') {
-                statusIcon.textContent = '🔄';
-                statusText.textContent = 'Syncing...';
-                statusDetails.textContent = `${syncStatus.operations_pending} operations pending`;
-                syncBar.className = 'sync-status-bar visible syncing';
-                syncButton.disabled = true;
+            // Update pause/resume button visibility based on running state
+            const isPaused = syncStatus.is_paused || !syncStatus.is_running;
+
+            // Attach event listeners if not already attached
+            if (pauseButton && !pauseButton._listenerAttached) {
+                pauseButton.addEventListener('click', () => {
+                    this.pauseSync();
+                });
+                pauseButton._listenerAttached = true;
+            }
+            if (resumeButton && !resumeButton._listenerAttached) {
+                resumeButton.addEventListener('click', () => {
+                    this.resumeSync();
+                });
+                resumeButton._listenerAttached = true;
+            }
+            if (syncButton && !syncButton._listenerAttached) {
+                syncButton.addEventListener('click', () => {
+                    this.forceSync();
+                });
+                syncButton._listenerAttached = true;
+            }
+
+            if (pauseButton) {
+                pauseButton.style.display = isPaused ? 'none' : 'flex';
+            }
+            if (resumeButton) {
+                resumeButton.style.display = isPaused ? 'flex' : 'none';
+            }
+
+            // Determine status and update UI (dot color is handled by CSS classes)
+            if (isPaused) {
+                statusText.textContent = 'Paused';
+                syncProgress.textContent = '';
+                syncControl.className = 'sync-control-compact paused';
+                if (syncButton) syncButton.disabled = true;
+            } else if (syncStatus.status === 'syncing') {
+                statusText.textContent = 'Syncing';
+                syncProgress.textContent = syncStatus.operations_pending > 0 ? `${syncStatus.operations_pending} pending` : '';
+                syncControl.className = 'sync-control-compact syncing';
+                if (syncButton) syncButton.disabled = true;
             } else if (syncStatus.status === 'pending') {
-                statusIcon.textContent = '⏱️';
-                statusText.textContent = 'Sync Pending';
-                const nextSync = Math.ceil(syncStatus.next_sync_eta_seconds);
-                statusDetails.textContent = `${syncStatus.operations_pending} operations • Next sync in ${nextSync}s`;
-                syncBar.className = 'sync-status-bar visible pending';
-                syncButton.disabled = false;
+                statusText.textContent = 'Pending';
+                syncProgress.textContent = `${syncStatus.operations_pending} ops`;
+                syncControl.className = 'sync-control-compact pending';
+                if (syncButton) syncButton.disabled = false;
             } else if (syncStatus.status === 'error') {
-                statusIcon.textContent = '⚠️';
-                statusText.textContent = 'Sync Error';
-                statusDetails.textContent = `${syncStatus.operations_failed} failed operations`;
-                syncBar.className = 'sync-status-bar visible error';
-                syncButton.disabled = false;
+                statusText.textContent = 'Error';
+                syncProgress.textContent = `${syncStatus.operations_failed} failed`;
+                syncControl.className = 'sync-control-compact error';
+                if (syncButton) syncButton.disabled = false;
             } else {
                 // synced status
-                statusIcon.textContent = '✅';
                 statusText.textContent = 'Synced';
-                const lastSync = Math.floor(syncStatus.time_since_last_sync_seconds);
-                statusDetails.textContent = lastSync > 0 ? `Last sync ${lastSync}s ago` : 'Just now';
-                syncBar.className = 'sync-status-bar visible synced';
-                syncButton.disabled = false;
+                syncProgress.textContent = '';
+                syncControl.className = 'sync-control-compact synced';
+                if (syncButton) syncButton.disabled = false;
             }
 
         } catch (error) {
             console.error('Error checking sync status:', error);
-            // Hide sync bar on error (likely not hybrid mode)
-            const syncBar = document.getElementById('syncStatusBar');
-            if (syncBar) syncBar.style.display = 'none';
+            // Hide sync control on error (likely not hybrid mode)
+            const syncControl = document.getElementById('syncControl');
+            if (syncControl) syncControl.style.display = 'none';
+        }
+    }
+
+    /**
+     * Format time delta in human readable format
+     */
+    formatTimeDelta(seconds) {
+        if (seconds < 60) return `${seconds}s ago`;
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+        return `${Math.floor(seconds / 86400)}d ago`;
+    }
+
+    /**
+     * Pause background sync
+     */
+    async pauseSync() {
+        try {
+            const result = await this.apiCall('/sync/pause', 'POST');
+            if (result.success) {
+                this.showToast('Sync paused', 'success');
+
+                // Update UI immediately using API response data
+                const pauseButton = document.getElementById('pauseSyncButton');
+                const resumeButton = document.getElementById('resumeSyncButton');
+                const statusText = document.getElementById('syncStatusText');
+                const syncControl = document.getElementById('syncControl');
+
+                if (pauseButton) pauseButton.style.display = 'none';
+                if (resumeButton) resumeButton.style.display = 'flex';
+                if (statusText) statusText.textContent = 'Paused';
+                if (syncControl) syncControl.className = 'sync-control-compact paused';
+
+                // Small delay to allow backend state to propagate before checking status
+                await new Promise(resolve => setTimeout(resolve, 200));
+            } else {
+                this.showToast('Failed to pause sync: ' + result.message, 'error');
+            }
+            await this.checkSyncStatus();
+        } catch (error) {
+            console.error('Error pausing sync:', error);
+            this.showToast('Failed to pause sync', 'error');
+        }
+    }
+
+    /**
+     * Resume background sync
+     */
+    async resumeSync() {
+        try {
+            const result = await this.apiCall('/sync/resume', 'POST');
+            if (result.success) {
+                this.showToast('Sync resumed', 'success');
+
+                // Update UI immediately using API response data
+                const pauseButton = document.getElementById('pauseSyncButton');
+                const resumeButton = document.getElementById('resumeSyncButton');
+                const statusText = document.getElementById('syncStatusText');
+                const syncControl = document.getElementById('syncControl');
+
+                if (pauseButton) pauseButton.style.display = 'flex';
+                if (resumeButton) resumeButton.style.display = 'none';
+                if (statusText) statusText.textContent = 'Synced';
+                if (syncControl) syncControl.className = 'sync-control-compact synced';
+
+                // Small delay to allow backend state to propagate before checking status
+                await new Promise(resolve => setTimeout(resolve, 200));
+            } else {
+                this.showToast('Failed to resume sync: ' + result.message, 'error');
+            }
+            await this.checkSyncStatus();
+        } catch (error) {
+            console.error('Error resuming sync:', error);
+            this.showToast('Failed to resume sync', 'error');
+        }
+    }
+
+    /**
+     * Check backup status and update Settings modal
+     */
+    async checkBackupStatus() {
+        try {
+            const backupStatus = await this.apiCall('/backup/status');
+
+            // Update backup elements in Settings modal
+            const lastBackup = document.getElementById('settingsLastBackup');
+            const backupCount = document.getElementById('settingsBackupCount');
+            const nextBackup = document.getElementById('settingsNextBackup');
+
+            if (!backupStatus.enabled) {
+                if (lastBackup) lastBackup.textContent = 'Backups disabled';
+                if (backupCount) backupCount.textContent = '-';
+                if (nextBackup) nextBackup.textContent = '-';
+                return;
+            }
+
+            // Update last backup time
+            if (lastBackup) {
+                if (backupStatus.time_since_last_seconds) {
+                    lastBackup.textContent = this.formatTimeDelta(Math.floor(backupStatus.time_since_last_seconds)) + ' ago';
+                } else {
+                    lastBackup.textContent = 'Never';
+                }
+            }
+
+            // Update backup count with size
+            if (backupCount) {
+                const sizeMB = (backupStatus.total_size_bytes / 1024 / 1024).toFixed(1);
+                backupCount.textContent = `${backupStatus.backup_count} (${sizeMB} MB)`;
+            }
+
+            // Update next scheduled backup
+            if (nextBackup && backupStatus.next_backup_at) {
+                const nextDate = new Date(backupStatus.next_backup_at);
+                nextBackup.textContent = nextDate.toLocaleString();
+            } else if (nextBackup) {
+                nextBackup.textContent = backupStatus.scheduler_running ? 'Scheduled' : 'Not scheduled';
+            }
+
+        } catch (error) {
+            console.error('Error checking backup status:', error);
+        }
+    }
+
+    /**
+     * Create a backup manually
+     */
+    async createBackup() {
+        const backupButton = document.getElementById('backupNowButton');
+        if (backupButton) backupButton.disabled = true;
+
+        try {
+            this.showToast('Creating backup...', 'info');
+            const result = await this.apiCall('/backup/now', 'POST');
+
+            if (result.success) {
+                const sizeMB = (result.size_bytes / 1024 / 1024).toFixed(2);
+                this.showToast(`Backup created: ${result.filename} (${sizeMB} MB)`, 'success');
+            } else {
+                this.showToast('Backup failed: ' + result.error, 'error');
+            }
+
+            await this.checkBackupStatus();
+
+        } catch (error) {
+            console.error('Error creating backup:', error);
+            this.showToast('Failed to create backup', 'error');
+        } finally {
+            if (backupButton) backupButton.disabled = false;
         }
     }
 
@@ -1136,9 +1322,28 @@ class MemoryDashboard {
         const originalText = syncButton.innerHTML;
 
         try {
-            // Disable button and show loading state
+            // Check if sync was paused before force sync
+            const statusBefore = await this.apiCall('/sync/status');
+            const wasPaused = statusBefore.is_paused;
+
+            // Set flag to prevent periodic polling from overwriting UI during force sync
+            this._isForceSyncing = true;
+
+            // Disable button and show loading state (just egg timer, no text - widget shows "Syncing")
             syncButton.disabled = true;
-            syncButton.innerHTML = '<span class="sync-button-icon">⏳</span><span class="sync-button-text">Syncing...</span>';
+            syncButton.innerHTML = '<span class="sync-button-icon">⏳</span>';
+
+            // IMMEDIATELY update sync control widget to show syncing state
+            const statusText = document.getElementById('syncStatusText');
+            const syncProgress = document.getElementById('syncProgress');
+            const syncControl = document.getElementById('syncControl');
+
+            if (statusText) statusText.textContent = 'Syncing';
+            if (syncProgress) syncProgress.textContent = statusBefore.operations_pending > 0 ? `${statusBefore.operations_pending} pending` : '';
+            if (syncControl) syncControl.className = 'sync-control-compact syncing';
+
+            // Show toast when sync starts
+            this.showToast('Starting sync...', 'info');
 
             const result = await this.apiCall('/sync/force', 'POST');
 
@@ -1149,6 +1354,11 @@ class MemoryDashboard {
                 if (this.currentView === 'dashboard') {
                     await this.loadDashboardData();
                 }
+
+                // If sync was paused before, pause it again after force sync
+                if (wasPaused) {
+                    await this.apiCall('/sync/pause', 'POST');
+                }
             } else {
                 this.showToast('Sync failed: ' + result.message, 'error');
             }
@@ -1157,6 +1367,9 @@ class MemoryDashboard {
             console.error('Error forcing sync:', error);
             this.showToast('Failed to force sync: ' + error.message, 'error');
         } finally {
+            // Clear flag to allow periodic polling to resume
+            this._isForceSyncing = false;
+
             // Re-enable button
             syncButton.disabled = false;
             syncButton.innerHTML = originalText;
@@ -2972,8 +3185,11 @@ class MemoryDashboard {
         // Reset system info to loading state
         this.resetSystemInfoLoadingState();
 
-        // Load system information
-        await this.loadSystemInfo();
+        // Load system information and backup status
+        await Promise.all([
+            this.loadSystemInfo(),
+            this.checkBackupStatus()
+        ]);
 
         this.openModal(modal);
     }
@@ -3889,8 +4105,11 @@ This action cannot be undone. Are you sure?`);
 }
 
 // Initialize the application when DOM is ready
+console.log('⚡ Registering DOMContentLoaded listener');
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('⚡ DOMContentLoaded fired - Creating MemoryDashboard instance');
     window.app = new MemoryDashboard();
+    console.log('⚡ MemoryDashboard created, window.app =', window.app);
 });
 
 // Cleanup on page unload
