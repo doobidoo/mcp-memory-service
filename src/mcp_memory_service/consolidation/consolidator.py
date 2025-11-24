@@ -280,7 +280,7 @@ class DreamInspiredConsolidator:
         With incremental mode enabled, returns oldest-first batch of memories
         that haven't been recently consolidated.
         """
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         # Validate time horizon
         if time_horizon not in HORIZON_CONFIGS:

@@ -266,25 +266,23 @@ def detect_system():
     }
 
 # GPU platform detection configurations
+CUDA_VERSION_PARSER = lambda output: next(
+    (line.split('release')[-1].strip().split(',')[0].strip()
+     for line in output.split('\n') if 'release' in line),
+    None
+)
+
 GPU_PLATFORM_CHECKS = {
     'cuda': {
         'windows': {
             'env_var': 'CUDA_PATH',
             'version_cmd': lambda path: [os.path.join(path, 'bin', 'nvcc'), '--version'],
-            'version_parser': lambda output: next(
-                (line.split('release')[-1].strip().split(',')[0].strip()
-                 for line in output.split('\n') if 'release' in line),
-                None
-            )
+            'version_parser': CUDA_VERSION_PARSER
         },
         'linux': {
             'paths': ['/usr/local/cuda', lambda: os.environ.get('CUDA_HOME')],
             'version_cmd': lambda path: [os.path.join(path, 'bin', 'nvcc'), '--version'],
-            'version_parser': lambda output: next(
-                (line.split('release')[-1].strip().split(',')[0].strip()
-                 for line in output.split('\n') if 'release' in line),
-                None
-            )
+            'version_parser': CUDA_VERSION_PARSER
         }
     },
     'rocm': {

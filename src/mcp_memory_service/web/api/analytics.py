@@ -564,8 +564,8 @@ async def get_tag_usage_analytics(
         total_memories = stats.get("total_memories", 0)
 
         if total_memories == 0:
-            # Fallback: calculate from all tag data
-            total_memories = sum(tag["count"] for tag in tag_data)
+            # Fallback: count all memories directly for an accurate total.
+            total_memories = await storage.count_all_memories()
 
         # Sort by count and limit
         tag_data.sort(key=lambda x: x["count"], reverse=True)
