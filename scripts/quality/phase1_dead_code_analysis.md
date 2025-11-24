@@ -38,7 +38,7 @@ All 27 dead code issues stem from a **single premature return statement** in the
 
 ### Issue 1: Unreachable Claude Desktop Configuration Block
 
-**File:** `/Users/hkr/Documents/GitHub/mcp-memory-service/scripts/installation/install.py`
+**File:** `scripts/installation/install.py`
 **Function:** `configure_paths`
 **Lines:** 1360-1436 (77 lines)
 **Type:** Unreachable code after return statement

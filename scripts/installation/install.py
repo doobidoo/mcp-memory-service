@@ -1335,8 +1335,11 @@ def setup_storage_directories(backend: str, base_dir: Path, args) -> Tuple[Path,
         print_info(f"Backups path: {backups_path}")
         return storage_path, backups_path, True
 
-    except Exception as e:
+    except (OSError, IOError, PermissionError) as e:
         print_error(f"Failed to configure storage paths: {e}")
+        return storage_path, backups_path, False
+    except Exception as e:
+        print_error(f"Unexpected error configuring storage paths: {e}")
         return storage_path, backups_path, False
 
 

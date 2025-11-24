@@ -28,7 +28,7 @@
 
 ### Option 1: Interactive Script (Recommended)
 ```bash
-cd /Users/hkr/Documents/GitHub/mcp-memory-service
+# Run from project root directory
 bash scripts/quality/fix_dead_code_install.sh
 ```
 
