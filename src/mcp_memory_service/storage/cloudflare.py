@@ -33,6 +33,83 @@ from ..config import CLOUDFLARE_MAX_CONTENT_LENGTH
 
 logger = logging.getLogger(__name__)
 
+
+def normalize_tags_for_search(tags: List[str]) -> List[str]:
+    """Deduplicate and filter empty tag strings.
+
+    Args:
+        tags: List of tag strings (may contain duplicates or empty strings)
+
+    Returns:
+        Deduplicated list of non-empty tags
+    """
+    return list(dict.fromkeys([tag for tag in tags if tag]))
+
+
+def normalize_operation(operation: Optional[str]) -> str:
+    """Normalize tag search operation to AND or OR.
+
+    Args:
+        operation: Raw operation string (case-insensitive)
+
+    Returns:
+        Normalized operation: "AND" or "OR"
+    """
+    if isinstance(operation, str):
+        normalized = operation.strip().upper() or "AND"
+    else:
+        normalized = "AND"
+
+    if normalized not in {"AND", "OR"}:
+        logger.warning(f"Unsupported operation '{operation}'; defaulting to AND")
+        normalized = "AND"
+
+    return normalized
+
+
+def build_tag_search_query(tags: List[str], operation: str,
+                          time_start: Optional[float] = None,
+                          time_end: Optional[float] = None) -> Tuple[str, List[Any]]:
+    """Build SQL query for tag-based search with time filtering.
+
+    Args:
+        tags: List of deduplicated tags
+        operation: Search operation ("AND" or "OR")
+        time_start: Optional start timestamp filter
+        time_end: Optional end timestamp filter
+
+    Returns:
+        Tuple of (sql_query, parameters_list)
+    """
+    placeholders = ",".join(["?"] * len(tags))
+    params: List[Any] = list(tags)
+
+    sql = (
+        "SELECT m.* FROM memories m "
+        "JOIN memory_tags mt ON m.id = mt.memory_id "
+        "JOIN tags t ON mt.tag_id = t.id "
+        f"WHERE t.name IN ({placeholders})"
+    )
+
+    if time_start is not None:
+        sql += " AND m.created_at >= ?"
+        params.append(time_start)
+
+    if time_end is not None:
+        sql += " AND m.created_at <= ?"
+        params.append(time_end)
+
+    sql += " GROUP BY m.id"
+
+    if operation == "AND":
+        sql += " HAVING COUNT(DISTINCT t.name) = ?"
+        params.append(len(tags))
+
+    sql += " ORDER BY m.created_at DESC"
+
+    return sql, params
+
+
 class CloudflareStorage(MemoryStorage):
     """Cloudflare-based storage backend using Vectorize, D1, and R2."""
 
@@ -592,47 +669,13 @@ class CloudflareStorage(MemoryStorage):
             if not tags:
                 return []
 
-            # Normalize tags (deduplicate, drop empty strings)
-            deduped_tags = list(dict.fromkeys([tag for tag in tags if tag]))
+            deduped_tags = normalize_tags_for_search(tags)
             if not deduped_tags:
                 return []
 
-            if isinstance(operation, str):
-                normalized_operation = operation.strip().upper() or "AND"
-            else:
-                normalized_operation = "AND"
-
-            if normalized_operation not in {"AND", "OR"}:
-                logger.warning(
-                    "Unsupported tag search operation '%s'; defaulting to AND",
-                    operation
-                )
-                normalized_operation = "AND"
-
-            placeholders = ",".join(["?"] * len(deduped_tags))
-            params: List[Any] = list(deduped_tags)
-
-            sql = (
-                "SELECT m.* FROM memories m "
-                "JOIN memory_tags mt ON m.id = mt.memory_id "
-                "JOIN tags t ON mt.tag_id = t.id "
-                f"WHERE t.name IN ({placeholders})"
-            )
-
-            if time_start is not None:
-                sql += " AND m.created_at >= ?"
-                params.append(time_start)
-            if time_end is not None:
-                sql += " AND m.created_at <= ?"
-                params.append(time_end)
-
-            sql += " GROUP BY m.id"
-
-            if normalized_operation == "AND":
-                sql += " HAVING COUNT(DISTINCT t.name) = ?"
-                params.append(len(deduped_tags))
-
-            sql += " ORDER BY m.created_at DESC"
+            normalized_operation = normalize_operation(operation)
+            sql, params = build_tag_search_query(deduped_tags, normalized_operation,
+                                                time_start, time_end)
 
             payload = {"sql": sql, "params": params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
