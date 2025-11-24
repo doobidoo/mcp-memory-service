@@ -1152,6 +1152,36 @@ class CloudflareStorage(MemoryStorage):
             logger.error(f"Failed to get largest memories: {e}")
             return []
 
+    async def _fetch_d1_timestamps(self, cutoff_timestamp: Optional[float] = None) -> List[float]:
+        """Fetch timestamps from D1 database with optional time filter.
+
+        Args:
+            cutoff_timestamp: Optional Unix timestamp to filter memories (>=)
+
+        Returns:
+            List of Unix timestamps (float) in descending order
+
+        Raises:
+            Exception: If D1 query fails
+        """
+        if cutoff_timestamp is not None:
+            sql = "SELECT created_at FROM memories WHERE created_at >= ? ORDER BY created_at DESC"
+            payload = {"sql": sql, "params": [cutoff_timestamp]}
+        else:
+            sql = "SELECT created_at FROM memories ORDER BY created_at DESC"
+            payload = {"sql": sql, "params": []}
+
+        response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+        result = response.json()
+
+        timestamps = []
+        if result.get("success") and result.get("result", [{}])[0].get("results"):
+            for row in result["result"][0]["results"]:
+                if row.get("created_at") is not None:
+                    timestamps.append(float(row["created_at"]))
+
+        return timestamps
+
     async def get_memory_timestamps(self, days: Optional[int] = None) -> List[float]:
         """
         Get memory creation timestamps only, without loading full memory objects.
@@ -1166,25 +1196,12 @@ class CloudflareStorage(MemoryStorage):
             List of Unix timestamps (float) in descending order (newest first)
         """
         try:
+            cutoff_timestamp = None
             if days is not None:
                 cutoff = datetime.now(timezone.utc) - timedelta(days=days)
                 cutoff_timestamp = cutoff.timestamp()
 
-                sql = "SELECT created_at FROM memories WHERE created_at >= ? ORDER BY created_at DESC"
-                payload = {"sql": sql, "params": [cutoff_timestamp]}
-            else:
-                sql = "SELECT created_at FROM memories ORDER BY created_at DESC"
-                payload = {"sql": sql, "params": []}
-
-            response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
-            result = response.json()
-
-            timestamps = []
-            if result.get("success") and result.get("result", [{}])[0].get("results"):
-                for row in result["result"][0]["results"]:
-                    if row.get("created_at") is not None:
-                        timestamps.append(float(row["created_at"]))
-
+            timestamps = await self._fetch_d1_timestamps(cutoff_timestamp)
             logger.info(f"Retrieved {len(timestamps)} memory timestamps")
             return timestamps
 

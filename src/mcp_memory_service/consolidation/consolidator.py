@@ -39,32 +39,107 @@ class StorageProtocol(Protocol):
     async def get_memory_connections(self) -> Dict[str, int]: ...
     async def get_access_patterns(self) -> Dict[str, datetime]: ...
 
+
+class SyncPauseContext:
+    """Context manager for pausing/resuming hybrid backend sync."""
+
+    def __init__(self, storage, logger):
+        self.storage = storage
+        self.logger = logger
+        self.is_hybrid = hasattr(storage, 'pause_sync') and hasattr(storage, 'resume_sync')
+        self.sync_paused = False
+
+    async def __aenter__(self):
+        if self.is_hybrid:
+            self.logger.info("Pausing hybrid backend sync during consolidation")
+            await self.storage.pause_sync()
+            self.sync_paused = True
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.sync_paused:
+            try:
+                self.logger.info("Resuming hybrid backend sync after consolidation")
+                await self.storage.resume_sync()
+            except Exception as e:
+                self.logger.error(f"Failed to resume sync: {e}")
+
+
+def check_horizon_requirements(time_horizon: str, phase_name: str,
+                               enabled_phases: Dict[str, List[str]]) -> bool:
+    """Check if a consolidation phase should run for the given horizon.
+
+    Args:
+        time_horizon: Current time horizon (daily, weekly, etc.)
+        phase_name: Phase identifier (clustering, associations, etc.)
+        enabled_phases: Dict mapping phase names to applicable horizons
+
+    Returns:
+        bool: True if phase should run
+    """
+    applicable_horizons = enabled_phases.get(phase_name, [])
+    return time_horizon in applicable_horizons
+
+
+# Horizon configuration
+HORIZON_CONFIGS = {
+    'daily': {'delta': timedelta(days=1), 'cutoff_days': 2},
+    'weekly': {'delta': timedelta(days=7), 'cutoff_days': None},
+    'monthly': {'delta': timedelta(days=30), 'cutoff_days': None},
+    'quarterly': {'delta': timedelta(days=90), 'cutoff_days': 90},
+    'yearly': {'delta': timedelta(days=365), 'cutoff_days': 365}
+}
+
+
+def filter_memories_by_age(memories: List[Memory], cutoff_date: datetime) -> List[Memory]:
+    """Filter memories created before the cutoff date.
+
+    Args:
+        memories: List of Memory objects
+        cutoff_date: Only keep memories older than this
+
+    Returns:
+        Filtered list of memories
+    """
+    return [
+        m for m in memories
+        if m.created_at and datetime.utcfromtimestamp(m.created_at) < cutoff_date
+    ]
+
 class DreamInspiredConsolidator:
     """
     Main consolidation engine with biologically-inspired processing.
-    
+
     Orchestrates the full consolidation pipeline including:
     - Exponential decay scoring
     - Creative association discovery
     - Semantic clustering and compression
     - Controlled forgetting with archival
     """
-    
+
+    # Phase enablement configuration
+    ENABLED_PHASES = {
+        'clustering': ['weekly', 'monthly', 'quarterly'],
+        'associations': ['weekly', 'monthly'],
+        'compression': ['weekly', 'monthly', 'quarterly'],
+        'forgetting': ['monthly', 'quarterly', 'yearly']
+    }
+
     def __init__(self, storage: StorageProtocol, config: ConsolidationConfig):
         self.storage = storage
         self.config = config
         self.logger = logging.getLogger(__name__)
-        
+
         # Initialize component engines
         self.decay_calculator = ExponentialDecayCalculator(config)
         self.association_engine = CreativeAssociationEngine(config)
         self.clustering_engine = SemanticClusteringEngine(config)
         self.compression_engine = SemanticCompressionEngine(config)
         self.forgetting_engine = ControlledForgettingEngine(config)
-        
+
         # Initialize health monitoring
         self.health_monitor = ConsolidationHealthMonitor(config)
-        
+
         # Performance tracking
         self.last_consolidation_times = {}
         self.consolidation_stats = {
@@ -96,100 +171,98 @@ class DreamInspiredConsolidator:
             memories_processed=0
         )
 
-        # Check if hybrid backend and pause sync during consolidation
-        sync_was_paused = False
-        is_hybrid = hasattr(self.storage, 'pause_sync') and hasattr(self.storage, 'resume_sync')
-
         try:
             self.logger.info(f"Starting {time_horizon} consolidation - this may take several minutes depending on memory count...")
 
-            # Pause hybrid sync to eliminate bottleneck during metadata updates
-            if is_hybrid:
-                self.logger.info("Pausing hybrid backend sync during consolidation")
-                await self.storage.pause_sync()
-                sync_was_paused = True
-            
-            # 1. Retrieve memories for processing
-            memories = await self._get_memories_for_horizon(time_horizon, **kwargs)
-            report.memories_processed = len(memories)
-            
-            if not memories:
-                self.logger.info(f"No memories to process for {time_horizon} consolidation")
+            # Use context manager for sync pause/resume
+            async with SyncPauseContext(self.storage, self.logger):
+                # 1. Retrieve memories for processing
+                memories = await self._get_memories_for_horizon(time_horizon, **kwargs)
+                report.memories_processed = len(memories)
+
+                if not memories:
+                    self.logger.info(f"No memories to process for {time_horizon} consolidation")
+                    return self._finalize_report(report, [])
+
+                self.logger.info(f"✓ Found {len(memories)} memories to process")
+
+                # 2. Calculate/update relevance scores
+                self.logger.info(f"📊 Phase 1/6: Calculating relevance scores for {len(memories)} memories...")
+                performance_start = time.time()
+                relevance_scores = await self._update_relevance_scores(memories, time_horizon)
+                self.logger.info(f"✓ Relevance scoring completed in {time.time() - performance_start:.1f}s")
+
+                # 3. Cluster by semantic similarity (if enabled and appropriate)
+                clusters = []
+                if self.config.clustering_enabled and check_horizon_requirements(
+                    time_horizon, 'clustering', self.ENABLED_PHASES
+                ):
+                    self.logger.info(f"🔗 Phase 2/6: Clustering memories by semantic similarity...")
+                    performance_start = time.time()
+                    clusters = await self.clustering_engine.process(memories)
+                    report.clusters_created = len(clusters)
+                    self.logger.info(f"✓ Clustering completed in {time.time() - performance_start:.1f}s, created {len(clusters)} clusters")
+
+                # 4. Run creative associations (if enabled and appropriate)
+                associations = []
+                if self.config.associations_enabled and check_horizon_requirements(
+                    time_horizon, 'associations', self.ENABLED_PHASES
+                ):
+                    self.logger.info(f"🧠 Phase 3/6: Discovering creative associations...")
+                    performance_start = time.time()
+                    existing_associations = await self._get_existing_associations()
+                    associations = await self.association_engine.process(
+                        memories, existing_associations=existing_associations
+                    )
+                    report.associations_discovered = len(associations)
+                    self.logger.info(f"✓ Association discovery completed in {time.time() - performance_start:.1f}s, found {len(associations)} associations")
+
+                    # Store new associations as memories
+                    await self._store_associations_as_memories(associations)
+
+                # 5. Compress clusters (if enabled and clusters exist)
+                compression_results = []
+                if self.config.compression_enabled and clusters and check_horizon_requirements(
+                    time_horizon, 'compression', self.ENABLED_PHASES
+                ):
+                    self.logger.info(f"🗜️ Phase 4/6: Compressing memory clusters...")
+                    performance_start = time.time()
+                    compression_results = await self.compression_engine.process(clusters, memories)
+                    report.memories_compressed = len(compression_results)
+                    self.logger.info(f"✓ Compression completed in {time.time() - performance_start:.1f}s, compressed {len(compression_results)} clusters")
+
+                    # Store compressed memories and update originals
+                    await self._handle_compression_results(compression_results)
+
+                # 6. Controlled forgetting (if enabled and appropriate)
+                forgetting_results = []
+                if self.config.forgetting_enabled and check_horizon_requirements(
+                    time_horizon, 'forgetting', self.ENABLED_PHASES
+                ):
+                    self.logger.info(f"🗂️ Phase 5/6: Applying controlled forgetting...")
+                    performance_start = time.time()
+                    access_patterns = await self._get_access_patterns()
+                    forgetting_results = await self.forgetting_engine.process(
+                        memories, relevance_scores,
+                        access_patterns=access_patterns,
+                        time_horizon=time_horizon
+                    )
+                    report.memories_archived = len([r for r in forgetting_results if r.action_taken in ['archived', 'deleted']])
+                    self.logger.info(f"✓ Forgetting completed in {time.time() - performance_start:.1f}s, processed {len(forgetting_results)} candidates")
+
+                    # Apply forgetting results to storage
+                    await self._apply_forgetting_results(forgetting_results)
+
+                # 7. Update consolidation statistics
+                self._update_consolidation_stats(report)
+
+                # 8. Track consolidation timestamp for incremental mode
+                if self.config.incremental_mode:
+                    await self._update_consolidation_timestamps(memories)
+
+                # 9. Finalize report
                 return self._finalize_report(report, [])
 
-            self.logger.info(f"✓ Found {len(memories)} memories to process")
-            
-            self.logger.info(f"Processing {len(memories)} memories for {time_horizon} consolidation")
-            
-            # 2. Calculate/update relevance scores
-            self.logger.info(f"📊 Phase 1/6: Calculating relevance scores for {len(memories)} memories...")
-            performance_start = time.time()
-            relevance_scores = await self._update_relevance_scores(memories, time_horizon)
-            self.logger.info(f"✓ Relevance scoring completed in {time.time() - performance_start:.1f}s")
-            
-            # 3. Cluster by semantic similarity (if enabled and appropriate)
-            clusters = []
-            if self.config.clustering_enabled and time_horizon in ['weekly', 'monthly', 'quarterly']:
-                self.logger.info(f"🔗 Phase 2/6: Clustering memories by semantic similarity...")
-                performance_start = time.time()
-                clusters = await self.clustering_engine.process(memories)
-                report.clusters_created = len(clusters)
-                self.logger.info(f"✓ Clustering completed in {time.time() - performance_start:.1f}s, created {len(clusters)} clusters")
-            
-            # 4. Run creative associations (if enabled and appropriate)
-            associations = []
-            if self.config.associations_enabled and time_horizon in ['weekly', 'monthly']:
-                self.logger.info(f"🧠 Phase 3/6: Discovering creative associations...")
-                performance_start = time.time()
-                existing_associations = await self._get_existing_associations()
-                associations = await self.association_engine.process(
-                    memories, existing_associations=existing_associations
-                )
-                report.associations_discovered = len(associations)
-                self.logger.info(f"✓ Association discovery completed in {time.time() - performance_start:.1f}s, found {len(associations)} associations")
-
-                # Store new associations as memories
-                await self._store_associations_as_memories(associations)
-            
-            # 5. Compress clusters (if enabled and clusters exist)
-            compression_results = []
-            if self.config.compression_enabled and clusters:
-                self.logger.info(f"🗜️ Phase 4/6: Compressing memory clusters...")
-                performance_start = time.time()
-                compression_results = await self.compression_engine.process(clusters, memories)
-                report.memories_compressed = len(compression_results)
-                self.logger.info(f"✓ Compression completed in {time.time() - performance_start:.1f}s, compressed {len(compression_results)} clusters")
-
-                # Store compressed memories and update originals
-                await self._handle_compression_results(compression_results)
-            
-            # 6. Controlled forgetting (if enabled and appropriate)
-            forgetting_results = []
-            if self.config.forgetting_enabled and time_horizon in ['monthly', 'quarterly', 'yearly']:
-                self.logger.info(f"🗂️ Phase 5/6: Applying controlled forgetting...")
-                performance_start = time.time()
-                access_patterns = await self._get_access_patterns()
-                forgetting_results = await self.forgetting_engine.process(
-                    memories, relevance_scores,
-                    access_patterns=access_patterns,
-                    time_horizon=time_horizon
-                )
-                report.memories_archived = len([r for r in forgetting_results if r.action_taken in ['archived', 'deleted']])
-                self.logger.info(f"✓ Forgetting completed in {time.time() - performance_start:.1f}s, processed {len(forgetting_results)} candidates")
-
-                # Apply forgetting results to storage
-                await self._apply_forgetting_results(forgetting_results)
-            
-            # 7. Update consolidation statistics
-            self._update_consolidation_stats(report)
-
-            # 8. Track consolidation timestamp for incremental mode
-            if self.config.incremental_mode:
-                await self._update_consolidation_timestamps(memories)
-
-            # 9. Finalize report
-            return self._finalize_report(report, [])
-            
         except ConsolidationError as e:
             # Re-raise configuration and validation errors
             self.logger.error(f"Configuration error during {time_horizon} consolidation: {e}")
@@ -200,14 +273,6 @@ class DreamInspiredConsolidator:
             self.health_monitor.record_error('consolidator', e, {'time_horizon': time_horizon})
             report.errors.append(str(e))
             return self._finalize_report(report, [str(e)])
-        finally:
-            # Resume hybrid sync after consolidation
-            if sync_was_paused:
-                try:
-                    self.logger.info("Resuming hybrid backend sync after consolidation")
-                    await self.storage.resume_sync()
-                except Exception as e:
-                    self.logger.error(f"Failed to resume sync after consolidation: {e}")
     
     async def _get_memories_for_horizon(self, time_horizon: str, **kwargs) -> List[Memory]:
         """Get memories appropriate for the given time horizon.
@@ -217,21 +282,16 @@ class DreamInspiredConsolidator:
         """
         now = datetime.now()
 
-        # Define time ranges for different horizons
-        time_ranges = {
-            'daily': timedelta(days=1),
-            'weekly': timedelta(days=7),
-            'monthly': timedelta(days=30),
-            'quarterly': timedelta(days=90),
-            'yearly': timedelta(days=365)
-        }
-
-        if time_horizon not in time_ranges:
+        # Validate time horizon
+        if time_horizon not in HORIZON_CONFIGS:
             raise ConsolidationError(f"Unknown time horizon: {time_horizon}")
+
+        config = HORIZON_CONFIGS[time_horizon]
 
         # For daily processing, get recent memories (no change - already efficient)
         if time_horizon == 'daily':
-            start_time = (now - timedelta(days=2)).timestamp()
+            cutoff_days = config.get('cutoff_days', 2)
+            start_time = (now - timedelta(days=cutoff_days)).timestamp()
             end_time = now.timestamp()
             memories = await self.storage.get_memories_by_time_range(start_time, end_time)
         else:
@@ -239,12 +299,10 @@ class DreamInspiredConsolidator:
             memories = await self.storage.get_all_memories()
 
             # Filter by relevance to time horizon (quarterly/yearly still focus on old memories)
-            if time_horizon in ['quarterly', 'yearly']:
-                cutoff_date = now - time_ranges[time_horizon]
-                memories = [
-                    m for m in memories
-                    if m.created_at and datetime.utcfromtimestamp(m.created_at) < cutoff_date
-                ]
+            cutoff_days = config.get('cutoff_days')
+            if cutoff_days is not None:
+                cutoff_date = now - timedelta(days=cutoff_days)
+                memories = filter_memories_by_age(memories, cutoff_date)
 
             # Incremental mode: Sort oldest-first and batch
             if self.config.incremental_mode:

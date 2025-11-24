@@ -44,6 +44,148 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+# Helper functions for analytics endpoints
+async def fetch_storage_stats(storage: MemoryStorage) -> Dict[str, Any]:
+    """Fetch storage statistics from the storage backend.
+
+    Args:
+        storage: MemoryStorage backend instance
+
+    Returns:
+        Dict containing storage stats, or empty dict if unavailable
+    """
+    if hasattr(storage, 'get_stats'):
+        try:
+            return await storage.get_stats()
+        except Exception as e:
+            logger.warning(f"Failed to retrieve storage stats: {e}")
+            return {}
+    return {}
+
+
+def calculate_tag_statistics(tag_data: List[Dict[str, Any]], total_memories: int) -> List[TagUsageStats]:
+    """Calculate tag usage statistics with percentages.
+
+    Args:
+        tag_data: List of dicts with 'tag' and 'count' keys
+        total_memories: Total number of memories for percentage calculation
+
+    Returns:
+        List of TagUsageStats objects
+    """
+    tags = []
+    for tag_item in tag_data:
+        percentage = (tag_item["count"] / total_memories * 100) if total_memories > 0 else 0
+        tags.append(TagUsageStats(
+            tag=tag_item["tag"],
+            count=tag_item["count"],
+            percentage=round(percentage, 1),
+            growth_rate=None  # Would need historical data to calculate
+        ))
+    return tags
+
+
+def calculate_activity_time_ranges(timestamps: List[float], granularity: str) -> Tuple[List[ActivityBreakdown], set, List]:
+    """Calculate activity breakdown by time range (hourly, daily, weekly).
+
+    Args:
+        timestamps: List of Unix timestamps
+        granularity: One of 'hourly', 'daily', 'weekly'
+
+    Returns:
+        Tuple of (breakdown_list, active_days_set, activity_dates_list)
+    """
+    breakdown = []
+    active_days = set()
+    activity_dates = []
+
+    if granularity == "hourly":
+        hour_counts = defaultdict(int)
+        for timestamp in timestamps:
+            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            hour_counts[dt.hour] += 1
+            active_days.add(dt.date())
+            activity_dates.append(dt.date())
+
+        for hour in range(24):
+            count = hour_counts.get(hour, 0)
+            label = f"{hour:02d}:00"
+            breakdown.append(ActivityBreakdown(
+                period="hourly",
+                count=count,
+                label=label
+            ))
+
+    elif granularity == "daily":
+        day_counts = defaultdict(int)
+        day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+        for timestamp in timestamps:
+            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            day_counts[dt.weekday()] += 1
+            active_days.add(dt.date())
+            activity_dates.append(dt.date())
+
+        for i, day_name in enumerate(day_names):
+            count = day_counts.get(i, 0)
+            breakdown.append(ActivityBreakdown(
+                period="daily",
+                count=count,
+                label=day_name
+            ))
+
+    else:  # weekly
+        week_counts = defaultdict(int)
+        for timestamp in timestamps:
+            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            # Get ISO week number with year
+            year, week_num, _ = dt.isocalendar()
+            week_key = f"{year}-W{week_num:02d}"
+            week_counts[week_key] += 1
+            active_days.add(dt.date())
+            activity_dates.append(dt.date())
+
+        # Last 12 weeks
+        now = datetime.now(timezone.utc)
+        for i in range(12):
+            # Calculate target date
+            target_date = now - timedelta(weeks=(11 - i))
+            year, week_num, _ = target_date.isocalendar()
+            week_key = f"{year}-W{week_num:02d}"
+            count = week_counts.get(week_key, 0)
+            breakdown.append(ActivityBreakdown(
+                period="weekly",
+                count=count,
+                label=f"Week {week_num} ({year})"
+            ))
+
+    return breakdown, active_days, activity_dates
+
+
+def aggregate_type_statistics(type_counts: Dict[str, int], total_memories: int) -> List[MemoryTypeDistribution]:
+    """Aggregate memory type statistics with percentages.
+
+    Args:
+        type_counts: Dict mapping memory types to counts
+        total_memories: Total number of memories
+
+    Returns:
+        List of MemoryTypeDistribution objects, sorted by count descending
+    """
+    types = []
+    for mem_type, count in type_counts.items():
+        percentage = (count / total_memories * 100) if total_memories > 0 else 0
+        types.append(MemoryTypeDistribution(
+            memory_type=mem_type,
+            count=count,
+            percentage=round(percentage, 1)
+        ))
+
+    # Sort by count
+    types.sort(key=lambda x: x.count, reverse=True)
+    return types
+
+
 # Period Configuration for Analytics
 class PeriodType(str, Enum):
     """Valid time period types for analytics."""
@@ -422,37 +564,19 @@ async def get_tag_usage_analytics(
             raise HTTPException(status_code=501, detail="Tag analytics not supported by storage backend")
 
         # Get total memories for accurate percentage calculation
-        if hasattr(storage, 'get_stats'):
-            try:
-                stats = await storage.get_stats()
-                total_memories = stats.get("total_memories", 0)
-            except Exception as e:
-                logger.warning(f"Failed to retrieve storage stats: {e}")
-                stats = {}
-                total_memories = 0
-        else:
-            total_memories = 0
+        stats = await fetch_storage_stats(storage)
+        total_memories = stats.get("total_memories", 0)
 
         if total_memories == 0:
             # Fallback: calculate from all tag data
-            all_tags = tag_data.copy()
-            total_memories = sum(tag["count"] for tag in all_tags)
+            total_memories = sum(tag["count"] for tag in tag_data)
 
         # Sort by count and limit
         tag_data.sort(key=lambda x: x["count"], reverse=True)
         tag_data = tag_data[:limit]
 
-        # Convert to response format
-        tags = []
-        for tag_item in tag_data:
-            percentage = (tag_item["count"] / total_memories * 100) if total_memories > 0 else 0
-
-            tags.append(TagUsageStats(
-                tag=tag_item["tag"],
-                count=tag_item["count"],
-                percentage=round(percentage, 1),
-                growth_rate=None  # Would need historical data to calculate
-            ))
+        # Convert to response format using helper
+        tags = calculate_tag_statistics(tag_data, total_memories)
 
         return TagUsageData(
             tags=tags,
@@ -532,18 +656,8 @@ async def get_memory_type_distribution(
 
             total_memories = len(memories)
 
-        # Convert to response format
-        types = []
-        for mem_type, count in type_counts.items():
-            percentage = (count / total_memories * 100) if total_memories > 0 else 0
-            types.append(MemoryTypeDistribution(
-                memory_type=mem_type,
-                count=count,
-                percentage=round(percentage, 1)
-            ))
-
-        # Sort by count
-        types.sort(key=lambda x: x.count, reverse=True)
+        # Convert to response format using helper
+        types = aggregate_type_statistics(type_counts, total_memories)
 
         return MemoryTypeData(
             types=types,
@@ -766,70 +880,8 @@ async def get_activity_breakdown(
         # Get last 90 days of timestamps (adequate for all granularity levels)
         timestamps = await storage.get_memory_timestamps(days=90)
 
-        # Group by granularity
-        breakdown = []
-        active_days = set()
-        activity_dates = []
-
-        if granularity == "hourly":
-            hour_counts = defaultdict(int)
-            for timestamp in timestamps:
-                dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
-                hour_counts[dt.hour] += 1
-                active_days.add(dt.date())
-                activity_dates.append(dt.date())
-
-            for hour in range(24):
-                count = hour_counts.get(hour, 0)
-                label = f"{hour:02d}:00"
-                breakdown.append(ActivityBreakdown(
-                    period="hourly",
-                    count=count,
-                    label=label
-                ))
-
-        elif granularity == "daily":
-            day_counts = defaultdict(int)
-            day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-
-            for timestamp in timestamps:
-                dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
-                day_counts[dt.weekday()] += 1
-                active_days.add(dt.date())
-                activity_dates.append(dt.date())
-
-            for i, day_name in enumerate(day_names):
-                count = day_counts.get(i, 0)
-                breakdown.append(ActivityBreakdown(
-                    period="daily",
-                    count=count,
-                    label=day_name
-                ))
-
-        else:  # weekly
-            week_counts = defaultdict(int)
-            for timestamp in timestamps:
-                dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
-                # Get ISO week number with year
-                year, week_num, _ = dt.isocalendar()
-                week_key = f"{year}-W{week_num:02d}"
-                week_counts[week_key] += 1
-                active_days.add(dt.date())
-                activity_dates.append(dt.date())
-
-            # Last 12 weeks
-            now = datetime.now(timezone.utc)
-            for i in range(12):
-                # Calculate target date
-                target_date = now - timedelta(weeks=(11 - i))
-                year, week_num, _ = target_date.isocalendar()
-                week_key = f"{year}-W{week_num:02d}"
-                count = week_counts.get(week_key, 0)
-                breakdown.append(ActivityBreakdown(
-                    period="weekly",
-                    count=count,
-                    label=f"Week {week_num} ({year})"
-                ))
+        # Group by granularity using helper function
+        breakdown, active_days, activity_dates = calculate_activity_time_ranges(timestamps, granularity)
 
         # Calculate streaks
         activity_dates = sorted(set(activity_dates))
