@@ -1369,8 +1369,7 @@ def configure_paths(args):
         if config_path.exists():
             print_info(f"Found Claude Desktop config at {config_path}")
             try:
-                with open(config_path, 'r') as f:
-                    config = json.load(f)
+                config = json.loads(config_path.read_text())
 
                 # Update or add MCP Memory configuration
                 if 'mcpServers' not in config:
@@ -1407,7 +1406,7 @@ def configure_paths(args):
                 # Create or update the memory server configuration
                 if system_info["is_windows"]:
                     # Use the memory_wrapper.py script for Windows
-                    script_path = os.path.abspath("memory_wrapper.py")
+                    script_path = str(Path("memory_wrapper.py").resolve())
                     config['mcpServers']['memory'] = {
                         "command": "python",
                         "args": [script_path],
@@ -1420,15 +1419,14 @@ def configure_paths(args):
                         "command": "uv",
                         "args": [
                             "--directory",
-                            os.path.abspath("."),
+                            str(Path(".").resolve()),
                             "run",
                             "memory"
                         ],
                         "env": env_config
                     }
 
-                with open(config_path, 'w') as f:
-                    json.dump(config, f, indent=2)
+                config_path.write_text(json.dumps(config, indent=2))
 
                 print_success("Updated Claude Desktop configuration")
             except (OSError, PermissionError, json.JSONDecodeError) as e:
