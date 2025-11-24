@@ -362,52 +362,55 @@ def test_gpu_platform(platform: str, system_info: Dict[str, Any]) -> Tuple[bool,
                         return True, None
 
     # ROCm detection
-    elif platform == 'rocm' and system_info["is_linux"]:
-        cfg = config['linux']
-        for path_or_func in cfg['paths']:
-            path = path_or_func() if callable(path_or_func) else path_or_func
-            if path and os.path.exists(path):
-                # Try version file first
-                try:
-                    with open(cfg['version_file'](path), 'r') as f:
-                        return True, f.read().strip()
-                except (FileNotFoundError, IOError):
-                    # Fallback to rocminfo command
+    elif platform == 'rocm':
+        if system_info["is_linux"] and 'linux' in config:
+            cfg = config['linux']
+            for path_or_func in cfg['paths']:
+                path = path_or_func() if callable(path_or_func) else path_or_func
+                if path and os.path.exists(path):
+                    # Try version file first
                     try:
-                        output = subprocess.check_output(
-                            cfg['version_cmd'],
-                            stderr=subprocess.STDOUT,
-                            universal_newlines=True
-                        )
-                        version = cfg['version_parser'](output)
-                        return True, version
-                    except (subprocess.SubprocessError, FileNotFoundError):
-                        return True, None
+                        with open(cfg['version_file'](path), 'r') as f:
+                            return True, f.read().strip()
+                    except (FileNotFoundError, IOError):
+                        # Fallback to rocminfo command
+                        try:
+                            output = subprocess.check_output(
+                                cfg['version_cmd'],
+                                stderr=subprocess.STDOUT,
+                                universal_newlines=True
+                            )
+                            version = cfg['version_parser'](output)
+                            return True, version
+                        except (subprocess.SubprocessError, FileNotFoundError):
+                            return True, None
 
     # MPS detection
-    elif platform == 'mps' and system_info["is_macos"] and system_info["is_arm"]:
-        cfg = config['macos']
-        try:
-            result = subprocess.run(cfg['check_cmd'], capture_output=True, text=True)
-            if cfg['check_string'] in result.stdout:
-                return True, None
-        except (subprocess.SubprocessError, FileNotFoundError):
-            pass
+    elif platform == 'mps':
+        if system_info["is_macos"] and system_info["is_arm"] and 'macos' in config:
+            cfg = config['macos']
+            try:
+                result = subprocess.run(cfg['check_cmd'], capture_output=True, text=True)
+                if cfg['check_string'] in result.stdout:
+                    return True, None
+            except (subprocess.SubprocessError, FileNotFoundError):
+                pass
 
     # DirectML detection
-    elif platform == 'directml' and system_info["is_windows"]:
-        cfg = config['windows']
-        try:
-            import pkg_resources
-            pkg_resources.get_distribution(cfg['package'])
-            return True, None
-        except (ImportError, pkg_resources.DistributionNotFound):
+    elif platform == 'directml':
+        if system_info["is_windows"] and 'windows' in config:
+            cfg = config['windows']
             try:
-                import ctypes
-                ctypes.WinDLL(cfg['dll'])
+                import pkg_resources
+                pkg_resources.get_distribution(cfg['package'])
                 return True, None
-            except (ImportError, OSError):
-                pass
+            except (ImportError, pkg_resources.DistributionNotFound):
+                try:
+                    import ctypes
+                    ctypes.WinDLL(cfg['dll'])
+                    return True, None
+                except (ImportError, OSError):
+                    pass
 
     return False, None
 
