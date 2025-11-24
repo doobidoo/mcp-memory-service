@@ -99,13 +99,16 @@ def calculate_activity_time_ranges(timestamps: List[float], granularity: str) ->
     active_days = set()
     activity_dates = []
 
+    # Convert all timestamps to datetime objects and populate active_days/activity_dates once
+    dts = [datetime.fromtimestamp(ts, tz=timezone.utc) for ts in timestamps]
+    for dt in dts:
+        active_days.add(dt.date())
+        activity_dates.append(dt.date())
+
     if granularity == "hourly":
         hour_counts = defaultdict(int)
-        for timestamp in timestamps:
-            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        for dt in dts:
             hour_counts[dt.hour] += 1
-            active_days.add(dt.date())
-            activity_dates.append(dt.date())
 
         for hour in range(24):
             count = hour_counts.get(hour, 0)
@@ -119,12 +122,8 @@ def calculate_activity_time_ranges(timestamps: List[float], granularity: str) ->
     elif granularity == "daily":
         day_counts = defaultdict(int)
         day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-
-        for timestamp in timestamps:
-            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        for dt in dts:
             day_counts[dt.weekday()] += 1
-            active_days.add(dt.date())
-            activity_dates.append(dt.date())
 
         for i, day_name in enumerate(day_names):
             count = day_counts.get(i, 0)
@@ -136,14 +135,11 @@ def calculate_activity_time_ranges(timestamps: List[float], granularity: str) ->
 
     else:  # weekly
         week_counts = defaultdict(int)
-        for timestamp in timestamps:
-            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        for dt in dts:
             # Get ISO week number with year
             year, week_num, _ = dt.isocalendar()
             week_key = f"{year}-W{week_num:02d}"
             week_counts[week_key] += 1
-            active_days.add(dt.date())
-            activity_dates.append(dt.date())
 
         # Last 12 weeks
         now = datetime.now(timezone.utc)

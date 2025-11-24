@@ -401,10 +401,10 @@ def test_gpu_platform(platform: str, system_info: Dict[str, Any]) -> Tuple[bool,
         if system_info["is_windows"] and 'windows' in config:
             cfg = config['windows']
             try:
-                import pkg_resources
-                pkg_resources.get_distribution(cfg['package'])
+                from importlib.metadata import distribution, PackageNotFoundError
+                distribution(cfg['package'])
                 return True, None
-            except (ImportError, pkg_resources.DistributionNotFound):
+            except (ImportError, PackageNotFoundError):
                 try:
                     import ctypes
                     ctypes.WinDLL(cfg['dll'])
