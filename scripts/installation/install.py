@@ -1355,90 +1355,87 @@ def configure_paths(args):
         print_success("Storage directories created and are writable")
     except Exception as e:
         print_error(f"Failed to test backups directory: {e}")
-        return False
-        
-        # Configure Claude Desktop if available
-        claude_config_paths = [
-            home_dir / 'Library' / 'Application Support' / 'Claude' / 'claude_desktop_config.json',
-            home_dir / '.config' / 'Claude' / 'claude_desktop_config.json',
-            Path('claude_config') / 'claude_desktop_config.json'
-        ]
-        
-        for config_path in claude_config_paths:
-            if config_path.exists():
-                print_info(f"Found Claude Desktop config at {config_path}")
-                try:
-                    import json
-                    with open(config_path, 'r') as f:
-                        config = json.load(f)
-                    
-                    # Update or add MCP Memory configuration
-                    if 'mcpServers' not in config:
-                        config['mcpServers'] = {}
-                    
-                    # Create environment configuration based on storage backend
-                    env_config = {
-                        "MCP_MEMORY_BACKUPS_PATH": str(backups_path),
-                        "MCP_MEMORY_STORAGE_BACKEND": storage_backend
+        # Continue with Claude Desktop configuration even if backup test fails
+
+    # Configure Claude Desktop if available
+    claude_config_paths = [
+        home_dir / 'Library' / 'Application Support' / 'Claude' / 'claude_desktop_config.json',
+        home_dir / '.config' / 'Claude' / 'claude_desktop_config.json',
+        Path('claude_config') / 'claude_desktop_config.json'
+    ]
+
+    for config_path in claude_config_paths:
+        if config_path.exists():
+            print_info(f"Found Claude Desktop config at {config_path}")
+            try:
+                import json
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+
+                # Update or add MCP Memory configuration
+                if 'mcpServers' not in config:
+                    config['mcpServers'] = {}
+
+                # Create environment configuration based on storage backend
+                env_config = {
+                    "MCP_MEMORY_BACKUPS_PATH": str(backups_path),
+                    "MCP_MEMORY_STORAGE_BACKEND": storage_backend
+                }
+
+                if storage_backend in ['sqlite_vec', 'hybrid']:
+                    env_config["MCP_MEMORY_SQLITE_PATH"] = str(storage_path)
+                    # Add SQLite pragmas for concurrent access (multi-client support)
+                    env_config["MCP_MEMORY_SQLITE_PRAGMAS"] = "busy_timeout=15000,cache_size=20000"
+
+                # Add Cloudflare credentials for hybrid and cloudflare backends
+                if storage_backend in ['hybrid', 'cloudflare']:
+                    # Read credentials from environment (set during installation)
+                    cloudflare_env_vars = [
+                        'CLOUDFLARE_API_TOKEN',
+                        'CLOUDFLARE_ACCOUNT_ID',
+                        'CLOUDFLARE_D1_DATABASE_ID',
+                        'CLOUDFLARE_VECTORIZE_INDEX'
+                    ]
+                    for var in cloudflare_env_vars:
+                        value = os.environ.get(var)
+                        if value:
+                            env_config[var] = value
+
+                if storage_backend == 'chromadb':
+                    env_config["MCP_MEMORY_CHROMA_PATH"] = str(storage_path)
+
+                # Create or update the memory server configuration
+                if system_info["is_windows"]:
+                    # Use the memory_wrapper.py script for Windows
+                    script_path = os.path.abspath("memory_wrapper.py")
+                    config['mcpServers']['memory'] = {
+                        "command": "python",
+                        "args": [script_path],
+                        "env": env_config
+                    }
+                    print_info("Configured Claude Desktop to use memory_wrapper.py for Windows")
+                else:
+                    # Use the standard configuration for other platforms
+                    config['mcpServers']['memory'] = {
+                        "command": "uv",
+                        "args": [
+                            "--directory",
+                            os.path.abspath("."),
+                            "run",
+                            "memory"
+                        ],
+                        "env": env_config
                     }
 
-                    if storage_backend in ['sqlite_vec', 'hybrid']:
-                        env_config["MCP_MEMORY_SQLITE_PATH"] = str(storage_path)
-                        # Add SQLite pragmas for concurrent access (multi-client support)
-                        env_config["MCP_MEMORY_SQLITE_PRAGMAS"] = "busy_timeout=15000,cache_size=20000"
+                with open(config_path, 'w') as f:
+                    json.dump(config, f, indent=2)
 
-                    # Add Cloudflare credentials for hybrid and cloudflare backends
-                    if storage_backend in ['hybrid', 'cloudflare']:
-                        # Read credentials from environment (set during installation)
-                        cloudflare_env_vars = [
-                            'CLOUDFLARE_API_TOKEN',
-                            'CLOUDFLARE_ACCOUNT_ID',
-                            'CLOUDFLARE_D1_DATABASE_ID',
-                            'CLOUDFLARE_VECTORIZE_INDEX'
-                        ]
-                        for var in cloudflare_env_vars:
-                            value = os.environ.get(var)
-                            if value:
-                                env_config[var] = value
+                print_success("Updated Claude Desktop configuration")
+            except Exception as e:
+                print_warning(f"Failed to update Claude Desktop configuration: {e}")
+            break
 
-                    if storage_backend == 'chromadb':
-                        env_config["MCP_MEMORY_CHROMA_PATH"] = str(storage_path)
-                    
-                    # Create or update the memory server configuration
-                    if system_info["is_windows"]:
-                        # Use the memory_wrapper.py script for Windows
-                        script_path = os.path.abspath("memory_wrapper.py")
-                        config['mcpServers']['memory'] = {
-                            "command": "python",
-                            "args": [script_path],
-                            "env": env_config
-                        }
-                        print_info("Configured Claude Desktop to use memory_wrapper.py for Windows")
-                    else:
-                        # Use the standard configuration for other platforms
-                        config['mcpServers']['memory'] = {
-                            "command": "uv",
-                            "args": [
-                                "--directory",
-                                os.path.abspath("."),
-                                "run",
-                                "memory"
-                            ],
-                            "env": env_config
-                        }
-                    
-                    with open(config_path, 'w') as f:
-                        json.dump(config, f, indent=2)
-                    
-                    print_success("Updated Claude Desktop configuration")
-                except Exception as e:
-                    print_warning(f"Failed to update Claude Desktop configuration: {e}")
-                break
-        
-        return True
-    except Exception as e:
-        print_error(f"Failed to configure paths: {e}")
-        return False
+    return True
 
 def verify_installation():
     """Verify the installation."""
