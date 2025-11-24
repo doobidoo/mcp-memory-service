@@ -11,7 +11,7 @@ import subprocess
 import argparse
 import shutil
 from pathlib import Path
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Any, Optional
 import re
 
 def is_python_version_at_least(major, minor):
