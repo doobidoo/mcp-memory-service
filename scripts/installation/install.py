@@ -329,32 +329,25 @@ def test_gpu_platform(platform: str, system_info: Dict[str, Any]) -> Tuple[bool,
 
     # CUDA detection
     if platform == 'cuda':
+        os_config = None
+        paths_to_check = []
         if system_info["is_windows"] and 'windows' in config:
-            cfg = config['windows']
-            cuda_path = os.environ.get(cfg['env_var'])
-            if cuda_path and os.path.exists(cuda_path):
-                try:
-                    output = subprocess.check_output(
-                        cfg['version_cmd'](cuda_path),
-                        stderr=subprocess.STDOUT,
-                        universal_newlines=True
-                    )
-                    version = cfg['version_parser'](output)
-                    return True, version
-                except (subprocess.SubprocessError, FileNotFoundError):
-                    return True, None
+            os_config = config['windows']
+            paths_to_check = [os.environ.get(os_config['env_var'])]
         elif system_info["is_linux"] and 'linux' in config:
-            cfg = config['linux']
-            for path_or_func in cfg['paths']:
-                path = path_or_func() if callable(path_or_func) else path_or_func
+            os_config = config['linux']
+            paths_to_check = [p() if callable(p) else p for p in os_config['paths']]
+
+        if os_config:
+            for path in paths_to_check:
                 if path and os.path.exists(path):
                     try:
                         output = subprocess.check_output(
-                            cfg['version_cmd'](path),
+                            os_config['version_cmd'](path),
                             stderr=subprocess.STDOUT,
                             universal_newlines=True
                         )
-                        version = cfg['version_parser'](output)
+                        version = os_config['version_parser'](output)
                         return True, version
                     except (subprocess.SubprocessError, FileNotFoundError):
                         return True, None
