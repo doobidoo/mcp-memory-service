@@ -1352,7 +1352,7 @@ def configure_paths(args):
         test_file.write_text('test')
         test_file.unlink()
         print_success("Storage directories created and are writable")
-    except Exception as e:
+    except (OSError, PermissionError) as e:
         print_error(f"Failed to test backups directory: {e}")
         print_warning("Continuing with Claude Desktop configuration despite backup directory test failure")
 
@@ -1431,7 +1431,7 @@ def configure_paths(args):
                     json.dump(config, f, indent=2)
 
                 print_success("Updated Claude Desktop configuration")
-            except Exception as e:
+            except (OSError, PermissionError, json.JSONDecodeError) as e:
                 print_warning(f"Failed to update Claude Desktop configuration: {e}")
             break
 
