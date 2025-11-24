@@ -1369,7 +1369,13 @@ def configure_paths(args):
         if config_path.exists():
             print_info(f"Found Claude Desktop config at {config_path}")
             try:
-                config = json.loads(config_path.read_text())
+                config_text = config_path.read_text()
+                config = json.loads(config_text)
+
+                # Validate config structure
+                if not isinstance(config, dict):
+                    print_warning(f"Invalid config format in {config_path}, expected JSON object")
+                    continue
 
                 # Update or add MCP Memory configuration
                 if 'mcpServers' not in config:
@@ -1404,9 +1410,12 @@ def configure_paths(args):
                     env_config["MCP_MEMORY_CHROMA_PATH"] = str(storage_path)
 
                 # Create or update the memory server configuration
+                # Get project root (parent of scripts directory)
+                project_root = Path(__file__).parent.parent.parent
+
                 if system_info["is_windows"]:
                     # Use the memory_wrapper.py script for Windows
-                    script_path = str(Path("memory_wrapper.py").resolve())
+                    script_path = str((project_root / "memory_wrapper.py").resolve())
                     config['mcpServers']['memory'] = {
                         "command": "python",
                         "args": [script_path],
@@ -1419,7 +1428,7 @@ def configure_paths(args):
                         "command": "uv",
                         "args": [
                             "--directory",
-                            str(Path(".").resolve()),
+                            str(project_root.resolve()),
                             "run",
                             "memory"
                         ],
