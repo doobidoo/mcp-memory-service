@@ -1348,16 +1348,17 @@ def configure_paths(args):
     
     # Test backups directory for both backends
     try:
-        test_file = os.path.join(backups_path, '.write_test')
-        with open(test_file, 'w') as f:
-            f.write('test')
-        os.remove(test_file)
+        test_file = Path(backups_path) / '.write_test'
+        test_file.write_text('test')
+        test_file.unlink()
         print_success("Storage directories created and are writable")
     except Exception as e:
         print_error(f"Failed to test backups directory: {e}")
-        # Continue with Claude Desktop configuration even if backup test fails
+        print_warning("Continuing with Claude Desktop configuration despite backup directory test failure")
 
     # Configure Claude Desktop if available
+    import json
+
     claude_config_paths = [
         home_dir / 'Library' / 'Application Support' / 'Claude' / 'claude_desktop_config.json',
         home_dir / '.config' / 'Claude' / 'claude_desktop_config.json',
@@ -1368,7 +1369,6 @@ def configure_paths(args):
         if config_path.exists():
             print_info(f"Found Claude Desktop config at {config_path}")
             try:
-                import json
                 with open(config_path, 'r') as f:
                     config = json.load(f)
 
