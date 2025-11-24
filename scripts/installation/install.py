@@ -339,42 +339,56 @@ def test_gpu_platform(platform: str, system_info: Dict[str, Any]) -> Tuple[bool,
             paths_to_check = [p() if callable(p) else p for p in os_config['paths']]
 
         if os_config:
+            path_found = False
             for path in paths_to_check:
                 if path and os.path.exists(path):
+                    path_found = True
                     try:
                         output = subprocess.check_output(
                             os_config['version_cmd'](path),
                             stderr=subprocess.STDOUT,
-                            universal_newlines=True
+                            text=True
                         )
                         version = os_config['version_parser'](output)
-                        return True, version
+                        if version:
+                            return True, version
                     except (subprocess.SubprocessError, FileNotFoundError):
-                        return True, None
+                        continue  # Try next path
+            if path_found:
+                return True, None  # Detected but no version found
 
     # ROCm detection
     elif platform == 'rocm':
         if system_info["is_linux"] and 'linux' in config:
             cfg = config['linux']
+            rocm_path_found = False
             for path_or_func in cfg['paths']:
                 path = path_or_func() if callable(path_or_func) else path_or_func
                 if path and os.path.exists(path):
+                    rocm_path_found = True
                     # Try version file first
                     try:
                         with open(cfg['version_file'](path), 'r') as f:
-                            return True, f.read().strip()
+                            version = f.read().strip()
+                            if version:
+                                return True, version
                     except (FileNotFoundError, IOError):
-                        # Fallback to rocminfo command
-                        try:
-                            output = subprocess.check_output(
-                                cfg['version_cmd'],
-                                stderr=subprocess.STDOUT,
-                                universal_newlines=True
-                            )
-                            version = cfg['version_parser'](output)
+                        pass  # Fallback to rocminfo command
+
+                    # Fallback to rocminfo command
+                    try:
+                        output = subprocess.check_output(
+                            cfg['version_cmd'],
+                            stderr=subprocess.STDOUT,
+                            text=True
+                        )
+                        version = cfg['version_parser'](output)
+                        if version:
                             return True, version
-                        except (subprocess.SubprocessError, FileNotFoundError):
-                            return True, None
+                    except (subprocess.SubprocessError, FileNotFoundError):
+                        continue  # Try next path
+            if rocm_path_found:
+                return True, None
 
     # MPS detection
     elif platform == 'mps':

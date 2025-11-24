@@ -62,7 +62,7 @@ class SyncPauseContext:
                 self.logger.info("Resuming hybrid backend sync after consolidation")
                 await self.storage.resume_sync()
             except Exception as e:
-                self.logger.error(f"Failed to resume sync: {e}")
+                self.logger.error(f"Failed to resume sync: {e}", exc_info=True)
 
 
 def check_horizon_requirements(time_horizon: str, phase_name: str,
