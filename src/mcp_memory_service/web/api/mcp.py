@@ -161,7 +161,7 @@ async def mcp_endpoint(
         storage = get_storage()
 
         if request.method == "initialize":
-            return MCPResponse(
+            response = MCPResponse(
                 id=request.id,
                 result={
                     "protocolVersion": "2024-11-05",
@@ -174,14 +174,16 @@ async def mcp_endpoint(
                     }
                 }
             )
+            return JSONResponse(content=response.model_dump(exclude_none=True))
 
         elif request.method == "tools/list":
-            return MCPResponse(
+            response = MCPResponse(
                 id=request.id,
                 result={
                     "tools": [tool.model_dump() for tool in MCP_TOOLS]
                 }
             )
+            return JSONResponse(content=response.model_dump(exclude_none=True))
 
         elif request.method == "tools/call":
             tool_name = request.params.get("name") if request.params else None
@@ -189,7 +191,7 @@ async def mcp_endpoint(
 
             result = await handle_tool_call(storage, tool_name, arguments)
 
-            return MCPResponse(
+            response = MCPResponse(
                 id=request.id,
                 result={
                     "content": [
@@ -200,25 +202,28 @@ async def mcp_endpoint(
                     ]
                 }
             )
+            return JSONResponse(content=response.model_dump(exclude_none=True))
 
         else:
-            return MCPResponse(
+            response = MCPResponse(
                 id=request.id,
                 error={
                     "code": -32601,
                     "message": f"Method not found: {request.method}"
                 }
             )
+            return JSONResponse(content=response.model_dump(exclude_none=True))
 
     except Exception as e:
         logger.error(f"MCP endpoint error: {e}")
-        return MCPResponse(
+        response = MCPResponse(
             id=request.id,
             error={
                 "code": -32603,
                 "message": f"Internal error: {str(e)}"
             }
         )
+        return JSONResponse(content=response.model_dump(exclude_none=True))
 
 
 async def handle_tool_call(storage, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
