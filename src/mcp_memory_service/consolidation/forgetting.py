@@ -141,7 +141,7 @@ class ControlledForgettingEngine(ConsolidationBase):
             # Access pattern check
             last_accessed = access_patterns.get(memory.content_hash)
             if not last_accessed and memory.updated_at:
-                last_accessed = datetime.utcfromtimestamp(memory.updated_at)
+                last_accessed = datetime.fromtimestamp(memory.updated_at, datetime.UTC)
             
             if last_accessed:
                 days_since_access = (current_time - last_accessed).days

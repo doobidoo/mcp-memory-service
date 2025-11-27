@@ -271,7 +271,7 @@ class SemanticClusteringEngine(ConsolidationBase):
         
         for memory in memories:
             if memory.created_at:
-                created_dt = datetime.utcfromtimestamp(memory.created_at)
+                created_dt = datetime.fromtimestamp(memory.created_at, datetime.UTC)
                 age_days = (now - created_dt).days
                 ages.append(age_days)
             elif memory.timestamp:

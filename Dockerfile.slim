@@ -1,0 +1,55 @@
+# Slim CPU-only MCP Memory Service
+FROM python:3.12-slim AS builder
+
+ARG EMBEDDING_MODEL=intfloat/e5-base-v2
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential git curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+COPY pyproject.toml uv.lock README.md ./
+
+# Install deps from lock file (will get CUDA torch, we'll replace it later)
+RUN uv sync --frozen --no-dev --no-install-project
+
+COPY src/ ./src/
+COPY scripts/ ./scripts/
+
+RUN uv sync --frozen --no-dev && \
+    uv pip uninstall torch && \
+    uv pip install torch --index-url https://download.pytorch.org/whl/cpu --no-deps && \
+    rm -rf .venv/lib/python3.12/site-packages/nvidia* .venv/lib/python3.12/site-packages/triton*
+
+# Pre-export ONNX model
+RUN .venv/bin/python -c "from sentence_transformers import SentenceTransformer; model = SentenceTransformer('${EMBEDDING_MODEL}', backend='onnx'); model.save_pretrained('model-cache'); print('ONNX export complete')"
+
+# Runtime stage
+FROM python:3.12-slim
+
+ARG EMBEDDING_MODEL=intfloat/e5-base-v2
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /root/.cache/huggingface /root/.cache/huggingface
+COPY --from=builder /app/model-cache /app/model-cache
+COPY --from=builder /app/src /app/src
+COPY --from=builder /app/scripts /app/scripts
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    MCP_MEMORY_EMBEDDING_MODEL=${EMBEDDING_MODEL} \
+    HF_HOME=/root/.cache/huggingface
+
+RUN mkdir -p /data/qdrant /data/qdrant-mcp
+
+EXPOSE 8000 8001
+
+CMD ["python", "-m", "mcp_memory_service.unified_server"]

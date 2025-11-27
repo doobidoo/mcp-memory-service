@@ -1,0 +1,68 @@
+# Docker Compose for MCP Memory Service - SQLite-vec Backend
+# RECOMMENDED for 1GB RAM VPS
+#
+# Memory footprint: ~500-700MB total
+# - MCP Service + e5-small embedding model: ~500MB
+# - SQLite-vec: negligible (disk-based)
+#
+# Usage:
+#   docker compose -f docker-compose.sqlite.yml up -d
+
+services:
+  mcp-memory:
+    image: ghcr.io/27bslash6/mcp-memory-service:latest
+    # Or build locally:
+    # build:
+    #   context: ../..
+    #   dockerfile: Dockerfile
+    #   args:
+    #     EMBEDDING_MODEL: intfloat/e5-small-v2
+    container_name: mcp-memory
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"  # HTTP API (localhost only - use tunnel)
+      - "127.0.0.1:8001:8001"  # MCP SSE (localhost only - use tunnel)
+    environment:
+      # SQLite-vec backend (low memory, all on disk)
+      - MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
+      - MCP_MEMORY_BASE_DIR=/data
+
+      # Use smaller embedding model for 1GB RAM
+      - MCP_MEMORY_EMBEDDING_MODEL=intfloat/e5-small-v2
+
+      # HTTP Server
+      - MCP_HTTP_ENABLED=true
+      - MCP_API_PORT=8000
+      - MCP_SERVER_HOST=0.0.0.0
+
+      # MCP Protocol
+      - MCP_TRANSPORT_MODE=streamable-http
+      - MCP_SERVER_PORT=8001
+
+      # Security
+      - MCP_OAUTH_ENABLED=false
+      - MCP_ALLOW_ANONYMOUS_ACCESS=true
+
+      # Logging
+      - MCP_LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./data/sqlite:/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # Embedding model takes time to load
+    deploy:
+      resources:
+        limits:
+          memory: 768M  # Hard limit to prevent OOM killing other services
+        reservations:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

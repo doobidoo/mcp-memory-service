@@ -1588,7 +1588,7 @@ SOLUTIONS:
             
             # Update timestamps
             now = time.time()
-            now_iso = datetime.utcfromtimestamp(now).isoformat() + "Z"
+            now_iso = datetime.fromtimestamp(now, datetime.UTC).isoformat().replace("+00:00", "Z")
             
             if not preserve_timestamps:
                 created_at = now

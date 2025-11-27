@@ -1,0 +1,110 @@
+# Fly.io deployment configuration for MCP Memory Service
+# Deploy with: fly launch --copy-config --no-deploy && fly deploy
+#
+# Prerequisites:
+#   1. Install flyctl: brew install flyctl (or curl -L https://fly.io/install.sh | sh)
+#   2. Login: fly auth login
+#   3. Create volume: fly volumes create mcp_memory_data --region sjc --size 1
+
+app = "mcp-memory-service"
+primary_region = "sjc"  # San Jose - change to nearest region
+
+[build]
+  dockerfile = "Dockerfile"
+  # Override embedding model at build time if desired:
+  # [build.args]
+  #   EMBEDDING_MODEL = "intfloat/e5-small-v2"
+
+[env]
+  # Storage: SQLite-vec (simplest, all-in-one)
+  MCP_MEMORY_STORAGE_BACKEND = "sqlite_vec"
+  MCP_MEMORY_BASE_DIR = "/data"
+
+  # HTTP Server
+  MCP_HTTP_ENABLED = "true"
+  MCP_API_PORT = "8080"
+  MCP_SERVER_HOST = "0.0.0.0"
+
+  # MCP Protocol (streamable-http for remote access)
+  MCP_TRANSPORT_MODE = "streamable-http"
+  MCP_SERVER_PORT = "8081"
+
+  # Disable OAuth for personal use (enable for multi-user)
+  MCP_OAUTH_ENABLED = "false"
+  MCP_ALLOW_ANONYMOUS_ACCESS = "true"
+
+  # Performance
+  MCP_LOG_LEVEL = "INFO"
+  PYTHONUNBUFFERED = "1"
+
+# HTTP service (main API)
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  auto_stop_machines = "stop"      # Stop when idle (saves $$$)
+  auto_start_machines = true       # Start on request
+  min_machines_running = 0         # Allow full stop
+
+  [services.concurrency]
+    type = "requests"
+    soft_limit = 100
+    hard_limit = 200
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.http_checks]]
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/api/health"
+
+# MCP SSE service (for Claude Desktop remote connection)
+[[services]]
+  internal_port = 8081
+  protocol = "tcp"
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [services.concurrency]
+    type = "connections"
+    soft_limit = 25
+    hard_limit = 50
+
+  [[services.ports]]
+    port = 8081
+    handlers = ["tls", "http"]
+
+# Persistent volume for SQLite database
+[[mounts]]
+  source = "mcp_memory_data"
+  destination = "/data"
+  initial_size = "1gb"
+
+# Machine configuration
+[vm]
+  size = "shared-cpu-1x"
+  memory = "1gb"
+
+  # For better embedding performance, upgrade to:
+  # size = "shared-cpu-2x"
+  # memory = "2gb"
+
+# Health checks
+[checks]
+  [checks.health]
+    port = 8080
+    type = "http"
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/api/health"

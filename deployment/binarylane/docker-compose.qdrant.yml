@@ -1,0 +1,104 @@
+# Docker Compose for MCP Memory Service - Qdrant Backend
+# WARNING: Tight fit for 1GB RAM - requires swap!
+#
+# Memory footprint: ~900MB+ total
+# - Qdrant (MMAP mode): ~200-300MB
+# - MCP Service + e5-small: ~500MB
+# - OS overhead: ~100-200MB
+#
+# REQUIRES: 2GB swap enabled (see bootstrap.sh)
+#
+# Usage:
+#   docker compose -f docker-compose.qdrant.yml up -d
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: mcp-qdrant
+    restart: unless-stopped
+    # No external ports - only accessible within Docker network
+    expose:
+      - "6333"
+      - "6334"
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+    environment:
+      # CRITICAL: Use MMAP to keep vectors on disk, not RAM
+      - QDRANT__STORAGE__ON_DISK_PAYLOAD=true
+      - QDRANT__STORAGE__MMAP_ENABLED=true
+      # Limit memory usage
+      - QDRANT__SERVICE__MAX_REQUEST_SIZE_MB=8
+    deploy:
+      resources:
+        limits:
+          memory: 300M  # Strict limit - relies on MMAP
+        reservations:
+          memory: 200M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+    networks:
+      - mcp-network
+
+  mcp-memory:
+    image: ghcr.io/27bslash6/mcp-memory-service:latest
+    container_name: mcp-memory
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+    ports:
+      - "127.0.0.1:8000:8000"  # HTTP API (localhost only)
+      - "127.0.0.1:8001:8001"  # MCP SSE (localhost only)
+    environment:
+      # Qdrant backend
+      - MCP_MEMORY_STORAGE_BACKEND=qdrant
+      - MCP_QDRANT_URL=http://qdrant:6333
+      - MCP_QDRANT_COLLECTION=memories
+
+      # Use smaller embedding model
+      - MCP_MEMORY_EMBEDDING_MODEL=intfloat/e5-small-v2
+
+      # HTTP Server
+      - MCP_HTTP_ENABLED=true
+      - MCP_API_PORT=8000
+      - MCP_SERVER_HOST=0.0.0.0
+
+      # MCP Protocol
+      - MCP_TRANSPORT_MODE=streamable-http
+      - MCP_SERVER_PORT=8001
+
+      # Security
+      - MCP_OAUTH_ENABLED=false
+      - MCP_ALLOW_ANONYMOUS_ACCESS=true
+
+      # Logging
+      - MCP_LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./data/mcp:/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s  # Qdrant + embedding model need time
+    deploy:
+      resources:
+        limits:
+          memory: 600M
+        reservations:
+          memory: 400M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - mcp-network
+
+networks:
+  mcp-network:
+    driver: bridge

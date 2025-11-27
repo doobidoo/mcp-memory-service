@@ -1,0 +1,122 @@
+version: '3.8'
+
+# Docker Compose configuration for MCP Memory Service on Oracle Cloud
+# Orchestrates mcp-memory HTTP server + rclone backup sidecar
+#
+# Usage:
+#   docker compose -f deployment/oracle/docker-compose.yml up -d
+#   docker compose -f deployment/oracle/docker-compose.yml ps
+#   docker compose -f deployment/oracle/docker-compose.yml logs -f
+
+services:
+  # ============================================================================
+  # MCP Memory Service - HTTP Server with SQLite-vec backend
+  # ============================================================================
+  mcp-memory:
+    build:
+      context: ../..
+      dockerfile: deployment/oracle/Dockerfile
+    image: mcp-memory-service:latest
+    container_name: mcp-memory
+    restart: unless-stopped
+
+    # Bind to Tailscale IP only (not public interface)
+    # TAILSCALE_IP is set in .env file by setup_tailscale.sh
+    ports:
+      - "${TAILSCALE_IP}:8000:8000"
+
+    # Named volume for persistent SQLite database
+    volumes:
+      - sqlite-data:/data
+
+    # Environment configuration from .env file
+    env_file:
+      - .env
+
+    # Resource limits (leave headroom for system + backup container)
+    deploy:
+      resources:
+        limits:
+          cpus: '3'
+          memory: 16G
+        reservations:
+          cpus: '2'
+          memory: 8G
+
+    # Health check (Docker calls httpx inside container)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/api/health', timeout=3).raise_for_status()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================================================
+  # Rclone Backup Sidecar - Automated backups to Cloudflare R2
+  # ============================================================================
+  backup:
+    image: rclone/rclone:latest
+    container_name: mcp-memory-backup
+    restart: unless-stopped
+
+    # Mount SQLite database volume as read-only
+    volumes:
+      - sqlite-data:/data:ro
+      - ./rclone.conf:/config/rclone/rclone.conf:ro
+
+    # Sync database to R2 every 6 hours
+    # --transfers=1: Single concurrent transfer (low CPU usage)
+    # --no-update-modtime: Don't update mod times on destination
+    # --copy-links: Follow symlinks if any
+    command: >
+      sync /data/sqlite_vec.db r2:mcp-memory-backups/
+      --config /config/rclone/rclone.conf
+      --transfers 1
+      --no-update-modtime
+      --copy-links
+      --log-level INFO
+      --use-server-modtime
+      --check-first
+      --schedule "0 */6 * * *"
+
+    # Resource limits (minimal - just file copying)
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+    # Start after mcp-memory is healthy
+    depends_on:
+      mcp-memory:
+        condition: service_healthy
+
+# ============================================================================
+# Named Volumes - Persistent storage for SQLite database
+# ============================================================================
+volumes:
+  sqlite-data:
+    driver: local
+    name: mcp-memory-sqlite-data
+
+# ============================================================================
+# Networks - Default bridge network (sufficient for single-host deployment)
+# ============================================================================
+# No custom network needed - using default bridge

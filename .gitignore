@@ -5,4 +5,30 @@ sessions/sessions-state.json
 sessions/package.json
 sessions/transcripts/
 sessions/.archived/
-.spec-workflow/approvals/
+
+# Local tooling
+.serena/
+.spec-workflow/
+.coverage
+htmlcov/
+
+# Migration checkpoints (local state)
+*_checkpoint.json
+
+# Local config examples
+claude_desktop_config*.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

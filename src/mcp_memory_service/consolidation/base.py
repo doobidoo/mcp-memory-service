@@ -124,7 +124,7 @@ class ConsolidationBase(ABC):
         ref_time = reference_time or datetime.now()
         
         if memory.created_at:
-            created_dt = datetime.utcfromtimestamp(memory.created_at)
+            created_dt = datetime.fromtimestamp(memory.created_at, datetime.UTC)
             return (ref_time - created_dt).days
         elif memory.timestamp:
             return (ref_time - memory.timestamp).days

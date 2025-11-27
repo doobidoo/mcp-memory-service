@@ -1,0 +1,183 @@
+# ============================================================================
+# Rclone Configuration for MCP Memory Service Backups
+# ============================================================================
+#
+# This file configures rclone to sync SQLite database backups to Cloudflare R2
+# (S3-compatible object storage). The backup sidecar container uses this config
+# to automatically upload database snapshots every 6 hours.
+#
+# SETUP INSTRUCTIONS:
+# 1. Copy this file to rclone.conf: cp rclone.conf.example rclone.conf
+# 2. Fill in R2 credentials from .env file (keep values synchronized)
+# 3. Test configuration: docker compose run backup rclone ls r2:mcp-memory-backups
+# 4. Never commit rclone.conf to version control (contains secrets)
+#
+# DOCUMENTATION:
+# - Rclone S3 backend: https://rclone.org/s3/
+# - Cloudflare R2: https://developers.cloudflare.com/r2/examples/rclone/
+#
+
+# ============================================================================
+# R2 Remote Configuration
+# ============================================================================
+
+[r2]
+# Backend type - S3-compatible storage
+type = s3
+
+# Provider - Cloudflare R2
+provider = Cloudflare
+
+# Environment variable authentication (recommended for security)
+# These are automatically populated from .env file in Docker Compose
+# Do NOT hardcode credentials here - use env_auth instead
+env_auth = true
+
+# Alternative: Explicit credentials (less secure, not recommended)
+# Uncomment ONLY if you're not using Docker Compose environment variables
+# access_key_id = <YOUR_R2_ACCESS_KEY_ID>
+# secret_access_key = <YOUR_R2_SECRET_ACCESS_KEY>
+
+# R2 endpoint URL
+# Format: https://<account-id>.r2.cloudflarestorage.com
+# Replace <account-id> with your Cloudflare account ID
+# Example: https://abc123def456.r2.cloudflarestorage.com
+endpoint = https://<CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com
+
+# Region (not used by R2, but required by S3 API)
+# Cloudflare R2 automatically handles global distribution
+region = auto
+
+# ACL (Access Control List)
+# private: Only accessible with credentials (recommended for backups)
+# Other options: public-read, public-read-write (NOT recommended for sensitive data)
+acl = private
+
+# ============================================================================
+# Performance & Reliability Settings
+# ============================================================================
+
+# Number of checkers to run in parallel (for rclone check/sync operations)
+# Higher = faster sync, but more memory/CPU usage
+# Default: 8 (good balance for Oracle Free Tier 4-core ARM)
+# checkers = 8
+
+# Number of file transfers to run in parallel
+# Higher = faster uploads for many small files
+# Default: 4
+# transfers = 4
+
+# Chunk size for multipart uploads
+# R2 supports 5MB-5GB per part, 10,000 parts max
+# Default: 5M (5 megabytes) is optimal for most cases
+# chunk_size = 5M
+
+# Upload cutoff - files larger than this use multipart upload
+# Default: 200M
+# upload_cutoff = 200M
+
+# Disable multipart uploads for small files (improves performance)
+# Default: false
+# disable_http2 = false
+
+# ============================================================================
+# Advanced Options (Usually no changes needed)
+# ============================================================================
+
+# Server-side copy (if supported by provider)
+# Allows direct server-to-server copies without downloading/uploading
+# R2 supports this for operations within same account
+# no_check_bucket = false
+
+# Use accelerated endpoint (not applicable to R2)
+# use_accelerate_endpoint = false
+
+# List chunk size (number of objects per LIST request)
+# Default: 1000 (S3 API maximum)
+# list_chunk = 1000
+
+# Upload concurrency (parallel chunk uploads for single file)
+# Default: 4
+# upload_concurrency = 4
+
+# Memory usage control for multipart uploads
+# Default: 16M per transfer
+# max_upload_parts = 10000
+
+# ============================================================================
+# Backup Directory Structure
+# ============================================================================
+#
+# The backup sidecar container syncs to R2 with this structure:
+#
+#   r2:mcp-memory-backups/
+#   ├── sqlite_vec.db              (latest database snapshot)
+#   ├── sqlite_vec.db-wal          (Write-Ahead Log, if present)
+#   ├── sqlite_vec.db-shm          (Shared memory file, if present)
+#   └── archives/                  (optional timestamped backups)
+#       ├── sqlite_vec-2025-01-15-000000.db
+#       ├── sqlite_vec-2025-01-15-060000.db
+#       └── ...
+#
+# SYNC COMMAND (run automatically by backup container):
+#   rclone sync /data r2:mcp-memory-backups --config /config/rclone.conf
+#
+# RESTORE COMMAND (run manually when needed):
+#   rclone copy r2:mcp-memory-backups/sqlite_vec.db /data/
+#
+# LIST BACKUPS:
+#   rclone ls r2:mcp-memory-backups
+#
+# ============================================================================
+# Testing Configuration
+# ============================================================================
+#
+# After creating rclone.conf from this template:
+#
+# 1. Test connection:
+#    docker compose run backup rclone lsd r2:
+#
+# 2. Create test bucket (if not exists):
+#    docker compose run backup rclone mkdir r2:mcp-memory-backups
+#
+# 3. List bucket contents:
+#    docker compose run backup rclone ls r2:mcp-memory-backups
+#
+# 4. Test upload:
+#    docker compose run backup sh -c "echo 'test' > /tmp/test.txt && rclone copy /tmp/test.txt r2:mcp-memory-backups/"
+#
+# 5. Verify upload:
+#    docker compose run backup rclone cat r2:mcp-memory-backups/test.txt
+#
+# If all tests pass, your backup configuration is working correctly!
+#
+# ============================================================================
+# Troubleshooting
+# ============================================================================
+#
+# ERROR: "NoSuchBucket"
+#   - Create bucket in Cloudflare dashboard first
+#   - Or run: docker compose run backup rclone mkdir r2:mcp-memory-backups
+#
+# ERROR: "InvalidAccessKeyId" or "SignatureDoesNotMatch"
+#   - Verify R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY in .env
+#   - Ensure credentials have Object Read & Write permissions
+#   - Check endpoint URL matches your account ID
+#
+# ERROR: "AccessDenied"
+#   - R2 API token needs "Object Read & Write" permissions
+#   - Verify bucket ACL settings (should be "private")
+#
+# ERROR: Sync is slow or times out
+#   - Reduce checkers/transfers in performance settings above
+#   - Check Oracle instance network bandwidth (Free Tier: 10 Gbps)
+#   - Monitor container resources: docker stats
+#
+# ERROR: Backup container exits immediately
+#   - Check logs: docker compose logs backup
+#   - Verify rclone.conf syntax (no tabs, proper spacing)
+#   - Ensure .env variables are set correctly
+#
+# ============================================================================
+# End of Configuration
+# ============================================================================
