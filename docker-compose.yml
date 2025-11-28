@@ -63,7 +63,7 @@ services:
       - MCP_ALLOW_ANONYMOUS_ACCESS=true
 
       # Logging
-      - MCP_LOG_LEVEL=INFO
+      - MCP_LOG_LEVEL=DEBUG
 
     volumes:
       # Optional: SQLite-vec backup

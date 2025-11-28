@@ -32,3 +32,6 @@ build/
 .vscode/
 *.swp
 *.swo
+
+# Linting
+.ruff_cache/

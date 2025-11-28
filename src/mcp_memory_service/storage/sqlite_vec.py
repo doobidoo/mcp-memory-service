@@ -27,7 +27,7 @@ import sys
 import platform
 from collections import Counter
 from typing import List, Dict, Any, Tuple, Optional, Set, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 import random
 
@@ -1588,7 +1588,7 @@ SOLUTIONS:
             
             # Update timestamps
             now = time.time()
-            now_iso = datetime.fromtimestamp(now, datetime.UTC).isoformat().replace("+00:00", "Z")
+            now_iso = datetime.fromtimestamp(now, timezone.utc).isoformat().replace("+00:00", "Z")
             
             if not preserve_timestamps:
                 created_at = now

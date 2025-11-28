@@ -185,7 +185,7 @@ class StorageSettings(BaseSettings):
     )
 
     embedding_model: str = Field(
-        default='intfloat/e5-small',  # E5-small: 100% top-5 accuracy vs 56% for all-MiniLM-L6-v2
+        default='intfloat/e5-base-v2',  # E5-base: ~63 MTEB avg, 768-dim, fast, no prefixes, CPU-optimized
         description="Embedding model name (env: MCP_MEMORY_EMBEDDING_MODEL)"
     )
 

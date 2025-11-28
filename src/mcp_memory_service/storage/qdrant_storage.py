@@ -248,7 +248,12 @@ class QdrantStorage(MemoryStorage):
             'sentence-transformers/all-MiniLM-L6-v2': 384,
             'intfloat/e5-small': 384,
             'intfloat/e5-base': 768,
-            'intfloat/e5-large': 1024
+            'intfloat/e5-large': 1024,
+            'BAAI/bge-small-en-v1.5': 384,
+            'BAAI/bge-base-en-v1.5': 768,
+            'BAAI/bge-large-en-v1.5': 1024,
+            'infgrad/stella-base-en-v2': 768,
+            'nomic-ai/nomic-embed-text-v1': 768  # Assuming 768 based on common practice
         }
 
         # Try to get dimensions from known models first
@@ -512,33 +517,8 @@ class QdrantStorage(MemoryStorage):
                     # Double-check after acquiring lock (another thread may have loaded it)
                     if not hasattr(self, '_embedding_model_instance'):
                         logger.info(f"Loading embedding model: {self.embedding_model}")
-
-                        # Try loading pre-exported ONNX model from Docker build
-                        import os
-                        model_name = self.embedding_model.replace('/', '-')
-                        onnx_model_path = f"/app/{model_name}"
-
-                        try:
-                            if os.path.exists(onnx_model_path):
-                                logger.info(f"Loading pre-exported ONNX model from {onnx_model_path}")
-                                self._embedding_model_instance = SentenceTransformer(
-                                    onnx_model_path,
-                                    backend="onnx"
-                                )
-                                logger.info(f"✓ Loaded pre-exported ONNX model: {self.embedding_model}")
-                            else:
-                                # Fallback: load with ONNX backend (will export at runtime)
-                                logger.warning(f"Pre-exported ONNX not found at {onnx_model_path}, loading with runtime export")
-                                self._embedding_model_instance = SentenceTransformer(
-                                    self.embedding_model,
-                                    backend="onnx"
-                                )
-                                logger.info(f"✓ Loaded ONNX model with runtime export: {self.embedding_model}")
-                        except Exception as onnx_error:
-                            # Fallback to PyTorch if ONNX fails
-                            logger.warning(f"ONNX backend failed ({onnx_error.__class__.__name__}: {onnx_error}), falling back to PyTorch")
-                            self._embedding_model_instance = SentenceTransformer(self.embedding_model)
-                            logger.info(f"✓ Loaded PyTorch model: {self.embedding_model}")
+                        self._embedding_model_instance = SentenceTransformer(self.embedding_model)
+                        logger.info(f"Loaded model: {self.embedding_model}")
 
             # Generate embedding (outside lock - model is thread-safe for inference)
             embeddings = self._embedding_model_instance.encode(text, convert_to_tensor=False)
@@ -558,6 +538,27 @@ class QdrantStorage(MemoryStorage):
         except Exception as e:
             logger.error(f"Failed to generate embedding: {e.__class__.__name__}: {str(e)}")
             raise
+
+    def _normalize_tags(self, tags_raw: Any) -> List[str]:
+        """
+        Normalize tags to list format, handling both string (legacy) and list formats.
+
+        Args:
+            tags_raw: Tags in any format (string, list, or None)
+
+        Returns:
+            List of trimmed, non-empty tag strings
+        """
+        if isinstance(tags_raw, str):
+            # Legacy format: comma-separated string
+            tags = tags_raw.split(",") if tags_raw else []
+        elif isinstance(tags_raw, list):
+            tags = tags_raw
+        else:
+            tags = []
+
+        # Filter out empty strings and trim whitespace
+        return [t.strip() for t in tags if t and t.strip()]
 
     @retry(
         retry=retry_if_exception(is_retryable_error),
@@ -764,7 +765,7 @@ class QdrantStorage(MemoryStorage):
                     memory = Memory(
                         content=payload.get("content", ""),
                         content_hash=payload.get("content_hash", str(scored_point.id)),
-                        tags=payload.get("tags", []),
+                        tags=self._normalize_tags(payload.get("tags", [])),
                         memory_type=payload.get("memory_type"),
                         metadata=payload.get("metadata", {}),
                         created_at=payload.get("created_at"),
@@ -1351,7 +1352,7 @@ class QdrantStorage(MemoryStorage):
                     if point.id == self.METADATA_POINT_ID:
                         continue
 
-                    tags = point.payload.get("tags", [])
+                    tags = self._normalize_tags(point.payload.get("tags", []))
                     if tags:
                         all_tags.update(tags)
 
@@ -1408,7 +1409,7 @@ class QdrantStorage(MemoryStorage):
                     memory = Memory(
                         content=payload.get("content", ""),
                         content_hash=payload.get("content_hash", str(point.id)),
-                        tags=payload.get("tags", []),
+                        tags=self._normalize_tags(payload.get("tags", [])),
                         memory_type=payload.get("memory_type"),
                         metadata=payload.get("metadata", {}),
                         created_at=payload.get("created_at"),
@@ -1514,7 +1515,7 @@ class QdrantStorage(MemoryStorage):
 
                     # Apply tag filter if specified (OR logic)
                     if tags:
-                        point_tags = point.payload.get("tags", [])
+                        point_tags = self._normalize_tags(point.payload.get("tags", []))
                         if not any(tag in point_tags for tag in tags):
                             continue
 
@@ -1522,7 +1523,7 @@ class QdrantStorage(MemoryStorage):
                     memory = Memory(
                         content=payload.get("content", ""),
                         content_hash=payload.get("content_hash", str(point.id)),
-                        tags=payload.get("tags", []),
+                        tags=self._normalize_tags(payload.get("tags", [])),
                         memory_type=payload.get("memory_type"),
                         metadata=payload.get("metadata", {}),
                         created_at=payload.get("created_at"),
@@ -1695,7 +1696,7 @@ class QdrantStorage(MemoryStorage):
                     memory = Memory(
                         content=payload.get("content", ""),
                         content_hash=payload.get("content_hash", str(point.id)),
-                        tags=payload.get("tags", []),
+                        tags=self._normalize_tags(payload.get("tags", [])),
                         memory_type=payload.get("memory_type"),
                         metadata=payload.get("metadata", {}),
                         created_at=payload.get("created_at"),

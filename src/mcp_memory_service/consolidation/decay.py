@@ -184,7 +184,7 @@ class ExponentialDecayCalculator(ConsolidationBase):
         if not last_accessed:
             # Check memory's own updated_at timestamp
             if memory.updated_at:
-                last_accessed = datetime.fromtimestamp(memory.updated_at, datetime.UTC)
+                last_accessed = datetime.fromtimestamp(memory.updated_at, timezone.utc)
             else:
                 return 1.0  # No access data available
 

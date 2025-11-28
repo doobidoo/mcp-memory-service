@@ -17,7 +17,7 @@
 import uuid
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import Counter
 import re
 
@@ -271,7 +271,7 @@ class SemanticClusteringEngine(ConsolidationBase):
         
         for memory in memories:
             if memory.created_at:
-                created_dt = datetime.fromtimestamp(memory.created_at, datetime.UTC)
+                created_dt = datetime.fromtimestamp(memory.created_at, timezone.utc)
                 age_days = (now - created_dt).days
                 ages.append(age_days)
             elif memory.timestamp:

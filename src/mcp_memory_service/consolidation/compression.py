@@ -16,7 +16,7 @@
 
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple, Set
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from collections import Counter
 import re
@@ -334,8 +334,8 @@ class SemanticCompressionEngine(ConsolidationBase):
             'end_time': end_time,
             'span_days': span_days,
             'span_description': span_description,
-            'start_iso': datetime.fromtimestamp(start_time, datetime.UTC).isoformat().replace('+00:00', 'Z'),
-            'end_iso': datetime.fromtimestamp(end_time, datetime.UTC).isoformat().replace('+00:00', 'Z')
+            'start_iso': datetime.fromtimestamp(start_time, timezone.utc).isoformat().replace('+00:00', 'Z'),
+            'end_iso': datetime.fromtimestamp(end_time, timezone.utc).isoformat().replace('+00:00', 'Z')
         }
     
     def _aggregate_tags(self, memories: List[Memory]) -> List[str]:

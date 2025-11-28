@@ -15,7 +15,7 @@
 """Memory-related data models."""
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 import logging
 import calendar
@@ -103,7 +103,7 @@ class Memory:
 
         def float_to_iso(ts: float) -> str:
             """Convert float timestamp to ISO string."""
-            return datetime.fromtimestamp(ts, datetime.UTC).isoformat().replace('+00:00', 'Z')
+            return datetime.fromtimestamp(ts, timezone.utc).isoformat().replace('+00:00', 'Z')
 
         # Handle created_at
         if created_at is not None and created_at_iso is not None:
@@ -184,13 +184,13 @@ class Memory:
             self.updated_at_iso = float_to_iso(now)
         
         # Update legacy timestamp field for backward compatibility
-        self.timestamp = datetime.fromtimestamp(self.created_at, datetime.UTC)
+        self.timestamp = datetime.fromtimestamp(self.created_at, timezone.utc)
 
     def touch(self):
         """Update the updated_at timestamps to the current time."""
         now = time.time()
         self.updated_at = now
-        self.updated_at_iso = datetime.fromtimestamp(now, datetime.UTC).isoformat().replace('+00:00', 'Z')
+        self.updated_at_iso = datetime.fromtimestamp(now, timezone.utc).isoformat().replace('+00:00', 'Z')
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert memory to dictionary format for storage."""
