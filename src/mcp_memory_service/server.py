@@ -1122,55 +1122,59 @@ class MemoryServer:
         async def handle_read_resource(uri: str) -> str:
             """Read a specific memory resource."""
             await self._ensure_storage_initialized()
-            
+
             import json
             from urllib.parse import unquote
-            
+
+            # Convert URI to string if it's a Pydantic AnyUrl object
+            # This handles cases where MCP protocol passes AnyUrl instead of str
+            uri_str = str(uri) if not isinstance(uri, str) else uri
+
             try:
-                if uri == "memory://stats":
+                if uri_str == "memory://stats":
                     # Get memory statistics
                     stats = await self.storage.get_stats()
                     return json.dumps(stats, indent=2)
-                    
-                elif uri == "memory://tags":
+
+                elif uri_str == "memory://tags":
                     # Get all available tags
                     tags = await self.storage.get_all_tags()
                     return json.dumps({"tags": tags, "count": len(tags)}, indent=2)
-                    
-                elif uri.startswith("memory://recent/"):
+
+                elif uri_str.startswith("memory://recent/"):
                     # Get recent memories
-                    n = int(uri.split("/")[-1])
+                    n = int(uri_str.split("/")[-1])
                     memories = await self.storage.get_recent_memories(n)
                     return json.dumps({
                         "memories": [m.to_dict() for m in memories],
                         "count": len(memories)
                     }, indent=2, default=str)
-                    
-                elif uri.startswith("memory://tag/"):
+
+                elif uri_str.startswith("memory://tag/"):
                     # Get memories by tag
-                    tag = unquote(uri.split("/", 3)[-1])
+                    tag = unquote(uri_str.split("/", 3)[-1])
                     memories = await self.storage.search_by_tag([tag])
                     return json.dumps({
                         "tag": tag,
                         "memories": [m.to_dict() for m in memories],
                         "count": len(memories)
                     }, indent=2, default=str)
-                    
-                elif uri.startswith("memory://search/"):
+
+                elif uri_str.startswith("memory://search/"):
                     # Dynamic search
-                    query = unquote(uri.split("/", 3)[-1])
+                    query = unquote(uri_str.split("/", 3)[-1])
                     results = await self.storage.search(query, n_results=10)
                     return json.dumps({
                         "query": query,
                         "results": [r.to_dict() for r in results],
                         "count": len(results)
                     }, indent=2, default=str)
-                    
+
                 else:
-                    return json.dumps({"error": f"Resource not found: {uri}"}, indent=2)
-                    
+                    return json.dumps({"error": f"Resource not found: {uri_str}"}, indent=2)
+
             except Exception as e:
-                logger.error(f"Error reading resource {uri}: {e}")
+                logger.error(f"Error reading resource {uri_str}: {e}")
                 return json.dumps({"error": str(e)}, indent=2)
         
         @self.server.list_resource_templates()
