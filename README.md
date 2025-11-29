@@ -23,16 +23,15 @@
 
 ## 🚀 Quick Start (2 minutes)
 
-### 🆕 Latest Release: **v8.42.0** (Nov 27, 2025)
+### 🆕 Latest Release: **v8.42.1** (Nov 29, 2025)
 
-**Memory Awareness Enhancements**
+**Bug Fix Release**
 
-- 👁️ **Visible Memory Injection** - Users now see top 3 memories at session start with relevance scores, age, and tags
-- 🎯 **Quality Session Summaries** - Raised quality thresholds (200 char min, 0.5 confidence) to prevent generic boilerplate
-- 🤖 **LLM-Powered Summarization** - Optional Gemini CLI integration for intelligent session analysis
-- 🧹 **Database Quality** - Cleaned 167 generic summaries (3352 → 3185 memories)
+- 🐛 **MCP Resource Handler Fix** - Fixed `AttributeError: 'AnyUrl' object has no attribute 'startswith'` in `handle_read_resource` (issue #254)
+- 🔧 **Pydantic Compatibility** - Added automatic URI string conversion to handle both string and AnyUrl inputs from MCP SDK
 
 **Previous Releases**:
+- **v8.42.0** - Memory Awareness Enhancements (visible memory injection, quality session summaries, LLM-powered summarization)
 - **v8.41.2** - Hook Installer Utility File Deployment (ALL 14 utilities copied, future-proof glob pattern)
 - **v8.41.1** - Context Formatter Memory Sorting (recency sorting within categories, newest first)
 - **v8.41.0** - Session Start Hook Reliability Improvements (error suppression, clean output, memory filtering, classification fixes)

@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [8.42.1] - 2025-11-29
+
+### Fixed
+- **MCP Resource Handler AttributeError** - Fixed `AttributeError: 'AnyUrl' object has no attribute 'startswith'` in `handle_read_resource` function (issue #254)
+  - Added automatic URI string conversion at function start to handle both plain strings and Pydantic AnyUrl objects
+  - MCP SDK may pass AnyUrl objects instead of strings, causing AttributeError when using `.startswith()` method
+  - Fix converts AnyUrl to string using `str()` before processing, maintaining backward compatibility
+
 ## [8.42.0] - 2025-11-27
 
 ### Added
