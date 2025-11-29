@@ -1122,10 +1122,15 @@ class MemoryServer:
         async def handle_read_resource(uri: str) -> str:
             """Read a specific memory resource."""
             await self._ensure_storage_initialized()
-            
+
             import json
             from urllib.parse import unquote
-            
+
+            # Convert AnyUrl to string if necessary (fix for issue #254)
+            # MCP SDK may pass Pydantic AnyUrl objects instead of plain strings
+            if hasattr(uri, '__str__'):
+                uri = str(uri)
+
             try:
                 if uri == "memory://stats":
                     # Get memory statistics
