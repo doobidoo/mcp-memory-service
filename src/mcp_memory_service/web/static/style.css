@@ -240,6 +240,33 @@ h3 { font-size: var(--text-xl); }
     background: var(--neutral-300);
 }
 
+/* Language switcher */
+.language-switcher {
+    display: flex;
+    gap: 8px;
+    margin-left: 8px;
+}
+
+.lang-btn {
+    border: 1px solid var(--neutral-300);
+    background: var(--neutral-100);
+    color: var(--neutral-800);
+    padding: 6px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.lang-btn.active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+}
+
+.lang-btn:hover {
+    background: var(--neutral-200);
+}
+
 .btn-danger {
     background: var(--error);
     color: white;
