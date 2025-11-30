@@ -65,6 +65,11 @@ class MemoryDashboard {
         this.eventSource = null;
         this.memories = [];
         this.currentView = 'dashboard';
+        // 国际化状态
+        this.currentLang = 'en';
+        this.translations = {};
+        this.fallbackTranslations = {};
+        this.supportedLanguages = ['en', 'zh'];
         this.searchResults = [];
         this.isLoading = false;
         this.liveSearchEnabled = true;
@@ -96,6 +101,7 @@ class MemoryDashboard {
      * Initialize the application
      */
     async init() {
+        await this.initI18n();
         this.loadSettings();
         this.applyTheme();
         this.setupEventListeners();
@@ -110,6 +116,146 @@ class MemoryDashboard {
     }
 
     /**
+     * 初始化国际化：检测语言，加载词典并应用
+     */
+    async initI18n() {
+        this.currentLang = this.detectLanguage();
+        await this.ensureFallbackTranslations();
+        await this.loadTranslations(this.currentLang);
+        await this.applyTranslations();
+    }
+
+    /**
+     * 语言检测：localStorage > 浏览器语言前缀 > en
+     */
+    detectLanguage() {
+        const stored = localStorage.getItem('memoryDashboardLang');
+        if (stored && this.supportedLanguages.includes(stored)) {
+            return stored;
+        }
+        const browserLang = (navigator.language || navigator.userLanguage || '').toLowerCase();
+        if (browserLang.startsWith('zh')) return 'zh';
+        return 'en';
+    }
+
+    /**
+     * 确保英文词典作为回退存在
+     */
+    async ensureFallbackTranslations() {
+        if (Object.keys(this.fallbackTranslations).length > 0) return;
+        try {
+            const response = await fetch('/static/i18n/en.json');
+            if (response.ok) {
+                this.fallbackTranslations = await response.json();
+            }
+        } catch (error) {
+            console.warn('Failed to load fallback translations', error);
+            this.fallbackTranslations = {};
+        }
+    }
+
+    /**
+     * 加载指定语言词典
+     */
+    async loadTranslations(lang) {
+        try {
+            const response = await fetch(`/static/i18n/${lang}.json`);
+            if (response.ok) {
+                this.translations = await response.json();
+                this.currentLang = lang;
+                localStorage.setItem('memoryDashboardLang', lang);
+                return;
+            }
+        } catch (error) {
+            console.warn('Failed to load translations for', lang, error);
+        }
+        // 回退到英文
+        this.translations = this.fallbackTranslations;
+        this.currentLang = 'en';
+        localStorage.setItem('memoryDashboardLang', 'en');
+    }
+
+    /**
+     * 获取翻译，带占位符替换
+     */
+    t(key, fallback = '', vars = {}) {
+        const fromCurrent = this.translations?.[key];
+        const fromFallback = this.fallbackTranslations?.[key];
+        const template = fromCurrent || fromFallback || fallback || key;
+        return this.replacePlaceholders(template, vars);
+    }
+
+    replacePlaceholders(str, vars) {
+        return str.replace(/\{(.*?)\}/g, (_, k) => vars[k] ?? `{${k}}`);
+    }
+
+    /**
+     * 应用翻译到 DOM
+     */
+    async applyTranslations() {
+        // 基于 data-i18n 设置文本
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.dataset.i18n;
+            const text = this.t(key, el.textContent?.trim() || '');
+            if (text) el.textContent = text;
+        });
+
+        // 基于 data-i18n-html 设置 HTML（用于需要保留格式的帮助文本）
+        document.querySelectorAll('[data-i18n-html]').forEach(el => {
+            const key = el.dataset.i18nHtml;
+            const html = this.t(key, el.innerHTML.trim() || '');
+            if (html) el.innerHTML = html;
+        });
+
+        // 占位符翻译
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+            const key = el.dataset.i18nPlaceholder;
+            const text = this.t(key, el.getAttribute('placeholder') || '');
+            el.setAttribute('placeholder', text);
+        });
+
+        // aria-label 翻译
+        document.querySelectorAll('[data-i18n-aria]').forEach(el => {
+            const key = el.dataset.i18nAria;
+            const text = this.t(key, el.getAttribute('aria-label') || '');
+            el.setAttribute('aria-label', text);
+        });
+
+        // 文档标题
+        document.title = this.t('meta.title', document.title);
+
+        // 搜索模式文案
+        const modeText = document.getElementById('searchModeText');
+        if (modeText) {
+            modeText.textContent = this.liveSearchEnabled
+                ? this.t('search.modeLive', modeText.textContent)
+                : this.t('search.modeManual', modeText.textContent);
+        }
+
+        // 更新语言按钮状态
+        this.updateLanguageSwitcher();
+    }
+
+    /**
+     * 切换语言
+     */
+    async setLanguage(lang) {
+        if (!this.supportedLanguages.includes(lang) || lang === this.currentLang) return;
+        await this.loadTranslations(lang);
+        await this.applyTranslations();
+        this.showToast(this.t('toast.languageSwitched', 'Language switched'), 'success', 2000);
+    }
+
+    /**
+     * 高亮当前语言按钮
+     */
+    updateLanguageSwitcher() {
+        document.querySelectorAll('[data-lang-option]').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.langOption === this.currentLang);
+        });
+    }
+
+    /**
      * Set up event listeners for UI interactions
      */
     setupEventListeners() {
@@ -117,6 +263,14 @@ class MemoryDashboard {
         // Navigation
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', this.handleNavigation);
+        });
+
+        // Language switcher
+        document.querySelectorAll('[data-lang-option]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const lang = btn.dataset.langOption;
+                this.setLanguage(lang);
+            });
         });
 
         // Search functionality
@@ -330,15 +484,15 @@ class MemoryDashboard {
         switch (data.type) {
             case 'memory_added':
                 this.handleMemoryAdded(data.memory);
-                this.showToast('Memory added successfully', 'success');
+                this.showToast(this.t('toast.memoryAdded', 'Memory added successfully'), 'success');
                 break;
             case 'memory_deleted':
                 this.handleMemoryDeleted(data.memory_id);
-                this.showToast('Memory deleted', 'success');
+                this.showToast(this.t('toast.memoryDeleted', 'Memory deleted'), 'success');
                 break;
             case 'memory_updated':
                 this.handleMemoryUpdated(data.memory);
-                this.showToast('Memory updated', 'success');
+                this.showToast(this.t('toast.memoryUpdated', 'Memory updated'), 'success');
                 break;
             case 'stats_updated':
                 this.updateDashboardStats(data.stats);
@@ -373,7 +527,13 @@ class MemoryDashboard {
 
         // Show toast notification for manual sync
         if (data.sync_type === 'manual') {
-            this.showToast(data.message || `Syncing: ${data.synced_count}/${data.total_count}`, 'info');
+            this.showToast(
+                data.message || this.t('toast.syncing', 'Syncing: {synced}/{total}', {
+                    synced: data.synced_count,
+                    total: data.total_count
+                }),
+                'info'
+            );
         }
     }
 
@@ -400,7 +560,7 @@ class MemoryDashboard {
 
         // Show completion notification
         const message = data.message || `Sync completed: ${data.synced_count} memories synced`;
-        this.showToast(message, 'success');
+        this.showToast(this.t('toast.genericSuccess', message), 'success');
     }
 
     /**
@@ -445,7 +605,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Error loading dashboard data:', error);
-            this.showToast('Failed to load dashboard data', 'error');
+            this.showToast(this.t('toast.loadDashboardFail', 'Failed to load dashboard data'), 'error');
         } finally {
             this.setLoading(false);
         }
@@ -465,7 +625,7 @@ class MemoryDashboard {
             }
         } catch (error) {
             console.error('Error loading browse data:', error);
-            this.showToast('Failed to load browse data', 'error');
+            this.showToast(this.t('toast.loadBrowseFail', 'Failed to load browse data'), 'error');
         } finally {
             this.setLoading(false);
         }
@@ -483,7 +643,7 @@ class MemoryDashboard {
             this.setupDocumentsEventListeners();
         } catch (error) {
             console.error('Error loading documents data:', error);
-            this.showToast('Failed to load documents data', 'error');
+            this.showToast(this.t('toast.loadDocumentsFail', 'Failed to load documents data'), 'error');
         } finally {
             this.setLoading(false);
         }
@@ -724,7 +884,7 @@ class MemoryDashboard {
                 if (query) {
                     this.searchDocumentContent(query);
                 } else {
-                    this.showToast('Please enter a search query', 'warning');
+                    this.showToast(this.t('toast.enterSearch', 'Please enter a search query'), 'warning');
                 }
             });
 
@@ -850,7 +1010,7 @@ class MemoryDashboard {
      */
     async handleDocumentUpload() {
         if (!this.selectedFiles || this.selectedFiles.length === 0) {
-            this.showToast('No files selected', 'error');
+            this.showToast(this.t('toast.noFiles', 'No files selected'), 'error');
             return;
         }
 
@@ -880,7 +1040,13 @@ class MemoryDashboard {
                         }
                     } catch (error) {
                         console.error(`Failed to upload ${file.name}:`, error);
-                        this.showToast(`Failed to upload ${file.name}: ${error.message}`, 'error');
+                        this.showToast(
+                            this.t('toast.uploadFileFail', 'Failed to upload {name}: {message}', {
+                                name: file.name,
+                                message: error.message
+                            }),
+                            'error'
+                        );
                         // Continue with remaining files
                     }
                 }
@@ -920,7 +1086,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Upload error:', error);
-            this.showToast('Upload failed: ' + error.message, 'error');
+            this.showToast(this.t('toast.uploadFailed', 'Upload failed: {message}', { message: error.message }), 'error');
         } finally {
             this.setLoading(false);
         }
@@ -966,7 +1132,7 @@ class MemoryDashboard {
 
         const result = await response.json();
         console.log('Upload result:', result);
-        this.showToast(`Upload started for ${file.name}`, 'success');
+        this.showToast(this.t('toast.uploadStartedSingle', 'Upload started for {name}', { name: file.name }), 'success');
 
         // Monitor progress if we have an upload ID
         if (result.upload_id) {
@@ -1000,7 +1166,10 @@ class MemoryDashboard {
         }
 
         const result = await response.json();
-        this.showToast(`Batch upload started for ${files.length} files`, 'success');
+        this.showToast(
+            this.t('toast.uploadStartedBatch', 'Batch upload started for {count} files', { count: files.length }),
+            'success'
+        );
 
         // Monitor progress if we have an upload ID
         if (result.upload_id) {
@@ -1172,7 +1341,7 @@ class MemoryDashboard {
         try {
             const result = await this.apiCall('/sync/pause', 'POST');
             if (result.success) {
-                this.showToast('Sync paused', 'success');
+                this.showToast(this.t('toast.syncPaused', 'Sync paused'), 'success');
 
                 // Update UI immediately using API response data
                 const pauseButton = document.getElementById('pauseSyncButton');
@@ -1188,12 +1357,15 @@ class MemoryDashboard {
                 // Small delay to allow backend state to propagate before checking status
                 await new Promise(resolve => setTimeout(resolve, 200));
             } else {
-                this.showToast('Failed to pause sync: ' + result.message, 'error');
+                this.showToast(
+                    this.t('toast.syncPauseFailWithReason', 'Failed to pause sync: {reason}', { reason: result.message }),
+                    'error'
+                );
             }
             await this.checkSyncStatus();
         } catch (error) {
             console.error('Error pausing sync:', error);
-            this.showToast('Failed to pause sync', 'error');
+            this.showToast(this.t('toast.syncPauseFail', 'Failed to pause sync'), 'error');
         }
     }
 
@@ -1204,7 +1376,7 @@ class MemoryDashboard {
         try {
             const result = await this.apiCall('/sync/resume', 'POST');
             if (result.success) {
-                this.showToast('Sync resumed', 'success');
+                this.showToast(this.t('toast.syncResumed', 'Sync resumed'), 'success');
 
                 // Update UI immediately using API response data
                 const pauseButton = document.getElementById('pauseSyncButton');
@@ -1220,12 +1392,15 @@ class MemoryDashboard {
                 // Small delay to allow backend state to propagate before checking status
                 await new Promise(resolve => setTimeout(resolve, 200));
             } else {
-                this.showToast('Failed to resume sync: ' + result.message, 'error');
+                this.showToast(
+                    this.t('toast.syncResumeFailWithReason', 'Failed to resume sync: {reason}', { reason: result.message }),
+                    'error'
+                );
             }
             await this.checkSyncStatus();
         } catch (error) {
             console.error('Error resuming sync:', error);
-            this.showToast('Failed to resume sync', 'error');
+            this.showToast(this.t('toast.syncResumeFail', 'Failed to resume sync'), 'error');
         }
     }
 
@@ -1284,21 +1459,30 @@ class MemoryDashboard {
         if (backupButton) backupButton.disabled = true;
 
         try {
-            this.showToast('Creating backup...', 'info');
+            this.showToast(this.t('toast.backupCreating', 'Creating backup...'), 'info');
             const result = await this.apiCall('/backup/now', 'POST');
 
             if (result.success) {
                 const sizeMB = (result.size_bytes / 1024 / 1024).toFixed(2);
-                this.showToast(`Backup created: ${result.filename} (${sizeMB} MB)`, 'success');
+                this.showToast(
+                    this.t('toast.backupCreated', 'Backup created: {name} ({size} MB)', {
+                        name: result.filename,
+                        size: sizeMB
+                    }),
+                    'success'
+                );
             } else {
-                this.showToast('Backup failed: ' + result.error, 'error');
+                this.showToast(
+                    this.t('toast.backupFailedWithReason', 'Backup failed: {reason}', { reason: result.error }),
+                    'error'
+                );
             }
 
             await this.checkBackupStatus();
 
         } catch (error) {
             console.error('Error creating backup:', error);
-            this.showToast('Failed to create backup', 'error');
+            this.showToast(this.t('toast.backupFailed', 'Failed to create backup'), 'error');
         } finally {
             if (backupButton) backupButton.disabled = false;
         }
@@ -1343,12 +1527,18 @@ class MemoryDashboard {
             if (syncControl) syncControl.className = 'sync-control-compact syncing';
 
             // Show toast when sync starts
-            this.showToast('Starting sync...', 'info');
+            this.showToast(this.t('toast.syncStarting', 'Starting sync...'), 'info');
 
             const result = await this.apiCall('/sync/force', 'POST');
 
             if (result.success) {
-                this.showToast(`Synced ${result.operations_synced} operations in ${result.time_taken_seconds}s`, 'success');
+                this.showToast(
+                    this.t('toast.syncCompleted', 'Synced {count} operations in {seconds}s', {
+                        count: result.operations_synced,
+                        seconds: result.time_taken_seconds
+                    }),
+                    'success'
+                );
 
                 // Refresh dashboard data to show newly synced memories
                 if (this.currentView === 'dashboard') {
@@ -1360,12 +1550,18 @@ class MemoryDashboard {
                     await this.apiCall('/sync/pause', 'POST');
                 }
             } else {
-                this.showToast('Sync failed: ' + result.message, 'error');
+                this.showToast(
+                    this.t('toast.syncFailedWithReason', 'Sync failed: {reason}', { reason: result.message }),
+                    'error'
+                );
             }
 
         } catch (error) {
             console.error('Error forcing sync:', error);
-            this.showToast('Failed to force sync: ' + error.message, 'error');
+            this.showToast(
+                this.t('toast.syncForceFailed', 'Failed to force sync: {reason}', { reason: error.message }),
+                'error'
+            );
         } finally {
             // Clear flag to allow periodic polling to resume
             this._isForceSyncing = false;
@@ -1434,7 +1630,7 @@ class MemoryDashboard {
             clearBtn.onclick = () => this.clearTagFilter();
         } catch (error) {
             console.error('Error filtering by tag:', error);
-            this.showToast('Failed to load memories for tag', 'error');
+            this.showToast(this.t('toast.loadTagFail', 'Failed to load memories for tag'), 'error');
         }
     }
 
@@ -1637,7 +1833,7 @@ class MemoryDashboard {
             this.updateResultsCount(results.length);
         } catch (error) {
             console.error('Search error:', error);
-            this.showToast('Search failed', 'error');
+            this.showToast(this.t('toast.searchFailed', 'Search failed'), 'error');
         } finally {
             this.setLoading(false);
         }
@@ -1779,7 +1975,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Filter search error:', error);
-            this.showToast('Filter search failed', 'error');
+            this.showToast(this.t('toast.filterSearchFailed', 'Filter search failed'), 'error');
         } finally {
             // Remove loading state
             const applyBtn = document.getElementById('applyFiltersBtn');
@@ -1868,7 +2064,7 @@ class MemoryDashboard {
         const type = document.getElementById('memoryType').value;
 
         if (!content) {
-            this.showToast('Please enter memory content', 'warning');
+            this.showToast(this.t('toast.enterMemoryContent', 'Please enter memory content'), 'warning');
             return;
         }
 
@@ -1920,7 +2116,10 @@ class MemoryDashboard {
                                 const deleteResponse = await this.apiCall(`/memories/${originalContentHash}`, 'DELETE');
                             } catch (deleteError) {
                                 console.error('Failed to delete original memory after creating new version:', deleteError);
-                                this.showToast('Memory updated, but original version still exists. You may need to manually delete the duplicate.', 'warning');
+                                this.showToast(
+                                    this.t('toast.duplicateMemoryWarning', 'Memory updated, but original version still exists. You may need to manually delete the duplicate.'),
+                                    'warning'
+                                );
                             }
                         } else {
                             // Creation failed - do NOT delete original memory
@@ -1961,7 +2160,10 @@ class MemoryDashboard {
             }
         } catch (error) {
             console.error('Error saving memory:', error);
-            this.showToast(error.message || 'Failed to save memory', 'error');
+            this.showToast(
+                this.t('toast.saveMemoryFailed', 'Failed to save memory', { reason: error.message }),
+                'error'
+            );
         }
     }
 
@@ -2085,7 +2287,7 @@ class MemoryDashboard {
         try {
             await this.apiCall(`/memories/${memory.content_hash}`, 'DELETE');
             this.closeModal(document.getElementById('memoryModal'));
-            this.showToast('Memory deleted successfully', 'success');
+            this.showToast(this.t('toast.memoryDeletedSuccess', 'Memory deleted successfully'), 'success');
 
             // Refresh current view
             if (this.currentView === 'dashboard') {
@@ -2099,7 +2301,7 @@ class MemoryDashboard {
             }
         } catch (error) {
             console.error('Error deleting memory:', error);
-            this.showToast('Failed to delete memory', 'error');
+            this.showToast(this.t('toast.memoryDeleteFailed', 'Failed to delete memory'), 'error');
         }
     }
 
@@ -2175,10 +2377,10 @@ class MemoryDashboard {
         const shareText = `Memory Content:\n${shareData.content}\n\nTags: ${shareData.tags.join(', ')}\nType: ${shareData.type}\nCreated: ${shareData.created}`;
 
         navigator.clipboard.writeText(shareText).then(() => {
-            this.showToast('Memory copied to clipboard', 'success');
+            this.showToast(this.t('toast.copySuccess', 'Memory copied to clipboard'), 'success');
         }).catch(err => {
             console.error('Could not copy text: ', err);
-            this.showToast('Failed to copy to clipboard', 'error');
+            this.showToast(this.t('toast.copyFailed', 'Failed to copy to clipboard'), 'error');
         });
     }
 
@@ -2187,7 +2389,7 @@ class MemoryDashboard {
      */
     async handleExportData() {
         try {
-            this.showToast('Preparing export...', 'info');
+        this.showToast(this.t('toast.exportPreparing', 'Preparing export...'), 'info');
 
             // Fetch all memories using pagination
             const allMemories = [];
@@ -2209,7 +2411,13 @@ class MemoryDashboard {
                     page++;
 
                     // Update progress
-                    this.showToast(`Fetching memories... (${allMemories.length}/${totalMemories})`, 'info');
+                    this.showToast(
+                        this.t('toast.exportFetching', 'Fetching memories... ({current}/{total})', {
+                            current: allMemories.length,
+                            total: totalMemories
+                        }),
+                        'info'
+                    );
                 } else {
                     hasMore = false;
                 }
@@ -2232,10 +2440,13 @@ class MemoryDashboard {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
-            this.showToast(`Successfully exported ${allMemories.length} memories`, 'success');
+            this.showToast(
+                this.t('toast.exportSuccess', 'Successfully exported {count} memories', { count: allMemories.length }),
+                'success'
+            );
         } catch (error) {
             console.error('Export error:', error);
-            this.showToast('Failed to export data', 'error');
+            this.showToast(this.t('toast.exportFailed', 'Failed to export data'), 'error');
         }
     }
 
@@ -2737,7 +2948,7 @@ class MemoryDashboard {
         this.updateResultsCount(0);
         this.updateActiveFilters();
 
-        this.showToast('All filters cleared', 'info');
+        this.showToast(this.t('toast.filtersCleared', 'All filters cleared'), 'info');
     }
 
     /**
@@ -2747,12 +2958,16 @@ class MemoryDashboard {
         this.liveSearchEnabled = event.target.checked;
         const modeText = document.getElementById('searchModeText');
         if (modeText) {
-            modeText.textContent = this.liveSearchEnabled ? 'Live Search' : 'Manual Search';
+            modeText.textContent = this.liveSearchEnabled
+                ? this.t('search.modeLive', 'Live Search')
+                : this.t('search.modeManual', 'Manual Search');
         }
 
         // Show a toast to indicate the mode change
         this.showToast(
-            `Search mode: ${this.liveSearchEnabled ? 'Live (searches as you type)' : 'Manual (click Search button)'}`,
+            this.liveSearchEnabled
+                ? this.t('toast.searchModeLive', 'Search mode: Live (searches as you type)')
+                : this.t('toast.searchModeManual', 'Search mode: Manual (click Search button)'),
             'info'
         );
     }
@@ -2949,14 +3164,19 @@ class MemoryDashboard {
                 modal.style.display = 'flex';
 
                 if (response.status === 'partial') {
-                    this.showToast(`Found ${response.total_found} chunks (partial results)`, 'warning');
+                    this.showToast(
+                        this.t('toast.documentChunksPartial', 'Found {count} chunks (partial results)', {
+                            count: response.total_found
+                        }),
+                        'warning'
+                    );
                 }
             } else {
-                this.showToast('Failed to load document memories', 'error');
+                this.showToast(this.t('toast.loadDocumentMemoriesFail', 'Failed to load document memories'), 'error');
             }
         } catch (error) {
             console.error('Error viewing document memory:', error);
-            this.showToast('Error loading document memories', 'error');
+            this.showToast(this.t('toast.errorLoadingDocumentMemories', 'Error loading document memories'), 'error');
         } finally {
             this.setLoading(false);
         }
@@ -2992,7 +3212,13 @@ class MemoryDashboard {
             console.log('Delete response:', response);
 
             if (response.status === 'success') {
-                this.showToast(`Removed "${filename}" (${response.memories_deleted} memories deleted)`, 'success');
+                this.showToast(
+                    this.t('toast.documentRemoved', 'Removed "{name}" ({count} memories deleted)', {
+                        name: filename,
+                        count: response.memories_deleted
+                    }),
+                    'success'
+                );
                 // Refresh the current view (Dashboard or Documents tab)
                 console.log('Refreshing view:', this.currentView);
                 if (this.currentView === 'dashboard') {
@@ -3002,12 +3228,12 @@ class MemoryDashboard {
                 }
             } else {
                 console.error('Removal failed with response:', response);
-                this.showToast('Failed to remove document', 'error');
+                this.showToast(this.t('toast.removeDocumentFailed', 'Failed to remove document'), 'error');
             }
         } catch (error) {
             console.error('Error removing document:', error);
             console.error('Error stack:', error.stack);
-            this.showToast('Error removing document', 'error');
+            this.showToast(this.t('toast.errorRemovingDocument', 'Error removing document'), 'error');
         } finally {
             this.setLoading(false);
         }
@@ -3039,7 +3265,12 @@ class MemoryDashboard {
                 // Limit display to top 20 most relevant document results
                 const displayResults = documentResults.slice(0, 20);
 
-                resultsCount.textContent = `${documentResults.length} result${documentResults.length !== 1 ? 's' : ''}${documentResults.length > 20 ? ' (showing top 20)' : ''}`;
+                const baseCount = this.t('documents.search.count', '{count} result{plural}{extra}', {
+                    count: documentResults.length,
+                    plural: documentResults.length !== 1 ? 's' : '',
+                    extra: documentResults.length > 20 ? ' (showing top 20)' : ''
+                });
+                resultsCount.textContent = baseCount;
 
                 if (displayResults.length > 0) {
                     const resultsHtml = displayResults.map(result => {
@@ -3066,16 +3297,16 @@ class MemoryDashboard {
 
                     resultsList.innerHTML = resultsHtml;
                 } else {
-                    resultsList.innerHTML = '<p class="text-muted">No matching document content found. Try different search terms.</p>';
+                    resultsList.innerHTML = `<p class="text-muted">${this.t('documents.search.noMatch', 'No matching document content found. Try different search terms.')}</p>`;
                 }
 
                 resultsContainer.style.display = 'block';
             } else {
-                this.showToast('Search failed', 'error');
+                this.showToast(this.t('toast.searchFailed', 'Search failed'), 'error');
             }
         } catch (error) {
             console.error('Error searching documents:', error);
-            this.showToast('Error performing search', 'error');
+            this.showToast(this.t('toast.errorPerformingSearch', 'Error performing search'), 'error');
         } finally {
             this.setLoading(false);
         }
@@ -3140,7 +3371,10 @@ class MemoryDashboard {
             localStorage.setItem('memoryDashboardSettings', JSON.stringify(this.settings));
         } catch (error) {
             console.error('Failed to save settings:', error);
-            this.showToast('Failed to save settings. Your preferences will not be persisted.', 'error');
+            this.showToast(
+                this.t('toast.saveSettingsFailed', 'Failed to save settings. Your preferences will not be persisted.'),
+                'error'
+            );
         }
     }
 
@@ -3168,7 +3402,10 @@ class MemoryDashboard {
         this.settings.theme = newTheme;
         this.applyTheme(newTheme);
         this.saveSettingsToStorage();
-        this.showToast(`Switched to ${newTheme} mode`, 'success');
+        this.showToast(
+            this.t('toast.themeSwitched', 'Switched to {theme} mode', { theme: newTheme }),
+            'success'
+        );
     }
 
     /**
@@ -3306,7 +3543,7 @@ class MemoryDashboard {
 
         // Close modal and show confirmation
         this.closeModal(document.getElementById('settingsModal'));
-        this.showToast('Settings saved successfully', 'success');
+        this.showToast(this.t('toast.settingsSaved', 'Settings saved successfully'), 'success');
     }
 
     // ===== MANAGE TAB METHODS =====
@@ -3321,7 +3558,7 @@ class MemoryDashboard {
             await this.loadTagManagementStats();
         } catch (error) {
             console.error('Failed to load manage data:', error);
-            this.showToast('Failed to load management data', 'error');
+            this.showToast(this.t('toast.loadManageFail', 'Failed to load management data'), 'error');
         }
     }
 
@@ -3426,7 +3663,7 @@ class MemoryDashboard {
         const tag = select.value;
 
         if (!tag) {
-            this.showToast('Please select a tag to delete', 'warning');
+            this.showToast(this.t('toast.selectTagToDelete', 'Please select a tag to delete'), 'warning');
             return;
         }
 
@@ -3451,15 +3688,15 @@ class MemoryDashboard {
 
             const result = await response.json();
             if (result.success) {
-                this.showToast(result.message, 'success');
+                this.showToast(this.t('toast.bulkDeleteSuccess', result.message), 'success');
                 await this.loadManageData(); // Refresh data
                 await this.loadDashboardData(); // Refresh dashboard stats
             } else {
-                this.showToast(result.message, 'error');
+                this.showToast(this.t('toast.bulkDeleteFailedWithReason', result.message), 'error');
             }
         } catch (error) {
             console.error('Bulk delete failed:', error);
-            this.showToast('Bulk delete operation failed', 'error');
+            this.showToast(this.t('toast.bulkDeleteFailed', 'Bulk delete operation failed'), 'error');
         } finally {
             this.setLoading(false);
         }
@@ -3481,15 +3718,15 @@ class MemoryDashboard {
 
             const result = await response.json();
             if (result.success) {
-                this.showToast(result.message, 'success');
+                this.showToast(this.t('toast.cleanupSuccess', result.message), 'success');
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
-                this.showToast(result.message, 'error');
+                this.showToast(this.t('toast.cleanupFailedWithReason', result.message), 'error');
             }
         } catch (error) {
             console.error('Cleanup duplicates failed:', error);
-            this.showToast('Cleanup operation failed', 'error');
+            this.showToast(this.t('toast.cleanupFailed', 'Cleanup operation failed'), 'error');
         } finally {
             this.setLoading(false);
         }
@@ -3503,7 +3740,7 @@ class MemoryDashboard {
         const date = dateInput.value;
 
         if (!date) {
-            this.showToast('Please select a date', 'warning');
+            this.showToast(this.t('toast.selectDate', 'Please select a date'), 'warning');
             return;
         }
 
@@ -3523,15 +3760,15 @@ class MemoryDashboard {
 
             const result = await response.json();
             if (result.success) {
-                this.showToast(result.message, 'success');
+                this.showToast(this.t('toast.bulkDeleteByDateSuccess', result.message), 'success');
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
-                this.showToast(result.message, 'error');
+                this.showToast(this.t('toast.bulkDeleteByDateFailedWithReason', result.message), 'error');
             }
         } catch (error) {
             console.error('Bulk delete by date failed:', error);
-            this.showToast('Bulk delete operation failed', 'error');
+            this.showToast(this.t('toast.bulkDeleteFailed', 'Bulk delete operation failed'), 'error');
         } finally {
             this.setLoading(false);
         }
@@ -3541,14 +3778,14 @@ class MemoryDashboard {
      * Handle database optimization
      */
     async handleOptimizeDatabase() {
-        this.showToast('Database optimization not yet implemented', 'warning');
+        this.showToast(this.t('toast.dbOptimizeTodo', 'Database optimization not yet implemented'), 'warning');
     }
 
     /**
      * Handle index rebuild
      */
     async handleRebuildIndex() {
-        this.showToast('Index rebuild not yet implemented', 'warning');
+        this.showToast(this.t('toast.indexRebuildTodo', 'Index rebuild not yet implemented'), 'warning');
     }
 
     /**
@@ -3558,7 +3795,7 @@ class MemoryDashboard {
         const newTag = prompt(`Rename tag "${oldTag}" to:`, oldTag);
         if (!newTag || newTag === oldTag) return;
 
-        this.showToast('Tag renaming not yet implemented', 'warning');
+        this.showToast(this.t('toast.tagRenameTodo', 'Tag renaming not yet implemented'), 'warning');
     }
 
     /**
@@ -3569,7 +3806,7 @@ class MemoryDashboard {
             return;
         }
 
-        this.showToast('Tag deletion not yet implemented', 'warning');
+        this.showToast(this.t('toast.tagDeleteTodo', 'Tag deletion not yet implemented'), 'warning');
     }
 
     // ===== ANALYTICS TAB METHODS =====
@@ -3591,7 +3828,7 @@ class MemoryDashboard {
             ]);
         } catch (error) {
             console.error('Failed to load analytics data:', error);
-            this.showToast('Failed to load analytics data', 'error');
+            this.showToast(this.t('toast.loadAnalyticsFail', 'Failed to load analytics data'), 'error');
         }
     }
 

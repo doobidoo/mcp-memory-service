@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MCP Memory Service - Dashboard</title>
+    <title data-i18n="meta.title">MCP Memory Service - Dashboard</title>
     <link rel="stylesheet" href="/static/style.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
 </head>
@@ -15,8 +15,8 @@
         <header class="app-header">
             <div class="header-content">
                 <div class="logo-section">
-                    <h1 class="app-title">🧠 MCP Memory</h1>
-                    <span id="versionBadge" class="version-badge">Loading...</span>
+                    <h1 class="app-title" data-i18n="header.title">🧠 MCP Memory</h1>
+                    <span id="versionBadge" class="version-badge" data-i18n="header.versionLoading">Loading...</span>
                 </div>
 
                 <!-- SVG Icon Definitions -->
@@ -35,6 +35,7 @@
                         <input type="text"
                                id="quickSearch"
                                class="search-input"
+                               data-i18n-placeholder="search.placeholder"
                                placeholder="🔍 Search your memories..."
                                autocomplete="off">
                         <button class="search-btn" type="button" aria-label="Search">
@@ -51,7 +52,7 @@
                         <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
                         </svg>
-                        <span class="btn-text">Add Memory</span>
+                        <span class="btn-text" data-i18n="actions.addMemory">Add Memory</span>
                     </button>
                     <button id="themeToggleBtn" class="btn btn-secondary" title="Toggle Dark Mode">
                         <svg id="sunIcon" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
@@ -76,6 +77,10 @@
                             <path d="M4.22 4.22l4.24 4.24m7.08 7.08l4.24 4.24M4.22 19.78l4.24-4.24m7.08-7.08l4.24-4.24"/>
                         </svg>
                     </button>
+                    <div class="language-switcher" aria-label="Language">
+                        <button type="button" class="lang-btn active" data-lang-option="en" data-i18n="lang.english">English</button>
+                        <button type="button" class="lang-btn" data-lang-option="zh" data-i18n="lang.chinese">中文</button>
+                    </div>
                 </div>
             </div>
         </header>
@@ -83,43 +88,43 @@
         <!-- Main Navigation -->
         <nav class="main-nav">
             <div class="nav-container">
-                <button class="nav-item active" data-view="dashboard">
+                <button class="nav-item active" data-view="dashboard" data-i18n="nav.dashboard">
                     <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
                     </svg>
                     Dashboard
                 </button>
-                <button class="nav-item" data-view="search">
+                <button class="nav-item" data-view="search" data-i18n="nav.search">
                     <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M21.71 20.29L18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a1 1 0 0 0 1.42-1.42zM11 18a7 7 0 1 1 7-7 7 7 0 0 1-7 7z"/>
                     </svg>
                     Search
                 </button>
-                <button class="nav-item" data-view="browse">
+                <button class="nav-item" data-view="browse" data-i18n="nav.browse">
                 <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/>
                 </svg>
                 Browse
                 </button>
-                <button class="nav-item" data-view="documents">
+                <button class="nav-item" data-view="documents" data-i18n="nav.documents">
                     <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
                     </svg>
                     Documents
                 </button>
-                <button class="nav-item" data-view="manage">
+                <button class="nav-item" data-view="manage" data-i18n="nav.manage">
                     <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
                     </svg>
                     Manage
                 </button>
-                <button class="nav-item" data-view="analytics">
+                <button class="nav-item" data-view="analytics" data-i18n="nav.analytics">
                     <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/>
                     </svg>
                     Analytics
                 </button>
-                <button class="nav-item" data-view="apiDocs">
+                <button class="nav-item" data-view="apiDocs" data-i18n="nav.apiDocs">
                     <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M14,17H7V15H14M17,13H7V11H17M17,9H7V7H17M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3Z"/>
                     </svg>
@@ -135,27 +140,27 @@
                 <div class="dashboard-grid">
                     <!-- Welcome Section -->
                     <section class="welcome-card">
-                        <h2>Welcome to your Memory Dashboard</h2>
-                        <p>Manage your AI memories with semantic search, real-time updates, and intelligent organization.</p>
+                        <h2 data-i18n="home.welcome">Welcome to your Memory Dashboard</h2>
+                        <p data-i18n="home.subtitle">Manage your AI memories with semantic search, real-time updates, and intelligent organization.</p>
                         <div class="quick-stats">
                             <div class="stat-item">
                                 <span class="stat-number" id="totalMemories">—</span>
-                                <span class="stat-label">Total Memories</span>
+                                <span class="stat-label" data-i18n="stats.total">Total Memories</span>
                             </div>
                             <div class="stat-item">
                                 <span class="stat-number" id="recentMemories">—</span>
-                                <span class="stat-label">This Week</span>
+                                <span class="stat-label" data-i18n="stats.thisWeek">This Week</span>
                             </div>
                             <div class="stat-item">
                                 <span class="stat-number" id="uniqueTags">—</span>
-                                <span class="stat-label">Tags</span>
+                                <span class="stat-label" data-i18n="stats.tags">Tags</span>
                             </div>
                         </div>
                     </section>
 
                     <!-- Recent Memories -->
                     <section class="recent-memories">
-                        <h3>Recent Memories</h3>
+                        <h3 data-i18n="sections.recentMemories">Recent Memories</h3>
                         <div id="recentMemoriesList" class="memory-list">
                             <!-- Dynamic content will be loaded here -->
                         </div>
@@ -163,31 +168,31 @@
 
                     <!-- Quick Actions -->
                     <section class="quick-actions">
-                        <h3>Quick Actions</h3>
+                        <h3 data-i18n="sections.quickActions">Quick Actions</h3>
                         <div class="action-grid">
                             <button class="action-card" data-action="quick-search">
                                 <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M21.71 20.29L18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a1 1 0 0 0 1.42-1.42zM11 18a7 7 0 1 1 7-7 7 7 0 0 1-7 7z"/>
                                 </svg>
-                                <span>Advanced Search</span>
+                                <span data-i18n="actions.advancedSearch">Advanced Search</span>
                             </button>
                             <button class="action-card" data-action="add-memory">
                                 <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
                                 </svg>
-                                <span>Add Memory</span>
+                                <span data-i18n="actions.addMemory">Add Memory</span>
                             </button>
                             <button class="action-card" data-action="browse-tags">
                                 <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"/>
                                 </svg>
-                                <span>Browse Tags</span>
+                                <span data-i18n="actions.browseTags">Browse Tags</span>
                             </button>
                             <button class="action-card" data-action="export-data">
                                 <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
                                 </svg>
-                                <span>Export Data</span>
+                                <span data-i18n="actions.exportData">Export Data</span>
                             </button>
                         </div>
 
@@ -228,8 +233,8 @@
                     <!-- Advanced Search Panel -->
                     <aside class="search-filters">
                         <div class="filters-header">
-                            <h3>Search Filters
-                                <span class="tooltip" title="Filters work together: combine tags, dates, and types to narrow your search">
+                            <h3 data-i18n="search.filters.title">Search Filters
+                                <span class="tooltip" title="Filters work together: combine tags, dates, and types to narrow your search" data-i18n-aria="search.filters.tooltip">
                                     <svg width="16" height="16" fill="currentColor"><use href="#info-icon"/></svg>
                                 </span>
                             </h3>
@@ -238,7 +243,7 @@
                                     <input type="checkbox" id="liveSearchToggle" checked>
                                     <span class="slider"></span>
                                 </label>
-                                <span class="tooltip" title="Toggle between live search (updates as you type) and manual search mode">
+                                <span class="tooltip" title="Toggle between live search (updates as you type) and manual search mode" data-i18n-aria="search.filters.modeTooltip">
                                     <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" fill="currentColor"/>
                                     </svg>
@@ -249,63 +254,63 @@
                         <!-- Search Mode Indicator -->
                         <div class="search-mode-indicator">
                             <span class="mode-status">
-                                <span id="searchModeText">Live Search</span> mode
+                                <span id="searchModeText">Live Search</span> <span data-i18n="search.filters.modeSuffix">mode</span>
                             </span>
                         </div>
 
                         <div class="filter-section">
-                            <label for="tagFilter">Tags
-                                <span class="tooltip" title="Enter tags separated by commas (e.g., work, coding, important)">
+                            <label for="tagFilter" data-i18n="search.filters.tags">Tags
+                                <span class="tooltip" title="Enter tags separated by commas (e.g., work, coding, important)" data-i18n-aria="search.filters.tagsTip">
                                     <svg width="16" height="16" fill="currentColor"><use href="#info-icon"/></svg>
                                 </span>
                             </label>
-                            <input type="text" id="tagFilter" placeholder="e.g., work, coding, important">
-                            <small class="help-text">Separate multiple tags with commas</small>
+                            <input type="text" id="tagFilter" data-i18n-placeholder="search.filters.tagsPlaceholder" placeholder="e.g., work, coding, important">
+                            <small class="help-text" data-i18n="search.filters.tagsHelp">Separate multiple tags with commas</small>
                         </div>
 
                         <div class="filter-section">
-                            <label for="dateFilter">Date Range
-                                <span class="tooltip" title="Filter memories by when they were created">
+                            <label for="dateFilter" data-i18n="search.filters.date">Date Range
+                                <span class="tooltip" title="Filter memories by when they were created" data-i18n-aria="search.filters.dateTip">
                                     <svg width="16" height="16" fill="currentColor"><use href="#info-icon"/></svg>
                                 </span>
                             </label>
                             <select id="dateFilter">
-                                <option value="">All time</option>
-                                <option value="today">Today</option>
-                                <option value="yesterday">Yesterday</option>
-                                <option value="week">This week</option>
-                                <option value="month">This month</option>
-                                <option value="quarter">This quarter</option>
-                                <option value="year">This year</option>
+                                <option value="" data-i18n="search.filters.date.all">All time</option>
+                                <option value="today" data-i18n="search.filters.date.today">Today</option>
+                                <option value="yesterday" data-i18n="search.filters.date.yesterday">Yesterday</option>
+                                <option value="week" data-i18n="search.filters.date.week">This week</option>
+                                <option value="month" data-i18n="search.filters.date.month">This month</option>
+                                <option value="quarter" data-i18n="search.filters.date.quarter">This quarter</option>
+                                <option value="year" data-i18n="search.filters.date.year">This year</option>
                             </select>
-                            <small class="help-text">Select a time period to filter memories</small>
+                            <small class="help-text" data-i18n="search.filters.dateHelp">Select a time period to filter memories</small>
                         </div>
 
                         <div class="filter-section">
-                            <label for="typeFilter">Content Type
-                                <span class="tooltip" title="Filter by the type of content stored">
+                            <label for="typeFilter" data-i18n="search.filters.type">Content Type
+                                <span class="tooltip" title="Filter by the type of content stored" data-i18n-aria="search.filters.typeTip">
                                     <svg width="16" height="16" fill="currentColor"><use href="#info-icon"/></svg>
                                 </span>
                             </label>
                             <select id="typeFilter">
-                                <option value="">All types</option>
-                                <option value="note">Notes</option>
-                                <option value="code">Code</option>
-                                <option value="reference">References</option>
-                                <option value="idea">Ideas</option>
+                                <option value="" data-i18n="search.filters.type.all">All types</option>
+                                <option value="note" data-i18n="search.filters.type.note">Notes</option>
+                                <option value="code" data-i18n="search.filters.type.code">Code</option>
+                                <option value="reference" data-i18n="search.filters.type.reference">References</option>
+                                <option value="idea" data-i18n="search.filters.type.idea">Ideas</option>
                             </select>
-                            <small class="help-text">Choose the type of memories to show</small>
+                            <small class="help-text" data-i18n="search.filters.typeHelp">Choose the type of memories to show</small>
                         </div>
 
                         <!-- Filter Actions -->
                         <div class="filter-actions">
-                            <button type="button" id="applyFiltersBtn" class="btn btn-primary">
+                            <button type="button" id="applyFiltersBtn" class="btn btn-primary" data-i18n="actions.search">
                                 <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M21.71 20.29L18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a1 1 0 0 0 1.42-1.42zM11 18a7 7 0 1 1 7-7 7 7 0 0 1-7 7z"/>
                                 </svg>
                                 Search
                             </button>
-                            <button type="button" id="clearFiltersBtn" class="btn btn-secondary">
+                            <button type="button" id="clearFiltersBtn" class="btn btn-secondary" data-i18n="actions.clearAll">
                                 <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
                                 </svg>
@@ -315,7 +320,7 @@
 
                         <!-- Active Filters Display -->
                         <div id="activeFilters" class="active-filters" style="display: none;">
-                            <h4>Active Filters:</h4>
+                            <h4 data-i18n="search.filters.activeTitle">Active Filters:</h4>
                             <div id="activeFiltersList" class="filter-pills">
                                 <!-- Dynamic filter pills will be added here -->
                             </div>
@@ -346,16 +351,16 @@
                 <div class="documents-layout">
                     <!-- Document Upload Section -->
                     <section class="documents-section">
-                        <h2>📄 Document Ingestion</h2>
+                        <h2 data-i18n="documents.title">📄 Document Ingestion</h2>
                         <div class="upload-area">
                             <div id="dropZone" class="drop-zone">
                                 <div class="drop-zone-content">
                                     <svg width="48" height="48" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
                                     </svg>
-                                    <h3>Drag & drop files here</h3>
-                                    <p>or <button id="fileSelectBtn" class="link-button">browse to select files</button></p>
-                                    <p class="supported-formats">Supported formats: PDF, TXT, MD, JSON</p>
+                                    <h3 data-i18n="documents.dropTitle">Drag & drop files here</h3>
+                                    <p data-i18n-html="documents.dropSubtitle">or <button id="fileSelectBtn" class="link-button">browse to select files</button></p>
+                                    <p class="supported-formats" data-i18n="documents.supported">Supported formats: PDF, TXT, MD, JSON</p>
                                     <input type="file" id="fileInput" multiple accept=".pdf,.txt,.md,.json" style="display: none;">
                                 </div>
                             </div>
@@ -364,44 +369,44 @@
                         <!-- Upload Configuration -->
                         <div class="upload-config">
                         <div class="config-section">
-                        <label for="docTags">Tags (comma-separated)</label>
-                        <input type="text" id="docTags" placeholder="e.g., documentation, reference, manual" class="form-control">
-                            <small class="form-help">Tags will be applied to all files. Use spaces or commas as separators.</small>
+                        <label for="docTags" data-i18n="documents.tagsLabel">Tags (comma-separated)</label>
+                        <input type="text" id="docTags" placeholder="e.g., documentation, reference, manual" data-i18n-placeholder="documents.tagsPlaceholder" class="form-control">
+                            <small class="form-help" data-i18n="documents.tagsHelp">Tags will be applied to all files. Use spaces or commas as separators.</small>
                         </div>
 
                              <!-- Processing Mode Toggle (shown when multiple files selected) -->
                              <div class="config-section" id="processingModeSection" style="display: none;">
-                             <label>Processing Mode <span class="info-icon info-icon-processing" title="Click for processing mode explanation">ℹ️</span></label>
+                             <label data-i18n="documents.processingMode">Processing Mode <span class="info-icon info-icon-processing" title="Click for processing mode explanation" data-i18n-aria="documents.processingTip">ℹ️</span></label>
                                  <div class="processing-mode-toggle">
-                                     <button type="button" id="batchModeBtn" class="mode-btn active" data-mode="batch">
-                                         <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-                                             <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/>
-                                         </svg>
-                                         Batch Processing
-                                     </button>
-                                     <button type="button" id="individualModeBtn" class="mode-btn" data-mode="individual">
-                                         <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-                                             <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
-                                         </svg>
-                                         Individual Processing
-                                     </button>
+                                     <button type="button" id="batchModeBtn" class="mode-btn active" data-mode="batch" data-i18n="documents.modeBatch">
+                                          <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                                              <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/>
+                                          </svg>
+                                          Batch Processing
+                                      </button>
+                                     <button type="button" id="individualModeBtn" class="mode-btn" data-mode="individual" data-i18n="documents.modeIndividual">
+                                          <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                                              <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                                          </svg>
+                                          Individual Processing
+                                      </button>
                                  </div>
-                                 <div class="mode-description" id="modeDescription">
+                                 <div class="mode-description" id="modeDescription" data-i18n-html="documents.modeDescription">
                                      <small>All selected files will be processed together with the same tags.</small>
                                  </div>
                              </div>
                             <div class="config-row">
                                 <div class="config-section">
-                                    <label for="chunkSize">
+                                    <label for="chunkSize" data-i18n-html="documents.chunkSizeLabel">
                                         Chunk Size: <span id="chunkSizeValue">1000</span> chars
-                                        <span class="info-icon" title="Click for chunking recommendations">ℹ️</span>
+                                        <span class="info-icon" title="Click for chunking recommendations" data-i18n-aria="documents.chunkSizeTip">ℹ️</span>
                                     </label>
                                     <input type="range" id="chunkSize" min="500" max="2000" value="1000" step="100" class="form-control">
                                 </div>
                                 <div class="config-section">
-                                    <label for="chunkOverlap">
+                                    <label for="chunkOverlap" data-i18n-html="documents.chunkOverlapLabel">
                                         Overlap: <span id="chunkOverlapValue">200</span> chars
-                                        <span class="info-icon info-icon-overlap" title="Click for overlap explanation">ℹ️</span>
+                                        <span class="info-icon info-icon-overlap" title="Click for overlap explanation" data-i18n-aria="documents.chunkOverlapTip">ℹ️</span>
                                     </label>
                                     <input type="range" id="chunkOverlap" min="0" max="500" value="200" step="50" class="form-control">
                                 </div>
@@ -410,11 +415,11 @@
                             <!-- Chunking Help Section (collapsible) -->
                             <div id="chunkingHelpSection" class="chunking-help" style="display: none;">
                                 <div class="help-header">
-                                    <strong>📚 Chunking Configuration Guide</strong>
+                                    <strong data-i18n="documents.chunkHelp.title">📚 Chunking Configuration Guide</strong>
                                     <button class="close-help" data-action="hideChunkingHelp">×</button>
                                 </div>
                                 <div class="help-content">
-                                    <p class="help-note">
+                                    <p class="help-note" data-i18n-html="documents.chunkHelp.note">
                                         <strong>Note:</strong> Actual chunk sizes may vary as the system respects paragraph boundaries
                                         to maintain semantic coherence.
                                     </p>
@@ -422,37 +427,37 @@
                                     <div class="help-recommendations">
                                         <div class="help-option">
                                             <div class="help-option-header">
-                                                <strong>✅ Default (1000 chars, 200 overlap)</strong>
-                                                <span class="help-tag">Recommended</span>
+                                                <strong data-i18n="documents.chunkHelp.defaultTitle">✅ Default (1000 chars, 200 overlap)</strong>
+                                                <span class="help-tag" data-i18n="documents.chunkHelp.recommended">Recommended</span>
                                             </div>
-                                            <p><strong>Best for:</strong> Technical documentation, reference manuals, knowledge bases</p>
-                                            <p><strong>Why:</strong> Paragraph-aware chunking preserves complete thoughts and context</p>
+                                            <p data-i18n-html="documents.chunkHelp.defaultBest"><strong>Best for:</strong> Technical documentation, reference manuals, knowledge bases</p>
+                                            <p data-i18n-html="documents.chunkHelp.defaultWhy"><strong>Why:</strong> Paragraph-aware chunking preserves complete thoughts and context</p>
                                         </div>
 
                                         <div class="help-option">
                                             <div class="help-option-header">
-                                                <strong>🔍 Smaller Chunks (500 chars, 100 overlap)</strong>
+                                                <strong data-i18n="documents.chunkHelp.smallTitle">🔍 Smaller Chunks (500 chars, 100 overlap)</strong>
                                             </div>
-                                            <p><strong>Best for:</strong> Dense technical docs, code documentation, API references</p>
-                                            <p><strong>Trade-off:</strong> More granular retrieval but may split paragraphs more aggressively</p>
+                                            <p data-i18n-html="documents.chunkHelp.smallBest"><strong>Best for:</strong> Dense technical docs, code documentation, API references</p>
+                                            <p data-i18n-html="documents.chunkHelp.smallTradeoff"><strong>Trade-off:</strong> More granular retrieval but may split paragraphs more aggressively</p>
                                         </div>
 
                                         <div class="help-option">
                                             <div class="help-option-header">
-                                                <strong>📖 Larger Chunks (2000 chars, 400 overlap)</strong>
+                                                <strong data-i18n="documents.chunkHelp.largeTitle">📖 Larger Chunks (2000 chars, 400 overlap)</strong>
                                             </div>
-                                            <p><strong>Best for:</strong> Narrative documents, articles, blogs, long-form content</p>
-                                            <p><strong>Trade-off:</strong> Better context but less precise retrieval</p>
+                                            <p data-i18n-html="documents.chunkHelp.largeBest"><strong>Best for:</strong> Narrative documents, articles, blogs, long-form content</p>
+                                            <p data-i18n-html="documents.chunkHelp.largeTradeoff"><strong>Trade-off:</strong> Better context but less precise retrieval</p>
                                         </div>
                                     </div>
 
                                     <div class="help-tips">
-                                        <strong>💡 Tips:</strong>
+                                        <strong data-i18n="documents.chunkHelp.tipsTitle">💡 Tips:</strong>
                                         <ul>
-                                            <li><strong>Overlap</strong> helps maintain context across chunk boundaries</li>
-                                            <li><strong>Higher overlap</strong> = better continuity but more redundancy</li>
-                                            <li>Test different settings on a sample document to find optimal configuration</li>
-                                            <li>Chunks preserve complete sentences and paragraphs when possible</li>
+                                            <li data-i18n-html="documents.chunkHelp.tipOverlap"><strong>Overlap</strong> helps maintain context across chunk boundaries</li>
+                                            <li data-i18n-html="documents.chunkHelp.tipHigherOverlap"><strong>Higher overlap</strong> = better continuity but more redundancy</li>
+                                            <li data-i18n="documents.chunkHelp.tipTest">Test different settings on a sample document to find optimal configuration</li>
+                                            <li data-i18n="documents.chunkHelp.tipPreserve">Chunks preserve complete sentences and paragraphs when possible</li>
                                         </ul>
                                     </div>
                                 </div>
@@ -461,17 +466,17 @@
                             <!-- Overlap Help Section (collapsible) -->
                             <div id="overlapHelpSection" class="chunking-help overlap-help" style="display: none;">
                                 <div class="help-header">
-                                    <strong>🔗 Chunk Overlap Explained</strong>
+                                    <strong data-i18n="documents.overlapHelp.title">🔗 Chunk Overlap Explained</strong>
                                     <button class="close-help" data-action="hideOverlapHelp">×</button>
                                 </div>
                                 <div class="help-content">
-                                    <p class="help-note">
+                                    <p class="help-note" data-i18n-html="documents.overlapHelp.note">
                                         <strong>What is overlap?</strong> Overlap is the number of characters that are duplicated
                                         between consecutive chunks. This helps maintain context across chunk boundaries.
                                     </p>
 
                                     <div class="help-example">
-                                        <strong>Visual Example:</strong>
+                                        <strong data-i18n="documents.overlapHelp.visual">Visual Example:</strong>
                                         <div class="overlap-diagram">
                                             <div class="chunk-demo">
                                                 <span class="chunk-part unique">Chunk 1 unique content...</span>
@@ -487,39 +492,39 @@
                                     <div class="help-recommendations">
                                         <div class="help-option">
                                             <div class="help-option-header">
-                                                <strong>🎯 No Overlap (0 chars)</strong>
+                                                <strong data-i18n="documents.overlapHelp.noneTitle">🎯 No Overlap (0 chars)</strong>
                                             </div>
-                                            <p><strong>Best for:</strong> Maximum storage efficiency, no redundancy needed</p>
-                                            <p><strong>Trade-off:</strong> Context may be lost at chunk boundaries</p>
+                                            <p data-i18n-html="documents.overlapHelp.noneBest"><strong>Best for:</strong> Maximum storage efficiency, no redundancy needed</p>
+                                            <p data-i18n-html="documents.overlapHelp.noneTradeoff"><strong>Trade-off:</strong> Context may be lost at chunk boundaries</p>
                                         </div>
 
                                         <div class="help-option">
                                             <div class="help-option-header">
-                                                <strong>✅ Medium Overlap (200 chars)</strong>
-                                                <span class="help-tag">Recommended</span>
+                                                <strong data-i18n="documents.overlapHelp.mediumTitle">✅ Medium Overlap (200 chars)</strong>
+                                                <span class="help-tag" data-i18n="documents.chunkHelp.recommended">Recommended</span>
                                             </div>
-                                            <p><strong>Best for:</strong> Most documents - balances context and efficiency</p>
-                                            <p><strong>Why:</strong> Preserves 1-2 sentences of context across boundaries</p>
+                                            <p data-i18n-html="documents.overlapHelp.mediumBest"><strong>Best for:</strong> Most documents - balances context and efficiency</p>
+                                            <p data-i18n-html="documents.overlapHelp.mediumWhy"><strong>Why:</strong> Preserves 1-2 sentences of context across boundaries</p>
                                         </div>
 
                                         <div class="help-option">
                                             <div class="help-option-header">
-                                                <strong>🔄 High Overlap (400+ chars)</strong>
+                                                <strong data-i18n="documents.overlapHelp.highTitle">🔄 High Overlap (400+ chars)</strong>
                                             </div>
-                                            <p><strong>Best for:</strong> Complex technical content requiring maximum context</p>
-                                            <p><strong>Trade-off:</strong> More storage and processing, higher redundancy</p>
+                                            <p data-i18n-html="documents.overlapHelp.highBest"><strong>Best for:</strong> Complex technical content requiring maximum context</p>
+                                            <p data-i18n-html="documents.overlapHelp.highTradeoff"><strong>Trade-off:</strong> More storage and processing, higher redundancy</p>
                                         </div>
                                     </div>
 
                                     <div class="help-tips">
-                                        <strong>💡 Guidelines:</strong>
+                                        <strong data-i18n="documents.overlapHelp.tipsTitle">💡 Guidelines:</strong>
                                         <ul>
-                                            <li><strong>Rule of thumb:</strong> Overlap should be 15-25% of chunk size</li>
-                                            <li><strong>Small chunks (500)</strong> → Use 100-150 overlap</li>
-                                            <li><strong>Medium chunks (1000)</strong> → Use 200-250 overlap</li>
-                                            <li><strong>Large chunks (2000)</strong> → Use 400-500 overlap</li>
-                                            <li>Higher overlap helps with search accuracy but increases storage</li>
-                                            <li>Zero overlap is fine for well-structured documents with clear sections</li>
+                                            <li data-i18n-html="documents.overlapHelp.tipRule"><strong>Rule of thumb:</strong> Overlap should be 15-25% of chunk size</li>
+                                            <li data-i18n-html="documents.overlapHelp.tipSmall"><strong>Small chunks (500)</strong> → Use 100-150 overlap</li>
+                                            <li data-i18n-html="documents.overlapHelp.tipMedium"><strong>Medium chunks (1000)</strong> → Use 200-250 overlap</li>
+                                            <li data-i18n-html="documents.overlapHelp.tipLarge"><strong>Large chunks (2000)</strong> → Use 400-500 overlap</li>
+                                            <li data-i18n="documents.overlapHelp.tipAccuracy">Higher overlap helps with search accuracy but increases storage</li>
+                                            <li data-i18n="documents.overlapHelp.tipZero">Zero overlap is fine for well-structured documents with clear sections</li>
                                         </ul>
                                     </div>
                                 </div>
@@ -531,8 +536,8 @@
                                      <strong>⚙️ Processing Mode Options</strong>
                                      <button class="close-help" data-action="hideProcessingModeHelp">×</button>
                                  </div>
-                                 <div class="help-content">
-                                     <p class="help-note">
+                             <div class="help-content">
+                                     <p class="help-note" data-i18n-html="documents.processingHelp.note">
                                          <strong>When uploading multiple files,</strong> choose how they should be processed.
                                          Both modes apply the same tags to all files.
                                      </p>
@@ -540,52 +545,52 @@
                                      <div class="help-recommendations">
                                          <div class="help-option">
                                              <div class="help-option-header">
-                                                 <strong>📦 Batch Processing</strong>
-                                                 <span class="help-tag">Default</span>
+                                                 <strong data-i18n="documents.processingHelp.batchTitle">📦 Batch Processing</strong>
+                                                 <span class="help-tag" data-i18n="documents.processingHelp.default">Default</span>
                                              </div>
-                                             <p><strong>What it does:</strong> Uploads all files together as one operation</p>
-                                             <p><strong>Best for:</strong> Similar files, fast bulk processing, when you want files grouped together</p>
-                                             <p><strong>Pros:</strong> Faster, simpler, single progress indicator</p>
-                                             <p><strong>Cons:</strong> One file failure can affect the whole batch</p>
+                                             <p data-i18n-html="documents.processingHelp.batchWhat"><strong>What it does:</strong> Uploads all files together as one operation</p>
+                                             <p data-i18n-html="documents.processingHelp.batchBest"><strong>Best for:</strong> Similar files, fast bulk processing, when you want files grouped together</p>
+                                             <p data-i18n-html="documents.processingHelp.batchPros"><strong>Pros:</strong> Faster, simpler, single progress indicator</p>
+                                             <p data-i18n-html="documents.processingHelp.batchCons"><strong>Cons:</strong> One file failure can affect the whole batch</p>
                                          </div>
 
                                          <div class="help-option">
                                              <div class="help-option-header">
-                                                 <strong>🔄 Individual Processing</strong>
+                                                 <strong data-i18n="documents.processingHelp.individualTitle">🔄 Individual Processing</strong>
                                              </div>
-                                             <p><strong>What it does:</strong> Uploads each file separately with individual API calls</p>
-                                             <p><strong>Best for:</strong> Mixed file types, when you want error isolation, or need individual progress tracking</p>
-                                             <p><strong>Pros:</strong> Better error handling, individual progress, more robust</p>
-                                             <p><strong>Cons:</strong> Slightly slower due to sequential processing</p>
+                                             <p data-i18n-html="documents.processingHelp.individualWhat"><strong>What it does:</strong> Uploads each file separately with individual API calls</p>
+                                             <p data-i18n-html="documents.processingHelp.individualBest"><strong>Best for:</strong> Mixed file types, when you want error isolation, or need individual progress tracking</p>
+                                             <p data-i18n-html="documents.processingHelp.individualPros"><strong>Pros:</strong> Better error handling, individual progress, more robust</p>
+                                             <p data-i18n-html="documents.processingHelp.individualCons"><strong>Cons:</strong> Slightly slower due to sequential processing</p>
                                          </div>
                                      </div>
 
-                                     <div class="help-tips">
-                                         <strong>💡 When to choose each mode:</strong>
-                                         <ul>
-                                             <li><strong>Batch mode:</strong> When files are similar and you want them processed quickly together</li>
-                                             <li><strong>Individual mode:</strong> When files might have different processing requirements or you want to ensure all files get processed even if some fail</li>
-                                             <li><strong>Single files:</strong> Always processed individually (no choice needed)</li>
-                                             <li>Both modes apply the same tags to all files</li>
-                                         </ul>
-                                     </div>
+                                         <div class="help-tips">
+                                             <strong data-i18n="documents.processingHelp.tipsTitle">💡 When to choose each mode:</strong>
+                                             <ul>
+                                                 <li data-i18n-html="documents.processingHelp.tipBatch"><strong>Batch mode:</strong> When files are similar and you want them processed quickly together</li>
+                                                 <li data-i18n-html="documents.processingHelp.tipIndividual"><strong>Individual mode:</strong> When files might have different processing requirements or you want to ensure all files get processed even if some fail</li>
+                                                 <li data-i18n-html="documents.processingHelp.tipSingle"><strong>Single files:</strong> Always processed individually (no choice needed)</li>
+                                                 <li data-i18n="documents.processingHelp.tipTags">Both modes apply the same tags to all files</li>
+                                             </ul>
+                                         </div>
                                  </div>
                              </div>
 
                              <div class="config-section">
-                                <label for="memoryType">Memory Type</label>
+                                <label for="memoryType" data-i18n="documents.memoryTypeLabel">Memory Type</label>
                                 <select id="memoryType" class="form-control">
-                                    <option value="document">Document</option>
-                                    <option value="reference">Reference</option>
-                                    <option value="knowledge">Knowledge</option>
-                                    <option value="note">Note</option>
+                                    <option value="document" data-i18n="documents.memoryType.document">Document</option>
+                                    <option value="reference" data-i18n="documents.memoryType.reference">Reference</option>
+                                    <option value="knowledge" data-i18n="documents.memoryType.knowledge">Knowledge</option>
+                                    <option value="note" data-i18n="documents.memoryType.note">Note</option>
                                 </select>
                              </div>
                         </div>
 
                         <!-- Upload Button -->
                         <div class="upload-actions">
-                            <button id="uploadBtn" class="btn btn-primary" disabled>
+                            <button id="uploadBtn" class="btn btn-primary" disabled data-i18n="documents.upload">
                                 <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
                                 </svg>
@@ -596,23 +601,24 @@
 
                     <!-- Upload Queue/History Section -->
                     <section class="documents-section">
-                        <h2>📊 Upload History</h2>
+                        <h2 data-i18n="documents.historyTitle">📊 Upload History</h2>
                         <div id="uploadHistory" class="upload-history">
                             <div class="loading-spinner"></div>
-                            <p>Loading upload history...</p>
+                            <p data-i18n="documents.historyLoading">Loading upload history...</p>
                         </div>
                     </section>
 
                     <!-- Document Content Search Section -->
                     <section class="documents-section">
-                        <h2>🔍 Search Ingested Content</h2>
-                        <p class="section-description">Search within your uploaded documents to verify content is indexed</p>
+                        <h2 data-i18n="documents.searchTitle">🔍 Search Ingested Content</h2>
+                        <p class="section-description" data-i18n="documents.searchDesc">Search within your uploaded documents to verify content is indexed</p>
                         <div class="doc-search-container">
                             <input type="text"
                                    id="docSearchInput"
                                    class="search-input"
-                                   placeholder="Search for content within ingested documents...">
-                            <button id="docSearchBtn" class="btn btn-primary">Search Documents</button>
+                                   placeholder="Search for content within ingested documents..."
+                                   data-i18n-placeholder="documents.searchPlaceholder">
+                            <button id="docSearchBtn" class="btn btn-primary" data-i18n="documents.searchBtn">Search Documents</button>
                         </div>
                         <div id="docSearchResults" class="doc-search-results" style="display: none;">
                             <div class="search-results-header">
@@ -656,33 +662,33 @@
                 <div class="manage-layout">
                     <!-- Bulk Operations Section -->
                     <section class="manage-section">
-                        <h2>🧹 Bulk Operations</h2>
+                        <h2 data-i18n="manage.bulk.title">🧹 Bulk Operations</h2>
                         <div class="bulk-ops-grid">
                             <div class="bulk-op-card">
-                                <h3>Delete by Tag</h3>
-                                <p>Remove all memories with a specific tag</p>
+                                <h3 data-i18n="manage.bulk.deleteTag.title">Delete by Tag</h3>
+                                <p data-i18n="manage.bulk.deleteTag.desc">Remove all memories with a specific tag</p>
                                 <div class="op-controls">
                                     <select id="deleteTagSelect" class="form-control">
-                                        <option value="">Select tag...</option>
+                                        <option value="" data-i18n="manage.bulk.deleteTag.placeholder">Select tag...</option>
                                     </select>
-                                    <button id="deleteByTagBtn" class="btn btn-danger">Delete</button>
+                                    <button id="deleteByTagBtn" class="btn btn-danger" data-i18n="manage.bulk.delete">Delete</button>
                                 </div>
                             </div>
 
                             <div class="bulk-op-card">
-                                <h3>Cleanup Duplicates</h3>
-                                <p>Remove duplicate memories based on content</p>
+                                <h3 data-i18n="manage.bulk.cleanup.title">Cleanup Duplicates</h3>
+                                <p data-i18n="manage.bulk.cleanup.desc">Remove duplicate memories based on content</p>
                                 <div class="op-controls">
-                                    <button id="cleanupDuplicatesBtn" class="btn btn-warning">Run Cleanup</button>
+                                    <button id="cleanupDuplicatesBtn" class="btn btn-warning" data-i18n="manage.bulk.cleanup.run">Run Cleanup</button>
                                 </div>
                             </div>
 
                             <div class="bulk-op-card">
-                                <h3>Delete by Date</h3>
-                                <p>Remove memories older than a specific date</p>
+                                <h3 data-i18n="manage.bulk.deleteDate.title">Delete by Date</h3>
+                                <p data-i18n="manage.bulk.deleteDate.desc">Remove memories older than a specific date</p>
                                 <div class="op-controls">
                                     <input type="date" id="deleteDateInput" class="form-control">
-                                    <button id="deleteByDateBtn" class="btn btn-danger">Delete</button>
+                                    <button id="deleteByDateBtn" class="btn btn-danger" data-i18n="manage.bulk.delete">Delete</button>
                                 </div>
                             </div>
                         </div>
@@ -690,27 +696,27 @@
 
                     <!-- Tag Management Section -->
                     <section class="manage-section">
-                        <h2>🏷️ Tag Management</h2>
+                        <h2 data-i18n="manage.tags.title">🏷️ Tag Management</h2>
                         <div id="tagManagementContainer">
                             <div class="loading-spinner"></div>
-                            <p>Loading tag statistics...</p>
+                            <p data-i18n="manage.tags.loading">Loading tag statistics...</p>
                         </div>
                     </section>
 
                     <!-- System Operations Section -->
                     <section class="manage-section">
-                        <h2>⚙️ System Maintenance</h2>
+                        <h2 data-i18n="manage.system.title">⚙️ System Maintenance</h2>
                         <div class="system-ops-grid">
                             <div class="system-op-card">
-                                <h3>Database Optimization</h3>
-                                <p>Optimize database performance</p>
-                                <button id="optimizeDbBtn" class="btn btn-secondary" disabled>Optimize DB</button>
+                                <h3 data-i18n="manage.system.dbOpt.title">Database Optimization</h3>
+                                <p data-i18n="manage.system.dbOpt.desc">Optimize database performance</p>
+                                <button id="optimizeDbBtn" class="btn btn-secondary" disabled data-i18n="manage.system.dbOpt.btn">Optimize DB</button>
                             </div>
 
                             <div class="system-op-card">
-                                <h3>Rebuild Search Index</h3>
-                                <p>Rebuild search indexes for better performance</p>
-                                <button id="rebuildIndexBtn" class="btn btn-secondary" disabled>Rebuild Index</button>
+                                <h3 data-i18n="manage.system.rebuild.title">Rebuild Search Index</h3>
+                                <p data-i18n="manage.system.rebuild.desc">Rebuild search indexes for better performance</p>
+                                <button id="rebuildIndexBtn" class="btn btn-secondary" disabled data-i18n="manage.system.rebuild.btn">Rebuild Index</button>
                             </div>
                         </div>
                     </section>
@@ -722,119 +728,119 @@
                 <div class="analytics-layout">
                     <!-- Key Metrics Cards -->
                     <section class="analytics-section">
-                        <h2>📊 Key Metrics</h2>
+                        <h2 data-i18n="analytics.keyMetrics">📊 Key Metrics</h2>
                         <div class="metrics-grid">
                             <div class="metric-card">
                                 <div class="metric-value" id="analyticsTotalMemories">-</div>
-                                <div class="metric-label">Total Memories</div>
+                                <div class="metric-label" data-i18n="analytics.totalMemories">Total Memories</div>
                             </div>
                             <div class="metric-card">
                                 <div class="metric-value" id="analyticsThisWeek">-</div>
-                                <div class="metric-label">This Week</div>
+                                <div class="metric-label" data-i18n="analytics.thisWeek">This Week</div>
                             </div>
                             <div class="metric-card">
                                 <div class="metric-value" id="analyticsUniqueTags">-</div>
-                                <div class="metric-label">Unique Tags</div>
+                                <div class="metric-label" data-i18n="analytics.uniqueTags">Unique Tags</div>
                             </div>
                             <div class="metric-card">
                                 <div class="metric-value" id="analyticsDbSize">-</div>
-                                <div class="metric-label">Database Size</div>
+                                <div class="metric-label" data-i18n="analytics.databaseSize">Database Size</div>
                             </div>
                         </div>
                     </section>
 
                     <!-- Charts Section -->
                     <section class="analytics-section">
-                        <h2>📈 Trends & Charts</h2>
+                        <h2 data-i18n="analytics.trends">📈 Trends & Charts</h2>
                         <div class="charts-grid">
                             <div class="chart-card">
-                                <h3>Memory Growth Over Time</h3>
+                                <h3 data-i18n="analytics.growth">Memory Growth Over Time</h3>
                                 <div class="chart-controls">
                                     <select id="growthPeriodSelect" class="form-control">
-                                        <option value="week">Last Week</option>
-                                        <option value="month" selected>Last Month</option>
-                                        <option value="quarter">Last Quarter</option>
-                                        <option value="year">Last Year</option>
+                                        <option value="week" data-i18n="analytics.period.week">Last Week</option>
+                                        <option value="month" selected data-i18n="analytics.period.month">Last Month</option>
+                                        <option value="quarter" data-i18n="analytics.period.quarter">Last Quarter</option>
+                                        <option value="year" data-i18n="analytics.period.year">Last Year</option>
                                     </select>
                                 </div>
                                 <div id="memoryGrowthChart" class="chart-container">
                                     <div class="loading-spinner"></div>
-                                    <p>Loading chart...</p>
+                                    <p data-i18n="analytics.loadingChart">Loading chart...</p>
                                 </div>
                             </div>
 
                             <div class="chart-card">
-                                <h3>Tag Usage Distribution</h3>
+                                <h3 data-i18n="analytics.tagUsage">Tag Usage Distribution</h3>
                                 <div id="tagUsageChart" class="chart-container">
                                     <div class="loading-spinner"></div>
-                                    <p>Loading chart...</p>
+                                    <p data-i18n="analytics.loadingChart">Loading chart...</p>
                                 </div>
                             </div>
 
                             <div class="chart-card">
-                                <h3>Memory Types Distribution</h3>
+                                <h3 data-i18n="analytics.memoryTypes">Memory Types Distribution</h3>
                                 <div id="memoryTypesChart" class="chart-container">
                                     <div class="loading-spinner"></div>
-                                    <p>Loading chart...</p>
+                                    <p data-i18n="analytics.loadingChart">Loading chart...</p>
                                 </div>
                             </div>
 
                                     <div class="chart-card">
-                                    <h3>Activity Heatmap</h3>
+                                    <h3 data-i18n="analytics.heatmap">Activity Heatmap</h3>
                                     <div class="chart-controls">
                                     <select id="heatmapPeriodSelect" class="form-control">
-                                    <option value="90" selected>Last 90 Days</option>
-                                    <option value="180">Last 6 Months</option>
-                                    <option value="365">Last Year</option>
+                                    <option value="90" selected data-i18n="analytics.period.90d">Last 90 Days</option>
+                                    <option value="180" data-i18n="analytics.period.180d">Last 6 Months</option>
+                                    <option value="365" data-i18n="analytics.period.year">Last Year</option>
                                         </select>
                                         </div>
                                         <div id="activityHeatmapChart" class="chart-container">
                                             <div class="loading-spinner"></div>
-                                        <p>Loading heatmap...</p>
+                                        <p data-i18n="analytics.loadingHeatmap">Loading heatmap...</p>
                                     </div>
                                     </div>
                             </section>
 
                             <!-- Detailed Analytics -->
                             <section class="analytics-section">
-                            <h2>📋 Detailed Reports</h2>
+                            <h2 data-i18n="analytics.reports">📋 Detailed Reports</h2>
                             <div class="reports-grid">
                             <div class="report-card">
-                            <h3>Top Tags</h3>
+                            <h3 data-i18n="analytics.topTags">Top Tags</h3>
                             <div class="chart-controls">
                             <select id="topTagsPeriodSelect" class="form-control">
-                            <option value="7d">Last 7 Days</option>
-                            <option value="30d" selected>Last 30 Days</option>
-                            <option value="90d">Last 90 Days</option>
-                            <option value="all">All Time</option>
+                            <option value="7d" data-i18n="analytics.period.7d">Last 7 Days</option>
+                            <option value="30d" selected data-i18n="analytics.period.30d">Last 30 Days</option>
+                            <option value="90d" data-i18n="analytics.period.90d">Last 90 Days</option>
+                            <option value="all" data-i18n="analytics.period.all">All Time</option>
                             </select>
                             </div>
                             <div id="topTagsList" class="report-content">
                                      <div class="loading-spinner"></div>
-                                     <p>Loading...</p>
+                                     <p data-i18n="analytics.loading">Loading...</p>
                                  </div>
                              </div>
 
                              <div class="report-card">
-                                 <h3>Recent Activity</h3>
+                                 <h3 data-i18n="analytics.recentActivity">Recent Activity</h3>
                                  <div class="chart-controls">
                                      <select id="activityGranularitySelect" class="form-control">
-                                         <option value="hourly">By Hour</option>
-                                         <option value="daily" selected>By Day</option>
-                                         <option value="weekly">By Week</option>
+                                         <option value="hourly" data-i18n="analytics.granularity.hour">By Hour</option>
+                                         <option value="daily" selected data-i18n="analytics.granularity.day">By Day</option>
+                                         <option value="weekly" data-i18n="analytics.granularity.week">By Week</option>
                                      </select>
                                  </div>
                                  <div id="recentActivityList" class="report-content">
                                      <div class="loading-spinner"></div>
-                                     <p>Loading...</p>
+                                     <p data-i18n="analytics.loading">Loading...</p>
                                  </div>
                              </div>
 
                              <div class="report-card">
-                                 <h3>Storage Report</h3>
+                                 <h3 data-i18n="analytics.storage">Storage Report</h3>
                                  <div id="storageReport" class="report-content">
                                      <div class="loading-spinner"></div>
-                                     <p>Loading...</p>
+                                     <p data-i18n="analytics.loading">Loading...</p>
                                  </div>
                              </div>
                          </div>
@@ -845,22 +851,22 @@
             <!-- API Documentation View -->
             <div id="apiDocsView" class="view-container">
                 <div class="api-docs-header">
-                    <h2>🔗 API Documentation</h2>
-                    <p>Comprehensive REST API endpoints for MCP Memory Service</p>
+                    <h2 data-i18n="api.title">🔗 API Documentation</h2>
+                    <p data-i18n="api.subtitle">Comprehensive REST API endpoints for MCP Memory Service</p>
                     <div class="api-docs-links">
-                        <a href="/api/docs" target="_blank" class="btn btn-primary">
+                        <a href="/api/docs" target="_blank" class="btn btn-primary" data-i18n="api.link.swagger">
                             <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M14,17H7V15H14M17,13H7V11H17M17,9H7V7H17M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3Z"/>
                             </svg>
                             Interactive Swagger UI
                         </a>
-                        <a href="/api/redoc" target="_blank" class="btn btn-secondary">
+                        <a href="/api/redoc" target="_blank" class="btn btn-secondary" data-i18n="api.link.redoc">
                             <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M14,17H7V15H14M17,13H7V11H17M17,9H7V7H17M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3Z"/>
                             </svg>
                             ReDoc Documentation
                         </a>
-                        <a href="/api-overview" target="_blank" class="btn btn-secondary">
+                        <a href="/api-overview" target="_blank" class="btn btn-secondary" data-i18n="api.link.overview">
                             <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M11,16.5L18,9.5L16.59,8.09L11,13.67L7.91,10.59L6.5,12L11,16.5Z"/>
                             </svg>
@@ -872,88 +878,88 @@
                 <div class="api-endpoints-grid">
                     <!-- Memory Management -->
                     <div class="endpoint-section">
-                        <h3>💾 Memory Management</h3>
+                        <h3 data-i18n="api.section.memory">💾 Memory Management</h3>
                         <div class="endpoint-list">
                             <div class="endpoint-item">
                                 <span class="method post">POST</span>
                                 <span class="path">/api/memories</span>
-                                <span class="description">Store a new memory with automatic embedding generation</span>
+                                <span class="description" data-i18n="api.memory.store">Store a new memory with automatic embedding generation</span>
                             </div>
                             <div class="endpoint-item">
                                 <span class="method get">GET</span>
                                 <span class="path">/api/memories</span>
-                                <span class="description">List all memories with pagination support</span>
+                                <span class="description" data-i18n="api.memory.list">List all memories with pagination support</span>
                             </div>
                             <div class="endpoint-item">
                                 <span class="method get">GET</span>
                                 <span class="path">/api/memories/{content_hash}</span>
-                                <span class="description">Retrieve a specific memory by content hash</span>
+                                <span class="description" data-i18n="api.memory.get">Retrieve a specific memory by content hash</span>
                             </div>
                             <div class="endpoint-item">
                                 <span class="method delete">DELETE</span>
                                 <span class="path">/api/memories/{content_hash}</span>
-                                <span class="description">Delete a memory and its embeddings</span>
+                                <span class="description" data-i18n="api.memory.delete">Delete a memory and its embeddings</span>
                             </div>
                         </div>
                     </div>
 
                     <!-- Search Operations -->
                     <div class="endpoint-section">
-                        <h3>🔍 Search Operations</h3>
+                        <h3 data-i18n="api.section.search">🔍 Search Operations</h3>
                         <div class="endpoint-list">
                             <div class="endpoint-item">
                                 <span class="method post">POST</span>
                                 <span class="path">/api/search</span>
-                                <span class="description">Semantic similarity search using embeddings</span>
+                                <span class="description" data-i18n="api.search.semantic">Semantic similarity search using embeddings</span>
                             </div>
                             <div class="endpoint-item">
                                 <span class="method post">POST</span>
                                 <span class="path">/api/search/by-tag</span>
-                                <span class="description">Search memories by tags (AND/OR logic)</span>
+                                <span class="description" data-i18n="api.search.tag">Search memories by tags (AND/OR logic)</span>
                             </div>
                             <div class="endpoint-item">
                                 <span class="method post">POST</span>
                                 <span class="path">/api/search/by-time</span>
-                                <span class="description">Natural language time-based queries</span>
+                                <span class="description" data-i18n="api.search.time">Natural language time-based queries</span>
                             </div>
                             <div class="endpoint-item">
                                 <span class="method get">GET</span>
                                 <span class="path">/api/search/similar/{content_hash}</span>
-                                <span class="description">Find memories similar to a specific one</span>
+                                <span class="description" data-i18n="api.search.similar">Find memories similar to a specific one</span>
                             </div>
                         </div>
                     </div>
 
                     <!-- Real-time Events -->
                     <div class="endpoint-section">
-                        <h3>📡 Real-time Events</h3>
+                        <h3 data-i18n="api.section.events">📡 Real-time Events</h3>
                         <div class="endpoint-list">
                             <div class="endpoint-item">
                                 <span class="method get">GET</span>
                                 <span class="path">/api/events</span>
-                                <span class="description">Subscribe to real-time memory events stream</span>
+                                <span class="description" data-i18n="api.events.stream">Subscribe to real-time memory events stream</span>
                             </div>
                             <div class="endpoint-item">
                                 <span class="method get">GET</span>
                                 <span class="path">/api/events/stats</span>
-                                <span class="description">View SSE connection statistics</span>
+                                <span class="description" data-i18n="api.events.stats">View SSE connection statistics</span>
                             </div>
                         </div>
                     </div>
 
                     <!-- Health & Status -->
                     <div class="endpoint-section">
-                        <h3>🏥 Health & Status</h3>
+                        <h3 data-i18n="api.section.health">🏥 Health & Status</h3>
                         <div class="endpoint-list">
                             <div class="endpoint-item">
                                 <span class="method get">GET</span>
                                 <span class="path">/api/health</span>
-                                <span class="description">Quick health check endpoint</span>
+                                <span class="description" data-i18n="api.health.quick">Quick health check endpoint</span>
                             </div>
                             <div class="endpoint-item">
                                 <span class="method get">GET</span>
                                 <span class="path">/api/health/detailed</span>
-                                <span class="description">Detailed health with database statistics</span>
+                                <span class="description" data-i18n="api.health.detailed">Detailed health with database statistics</span>
                             </div>
                         </div>
                     </div>
@@ -965,52 +971,46 @@
         <footer class="app-footer">
             <div class="footer-content">
                 <div class="footer-section">
-                    <h4>Documentation</h4>
+                    <h4 data-i18n="footer.docs.title">Documentation</h4>
                     <ul class="footer-links">
-                        <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki" target="_blank" rel="noopener">
-                            📚 Wiki Home
-                        </a></li>
-                        <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki/07-TROUBLESHOOTING" target="_blank" rel="noopener">
-                            🔧 Troubleshooting Guide
-                        </a></li>
-                        <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki/07-TROUBLESHOOTING#backend-configuration-issues" target="_blank" rel="noopener">
-                            ⚙️ Configuration Issues
-                        </a></li>
+                        <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki" target="_blank" rel="noopener" data-i18n="footer.docs.wiki">📚 Wiki Home</a></li>
+                        <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki/07-TROUBLESHOOTING" target="_blank" rel="noopener" data-i18n="footer.docs.troubleshoot">🔧 Troubleshooting Guide</a></li>
+                        <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki/07-TROUBLESHOOTING#backend-configuration-issues" target="_blank" rel="noopener" data-i18n="footer.docs.config">⚙️ Configuration Issues</a></li>
                     </ul>
                 </div>
 
                 <div class="footer-section">
-                    <h4>Resources</h4>
+                    <h4 data-i18n="footer.resources.title">Resources</h4>
                     <ul class="footer-links">
-                        <li><a href="https://github.com/doobidoo/mcp-memory-service" target="_blank" rel="noopener">
+                        <li><a href="https://github.com/doobidoo/mcp-memory-service" target="_blank" rel="noopener" data-i18n="footer.resources.repo">
                             <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
                             </svg>
                             GitHub Repository
                         </a></li>
-                        <li><a href="https://doobidoo.github.io" target="_blank" rel="noopener">
+                        <li><a href="https://doobidoo.github.io" target="_blank" rel="noopener" data-i18n="footer.resources.portfolio">
                             🌐 Portfolio
                         </a></li>
-                        <li><a href="/api/docs" target="_blank">
+                        <li><a href="/api/docs" target="_blank" data-i18n="footer.resources.apiDoc">
                             📖 API Documentation
                         </a></li>
                     </ul>
                 </div>
 
                 <div class="footer-section">
-                    <h4>About</h4>
-                    <p class="footer-description">
+                    <h4 data-i18n="footer.about.title">About</h4>
+                    <p class="footer-description" data-i18n="footer.about.desc">
                         MCP Memory Service - Semantic memory management for AI assistants
                     </p>
                     <div class="footer-license">
                         <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M14,17H7V15H14M17,13H7V11H17M17,9H7V7H17M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3Z"/>
                         </svg>
-                        <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/LICENSE" target="_blank" rel="noopener">
+                        <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/LICENSE" target="_blank" rel="noopener" data-i18n="footer.about.license">
                             Licensed under Apache 2.0
                         </a>
                     </div>
-                    <div class="footer-copyright">
+                    <div class="footer-copyright" data-i18n="footer.about.copyright">
                         © 2024 Heinrich Krupp
                     </div>
                 </div>
