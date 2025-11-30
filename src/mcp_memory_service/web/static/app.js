@@ -193,32 +193,29 @@ class MemoryDashboard {
      * 应用翻译到 DOM
      */
     async applyTranslations() {
-        // 基于 data-i18n 设置文本
-        document.querySelectorAll('[data-i18n]').forEach(el => {
-            const key = el.dataset.i18n;
-            const text = this.t(key, el.textContent?.trim() || '');
-            if (text) el.textContent = text;
-        });
+        // 统一遍历带 i18n 属性的元素，减少多次 DOM 遍历
+        document.querySelectorAll('[data-i18n], [data-i18n-html], [data-i18n-placeholder], [data-i18n-aria]').forEach(el => {
+            const { i18n, i18nHtml, i18nPlaceholder, i18nAria } = el.dataset;
 
-        // 基于 data-i18n-html 设置 HTML（用于需要保留格式的帮助文本）
-        document.querySelectorAll('[data-i18n-html]').forEach(el => {
-            const key = el.dataset.i18nHtml;
-            const html = this.t(key, el.innerHTML.trim() || '');
-            if (html) el.innerHTML = html;
-        });
+            if (i18n) {
+                const text = this.t(i18n, el.textContent?.trim() || '');
+                if (text) el.textContent = text;
+            }
 
-        // 占位符翻译
-        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-            const key = el.dataset.i18nPlaceholder;
-            const text = this.t(key, el.getAttribute('placeholder') || '');
-            el.setAttribute('placeholder', text);
-        });
+            if (i18nHtml) {
+                const html = this.t(i18nHtml, el.innerHTML.trim() || '');
+                if (html) el.innerHTML = html;
+            }
 
-        // aria-label 翻译
-        document.querySelectorAll('[data-i18n-aria]').forEach(el => {
-            const key = el.dataset.i18nAria;
-            const text = this.t(key, el.getAttribute('aria-label') || '');
-            el.setAttribute('aria-label', text);
+            if (i18nPlaceholder) {
+                const text = this.t(i18nPlaceholder, el.getAttribute('placeholder') || '');
+                el.setAttribute('placeholder', text);
+            }
+
+            if (i18nAria) {
+                const text = this.t(i18nAria, el.getAttribute('aria-label') || '');
+                el.setAttribute('aria-label', text);
+            }
         });
 
         // 文档标题
@@ -560,7 +557,7 @@ class MemoryDashboard {
 
         // Show completion notification
         const message = data.message || `Sync completed: ${data.synced_count} memories synced`;
-        this.showToast(this.t('toast.genericSuccess', message), 'success');
+        this.showToast(message, 'success');
     }
 
     /**
@@ -2161,7 +2158,7 @@ class MemoryDashboard {
         } catch (error) {
             console.error('Error saving memory:', error);
             this.showToast(
-                this.t('toast.saveMemoryFailed', 'Failed to save memory', { reason: error.message }),
+                this.t('toast.saveMemoryFailed', 'Failed to save memory: {reason}', { reason: error.message }),
                 'error'
             );
         }
@@ -3265,11 +3262,11 @@ class MemoryDashboard {
                 // Limit display to top 20 most relevant document results
                 const displayResults = documentResults.slice(0, 20);
 
-                const baseCount = this.t('documents.search.count', '{count} result{plural}{extra}', {
-                    count: documentResults.length,
-                    plural: documentResults.length !== 1 ? 's' : '',
-                    extra: documentResults.length > 20 ? ' (showing top 20)' : ''
-                });
+                const count = documentResults.length;
+                const extra = count > 20 ? ' (showing top 20)' : '';
+                const key = count === 1 ? 'documents.search.count.one' : 'documents.search.count.other';
+                const fallback = count === 1 ? '{count} result{extra}' : '{count} results{extra}';
+                const baseCount = this.t(key, fallback, { count, extra });
                 resultsCount.textContent = baseCount;
 
                 if (displayResults.length > 0) {
@@ -3688,11 +3685,11 @@ class MemoryDashboard {
 
             const result = await response.json();
             if (result.success) {
-                this.showToast(this.t('toast.bulkDeleteSuccess', result.message), 'success');
+                this.showToast(result.message, 'success');
                 await this.loadManageData(); // Refresh data
                 await this.loadDashboardData(); // Refresh dashboard stats
             } else {
-                this.showToast(this.t('toast.bulkDeleteFailedWithReason', result.message), 'error');
+                this.showToast(result.message, 'error');
             }
         } catch (error) {
             console.error('Bulk delete failed:', error);
@@ -3718,11 +3715,11 @@ class MemoryDashboard {
 
             const result = await response.json();
             if (result.success) {
-                this.showToast(this.t('toast.cleanupSuccess', result.message), 'success');
+                this.showToast(result.message, 'success');
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
-                this.showToast(this.t('toast.cleanupFailedWithReason', result.message), 'error');
+                this.showToast(result.message, 'error');
             }
         } catch (error) {
             console.error('Cleanup duplicates failed:', error);
@@ -3760,11 +3757,11 @@ class MemoryDashboard {
 
             const result = await response.json();
             if (result.success) {
-                this.showToast(this.t('toast.bulkDeleteByDateSuccess', result.message), 'success');
+                this.showToast(result.message, 'success');
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
-                this.showToast(this.t('toast.bulkDeleteByDateFailedWithReason', result.message), 'error');
+                this.showToast(result.message, 'error');
             }
         } catch (error) {
             console.error('Bulk delete by date failed:', error);
