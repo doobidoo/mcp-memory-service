@@ -10,6 +10,70 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [8.47.1] - 2025-12-07
+
+### Fixed
+- **ONNX Self-Match Bug** - ONNX bulk evaluation was using memory content as its own query, producing artificially inflated scores (~1.0 for all memories)
+  - Root cause: Cross-encoder design requires meaningful query-memory pairs for relevance ranking
+  - Fixed by generating queries from tags/metadata (what memory is *about*) instead of memory content
+  - Result: Realistic quality distribution (avg 0.468 vs 1.000, breakdown: 42.9% high / 3.2% medium / 53.9% low)
+  - Location: `scripts/quality/bulk_evaluate_onnx.py`
+
+- **Association Pollution** - System-generated associations and compressed clusters were being evaluated for quality
+  - These memories are structural (not content) and shouldn't receive quality scores
+  - Fixed by filtering memories with type='association' or type='compressed_cluster'
+  - Added belt-and-suspenders check for 'source_memory_hashes' metadata field
+  - Impact: 948 system-generated memories excluded from evaluation
+  - Location: `scripts/quality/bulk_evaluate_onnx.py`
+
+- **Sync Queue Overflow** - Queue capacity of 1,000 was overwhelmed by 4,478 updates during bulk ONNX evaluation
+  - Resulted in 278 Cloudflare sync failures (27.8% failure rate)
+  - Fixed by increasing queue size to 2,000 (env: `MCP_HYBRID_QUEUE_SIZE`)
+  - Fixed by increasing batch size to 100 (env: `MCP_HYBRID_BATCH_SIZE`)
+  - Added 5-second timeout with fallback to immediate sync on queue full
+  - Added `wait_for_sync_completion()` method for monitoring bulk operations
+  - Result: 0% sync failure rate during bulk operations
+  - Location: `src/mcp_memory_service/storage/hybrid.py`, `src/mcp_memory_service/config.py`
+
+- **Consolidation Hang** - Batch update optimization was missing for relevance score updates
+  - Sequential update_memory() calls caused slowdown during consolidation
+  - Fixed by collecting updates and using single `update_memories_batch()` transaction
+  - Impact: 50-100x speedup for relevance score updates during consolidation
+  - Location: `src/mcp_memory_service/consolidation/consolidator.py`
+
+### Added
+- **Reset ONNX Scores Script** (`scripts/quality/reset_onnx_scores.py`)
+  - Resets all ONNX quality scores to implicit defaults (0.5)
+  - Pauses hybrid backend sync during reset, resumes after completion
+  - Preserves timestamps (doesn't change created_at/updated_at)
+  - Progress reporting every 500 memories
+  - Use case: Recover from bad ONNX evaluation (self-match bug)
+
+- **Enhanced Bulk Evaluate Script** (`scripts/quality/bulk_evaluate_onnx.py`)
+  - Added association filtering (skip system-generated memories)
+  - Added sync monitoring with queue size reporting
+  - Added wait_for_sync_completion() call to prevent premature exit
+  - Enhanced progress reporting with sync stats
+  - Proper pause/resume for hybrid backend sync
+
+### Changed
+- **ONNX Configuration Defaults** - Updated for better bulk operation support
+  - `HYBRID_QUEUE_SIZE`: 1,000 → 2,000 (default, configurable via env)
+  - `HYBRID_BATCH_SIZE`: 50 → 100 (default, configurable via env)
+  - Backward compatible: `HYBRID_MAX_QUEUE_SIZE` still supported (legacy)
+
+- **Hybrid Backend Sync** - Enhanced pause/resume state tracking
+  - Added `_sync_paused` flag to prevent enqueuing during pause (v8.47.1)
+  - Fixed race condition where operations were enqueued while sync was paused
+  - Ensures operations are not lost during consolidation or bulk updates
+
+### Documentation
+- **ONNX Limitations** - Added critical warning to CLAUDE.md
+  - Documented that ONNX ranker (ms-marco-MiniLM-L-6-v2) is a cross-encoder
+  - Clarified it scores query-memory relevance, not absolute quality
+  - Explained why self-matching queries produce artificially high scores
+  - Added system-generated memory exclusion rationale
+
 ## [8.47.0] - 2025-12-06
 
 ### Added

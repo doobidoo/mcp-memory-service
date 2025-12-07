@@ -23,17 +23,18 @@
 
 ## 🚀 Quick Start (2 minutes)
 
-### 🆕 Latest Release: **v8.47.0** (Dec 06, 2025)
+### 🆕 Latest Release: **v8.47.1** (Dec 07, 2025)
 
-**Association-Based Quality Boost**
+**ONNX Quality Evaluation Bug Fixes**
 
-- 🔗 **Connection-Based Quality Enhancement** - Memories with many connections (≥5) automatically receive 20% quality boost during consolidation
-- 🎯 **Network Effect Leverage** - Well-connected memories are recognized as more valuable knowledge hubs
-- ⚙️ **Configurable Thresholds** - Adjust min connections, boost factor, and enable/disable via environment variables
-- 📊 **Metadata Persistence** - All boosts tracked with audit trail (connection count, original scores, boost date)
-- ✅ **Full Test Coverage** - 5 new test cases validating boost logic, thresholds, caps, and persistence
+- 🐛 **Self-Match Bug Fix** - Fixed ONNX bulk evaluation using memory content as query (inflated scores 1.0 → realistic 0.468 avg)
+- 🚫 **Association Pollution Fix** - System-generated memories (associations, clusters) now excluded from quality evaluation (948 filtered)
+- ⚡ **Sync Queue Overflow Fix** - Increased queue capacity from 1,000 to 2,000, batch size 50 → 100 (sync failures 27.8% → 0%)
+- 🔧 **Consolidation Optimization** - Batch update for relevance scores (50-100x speedup via update_memories_batch)
+- 📊 **Realistic Quality Distribution** - Now shows 42.9% high / 3.2% medium / 53.9% low (was 99.96% high due to bug)
 
 **Previous Releases**:
+- **v8.47.0** - Association-Based Quality Boost (connection-based enhancement, network effect leverage, metadata persistence)
 - **v8.46.3** - Quality Score Persistence Fix (ONNX scores in hybrid backend, metadata normalization)
 - **v8.46.2** - Session-Start Hook Crash Fix + Hook Installer Improvements (client-side tag filtering, isolated version metadata)
 - **v8.46.1** - Windows Hooks Installer Fix + Quality System Integration (UTF-8 console configuration, backend quality scoring)
