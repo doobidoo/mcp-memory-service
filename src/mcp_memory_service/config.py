@@ -417,8 +417,9 @@ else:
 if STORAGE_BACKEND == 'hybrid':
     # Sync service configuration
     HYBRID_SYNC_INTERVAL = int(os.getenv('MCP_HYBRID_SYNC_INTERVAL', '300'))  # 5 minutes default
-    HYBRID_BATCH_SIZE = int(os.getenv('MCP_HYBRID_BATCH_SIZE', '50'))
-    HYBRID_MAX_QUEUE_SIZE = int(os.getenv('MCP_HYBRID_MAX_QUEUE_SIZE', '1000'))
+    HYBRID_BATCH_SIZE = int(os.getenv('MCP_HYBRID_BATCH_SIZE', '100'))  # Increased from 50 for bulk operations
+    HYBRID_QUEUE_SIZE = int(os.getenv('MCP_HYBRID_QUEUE_SIZE', '2000'))  # Increased from 1000 for bulk operations
+    HYBRID_MAX_QUEUE_SIZE = int(os.getenv('MCP_HYBRID_MAX_QUEUE_SIZE', '1000'))  # Legacy - use HYBRID_QUEUE_SIZE
     HYBRID_MAX_RETRIES = int(os.getenv('MCP_HYBRID_MAX_RETRIES', '3'))
 
     # Sync ownership control (v8.27.0+) - Prevents duplicate sync queues
@@ -474,6 +475,7 @@ else:
     # Set hybrid-specific variables to None when not using hybrid backend
     HYBRID_SYNC_INTERVAL = None
     HYBRID_BATCH_SIZE = None
+    HYBRID_QUEUE_SIZE = None
     HYBRID_MAX_QUEUE_SIZE = None
     HYBRID_MAX_RETRIES = None
     HYBRID_SYNC_OWNER = None

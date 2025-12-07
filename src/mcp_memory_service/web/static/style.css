@@ -3603,7 +3603,7 @@ body.dark-mode .quality-summary .stat-card,
 body.dark-mode .chart-area,
 body.dark-mode .analytics-section .chart-container,
 body.dark-mode .quality-section .stat-card {
-    background: var(--neutral-300) !important;
+    background: var(--neutral-100) !important;
 }
 
 /* Quality tab memory previews and lists */
@@ -3623,7 +3623,7 @@ body.dark-mode .memory-preview .memory-content {
 
 body.dark-mode .top-performers,
 body.dark-mode .bottom-performers {
-    background: var(--neutral-200) !important;
+    background: var(--neutral-100) !important;
     border-color: var(--neutral-300) !important;
 }
 

@@ -129,17 +129,19 @@ class BackgroundSyncService:
     def __init__(self,
                  primary_storage: SqliteVecMemoryStorage,
                  secondary_storage: CloudflareStorage,
-                 sync_interval: int = 300,  # 5 minutes
-                 batch_size: int = 50,
-                 max_queue_size: int = 1000):
+                 sync_interval: int = None,  # Use config default if None
+                 batch_size: int = None,  # Use config default if None
+                 max_queue_size: int = None):  # Use config default if None
         self.primary = primary_storage
         self.secondary = secondary_storage
-        self.sync_interval = sync_interval
-        self.batch_size = batch_size
-        self.max_queue_size = max_queue_size
+
+        # Use config values if parameters not provided (for backward compatibility)
+        self.sync_interval = sync_interval if sync_interval is not None else getattr(app_config, 'HYBRID_SYNC_INTERVAL', 300)
+        self.batch_size = batch_size if batch_size is not None else getattr(app_config, 'HYBRID_BATCH_SIZE', 100)
+        self.max_queue_size = max_queue_size if max_queue_size is not None else getattr(app_config, 'HYBRID_QUEUE_SIZE', 2000)
 
         # Sync queues and state
-        self.operation_queue = asyncio.Queue(maxsize=max_queue_size)
+        self.operation_queue = asyncio.Queue(maxsize=self.max_queue_size)
         self.failed_operations = deque(maxlen=100)  # Keep track of failed operations
         self.is_running = False
         self.sync_task = None
@@ -217,8 +219,16 @@ class BackgroundSyncService:
     async def enqueue_operation(self, operation: SyncOperation):
         """Enqueue a sync operation for background processing."""
         try:
-            await self.operation_queue.put(operation)
+            # Add 5-second timeout to prevent indefinite blocking (v8.47.1)
+            await asyncio.wait_for(
+                self.operation_queue.put(operation),
+                timeout=5.0
+            )
             logger.debug(f"Enqueued {operation.operation} operation")
+        except asyncio.TimeoutError:
+            # Queue full and can't add within timeout - fallback to immediate sync
+            logger.warning("Sync queue full (timeout), processing operation immediately")
+            await self._process_single_operation(operation)
         except asyncio.QueueFull:
             # If queue is full, process immediately to avoid blocking
             logger.warning("Sync queue full, processing operation immediately")
@@ -802,6 +812,9 @@ class HybridMemoryStorage(MemoryStorage):
         self.initial_sync_completed = 0
         self.initial_sync_finished = False
 
+        # Pause state tracking (v8.47.1 - fix consolidation hang)
+        self._sync_paused = False
+
     async def initialize(self) -> None:
         """Initialize the hybrid storage system."""
         logger.info("Initializing hybrid memory storage...")
@@ -1265,7 +1278,9 @@ class HybridMemoryStorage(MemoryStorage):
         """Update memory metadata in primary storage and queue for secondary sync."""
         success, message = await self.primary.update_memory_metadata(content_hash, updates, preserve_timestamps)
 
-        if success and self.sync_service:
+        # Skip enqueuing if sync is paused (v8.47.1 - fix consolidation hang)
+        # Operations will be synced when sync resumes
+        if success and self.sync_service and not self._sync_paused:
             # Queue for background sync to secondary
             operation = SyncOperation(
                 operation='update',
@@ -1498,10 +1513,14 @@ class HybridMemoryStorage(MemoryStorage):
 
         try:
             if not self.sync_service.is_running:
+                self._sync_paused = True  # Ensure flag is set even if already paused
                 return {
                     'success': True,
                     'message': 'Sync already paused'
                 }
+
+            # Set pause flag before stopping sync (v8.47.1 - fix consolidation hang)
+            self._sync_paused = True
 
             # Stop the sync service
             await self.sync_service.stop()
@@ -1529,10 +1548,14 @@ class HybridMemoryStorage(MemoryStorage):
 
         try:
             if self.sync_service.is_running:
+                self._sync_paused = False  # Ensure flag is cleared even if already running
                 return {
                     'success': True,
                     'message': 'Sync already running'
                 }
+
+            # Clear pause flag before starting sync (v8.47.1 - fix consolidation hang)
+            self._sync_paused = False
 
             # Start the sync service
             await self.sync_service.start()
@@ -1549,6 +1572,68 @@ class HybridMemoryStorage(MemoryStorage):
                 'success': False,
                 'message': f'Failed to resume sync: {str(e)}'
             }
+
+    async def wait_for_sync_completion(self, timeout: int = 600) -> Dict[str, Any]:
+        """Wait for sync queue to drain after bulk operations.
+
+        This method is useful for bulk operations like quality evaluation
+        that generate many sync operations. It waits for the queue to drain
+        and returns statistics about the sync operation.
+
+        Args:
+            timeout: Maximum seconds to wait (default: 600 = 10 minutes)
+
+        Returns:
+            dict with sync stats:
+                - success_count: Number of operations synced successfully
+                - failure_count: Number of operations that failed
+                - queue_size: Remaining queue size when timeout/completion occurred
+
+        Raises:
+            TimeoutError: If sync queue did not drain within timeout
+        """
+        if not self.sync_service:
+            return {
+                'success_count': 0,
+                'failure_count': 0,
+                'queue_size': 0,
+                'message': 'Sync service not available'
+            }
+
+        import time
+        start = time.time()
+        initial_processed = self.sync_service.sync_stats.get('operations_processed', 0)
+        initial_failed = self.sync_service.sync_stats.get('operations_failed', 0)
+
+        while time.time() - start < timeout:
+            queue_size = self.sync_service.operation_queue.qsize()
+
+            if queue_size == 0:
+                # Queue drained, calculate stats
+                final_processed = self.sync_service.sync_stats.get('operations_processed', 0)
+                final_failed = self.sync_service.sync_stats.get('operations_failed', 0)
+
+                return {
+                    'success_count': final_processed - initial_processed,
+                    'failure_count': final_failed - initial_failed,
+                    'queue_size': 0,
+                    'message': 'Sync queue drained successfully'
+                }
+
+            # Wait a bit before checking again
+            await asyncio.sleep(1)
+
+        # Timeout reached - return partial stats
+        final_processed = self.sync_service.sync_stats.get('operations_processed', 0)
+        final_failed = self.sync_service.sync_stats.get('operations_failed', 0)
+        queue_size = self.sync_service.operation_queue.qsize()
+
+        raise TimeoutError(
+            f"Sync queue did not drain within {timeout}s. "
+            f"Processed: {final_processed - initial_processed}, "
+            f"Failed: {final_failed - initial_failed}, "
+            f"Remaining in queue: {queue_size}"
+        )
 
     def sanitized(self, tags):
         """Sanitize and normalize tags to a JSON string.

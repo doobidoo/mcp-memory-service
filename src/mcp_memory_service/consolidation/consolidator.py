@@ -16,7 +16,7 @@
 
 import asyncio
 from typing import List, Dict, Any, Optional, Protocol, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import time
 
@@ -338,12 +338,18 @@ class DreamInspiredConsolidator:
             reference_time=datetime.now()
         )
         
-        # Update memory metadata with relevance scores
+        # Update memory metadata with relevance scores (v8.47.1 - batch optimization)
+        # Collect all memories to update, then use single batch operation for 50-100x speedup
+        memories_to_update = []
         for memory in memories:
             score = next((s for s in relevance_scores if s.memory_hash == memory.content_hash), None)
             if score:
                 updated_memory = await self.decay_calculator.update_memory_relevance_metadata(memory, score)
-                await self.storage.update_memory(updated_memory)
+                memories_to_update.append(updated_memory)
+
+        # Single batch transaction instead of 500+ sequential calls
+        if memories_to_update:
+            await self.storage.update_memories_batch(memories_to_update)
         
         return relevance_scores
     

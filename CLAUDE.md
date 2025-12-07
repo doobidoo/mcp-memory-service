@@ -94,9 +94,17 @@ Web interface at `http://127.0.0.1:8000/` with CRUD operations, semantic/tag/tim
 - Latency: 50-100ms (CPU), 10-20ms (GPU with CUDA/MPS/DirectML)
 - Privacy: ✅ Full (no external API calls)
 - Offline: ✅ Works without internet
+- **⚠️ Requires meaningful query-memory pairs** (designed for relevance ranking, not absolute quality)
 
 **Tier 2-3 (Optional)**: Groq/Gemini APIs (user opt-in only)
 **Tier 4 (Fallback)**: Implicit signals (access patterns)
+
+**IMPORTANT ONNX Limitations:**
+- The ONNX ranker (`ms-marco-MiniLM-L-6-v2`) is a cross-encoder trained for document relevance ranking
+- It scores how well a memory matches a **query**, not absolute memory quality
+- Bulk evaluation generates queries from tags/metadata (what memory is *about*)
+- Self-matching queries (memory content as its own query) produce artificially high scores (~1.0)
+- System-generated memories (associations, compressed clusters) are **not scored**
 
 ### Key Features
 
