@@ -19,31 +19,50 @@ Provides embedded vector storage using Qdrant with circuit breaker and model tra
 
 import asyncio
 import logging
-import hashlib
 import threading
 import uuid
-from typing import List, Dict, Any, Tuple, Optional, Union
 from datetime import datetime, timedelta
+from typing import Any
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import (
-    VectorParams, Distance, HnswConfigDiff,
-    ScalarQuantization, ScalarQuantizationConfig, ScalarType, PointStruct,
-    Filter, FieldCondition, MatchAny, MatchValue, Range
-)
 from qdrant_client.http import exceptions as qdrant_exceptions
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    HnswConfigDiff,
+    MatchAny,
+    MatchValue,
+    OrderBy,
+    PayloadSchemaType,
+    PointStruct,
+    Range,
+    ScalarQuantization,
+    ScalarQuantizationConfig,
+    ScalarType,
+    VectorParams,
+)
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 # Import sentence transformers with fallback
 try:
     from sentence_transformers import SentenceTransformer
+
     SENTENCE_TRANSFORMERS_AVAILABLE = True
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
 
-from .base import MemoryStorage
-from ..models.memory import Memory, MemoryQueryResult
+# Import dateutil with fallback
+try:
+    from dateutil import parser as dateutil_parser
+
+    DATEUTIL_AVAILABLE = True
+except ImportError:
+    DATEUTIL_AVAILABLE = False
+
 from ..config import QdrantSettings
+from ..models.memory import Memory, MemoryQueryResult
+from .base import MemoryStorage
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +73,7 @@ if not SENTENCE_TRANSFORMERS_AVAILABLE:
 
 class StorageError(Exception):
     """Storage-related errors."""
+
     pass
 
 
@@ -75,7 +95,7 @@ def is_retryable_error(exception: Exception) -> bool:
     """
     if isinstance(exception, qdrant_exceptions.UnexpectedResponse):
         # Only retry 5xx server errors (transient failures)
-        return hasattr(exception, 'status_code') and 500 <= exception.status_code < 600
+        return hasattr(exception, "status_code") and 500 <= exception.status_code < 600
     return False
 
 
@@ -96,8 +116,8 @@ class QdrantStorage(MemoryStorage):
         collection_name: str = "memories",
         quantization_enabled: bool = False,
         distance_metric: str = "Cosine",
-        storage_path: Optional[str] = None,
-        url: Optional[str] = None
+        storage_path: str | None = None,
+        url: str | None = None,
     ):
         """
         Initialize Qdrant storage backend in embedded or server mode.
@@ -129,12 +149,12 @@ class QdrantStorage(MemoryStorage):
 
         # Circuit breaker state
         self._failure_count = 0
-        self._circuit_open_until: Optional[datetime] = None
+        self._circuit_open_until: datetime | None = None
         self._failure_threshold = 5  # Open circuit after 5 consecutive failures
         self._circuit_timeout = 60  # Reclose circuit after 60 seconds
 
         # Model tracking
-        self._vector_size: Optional[int] = None  # Detected from embedding model
+        self._vector_size: int | None = None  # Detected from embedding model
 
         # Qdrant client (initialized in initialize())
         self.client = None
@@ -147,7 +167,7 @@ class QdrantStorage(MemoryStorage):
         self.embedding_service = None
 
         # Thread-safe model loading (prevents race condition)
-        import threading
+
         self._model_lock = threading.Lock()
 
         mode = "server" if self.url else "embedded"
@@ -158,7 +178,7 @@ class QdrantStorage(MemoryStorage):
         )
 
     @property
-    def max_content_length(self) -> Optional[int]:
+    def max_content_length(self) -> int | None:
         """
         Maximum content length supported by this storage backend.
 
@@ -197,17 +217,11 @@ class QdrantStorage(MemoryStorage):
         loop = asyncio.get_event_loop()
         if self.url:
             # Server mode - network client (multi-process safe)
-            self.client = await loop.run_in_executor(
-                None,
-                lambda: QdrantClient(url=self.url)
-            )
+            self.client = await loop.run_in_executor(None, lambda: QdrantClient(url=self.url))
             logger.info(f"Connected to Qdrant server at {self.url}")
         else:
             # Embedded mode - file-based (single-process only, exclusive lock)
-            self.client = await loop.run_in_executor(
-                None,
-                lambda: QdrantClient(path=self.storage_path)
-            )
+            self.client = await loop.run_in_executor(None, lambda: QdrantClient(path=self.storage_path))
             logger.info(f"Initialized Qdrant embedded storage at {self.storage_path}")
 
         # Detect vector dimensions from embedding model
@@ -240,20 +254,20 @@ class QdrantStorage(MemoryStorage):
 
         # Common embedding model dimensions (will be detected dynamically in production)
         model_dimensions = {
-            'all-MiniLM-L6-v2': 384,
-            'all-MiniLM-L12-v2': 384,
-            'all-mpnet-base-v2': 768,
-            'text-embedding-ada-002': 1536,
-            '@cf/baai/bge-base-en-v1.5': 768,
-            'sentence-transformers/all-MiniLM-L6-v2': 384,
-            'intfloat/e5-small': 384,
-            'intfloat/e5-base': 768,
-            'intfloat/e5-large': 1024,
-            'BAAI/bge-small-en-v1.5': 384,
-            'BAAI/bge-base-en-v1.5': 768,
-            'BAAI/bge-large-en-v1.5': 1024,
-            'infgrad/stella-base-en-v2': 768,
-            'nomic-ai/nomic-embed-text-v1': 768  # Assuming 768 based on common practice
+            "all-MiniLM-L6-v2": 384,
+            "all-MiniLM-L12-v2": 384,
+            "all-mpnet-base-v2": 768,
+            "text-embedding-ada-002": 1536,
+            "@cf/baai/bge-base-en-v1.5": 768,
+            "sentence-transformers/all-MiniLM-L6-v2": 384,
+            "intfloat/e5-small": 384,
+            "intfloat/e5-base": 768,
+            "intfloat/e5-large": 1024,
+            "BAAI/bge-small-en-v1.5": 384,
+            "BAAI/bge-base-en-v1.5": 768,
+            "BAAI/bge-large-en-v1.5": 1024,
+            "infgrad/stella-base-en-v2": 768,
+            "nomic-ai/nomic-embed-text-v1": 768,  # Assuming 768 based on common practice
         }
 
         # Try to get dimensions from known models first
@@ -276,20 +290,12 @@ class QdrantStorage(MemoryStorage):
         loop = asyncio.get_event_loop()
 
         # Get collection info
-        collection_info = await loop.run_in_executor(
-            None,
-            self.client.get_collection,
-            self.collection_name
-        )
+        collection_info = await loop.run_in_executor(None, self.client.get_collection, self.collection_name)
 
         # Try to retrieve metadata from the special __metadata__ point
         try:
             metadata_points = await loop.run_in_executor(
-                None,
-                lambda: self.client.retrieve(
-                    collection_name=self.collection_name,
-                    ids=[self.METADATA_POINT_ID]
-                )
+                None, lambda: self.client.retrieve(collection_name=self.collection_name, ids=[self.METADATA_POINT_ID])
             )
 
             if metadata_points and len(metadata_points) > 0:
@@ -319,7 +325,7 @@ class QdrantStorage(MemoryStorage):
                 logger.warning(f"Could not retrieve metadata point: {e}")
 
         # Also check the collection's vector configuration
-        if hasattr(collection_info.config, 'params') and hasattr(collection_info.config.params, 'vectors'):
+        if hasattr(collection_info.config, "params") and hasattr(collection_info.config.params, "vectors"):
             collection_vector_size = collection_info.config.params.vectors.size
             if collection_vector_size != self._vector_size:
                 raise StorageError(
@@ -341,7 +347,7 @@ class QdrantStorage(MemoryStorage):
         hnsw_config = HnswConfigDiff(
             m=self.config.HNSW_M,
             ef_construct=self.config.HNSW_EF_CONSTRUCT,
-            full_scan_threshold=self.config.HNSW_FULL_SCAN_THRESHOLD
+            full_scan_threshold=self.config.HNSW_FULL_SCAN_THRESHOLD,
         )
 
         # Prepare quantization config if enabled
@@ -349,9 +355,7 @@ class QdrantStorage(MemoryStorage):
         if self.quantization_enabled:
             quantization_config = ScalarQuantization(
                 scalar=ScalarQuantizationConfig(
-                    type=ScalarType.INT8,
-                    quantile=0.99,
-                    always_ram=self.config.QUANTIZATION_ALWAYS_RAM
+                    type=ScalarType.INT8, quantile=0.99, always_ram=self.config.QUANTIZATION_ALWAYS_RAM
                 )
             )
 
@@ -360,14 +364,11 @@ class QdrantStorage(MemoryStorage):
             None,
             lambda: self.client.create_collection(
                 collection_name=self.collection_name,
-                vectors_config=VectorParams(
-                    size=self._vector_size,
-                    distance=Distance.COSINE
-                ),
+                vectors_config=VectorParams(size=self._vector_size, distance=Distance.COSINE),
                 hnsw_config=hnsw_config,
                 quantization_config=quantization_config,
-                on_disk_payload=self.config.ON_DISK_PAYLOAD
-            )
+                on_disk_payload=self.config.ON_DISK_PAYLOAD,
+            ),
         )
 
         logger.info(f"Created collection '{self.collection_name}' with vector size {self._vector_size}")
@@ -380,21 +381,28 @@ class QdrantStorage(MemoryStorage):
                 "embedding_model": self.embedding_model,
                 "vector_size": self._vector_size,
                 "dimensions": self._vector_size,  # Store both for compatibility
-                "created_at": datetime.now().isoformat(),
+                "created_at": datetime.now().timestamp(),  # Use float for FLOAT payload index
                 "distance_metric": "Cosine",
-                "quantization_enabled": self.quantization_enabled
-            }
+                "quantization_enabled": self.quantization_enabled,
+            },
         )
 
         await loop.run_in_executor(
-            None,
-            lambda: self.client.upsert(
-                collection_name=self.collection_name,
-                points=[metadata_point]
-            )
+            None, lambda: self.client.upsert(collection_name=self.collection_name, points=[metadata_point])
         )
 
         logger.info("Stored model metadata in __metadata__ point")
+
+        # Create payload index on created_at for efficient server-side sorting
+        await loop.run_in_executor(
+            None,
+            lambda: self.client.create_payload_index(
+                collection_name=self.collection_name,
+                field_name="created_at",
+                field_schema=PayloadSchemaType.FLOAT,
+            ),
+        )
+        logger.info("Created payload index on 'created_at' for server-side sorting")
 
     async def _collection_exists(self) -> bool:
         """
@@ -406,10 +414,7 @@ class QdrantStorage(MemoryStorage):
         loop = asyncio.get_event_loop()
 
         try:
-            collections = await loop.run_in_executor(
-                None,
-                self.client.get_collections
-            )
+            collections = await loop.run_in_executor(None, self.client.get_collections)
 
             collection_names = [col.name for col in collections.collections]
             exists = self.collection_name in collection_names
@@ -432,9 +437,7 @@ class QdrantStorage(MemoryStorage):
             # Check if circuit is still open
             if datetime.now() < self._circuit_open_until:
                 retry_time = self._circuit_open_until.strftime("%Y-%m-%d %H:%M:%S")
-                raise StorageError(
-                    f"Circuit breaker is open until {retry_time}. Service temporarily unavailable."
-                )
+                raise StorageError(f"Circuit breaker is open until {retry_time}. Service temporarily unavailable.")
             else:
                 # Circuit timeout expired, reset to closed state
                 logger.info("Circuit breaker timeout expired, resetting to closed state")
@@ -470,7 +473,7 @@ class QdrantStorage(MemoryStorage):
         else:
             logger.debug("Operation successful, circuit breaker already in healthy state")
 
-    def _hash_to_uuid(self, hash_string: str) -> Union[str, uuid.UUID]:
+    def _hash_to_uuid(self, hash_string: str) -> str | uuid.UUID:
         """
         Convert a SHA256 hash to a UUID format for Qdrant compatibility.
 
@@ -489,10 +492,10 @@ class QdrantStorage(MemoryStorage):
         # Convert to UUID format
         return str(uuid.UUID(uuid_hex))
 
-    def _generate_embedding(self, text: str) -> List[float]:
+    def _generate_embedding(self, text: str) -> list[float]:
         """
         Generate embedding for text using configured model.
-        
+
         Thread-safe lazy loading with lock to prevent race conditions.
 
         Args:
@@ -506,23 +509,21 @@ class QdrantStorage(MemoryStorage):
             Exception: If embedding generation fails
         """
         if not SENTENCE_TRANSFORMERS_AVAILABLE:
-            raise RuntimeError(
-                "sentence_transformers not installed. Install with: pip install sentence-transformers"
-            )
+            raise RuntimeError("sentence_transformers not installed. Install with: pip install sentence-transformers")
 
         try:
             # Thread-safe lazy loading - prevents concurrent requests from loading model twice
-            if not hasattr(self, '_embedding_model_instance'):
+            if not hasattr(self, "_embedding_model_instance"):
                 with self._model_lock:
                     # Double-check after acquiring lock (another thread may have loaded it)
-                    if not hasattr(self, '_embedding_model_instance'):
+                    if not hasattr(self, "_embedding_model_instance"):
                         logger.info(f"Loading embedding model: {self.embedding_model}")
                         self._embedding_model_instance = SentenceTransformer(self.embedding_model)
                         logger.info(f"Loaded model: {self.embedding_model}")
 
             # Generate embedding (outside lock - model is thread-safe for inference)
             embeddings = self._embedding_model_instance.encode(text, convert_to_tensor=False)
-            embedding_list = embeddings.tolist() if hasattr(embeddings, 'tolist') else embeddings
+            embedding_list = embeddings.tolist() if hasattr(embeddings, "tolist") else embeddings
 
             # Validate embedding
             if not embedding_list:
@@ -539,7 +540,7 @@ class QdrantStorage(MemoryStorage):
             logger.error(f"Failed to generate embedding: {e.__class__.__name__}: {str(e)}")
             raise
 
-    def _normalize_tags(self, tags_raw: Any) -> List[str]:
+    def _normalize_tags(self, tags_raw: Any) -> list[str]:
         """
         Normalize tags to list format, handling both string (legacy) and list formats.
 
@@ -560,13 +561,44 @@ class QdrantStorage(MemoryStorage):
         # Filter out empty strings and trim whitespace
         return [t.strip() for t in tags if t and t.strip()]
 
+    def _normalize_timestamp(self, ts: Any) -> float:
+        """
+        Normalize timestamp to float, handling both ISO strings and Unix timestamps.
+
+        Args:
+            ts: Timestamp in any format (ISO string, float, int, or None)
+
+        Returns:
+            Unix timestamp as float, or 0.0 if invalid/missing
+        """
+        if ts is None:
+            return 0.0
+        if isinstance(ts, (int, float)):
+            return float(ts)
+        if isinstance(ts, str):
+            if DATEUTIL_AVAILABLE:
+                try:
+                    parsed_dt = dateutil_parser.isoparse(ts)
+                    return parsed_dt.timestamp()
+                except (ValueError, TypeError):
+                    pass
+            else:
+                # Fallback without dateutil
+                try:
+                    # Replace 'Z' with '+00:00' for UTC timezone before parsing
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    return dt.timestamp()
+                except (ValueError, TypeError):
+                    pass
+        return 0.0
+
     @retry(
         retry=retry_if_exception(is_retryable_error),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        reraise=True
+        reraise=True,
     )
-    async def store(self, memory: Memory) -> Tuple[bool, str]:
+    async def store(self, memory: Memory) -> tuple[bool, str]:
         """
         Store a memory in Qdrant with circuit breaker protection and retry logic.
 
@@ -587,11 +619,7 @@ class QdrantStorage(MemoryStorage):
             if memory.embedding is None:
                 try:
                     loop = asyncio.get_event_loop()
-                    memory.embedding = await loop.run_in_executor(
-                        None,
-                        self._generate_embedding,
-                        memory.content
-                    )
+                    memory.embedding = await loop.run_in_executor(None, self._generate_embedding, memory.content)
                     logger.debug(f"Generated embedding for memory {memory.content_hash[:8]}...")
                 except Exception as e:
                     logger.error(f"Failed to generate embedding for memory: {e}")
@@ -620,25 +648,19 @@ class QdrantStorage(MemoryStorage):
                     "created_at": memory.created_at,
                     "updated_at": memory.updated_at,
                     "memory_type": memory.memory_type or "",
-                    "content_hash": memory.content_hash
-                }
+                    "content_hash": memory.content_hash,
+                },
             )
 
             # Upsert to Qdrant (idempotent operation)
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: self.client.upsert(
-                    collection_name=self.collection_name,
-                    points=[point]
-                )
-            )
+            await loop.run_in_executor(None, lambda: self.client.upsert(collection_name=self.collection_name, points=[point]))
 
             # Record success for circuit breaker
             self._record_success()
 
             logger.debug(f"Stored memory {memory.content_hash[:8]}... in Qdrant")
-            return True, f"Memory stored successfully"
+            return True, "Memory stored successfully"
 
         except ValueError as e:
             # Dimension mismatch - don't retry, don't record failure (configuration error)
@@ -655,17 +677,17 @@ class QdrantStorage(MemoryStorage):
         retry=retry_if_exception(is_retryable_error),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        reraise=True
+        reraise=True,
     )
     async def retrieve(
         self,
         query: str,
         n_results: int = 5,
-        tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None,
-        offset: int = 0
-    ) -> List[MemoryQueryResult]:
+        tags: list[str] | None = None,
+        memory_type: str | None = None,
+        min_similarity: float | None = None,
+        offset: int = 0,
+    ) -> list[MemoryQueryResult]:
         """
         Retrieve memories by semantic search with optional filtering and retry logic.
 
@@ -691,10 +713,7 @@ class QdrantStorage(MemoryStorage):
             try:
                 # Use _generate_embedding which handles lazy model loading
                 loop = asyncio.get_event_loop()
-                query_embedding = await loop.run_in_executor(
-                    None,
-                    lambda: self._generate_embedding(query)
-                )
+                query_embedding = await loop.run_in_executor(None, lambda: self._generate_embedding(query))
             except Exception as e:
                 logger.error(f"Failed to generate query embedding: {e}")
                 self._record_failure()
@@ -709,28 +728,17 @@ class QdrantStorage(MemoryStorage):
             if tags:
                 # should[] creates OR logic - matches if ANY condition is true
                 # Use MatchAny for array fields
-                should_conditions.append(
-                    FieldCondition(
-                        key="tags",
-                        match=MatchAny(any=tags)
-                    )
-                )
+                should_conditions.append(FieldCondition(key="tags", match=MatchAny(any=tags)))
 
             # Memory type filter: AND logic (must match exactly)
             if memory_type:
                 # must[] creates AND logic - all conditions must be true
-                must_conditions.append(
-                    FieldCondition(
-                        key="memory_type",
-                        match=MatchValue(value=memory_type)
-                    )
-                )
+                must_conditions.append(FieldCondition(key="memory_type", match=MatchValue(value=memory_type)))
 
             # Create Filter object only if we have conditions
             if must_conditions or should_conditions:
                 query_filter = Filter(
-                    must=must_conditions if must_conditions else None,
-                    should=should_conditions if should_conditions else None
+                    must=must_conditions if must_conditions else None, should=should_conditions if should_conditions else None
                 )
 
             # Execute Qdrant search with filters and offset
@@ -745,8 +753,8 @@ class QdrantStorage(MemoryStorage):
                     offset=offset,
                     score_threshold=min_similarity if min_similarity else None,
                     with_payload=True,
-                    with_vectors=False  # Exclude vectors to reduce response size
-                )
+                    with_vectors=False,  # Exclude vectors to reduce response size
+                ),
             )
 
             # Convert ScoredPoints to MemoryQueryResult objects
@@ -769,7 +777,7 @@ class QdrantStorage(MemoryStorage):
                         memory_type=payload.get("memory_type"),
                         metadata=payload.get("metadata", {}),
                         created_at=payload.get("created_at"),
-                        updated_at=payload.get("updated_at")
+                        updated_at=payload.get("updated_at"),
                     )
 
                     # Qdrant score is already a similarity score (1.0 = perfect match for cosine)
@@ -781,11 +789,13 @@ class QdrantStorage(MemoryStorage):
                     if min_similarity is not None and relevance_score < min_similarity:
                         continue
 
-                    results.append(MemoryQueryResult(
-                        memory=memory,
-                        relevance_score=relevance_score,
-                        debug_info={"score": scored_point.score, "backend": "qdrant"}
-                    ))
+                    results.append(
+                        MemoryQueryResult(
+                            memory=memory,
+                            relevance_score=relevance_score,
+                            debug_info={"score": scored_point.score, "backend": "qdrant"},
+                        )
+                    )
 
                 except Exception as parse_error:
                     logger.warning(f"Failed to parse search result: {parse_error}")
@@ -803,7 +813,7 @@ class QdrantStorage(MemoryStorage):
             logger.error(f"Failed to retrieve memories from Qdrant: {e}")
             return []
 
-    async def _generate_query_embedding(self, query: str) -> List[float]:
+    async def _generate_query_embedding(self, query: str) -> list[float]:
         """
         Generate embedding for query text.
 
@@ -829,10 +839,7 @@ class QdrantStorage(MemoryStorage):
 
             # Validate embedding dimensions
             if len(embedding_list) != self._vector_size:
-                raise ValueError(
-                    f"Embedding dimension mismatch: expected {self._vector_size}, "
-                    f"got {len(embedding_list)}"
-                )
+                raise ValueError(f"Embedding dimension mismatch: expected {self._vector_size}, got {len(embedding_list)}")
 
             return embedding_list
 
@@ -844,17 +851,17 @@ class QdrantStorage(MemoryStorage):
         retry=retry_if_exception(is_retryable_error),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        reraise=True
+        reraise=True,
     )
     async def search_by_tag(
         self,
-        tags: List[str],
+        tags: list[str],
         limit: int = 10,
         offset: int = 0,
         match_all: bool = False,
-        start_timestamp: Optional[float] = None,
-        end_timestamp: Optional[float] = None
-    ) -> List[Memory]:
+        start_timestamp: float | None = None,
+        end_timestamp: float | None = None,
+    ) -> list[Memory]:
         """
         Search memories by tags with optional date filtering and retry logic.
 
@@ -885,20 +892,10 @@ class QdrantStorage(MemoryStorage):
             if tags:
                 if match_all:
                     # AND logic - memory must have ALL tags
-                    tag_filter = Filter(
-                        must=[
-                            FieldCondition(key="tags", match=MatchValue(value=tag))
-                            for tag in tags
-                        ]
-                    )
+                    tag_filter = Filter(must=[FieldCondition(key="tags", match=MatchValue(value=tag)) for tag in tags])
                 else:
                     # OR logic - memory must have ANY tag
-                    tag_filter = Filter(
-                        should=[
-                            FieldCondition(key="tags", match=MatchValue(value=tag))
-                            for tag in tags
-                        ]
-                    )
+                    tag_filter = Filter(should=[FieldCondition(key="tags", match=MatchValue(value=tag)) for tag in tags])
                 filter_conditions.append(tag_filter)
 
             # Timestamp range filter (AND logic if provided)
@@ -906,20 +903,10 @@ class QdrantStorage(MemoryStorage):
                 timestamp_conditions = []
 
                 if start_timestamp is not None:
-                    timestamp_conditions.append(
-                        FieldCondition(
-                            key="created_at",
-                            range=Range(gte=start_timestamp)
-                        )
-                    )
+                    timestamp_conditions.append(FieldCondition(key="created_at", range=Range(gte=start_timestamp)))
 
                 if end_timestamp is not None:
-                    timestamp_conditions.append(
-                        FieldCondition(
-                            key="created_at",
-                            range=Range(lte=end_timestamp)
-                        )
-                    )
+                    timestamp_conditions.append(FieldCondition(key="created_at", range=Range(lte=end_timestamp)))
 
                 if timestamp_conditions:
                     timestamp_filter = Filter(must=timestamp_conditions)
@@ -937,11 +924,8 @@ class QdrantStorage(MemoryStorage):
             scroll_result = await loop.run_in_executor(
                 None,
                 lambda: self.client.scroll(
-                    collection_name=self.collection_name,
-                    scroll_filter=combined_filter,
-                    limit=limit,
-                    offset=offset
-                )
+                    collection_name=self.collection_name, scroll_filter=combined_filter, limit=limit, offset=offset
+                ),
             )
 
             # Convert Points to Memory objects
@@ -961,17 +945,14 @@ class QdrantStorage(MemoryStorage):
                     memory_type=payload.get("memory_type"),
                     metadata=payload.get("metadata", {}),
                     created_at=payload.get("created_at", 0.0),
-                    updated_at=payload.get("updated_at", 0.0)
+                    updated_at=payload.get("updated_at", 0.0),
                 )
                 memories.append(memory)
 
             # Record success
             self._record_success()
 
-            logger.debug(
-                f"search_by_tag returned {len(memories)} results "
-                f"(tags={tags}, limit={limit}, offset={offset})"
-            )
+            logger.debug(f"search_by_tag returned {len(memories)} results (tags={tags}, limit={limit}, offset={offset})")
 
             return memories
 
@@ -980,7 +961,7 @@ class QdrantStorage(MemoryStorage):
             self._record_failure()
             raise StorageError(f"Tag search failed: {e}")
 
-    async def get_memory_by_hash(self, content_hash: str) -> Optional[Memory]:
+    async def get_memory_by_hash(self, content_hash: str) -> Memory | None:
         """
         Retrieve a specific memory by its content hash.
 
@@ -994,12 +975,10 @@ class QdrantStorage(MemoryStorage):
 
         try:
             loop = asyncio.get_event_loop()
+            # Convert hash to UUID format (must match how points are stored)
+            point_id = self._hash_to_uuid(content_hash)
             points = await loop.run_in_executor(
-                None,
-                lambda: self.client.retrieve(
-                    collection_name=self.collection_name,
-                    ids=[content_hash]
-                )
+                None, lambda: self.client.retrieve(collection_name=self.collection_name, ids=[point_id])
             )
 
             if not points or len(points) == 0:
@@ -1017,7 +996,7 @@ class QdrantStorage(MemoryStorage):
                 metadata=payload.get("metadata", {}),
                 created_at=payload.get("created_at"),
                 updated_at=payload.get("updated_at"),
-                embedding=point.vector if hasattr(point, 'vector') else None
+                embedding=point.vector if hasattr(point, "vector") else None,
             )
 
             self._record_success()
@@ -1032,9 +1011,9 @@ class QdrantStorage(MemoryStorage):
         retry=retry_if_exception(is_retryable_error),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
-        reraise=True
+        reraise=True,
     )
-    async def delete(self, content_hash: str) -> Tuple[bool, str]:
+    async def delete(self, content_hash: str) -> tuple[bool, str]:
         """
         Delete a memory by its hash with retry logic.
 
@@ -1055,16 +1034,12 @@ class QdrantStorage(MemoryStorage):
 
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
-                None,
-                lambda: self.client.delete(
-                    collection_name=self.collection_name,
-                    points_selector=[point_id]
-                )
+                None, lambda: self.client.delete(collection_name=self.collection_name, points_selector=[point_id])
             )
 
             self._record_success()
             logger.debug(f"Deleted memory {content_hash[:8]}...")
-            return True, f"Memory deleted successfully"
+            return True, "Memory deleted successfully"
 
         except Exception as e:
             self._record_failure()
@@ -1072,7 +1047,7 @@ class QdrantStorage(MemoryStorage):
             logger.error(error_msg)
             return False, error_msg
 
-    async def delete_by_tag(self, tag: str) -> Tuple[int, str]:
+    async def delete_by_tag(self, tag: str) -> tuple[int, str]:
         """
         Delete memories by tag.
 
@@ -1086,24 +1061,12 @@ class QdrantStorage(MemoryStorage):
 
         try:
             # Build filter for tag
-            tag_filter = Filter(
-                must=[
-                    FieldCondition(
-                        key="tags",
-                        match=MatchValue(value=tag)
-                    )
-                ]
-            )
+            tag_filter = Filter(must=[FieldCondition(key="tags", match=MatchValue(value=tag))])
 
             # Get count before deletion for reporting
             loop = asyncio.get_event_loop()
             scroll_result = await loop.run_in_executor(
-                None,
-                lambda: self.client.scroll(
-                    collection_name=self.collection_name,
-                    scroll_filter=tag_filter,
-                    limit=10000
-                )
+                None, lambda: self.client.scroll(collection_name=self.collection_name, scroll_filter=tag_filter, limit=10000)
             )
 
             points, _ = scroll_result
@@ -1115,11 +1078,7 @@ class QdrantStorage(MemoryStorage):
 
             # Delete all points with this tag
             await loop.run_in_executor(
-                None,
-                lambda: self.client.delete(
-                    collection_name=self.collection_name,
-                    points_selector=tag_filter
-                )
+                None, lambda: self.client.delete(collection_name=self.collection_name, points_selector=tag_filter)
             )
 
             self._record_success()
@@ -1132,7 +1091,7 @@ class QdrantStorage(MemoryStorage):
             logger.error(error_msg)
             return 0, error_msg
 
-    async def delete_by_all_tags(self, tags: List[str]) -> Tuple[int, str]:
+    async def delete_by_all_tags(self, tags: list[str]) -> tuple[int, str]:
         """
         Delete memories matching ALL of the given tags (AND logic).
 
@@ -1146,10 +1105,7 @@ class QdrantStorage(MemoryStorage):
 
         try:
             # Build filter with AND logic
-            tag_conditions = [
-                FieldCondition(key="tags", match=MatchValue(value=tag))
-                for tag in tags
-            ]
+            tag_conditions = [FieldCondition(key="tags", match=MatchValue(value=tag)) for tag in tags]
 
             all_tags_filter = Filter(must=tag_conditions)
 
@@ -1157,11 +1113,7 @@ class QdrantStorage(MemoryStorage):
             loop = asyncio.get_event_loop()
             scroll_result = await loop.run_in_executor(
                 None,
-                lambda: self.client.scroll(
-                    collection_name=self.collection_name,
-                    scroll_filter=all_tags_filter,
-                    limit=10000
-                )
+                lambda: self.client.scroll(collection_name=self.collection_name, scroll_filter=all_tags_filter, limit=10000),
             )
 
             points, _ = scroll_result
@@ -1173,11 +1125,7 @@ class QdrantStorage(MemoryStorage):
 
             # Delete all points matching ALL tags
             await loop.run_in_executor(
-                None,
-                lambda: self.client.delete(
-                    collection_name=self.collection_name,
-                    points_selector=all_tags_filter
-                )
+                None, lambda: self.client.delete(collection_name=self.collection_name, points_selector=all_tags_filter)
             )
 
             self._record_success()
@@ -1190,7 +1138,7 @@ class QdrantStorage(MemoryStorage):
             logger.error(error_msg)
             return 0, error_msg
 
-    async def cleanup_duplicates(self) -> Tuple[int, str]:
+    async def cleanup_duplicates(self) -> tuple[int, str]:
         """
         Remove duplicate memories.
 
@@ -1211,11 +1159,8 @@ class QdrantStorage(MemoryStorage):
             return 0, error_msg
 
     async def update_memory_metadata(
-        self,
-        content_hash: str,
-        updates: Dict[str, Any],
-        preserve_timestamps: bool = True
-    ) -> Tuple[bool, str]:
+        self, content_hash: str, updates: dict[str, Any], preserve_timestamps: bool = True
+    ) -> tuple[bool, str]:
         """
         Update memory metadata without recreating the entire memory entry.
 
@@ -1249,18 +1194,18 @@ class QdrantStorage(MemoryStorage):
                 "memory_type": updates.get("memory_type", memory.memory_type),
                 "metadata": updates.get("metadata", memory.metadata),
                 "created_at": memory.created_at if preserve_timestamps else datetime.now().timestamp(),
-                "updated_at": datetime.now().timestamp()
+                "updated_at": datetime.now().timestamp(),
             }
 
             # Update the point payload in Qdrant
+            # Convert hash to UUID format (must match how points are stored)
+            point_id = self._hash_to_uuid(content_hash)
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 None,
                 lambda: self.client.set_payload(
-                    collection_name=self.collection_name,
-                    payload=updated_payload,
-                    points=[content_hash]
-                )
+                    collection_name=self.collection_name, payload=updated_payload, points=[point_id]
+                ),
             )
 
             self._record_success()
@@ -1273,7 +1218,7 @@ class QdrantStorage(MemoryStorage):
             logger.error(error_msg)
             return False, error_msg
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         """
         Get storage statistics.
 
@@ -1284,10 +1229,7 @@ class QdrantStorage(MemoryStorage):
 
         try:
             loop = asyncio.get_event_loop()
-            collection_info = await loop.run_in_executor(
-                None,
-                lambda: self.client.get_collection(self.collection_name)
-            )
+            collection_info = await loop.run_in_executor(None, lambda: self.client.get_collection(self.collection_name))
 
             # Exclude __metadata__ point from count
             total_count = collection_info.points_count
@@ -1305,21 +1247,16 @@ class QdrantStorage(MemoryStorage):
                 "quantization_enabled": self.quantization_enabled,
                 "circuit_breaker": {
                     "status": "open" if self._circuit_open_until else "closed",
-                    "failure_count": self._failure_count
-                }
+                    "failure_count": self._failure_count,
+                },
             }
 
         except Exception as e:
             self._record_failure()
             logger.error(f"Failed to get stats: {e}")
-            return {
-                "total_memories": 0,
-                "storage_backend": "qdrant",
-                "status": "error",
-                "error": str(e)
-            }
+            return {"total_memories": 0, "storage_backend": "qdrant", "status": "error", "error": str(e)}
 
-    async def get_all_tags(self) -> List[str]:
+    async def get_all_tags(self) -> list[str]:
         """
         Get all unique tags in the storage.
 
@@ -1338,12 +1275,8 @@ class QdrantStorage(MemoryStorage):
                 scroll_result = await loop.run_in_executor(
                     None,
                     lambda: self.client.scroll(
-                        collection_name=self.collection_name,
-                        limit=100,
-                        offset=offset,
-                        with_payload=True,
-                        with_vectors=False
-                    )
+                        collection_name=self.collection_name, limit=100, offset=offset, with_payload=True, with_vectors=False
+                    ),
                 )
 
                 points, next_offset = scroll_result
@@ -1369,9 +1302,11 @@ class QdrantStorage(MemoryStorage):
             logger.error(f"Failed to get all tags: {e}")
             return []
 
-    async def get_recent_memories(self, n: int = 10) -> List[Memory]:
+    async def get_recent_memories(self, n: int = 10) -> list[Memory]:
         """
         Get n most recent memories.
+
+        Uses server-side sorting via Qdrant's order_by for efficiency.
 
         Args:
             n: Number of recent memories to retrieve
@@ -1382,52 +1317,45 @@ class QdrantStorage(MemoryStorage):
         self._check_circuit_breaker()
 
         try:
-            # Scroll all points and sort by created_at
             loop = asyncio.get_event_loop()
-            all_memories = []
-            offset = None
 
-            while True:
-                scroll_result = await loop.run_in_executor(
-                    None,
-                    lambda: self.client.scroll(
-                        collection_name=self.collection_name,
-                        limit=100,
-                        offset=offset,
-                        with_payload=True,
-                        with_vectors=False
-                    )
+            # Use server-side sorting - requires payload index on created_at
+            # Request n+1 to account for potential metadata point
+            scroll_result = await loop.run_in_executor(
+                None,
+                lambda: self.client.scroll(
+                    collection_name=self.collection_name,
+                    limit=n + 1,
+                    with_payload=True,
+                    with_vectors=False,
+                    order_by=OrderBy(key="created_at", direction="desc"),
+                ),
+            )
+
+            points, _ = scroll_result
+            memories = []
+
+            for point in points:
+                if point.id == self.METADATA_POINT_ID:
+                    continue
+
+                payload = point.payload
+                memory = Memory(
+                    content=payload.get("content", ""),
+                    content_hash=payload.get("content_hash", str(point.id)),
+                    tags=self._normalize_tags(payload.get("tags", [])),
+                    memory_type=payload.get("memory_type"),
+                    metadata=payload.get("metadata", {}),
+                    created_at=payload.get("created_at"),
+                    updated_at=payload.get("updated_at"),
                 )
+                memories.append(memory)
 
-                points, next_offset = scroll_result
-
-                for point in points:
-                    if point.id == self.METADATA_POINT_ID:
-                        continue
-
-                    payload = point.payload
-                    memory = Memory(
-                        content=payload.get("content", ""),
-                        content_hash=payload.get("content_hash", str(point.id)),
-                        tags=self._normalize_tags(payload.get("tags", [])),
-                        memory_type=payload.get("memory_type"),
-                        metadata=payload.get("metadata", {}),
-                        created_at=payload.get("created_at"),
-                        updated_at=payload.get("updated_at")
-                    )
-                    all_memories.append(memory)
-
-                if next_offset is None:
+                if len(memories) >= n:
                     break
 
-                offset = next_offset
-
-            # Sort by created_at descending and take top n
-            all_memories.sort(key=lambda m: m.created_at or 0, reverse=True)
-            recent = all_memories[:n]
-
             self._record_success()
-            return recent
+            return memories
 
         except Exception as e:
             self._record_failure()
@@ -1438,10 +1366,10 @@ class QdrantStorage(MemoryStorage):
         self,
         query: str,
         n_results: int = 5,
-        tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None
-    ) -> List[Memory]:
+        tags: list[str] | None = None,
+        memory_type: str | None = None,
+        min_similarity: float | None = None,
+    ) -> list[Memory]:
         """
         Recall memories based on natural language time expression.
 
@@ -1459,14 +1387,12 @@ class QdrantStorage(MemoryStorage):
         return [r.memory for r in results]
 
     async def get_all_memories(
-        self,
-        limit: int = None,
-        offset: int = 0,
-        memory_type: Optional[str] = None,
-        tags: Optional[List[str]] = None
-    ) -> List[Memory]:
+        self, limit: int = None, offset: int = 0, memory_type: str | None = None, tags: list[str] | None = None
+    ) -> list[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
+
+        Uses server-side sorting via Qdrant's order_by for efficiency.
 
         Args:
             limit: Maximum number of memories to return (None for all)
@@ -1484,40 +1410,47 @@ class QdrantStorage(MemoryStorage):
             conditions = []
             if memory_type:
                 conditions.append(FieldCondition(key="memory_type", match=MatchValue(value=memory_type)))
+            if tags:
+                # Add tag filter with OR logic (match ANY tag)
+                conditions.append(FieldCondition(key="tags", match=MatchAny(any=tags)))
 
             scroll_filter = Filter(must=conditions) if conditions else None
 
-            # Scroll through all matching points
             loop = asyncio.get_event_loop()
-            all_memories = []
-            scroll_offset = None
-            collected = 0
-            target_limit = (limit or 10000) + offset
+            memories = []
+            skipped = 0
+            start_from = None
+            target_count = limit if limit else 10000  # Reasonable upper bound if no limit
 
-            while collected < target_limit:
+            # Server-side sorted scroll with pagination via start_from
+            while len(memories) < target_count:
+                batch_size = min(100, target_count - len(memories) + (offset - skipped if skipped < offset else 0) + 1)
+
                 scroll_result = await loop.run_in_executor(
                     None,
-                    lambda: self.client.scroll(
+                    lambda sf=start_from, bs=batch_size: self.client.scroll(
                         collection_name=self.collection_name,
                         scroll_filter=scroll_filter,
-                        limit=min(100, target_limit - collected),
-                        offset=scroll_offset,
+                        limit=bs,
                         with_payload=True,
-                        with_vectors=False
-                    )
+                        with_vectors=False,
+                        order_by=OrderBy(key="created_at", direction="desc", start_from=sf),
+                    ),
                 )
 
-                points, next_offset = scroll_result
+                points, _ = scroll_result
+
+                if not points:
+                    break
 
                 for point in points:
                     if point.id == self.METADATA_POINT_ID:
                         continue
 
-                    # Apply tag filter if specified (OR logic)
-                    if tags:
-                        point_tags = self._normalize_tags(point.payload.get("tags", []))
-                        if not any(tag in point_tags for tag in tags):
-                            continue
+                    # Handle offset by skipping
+                    if skipped < offset:
+                        skipped += 1
+                        continue
 
                     payload = point.payload
                     memory = Memory(
@@ -1527,58 +1460,55 @@ class QdrantStorage(MemoryStorage):
                         memory_type=payload.get("memory_type"),
                         metadata=payload.get("metadata", {}),
                         created_at=payload.get("created_at"),
-                        updated_at=payload.get("updated_at")
+                        updated_at=payload.get("updated_at"),
                     )
-                    all_memories.append(memory)
-                    collected += 1
+                    memories.append(memory)
 
-                if next_offset is None or collected >= target_limit:
+                    if limit and len(memories) >= limit:
+                        break
+
+                # Get the last created_at for start_from pagination
+                if points:
+                    last_created_at = points[-1].payload.get("created_at")
+                    if last_created_at is not None:
+                        start_from = last_created_at
+                    else:
+                        break  # Can't paginate without timestamps
+
+                if limit and len(memories) >= limit:
                     break
 
-                scroll_offset = next_offset
-
-            # Sort by created_at descending
-            all_memories.sort(key=lambda m: m.created_at or 0, reverse=True)
-
-            # Apply offset and limit
-            result = all_memories[offset:]
-            if limit is not None:
-                result = result[:limit]
-
             self._record_success()
-            return result
+            return memories
 
         except Exception as e:
             self._record_failure()
             logger.error(f"Failed to get all memories: {e}")
             return []
 
-    async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
+    async def get_by_hash(self, content_hash: str) -> Memory | None:
         """Get a memory by its content hash."""
         self._check_circuit_breaker()
-        
+
         try:
             # Convert hash to UUID
             point_id = self._hash_to_uuid(content_hash)
-            
+
             # Retrieve point by ID
             loop = asyncio.get_event_loop()
             points = await loop.run_in_executor(
                 None,
                 lambda: self.client.retrieve(
-                    collection_name=self.collection_name,
-                    ids=[point_id],
-                    with_payload=True,
-                    with_vectors=False
-                )
+                    collection_name=self.collection_name, ids=[point_id], with_payload=True, with_vectors=False
+                ),
             )
-            
+
             if not points:
                 return None
-            
+
             point = points[0]
             payload = point.payload
-            
+
             memory = Memory(
                 content=payload.get("content", ""),
                 content_hash=payload.get("content_hash", content_hash),
@@ -1586,22 +1516,18 @@ class QdrantStorage(MemoryStorage):
                 memory_type=payload.get("memory_type"),
                 metadata=payload.get("metadata", {}),
                 created_at=payload.get("created_at"),
-                updated_at=payload.get("updated_at")
+                updated_at=payload.get("updated_at"),
             )
-            
+
             self._record_success()
             return memory
-            
+
         except Exception as e:
             self._record_failure()
             logger.error(f"Failed to get memory by hash {content_hash}: {e}")
             return None
 
-    async def count_all_memories(
-        self,
-        memory_type: Optional[str] = None,
-        tags: Optional[List[str]] = None
-    ) -> int:
+    async def count_all_memories(self, memory_type: str | None = None, tags: list[str] | None = None) -> int:
         """
         Get total count of memories in storage.
 
@@ -1618,10 +1544,7 @@ class QdrantStorage(MemoryStorage):
             if not memory_type and not tags:
                 # Fast path: just get collection count
                 loop = asyncio.get_event_loop()
-                collection_info = await loop.run_in_executor(
-                    None,
-                    lambda: self.client.get_collection(self.collection_name)
-                )
+                collection_info = await loop.run_in_executor(None, lambda: self.client.get_collection(self.collection_name))
                 # Exclude __metadata__ point
                 count = max(0, collection_info.points_count - 1)
                 self._record_success()
@@ -1637,11 +1560,7 @@ class QdrantStorage(MemoryStorage):
             logger.error(f"Failed to count memories: {e}")
             return 0
 
-    async def get_memories_by_time_range(
-        self,
-        start_time: float,
-        end_time: float
-    ) -> List[Memory]:
+    async def get_memories_by_time_range(self, start_time: float, end_time: float) -> list[Memory]:
         """
         Get memories within a time range.
 
@@ -1656,17 +1575,7 @@ class QdrantStorage(MemoryStorage):
 
         try:
             # Build timestamp range filter
-            time_filter = Filter(
-                must=[
-                    FieldCondition(
-                        key="created_at",
-                        range=Range(
-                            gte=start_time,
-                            lte=end_time
-                        )
-                    )
-                ]
-            )
+            time_filter = Filter(must=[FieldCondition(key="created_at", range=Range(gte=start_time, lte=end_time))])
 
             # Scroll through matching points
             loop = asyncio.get_event_loop()
@@ -1682,8 +1591,8 @@ class QdrantStorage(MemoryStorage):
                         limit=100,
                         offset=offset,
                         with_payload=True,
-                        with_vectors=False
-                    )
+                        with_vectors=False,
+                    ),
                 )
 
                 points, next_offset = scroll_result
@@ -1700,7 +1609,7 @@ class QdrantStorage(MemoryStorage):
                         memory_type=payload.get("memory_type"),
                         metadata=payload.get("metadata", {}),
                         created_at=payload.get("created_at"),
-                        updated_at=payload.get("updated_at")
+                        updated_at=payload.get("updated_at"),
                     )
                     memories.append(memory)
 
@@ -1710,7 +1619,7 @@ class QdrantStorage(MemoryStorage):
                 offset = next_offset
 
             # Sort by created_at
-            memories.sort(key=lambda m: m.created_at or 0)
+            memories.sort(key=lambda m: self._normalize_timestamp(m.created_at))
 
             self._record_success()
             return memories
@@ -1720,7 +1629,7 @@ class QdrantStorage(MemoryStorage):
             logger.error(f"Failed to get memories by time range: {e}")
             return []
 
-    async def get_memory_connections(self) -> Dict[str, int]:
+    async def get_memory_connections(self) -> dict[str, int]:
         """
         Get memory connection statistics.
 
@@ -1730,7 +1639,7 @@ class QdrantStorage(MemoryStorage):
         # Not implemented for Qdrant
         return {}
 
-    async def get_access_patterns(self) -> Dict[str, datetime]:
+    async def get_access_patterns(self) -> dict[str, datetime]:
         """
         Get memory access pattern statistics.
 
@@ -1743,9 +1652,9 @@ class QdrantStorage(MemoryStorage):
     async def count_semantic_search(
         self,
         query: str,
-        tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None
+        tags: list[str] | None = None,
+        memory_type: str | None = None,
+        min_similarity: float | None = None,
     ) -> int:
         """
         Count memories matching semantic search criteria.
@@ -1770,7 +1679,7 @@ class QdrantStorage(MemoryStorage):
                 tags=tags,
                 memory_type=memory_type,
                 min_similarity=min_similarity,
-                offset=0
+                offset=0,
             )
             return len(results)
         except Exception as e:
@@ -1779,10 +1688,10 @@ class QdrantStorage(MemoryStorage):
 
     async def count_tag_search(
         self,
-        tags: List[str],
+        tags: list[str],
         match_all: bool = False,
-        start_timestamp: Optional[float] = None,
-        end_timestamp: Optional[float] = None
+        start_timestamp: float | None = None,
+        end_timestamp: float | None = None,
     ) -> int:
         """
         Count memories matching tag search with optional date filtering.
@@ -1809,20 +1718,10 @@ class QdrantStorage(MemoryStorage):
             # Tag filter (OR logic for ANY, AND logic for ALL)
             if match_all:
                 # AND logic - memory must have ALL tags
-                tag_filter = Filter(
-                    must=[
-                        FieldCondition(key="tags", match=MatchValue(value=tag))
-                        for tag in tags
-                    ]
-                )
+                tag_filter = Filter(must=[FieldCondition(key="tags", match=MatchValue(value=tag)) for tag in tags])
             else:
                 # OR logic - memory must have ANY tag
-                tag_filter = Filter(
-                    should=[
-                        FieldCondition(key="tags", match=MatchValue(value=tag))
-                        for tag in tags
-                    ]
-                )
+                tag_filter = Filter(should=[FieldCondition(key="tags", match=MatchValue(value=tag)) for tag in tags])
             filter_conditions.append(tag_filter)
 
             # Timestamp range filter
@@ -1830,20 +1729,10 @@ class QdrantStorage(MemoryStorage):
                 timestamp_conditions = []
 
                 if start_timestamp is not None:
-                    timestamp_conditions.append(
-                        FieldCondition(
-                            key="created_at",
-                            range=Range(gte=start_timestamp)
-                        )
-                    )
+                    timestamp_conditions.append(FieldCondition(key="created_at", range=Range(gte=start_timestamp)))
 
                 if end_timestamp is not None:
-                    timestamp_conditions.append(
-                        FieldCondition(
-                            key="created_at",
-                            range=Range(lte=end_timestamp)
-                        )
-                    )
+                    timestamp_conditions.append(FieldCondition(key="created_at", range=Range(lte=end_timestamp)))
 
                 if timestamp_conditions:
                     timestamp_filter = Filter(must=timestamp_conditions)
@@ -1863,13 +1752,14 @@ class QdrantStorage(MemoryStorage):
                 lambda: self.client.count(
                     collection_name=self.collection_name,
                     count_filter=combined_filter,
-                    exact=True  # Get exact count
-                )
+                    exact=True,  # Get exact count
+                ),
             )
 
-            # Subtract 1 for metadata point if present
+            # Only subtract 1 for metadata point if no filter applied
+            # (metadata point won't match tag/time filters anyway)
             count = count_result.count
-            if count > 0:
+            if count > 0 and not combined_filter:
                 count = max(0, count - 1)
 
             self._record_success()
@@ -1882,10 +1772,10 @@ class QdrantStorage(MemoryStorage):
 
     async def count_time_range(
         self,
-        start_timestamp: Optional[float] = None,
-        end_timestamp: Optional[float] = None,
-        tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None
+        start_timestamp: float | None = None,
+        end_timestamp: float | None = None,
+        tags: list[str] | None = None,
+        memory_type: str | None = None,
     ) -> int:
         """
         Count memories within time range with optional filters.
@@ -1908,36 +1798,18 @@ class QdrantStorage(MemoryStorage):
 
             # Time range filters
             if start_timestamp is not None:
-                conditions.append(
-                    FieldCondition(
-                        key="created_at",
-                        range=Range(gte=start_timestamp)
-                    )
-                )
+                conditions.append(FieldCondition(key="created_at", range=Range(gte=start_timestamp)))
 
             if end_timestamp is not None:
-                conditions.append(
-                    FieldCondition(
-                        key="created_at",
-                        range=Range(lte=end_timestamp)
-                    )
-                )
+                conditions.append(FieldCondition(key="created_at", range=Range(lte=end_timestamp)))
 
             # Memory type filter
             if memory_type is not None:
-                conditions.append(
-                    FieldCondition(
-                        key="memory_type",
-                        match=MatchValue(value=memory_type)
-                    )
-                )
+                conditions.append(FieldCondition(key="memory_type", match=MatchValue(value=memory_type)))
 
             # Tags filter (OR logic - match ANY tag)
             if tags:
-                tag_conditions = [
-                    FieldCondition(key="tags", match=MatchValue(value=tag))
-                    for tag in tags
-                ]
+                tag_conditions = [FieldCondition(key="tags", match=MatchValue(value=tag)) for tag in tags]
                 # Use should for OR logic
                 conditions.append(Filter(should=tag_conditions))
 
@@ -1947,17 +1819,13 @@ class QdrantStorage(MemoryStorage):
             # Use Qdrant's count API
             loop = asyncio.get_event_loop()
             count_result = await loop.run_in_executor(
-                None,
-                lambda: self.client.count(
-                    collection_name=self.collection_name,
-                    count_filter=combined_filter,
-                    exact=True
-                )
+                None, lambda: self.client.count(collection_name=self.collection_name, count_filter=combined_filter, exact=True)
             )
 
-            # Subtract 1 for metadata point if present
+            # Only subtract 1 for metadata point if no filter applied
+            # (metadata point won't match tag/time filters anyway)
             count = count_result.count
-            if count > 0:
+            if count > 0 and not combined_filter:
                 count = max(0, count - 1)
 
             self._record_success()

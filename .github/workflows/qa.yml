@@ -68,9 +68,22 @@ jobs:
       - name: Test container starts
         run: |
           docker run --rm -d --name test-container \
+            -p 8000:8000 \
+            -e MCP_HTTP_ENABLED=true \
             -e MCP_OAUTH_ENABLED=false \
             -e MCP_MEMORY_STORAGE_BACKEND=sqlite_vec \
             mcp-memory:test
-          sleep 10
-          docker logs test-container
+
+          # Wait for startup (model loading takes time)
+          echo "Waiting for container startup..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:8000/api/health > /dev/null 2>&1; then
+              echo "✓ Health check passed"
+              break
+            fi
+            sleep 2
+          done
+
+          # Validate health endpoint
+          curl -f http://localhost:8000/api/health || (docker logs test-container && exit 1)
           docker stop test-container

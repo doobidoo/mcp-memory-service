@@ -1,5 +1,5 @@
 # MCP Memory Service - CPU-optimized container
-# Supports: linux/amd64, linux/arm64
+# Supports: linux/amd64
 
 FROM python:3.12-slim AS builder
 
@@ -17,16 +17,27 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Dependencies first (cache layer)
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project
+
+# Install CPU-only PyTorch first, then rest of deps
+RUN uv venv && \
+    uv pip install --no-cache-dir \
+    torch --index-url https://download.pytorch.org/whl/cpu && \
+    uv sync --frozen --no-dev --no-install-project
 
 # Source code
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 RUN uv sync --frozen --no-dev
 
-# Pre-download embedding model (cached in HuggingFace cache)
+# Pre-download embedding model
 RUN echo "Downloading ${EMBEDDING_MODEL}..." && \
     .venv/bin/python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('${EMBEDDING_MODEL}'); print('Done')"
+
+# Aggressive cleanup - remove NVIDIA libs if any, caches, bytecode
+RUN rm -rf /root/.cache/pip /root/.cache/uv && \
+    find .venv -type d -name "nvidia" -exec rm -rf {} + 2>/dev/null || true && \
+    find .venv -name "*.pyc" -delete && \
+    find .venv -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
 # Runtime stage
 FROM python:3.12-slim
