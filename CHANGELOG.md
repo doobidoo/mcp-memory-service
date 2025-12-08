@@ -10,6 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [8.48.4] - 2025-12-08
+
+### Fixed
+- **Cloudflare D1 Drift Detection Performance** - Fixed slow/failing queries in hybrid backend drift detection (issue #264)
+  - **Root Cause**: `get_memories_updated_since()` used slow ISO string comparison (`updated_at_iso > ?`) instead of fast numeric comparison
+  - **Fix**: Changed WHERE clause to use indexed `updated_at` column with numeric comparison (`updated_at > ?`)
+  - **Performance Impact**: 10-100x faster queries, eliminates D1 timeout/400 Bad Request errors on large datasets
+  - **Affected Function**: `CloudflareStorage.get_memories_updated_since()` (lines 1638-1667)
+  - **Location**: `src/mcp_memory_service/storage/cloudflare.py`
+  - **Credit**: Root cause analysis by Claude Code workflow (GitHub Actions)
+
 ## [8.48.3] - 2025-12-08
 
 ### Fixed

@@ -23,17 +23,18 @@
 
 ## 🚀 Quick Start (2 minutes)
 
-### 🆕 Latest Release: **v8.48.3** (Dec 08, 2025)
+### 🆕 Latest Release: **v8.48.4** (Dec 08, 2025)
 
-**Code Execution Hook Fix - 75% Token Reduction Now Working**
+**Cloudflare D1 Drift Detection Performance Fix**
 
-- 🐛 **Code Execution Fixed** - Session-start hook now successfully uses Code Execution API (75% token reduction per session)
-- 🔧 **Root Causes Resolved** - Fixed invalid time_filter parameter, Python warnings to stderr, and system Python path issues
-- 🎯 **Performance Impact** - Reduced session-start tokens from 1200-2400 → 300-600 (75% reduction)
-- 🔍 **Installer Enhanced** - Auto-detects venv Python path using sys.executable for seamless Code Execution
-- ⏱️ **Connection Timeout** - Increased from 2s to 5s to prevent premature failures during initialization
+- 🚀 **10-100x Faster Queries** - Fixed slow ISO string comparison in `get_memories_updated_since()` (issue #264)
+- 🔧 **Indexed Column Usage** - Changed to numeric `updated_at` comparison from slow `updated_at_iso` string comparison
+- 🎯 **Eliminates D1 Errors** - Fixes timeout/400 Bad Request errors on large datasets in hybrid backend
+- 📊 **Performance Impact** - Drift detection queries now use indexed column for optimal Cloudflare D1 performance
+- 🙏 **Credit** - Root cause analysis by Claude Code workflow (GitHub Actions)
 
 **Previous Releases**:
+- **v8.48.3** - Code Execution Hook Fix - 75% token reduction now working (fixed time_filter parameter, Python warnings, venv detection)
 - **v8.48.2** - HTTP Server Auto-Start & Time Parser Improvements (smart service management, "last N periods" support)
 - **v8.48.1** - Critical Hotfix - Startup Failure Fix (redundant calendar import removed, immediate upgrade required)
 - **v8.48.0** - CSV-Based Metadata Compression (78% size reduction, 100% sync success, metadata validation)
