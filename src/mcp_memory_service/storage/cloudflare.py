@@ -1640,8 +1640,7 @@ class CloudflareStorage(MemoryStorage):
             # Numeric comparison is 10-100x faster than ISO string comparison
             # and leverages the indexed updated_at column
             query = """
-            SELECT content, content_hash, tags, memory_type, metadata,
-                   created_at, created_at_iso, updated_at, updated_at_iso
+            SELECT *
             FROM memories
             WHERE updated_at > ?
             ORDER BY updated_at DESC
