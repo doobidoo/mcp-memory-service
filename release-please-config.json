@@ -1,0 +1,21 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "python",
+      "package-name": "mcp-memory-service",
+      "include-component-in-tag": false,
+      "extra-files": [
+        "src/mcp_memory_service/__init__.py"
+      ],
+      "changelog-sections": [
+        {"type": "feat", "section": "Features"},
+        {"type": "fix", "section": "Bug Fixes"},
+        {"type": "perf", "section": "Performance"},
+        {"type": "docs", "section": "Documentation", "hidden": true},
+        {"type": "chore", "section": "Maintenance", "hidden": true},
+        {"type": "refactor", "section": "Refactoring", "hidden": true},
+        {"type": "test", "section": "Tests", "hidden": true}
+      ]
+    }
+  }
+}
