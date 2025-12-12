@@ -3784,7 +3784,6 @@ Memories Archived: {report.memories_archived}"""
             result["storage_cache"]["keys"] = list(_STORAGE_CACHE.keys())
             result["backend_info"] = {
                 "storage_backend": STORAGE_BACKEND,
-    EMBEDDING_MODEL_NAME,
                 "sqlite_path": SQLITE_VEC_PATH
             }
 
