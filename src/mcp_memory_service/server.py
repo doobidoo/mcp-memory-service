@@ -182,6 +182,7 @@ from .config import (
     SERVER_NAME,
     SERVER_VERSION,
     STORAGE_BACKEND,
+    EMBEDDING_MODEL_NAME,
     SQLITE_VEC_PATH,
     CONSOLIDATION_ENABLED,
     CONSOLIDATION_CONFIG,
@@ -628,7 +629,7 @@ class MemoryServer:
                         import importlib
                         storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
                         SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
-                        self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH)
+                        self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
                         logger.info(f"✅ EAGER INIT: HTTP server auto-start failed, using direct SQLite-vec storage")
                 else:
                     # Import sqlite-vec storage module (supports dynamic class replacement)
@@ -636,7 +637,7 @@ class MemoryServer:
                     import importlib
                     storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
                     SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
-                    self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH)
+                    self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
                     logger.info(f"✅ EAGER INIT: Using direct SQLite-vec storage at {SQLITE_VEC_PATH}")
             elif STORAGE_BACKEND == 'cloudflare':
                 # Initialize Cloudflare storage
@@ -680,7 +681,7 @@ class MemoryServer:
 
                 self.storage = HybridMemoryStorage(
                     sqlite_db_path=SQLITE_VEC_PATH,
-                    embedding_model="all-MiniLM-L6-v2",
+                    embedding_model=EMBEDDING_MODEL_NAME,
                     cloudflare_config=cloudflare_config,
                     sync_interval=HYBRID_SYNC_INTERVAL or 300,
                     batch_size=HYBRID_BATCH_SIZE or 50
@@ -804,14 +805,14 @@ class MemoryServer:
                             import importlib
                             storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
                             SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
-                            self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH)
+                            self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
                             logger.info(f"✅ LAZY INIT: HTTP server auto-start failed, using direct SQLite-vec storage at: {SQLITE_VEC_PATH}")
                     else:
                         # Use direct SQLite-vec storage (with WAL mode for concurrent access)
                         import importlib
                         storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
                         SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
-                        self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH)
+                        self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
                         logger.info(f"✅ LAZY INIT: Created SQLite-vec storage at: {SQLITE_VEC_PATH}")
                 elif STORAGE_BACKEND == 'cloudflare':
                     # Cloudflare backend using Vectorize, D1, and R2
@@ -856,7 +857,7 @@ class MemoryServer:
                     logger.info(f"🔄 LAZY INIT: Creating HybridMemoryStorage instance...")
                     self.storage = HybridMemoryStorage(
                         sqlite_db_path=SQLITE_VEC_PATH,
-                        embedding_model="all-MiniLM-L6-v2",
+                        embedding_model=EMBEDDING_MODEL_NAME,
                         cloudflare_config=cloudflare_config,
                         sync_interval=HYBRID_SYNC_INTERVAL or 300,
                         batch_size=HYBRID_BATCH_SIZE or 50
