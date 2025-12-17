@@ -143,7 +143,7 @@ class SystemInfo:
             else:
                 logger.warning("PyTorch installed but appears broken (no cuda attribute)")
                 return False
-        except (ImportError, AttributeError) as e:
+        except (ImportError, AttributeError, OSError) as e:
             logger.debug(f"CUDA check failed: {e}")
             # If torch is not installed or broken, try to check for CUDA using environment
             return 'CUDA_HOME' in os.environ or 'CUDA_PATH' in os.environ
@@ -157,7 +157,7 @@ class SystemInfo:
             else:
                 logger.warning("PyTorch installed but appears broken (no backends attribute)")
                 return False
-        except (ImportError, AttributeError) as e:
+        except (ImportError, AttributeError, OSError) as e:
             logger.debug(f"MPS check failed: {e}")
             # Check for Metal support using system profiler
             try:
@@ -308,7 +308,7 @@ def get_torch_device() -> str:
             return "mps"
         else:
             return "cpu"
-    except ImportError:
+    except (ImportError, OSError):
         return "cpu"
 
 
@@ -364,7 +364,7 @@ def print_system_diagnostics(client_type: str = 'lm_studio'):
         if hasattr(torch.backends, 'mps'):
             print(f"MPS Available: {torch.backends.mps.is_available()}")
             
-    except ImportError:
+    except (ImportError, OSError):
         print("\nPyTorch not installed, skipping PyTorch diagnostics")
         
     print("\n=== Environment Variables ===")

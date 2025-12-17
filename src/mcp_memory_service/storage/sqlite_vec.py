@@ -25,6 +25,8 @@ import time
 import os
 import sys
 import platform
+import hashlib
+import struct
 from collections import Counter
 from typing import List, Dict, Any, Tuple, Optional, Set, Callable
 from datetime import datetime, timezone, timedelta
@@ -38,7 +40,7 @@ try:
     SQLITE_VEC_AVAILABLE = True
 except ImportError:
     SQLITE_VEC_AVAILABLE = False
-    print("WARNING: sqlite-vec not available. Install with: pip install sqlite-vec")
+    logging.getLogger(__name__).warning("sqlite-vec not available. Install with: pip install sqlite-vec")
 
 # Import sentence transformers with fallback
 try:
@@ -46,7 +48,7 @@ try:
     SENTENCE_TRANSFORMERS_AVAILABLE = True
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
-    print("WARNING: sentence_transformers not available. Install for embedding support.")
+    logging.getLogger(__name__).warning("sentence_transformers not available. Install for embedding support.")
 
 from .base import MemoryStorage
 from ..models.memory import Memory, MemoryQueryResult
@@ -64,6 +66,52 @@ logger = logging.getLogger(__name__)
 # Global model cache for performance optimization
 _MODEL_CACHE = {}
 _EMBEDDING_CACHE = {}
+
+
+class _HashEmbeddingModel:
+    """Deterministic, pure-Python embedding fallback.
+
+    This is a last-resort option intended for environments where native DLL-backed
+    runtimes (onnxruntime/torch) cannot be imported (e.g., WinError 1114).
+    It enables basic vector storage/search with reduced quality.
+    """
+
+    def __init__(self, embedding_dimension: int):
+        self.embedding_dimension = int(embedding_dimension)
+
+    def encode(self, texts: List[str], convert_to_numpy: bool = False):
+        vectors = [self._embed_one(text) for text in texts]
+        if convert_to_numpy:
+            try:
+                import numpy as np
+
+                return np.asarray(vectors, dtype=np.float32)
+            except Exception:
+                return vectors
+        return vectors
+
+    def _embed_one(self, text: str) -> List[float]:
+        if not text:
+            return [0.0] * self.embedding_dimension
+
+        # Expand SHA-256 stream deterministically until we have enough bytes
+        # for `embedding_dimension` float values.
+        floats: List[float] = []
+        counter = 0
+        needed = self.embedding_dimension
+        text_bytes = text.encode("utf-8", errors="ignore")
+
+        while len(floats) < needed:
+            digest = hashlib.sha256(text_bytes + b"\x1f" + struct.pack("<I", counter)).digest()
+            counter += 1
+            # Use 4 bytes -> signed int32 -> map to [-1, 1]
+            for i in range(0, len(digest) - 3, 4):
+                (val,) = struct.unpack("<i", digest[i : i + 4])
+                floats.append(val / 2147483648.0)
+                if len(floats) >= needed:
+                    break
+
+        return floats
 
 
 def deserialize_embedding(blob: bytes) -> Optional[List[float]]:
@@ -240,17 +288,10 @@ class SqliteVecMemoryStorage(MemoryStorage):
         """Check and validate all required dependencies for initialization."""
         if not SQLITE_VEC_AVAILABLE:
             raise ImportError("sqlite-vec is not available. Install with: pip install sqlite-vec")
-        
-        # Check if ONNX embeddings are enabled (preferred for Docker)
-        from ..config import USE_ONNX
-        if USE_ONNX:
-            logger.info("ONNX embeddings enabled - skipping sentence-transformers installation")
-            return
-                
-        # Check sentence-transformers availability (only if ONNX disabled)
-        global SENTENCE_TRANSFORMERS_AVAILABLE
-        if not SENTENCE_TRANSFORMERS_AVAILABLE:
-            raise ImportError("sentence-transformers is not available. Install with: pip install sentence-transformers torch")
+
+        # Embeddings backend is selected/initialized later.
+        # On some Windows setups, importing onnxruntime/torch can fail with DLL init errors
+        # (e.g. WinError 1114). We support a pure-Python fallback to keep the service usable.
 
     def _handle_extension_loading_failure(self):
         """Provide detailed error guidance when extension loading is not supported."""
@@ -609,7 +650,11 @@ SOLUTIONS:
 
             # Fall back to SentenceTransformer
             if not SENTENCE_TRANSFORMERS_AVAILABLE:
-                raise RuntimeError("Neither ONNX nor sentence-transformers available. Install one: pip install onnxruntime tokenizers OR pip install sentence-transformers torch")
+                logger.warning(
+                    "Neither ONNX nor sentence-transformers available; using pure-Python hash embeddings (quality reduced)."
+                )
+                self.embedding_model = _HashEmbeddingModel(self.embedding_dimension)
+                return
 
             # Check cache first
             cache_key = self.embedding_model_name
@@ -715,8 +760,10 @@ SOLUTIONS:
         except Exception as e:
             logger.error(f"Failed to initialize embedding model: {str(e)}")
             logger.error(traceback.format_exc())
-            # Continue without embeddings - some operations may still work
-            logger.warning("⚠️ Continuing without embedding support - search functionality will be limited")
+            logger.warning(
+                "Falling back to pure-Python hash embeddings due to embedding init failure (quality reduced)."
+            )
+            self.embedding_model = _HashEmbeddingModel(self.embedding_dimension)
 
     def _get_docker_network_help(self) -> str:
         """Get Docker-specific network troubleshooting help."""
@@ -752,7 +799,10 @@ SOLUTIONS:
             
             # Generate embedding
             embedding = self.embedding_model.encode([text], convert_to_numpy=True)[0]
-            embedding_list = embedding.tolist()
+            if hasattr(embedding, "tolist"):
+                embedding_list = embedding.tolist()
+            else:
+                embedding_list = list(embedding)
             
             # Validate embedding
             if not embedding_list:
