@@ -13,6 +13,7 @@ import shutil
 from pathlib import Path
 from typing import Tuple, Dict, Any, Optional
 import re
+import importlib.util
 
 def is_python_version_at_least(major, minor):
     """Check if current Python version is at least the specified version.
@@ -192,7 +193,15 @@ def install_package_safe(package, success_msg=None, error_msg=None, fallback_in_
     Returns:
         bool: True if installation succeeded OR if fallback was applied (see warning messages)
     """
-    cmd = [sys.executable, '-m', 'pip', 'install', package]
+    pip_module_available = importlib.util.find_spec("pip") is not None
+    uv_path = shutil.which("uv")
+    if pip_module_available:
+        cmd = [sys.executable, '-m', 'pip', 'install', package]
+    elif uv_path:
+        # uv environments commonly omit pip; use uv to install into the current interpreter
+        cmd = [uv_path, 'pip', 'install', '--python', sys.executable, package]
+    else:
+        cmd = [sys.executable, '-m', 'pip', 'install', package]
     default_success = success_msg or f"{package} installed successfully"
     default_error = error_msg or f"Failed to install {package}"
 
@@ -348,7 +357,7 @@ def check_dependencies():
             if in_venv:
                 print_warning("pip could not be detected, but you're in a virtual environment. "
                             "If you're using uv or another alternative package manager, this is normal. "
-                            "Continuing installation...")
+                            "Continuing installation (will use uv where needed)...")
                 pip_installed = True  # Proceed anyway
             else:
                 print_error("pip is not installed. Please install pip first.")
@@ -1090,7 +1099,10 @@ def _setup_storage_and_gpu_environment(args, system_info, gpu_info, env):
             
             # First try to install without ML dependencies
             try:
-                cmd = installer_cmd + ['install', '--no-deps'] + install_mode + ['.']
+                cmd = installer_cmd + ['install']
+                if len(installer_cmd) >= 2 and Path(installer_cmd[0]).stem == "uv" and installer_cmd[1] == "pip":
+                    cmd += ['--python', sys.executable]
+                cmd += ['--no-deps'] + install_mode + ['.']
                 success, _ = run_command_safe(
                     cmd,
                     success_msg="Package installed with --no-deps successfully",
@@ -1114,7 +1126,14 @@ def _setup_storage_and_gpu_environment(args, system_info, gpu_info, env):
                     dependencies.append("chromadb==0.5.23")
                 
                 # Install dependencies
-                cmd = [sys.executable, '-m', 'pip', 'install'] + dependencies
+                pip_module_available = importlib.util.find_spec("pip") is not None
+                uv_path = shutil.which("uv")
+                if pip_module_available:
+                    cmd = [sys.executable, '-m', 'pip', 'install'] + dependencies
+                elif uv_path:
+                    cmd = [uv_path, 'pip', 'install', '--python', sys.executable] + dependencies
+                else:
+                    cmd = [sys.executable, '-m', 'pip', 'install'] + dependencies
                 success, _ = run_command_safe(
                     cmd,
                     success_msg="Core dependencies installed successfully",
@@ -1167,7 +1186,10 @@ def _setup_storage_and_gpu_environment(args, system_info, gpu_info, env):
             print_info("Installing lightweight version (no ML dependencies by default)")
             print_info("For full functionality, use --with-ml flag or install with: pip install mcp-memory-service[ml]")
 
-        cmd = installer_cmd + ['install'] + install_mode + install_target
+        cmd = installer_cmd + ['install']
+        if len(installer_cmd) >= 2 and Path(installer_cmd[0]).stem == "uv" and installer_cmd[1] == "pip":
+            cmd += ['--python', sys.executable]
+        cmd += install_mode + install_target
         success, _ = run_command_safe(
             cmd,
             success_msg="MCP Memory Service installed successfully",

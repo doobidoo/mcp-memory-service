@@ -9,6 +9,8 @@ For older releases, see [CHANGELOG-HISTORIC.md](./CHANGELOG-HISTORIC.md).
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- Installer now supports `uv` virtual environments that don’t include `pip` by falling back to `uv pip` (targeting the active interpreter).
 
 ## [8.54.0] - 2025-12-23
 
@@ -2024,4 +2026,3 @@ The fallback implementation remains available for experimentation, but MS-MARCO'
 - `670fb74` - Phase 1: Automated detection (check_dev_setup.py, pre-commit hook, CLAUDE.md)
 - `9537259` - Phase 2: Runtime warnings (server.py) + developer documentation
 - `a17bcc7` - Phase 3: Interactive onboarding (install.py) + CI/CD validation
-

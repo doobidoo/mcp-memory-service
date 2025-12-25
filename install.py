@@ -187,6 +187,57 @@ except ImportError:
 # Global variable to store the uv executable path
 UV_EXECUTABLE_PATH = None
 
+def _pip_available() -> bool:
+    """Return True if `python -m pip` is available in the current environment."""
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except (subprocess.SubprocessError, OSError):
+        return False
+
+def _uv_executable() -> str | None:
+    """Return uv executable path if available (prefer detected path)."""
+    return UV_EXECUTABLE_PATH or shutil.which("uv")
+
+def _install_python_packages(
+    packages: list[str],
+    *,
+    extra_args: list[str] | None = None,
+    silent: bool = False,
+    env: dict[str, str] | None = None,
+) -> None:
+    """Install packages using pip if present, otherwise fall back to `uv pip`.
+
+    Raises:
+        subprocess.SubprocessError: If the installation command fails
+        OSError: If the installation command cannot be executed
+        RuntimeError: If neither pip nor uv are available
+    """
+    if _pip_available():
+        cmd: list[str] = [sys.executable, "-m", "pip", "install"]
+    else:
+        uv_path = _uv_executable()
+        if not uv_path:
+            raise RuntimeError("Neither pip nor uv could be found. Cannot install packages.")
+        cmd = [uv_path, "pip", "install", "--python", sys.executable]
+
+    if extra_args:
+        cmd.extend(extra_args)
+    cmd.extend(packages)
+
+    kwargs: dict[str, object] = {}
+    if env is not None:
+        kwargs["env"] = env
+    if silent:
+        kwargs["stdout"] = subprocess.DEVNULL
+        kwargs["stderr"] = subprocess.DEVNULL
+
+    subprocess.check_call(cmd, **kwargs)
+
 def print_header(text):
     """Print a formatted header."""
     print("\n" + "=" * 80)
@@ -446,7 +497,7 @@ def check_dependencies():
             if in_venv:
                 print_warning("pip could not be detected, but you're in a virtual environment. "
                             "If you're using uv or another alternative package manager, this is normal. "
-                            "Continuing installation...")
+                            "Continuing installation (will use uv where needed)...")
                 pip_installed = True  # Proceed anyway
             else:
                 print_error("pip is not installed. Please install pip first.")
@@ -461,14 +512,13 @@ def check_dependencies():
         # If pip is available, use it to install setuptools
         if pip_installed:
             try:
-                subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'setuptools'], 
-                                    stdout=subprocess.DEVNULL)
+                _install_python_packages(["setuptools"], silent=True)
                 print_success("setuptools installed successfully")
-            except subprocess.SubprocessError:
+            except (subprocess.SubprocessError, OSError, RuntimeError):
                 # Check if in virtual environment
                 in_venv = sys.prefix != sys.base_prefix
                 if in_venv:
-                    print_warning("Failed to install setuptools with pip. If you're using an alternative package manager "
+                    print_warning("Failed to install setuptools automatically. If you're using an alternative package manager "
                                 "like uv, please install setuptools manually using that tool (e.g., 'uv pip install setuptools').")
                 else:
                     print_error("Failed to install setuptools. Please install it manually.")
@@ -487,14 +537,13 @@ def check_dependencies():
         # If pip is available, use it to install wheel
         if pip_installed:
             try:
-                subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'wheel'], 
-                                    stdout=subprocess.DEVNULL)
+                _install_python_packages(["wheel"], silent=True)
                 print_success("wheel installed successfully")
-            except subprocess.SubprocessError:
+            except (subprocess.SubprocessError, OSError, RuntimeError):
                 # Check if in virtual environment
                 in_venv = sys.prefix != sys.base_prefix
                 if in_venv:
-                    print_warning("Failed to install wheel with pip. If you're using an alternative package manager "
+                    print_warning("Failed to install wheel automatically. If you're using an alternative package manager "
                                 "like uv, please install wheel manually using that tool (e.g., 'uv pip install wheel').")
                 else:
                     print_error("Failed to install wheel. Please install it manually.")
@@ -973,10 +1022,10 @@ def install_storage_backend(backend, system_info):
         # Standard installation for older Python versions
         try:
             print_info("Installing SQLite-vec...")
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'sqlite-vec'])
+            _install_python_packages(["sqlite-vec"])
             print_success("SQLite-vec installed successfully")
             return True
-        except subprocess.SubprocessError as e:
+        except (subprocess.SubprocessError, OSError, RuntimeError) as e:
             print_error(f"Failed to install SQLite-vec: {e}")
             return False
             
@@ -1078,14 +1127,14 @@ def install_sqlite_vec_python313(system_info):
         # Strategy 1: Try with uv pip
         strategies.append({
             'name': 'uv pip install',
-            'cmd': [uv_path, 'pip', 'install', 'sqlite-vec'],
+            'cmd': [uv_path, 'pip', 'install', '--python', sys.executable, 'sqlite-vec'],
             'description': 'Installing with uv package manager'
         })
         
         # Strategy 2: Try with uv pip and no-binary flag
         strategies.append({
             'name': 'uv pip install (source build)',
-            'cmd': [uv_path, 'pip', 'install', '--no-binary', ':all:', 'sqlite-vec'],
+            'cmd': [uv_path, 'pip', 'install', '--python', sys.executable, '--no-binary', ':all:', 'sqlite-vec'],
             'description': 'Building from source with uv'
         })
     
@@ -1388,7 +1437,10 @@ def _install_with_onnx(installer_cmd, install_mode, chosen_backend, env, using_h
             print_info("Using Python 3.13+ on macOS Intel - using SQLite-vec + ONNX configuration")
         
         # Install without ML dependencies
-        cmd = installer_cmd + ['install', '--no-deps'] + install_mode + ['.']
+        cmd = installer_cmd + ['install']
+        if len(installer_cmd) >= 2 and Path(installer_cmd[0]).stem == "uv" and installer_cmd[1] == "pip":
+            cmd += ['--python', sys.executable]
+        cmd += ['--no-deps'] + install_mode + ['.']
         print_info(f"Running: {' '.join(cmd)}")
         subprocess.check_call(cmd, env=env)
         
@@ -1413,7 +1465,7 @@ def _install_with_onnx(installer_cmd, install_mode, chosen_backend, env, using_h
             dependencies.append("tokenizers==0.20.3")
         
         # Install dependencies
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install'] + dependencies)
+        _install_python_packages(dependencies)
         
         # Configure ONNX runtime
         print_info("Configuring to use ONNX runtime for inference without PyTorch...")
@@ -1436,7 +1488,7 @@ def _install_with_onnx(installer_cmd, install_mode, chosen_backend, env, using_h
             print_info("The service will use ONNX runtime for inference instead")
         
         return True
-    except subprocess.SubprocessError as e:
+    except (subprocess.SubprocessError, OSError, RuntimeError) as e:
         print_error(f"Failed to install with ONNX approach: {e}")
         return False
 
@@ -1453,7 +1505,10 @@ def _install_standard(installer_cmd, install_mode, env):
         bool: True if installation succeeded, False otherwise
     """
     try:
-        cmd = installer_cmd + ['install'] + install_mode + ['.']
+        cmd = installer_cmd + ['install']
+        if len(installer_cmd) >= 2 and Path(installer_cmd[0]).stem == "uv" and installer_cmd[1] == "pip":
+            cmd += ['--python', sys.executable]
+        cmd += install_mode + ['.']
         print_info(f"Running: {' '.join(cmd)}")
         subprocess.check_call(cmd, env=env)
         print_success("MCP Memory Service installed successfully")
