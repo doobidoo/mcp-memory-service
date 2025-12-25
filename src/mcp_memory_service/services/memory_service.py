@@ -347,7 +347,7 @@ class MemoryService:
                     "memories": stored_memories,
                     "total_chunks": len(chunks),
                     "original_hash": content_hash,
-                    "failed_chunks": len(failed_chunks) if failed_chunks else 0
+                    "failed_chunks": len(failed_chunks)
                 }
             else:
                 # Store as single memory
