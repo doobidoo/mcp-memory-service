@@ -611,3 +611,77 @@ async def test_metadata_preserved_through_storage(memory_service, mock_storage):
     stored_memory = mock_storage.store.call_args.args[0]
     assert "key1" in stored_memory.metadata
     assert stored_memory.metadata["key1"] == "value1"
+
+
+@pytest.mark.asyncio
+async def test_chunked_storage_all_chunks_fail(mock_storage):
+    """
+    Test that chunked storage returns success=False when ALL chunks fail.
+
+    Regression test for issue where storing content > max_content_length
+    would return {"success": True, "memories": [], "total_chunks": N}
+    when all chunks failed (e.g., due to duplicates).
+    """
+    # Setup: max_content_length = 100, all store() calls fail
+    mock_storage.max_content_length = 100
+    mock_storage.store.return_value = (False, "Duplicate content detected")
+
+    service = MemoryService(storage=mock_storage)
+
+    # Create content > 100 chars to trigger chunking
+    long_content = "A" * 250  # Will be split into ~3 chunks
+
+    with patch('mcp_memory_service.services.memory_service.ENABLE_AUTO_SPLIT', True):
+        result = await service.store_memory(
+            content=long_content,
+            tags=["test"],
+            memory_type="test"
+        )
+
+    # Assert: should return failure, not success
+    assert result["success"] is False, "Should fail when all chunks fail to store"
+    assert "error" in result, "Should include error message"
+    assert "Failed to store all" in result["error"], "Error should explain all chunks failed"
+    assert "Duplicate content detected" in result["error"], "Error should include storage failure reason"
+
+
+@pytest.mark.asyncio
+async def test_chunked_storage_partial_success(mock_storage):
+    """
+    Test that chunked storage returns partial success when SOME chunks fail.
+
+    This tests the scenario where content is split and some chunks succeed
+    while others fail (e.g., first chunk is new, second is duplicate).
+    """
+    # Setup: max_content_length = 100
+    mock_storage.max_content_length = 100
+
+    # Prepare enough results for any number of chunks
+    # Pattern: success, fail, success, fail, success...
+    store_results = []
+    for i in range(10):  # Enough for any split
+        if i % 2 == 0:
+            store_results.append((True, "Success"))
+        else:
+            store_results.append((False, "Duplicate content detected"))
+    mock_storage.store.side_effect = store_results
+
+    service = MemoryService(storage=mock_storage)
+
+    # Create content > 100 chars to trigger chunking
+    long_content = "B" * 250
+
+    with patch('mcp_memory_service.services.memory_service.ENABLE_AUTO_SPLIT', True):
+        result = await service.store_memory(
+            content=long_content,
+            tags=["test"],
+            memory_type="test"
+        )
+
+    # Assert: should return partial success
+    assert result["success"] is True, "Should succeed when some chunks store successfully"
+    assert "memories" in result, "Should include stored memories"
+    assert len(result["memories"]) > 0, "Should have at least one successful chunk"
+    assert result.get("failed_chunks", 0) > 0, "Should report at least one failed chunk"
+    total_attempted = len(result["memories"]) + result.get("failed_chunks", 0)
+    assert result["total_chunks"] == total_attempted, "Total chunks should match attempted"

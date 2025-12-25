@@ -8,6 +8,10 @@ all memory operations, eliminating the DRY violation and ensuring consistent beh
 
 import logging
 from typing import Dict, List, Optional, Any, Union, Tuple, TypedDict
+try:
+    from typing import NotRequired  # Python 3.11+
+except ImportError:
+    from typing_extensions import NotRequired  # Python 3.10
 from datetime import datetime
 
 from ..config import (
@@ -82,6 +86,7 @@ class StoreMemoryChunkedSuccess(TypedDict):
     memories: List[MemoryResult]
     total_chunks: int
     original_hash: str
+    failed_chunks: NotRequired[int]  # Number of chunks that failed to store
 
 
 class StoreMemoryFailure(TypedDict):
@@ -305,6 +310,7 @@ class MemoryService:
                     overlap=CONTENT_SPLIT_OVERLAP
                 )
                 stored_memories = []
+                failed_chunks = []
 
                 for i, chunk in enumerate(chunks):
                     chunk_hash = generate_content_hash(chunk)
@@ -324,12 +330,24 @@ class MemoryService:
                     success, message = await self.storage.store(memory)
                     if success:
                         stored_memories.append(self._format_memory_response(memory))
+                    else:
+                        failed_chunks.append({"index": i, "reason": message})
 
+                # If NO chunks were stored, return failure
+                if not stored_memories:
+                    reasons = ", ".join(set(fc["reason"] for fc in failed_chunks))
+                    return {
+                        "success": False,
+                        "error": f"Failed to store all {len(chunks)} chunks: {reasons}"
+                    }
+
+                # If SOME chunks were stored, return partial success
                 return {
                     "success": True,
                     "memories": stored_memories,
                     "total_chunks": len(chunks),
-                    "original_hash": content_hash
+                    "original_hash": content_hash,
+                    "failed_chunks": len(failed_chunks) if failed_chunks else 0
                 }
             else:
                 # Store as single memory

@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [8.54.3] - 2025-12-25
+
+### Fixed
+- **Chunked Storage**: Fixed bug where storing content exceeding `max_content_length` would return `success: True` with "Successfully stored 0 memory chunks" when all chunks failed (e.g., due to duplicates)
+  - Now correctly returns `success: False` with descriptive error message when all chunks fail
+  - Added `failed_chunks` field to chunked success response for partial failures
+  - Includes failure reasons in error message (e.g., "Duplicate content detected")
+  - Added regression tests: `test_chunked_storage_all_chunks_fail` and `test_chunked_storage_partial_success`
+
 ## [8.54.2] - 2025-12-25
 
 ### Fixed
