@@ -80,3 +80,13 @@ def test_scripts_installer_uses_uv_when_pip_module_missing(monkeypatch):
     assert "--python" in recorded["cmd"]
     assert sys.executable in recorded["cmd"]
     assert "sqlite-vec" in recorded["cmd"]
+
+
+def test_scripts_installer_returns_false_when_no_pip_and_no_uv(monkeypatch):
+    from scripts.installation import install as scripts_install
+
+    monkeypatch.setattr(scripts_install.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(scripts_install.shutil, "which", lambda name: None)
+
+    ok = scripts_install.install_package_safe("sqlite-vec", fallback_in_venv=False)
+    assert ok is False

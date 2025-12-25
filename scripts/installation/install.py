@@ -201,7 +201,8 @@ def install_package_safe(package, success_msg=None, error_msg=None, fallback_in_
         # uv environments commonly omit pip; use uv to install into the current interpreter
         cmd = [uv_path, 'pip', 'install', '--python', sys.executable, package]
     else:
-        cmd = [sys.executable, '-m', 'pip', 'install', package]
+        print_error("Neither pip nor uv detected. Cannot install packages.")
+        return False
     default_success = success_msg or f"{package} installed successfully"
     default_error = error_msg or f"Failed to install {package}"
 
@@ -1125,15 +1126,11 @@ def _setup_storage_and_gpu_environment(args, system_info, gpu_info, env):
                 if args.with_chromadb:
                     dependencies.append("chromadb==0.5.23")
                 
-                # Install dependencies
-                pip_module_available = importlib.util.find_spec("pip") is not None
-                uv_path = shutil.which("uv")
-                if pip_module_available:
-                    cmd = [sys.executable, '-m', 'pip', 'install'] + dependencies
-                elif uv_path:
-                    cmd = [uv_path, 'pip', 'install', '--python', sys.executable] + dependencies
-                else:
-                    cmd = [sys.executable, '-m', 'pip', 'install'] + dependencies
+                # Install dependencies using the same installer selection as the main install
+                cmd = installer_cmd + ['install']
+                if len(installer_cmd) >= 2 and Path(installer_cmd[0]).stem == "uv" and installer_cmd[1] == "pip":
+                    cmd += ['--python', sys.executable]
+                cmd += dependencies
                 success, _ = run_command_safe(
                     cmd,
                     success_msg="Core dependencies installed successfully",
