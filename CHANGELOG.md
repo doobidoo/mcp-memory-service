@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [8.54.4] - 2025-12-26
+
+### Fixed
+- **MCP Tools**: Fixed critical bug in `check_database_health` MCP tool that prevented it from working (#288)
+  - Corrected method call from non-existent `check_database_health()` to proper `health_check()` method
+  - Tool now properly returns database health status and statistics
+
 ## [8.54.3] - 2025-12-25
 
 ### Fixed

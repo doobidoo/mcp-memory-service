@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop with SQLite-vec, Cloudflare, and Hybrid storage backends.
 
-> **🆕 v8.54.3**: **Chunked Storage Fix** - Fixed chunked storage to correctly return `success: False` when all chunks fail to store (e.g., due to duplicates), preventing confusing "Successfully stored 0 memory chunks" messages. Improved error reporting with failure reasons and partial success tracking. See [CHANGELOG.md](CHANGELOG.md) for full version history.
+> **🆕 v8.54.4**: **Critical MCP Tool Bugfix** - Fixed `check_database_health` MCP tool that was calling non-existent method, preventing database health status retrieval. Tool now properly returns health statistics. See [CHANGELOG.md](CHANGELOG.md) for full version history.
 >
 > **Note**: When releasing new versions, update this line with current version + brief description. Use `.claude/agents/github-release-manager.md` agent for complete release workflow.
 
