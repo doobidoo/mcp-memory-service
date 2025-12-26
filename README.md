@@ -124,17 +124,19 @@ Choose from:
 
 ---
 
-## 🆕 Latest Release: **v8.55.0** (Dec 26, 2025)
+## 🆕 Latest Release: **v8.56.0** (Dec 26, 2025)
 
-**AI-Optimized MCP Tool Descriptions**
+**Server Architecture Refactoring - Phase 1**
 
-- 🤖 **Enhanced LLM Tool Selection** - 30-50% reduction in incorrect tool selection by AI
-- 📝 **Structured Docstrings** - New format with USE THIS WHEN, DO NOT USE FOR, HOW IT WORKS, RETURNS, Examples
-- 📊 **Comprehensive Metrics** - +360% description length, +500% use cases, +700% return detail
-- 🔧 **7 Core Tools Enhanced** - store_memory, recall_memory, retrieve_memory, search_by_tag, delete_by_tag, exact_match_retrieve, check_database_health
-- 💡 **Better Developer Experience** - Improved MCP tool consumption for LLMs (inspired by #277)
+- 📦 **Modular Server Package** - Extracted 453 lines into 4 focused modules for better maintainability
+- 🏗️ **Code Organization** - client_detection (76 lines), logging_config (77 lines), environment (189 lines), cache_manager (111 lines)
+- ⚡ **Reduced Complexity** - server_impl.py shrunk from 4,613 → 4,293 lines (-7%), max complexity 6/10
+- ✅ **Full Backward Compatibility** - All existing imports still work via server/__init__.py
+- 🎯 **Quality Improvements** - 0 security issues, health score ~85/100, excellent developer experience
+- 🔄 **Phase 1 of 3** - Progressive refactoring plan to improve server.py architecture
 
 **Previous Releases**:
+- **v8.55.0** - AI-Optimized MCP Tool Descriptions (30-50% reduction in incorrect tool selection)
 - **v8.54.4** - Critical MCP Tool Bugfix (check_database_health method call correction)
 - **v8.54.3** - Chunked Storage Error Reporting Fix (accurate failure messages, partial success tracking)
 - **v8.54.2** - Offline Mode Fix (opt-in offline mode, first-time install support)
