@@ -428,7 +428,7 @@ async def check_database_health(ctx: Context) -> Dict[str, Any]:
     """
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
-    return await memory_service.check_database_health()
+    return await memory_service.health_check()
 
 @mcp.tool()
 async def list_memories(
