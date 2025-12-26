@@ -183,36 +183,49 @@ def mock_storage(sample_memories):
                 "hash004": datetime.now() - timedelta(days=2),   # Accessed 2 days ago
                 "hash002": datetime.now() - timedelta(days=5),   # Accessed 5 days ago
             }
-            
-        
+
+
         async def get_all_memories(self) -> List[Memory]:
             return list(self.memories.values())
-        
+
         async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
             return [
                 mem for mem in self.memories.values()
                 if mem.created_at and start_time <= mem.created_at <= end_time
             ]
-        
+
         async def store_memory(self, memory: Memory) -> bool:
             self.memories[memory.content_hash] = memory
             return True
-        
+
+        async def store(self, memory: Memory):
+            """Store method that returns tuple (success, hash) for consolidator."""
+            self.memories[memory.content_hash] = memory
+            return (True, memory.content_hash)
+
         async def update_memory(self, memory: Memory) -> bool:
             if memory.content_hash in self.memories:
                 self.memories[memory.content_hash] = memory
                 return True
             return False
-        
+
+        async def update_memories_batch(self, memories: List[Memory]) -> List[bool]:
+            """Batch update memories and return list of success statuses."""
+            results = []
+            for memory in memories:
+                success = await self.update_memory(memory)
+                results.append(success)
+            return results
+
         async def delete_memory(self, content_hash: str) -> bool:
             if content_hash in self.memories:
                 del self.memories[content_hash]
                 return True
             return False
-        
+
         async def get_memory_connections(self):
             return self.connections
-        
+
         async def get_access_patterns(self):
             return self.access_patterns
     
@@ -277,41 +290,54 @@ def mock_large_storage(large_memory_set):
             self.connections = {}
             for mem in large_memory_set[:50]:  # Half have connections
                 self.connections[mem.content_hash] = np.random.randint(0, 5)
-            
+
             # Generate random access patterns
             self.access_patterns = {}
             for mem in large_memory_set[:30]:  # Some have recent access
                 days_ago = np.random.randint(1, 30)
                 self.access_patterns[mem.content_hash] = datetime.now() - timedelta(days=days_ago)
-        
+
         async def get_all_memories(self) -> List[Memory]:
             return list(self.memories.values())
-        
+
         async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
             return [
                 mem for mem in self.memories.values()
                 if mem.created_at and start_time <= mem.created_at <= end_time
             ]
-        
+
         async def store_memory(self, memory: Memory) -> bool:
             self.memories[memory.content_hash] = memory
             return True
-        
+
+        async def store(self, memory: Memory):
+            """Store method that returns tuple (success, hash) for consolidator."""
+            self.memories[memory.content_hash] = memory
+            return (True, memory.content_hash)
+
         async def update_memory(self, memory: Memory) -> bool:
             if memory.content_hash in self.memories:
                 self.memories[memory.content_hash] = memory
                 return True
             return False
-        
+
+        async def update_memories_batch(self, memories: List[Memory]) -> List[bool]:
+            """Batch update memories and return list of success statuses."""
+            results = []
+            for memory in memories:
+                success = await self.update_memory(memory)
+                results.append(success)
+            return results
+
         async def delete_memory(self, content_hash: str) -> bool:
             if content_hash in self.memories:
                 del self.memories[content_hash]
                 return True
             return False
-        
+
         async def get_memory_connections(self):
             return self.connections
-        
+
         async def get_access_patterns(self):
             return self.access_patterns
     

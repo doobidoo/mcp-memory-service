@@ -54,6 +54,7 @@ def test_app(initialized_storage):
 def mock_storage():
     """Create a mock storage for isolated testing."""
     storage = AsyncMock()
+    storage.max_content_length = None  # Set max_content_length to None to avoid comparison errors
     return storage
 
 
@@ -80,16 +81,16 @@ def sample_memory():
 # Test API Store Memory Endpoint
 
 @pytest.mark.asyncio
-async def test_api_store_memory_uses_service(mock_storage):
+async def test_api_store_memory_uses_service(mock_storage, unique_content):
     """Test that POST /api/memories uses MemoryService."""
-    mock_storage.store.return_value = None
+    mock_storage.store.return_value = (True, "Memory stored successfully")
 
     # Create service
     service = MemoryService(storage=mock_storage)
 
     # Simulate API call through service
     result = await service.store_memory(
-        content="Test API storage",
+        content=unique_content("Test API storage"),
         tags=["api", "test"],
         memory_type="note"
     )
@@ -100,15 +101,15 @@ async def test_api_store_memory_uses_service(mock_storage):
 
 
 @pytest.mark.asyncio
-async def test_api_store_memory_hostname_from_header(mock_storage):
+async def test_api_store_memory_hostname_from_header(mock_storage, unique_content):
     """Test that X-Client-Hostname header is processed correctly."""
-    mock_storage.store.return_value = None
+    mock_storage.store.return_value = (True, "Memory stored successfully")
 
     service = MemoryService(storage=mock_storage)
 
     # Simulate API call with hostname
     result = await service.store_memory(
-        content="Test with hostname",
+        content=unique_content("Test with hostname"),
         tags=["test"],
         client_hostname="client-machine"
     )
@@ -120,15 +121,15 @@ async def test_api_store_memory_hostname_from_header(mock_storage):
 
 
 @pytest.mark.asyncio
-async def test_api_store_memory_hostname_from_request_body(mock_storage):
+async def test_api_store_memory_hostname_from_request_body(mock_storage, unique_content):
     """Test that client_hostname in request body works."""
-    mock_storage.store.return_value = None
+    mock_storage.store.return_value = (True, "Memory stored successfully")
 
     service = MemoryService(storage=mock_storage)
 
     # Simulate API call with hostname in body
     result = await service.store_memory(
-        content="Test",
+        content=unique_content("Test"),
         client_hostname="body-hostname"
     )
 
@@ -425,13 +426,13 @@ async def test_api_handles_storage_errors_gracefully(mock_storage):
 
 
 @pytest.mark.asyncio
-async def test_api_validates_input_through_service(mock_storage):
+async def test_api_validates_input_through_service(mock_storage, unique_content):
     """Test that validation errors from storage are handled."""
     mock_storage.store.side_effect = ValueError("Invalid content format")
 
     service = MemoryService(storage=mock_storage)
 
-    result = await service.store_memory(content="invalid")
+    result = await service.store_memory(content=unique_content("invalid"))
 
     assert result["success"] is False
     assert "Invalid memory data" in result["error"]
@@ -440,7 +441,7 @@ async def test_api_validates_input_through_service(mock_storage):
 # Consistency Tests
 
 @pytest.mark.asyncio
-async def test_api_and_mcp_use_same_service_logic(mock_storage):
+async def test_api_and_mcp_use_same_service_logic(mock_storage, unique_content):
     """
     Test that API and MCP tools use the same MemoryService logic.
 
@@ -450,8 +451,8 @@ async def test_api_and_mcp_use_same_service_logic(mock_storage):
     service = MemoryService(storage=mock_storage)
 
     # Store through service (used by both API and MCP)
-    mock_storage.store.return_value = None
-    result1 = await service.store_memory(content="Test", tags=["shared"])
+    mock_storage.store.return_value = (True, "Memory stored successfully")
+    result1 = await service.store_memory(content=unique_content("Test"), tags=["shared"])
 
     # Retrieve through service (used by both API and MCP)
     mock_storage.retrieve.return_value = []
@@ -545,7 +546,7 @@ async def test_end_to_end_workflow_with_real_storage(temp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_store_memory_endpoint(temp_db):
+async def test_http_api_store_memory_endpoint(temp_db, unique_content):
     """
     Test POST /api/memories endpoint with real HTTP request.
 
@@ -563,11 +564,14 @@ async def test_http_api_store_memory_endpoint(temp_db):
         # Create TestClient
         client = TestClient(app)
 
+        # Generate unique content
+        content = unique_content("HTTP API test memory")
+
         # Make HTTP POST request
         response = client.post(
             "/api/memories",
             json={
-                "content": "HTTP API test memory",
+                "content": content,
                 "tags": ["http", "api", "test"],
                 "memory_type": "note"
             }
@@ -578,7 +582,7 @@ async def test_http_api_store_memory_endpoint(temp_db):
         data = response.json()
         assert data["success"] is True
         assert "memory" in data
-        assert data["memory"]["content"] == "HTTP API test memory"
+        assert data["memory"]["content"] == content
         assert "http" in data["memory"]["tags"]
 
     finally:
@@ -587,7 +591,7 @@ async def test_http_api_store_memory_endpoint(temp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_list_memories_endpoint(temp_db):
+async def test_http_api_list_memories_endpoint(temp_db, unique_content):
     """
     Test GET /api/memories endpoint with real HTTP request.
 
@@ -604,7 +608,7 @@ async def test_http_api_list_memories_endpoint(temp_db):
         service = MemoryService(storage=storage)
         for i in range(5):
             await service.store_memory(
-                content=f"Test memory {i}",
+                content=unique_content(f"Test memory {i}"),
                 tags=["test"],
                 memory_type="note"
             )
@@ -627,7 +631,7 @@ async def test_http_api_list_memories_endpoint(temp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_search_endpoint(temp_db):
+async def test_http_api_search_endpoint(temp_db, unique_content):
     """
     Test POST /api/search endpoint with real HTTP request.
 
@@ -643,7 +647,7 @@ async def test_http_api_search_endpoint(temp_db):
         # Store searchable memory
         service = MemoryService(storage=storage)
         await service.store_memory(
-            content="Python programming language tutorial",
+            content=unique_content("Python programming language tutorial"),
             tags=["python", "tutorial"],
             memory_type="reference"
         )
@@ -667,7 +671,7 @@ async def test_http_api_search_endpoint(temp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_search_by_tag_endpoint(temp_db):
+async def test_http_api_search_by_tag_endpoint(temp_db, unique_content):
     """
     Test POST /api/search/by-tag endpoint with real HTTP request.
 
@@ -683,12 +687,12 @@ async def test_http_api_search_by_tag_endpoint(temp_db):
         # Store memories with tags
         service = MemoryService(storage=storage)
         await service.store_memory(
-            content="Important work item",
+            content=unique_content("Important work item"),
             tags=["important", "work"],
             memory_type="task"
         )
         await service.store_memory(
-            content="Personal note",
+            content=unique_content("Personal note"),
             tags=["personal"],
             memory_type="note"
         )
@@ -712,7 +716,7 @@ async def test_http_api_search_by_tag_endpoint(temp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_get_memory_by_hash_endpoint(temp_db):
+async def test_http_api_get_memory_by_hash_endpoint(temp_db, unique_content):
     """
     Test GET /api/memories/{hash} endpoint with real HTTP request.
 
@@ -727,8 +731,9 @@ async def test_http_api_get_memory_by_hash_endpoint(temp_db):
 
         # Store a memory
         service = MemoryService(storage=storage)
+        content = unique_content("Memory to retrieve")
         store_result = await service.store_memory(
-            content="Memory to retrieve",
+            content=content,
             tags=["test"],
             memory_type="note"
         )
@@ -741,7 +746,7 @@ async def test_http_api_get_memory_by_hash_endpoint(temp_db):
         # Verify response
         assert response.status_code == 200
         data = response.json()
-        assert data["content"] == "Memory to retrieve"
+        assert data["content"] == content
         assert data["content_hash"] == content_hash
 
     finally:
@@ -750,7 +755,7 @@ async def test_http_api_get_memory_by_hash_endpoint(temp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_delete_memory_endpoint(temp_db):
+async def test_http_api_delete_memory_endpoint(temp_db, unique_content):
     """
     Test DELETE /api/memories/{hash} endpoint with real HTTP request.
 
@@ -766,7 +771,7 @@ async def test_http_api_delete_memory_endpoint(temp_db):
         # Store a memory
         service = MemoryService(storage=storage)
         store_result = await service.store_memory(
-            content="Memory to delete",
+            content=unique_content("Memory to delete"),
             tags=["test"],
             memory_type="note"
         )
@@ -791,7 +796,7 @@ async def test_http_api_delete_memory_endpoint(temp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_pagination_with_real_data(temp_db):
+async def test_http_api_pagination_with_real_data(temp_db, unique_content):
     """
     Test pagination through HTTP API with multiple pages.
 
@@ -808,7 +813,7 @@ async def test_http_api_pagination_with_real_data(temp_db):
         service = MemoryService(storage=storage)
         for i in range(25):
             await service.store_memory(
-                content=f"Pagination test {i}",
+                content=unique_content(f"Pagination test {i}"),
                 tags=["pagination"],
                 memory_type="note"
             )
@@ -872,7 +877,7 @@ async def test_http_api_error_handling_invalid_json(temp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_client_hostname_header(temp_db):
+async def test_http_api_client_hostname_header(temp_db, unique_content):
     """
     Test that X-Client-Hostname header is processed correctly.
 
@@ -891,7 +896,7 @@ async def test_http_api_client_hostname_header(temp_db):
         response = client.post(
             "/api/memories",
             json={
-                "content": "Test with hostname",
+                "content": unique_content("Test with hostname"),
                 "tags": ["test"]
             },
             headers={"X-Client-Hostname": "test-machine"}
@@ -909,7 +914,7 @@ async def test_http_api_client_hostname_header(temp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_complete_crud_workflow(temp_db):
+async def test_http_api_complete_crud_workflow(temp_db, unique_content):
     """
     Complete end-to-end CRUD workflow through real HTTP API.
 
@@ -924,11 +929,14 @@ async def test_http_api_complete_crud_workflow(temp_db):
 
         client = TestClient(app)
 
+        # Generate unique content
+        content = unique_content("CRUD test memory")
+
         # CREATE: Store a memory
         create_response = client.post(
             "/api/memories",
             json={
-                "content": "CRUD test memory",
+                "content": content,
                 "tags": ["crud", "test"],
                 "memory_type": "note"
             }
@@ -944,7 +952,7 @@ async def test_http_api_complete_crud_workflow(temp_db):
         # READ: Get specific memory
         get_response = client.get(f"/api/memories/{content_hash}")
         assert get_response.status_code == 200
-        assert get_response.json()["content"] == "CRUD test memory"
+        assert get_response.json()["content"] == content
 
         # UPDATE: Search for memory
         search_response = client.post(

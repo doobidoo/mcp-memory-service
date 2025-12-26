@@ -37,11 +37,11 @@ def reset_client():
 class TestSearchOperation:
     """Tests for search() function."""
 
-    def test_search_basic(self):
+    def test_search_basic(self, unique_content):
         """Test basic search functionality."""
         # Store some test memories first
-        hash1 = store("Test memory about authentication", tags=["test", "auth"])
-        hash2 = store("Test memory about database", tags=["test", "db"])
+        hash1 = store(unique_content("Test memory about authentication"), tags=["test", "auth"])
+        hash2 = store(unique_content("Test memory about database"), tags=["test", "db"])
 
         # Search for memories
         result = search("authentication", limit=5)
@@ -51,11 +51,11 @@ class TestSearchOperation:
         assert result.query == "authentication"
         assert len(result.memories) <= 5
 
-    def test_search_with_limit(self):
+    def test_search_with_limit(self, unique_content):
         """Test search with different limits."""
         # Store multiple memories
         for i in range(10):
-            store(f"Test memory number {i}", tags=["test"])
+            store(unique_content(f"Test memory number {i}"), tags=["test"])
 
         # Search with limit
         result = search("test", limit=3)
@@ -63,12 +63,12 @@ class TestSearchOperation:
         assert len(result.memories) <= 3
         assert result.query == "test"
 
-    def test_search_with_tags(self):
+    def test_search_with_tags(self, unique_content):
         """Test search with tag filtering."""
         # Store memories with different tags
-        store("Memory with tag1", tags=["tag1", "test"])
-        store("Memory with tag2", tags=["tag2", "test"])
-        store("Memory with both", tags=["tag1", "tag2", "test"])
+        store(unique_content("Memory with tag1"), tags=["tag1", "test"])
+        store(unique_content("Memory with tag2"), tags=["tag2", "test"])
+        store(unique_content("Memory with both"), tags=["tag1", "tag2", "test"])
 
         # Search with tag filter
         result = search("memory", limit=10, tags=["tag1"])
@@ -93,10 +93,10 @@ class TestSearchOperation:
         with pytest.raises(ValueError, match="Limit must be at least 1"):
             search("test", limit=-1)
 
-    def test_search_returns_compact_format(self):
+    def test_search_returns_compact_format(self, unique_content):
         """Test that search returns compact memory format."""
         # Store a test memory
-        store("Test memory content", tags=["test"])
+        store(unique_content("Test memory content"), tags=["test"])
 
         # Search
         result = search("test", limit=1)
@@ -111,11 +111,11 @@ class TestSearchOperation:
             assert isinstance(memory.created, float), "Created should be timestamp"
             assert 0.0 <= memory.score <= 1.0, "Score should be 0-1"
 
-    def test_search_performance(self):
+    def test_search_performance(self, unique_content):
         """Test search performance meets targets."""
         # Store some memories
         for i in range(10):
-            store(f"Performance test memory {i}", tags=["perf"])
+            store(unique_content(f"Performance test memory {i}"), tags=["perf"])
 
         # Measure warm call performance
         start = time.perf_counter()
@@ -132,18 +132,18 @@ class TestSearchOperation:
 class TestStoreOperation:
     """Tests for store() function."""
 
-    def test_store_basic(self):
+    def test_store_basic(self, unique_content):
         """Test basic store functionality."""
-        content = "This is a test memory"
+        content = unique_content("This is a test memory")
         hash_val = store(content)
 
         assert isinstance(hash_val, str)
         assert len(hash_val) == 8, "Should return 8-char hash"
 
-    def test_store_with_tags_list(self):
+    def test_store_with_tags_list(self, unique_content):
         """Test storing with list of tags."""
         hash_val = store(
-            "Memory with tags",
+            unique_content("Memory with tags"),
             tags=["tag1", "tag2", "tag3"]
         )
 
@@ -155,20 +155,20 @@ class TestStoreOperation:
         if result.memories:
             assert "tag1" in result.memories[0].tags
 
-    def test_store_with_single_tag(self):
+    def test_store_with_single_tag(self, unique_content):
         """Test storing with single tag string."""
         hash_val = store(
-            "Memory with single tag",
+            unique_content("Memory with single tag"),
             tags="singletag"
         )
 
         assert isinstance(hash_val, str)
         assert len(hash_val) == 8
 
-    def test_store_with_memory_type(self):
+    def test_store_with_memory_type(self, unique_content):
         """Test storing with custom memory type."""
         hash_val = store(
-            "Custom type memory",
+            unique_content("Custom type memory"),
             tags=["test"],
             memory_type="feature"
         )
@@ -184,27 +184,29 @@ class TestStoreOperation:
         with pytest.raises(ValueError, match="Content cannot be empty"):
             store("   ")
 
-    def test_store_returns_short_hash(self):
+    def test_store_returns_short_hash(self, unique_content):
         """Test that store returns 8-char hash."""
-        hash_val = store("Test content for hash length")
+        hash_val = store(unique_content("Test content for hash length"))
 
         assert len(hash_val) == 8
         assert hash_val.isalnum() or all(c in '0123456789abcdef' for c in hash_val)
 
-    def test_store_duplicate_handling(self):
+    def test_store_duplicate_handling(self, unique_content):
         """Test storing duplicate content."""
-        content = "Duplicate content test"
+        # Generate unique content once, then use it twice
+        content = unique_content("Duplicate content test")
 
-        # Store same content twice
+        # Store same content twice with different tags
+        # This should trigger duplicate detection and raise RuntimeError
         hash1 = store(content, tags=["test1"])
-        hash2 = store(content, tags=["test2"])
 
-        # Should return same hash (content is identical)
-        assert hash1 == hash2
+        # Second store with same content should fail due to duplicate detection
+        with pytest.raises(RuntimeError, match="Duplicate content detected"):
+            hash2 = store(content, tags=["test2"])
 
-    def test_store_performance(self):
+    def test_store_performance(self, unique_content):
         """Test store performance meets targets."""
-        content = "Performance test memory content"
+        content = unique_content("Performance test memory content")
 
         # Measure warm call performance
         start = time.perf_counter()
@@ -244,11 +246,11 @@ class TestHealthOperation:
         valid_backends = ['sqlite_vec', 'cloudflare', 'hybrid', 'unknown']
         assert info.backend in valid_backends
 
-    def test_health_memory_count(self):
+    def test_health_memory_count(self, unique_content):
         """Test that health returns memory count."""
         # Store some memories
         for i in range(5):
-            store(f"Health test memory {i}", tags=["health"])
+            store(unique_content(f"Health test memory {i}"), tags=["health"])
 
         info = health()
 
@@ -272,11 +274,11 @@ class TestHealthOperation:
 class TestTokenEfficiency:
     """Integration tests for token efficiency."""
 
-    def test_search_token_reduction(self):
+    def test_search_token_reduction(self, unique_content):
         """Validate 85%+ token reduction for search."""
         # Store test memories
         for i in range(10):
-            store(f"Token test memory {i} with some content", tags=["token", "test"])
+            store(unique_content(f"Token test memory {i} with some content"), tags=["token", "test"])
 
         # Perform search
         result = search("token", limit=5)
@@ -295,10 +297,10 @@ class TestTokenEfficiency:
         assert reduction >= 0.70, \
             f"Token reduction insufficient: {reduction:.1%} (target: e70%)"
 
-    def test_store_token_reduction(self):
+    def test_store_token_reduction(self, unique_content):
         """Validate 90%+ token reduction for store."""
         # Store operation itself is just parameters + hash return
-        content = "Test content for token efficiency"
+        content = unique_content("Test content for token efficiency")
         tags = ["test", "efficiency"]
 
         # Measure "token cost" of operation
@@ -328,11 +330,11 @@ class TestTokenEfficiency:
 class TestIntegration:
     """End-to-end integration tests."""
 
-    def test_store_and_search_workflow(self):
+    def test_store_and_search_workflow(self, unique_content):
         """Test complete store -> search workflow."""
         # Store memories
-        hash1 = store("Integration test memory 1", tags=["integration", "test"])
-        hash2 = store("Integration test memory 2", tags=["integration", "demo"])
+        hash1 = store(unique_content("Integration test memory 1"), tags=["integration", "test"])
+        hash2 = store(unique_content("Integration test memory 2"), tags=["integration", "demo"])
 
         assert len(hash1) == 8
         assert len(hash2) == 8
@@ -343,13 +345,13 @@ class TestIntegration:
         assert result.total >= 2
         assert any(m.hash in [hash1, hash2] for m in result.memories)
 
-    def test_multiple_operations_performance(self):
+    def test_multiple_operations_performance(self, unique_content):
         """Test performance of multiple operations."""
         start = time.perf_counter()
 
         # Perform multiple operations
-        hash1 = store("Op 1", tags=["multi"])
-        hash2 = store("Op 2", tags=["multi"])
+        hash1 = store(unique_content("Op 1"), tags=["multi"])
+        hash2 = store(unique_content("Op 2"), tags=["multi"])
         result = search("multi", limit=5)
         info = health()
 
@@ -364,12 +366,12 @@ class TestIntegration:
         assert isinstance(result, CompactSearchResult)
         assert isinstance(info, CompactHealthInfo)
 
-    def test_api_backward_compatibility(self):
+    def test_api_backward_compatibility(self, unique_content):
         """Test that API doesn't break existing functionality."""
         # This test ensures the API can coexist with existing MCP tools
 
         # Store using new API
-        hash_val = store("Compatibility test", tags=["compat"])
+        hash_val = store(unique_content("Compatibility test"), tags=["compat"])
 
         # Should be searchable
         result = search("compatibility", limit=1)

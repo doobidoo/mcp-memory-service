@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import List
 
 from mcp_memory_service.services.memory_service import MemoryService
-from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.models.memory import Memory, MemoryQueryResult
 from mcp_memory_service.storage.base import MemoryStorage
 
 
@@ -291,7 +291,10 @@ async def test_store_memory_unexpected_error(memory_service, mock_storage):
 @pytest.mark.asyncio
 async def test_retrieve_memories_basic(memory_service, mock_storage, sample_memories):
     """Test basic semantic search retrieval."""
-    mock_storage.retrieve.return_value = sample_memories[:3]
+    mock_storage.retrieve.return_value = [
+        MemoryQueryResult(memory=mem, relevance_score=0.9 - i*0.1)
+        for i, mem in enumerate(sample_memories[:3])
+    ]
 
     result = await memory_service.retrieve_memories(query="test query", n_results=3)
 
@@ -310,8 +313,6 @@ async def test_retrieve_memories_basic(memory_service, mock_storage, sample_memo
 async def test_retrieve_memories_with_filters(memory_service, mock_storage, sample_memories):
     """Test retrieval with tag and type filters."""
     # Return memories that will be filtered by MemoryService
-    mock_storage.retrieve.return_value = sample_memories
-
     # Create a memory with matching tags for filtering
     from mcp_memory_service.models.memory import Memory
     import hashlib
@@ -324,7 +325,9 @@ async def test_retrieve_memories_with_filters(memory_service, mock_storage, samp
         created_at=1234567890.0
     )
     matching_memory.metadata = {"tags": ["tag1"], "memory_type": "note"}
-    mock_storage.retrieve.return_value = [matching_memory]
+    mock_storage.retrieve.return_value = [
+        MemoryQueryResult(memory=matching_memory, relevance_score=0.85)
+    ]
 
     result = await memory_service.retrieve_memories(
         query="test",
@@ -551,7 +554,9 @@ async def test_store_and_retrieve_workflow(memory_service, mock_storage, sample_
     """Test complete workflow: store then retrieve."""
     # Setup mocks
     mock_storage.store.return_value = (True, "Success")
-    mock_storage.retrieve.return_value = [sample_memory]
+    mock_storage.retrieve.return_value = [
+        MemoryQueryResult(memory=sample_memory, relevance_score=0.92)
+    ]
 
     # Store memory
     store_result = await memory_service.store_memory(

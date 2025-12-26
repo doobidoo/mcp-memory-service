@@ -96,7 +96,8 @@ class ConsolidationHealthMonitor:
                 'components': {},
                 'metrics': {},
                 'alerts': [],
-                'recommendations': []
+                'recommendations': [],
+                'statistics': {}
             }
             
             # Check individual components
@@ -159,7 +160,8 @@ class ConsolidationHealthMonitor:
                 'components': {},
                 'metrics': {},
                 'alerts': [],
-                'recommendations': []
+                'recommendations': [],
+                'statistics': {}
             }
     
     async def _check_component_health(self, component: str) -> Dict[str, Any]:

@@ -368,27 +368,35 @@ class TestServiceDiscovery:
     async def test_discover_services_success(self):
         """Test successful service discovery."""
         with patch('mcp_memory_service.discovery.mdns_service.AsyncZeroconf') as mock_zeroconf_class, \
-             patch('mcp_memory_service.discovery.mdns_service.AsyncServiceBrowser') as mock_browser_class:
-            
+             patch('mcp_memory_service.discovery.mdns_service.AsyncServiceBrowser') as mock_browser_class, \
+             patch('mcp_memory_service.discovery.mdns_service.DiscoveryListener') as mock_listener_class:
+
+            # Setup AsyncZeroconf mock with async context manager support
             mock_zeroconf = AsyncMock()
+            mock_zeroconf.__aenter__ = AsyncMock(return_value=mock_zeroconf)
+            mock_zeroconf.__aexit__ = AsyncMock(return_value=None)
+            mock_zeroconf.async_close = AsyncMock()
+            mock_zeroconf.zeroconf = Mock()
             mock_zeroconf_class.return_value = mock_zeroconf
-            
+
+            # Setup AsyncServiceBrowser mock with async cancel method
             mock_browser = Mock()
+            mock_browser.async_cancel = AsyncMock()
             mock_browser_class.return_value = mock_browser
-            
-            discovery = ServiceDiscovery(discovery_timeout=1)  # Short timeout for testing
-            
-            # Mock discovered services
-            mock_listener = Mock()
+
+            # Mock discovered services via listener
             mock_service = Mock()
             mock_service.name = "Test Service"
+            mock_listener = Mock()
             mock_listener.services = {"test-service": mock_service}
-            
-            with patch.object(discovery, '_listener', mock_listener):
-                services = await discovery.discover_services()
-                
-                assert len(services) == 1
-                assert services[0] == mock_service
+            mock_listener_class.return_value = mock_listener
+
+            discovery = ServiceDiscovery(discovery_timeout=0.1)  # Very short timeout for testing
+
+            services = await discovery.discover_services()
+
+            assert len(services) == 1
+            assert services[0] == mock_service
     
     @pytest.mark.asyncio
     async def test_discover_services_already_discovering(self):
@@ -411,20 +419,32 @@ class TestServiceDiscovery:
     async def test_start_continuous_discovery(self):
         """Test starting continuous service discovery."""
         callback = Mock()
-        
+
         with patch('mcp_memory_service.discovery.mdns_service.AsyncZeroconf') as mock_zeroconf_class, \
-             patch('mcp_memory_service.discovery.mdns_service.AsyncServiceBrowser') as mock_browser_class:
-            
+             patch('mcp_memory_service.discovery.mdns_service.AsyncServiceBrowser') as mock_browser_class, \
+             patch('mcp_memory_service.discovery.mdns_service.DiscoveryListener') as mock_listener_class:
+
+            # Setup AsyncZeroconf mock with async context manager support
             mock_zeroconf = AsyncMock()
+            mock_zeroconf.__aenter__ = AsyncMock(return_value=mock_zeroconf)
+            mock_zeroconf.__aexit__ = AsyncMock(return_value=None)
+            mock_zeroconf.async_close = AsyncMock()
+            mock_zeroconf.zeroconf = Mock()
             mock_zeroconf_class.return_value = mock_zeroconf
-            
+
+            # Setup AsyncServiceBrowser mock with async cancel method
             mock_browser = Mock()
+            mock_browser.async_cancel = AsyncMock()
             mock_browser_class.return_value = mock_browser
-            
+
+            # Setup listener mock
+            mock_listener = Mock()
+            mock_listener_class.return_value = mock_listener
+
             discovery = ServiceDiscovery()
-            
+
             result = await discovery.start_continuous_discovery(callback)
-            
+
             assert result is True
             assert discovery._discovering is True
     
@@ -443,17 +463,22 @@ class TestServiceDiscovery:
         """Test stopping service discovery."""
         with patch('mcp_memory_service.discovery.mdns_service.AsyncZeroconf') as mock_zeroconf_class, \
              patch('mcp_memory_service.discovery.mdns_service.AsyncServiceBrowser') as mock_browser_class:
-            
+
+            # Setup AsyncZeroconf mock with async methods
             mock_zeroconf = AsyncMock()
-            mock_browser = AsyncMock()
-            
+            mock_zeroconf.async_close = AsyncMock()
+
+            # Setup AsyncServiceBrowser mock with async cancel method
+            mock_browser = Mock()
+            mock_browser.async_cancel = AsyncMock()
+
             discovery = ServiceDiscovery()
             discovery._discovering = True
             discovery._zeroconf = mock_zeroconf
             discovery._browser = mock_browser
-            
+
             await discovery.stop_discovery()
-            
+
             assert discovery._discovering is False
             mock_browser.async_cancel.assert_called_once()
             mock_zeroconf.async_close.assert_called_once()
@@ -564,10 +589,11 @@ class TestDiscoveryClient:
     async def test_check_service_health_success(self):
         """Test successful service health check."""
         client = DiscoveryClient()
-        
+
         mock_service = Mock()
         mock_service.api_url = "http://192.168.1.100:8000/api"
-        
+
+        # Setup response mock with async context manager support
         mock_response = Mock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value={
@@ -575,14 +601,25 @@ class TestDiscoveryClient:
             'storage_type': 'sqlite_vec',
             'statistics': {'memory_count': 100}
         })
-        
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
         with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_session = AsyncMock()
-            mock_session_class.return_value.__aenter__.return_value = mock_session
-            mock_session.get.return_value.__aenter__.return_value = mock_response
-            
+            # Setup session mock with async context manager support
+            mock_session = Mock()
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+
+            # Setup get method to return response with async context manager
+            mock_get_result = Mock()
+            mock_get_result.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_get_result.__aexit__ = AsyncMock(return_value=None)
+            mock_session.get = Mock(return_value=mock_get_result)
+
+            mock_session_class.return_value = mock_session
+
             health = await client.check_service_health(mock_service)
-            
+
             assert health is not None
             assert health.healthy is True
             assert health.status == 'healthy'
@@ -694,28 +731,26 @@ class TestMDNSIntegration:
     async def test_advertiser_discovery_integration(self):
         """Test integration between advertiser and discovery (mocked)."""
         # This test uses mocks to simulate the integration without actual network traffic
-        
+
         with patch('mcp_memory_service.discovery.mdns_service.AsyncZeroconf') as mock_zeroconf_class, \
-             patch('mcp_memory_service.discovery.mdns_service.AsyncServiceBrowser') as mock_browser_class:
-            
-            # Setup mocks
+             patch('mcp_memory_service.discovery.mdns_service.AsyncServiceBrowser') as mock_browser_class, \
+             patch('mcp_memory_service.discovery.mdns_service.DiscoveryListener') as mock_listener_class:
+
+            # Setup AsyncZeroconf mock with async context manager support
             mock_zeroconf = AsyncMock()
+            mock_zeroconf.__aenter__ = AsyncMock(return_value=mock_zeroconf)
+            mock_zeroconf.__aexit__ = AsyncMock(return_value=None)
+            mock_zeroconf.async_close = AsyncMock()
+            mock_zeroconf.async_unregister_service = AsyncMock()
+            mock_zeroconf.zeroconf = Mock()
             mock_zeroconf_class.return_value = mock_zeroconf
-            
+
+            # Setup AsyncServiceBrowser mock with async cancel method
             mock_browser = Mock()
+            mock_browser.async_cancel = AsyncMock()
             mock_browser_class.return_value = mock_browser
-            
-            # Start advertiser
-            advertiser = ServiceAdvertiser(service_name="Test Service")
-            
-            with patch.object(advertiser, '_create_service_info'):
-                await advertiser.start()
-                assert advertiser._registered is True
-            
-            # Start discovery
-            discovery = ServiceDiscovery(discovery_timeout=1)
-            
-            # Mock discovered service
+
+            # Mock discovered service via listener
             mock_service = ServiceDetails(
                 name="Test Service",
                 host="192.168.1.100",
@@ -725,15 +760,25 @@ class TestMDNSIntegration:
                 requires_auth=False,
                 service_info=Mock()
             )
-            
-            with patch.object(discovery, '_listener') as mock_listener:
-                mock_listener.services = {"test-service": mock_service}
-                
-                services = await discovery.discover_services()
-                
-                assert len(services) == 1
-                assert services[0].name == "Test Service"
-            
+            mock_listener = Mock()
+            mock_listener.services = {"test-service": mock_service}
+            mock_listener_class.return_value = mock_listener
+
+            # Start advertiser
+            advertiser = ServiceAdvertiser(service_name="Test Service")
+
+            with patch.object(advertiser, '_create_service_info'):
+                await advertiser.start()
+                assert advertiser._registered is True
+
+            # Start discovery
+            discovery = ServiceDiscovery(discovery_timeout=0.1)
+
+            services = await discovery.discover_services()
+
+            assert len(services) == 1
+            assert services[0].name == "Test Service"
+
             # Clean up
             await advertiser.stop()
             await discovery.stop_discovery()
