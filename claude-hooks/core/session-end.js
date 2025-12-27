@@ -184,7 +184,7 @@ function analyzeConversation(conversationData) {
         analysis.confidence = Math.min(1.0, totalExtracted / 10); // Max confidence at 10+ items
         
         // Limit arrays to prevent overwhelming output
-        analysis.topics = analysis.topics.slice(0, 5);
+        // Topics: no limit needed (max 10 possible keywords)
         analysis.decisions = analysis.decisions.slice(0, 3);
         analysis.insights = analysis.insights.slice(0, 3);
         analysis.codeChanges = analysis.codeChanges.slice(0, 4);
