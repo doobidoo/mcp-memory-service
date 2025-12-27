@@ -85,7 +85,28 @@ function analyzeConversation(conversationData) {
                 analysis.topics.push(topic);
             }
         });
-        
+
+        // Extract conversation summary (first user message + key response snippet)
+        // This ensures non-development conversations are still captured
+        const userMessages = messages.filter(m => m.role === 'user');
+        const assistantMessages = messages.filter(m => m.role === 'assistant');
+
+        if (userMessages.length > 0) {
+            // Capture the main question/request
+            const firstUserMsg = userMessages[0].content || '';
+            analysis.userQuery = firstUserMsg.slice(0, 200).trim();
+
+            // Capture a summary of the response
+            if (assistantMessages.length > 0) {
+                const firstResponse = assistantMessages[0].content || '';
+                // Extract first meaningful paragraph (skip very short lines)
+                const paragraphs = firstResponse.split('\n').filter(p => p.trim().length > 30);
+                if (paragraphs.length > 0) {
+                    analysis.responseSummary = paragraphs[0].slice(0, 300).trim();
+                }
+            }
+        }
+
         // Extract decisions (look for decision language)
         const decisionPatterns = [
             /decided to|decision to|chose to|choosing|will use|going with/g,
