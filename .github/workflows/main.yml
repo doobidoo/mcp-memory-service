@@ -167,19 +167,36 @@ jobs:
         uv pip install -e .
 
         # Install test dependencies
-        uv pip install pytest pytest-asyncio
+        uv pip install pytest pytest-asyncio pytest-cov
 
         # Pre-download HuggingFace embedding model to populate cache
         source .venv/bin/activate
         python -c "from sentence_transformers import SentenceTransformer; print('Downloading embedding model...'); SentenceTransformer('all-MiniLM-L6-v2'); print('✓ Model cached')"
 
-        # Run tests
+        # Run import validation (fast-fail before tests)
+        echo "=== Import Validation ==="
+        bash scripts/ci/validate_imports.sh
+
+        # Run handler coverage check
+        echo "=== Handler Coverage Check ==="
+        python scripts/validation/check_handler_coverage.py
+
+        # Run tests with coverage
         source .venv/bin/activate
-        python -m pytest tests/ -v || echo "✓ Tests completed"
-        
+        python -m pytest tests/ -v \
+          --cov=src/mcp_memory_service \
+          --cov-report=term-missing \
+          --cov-report=html \
+          --cov-fail-under=80 || {
+            echo "❌ Coverage below 80% threshold"
+            exit 1
+          }
+
+        echo "✓ Tests completed with coverage ≥80%"
+
         # Build wheel for uvx testing
         uv build
-        
+
         # Test package structure compatibility
         echo "✓ Package structure compatible with uvx"
 

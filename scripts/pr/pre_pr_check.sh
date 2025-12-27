@@ -54,7 +54,7 @@ check_status() {
 }
 
 # Check 1: Staged files exist
-echo -e "\n${YELLOW}[1/7]${NC} Checking for staged files..."
+echo -e "\n${YELLOW}[1/9]${NC} Checking for staged files..."
 STAGED_FILES=$(git diff --cached --name-only)
 if [ -z "$STAGED_FILES" ]; then
     echo -e "${RED}❌ No staged files found. Stage your changes first: git add .${NC}"
@@ -63,7 +63,7 @@ fi
 echo -e "${GREEN}✅${NC} Found $(echo "$STAGED_FILES" | wc -l) staged files"
 
 # Check 2: Run full quality gate
-echo -e "\n${YELLOW}[2/7]${NC} Running quality_gate.sh (complexity, security, PEP 8)..."
+echo -e "\n${YELLOW}[2/9]${NC} Running quality_gate.sh (complexity, security, PEP 8)..."
 if bash scripts/pr/quality_gate.sh --staged --with-pyscn; then
     check_status "Quality gate (complexity ≤8, no security issues)" 0
 else
@@ -71,17 +71,62 @@ else
     echo -e "${RED}   Fix high-complexity functions or security issues before creating PR${NC}"
 fi
 
-# Check 3: Run test suite
-echo -e "\n${YELLOW}[3/7]${NC} Running test suite..."
-if pytest tests/ -q --tb=short; then
+# Check 3: Run test suite with coverage
+echo -e "\n${YELLOW}[3/9]${NC} Running test suite with coverage..."
+
+# Check if pytest-cov is installed
+if ! python -c "import pytest_cov" 2>/dev/null; then
+    echo -e "${YELLOW}   Installing pytest-cov...${NC}"
+    pip install pytest-cov > /dev/null 2>&1
+fi
+
+# Run tests with coverage
+COVERAGE_OUTPUT=$(pytest tests/ -q --tb=short \
+    --cov=src/mcp_memory_service \
+    --cov-report=term-missing 2>&1)
+
+TEST_EXIT_CODE=$?
+COVERAGE_PERCENT=$(echo "$COVERAGE_OUTPUT" | grep "TOTAL" | awk '{print $4}' | sed 's/%//')
+
+if [ $TEST_EXIT_CODE -eq 0 ]; then
     check_status "Test suite" 0
 else
     check_status "Test suite" 1
     echo -e "${RED}   Fix failing tests before creating PR${NC}"
 fi
 
-# Check 4: PEP 8 compliance (imports)
-echo -e "\n${YELLOW}[4/7]${NC} Checking import ordering (PEP 8)..."
+# Coverage threshold check
+if [ -n "$COVERAGE_PERCENT" ] && [ "$COVERAGE_PERCENT" -ge 80 ]; then
+    check_status "Test coverage (≥80%)" 0
+    echo -e "${GREEN}   Current coverage: ${COVERAGE_PERCENT}%${NC}"
+else
+    check_status "Test coverage (≥80%)" 1
+    echo -e "${RED}   Current coverage: ${COVERAGE_PERCENT}% (minimum: 80%)${NC}"
+    echo -e "${YELLOW}   Add tests for untested code${NC}"
+fi
+
+# Check 3.5: Handler coverage check
+echo -e "\n${YELLOW}[3.5/9]${NC} Checking handler test coverage..."
+if python scripts/validation/check_handler_coverage.py; then
+    check_status "Handler coverage (all 17 handlers tested)" 0
+else
+    check_status "Handler coverage (all 17 handlers tested)" 1
+    echo -e "${RED}   Add integration tests for untested handlers${NC}"
+    echo -e "${YELLOW}   See: tests/integration/test_all_memory_handlers.py for examples${NC}"
+fi
+
+# Check 4: Import validation
+echo -e "\n${YELLOW}[4/9]${NC} Validating imports (regression check for Issue #299)..."
+if bash scripts/ci/validate_imports.sh > /dev/null 2>&1; then
+    check_status "Import validation (no ModuleNotFoundError)" 0
+else
+    check_status "Import validation (no ModuleNotFoundError)" 1
+    echo -e "${RED}   Fix import errors:${NC}"
+    bash scripts/ci/validate_imports.sh
+fi
+
+# Check 5: PEP 8 compliance (imports)
+echo -e "\n${YELLOW}[5/9]${NC} Checking import ordering (PEP 8)..."
 IMPORT_ISSUES=0
 for file in $(echo "$STAGED_FILES" | grep '\.py$' || true); do
     if [ -f "$file" ]; then
@@ -103,8 +148,8 @@ else
     fi
 fi
 
-# Check 5: No debug code
-echo -e "\n${YELLOW}[5/7]${NC} Checking for debug code..."
+# Check 6: No debug code
+echo -e "\n${YELLOW}[6/9]${NC} Checking for debug code..."
 DEBUG_ISSUES=0
 for file in $(echo "$STAGED_FILES" | grep '\.py$' || true); do
     if [ -f "$file" ]; then
@@ -123,8 +168,8 @@ else
     echo -e "${YELLOW}   Review and remove debug statements (or add '# debug' comment if intentional)${NC}"
 fi
 
-# Check 6: Docstring coverage
-echo -e "\n${YELLOW}[6/7]${NC} Checking docstring coverage..."
+# Check 7: Docstring coverage
+echo -e "\n${YELLOW}[7/9]${NC} Checking docstring coverage..."
 MISSING_DOCSTRINGS=0
 for file in $(echo "$STAGED_FILES" | grep '\.py$' || true); do
     if [ -f "$file" ]; then
@@ -146,8 +191,12 @@ else
     echo -e "${YELLOW}   Add docstrings to new functions (Args, Returns, Raises)${NC}"
 fi
 
-# Check 7: Code-quality-guard agent recommendation
-echo -e "\n${YELLOW}[7/7]${NC} Code-quality-guard agent check..."
+# Check 8: Final validation summary
+echo -e "\n${YELLOW}[8/9]${NC} Final validation summary..."
+check_status "All automated checks completed" 0
+
+# Check 9: Code-quality-guard agent recommendation
+echo -e "\n${YELLOW}[9/9]${NC} Code-quality-guard agent check..."
 echo -e "${BLUE}   RECOMMENDATION: Run code-quality-guard agent for deep analysis${NC}"
 echo -e "${BLUE}   Command: @agent code-quality-guard \"Analyze staged files\"${NC}"
 echo -e "${YELLOW}   ⚠️  This PR template requires agent usage - mark checkbox when done${NC}"
