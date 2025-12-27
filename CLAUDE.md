@@ -68,8 +68,15 @@ See [scripts/README.md](scripts/README.md) for complete command reference.
 - **Document Ingestion**: PDF, DOCX, PPTX loaders (see [docs/document-ingestion.md](docs/document-ingestion.md))
 - **Memory Hooks**: Natural Memory Triggers v7.1.3+ with 85%+ accuracy (see below)
 
+**Utility Modules** (v8.61.0 - Phase 3 Refactoring):
+- `utils/health_check.py` - Strategy Pattern for backend health checks (5 strategies)
+- `utils/startup_orchestrator.py` - Orchestrator Pattern for server startup (3 orchestrators)
+- `utils/directory_ingestion.py` - Processor Pattern for file ingestion (3 processors)
+- `utils/quality_analytics.py` - Analyzer Pattern for quality distribution (3 analyzers)
+
 **Key Patterns:**
 - Async/await for I/O, type safety (Python 3.10+), platform hardware optimization (CUDA/MPS/DirectML/ROCm)
+- Design Patterns: Strategy, Orchestrator, Processor, Analyzer (all complexity A-B grade)
 
 ## Document Ingestion
 
@@ -394,6 +401,40 @@ bash scripts/pr/auto_review.sh <PR_NUMBER>
 **Groq Bridge (RECOMMENDED):** 10x faster than Gemini (200-300ms vs 2-3s), no OAuth interruption.
 
 → Complete workflows: `.claude/directives/agents.md`
+
+## Agent Best Practices (Phase 3 Learnings)
+
+**Proven Refactoring Workflow** (8-10x faster than manual):
+1. **Manual Analysis** → Quick complexity assessment (1-2 min)
+2. **amp-bridge** → Code extraction/refactoring (3-5 min)
+3. **code-quality-guard** → Validation + metrics (2-4 min)
+4. **Git Commit** → Incremental progress
+5. **Iterate** → Next function
+
+**Phase 3 Results** (2025-12-27):
+- 4 functions refactored in 1 day: 1 E-level → B, 3 D-level → A/B
+- Average complexity reduction: **75.2%**
+- Best: async_main D(23) → A(4) - **82.6% reduction**
+- Tools: amp-bridge + code-quality-guard + github-release-manager
+
+**Rate Limit Mitigation**:
+- ⚠️ Gemini/Groq can hit limits in long sessions or parallel requests
+- ✅ Prefer **Groq** over Gemini (10x faster, 200-300ms response)
+- ✅ Use **sequential** agent calls (not parallel)
+- ✅ Monitor for 429 errors, retry with exponential backoff
+- ✅ Consider local fallbacks (radon, bandit) if API unavailable
+
+**Agent Performance Expectations**:
+- amp-bridge: 3-5 minutes per extraction
+- code-quality-guard: 2-4 minutes per validation (faster with Groq)
+- github-release-manager: 2-3 minutes per release
+- Speedup vs manual: ~8-10x for complex refactorings
+
+**Quality Assurance**:
+- amp-bridge creates compilable, well-structured code
+- code-quality-guard catches edge cases tests miss
+- Always validate with tests after agent-generated code
+- Commit incrementally (don't batch multiple functions)
 
 > **For detailed troubleshooting, architecture, and deployment guides:**
 > - **Backend Configuration Issues**: See [Wiki Troubleshooting Guide](https://github.com/doobidoo/mcp-memory-service/wiki/07-TROUBLESHOOTING#backend-configuration-issues) for comprehensive solutions to missing memories, environment variable issues, Cloudflare auth, hooks timeouts, and more
