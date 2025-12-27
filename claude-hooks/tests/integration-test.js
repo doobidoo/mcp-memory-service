@@ -6,7 +6,9 @@
  */
 
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
+const os = require('os');
 
 // Import hooks and utilities
 const sessionStartHook = require('../core/session-start');
@@ -262,19 +264,127 @@ async function runTests() {
         if (typeof sessionEndHook.handler !== 'function') {
             return { success: false, error: 'Session end hook missing handler function' };
         }
-        
+
         if (!sessionEndHook.name || !sessionEndHook.version) {
             return { success: false, error: 'Session end hook missing metadata' };
         }
-        
+
         if (sessionEndHook.trigger !== 'session-end') {
             return { success: false, error: 'Session end hook wrong trigger' };
         }
-        
+
         console.log(`  Hook: ${sessionEndHook.name} v${sessionEndHook.version}`);
         return { success: true };
     });
-    
+
+    // Test 5a: parseTranscript - String content messages
+    await results.asyncTest('parseTranscript: String content messages', async () => {
+        const { parseTranscript } = sessionEndHook._internal;
+        if (!parseTranscript) {
+            return { success: false, error: 'parseTranscript not exported' };
+        }
+
+        const entries = [
+            { type: 'user', message: { role: 'user', content: 'Hello, how are you?' } },
+            { type: 'assistant', message: { role: 'assistant', content: 'I am doing well!' } }
+        ];
+        const tmpFile = path.join(os.tmpdir(), `test-transcript-${Date.now()}.jsonl`);
+        await fsPromises.writeFile(tmpFile, entries.map(e => JSON.stringify(e)).join('\n'), 'utf8');
+
+        try {
+            const result = await parseTranscript(tmpFile);
+            if (result.messages.length !== 2) {
+                return { success: false, error: `Expected 2 messages, got ${result.messages.length}` };
+            }
+            if (result.messages[0].content !== 'Hello, how are you?') {
+                return { success: false, error: `Unexpected content: ${result.messages[0].content}` };
+            }
+            console.log(`  Parsed ${result.messages.length} messages from JSONL`);
+            return { success: true };
+        } finally {
+            await fsPromises.unlink(tmpFile).catch(() => {});
+        }
+    });
+
+    // Test 5b: parseTranscript - Array content blocks
+    await results.asyncTest('parseTranscript: Array content blocks', async () => {
+        const { parseTranscript } = sessionEndHook._internal;
+        const entries = [
+            {
+                type: 'assistant',
+                message: {
+                    role: 'assistant',
+                    content: [
+                        { type: 'text', text: 'First part.' },
+                        { type: 'text', text: 'Second part.' }
+                    ]
+                }
+            }
+        ];
+        const tmpFile = path.join(os.tmpdir(), `test-transcript-${Date.now()}.jsonl`);
+        await fsPromises.writeFile(tmpFile, entries.map(e => JSON.stringify(e)).join('\n'), 'utf8');
+
+        try {
+            const result = await parseTranscript(tmpFile);
+            if (result.messages.length !== 1) {
+                return { success: false, error: `Expected 1 message, got ${result.messages.length}` };
+            }
+            if (!result.messages[0].content.includes('First part')) {
+                return { success: false, error: 'Missing first part in content' };
+            }
+            console.log(`  Correctly joined array content blocks`);
+            return { success: true };
+        } finally {
+            await fsPromises.unlink(tmpFile).catch(() => {});
+        }
+    });
+
+    // Test 5c: parseTranscript - Skips non-user/assistant entries
+    await results.asyncTest('parseTranscript: Skips non-message entries', async () => {
+        const { parseTranscript } = sessionEndHook._internal;
+        const entries = [
+            { type: 'file-history-snapshot', message: null },
+            { type: 'user', message: { role: 'user', content: 'Hello' } },
+            { type: 'system', message: { role: 'system', content: 'System msg' } }
+        ];
+        const tmpFile = path.join(os.tmpdir(), `test-transcript-${Date.now()}.jsonl`);
+        await fsPromises.writeFile(tmpFile, entries.map(e => JSON.stringify(e)).join('\n'), 'utf8');
+
+        try {
+            const result = await parseTranscript(tmpFile);
+            if (result.messages.length !== 1) {
+                return { success: false, error: `Expected 1 message (user only), got ${result.messages.length}` };
+            }
+            console.log(`  Correctly filtered to user/assistant messages only`);
+            return { success: true };
+        } finally {
+            await fsPromises.unlink(tmpFile).catch(() => {});
+        }
+    });
+
+    // Test 5d: parseTranscript - Handles malformed JSON gracefully
+    await results.asyncTest('parseTranscript: Handles malformed JSON', async () => {
+        const { parseTranscript } = sessionEndHook._internal;
+        const tmpFile = path.join(os.tmpdir(), `test-transcript-${Date.now()}.jsonl`);
+        const content = [
+            JSON.stringify({ type: 'user', message: { role: 'user', content: 'Valid' } }),
+            'not valid json {{{',
+            JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'Also valid' } })
+        ].join('\n');
+        await fsPromises.writeFile(tmpFile, content, 'utf8');
+
+        try {
+            const result = await parseTranscript(tmpFile);
+            if (result.messages.length !== 2) {
+                return { success: false, error: `Expected 2 messages (skipping malformed), got ${result.messages.length}` };
+            }
+            console.log(`  Gracefully skipped malformed JSON line`);
+            return { success: true };
+        } finally {
+            await fsPromises.unlink(tmpFile).catch(() => {});
+        }
+    });
+
     // Test 6: Configuration Loading
     results.test('Configuration Loading', () => {
         const configPath = path.join(__dirname, '../config.json');

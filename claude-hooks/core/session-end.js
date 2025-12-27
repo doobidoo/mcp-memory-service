@@ -447,6 +447,11 @@ module.exports = {
         async: true,
         timeout: 15000, // 15 second timeout
         priority: 'normal'
+    },
+    // Exported for testing
+    _internal: {
+        parseTranscript: null,  // Will be set after function definition
+        analyzeConversation
     }
 };
 
@@ -546,6 +551,9 @@ async function parseTranscript(transcriptPath) {
         return { messages: [] };
     }
 }
+
+// Set parseTranscript on exports for testing (after function is defined)
+module.exports._internal.parseTranscript = parseTranscript;
 
 /**
  * Mock conversation for manual testing (when no stdin/transcript available)
