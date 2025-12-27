@@ -488,7 +488,7 @@ async function readStdinContext() {
         process.stdin.on('error', (error) => {
             clearTimeout(timeout);
             console.error('[Memory Hook] Stdin error:', error.message);
-            resolve(null);
+            reject(error);
         });
     });
 }
