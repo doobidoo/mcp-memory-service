@@ -1,0 +1,205 @@
+{
+  "sessions": [
+    {
+      "id": "cross-session-1",
+      "startTime": "2025-10-03T13:00:20.986Z",
+      "endTime": "2025-10-03T13:00:20.986Z",
+      "projectContext": {
+        "name": "mcp-memory-service",
+        "type": "Multi-language Project",
+        "languages": [
+          "javascript",
+          "python"
+        ],
+        "frameworks": [
+          "node.js",
+          "fastapi"
+        ],
+        "tools": [
+          "git",
+          "npm",
+          "pip"
+        ],
+        "confidence": 0.95
+      },
+      "initialTopics": [],
+      "finalTopics": [
+        "auth",
+        "jwt"
+      ],
+      "memoriesLoaded": [],
+      "memoriesCreated": [],
+      "conversationSummary": "Implemented user authentication",
+      "outcome": {
+        "type": "implementation",
+        "summary": "Implemented user authentication",
+        "topics": [
+          "auth",
+          "jwt"
+        ]
+      },
+      "threadId": "thread-ee93501cb0e678ad",
+      "parentSessionId": null,
+      "childSessionIds": [],
+      "status": "completed"
+    }
+  ],
+  "conversationThreads": [
+    {
+      "id": "thread-93a8463caef492e9",
+      "createdAt": "2025-08-20T11:38:33.004Z",
+      "projectContext": {
+        "name": "mcp-memory-service",
+        "type": "Multi-language Project",
+        "languages": [
+          "javascript",
+          "python"
+        ],
+        "frameworks": [
+          "node.js",
+          "fastapi"
+        ],
+        "tools": [
+          "git",
+          "npm",
+          "pip"
+        ],
+        "confidence": 0.95
+      },
+      "sessionIds": [
+        "cross-session-1"
+      ],
+      "topics": [
+        "auth",
+        "jwt"
+      ],
+      "outcomes": [
+        {
+          "sessionId": "cross-session-1",
+          "outcome": {
+            "type": "implementation",
+            "summary": "Implemented user authentication",
+            "topics": [
+              "auth",
+              "jwt"
+            ]
+          },
+          "timestamp": "2025-08-20T11:38:33.004Z"
+        },
+        {
+          "sessionId": "cross-session-1",
+          "outcome": {
+            "type": "implementation",
+            "summary": "Implemented user authentication",
+            "topics": [
+              "auth",
+              "jwt"
+            ]
+          },
+          "timestamp": "2025-08-20T11:42:10.899Z"
+        },
+        {
+          "sessionId": "cross-session-1",
+          "outcome": {
+            "type": "implementation",
+            "summary": "Implemented user authentication",
+            "topics": [
+              "auth",
+              "jwt"
+            ]
+          },
+          "timestamp": "2025-08-20T11:43:24.011Z"
+        },
+        {
+          "sessionId": "cross-session-1",
+          "outcome": {
+            "type": "implementation",
+            "summary": "Implemented user authentication",
+            "topics": [
+              "auth",
+              "jwt"
+            ]
+          },
+          "timestamp": "2025-08-20T11:43:49.800Z"
+        },
+        {
+          "sessionId": "cross-session-1",
+          "outcome": {
+            "type": "implementation",
+            "summary": "Implemented user authentication",
+            "topics": [
+              "auth",
+              "jwt"
+            ]
+          },
+          "timestamp": "2025-08-20T11:44:35.340Z"
+        },
+        {
+          "sessionId": "cross-session-1",
+          "outcome": {
+            "type": "implementation",
+            "summary": "Implemented user authentication",
+            "topics": [
+              "auth",
+              "jwt"
+            ]
+          },
+          "timestamp": "2025-08-20T11:45:38.592Z"
+        }
+      ],
+      "status": "active",
+      "lastUpdated": "2025-08-20T11:45:38.592Z"
+    },
+    {
+      "id": "thread-ee93501cb0e678ad",
+      "createdAt": "2025-10-03T13:00:20.986Z",
+      "projectContext": {
+        "name": "mcp-memory-service",
+        "type": "Multi-language Project",
+        "languages": [
+          "javascript",
+          "python"
+        ],
+        "frameworks": [
+          "node.js",
+          "fastapi"
+        ],
+        "tools": [
+          "git",
+          "npm",
+          "pip"
+        ],
+        "confidence": 0.95
+      },
+      "sessionIds": [
+        "cross-session-1"
+      ],
+      "topics": [
+        "auth",
+        "jwt"
+      ],
+      "outcomes": [
+        {
+          "sessionId": "cross-session-1",
+          "outcome": {
+            "type": "implementation",
+            "summary": "Implemented user authentication",
+            "topics": [
+              "auth",
+              "jwt"
+            ]
+          },
+          "timestamp": "2025-10-03T13:00:20.986Z"
+        }
+      ],
+      "status": "active",
+      "lastUpdated": "2025-10-03T13:00:20.986Z"
+    }
+  ],
+  "projectSessions": {
+    "mcp-memory-service": [
+      "cross-session-1"
+    ]
+  },
+  "lastSaved": "2025-10-03T13:00:20.986Z"
+}

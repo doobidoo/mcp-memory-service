@@ -1,0 +1,242 @@
+{
+  "sessions": [
+    {
+      "id": "test-session-1759496420980",
+      "startTime": "2025-10-03T13:00:20.980Z",
+      "endTime": null,
+      "projectContext": {
+        "name": "mcp-memory-service",
+        "type": "Multi-language Project",
+        "languages": [
+          "javascript",
+          "python"
+        ],
+        "frameworks": [
+          "node.js",
+          "fastapi"
+        ],
+        "tools": [
+          "git",
+          "npm",
+          "pip"
+        ],
+        "confidence": 0.95
+      },
+      "workingDirectory": "/test/directory",
+      "initialTopics": [],
+      "finalTopics": [],
+      "memoriesLoaded": [],
+      "memoriesCreated": [],
+      "conversationSummary": null,
+      "outcome": null,
+      "threadId": "thread-8e3c1ef4f0d194a7",
+      "parentSessionId": null,
+      "childSessionIds": [],
+      "status": "active"
+    }
+  ],
+  "conversationThreads": [
+    {
+      "id": "thread-580819bbd8f0cd81",
+      "createdAt": "2025-08-20T11:38:33.001Z",
+      "projectContext": {
+        "name": "mcp-memory-service",
+        "type": "Multi-language Project",
+        "languages": [
+          "javascript",
+          "python"
+        ],
+        "frameworks": [
+          "node.js",
+          "fastapi"
+        ],
+        "tools": [
+          "git",
+          "npm",
+          "pip"
+        ],
+        "confidence": 0.95
+      },
+      "sessionIds": [
+        "test-session-1755689913000"
+      ],
+      "topics": [],
+      "outcomes": [],
+      "status": "active"
+    },
+    {
+      "id": "thread-e5d79cf384f81206",
+      "createdAt": "2025-08-20T11:42:10.896Z",
+      "projectContext": {
+        "name": "mcp-memory-service",
+        "type": "Multi-language Project",
+        "languages": [
+          "javascript",
+          "python"
+        ],
+        "frameworks": [
+          "node.js",
+          "fastapi"
+        ],
+        "tools": [
+          "git",
+          "npm",
+          "pip"
+        ],
+        "confidence": 0.95
+      },
+      "sessionIds": [
+        "test-session-1755690130896"
+      ],
+      "topics": [],
+      "outcomes": [],
+      "status": "active"
+    },
+    {
+      "id": "thread-baec3bef4586c544",
+      "createdAt": "2025-08-20T11:43:24.007Z",
+      "projectContext": {
+        "name": "mcp-memory-service",
+        "type": "Multi-language Project",
+        "languages": [
+          "javascript",
+          "python"
+        ],
+        "frameworks": [
+          "node.js",
+          "fastapi"
+        ],
+        "tools": [
+          "git",
+          "npm",
+          "pip"
+        ],
+        "confidence": 0.95
+      },
+      "sessionIds": [
+        "test-session-1755690204007"
+      ],
+      "topics": [],
+      "outcomes": [],
+      "status": "active"
+    },
+    {
+      "id": "thread-8ceebf438da3ede6",
+      "createdAt": "2025-08-20T11:43:49.796Z",
+      "projectContext": {
+        "name": "mcp-memory-service",
+        "type": "Multi-language Project",
+        "languages": [
+          "javascript",
+          "python"
+        ],
+        "frameworks": [
+          "node.js",
+          "fastapi"
+        ],
+        "tools": [
+          "git",
+          "npm",
+          "pip"
+        ],
+        "confidence": 0.95
+      },
+      "sessionIds": [
+        "test-session-1755690229795"
+      ],
+      "topics": [],
+      "outcomes": [],
+      "status": "active"
+    },
+    {
+      "id": "thread-3596674e63855259",
+      "createdAt": "2025-08-20T11:44:35.337Z",
+      "projectContext": {
+        "name": "mcp-memory-service",
+        "type": "Multi-language Project",
+        "languages": [
+          "javascript",
+          "python"
+        ],
+        "frameworks": [
+          "node.js",
+          "fastapi"
+        ],
+        "tools": [
+          "git",
+          "npm",
+          "pip"
+        ],
+        "confidence": 0.95
+      },
+      "sessionIds": [
+        "test-session-1755690275336"
+      ],
+      "topics": [],
+      "outcomes": [],
+      "status": "active"
+    },
+    {
+      "id": "thread-a1b7d615834f2c47",
+      "createdAt": "2025-08-20T11:45:38.589Z",
+      "projectContext": {
+        "name": "mcp-memory-service",
+        "type": "Multi-language Project",
+        "languages": [
+          "javascript",
+          "python"
+        ],
+        "frameworks": [
+          "node.js",
+          "fastapi"
+        ],
+        "tools": [
+          "git",
+          "npm",
+          "pip"
+        ],
+        "confidence": 0.95
+      },
+      "sessionIds": [
+        "test-session-1755690338588"
+      ],
+      "topics": [],
+      "outcomes": [],
+      "status": "active"
+    },
+    {
+      "id": "thread-8e3c1ef4f0d194a7",
+      "createdAt": "2025-10-03T13:00:20.980Z",
+      "projectContext": {
+        "name": "mcp-memory-service",
+        "type": "Multi-language Project",
+        "languages": [
+          "javascript",
+          "python"
+        ],
+        "frameworks": [
+          "node.js",
+          "fastapi"
+        ],
+        "tools": [
+          "git",
+          "npm",
+          "pip"
+        ],
+        "confidence": 0.95
+      },
+      "sessionIds": [
+        "test-session-1759496420980"
+      ],
+      "topics": [],
+      "outcomes": [],
+      "status": "active"
+    }
+  ],
+  "projectSessions": {
+    "mcp-memory-service": [
+      "test-session-1759496420980"
+    ]
+  },
+  "lastSaved": "2025-10-03T13:00:20.980Z"
+}
