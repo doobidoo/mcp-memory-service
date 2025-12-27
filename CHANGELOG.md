@@ -18,15 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - **Average Complexity Reduction: 75.2%** across all phases
   - **Total Impact**: 400+ lines reduced from handlers, 896 new lines of well-structured utility code
 
-  **Phase 3.1: Health Check Strategy Pattern** (Commit 1fc50e4)
-  - Refactored `handle_check_database_health` using Strategy Pattern
-  - Complexity: **E (35) → B (7-8)** - **78% reduction**
-  - Created `utils/health_check.py` (262 lines):
-    - HealthCheckStrategy (abstract base class)
-    - SqliteHealthChecker, CloudflareHealthChecker, HybridHealthChecker
-    - HealthCheckFactory, UnknownStorageChecker
-  - Reduced handler from 268 to 87 lines (-68%)
-  - Each backend health check strategy independently testable
+  **Phase 3.1: Health Check Strategy Pattern** - E (35) → B (7-8), 78% reduction
+  - *See v8.60.0 release notes for complete Phase 3.1 details*
 
   **Phase 3.2: Startup Orchestrator Pattern** (Commit 016d66a)
   - Refactored `async_main` using Orchestrator Pattern
