@@ -20,14 +20,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - **Impact**: Session consolidation memories now contain actual conversation content
   - **Files Changed**: `claude-hooks/core/session-end.js`
 
-- **SessionEnd Hook: Capture non-development conversation topics** (claude-hooks)
-  - Fixed `analyzeConversation()` only extracting software development keywords
-  - Non-dev conversations (e.g., "tell me about JS Bach") were stored with empty/generic topics
-  - Solution: Added `userQuery` and `responseSummary` fields to capture actual conversation content
-  - Updated `formatSessionConsolidation()` to include "💬 Conversation" section
-  - **Impact**: All conversations are now meaningfully captured, not just dev-focused ones
-  - **Files Changed**: `claude-hooks/core/session-end.js`, `claude-hooks/utilities/context-formatter.js`
-
 ## [8.62.0] - 2025-12-27
 
 ### Added

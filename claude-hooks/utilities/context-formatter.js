@@ -1096,16 +1096,6 @@ function formatSessionConsolidation(sessionData, projectContext) {
         let consolidation = `# Session Summary - ${projectContext.name}\n`;
         consolidation += `**Project**: ${projectContext.name} (${projectContext.language})\n\n`;
 
-        // Include conversation summary if available (ensures non-dev topics are captured)
-        if (sessionData.userQuery) {
-            consolidation += `## 💬 Conversation\n`;
-            consolidation += `**Question**: ${sessionData.userQuery}\n`;
-            if (sessionData.responseSummary) {
-                consolidation += `**Summary**: ${sessionData.responseSummary}\n`;
-            }
-            consolidation += '\n';
-        }
-
         if (sessionData.topics && sessionData.topics.length > 0) {
             consolidation += `## 🎯 Topics Discussed\n`;
             sessionData.topics.forEach(topic => {
