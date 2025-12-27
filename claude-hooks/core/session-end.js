@@ -478,7 +478,7 @@ async function readStdinContext() {
                     resolve(JSON.parse(data));
                 } catch (error) {
                     console.error('[Memory Hook] Failed to parse stdin JSON:', error.message);
-                    resolve(null);
+                    reject(error);
                 }
             } else {
                 resolve(null);
