@@ -3,11 +3,11 @@ Integration tests for POST /api/search/by-tag endpoint with time_filter paramete
 
 Tests the time_filter functionality added in PR #215 to fix semantic over-filtering bug (issue #214).
 
-FIXED: Refactored to follow test_api_with_memory_service.py pattern (lines 560-605).
-- Helper function instead of async fixture (create_test_storage_with_data)
-- monkeypatch → storage creation → app import → set_storage() order
-- try/finally cleanup blocks
-- Fixes uvx CI authentication failures (storage created before monkeypatch)
+FIXED: Global authentication disabling via tests/integration/conftest.py
+- Session-scoped fixture sets env vars BEFORE any imports
+- config.py reads env vars at import time, not runtime
+- Ensures auth disabled for all integration tests
+- Works reliably in both local pytest and uvx CI environments
 """
 
 import pytest
@@ -74,18 +74,11 @@ async def create_test_storage_with_data(temp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_with_time_filter_recent(temp_db, monkeypatch):
+async def test_api_search_by_tag_with_time_filter_recent(temp_db):
     """Test POST /api/search/by-tag with time_filter returns only recent memories."""
-    # 1. Disable authentication FIRST
-    monkeypatch.setenv('MCP_API_KEY', '')
-    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
-    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
-
-    # 2. Create storage AFTER monkeypatch
     storage = await create_test_storage_with_data(temp_db)
 
     try:
-        # 3. Import app AFTER env vars set
         from mcp_memory_service.web.app import app
         set_storage(storage)
 
@@ -117,18 +110,11 @@ async def test_api_search_by_tag_with_time_filter_recent(temp_db, monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_with_time_filter_excludes_old(temp_db, monkeypatch):
+async def test_api_search_by_tag_with_time_filter_excludes_old(temp_db):
     """Test POST /api/search/by-tag with time_filter excludes old memories."""
-    # 1. Disable authentication FIRST
-    monkeypatch.setenv('MCP_API_KEY', '')
-    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
-    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
-
-    # 2. Create storage AFTER monkeypatch
     storage = await create_test_storage_with_data(temp_db)
 
     try:
-        # 3. Import app AFTER env vars set
         from mcp_memory_service.web.app import app
         set_storage(storage)
 
@@ -159,18 +145,11 @@ async def test_api_search_by_tag_with_time_filter_excludes_old(temp_db, monkeypa
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_without_time_filter_backward_compat(temp_db, monkeypatch):
+async def test_api_search_by_tag_without_time_filter_backward_compat(temp_db):
     """Test POST /api/search/by-tag without time_filter returns all matching memories (backward compatibility)."""
-    # 1. Disable authentication FIRST
-    monkeypatch.setenv('MCP_API_KEY', '')
-    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
-    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
-
-    # 2. Create storage AFTER monkeypatch
     storage = await create_test_storage_with_data(temp_db)
 
     try:
-        # 3. Import app AFTER env vars set
         from mcp_memory_service.web.app import app
         set_storage(storage)
 
@@ -200,18 +179,11 @@ async def test_api_search_by_tag_without_time_filter_backward_compat(temp_db, mo
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_with_empty_time_filter(temp_db, monkeypatch):
+async def test_api_search_by_tag_with_empty_time_filter(temp_db):
     """Test POST /api/search/by-tag with empty time_filter string is ignored."""
-    # 1. Disable authentication FIRST
-    monkeypatch.setenv('MCP_API_KEY', '')
-    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
-    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
-
-    # 2. Create storage AFTER monkeypatch
     storage = await create_test_storage_with_data(temp_db)
 
     try:
-        # 3. Import app AFTER env vars set
         from mcp_memory_service.web.app import app
         set_storage(storage)
 
@@ -239,18 +211,11 @@ async def test_api_search_by_tag_with_empty_time_filter(temp_db, monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_with_natural_language_time_filter(temp_db, monkeypatch):
+async def test_api_search_by_tag_with_natural_language_time_filter(temp_db):
     """Test POST /api/search/by-tag with natural language time expressions."""
-    # 1. Disable authentication FIRST
-    monkeypatch.setenv('MCP_API_KEY', '')
-    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
-    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
-
-    # 2. Create storage AFTER monkeypatch
     storage = await create_test_storage_with_data(temp_db)
 
     try:
-        # 3. Import app AFTER env vars set
         from mcp_memory_service.web.app import app
         set_storage(storage)
 
@@ -279,18 +244,11 @@ async def test_api_search_by_tag_with_natural_language_time_filter(temp_db, monk
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_time_filter_with_multiple_tags(temp_db, monkeypatch):
+async def test_api_search_by_tag_time_filter_with_multiple_tags(temp_db):
     """Test POST /api/search/by-tag with time_filter and multiple tags."""
-    # 1. Disable authentication FIRST
-    monkeypatch.setenv('MCP_API_KEY', '')
-    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
-    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
-
-    # 2. Create storage AFTER monkeypatch
     storage = await create_test_storage_with_data(temp_db)
 
     try:
-        # 3. Import app AFTER env vars set
         from mcp_memory_service.web.app import app
         set_storage(storage)
 
@@ -321,18 +279,11 @@ async def test_api_search_by_tag_time_filter_with_multiple_tags(temp_db, monkeyp
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_time_filter_with_match_all(temp_db, monkeypatch):
+async def test_api_search_by_tag_time_filter_with_match_all(temp_db):
     """Test POST /api/search/by-tag with time_filter and match_all parameter."""
-    # 1. Disable authentication FIRST
-    monkeypatch.setenv('MCP_API_KEY', '')
-    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
-    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
-
-    # 2. Create storage AFTER monkeypatch
     storage = await create_test_storage_with_data(temp_db)
 
     try:
-        # 3. Import app AFTER env vars set
         from mcp_memory_service.web.app import app
         set_storage(storage)
 
@@ -378,18 +329,11 @@ async def test_api_search_by_tag_time_filter_with_match_all(temp_db, monkeypatch
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_invalid_time_filter_format(temp_db, monkeypatch):
+async def test_api_search_by_tag_invalid_time_filter_format(temp_db):
     """Test POST /api/search/by-tag with invalid time_filter returns error or empty."""
-    # 1. Disable authentication FIRST
-    monkeypatch.setenv('MCP_API_KEY', '')
-    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
-    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
-
-    # 2. Create storage AFTER monkeypatch
     storage = await create_test_storage_with_data(temp_db)
 
     try:
-        # 3. Import app AFTER env vars set
         from mcp_memory_service.web.app import app
         set_storage(storage)
 
@@ -421,18 +365,11 @@ async def test_api_search_by_tag_invalid_time_filter_format(temp_db, monkeypatch
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_time_filter_performance(temp_db, monkeypatch):
+async def test_api_search_by_tag_time_filter_performance(temp_db):
     """Test that tag+time filtering maintains good performance (<100ms)."""
-    # 1. Disable authentication FIRST
-    monkeypatch.setenv('MCP_API_KEY', '')
-    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
-    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
-
-    # 2. Create storage AFTER monkeypatch
     storage = await create_test_storage_with_data(temp_db)
 
     try:
-        # 3. Import app AFTER env vars set
         from mcp_memory_service.web.app import app
         set_storage(storage)
 
