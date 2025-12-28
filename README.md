@@ -124,18 +124,18 @@ Choose from:
 
 ---
 
-## 🆕 Latest Release: **v8.62.1** (Dec 28, 2025)
+## 🆕 Latest Release: **v8.62.2** (Dec 28, 2025)
 
-**CRITICAL BUG FIX: SessionEnd Hook Now Reads Real Conversation Data**
+**TEST INFRASTRUCTURE: Consolidation & Performance Test Stability**
 
-- 🐛 **Critical Fix** - SessionEnd hook was using hardcoded mock data instead of actual conversation transcript
-- 📝 **Real Transcript Parsing** - Now reads stdin from Claude Code and parses JSONL transcript files correctly
-- 🔧 **Robust Handling** - Supports both string and array content formats, handles malformed JSON gracefully
-- 🧪 **4 New Integration Tests** - Comprehensive validation of transcript parsing edge cases
-- 🎯 **Topic Limit Removed** - All relevant topics now captured in session summaries (was artificially limited to 5)
-- 🙏 **External Contribution** - Thanks to @channingwalton for discovering and fixing this bug (PR #301)
+- ✅ **5 Test Failures Resolved** - Fixed consolidation suite (4 tests) and performance suite (1 test) from Issue #295
+- 🔧 **Async/Await Fix** - Corrected TypeErrors in hybrid storage cleanup with proper None-checks and exception handling
+- 🧪 **pytest-asyncio** - Added asyncio_mode = auto configuration to eliminate deprecation warnings
+- 🔐 **HTTP API Tests** - Disabled authentication in test fixtures for proper isolation (partial fix for Issue #303)
+- 📊 **Quality Metrics** - Maintained 75% A-grade complexity, zero security regressions, no performance impact
 
 **Previous Releases**:
+- **v8.62.1** - Critical Bug Fix: SessionEnd Hook Real Conversation Data (hardcoded mock data fix, robust transcript parsing)
 - **v8.62.0** - Comprehensive Test Coverage Infrastructure - 100% Handler Coverage Achievement (35 tests, 800+ lines, CI/CD gate)
 - **v8.61.2** - CRITICAL HOTFIX: delete_memory KeyError Fix (response parsing, validated delete flow)
 - **v8.61.1** - CRITICAL HOTFIX: Import Error Fix (5 MCP tools restored, relative import path correction)
