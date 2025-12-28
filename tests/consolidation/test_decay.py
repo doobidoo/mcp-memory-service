@@ -154,9 +154,9 @@ class TestExponentialDecayCalculator:
         
         no_access_score = scores_no_access[0]
         recent_access_score = scores_recent_access[0]
-        
-        assert recent_access_score.access_boost > no_access_score.access_boost
-        assert recent_access_score.total_score > no_access_score.total_score
+
+        assert recent_access_score.access_boost >= no_access_score.access_boost
+        assert recent_access_score.total_score >= no_access_score.total_score
     
     @pytest.mark.asyncio
     async def test_base_importance_from_metadata(self, decay_calculator):

@@ -111,9 +111,9 @@ async def test_background_sync_with_mock():
             print("\n🔄 Checking sync queue...")
             if storage.sync_service:
                 status = await storage.sync_service.get_sync_status()
-                print(f"  Queue size: {status['queue_size']}")
-                print(f"  Cloudflare available: {status['cloudflare_available']}")
-                print(f"  Operations processed: {status['stats']['operations_processed']}")
+                print(f"  Queue size: {status.get('pending_operations', 0)}")
+                print(f"  Cloudflare available: {status.get('cloudflare_available', False)}")
+                print(f"  Operations processed: {status.get('operations_processed', 0)}")
 
                 # Wait for background processing
                 print("\n⏳ Waiting for background sync (2 seconds)...")
@@ -122,10 +122,10 @@ async def test_background_sync_with_mock():
                 # Check status after processing
                 status = await storage.sync_service.get_sync_status()
                 print(f"\n📊 After background processing:")
-                print(f"  Queue size: {status['queue_size']}")
-                print(f"  Operations processed: {status['stats']['operations_processed']}")
-                print(f"  Operations failed: {status['stats'].get('operations_failed', 0)}")
-                print(f"  Last sync duration: {status['stats'].get('last_sync_duration', 0):.2f}s")
+                print(f"  Queue size: {status.get('pending_operations', 0)}")
+                print(f"  Operations processed: {status.get('operations_processed', 0)}")
+                print(f"  Operations failed: {status.get('operations_failed', 0)}")
+                print(f"  Last sync duration: {status.get('stats', {}).get('last_sync_duration', 0):.2f}s")
 
                 # Check mock Cloudflare received operations
                 mock_cf_stats = await storage.secondary.get_stats()
@@ -151,8 +151,8 @@ async def test_background_sync_with_mock():
                 # Final verification
                 final_status = await storage.sync_service.get_sync_status()
                 print(f"\n✅ Final sync status:")
-                print(f"  Total operations processed: {final_status['stats']['operations_processed']}")
-                print(f"  Queue remaining: {final_status['queue_size']}")
+                print(f"  Total operations processed: {final_status.get('operations_processed', 0)}")
+                print(f"  Queue remaining: {final_status.get('pending_operations', 0)}")
 
             await storage.close()
             print("\n🎉 Background sync test completed successfully!")

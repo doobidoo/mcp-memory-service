@@ -379,9 +379,11 @@ class TestDreamInspiredConsolidator:
             'preserve_originals': True,
             'relevance_threshold': 0.1,
             'access_threshold_days': 30,
-            'archive_location': None
+            'archive_location': None,
+            'batch_size': 500,
+            'incremental_mode': True
         })()
-        
+
         config2 = type('Config', (), {
             'decay_enabled': False,
             'associations_enabled': False,
@@ -398,7 +400,9 @@ class TestDreamInspiredConsolidator:
             'preserve_originals': True,
             'relevance_threshold': 0.1,
             'access_threshold_days': 30,
-            'archive_location': None
+            'archive_location': None,
+            'batch_size': 500,
+            'incremental_mode': True
         })()
         
         consolidator1 = DreamInspiredConsolidator(mock_storage, config1)

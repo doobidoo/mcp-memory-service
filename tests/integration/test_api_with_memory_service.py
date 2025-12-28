@@ -38,8 +38,13 @@ async def initialized_storage(temp_db):
 
 
 @pytest.fixture
-def test_app(initialized_storage):
+def test_app(initialized_storage, monkeypatch):
     """Create a FastAPI test application with initialized storage."""
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     # Import here to avoid circular dependencies
     from mcp_memory_service.web.server import app
 
@@ -552,12 +557,17 @@ async def test_end_to_end_workflow_with_real_storage(temp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_store_memory_endpoint(temp_db, unique_content):
+async def test_http_api_store_memory_endpoint(temp_db, unique_content, monkeypatch):
     """
     Test POST /api/memories endpoint with real HTTP request.
 
     Uses TestClient to make actual HTTP request to FastAPI app.
     """
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     # Create real storage
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
@@ -597,12 +607,17 @@ async def test_http_api_store_memory_endpoint(temp_db, unique_content):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_list_memories_endpoint(temp_db, unique_content):
+async def test_http_api_list_memories_endpoint(temp_db, unique_content, monkeypatch):
     """
     Test GET /api/memories endpoint with real HTTP request.
 
     Verifies pagination and filtering work through HTTP API.
     """
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
 
@@ -637,12 +652,17 @@ async def test_http_api_list_memories_endpoint(temp_db, unique_content):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_search_endpoint(temp_db, unique_content):
+async def test_http_api_search_endpoint(temp_db, unique_content, monkeypatch):
     """
     Test POST /api/search endpoint with real HTTP request.
 
     Verifies semantic search works through HTTP API.
     """
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
 
@@ -677,12 +697,17 @@ async def test_http_api_search_endpoint(temp_db, unique_content):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_search_by_tag_endpoint(temp_db, unique_content):
+async def test_http_api_search_by_tag_endpoint(temp_db, unique_content, monkeypatch):
     """
     Test POST /api/search/by-tag endpoint with real HTTP request.
 
     Verifies tag search works through HTTP API.
     """
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
 
@@ -722,12 +747,17 @@ async def test_http_api_search_by_tag_endpoint(temp_db, unique_content):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_get_memory_by_hash_endpoint(temp_db, unique_content):
+async def test_http_api_get_memory_by_hash_endpoint(temp_db, unique_content, monkeypatch):
     """
     Test GET /api/memories/{hash} endpoint with real HTTP request.
 
     Verifies retrieving specific memory by hash works.
     """
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
 
@@ -761,12 +791,17 @@ async def test_http_api_get_memory_by_hash_endpoint(temp_db, unique_content):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_delete_memory_endpoint(temp_db, unique_content):
+async def test_http_api_delete_memory_endpoint(temp_db, unique_content, monkeypatch):
     """
     Test DELETE /api/memories/{hash} endpoint with real HTTP request.
 
     Verifies deletion works through HTTP API.
     """
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
 
@@ -802,12 +837,17 @@ async def test_http_api_delete_memory_endpoint(temp_db, unique_content):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_pagination_with_real_data(temp_db, unique_content):
+async def test_http_api_pagination_with_real_data(temp_db, unique_content, monkeypatch):
     """
     Test pagination through HTTP API with multiple pages.
 
     Verifies database-level pagination prevents O(n) loading.
     """
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
 
@@ -852,12 +892,17 @@ async def test_http_api_pagination_with_real_data(temp_db, unique_content):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_error_handling_invalid_json(temp_db):
+async def test_http_api_error_handling_invalid_json(temp_db, monkeypatch):
     """
     Test that HTTP API handles malformed JSON gracefully.
 
     This would have caught v8.12.0 syntax errors.
     """
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
 
@@ -890,6 +935,11 @@ async def test_http_api_client_hostname_header(temp_db, unique_content, monkeypa
     Verifies hostname tagging works through real HTTP request.
     NOTE: Requires MCP_MEMORY_INCLUDE_HOSTNAME=true for hostname tagging to be enabled.
     """
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     # Enable hostname tagging for this test
     monkeypatch.setenv('MCP_MEMORY_INCLUDE_HOSTNAME', 'true')
 
@@ -933,12 +983,17 @@ async def test_http_api_client_hostname_header(temp_db, unique_content, monkeypa
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_complete_crud_workflow(temp_db, unique_content):
+async def test_http_api_complete_crud_workflow(temp_db, unique_content, monkeypatch):
     """
     Complete end-to-end CRUD workflow through real HTTP API.
 
     This verifies the entire HTTP API stack works correctly.
     """
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
 

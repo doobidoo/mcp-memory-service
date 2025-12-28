@@ -1454,18 +1454,24 @@ class HybridMemoryStorage(MemoryStorage):
         if self.sync_service:
             await self.sync_service.stop()
 
-        # Close storage backends
-        if hasattr(self.primary, 'close') and self.primary.close:
-            if asyncio.iscoroutinefunction(self.primary.close):
-                await self.primary.close()
-            else:
-                self.primary.close()
+        # Close storage backends (with exception handling to prevent resource leaks)
+        if self.primary is not None and hasattr(self.primary, 'close'):
+            try:
+                if asyncio.iscoroutinefunction(self.primary.close):
+                    await self.primary.close()
+                else:
+                    self.primary.close()
+            except Exception as e:
+                logger.error(f"Error closing primary storage: {e}")
 
-        if self.secondary and hasattr(self.secondary, 'close') and self.secondary.close:
-            if asyncio.iscoroutinefunction(self.secondary.close):
-                await self.secondary.close()
-            else:
-                self.secondary.close()
+        if self.secondary and hasattr(self.secondary, 'close'):
+            try:
+                if asyncio.iscoroutinefunction(self.secondary.close):
+                    await self.secondary.close()
+                else:
+                    self.secondary.close()
+            except Exception as e:
+                logger.error(f"Error closing secondary storage: {e}")
 
         logger.info("Hybrid memory storage shutdown completed")
 

@@ -10,19 +10,15 @@ import pytest
 import pytest_asyncio
 import asyncio
 import os
-from mcp.server import Server
-from mcp.server.models import InitializationOptions
+from mcp_memory_service.server import MemoryServer
 
 @pytest_asyncio.fixture
 async def memory_server():
     """Create a test instance of the memory server."""
-    server = Server("test-memory")
-    await server.initialize(InitializationOptions(
-        server_name="test-memory",
-        server_version="0.1.0"
-    ))
+    server = MemoryServer()
+    # MemoryServer initializes itself, no initialize() call needed
     yield server
-    await server.shutdown()
+    # No cleanup needed - MemoryServer doesn't have shutdown()
 
 @pytest.mark.asyncio
 async def test_create_backup(memory_server):
@@ -88,20 +84,20 @@ async def test_cleanup_duplicates(memory_server):
 async def test_database_persistence(memory_server):
     """Test database persistence across server restarts."""
     test_content = "Persistent memory test"
-    
+
     # Store memory
     await memory_server.store_memory(content=test_content)
-    
+
     # Simulate server restart
     await memory_server.shutdown()
-    await memory_server.initialize(InitializationOptions(
-        server_name="test-memory",
-        server_version="0.1.0"
-    ))
-    
+    # Create new server instance to simulate restart
+    new_server = MemoryServer()
+
     # Verify memory persists
-    results = await memory_server.exact_match_retrieve(
+    results = await new_server.exact_match_retrieve(
         content=test_content
     )
     assert len(results) == 1
     assert results[0] == test_content
+
+    # No cleanup needed

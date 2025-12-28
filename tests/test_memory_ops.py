@@ -9,21 +9,15 @@ Test core memory operations of the MCP Memory Service.
 import pytest
 import pytest_asyncio
 import asyncio
-from mcp.server import Server
-from mcp.server.models import InitializationOptions
+from mcp_memory_service.server import MemoryServer
 
 @pytest_asyncio.fixture
 async def memory_server():
     """Create a test instance of the memory server."""
-    server = Server("test-memory")
-    # Initialize with test configuration
-    await server.initialize(InitializationOptions(
-        server_name="test-memory",
-        server_version="0.1.0"
-    ))
+    server = MemoryServer()
+    # MemoryServer initializes itself, no initialize() call needed
     yield server
-    # Cleanup after tests
-    await server.shutdown()
+    # No cleanup needed
 
 @pytest.mark.asyncio
 async def test_store_memory(memory_server):

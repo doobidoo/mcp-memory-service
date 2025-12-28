@@ -160,7 +160,8 @@ class TestControlledForgettingEngine:
             content_hash="old_access",
             tags=["test"],
             embedding=[0.1] * 320,
-            created_at=now.timestamp()
+            created_at=now.timestamp(),
+            metadata={'quality_score': 0.3}  # Low quality to use 30-90 day threshold
         )
         
         score = RelevanceScore(

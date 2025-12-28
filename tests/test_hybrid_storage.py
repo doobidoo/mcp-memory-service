@@ -304,8 +304,24 @@ class TestBackgroundSyncService:
         if sync_service.is_running:
             await sync_service.stop()
 
-        if hasattr(primary, 'close'):
-            await primary.close()
+        # Close storage backends with exception handling
+        if primary is not None and hasattr(primary, 'close'):
+            try:
+                if asyncio.iscoroutinefunction(primary.close):
+                    await primary.close()
+                else:
+                    primary.close()
+            except Exception:
+                pass  # Ignore cleanup errors in tests
+
+        if secondary is not None and hasattr(secondary, 'close'):
+            try:
+                if asyncio.iscoroutinefunction(secondary.close):
+                    await secondary.close()
+                else:
+                    secondary.close()
+            except Exception:
+                pass  # Ignore cleanup errors in tests
 
     @pytest.mark.asyncio
     async def test_sync_service_start_stop(self, sync_service_components):
