@@ -84,8 +84,13 @@ async def storage_with_test_data(temp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_with_time_filter_recent(storage_with_test_data):
+async def test_api_search_by_tag_with_time_filter_recent(storage_with_test_data, monkeypatch):
     """Test POST /api/search/by-tag with time_filter returns only recent memories."""
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     from mcp_memory_service.web.app import app
     set_storage(storage_with_test_data)
 
@@ -114,8 +119,13 @@ async def test_api_search_by_tag_with_time_filter_recent(storage_with_test_data)
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_with_time_filter_excludes_old(storage_with_test_data):
+async def test_api_search_by_tag_with_time_filter_excludes_old(storage_with_test_data, monkeypatch):
     """Test POST /api/search/by-tag with time_filter excludes old memories."""
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     from mcp_memory_service.web.app import app
     set_storage(storage_with_test_data)
 
@@ -143,8 +153,13 @@ async def test_api_search_by_tag_with_time_filter_excludes_old(storage_with_test
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_without_time_filter_backward_compat(storage_with_test_data):
+async def test_api_search_by_tag_without_time_filter_backward_compat(storage_with_test_data, monkeypatch):
     """Test POST /api/search/by-tag without time_filter returns all matching memories (backward compatibility)."""
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     from mcp_memory_service.web.app import app
     set_storage(storage_with_test_data)
 
@@ -171,8 +186,13 @@ async def test_api_search_by_tag_without_time_filter_backward_compat(storage_wit
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_with_empty_time_filter(storage_with_test_data):
+async def test_api_search_by_tag_with_empty_time_filter(storage_with_test_data, monkeypatch):
     """Test POST /api/search/by-tag with empty time_filter string is ignored."""
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     from mcp_memory_service.web.app import app
     set_storage(storage_with_test_data)
 
@@ -197,8 +217,13 @@ async def test_api_search_by_tag_with_empty_time_filter(storage_with_test_data):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_with_natural_language_time_filter(storage_with_test_data):
+async def test_api_search_by_tag_with_natural_language_time_filter(storage_with_test_data, monkeypatch):
     """Test POST /api/search/by-tag with natural language time expressions."""
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     from mcp_memory_service.web.app import app
     set_storage(storage_with_test_data)
 
@@ -224,8 +249,13 @@ async def test_api_search_by_tag_with_natural_language_time_filter(storage_with_
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_time_filter_with_multiple_tags(storage_with_test_data):
+async def test_api_search_by_tag_time_filter_with_multiple_tags(storage_with_test_data, monkeypatch):
     """Test POST /api/search/by-tag with time_filter and multiple tags."""
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     from mcp_memory_service.web.app import app
     set_storage(storage_with_test_data)
 
@@ -253,8 +283,13 @@ async def test_api_search_by_tag_time_filter_with_multiple_tags(storage_with_tes
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_time_filter_with_match_all(storage_with_test_data):
+async def test_api_search_by_tag_time_filter_with_match_all(storage_with_test_data, monkeypatch):
     """Test POST /api/search/by-tag with time_filter and match_all parameter."""
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     from mcp_memory_service.web.app import app
     set_storage(storage_with_test_data)
 
@@ -296,8 +331,13 @@ async def test_api_search_by_tag_time_filter_with_match_all(storage_with_test_da
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_invalid_time_filter_format(storage_with_test_data):
+async def test_api_search_by_tag_invalid_time_filter_format(storage_with_test_data, monkeypatch):
     """Test POST /api/search/by-tag with invalid time_filter returns error or empty."""
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     from mcp_memory_service.web.app import app
     set_storage(storage_with_test_data)
 
@@ -326,8 +366,13 @@ async def test_api_search_by_tag_invalid_time_filter_format(storage_with_test_da
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_time_filter_performance(storage_with_test_data):
+async def test_api_search_by_tag_time_filter_performance(storage_with_test_data, monkeypatch):
     """Test that tag+time filtering maintains good performance (<100ms)."""
+    # Disable authentication for tests
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
     from mcp_memory_service.web.app import app
     set_storage(storage_with_test_data)
 

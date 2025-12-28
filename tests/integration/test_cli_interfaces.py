@@ -19,6 +19,7 @@ src_dir = current_dir.parent.parent / "src"
 sys.path.insert(0, str(src_dir))
 
 from mcp_memory_service.cli.main import memory_server_main, main as cli_main
+from mcp_memory_service._version import __version__
 
 
 class TestCLIInterfaces:
@@ -88,7 +89,7 @@ class TestCLIInterfaces:
             cwd=current_dir.parent.parent
         )
         assert result.returncode == 0
-        assert "8.24.0" in result.stdout
+        assert __version__ in result.stdout
         assert "deprecated" in result.stderr.lower()
     
     def test_memory_server_vs_memory_server_subcommand(self):
@@ -187,10 +188,10 @@ class TestCLIFunctionality:
         # Status command might fail if no storage is available, but should not crash
         # Return code 0 = success, 1 = expected error (e.g., no storage)
         assert result.returncode in [0, 1]
-        
+
         if result.returncode == 0:
             assert "MCP Memory Service Status" in result.stdout
-            assert "Version: 8.24.0" in result.stdout
+            assert f"Version: {__version__}" in result.stdout
         else:
             # If it fails, should have a meaningful error message
             assert len(result.stderr) > 0 or len(result.stdout) > 0
@@ -404,9 +405,9 @@ class TestCLIPerformance:
                 cwd=current_dir.parent.parent
             )
             elapsed = time.time() - start_time
-            
+
             assert result.returncode == 0
-            assert "8.24.0" in result.stdout
+            assert __version__ in result.stdout
             # Version should be very fast
             assert elapsed < 15
             print(f"Version command {' '.join(cmd[2:])} took {elapsed:.2f} seconds")

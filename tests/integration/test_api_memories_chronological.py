@@ -249,15 +249,20 @@ class TestAPIChronologicalIntegration:
         assert "has_more" in list_fields
 
     def test_storage_backend_type_compatibility(self):
-        """Test that the API endpoints use the correct base storage type."""
-        from mcp_memory_service.web.api.memories import list_memories
+        """Test that the API endpoints use the correct service layer dependency."""
+        from mcp_memory_service.web.api.memories import list_memories, get_memory
         import inspect
 
         # Get the signature of the list_memories function
-        sig = inspect.signature(list_memories)
-        storage_param = sig.parameters['storage']
+        list_sig = inspect.signature(list_memories)
 
-        # Check that it uses the base MemoryStorage type, not a specific implementation
+        # list_memories uses MemoryService (refactored from direct storage access)
+        memory_service_param = list_sig.parameters['memory_service']
+        assert 'MemoryService' in str(memory_service_param.annotation)
+
+        # get_memory still uses direct storage access
+        get_sig = inspect.signature(get_memory)
+        storage_param = get_sig.parameters['storage']
         assert 'MemoryStorage' in str(storage_param.annotation)
 
 
