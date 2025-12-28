@@ -113,6 +113,9 @@ updated_at
 *.tmp
 *.old
 
+# Claude hooks runtime cache
+claude-hooks/utilities/session-cache.json
+
 # Test and development artifacts
 test_*.py.backup
 *_test.py.old
