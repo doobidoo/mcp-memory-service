@@ -3,27 +3,20 @@ Integration tests for POST /api/search/by-tag endpoint with time_filter paramete
 
 Tests the time_filter functionality added in PR #215 to fix semantic over-filtering bug (issue #214).
 
-NOTE: These tests currently have SQLite threading issues with TestClient.
-The async fixture creates storage in one thread, but TestClient creates its own threads,
-causing "SQLite objects created in a thread can only be used in that same thread" errors.
-
-TODO: Fix by using synchronous fixtures like test_http_api_search_by_tag_endpoint in
-tests/integration/test_api_with_memory_service.py (line 670), which creates storage
-within the test function rather than in an async fixture.
-
-For now, comprehensive unit tests in tests/unit/test_tag_time_filtering.py provide
-excellent coverage of the tag+time filtering functionality across all storage backends.
+FIXED: Refactored to follow test_api_with_memory_service.py pattern (lines 560-605).
+- Helper function instead of async fixture (create_test_storage_with_data)
+- monkeypatch → storage creation → app import → set_storage() order
+- try/finally cleanup blocks
+- Fixes uvx CI authentication failures (storage created before monkeypatch)
 """
 
 import pytest
-import pytest_asyncio
 import tempfile
 import os
 import time
 from fastapi.testclient import TestClient
 
 from mcp_memory_service.web.dependencies import set_storage
-from mcp_memory_service.services.memory_service import MemoryService
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.utils.hashing import generate_content_hash
@@ -37,9 +30,8 @@ def temp_db():
         yield db_path
 
 
-@pytest_asyncio.fixture
-async def storage_with_test_data(temp_db):
-    """Create storage with test memories at different timestamps."""
+async def create_test_storage_with_data(temp_db):
+    """Helper function to create storage with test memories at different timestamps."""
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
 
@@ -77,279 +69,395 @@ async def storage_with_test_data(temp_db):
     )
     await storage.store(old_note)
 
-    yield storage
-
-    storage.close()
+    return storage
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_with_time_filter_recent(storage_with_test_data):
+async def test_api_search_by_tag_with_time_filter_recent(temp_db, monkeypatch):
     """Test POST /api/search/by-tag with time_filter returns only recent memories."""
-    from mcp_memory_service.web.app import app
-    set_storage(storage_with_test_data)
+    # 1. Disable authentication FIRST
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
 
-    client = TestClient(app)
+    # 2. Create storage AFTER monkeypatch
+    storage = await create_test_storage_with_data(temp_db)
 
-    # Search for "task" tag with time_filter = 1 day ago
-    one_day_ago_iso = time.strftime("%Y-%m-%d", time.gmtime(time.time() - (24 * 60 * 60)))
+    try:
+        # 3. Import app AFTER env vars set
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
 
-    response = client.post(
-        "/api/search/by-tag",
-        json={
-            "tags": ["task"],
-            "time_filter": one_day_ago_iso,
-            "limit": 10
-        }
-    )
+        client = TestClient(app)
 
-    assert response.status_code == 200
-    data = response.json()
+        # Search for "task" tag with time_filter = 1 day ago
+        one_day_ago_iso = time.strftime("%Y-%m-%d", time.gmtime(time.time() - (24 * 60 * 60)))
 
-    # Should only return the recent task (not the 2-day-old task)
-    assert len(data["results"]) == 1
-    assert "recent" in data["results"][0]["memory"]["tags"]
-    assert "Recent task from today" in data["results"][0]["memory"]["content"]
+        response = client.post(
+            "/api/search/by-tag",
+            json={
+                "tags": ["task"],
+                "time_filter": one_day_ago_iso,
+                "limit": 10
+            }
+        )
 
-
-@pytest.mark.asyncio
-@pytest.mark.integration
-async def test_api_search_by_tag_with_time_filter_excludes_old(storage_with_test_data):
-    """Test POST /api/search/by-tag with time_filter excludes old memories."""
-    from mcp_memory_service.web.app import app
-    set_storage(storage_with_test_data)
-
-    client = TestClient(app)
-
-    # Search for "old" tag with time_filter = 10 seconds ago
-    # Should return empty because all "old" memories are > 2 days old
-    ten_seconds_ago_iso = time.strftime("%Y-%m-%d", time.gmtime(time.time() - 10))
-
-    response = client.post(
-        "/api/search/by-tag",
-        json={
-            "tags": ["old"],
-            "time_filter": ten_seconds_ago_iso,
-            "limit": 10
-        }
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-
-    # Should return empty (all "old" memories are from 2-3 days ago)
-    assert len(data["results"]) == 0
-
-
-@pytest.mark.asyncio
-@pytest.mark.integration
-async def test_api_search_by_tag_without_time_filter_backward_compat(storage_with_test_data):
-    """Test POST /api/search/by-tag without time_filter returns all matching memories (backward compatibility)."""
-    from mcp_memory_service.web.app import app
-    set_storage(storage_with_test_data)
-
-    client = TestClient(app)
-
-    # Search for "task" tag WITHOUT time_filter
-    response = client.post(
-        "/api/search/by-tag",
-        json={
-            "tags": ["task"],
-            "limit": 10
-        }
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-
-    # Should return BOTH task memories (old and recent)
-    assert len(data["results"]) == 2
-    tags_list = [tag for mem in data["results"] for tag in mem["memory"]["tags"]]
-    assert "old" in tags_list
-    assert "recent" in tags_list
-
-
-@pytest.mark.asyncio
-@pytest.mark.integration
-async def test_api_search_by_tag_with_empty_time_filter(storage_with_test_data):
-    """Test POST /api/search/by-tag with empty time_filter string is ignored."""
-    from mcp_memory_service.web.app import app
-    set_storage(storage_with_test_data)
-
-    client = TestClient(app)
-
-    # Search with empty time_filter (should be treated as no filter)
-    response = client.post(
-        "/api/search/by-tag",
-        json={
-            "tags": ["task"],
-            "time_filter": "",
-            "limit": 10
-        }
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-
-    # Should return both task memories (empty filter ignored)
-    assert len(data["results"]) == 2
-
-
-@pytest.mark.asyncio
-@pytest.mark.integration
-async def test_api_search_by_tag_with_natural_language_time_filter(storage_with_test_data):
-    """Test POST /api/search/by-tag with natural language time expressions."""
-    from mcp_memory_service.web.app import app
-    set_storage(storage_with_test_data)
-
-    client = TestClient(app)
-
-    # Test "yesterday" - should return only recent memories
-    response = client.post(
-        "/api/search/by-tag",
-        json={
-            "tags": ["task"],
-            "time_filter": "yesterday",
-            "limit": 10
-        }
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-
-    # Should return only the recent task (created today, after yesterday)
-    assert len(data["results"]) == 1
-    assert "recent" in data["results"][0]["memory"]["tags"]
-
-
-@pytest.mark.asyncio
-@pytest.mark.integration
-async def test_api_search_by_tag_time_filter_with_multiple_tags(storage_with_test_data):
-    """Test POST /api/search/by-tag with time_filter and multiple tags."""
-    from mcp_memory_service.web.app import app
-    set_storage(storage_with_test_data)
-
-    client = TestClient(app)
-
-    # Search for multiple tags with time filter
-    one_day_ago_iso = time.strftime("%Y-%m-%d", time.gmtime(time.time() - (24 * 60 * 60)))
-
-    response = client.post(
-        "/api/search/by-tag",
-        json={
-            "tags": ["task", "recent"],  # Both tags
-            "time_filter": one_day_ago_iso,
-            "limit": 10
-        }
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-
-    # Should return the recent task memory
-    assert len(data["results"]) == 1
-    assert "recent" in data["results"][0]["memory"]["tags"]
-
-
-@pytest.mark.asyncio
-@pytest.mark.integration
-async def test_api_search_by_tag_time_filter_with_match_all(storage_with_test_data):
-    """Test POST /api/search/by-tag with time_filter and match_all parameter."""
-    from mcp_memory_service.web.app import app
-    set_storage(storage_with_test_data)
-
-    # Store a memory with both "task" and "recent" tags
-    both_tags_content = "Task that is both task and recent"
-    both_tags_memory = Memory(
-        content=both_tags_content,
-        content_hash=generate_content_hash(both_tags_content),
-        tags=["task", "recent"],
-        memory_type="task",
-        created_at=time.time()
-    )
-    await storage_with_test_data.store(both_tags_memory)
-
-    client = TestClient(app)
-
-    # Search with match_all=true and time_filter
-    one_day_ago_iso = time.strftime("%Y-%m-%d", time.gmtime(time.time() - (24 * 60 * 60)))
-
-    response = client.post(
-        "/api/search/by-tag",
-        json={
-            "tags": ["task", "recent"],
-            "match_all": True,  # Require BOTH tags
-            "time_filter": one_day_ago_iso,
-            "limit": 10
-        }
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-
-    # Should return memories with BOTH tags that are recent
-    assert len(data["results"]) >= 1
-    for mem in data["results"]:
-        assert "task" in mem["memory"]["tags"]
-        assert "recent" in mem["memory"]["tags"]
-
-
-@pytest.mark.asyncio
-@pytest.mark.integration
-async def test_api_search_by_tag_invalid_time_filter_format(storage_with_test_data):
-    """Test POST /api/search/by-tag with invalid time_filter returns error or empty."""
-    from mcp_memory_service.web.app import app
-    set_storage(storage_with_test_data)
-
-    client = TestClient(app)
-
-    # Search with invalid time_filter format
-    response = client.post(
-        "/api/search/by-tag",
-        json={
-            "tags": ["task"],
-            "time_filter": "invalid-date-format",
-            "limit": 10
-        }
-    )
-
-    # API should handle gracefully (either 400 error or empty results)
-    # Depending on implementation, this might return 200 with empty results
-    # or 400 Bad Request
-    assert response.status_code in [200, 400]
-
-    if response.status_code == 200:
+        assert response.status_code == 200
         data = response.json()
-        # If it returns 200, should return empty or all results
-        assert "results" in data
+
+        # Should only return the recent task (not the 2-day-old task)
+        assert len(data["results"]) == 1
+        assert "recent" in data["results"][0]["memory"]["tags"]
+        assert "Recent task from today" in data["results"][0]["memory"]["content"]
+
+    finally:
+        storage.close()
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_api_search_by_tag_time_filter_performance(storage_with_test_data):
+async def test_api_search_by_tag_with_time_filter_excludes_old(temp_db, monkeypatch):
+    """Test POST /api/search/by-tag with time_filter excludes old memories."""
+    # 1. Disable authentication FIRST
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
+    # 2. Create storage AFTER monkeypatch
+    storage = await create_test_storage_with_data(temp_db)
+
+    try:
+        # 3. Import app AFTER env vars set
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        client = TestClient(app)
+
+        # Search for "old" tag with time_filter = 10 seconds ago
+        # Should return empty because all "old" memories are > 2 days old
+        ten_seconds_ago_iso = time.strftime("%Y-%m-%d", time.gmtime(time.time() - 10))
+
+        response = client.post(
+            "/api/search/by-tag",
+            json={
+                "tags": ["old"],
+                "time_filter": ten_seconds_ago_iso,
+                "limit": 10
+            }
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should return empty (all "old" memories are from 2-3 days ago)
+        assert len(data["results"]) == 0
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_api_search_by_tag_without_time_filter_backward_compat(temp_db, monkeypatch):
+    """Test POST /api/search/by-tag without time_filter returns all matching memories (backward compatibility)."""
+    # 1. Disable authentication FIRST
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
+    # 2. Create storage AFTER monkeypatch
+    storage = await create_test_storage_with_data(temp_db)
+
+    try:
+        # 3. Import app AFTER env vars set
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        client = TestClient(app)
+
+        # Search for "task" tag WITHOUT time_filter
+        response = client.post(
+            "/api/search/by-tag",
+            json={
+                "tags": ["task"],
+                "limit": 10
+            }
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should return BOTH task memories (old and recent)
+        assert len(data["results"]) == 2
+        tags_list = [tag for mem in data["results"] for tag in mem["memory"]["tags"]]
+        assert "old" in tags_list
+        assert "recent" in tags_list
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_api_search_by_tag_with_empty_time_filter(temp_db, monkeypatch):
+    """Test POST /api/search/by-tag with empty time_filter string is ignored."""
+    # 1. Disable authentication FIRST
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
+    # 2. Create storage AFTER monkeypatch
+    storage = await create_test_storage_with_data(temp_db)
+
+    try:
+        # 3. Import app AFTER env vars set
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        client = TestClient(app)
+
+        # Search with empty time_filter (should be treated as no filter)
+        response = client.post(
+            "/api/search/by-tag",
+            json={
+                "tags": ["task"],
+                "time_filter": "",
+                "limit": 10
+            }
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should return both task memories (empty filter ignored)
+        assert len(data["results"]) == 2
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_api_search_by_tag_with_natural_language_time_filter(temp_db, monkeypatch):
+    """Test POST /api/search/by-tag with natural language time expressions."""
+    # 1. Disable authentication FIRST
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
+    # 2. Create storage AFTER monkeypatch
+    storage = await create_test_storage_with_data(temp_db)
+
+    try:
+        # 3. Import app AFTER env vars set
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        client = TestClient(app)
+
+        # Test "yesterday" - should return only recent memories
+        response = client.post(
+            "/api/search/by-tag",
+            json={
+                "tags": ["task"],
+                "time_filter": "yesterday",
+                "limit": 10
+            }
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should return only the recent task (created today, after yesterday)
+        assert len(data["results"]) == 1
+        assert "recent" in data["results"][0]["memory"]["tags"]
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_api_search_by_tag_time_filter_with_multiple_tags(temp_db, monkeypatch):
+    """Test POST /api/search/by-tag with time_filter and multiple tags."""
+    # 1. Disable authentication FIRST
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
+    # 2. Create storage AFTER monkeypatch
+    storage = await create_test_storage_with_data(temp_db)
+
+    try:
+        # 3. Import app AFTER env vars set
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        client = TestClient(app)
+
+        # Search for multiple tags with time filter
+        one_day_ago_iso = time.strftime("%Y-%m-%d", time.gmtime(time.time() - (24 * 60 * 60)))
+
+        response = client.post(
+            "/api/search/by-tag",
+            json={
+                "tags": ["task", "recent"],  # Both tags
+                "time_filter": one_day_ago_iso,
+                "limit": 10
+            }
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should return the recent task memory
+        assert len(data["results"]) == 1
+        assert "recent" in data["results"][0]["memory"]["tags"]
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_api_search_by_tag_time_filter_with_match_all(temp_db, monkeypatch):
+    """Test POST /api/search/by-tag with time_filter and match_all parameter."""
+    # 1. Disable authentication FIRST
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
+    # 2. Create storage AFTER monkeypatch
+    storage = await create_test_storage_with_data(temp_db)
+
+    try:
+        # 3. Import app AFTER env vars set
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        # Store a memory with both "task" and "recent" tags
+        # IMPORTANT: This must happen AFTER set_storage()
+        both_tags_content = "Task that is both task and recent"
+        both_tags_memory = Memory(
+            content=both_tags_content,
+            content_hash=generate_content_hash(both_tags_content),
+            tags=["task", "recent"],
+            memory_type="task",
+            created_at=time.time()
+        )
+        await storage.store(both_tags_memory)
+
+        client = TestClient(app)
+
+        # Search with match_all=true and time_filter
+        one_day_ago_iso = time.strftime("%Y-%m-%d", time.gmtime(time.time() - (24 * 60 * 60)))
+
+        response = client.post(
+            "/api/search/by-tag",
+            json={
+                "tags": ["task", "recent"],
+                "match_all": True,  # Require BOTH tags
+                "time_filter": one_day_ago_iso,
+                "limit": 10
+            }
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should return memories with BOTH tags that are recent
+        assert len(data["results"]) >= 1
+        for mem in data["results"]:
+            assert "task" in mem["memory"]["tags"]
+            assert "recent" in mem["memory"]["tags"]
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_api_search_by_tag_invalid_time_filter_format(temp_db, monkeypatch):
+    """Test POST /api/search/by-tag with invalid time_filter returns error or empty."""
+    # 1. Disable authentication FIRST
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+
+    # 2. Create storage AFTER monkeypatch
+    storage = await create_test_storage_with_data(temp_db)
+
+    try:
+        # 3. Import app AFTER env vars set
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        client = TestClient(app)
+
+        # Search with invalid time_filter format
+        response = client.post(
+            "/api/search/by-tag",
+            json={
+                "tags": ["task"],
+                "time_filter": "invalid-date-format",
+                "limit": 10
+            }
+        )
+
+        # API should handle gracefully (either 400 error or empty results)
+        # Depending on implementation, this might return 200 with empty results
+        # or 400 Bad Request
+        assert response.status_code in [200, 400]
+
+        if response.status_code == 200:
+            data = response.json()
+            # If it returns 200, should return empty or all results
+            assert "results" in data
+
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_api_search_by_tag_time_filter_performance(temp_db, monkeypatch):
     """Test that tag+time filtering maintains good performance (<100ms)."""
-    from mcp_memory_service.web.app import app
-    set_storage(storage_with_test_data)
+    # 1. Disable authentication FIRST
+    monkeypatch.setenv('MCP_API_KEY', '')
+    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
+    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
 
-    client = TestClient(app)
+    # 2. Create storage AFTER monkeypatch
+    storage = await create_test_storage_with_data(temp_db)
 
-    one_day_ago_iso = time.strftime("%Y-%m-%d", time.gmtime(time.time() - (24 * 60 * 60)))
+    try:
+        # 3. Import app AFTER env vars set
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
 
-    start_time = time.time()
+        client = TestClient(app)
 
-    response = client.post(
-        "/api/search/by-tag",
-        json={
-            "tags": ["task"],
-            "time_filter": one_day_ago_iso,
-            "limit": 10
-        }
-    )
+        one_day_ago_iso = time.strftime("%Y-%m-%d", time.gmtime(time.time() - (24 * 60 * 60)))
 
-    elapsed_ms = (time.time() - start_time) * 1000
+        start_time = time.time()
 
-    assert response.status_code == 200
+        response = client.post(
+            "/api/search/by-tag",
+            json={
+                "tags": ["task"],
+                "time_filter": one_day_ago_iso,
+                "limit": 10
+            }
+        )
 
-    # Performance target: <100ms for tag+time search
-    # (may need adjustment based on hardware)
-    assert elapsed_ms < 200, f"Tag+time search took {elapsed_ms:.2f}ms (expected <200ms)"
+        elapsed_ms = (time.time() - start_time) * 1000
+
+        assert response.status_code == 200
+
+        # Performance target: <100ms for tag+time search
+        # (may need adjustment based on hardware)
+        assert elapsed_ms < 200, f"Tag+time search took {elapsed_ms:.2f}ms (expected <200ms)"
+
+    finally:
+        storage.close()
