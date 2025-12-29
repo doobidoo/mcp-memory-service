@@ -935,18 +935,17 @@ SOLUTIONS:
             
             # Perform vector similarity search using JOIN with retry logic
             def search_memories():
-                # Try direct rowid join first
+                # Try direct rowid join first - use k=? syntax for sqlite-vec
                 cursor = self.conn.execute('''
                     SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
-                           m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso, 
+                           m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
                            e.distance
                     FROM memories m
                     INNER JOIN (
-                        SELECT rowid, distance 
-                        FROM memory_embeddings 
-                        WHERE content_embedding MATCH ?
+                        SELECT rowid, distance
+                        FROM memory_embeddings
+                        WHERE content_embedding MATCH ? AND k = ?
                         ORDER BY distance
-                        LIMIT ?
                     ) e ON m.id = e.rowid
                     ORDER BY e.distance
                 ''', (serialize_float32(query_embedding), n_results))
