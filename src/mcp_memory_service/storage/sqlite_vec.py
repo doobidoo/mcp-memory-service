@@ -936,6 +936,7 @@ SOLUTIONS:
             # Perform vector similarity search using JOIN with retry logic
             def search_memories():
                 # Try direct rowid join first - use k=? syntax for sqlite-vec
+                # Note: ORDER BY distance is implicit with k=? and redundant in subquery
                 cursor = self.conn.execute('''
                     SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
                            m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
@@ -945,7 +946,6 @@ SOLUTIONS:
                         SELECT rowid, distance
                         FROM memory_embeddings
                         WHERE content_embedding MATCH ? AND k = ?
-                        ORDER BY distance
                     ) e ON m.id = e.rowid
                     ORDER BY e.distance
                 ''', (serialize_float32(query_embedding), n_results))
@@ -1759,15 +1759,13 @@ SOLUTIONS:
                     # Build SQL query with time filtering
                     base_query = '''
                         SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
-                               m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso, 
+                               m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
                                e.distance
                         FROM memories m
                         JOIN (
-                            SELECT rowid, distance 
-                            FROM memory_embeddings 
-                            WHERE content_embedding MATCH ?
-                            ORDER BY distance
-                            LIMIT ?
+                            SELECT rowid, distance
+                            FROM memory_embeddings
+                            WHERE content_embedding MATCH ? AND k = ?
                         ) e ON m.id = e.rowid
                     '''
                     
