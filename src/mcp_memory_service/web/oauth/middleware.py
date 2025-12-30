@@ -19,6 +19,7 @@ Provides Bearer token validation with fallback to API key authentication.
 """
 
 import logging
+import secrets
 from typing import Optional, Dict, Any
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -271,8 +272,8 @@ def authenticate_api_key(api_key: str) -> AuthenticationResult:
             error="api_key_not_configured"
         )
 
-    # Validate API key
-    if api_key == API_KEY:
+    # Validate API key using constant-time comparison (CWE-208 fix)
+    if secrets.compare_digest(api_key, API_KEY):
         logger.debug("API key authentication successful")
         return AuthenticationResult(
             authenticated=True,
@@ -341,11 +342,11 @@ async def get_current_user(
 
     # Allow anonymous access only if explicitly enabled
     if ALLOW_ANONYMOUS_ACCESS:
-        logger.debug("Anonymous access explicitly enabled, granting full access")
+        logger.debug("Anonymous access explicitly enabled, granting read-only access")
         return AuthenticationResult(
             authenticated=True,
             client_id="anonymous",
-            scope="read write admin",  # Full access for local development (trusted network)
+            scope="read",  # Read-only: anonymous users cannot modify data (CWE-269 fix)
             auth_method="none"
         )
 

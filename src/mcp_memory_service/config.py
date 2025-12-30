@@ -452,7 +452,7 @@ class HTTPSettings(BaseSettings):
     http_enabled: bool = Field(default=False)
     http_port: int = Field(default=8000, ge=1024, le=65535)
     http_host: str = Field(default='0.0.0.0')
-    cors_origins: List[str] = Field(default=['*'])
+    cors_origins: List[str] = Field(default=[])  # Secure default: no cross-origin access (CWE-942 fix)
     sse_heartbeat: int = Field(default=30, ge=5, le=300, alias='SSE_HEARTBEAT_INTERVAL')
     api_key: Optional[SecretStr] = Field(default=None)
 
@@ -461,8 +461,8 @@ class HTTPSettings(BaseSettings):
     ssl_cert_file: Optional[str] = Field(default=None)
     ssl_key_file: Optional[str] = Field(default=None)
 
-    # mDNS Service Discovery
-    mdns_enabled: bool = Field(default=True)
+    # mDNS Service Discovery (disabled: zeroconf removed, k8s handles discovery)
+    mdns_enabled: bool = Field(default=False)
     mdns_service_name: str = Field(default='MCP Memory Service')
     mdns_service_type: str = Field(default='_mcp-memory._tcp.local.')
     mdns_discovery_timeout: int = Field(default=5, ge=1, le=60)
@@ -487,7 +487,7 @@ class OAuthSettings(BaseSettings):
         extra='ignore'
     )
 
-    enabled: bool = Field(default=True)
+    enabled: bool = Field(default=False)  # Disabled: authlib/python-jose removed (CRITICAL CVEs)
 
     # RSA key pair for JWT signing (SecretStr for security)
     private_key: Optional[SecretStr] = Field(default=None)
