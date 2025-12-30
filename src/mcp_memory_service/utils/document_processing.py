@@ -20,7 +20,7 @@ from typing import List, Dict, Any, Optional, Tuple
 import logging
 
 from ..models.memory import Memory
-from . import generate_content_hash
+from .hashing import generate_content_hash
 
 logger = logging.getLogger(__name__)
 
