@@ -409,9 +409,36 @@ SOLUTIONS:
         # Calculate timeout and connect
         timeout_seconds = self._get_connection_timeout()
         self.conn = sqlite3.connect(self.db_path, timeout=timeout_seconds, check_same_thread=False)
-        
+
         # Load extension
         self._load_sqlite_vec_extension()
+
+        # Apply pragmas for concurrent access (must be done per-connection)
+        default_pragmas = {
+            "journal_mode": "WAL",
+            "busy_timeout": "5000",
+            "synchronous": "NORMAL",
+            "cache_size": "10000",
+            "temp_store": "MEMORY"
+        }
+
+        # Override with custom pragmas from environment
+        custom_pragmas = os.environ.get("MCP_MEMORY_SQLITE_PRAGMAS", "")
+        if custom_pragmas:
+            for pragma_pair in custom_pragmas.split(","):
+                pragma_pair = pragma_pair.strip()
+                if "=" in pragma_pair:
+                    pragma_name, pragma_value = pragma_pair.split("=", 1)
+                    default_pragmas[pragma_name.strip()] = pragma_value.strip()
+                    logger.debug(f"Custom pragma: {pragma_name}={pragma_value}")
+
+        # Apply all pragmas
+        for pragma_name, pragma_value in default_pragmas.items():
+            try:
+                self.conn.execute(f"PRAGMA {pragma_name}={pragma_value}")
+                logger.debug(f"Applied pragma: {pragma_name}={pragma_value}")
+            except sqlite3.Error as e:
+                logger.warning(f"Failed to apply pragma {pragma_name}: {e}")
 
     async def initialize(self):
         """Initialize the SQLite database with vec0 extension."""
