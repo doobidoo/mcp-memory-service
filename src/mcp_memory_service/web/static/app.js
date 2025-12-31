@@ -4724,7 +4724,7 @@ class MemoryDashboard {
         }
 
         const html = memories.map(memory => `
-            <div class="memory-preview" onclick="window.app.handleMemoryClick('${memory.content_hash}')">
+            <div class="memory-preview" data-content-hash="${memory.content_hash}">
                 <div class="quality-badge quality-tier-high">
                     <span class="quality-star">★</span>
                     <span class="quality-score">${memory.quality_score.toFixed(2)}</span>
@@ -4734,6 +4734,11 @@ class MemoryDashboard {
         `).join('');
 
         container.innerHTML = html;
+
+        // Add click handlers with full memory object
+        container.querySelectorAll('.memory-preview').forEach((el, index) => {
+            el.addEventListener('click', () => this.handleMemoryClick(memories[index]));
+        });
     }
 
     /**
@@ -4749,7 +4754,7 @@ class MemoryDashboard {
         }
 
         const html = memories.map(memory => `
-            <div class="memory-preview" onclick="window.app.handleMemoryClick('${memory.content_hash}')">
+            <div class="memory-preview" data-content-hash="${memory.content_hash}">
                 <div class="quality-badge quality-tier-low">
                     <span class="quality-star">★</span>
                     <span class="quality-score">${memory.quality_score.toFixed(2)}</span>
@@ -4759,6 +4764,11 @@ class MemoryDashboard {
         `).join('');
 
         container.innerHTML = html;
+
+        // Add click handlers with full memory object
+        container.querySelectorAll('.memory-preview').forEach((el, index) => {
+            el.addEventListener('click', () => this.handleMemoryClick(memories[index]));
+        });
     }
 
     /**

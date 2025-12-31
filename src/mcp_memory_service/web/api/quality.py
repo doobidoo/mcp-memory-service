@@ -406,6 +406,8 @@ async def get_quality_distribution(
             return {
                 "content_hash": memory.content_hash,
                 "content": memory.content[:100] + "..." if len(memory.content) > 100 else memory.content,
+                "created_at": memory.created_at,
+                "memory_type": memory.memory_type or "note",
                 "quality_score": memory.metadata.get('quality_score', 0.5),
                 "quality_provider": memory.metadata.get('quality_provider', 'implicit'),
                 "tags": memory.tags,
