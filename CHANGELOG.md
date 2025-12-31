@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+- **Quality Analytics "Invalid Date" and "ID: undefined" Fix**
+  - **Problem**: Clicking memories in Quality Analytics tab showed "Invalid Date" for created date and "undefined" for ID
+
 ## [8.62.11] - 2025-12-31
 
 ### Fixed
