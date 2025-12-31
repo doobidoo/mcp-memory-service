@@ -90,7 +90,11 @@ describe('Bridge-Server Integration', () => {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ detail: 'Invalid JSON' }));
             }
-        } else if (url.startsWith('/api/search') && method === 'GET') {
+        } else if (url === '/api/search' && method === 'POST') {
+            const response = mockResponses.search.withResults;
+            res.writeHead(response.status, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(response.body));
+        } else if (url === '/api/search/by-tag' && method === 'POST') {
             const response = mockResponses.search.withResults;
             res.writeHead(response.status, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(response.body));
