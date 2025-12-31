@@ -4712,6 +4712,17 @@ class MemoryDashboard {
     }
 
     /**
+     * Attach click handlers to memory preview elements
+     * @param {HTMLElement} container - Container with .memory-preview elements
+     * @param {Array} memories - Array of memory objects corresponding to preview elements
+     */
+    _attachMemoryClickHandlers(container, memories) {
+        container.querySelectorAll('.memory-preview').forEach((el, index) => {
+            el.addEventListener('click', () => this.handleMemoryClick(memories[index]));
+        });
+    }
+
+    /**
      * Render top quality memories list
      */
     renderTopQualityMemories(memories) {
@@ -4734,11 +4745,7 @@ class MemoryDashboard {
         `).join('');
 
         container.innerHTML = html;
-
-        // Add click handlers with full memory object
-        container.querySelectorAll('.memory-preview').forEach((el, index) => {
-            el.addEventListener('click', () => this.handleMemoryClick(memories[index]));
-        });
+        this._attachMemoryClickHandlers(container, memories);
     }
 
     /**
@@ -4764,11 +4771,7 @@ class MemoryDashboard {
         `).join('');
 
         container.innerHTML = html;
-
-        // Add click handlers with full memory object
-        container.querySelectorAll('.memory-preview').forEach((el, index) => {
-            el.addEventListener('click', () => this.handleMemoryClick(memories[index]));
-        });
+        this._attachMemoryClickHandlers(container, memories);
     }
 
     /**
