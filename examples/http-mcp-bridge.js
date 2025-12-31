@@ -588,16 +588,21 @@ class MCPBridge {
     }
 }
 
-// Main
-const endpoint = process.env.MCP_MEMORY_HTTP_ENDPOINT || 'http://localhost:8000/api';
-const apiKey = process.env.MCP_MEMORY_API_KEY || '';
+// Export the class for testing and importing
+module.exports = MCPBridge;
 
-if (!apiKey) {
-    console.error('WARNING: No API key provided. Set MCP_MEMORY_API_KEY environment variable.');
+// Only auto-start if run directly (not when required as a module)
+if (require.main === module) {
+    const endpoint = process.env.MCP_MEMORY_HTTP_ENDPOINT || 'http://localhost:8000/api';
+    const apiKey = process.env.MCP_MEMORY_API_KEY || '';
+
+    if (!apiKey) {
+        console.error('WARNING: No API key provided. Set MCP_MEMORY_API_KEY environment variable.');
+    }
+
+    const bridge = new MCPBridge(endpoint, apiKey);
+    bridge.run().catch(error => {
+        console.error('Fatal error:', error);
+        process.exit(1);
+    });
 }
-
-const bridge = new MCPBridge(endpoint, apiKey);
-bridge.run().catch(error => {
-    console.error('Fatal error:', error);
-    process.exit(1);
-});
