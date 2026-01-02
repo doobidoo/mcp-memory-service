@@ -80,13 +80,24 @@ async def handle_rate_memory(server, arguments: dict) -> List[types.TextContent]
         })
         memory.metadata['rating_history'] = rating_history[-10:]  # Keep last 10 ratings
 
-        # Update memory in storage
+        # Update memory in storage - only pass quality-related fields
         try:
-            await storage.update_memory_metadata(
+            quality_updates = {
+                'quality_score': memory.metadata['quality_score'],
+                'user_rating': memory.metadata['user_rating'],
+                'user_feedback': memory.metadata['user_feedback'],
+                'user_rating_timestamp': memory.metadata['user_rating_timestamp'],
+                'rating_history': memory.metadata['rating_history']
+            }
+
+            success, message = await storage.update_memory_metadata(
                 content_hash=content_hash,
-                updates=memory.metadata,
+                updates={'metadata': quality_updates},
                 preserve_timestamps=True
             )
+
+            if not success:
+                return [types.TextContent(type="text", text=f"Error updating memory: {message}")]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error updating memory: {str(e)}")]
 
