@@ -314,6 +314,19 @@ class MemoryStorage(ABC):
         raise NotImplementedError("Subclasses must implement delete_before_date")
 
     @abstractmethod
+    async def get_by_exact_content(self, content: str) -> List[Memory]:
+        """
+        Retrieve memories by exact content match.
+
+        Args:
+            content: Exact content string to match
+
+        Returns:
+            List of Memory objects with matching content
+        """
+        raise NotImplementedError("Subclasses must implement get_by_exact_content")
+
+    @abstractmethod
     async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
         """
         Get a memory by its content hash using direct O(1) lookup.

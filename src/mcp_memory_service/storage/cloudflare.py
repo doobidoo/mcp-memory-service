@@ -805,6 +805,29 @@ class CloudflareStorage(MemoryStorage):
             logger.error(f"Failed to delete memory {content_hash}: {e}")
             return False, f"Deletion failed: {str(e)}"
 
+    async def get_by_exact_content(self, content: str) -> List[Memory]:
+        """Retrieve memories by exact content match."""
+        try:
+            sql = "SELECT * FROM memories WHERE content = ? AND deleted_at IS NULL"
+            payload = {"sql": sql, "params": [content]}
+            response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+            result = response.json()
+
+            if not result.get("success") or not result.get("result", [{}])[0].get("results"):
+                return []
+
+            memories = []
+            for row in result["result"][0]["results"]:
+                memory = await self._load_memory_from_row(row)
+                if memory:
+                    memories.append(memory)
+
+            return memories
+
+        except Exception as e:
+            logger.error(f"Error in exact content match (Cloudflare): {str(e)}")
+            return []
+
     async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
         """Get a memory by its content hash using direct O(1) D1 lookup."""
         try:

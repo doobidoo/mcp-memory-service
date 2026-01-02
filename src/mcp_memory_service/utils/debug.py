@@ -14,8 +14,11 @@
 
 """Debug utilities for memory service."""
 from typing import Dict, Any, List
+import logging
 import numpy as np
 from ..models.memory import Memory, MemoryQueryResult
+
+logger = logging.getLogger(__name__)
 
 def _get_embedding_model(storage):
     """
@@ -109,23 +112,33 @@ async def debug_retrieve_memory(
         return []
 
 async def exact_match_retrieve(storage, content: str) -> List[Memory]:
-    """Retrieve memories using exact content match."""
+    """Retrieve memories using exact content match (backend-agnostic)."""
     try:
-        results = storage.collection.get(
-            where={"content": content}
-        )
-        
-        memories = []
-        for i in range(len(results["ids"])):
-            memory = Memory.from_dict(
-                {
-                    "content": results["documents"][i],
-                    **results["metadatas"][i]
-                },
-                embedding=results["embeddings"][i] if "embeddings" in results else None
-            )
-            memories.append(memory)
-        
-        return memories
+        # Use the new backend-agnostic method if available
+        if hasattr(storage, 'get_by_exact_content'):
+            return await storage.get_by_exact_content(content)
+
+        # Fallback to ChromaDB-specific API for backwards compatibility
+        if hasattr(storage, 'collection'):
+            results = storage.collection.get(where={"content": content})
+
+            memories = []
+            for i in range(len(results["ids"])):
+                memory = Memory.from_dict(
+                    {
+                        "content": results["documents"][i],
+                        **results["metadatas"][i]
+                    },
+                    embedding=results["embeddings"][i] if "embeddings" in results else None
+                )
+                memories.append(memory)
+
+            return memories
+
+        # No suitable method available
+        logger.warning(f"Storage backend {type(storage).__name__} does not support exact content match")
+        return []
+
     except Exception as e:
+        logger.error(f"Error in exact_match_retrieve: {str(e)}")
         return []

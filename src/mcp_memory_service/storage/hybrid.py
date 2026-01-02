@@ -1401,6 +1401,10 @@ class HybridMemoryStorage(MemoryStorage):
 
         return count_deleted, message
 
+    async def get_by_exact_content(self, content: str) -> List[Memory]:
+        """Retrieve memories by exact content match from primary storage."""
+        return await self.primary.get_by_exact_content(content)
+
     async def delete_by_timeframe(self, start_date: date, end_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
         """Delete memories within a specific date range in primary storage and queue for secondary sync."""
         count, message = await self.primary.delete_by_timeframe(start_date, end_date, tag)

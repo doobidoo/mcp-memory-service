@@ -1647,6 +1647,46 @@ SOLUTIONS:
             logger.error(f"Error deleting before date: {str(e)}")
             return 0, f"Error: {str(e)}"
 
+    async def get_by_exact_content(self, content: str) -> List[Memory]:
+        """Retrieve memories by exact content match."""
+        try:
+            if not self.conn:
+                return []
+
+            cursor = self.conn.execute('''
+                SELECT content, tags, memory_type, metadata, content_hash,
+                       created_at, created_at_iso, updated_at, updated_at_iso
+                FROM memories
+                WHERE content = ? AND deleted_at IS NULL
+            ''', (content,))
+
+            memories = []
+            for row in cursor.fetchall():
+                content_str, tags_str, memory_type, metadata_str, content_hash, \
+                    created_at, created_at_iso, updated_at, updated_at_iso = row
+
+                metadata = self._safe_json_loads(metadata_str, "get_by_exact_content")
+                tags = [tag.strip() for tag in tags_str.split(',')] if tags_str else []
+
+                memory = Memory(
+                    content=content_str,
+                    content_hash=content_hash,
+                    tags=tags,
+                    memory_type=memory_type,
+                    metadata=metadata,
+                    created_at=created_at,
+                    created_at_iso=created_at_iso,
+                    updated_at=updated_at,
+                    updated_at_iso=updated_at_iso
+                )
+                memories.append(memory)
+
+            return memories
+
+        except Exception as e:
+            logger.error(f"Error in exact content match: {str(e)}")
+            return []
+
     async def cleanup_duplicates(self) -> Tuple[int, str]:
         """Remove duplicate memories based on content hash."""
         try:
