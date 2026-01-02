@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop with SQLite-vec, Cloudflare, and Hybrid storage backends.
 
-> **🆕 v8.65.0**: **Memory Maintenance Tools & Hybrid Sync Performance** - 5 new maintenance scripts for auto-retagging, bulk deletion, and memory classification. 5x faster hybrid sync (batch-size fix: 10 → 50 concurrent). Schema migration fix for existing databases. Enhanced documentation with maintenance workflows. See [CHANGELOG.md](CHANGELOG.md) for full version history.
+> **🆕 v8.66.0**: **Critical Bug Fixes for Storage Backend & Quality System** - Fixed user ratings persistence (Issue #325), added time-based deletion methods to all backends (Issue #323), and made exact_match_retrieve work across all storage backends (Issue #324). All three storage backends now support complete API. See [CHANGELOG.md](CHANGELOG.md) for full version history.
 >
 > **Note**: When releasing new versions, update this line with current version + brief description. Use `.claude/agents/github-release-manager.md` agent for complete release workflow.
 

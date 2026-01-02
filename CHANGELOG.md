@@ -10,6 +10,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [8.66.0] - 2026-01-02
+
+### Fixed
+- **Quality System - User Ratings Persistence** (Issue #325)
+  - **Problem**: `rate_memory` showed success but ratings were not persisted to database
+  - **Root Cause**: Handler passed entire metadata dict (with tags as string) to `update_memory_metadata()`, which expects tags as list → silent failure
+  - **Fix**: Only pass quality-related fields (quality_score, user_rating, user_feedback, etc.) and check return value
+  - **Impact**: User ratings now persist correctly to database
+  - **File**: `src/mcp_memory_service/server/handlers/quality.py`
+
+- **Storage Backend - Time-based Deletion Methods** (Issue #323)
+  - **Problem**: Handlers existed but storage methods were missing from all backends, causing AttributeError
+  - **Implementation**:
+    - Added `delete_by_timeframe(start_date, end_date, tag)` to all backends
+    - Added `delete_before_date(before_date, tag)` to all backends
+    - SQLite-vec: Uses soft-delete for tombstone support
+    - Cloudflare: D1 batch queries with proper retry patterns
+    - Hybrid: Delegates to SQLite + queues for sync with Cloudflare
+  - **Impact**: Time-based memory cleanup now works across all storage backends
+  - **Files**: `src/mcp_memory_service/storage/{base,sqlite_vec,cloudflare,hybrid}.py`
+
+- **Debug Tool - Backend-Agnostic Exact Match** (Issue #324)
+  - **Problem**: `exact_match_retrieve()` used ChromaDB-specific API, causing empty results with SQLite-vec
+  - **Implementation**:
+    - Added `get_by_exact_content(content)` method to all storage backends
+    - SQLite-vec: SQL WHERE content = ? AND deleted_at IS NULL
+    - Cloudflare: D1 query with retry patterns
+    - Hybrid: Delegates to primary storage
+    - Three-tier fallback in debug.py for backwards compatibility
+  - **Impact**: Debug tool now works with all storage backends
+  - **Files**: `src/mcp_memory_service/storage/{base,sqlite_vec,cloudflare,hybrid}.py`, `src/mcp_memory_service/utils/debug.py`
+
 ## [8.65.0] - 2026-01-02
 
 ### Added

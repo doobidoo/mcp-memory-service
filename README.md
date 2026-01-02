@@ -149,16 +149,17 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 
 ---
 
-## 🆕 Latest Release: **v8.65.0** (Jan 2, 2026)
+## 🆕 Latest Release: **v8.66.0** (Jan 2, 2026)
 
-**Memory Maintenance Tools & Hybrid Sync Performance**
+**Critical Bug Fixes for Storage Backend & Quality System**
 
-- 🧹 **5 New Maintenance Scripts** - Auto-retagging, bulk deletion, and memory classification utilities
-- ⚡ **5x Faster Hybrid Sync** - Removed hard-coded batch-size limit, now respects .env configuration (10 → 50 concurrent)
-- 🔧 **Schema Migration Fix** - `deleted_at` column now auto-migrates on existing databases
-- 📚 **Enhanced Documentation** - New maintenance workflows in README and AGENTS.md
+- 🔧 **Quality System Fix** - User ratings now persist correctly to database (Issue #325)
+- 🗄️ **Storage Backend Methods** - Added time-based deletion methods to all backends (Issue #323)
+- 🔍 **Debug Tool Fix** - Made exact_match_retrieve work across all storage backends (Issue #324)
+- ✅ **Full Backend Coverage** - All three storage backends (SQLite-vec, Cloudflare, Hybrid) now support complete API
 
 **Previous Releases**:
+- **v8.65.0** - Memory Maintenance Tools & Hybrid Sync Performance (5 new maintenance scripts, 5x faster hybrid sync)
 - **v8.64.0** - Hybrid Sync Race Condition Fix (Tombstone Support for soft-delete, automatic purge)
 - **v8.63.1** - Critical Bug Fix for Tag Deletion API (delete_by_tag vs delete_by_tags)
 - **v8.63.0** - Dashboard Bulk Operations & SHODH Ecosystem Integration (Delete Untagged, SHODH API Spec v1.0.0)
