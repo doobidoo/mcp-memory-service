@@ -20,7 +20,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 import asyncio
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any, Tuple
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from ..models.memory import Memory, MemoryQueryResult
 
 class MemoryStorage(ABC):
@@ -285,6 +285,33 @@ class MemoryStorage(ABC):
             Override in backends that support tombstones (e.g., sqlite_vec).
         """
         return 0
+
+    async def delete_by_timeframe(self, start_date: date, end_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
+        """
+        Delete memories within a specific date range.
+
+        Args:
+            start_date: Start date (inclusive)
+            end_date: End date (inclusive)
+            tag: Optional tag filter
+
+        Returns:
+            Tuple of (count, message)
+        """
+        raise NotImplementedError("Subclasses must implement delete_by_timeframe")
+
+    async def delete_before_date(self, before_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
+        """
+        Delete memories created before a specific date.
+
+        Args:
+            before_date: Date threshold (exclusive - memories before this date are deleted)
+            tag: Optional tag filter
+
+        Returns:
+            Tuple of (count, message)
+        """
+        raise NotImplementedError("Subclasses must implement delete_before_date")
 
     @abstractmethod
     async def get_by_hash(self, content_hash: str) -> Optional[Memory]:

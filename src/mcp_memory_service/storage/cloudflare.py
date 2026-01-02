@@ -23,7 +23,7 @@ import hashlib
 import asyncio
 import time
 from typing import List, Dict, Any, Tuple, Optional
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 import httpx
 
 from .base import MemoryStorage
@@ -902,7 +902,102 @@ class CloudflareStorage(MemoryStorage):
         except Exception as e:
             logger.error(f"Failed to delete by tag {tag}: {e}")
             return 0, f"Deletion failed: {str(e)}"
-    
+
+    async def delete_by_timeframe(self, start_date: date, end_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
+        """Delete memories within a specific date range."""
+        try:
+            # Convert dates to timestamps
+            start_ts = datetime.combine(start_date, datetime.min.time()).timestamp()
+            end_ts = datetime.combine(end_date, datetime.max.time()).timestamp()
+
+            if tag:
+                # Delete with tag filter
+                sql = '''
+                    SELECT content_hash FROM memories
+                    WHERE created_at >= ? AND created_at <= ?
+                    AND (tags LIKE ? OR tags LIKE ? OR tags LIKE ? OR tags = ?)
+                    AND deleted_at IS NULL
+                '''
+                params = (start_ts, end_ts, f"{tag},%", f"%,{tag},%", f"%,{tag}", tag)
+            else:
+                # Delete all in timeframe
+                sql = '''
+                    SELECT content_hash FROM memories
+                    WHERE created_at >= ? AND created_at <= ?
+                    AND deleted_at IS NULL
+                '''
+                params = (start_ts, end_ts)
+
+            # CORRECT PATTERN: Use _retry_request instead of non-existent _execute_d1_query
+            payload = {"sql": sql, "params": params}
+            response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+            result = response.json()
+
+            if not result.get("success") or not result.get("result", [{}])[0].get("results"):
+                return 0, "No memories found in timeframe"
+
+            hashes = [row["content_hash"] for row in result["result"][0]["results"]]
+
+            # Delete each memory
+            deleted_count = 0
+            for content_hash in hashes:
+                success, _ = await self.delete(content_hash)
+                if success:
+                    deleted_count += 1
+
+            return deleted_count, f"Deleted {deleted_count} memories from {start_date} to {end_date}" + (f" with tag '{tag}'" if tag else "")
+
+        except Exception as e:
+            logger.error(f"Error deleting by timeframe in Cloudflare: {str(e)}")
+            return 0, f"Error: {str(e)}"
+
+    async def delete_before_date(self, before_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
+        """Delete memories created before a specific date."""
+        try:
+            # Convert date to timestamp
+            before_ts = datetime.combine(before_date, datetime.min.time()).timestamp()
+
+            if tag:
+                # Delete with tag filter
+                sql = '''
+                    SELECT content_hash FROM memories
+                    WHERE created_at < ?
+                    AND (tags LIKE ? OR tags LIKE ? OR tags LIKE ? OR tags = ?)
+                    AND deleted_at IS NULL
+                '''
+                params = (before_ts, f"{tag},%", f"%,{tag},%", f"%,{tag}", tag)
+            else:
+                # Delete all before date
+                sql = '''
+                    SELECT content_hash FROM memories
+                    WHERE created_at < ?
+                    AND deleted_at IS NULL
+                '''
+                params = (before_ts,)
+
+            # CORRECT PATTERN: Use _retry_request instead of non-existent _execute_d1_query
+            payload = {"sql": sql, "params": params}
+            response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+            result = response.json()
+
+            if not result.get("success") or not result.get("result", [{}])[0].get("results"):
+                return 0, "No memories found before date"
+
+            hashes = [row["content_hash"] for row in result["result"][0]["results"]]
+
+            # Delete each memory
+            deleted_count = 0
+            for content_hash in hashes:
+                success, _ = await self.delete(content_hash)
+                if success:
+                    deleted_count += 1
+
+            return deleted_count, f"Deleted {deleted_count} memories before {before_date}" + (f" with tag '{tag}'" if tag else "")
+
+        except Exception as e:
+            logger.error(f"Error deleting before date in Cloudflare: {str(e)}")
+            return 0, f"Error: {str(e)}"
+
     async def cleanup_duplicates(self) -> Tuple[int, str]:
         """Remove duplicate memories based on content hash."""
         try:

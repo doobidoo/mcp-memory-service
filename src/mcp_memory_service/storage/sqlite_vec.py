@@ -29,7 +29,7 @@ import hashlib
 import struct
 from collections import Counter
 from typing import List, Dict, Any, Tuple, Optional, Set, Callable
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 import asyncio
 import random
 
@@ -1565,6 +1565,87 @@ SOLUTIONS:
             error_msg = f"Failed to delete by tags: {str(e)}"
             logger.error(error_msg)
             return 0, error_msg
+
+    async def delete_by_timeframe(self, start_date: date, end_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
+        """Delete memories within a specific date range."""
+        try:
+            if not self.conn:
+                return 0, "Database not initialized"
+
+            # Convert dates to timestamps
+            start_ts = datetime.combine(start_date, datetime.min.time()).timestamp()
+            end_ts = datetime.combine(end_date, datetime.max.time()).timestamp()
+
+            if tag:
+                # Delete with tag filter
+                cursor = self.conn.execute('''
+                    SELECT content_hash FROM memories
+                    WHERE created_at >= ? AND created_at <= ?
+                    AND (tags LIKE ? OR tags LIKE ? OR tags LIKE ? OR tags = ?)
+                    AND deleted_at IS NULL
+                ''', (start_ts, end_ts, f"{tag},%", f"%,{tag},%", f"%,{tag}", tag))
+            else:
+                # Delete all in timeframe
+                cursor = self.conn.execute('''
+                    SELECT content_hash FROM memories
+                    WHERE created_at >= ? AND created_at <= ?
+                    AND deleted_at IS NULL
+                ''', (start_ts, end_ts))
+
+            hashes = [row[0] for row in cursor.fetchall()]
+
+            # Use soft-delete for each hash
+            deleted_count = 0
+            for content_hash in hashes:
+                success, _ = await self.delete(content_hash)
+                if success:
+                    deleted_count += 1
+
+            return deleted_count, f"Deleted {deleted_count} memories from {start_date} to {end_date}" + (f" with tag '{tag}'" if tag else "")
+
+        except Exception as e:
+            logger.error(f"Error deleting by timeframe: {str(e)}")
+            return 0, f"Error: {str(e)}"
+
+    async def delete_before_date(self, before_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
+        """Delete memories created before a specific date."""
+        try:
+            if not self.conn:
+                return 0, "Database not initialized"
+
+            # Convert date to timestamp
+            before_ts = datetime.combine(before_date, datetime.min.time()).timestamp()
+
+            if tag:
+                # Delete with tag filter
+                cursor = self.conn.execute('''
+                    SELECT content_hash FROM memories
+                    WHERE created_at < ?
+                    AND (tags LIKE ? OR tags LIKE ? OR tags LIKE ? OR tags = ?)
+                    AND deleted_at IS NULL
+                ''', (before_ts, f"{tag},%", f"%,{tag},%", f"%,{tag}", tag))
+            else:
+                # Delete all before date
+                cursor = self.conn.execute('''
+                    SELECT content_hash FROM memories
+                    WHERE created_at < ?
+                    AND deleted_at IS NULL
+                ''', (before_ts,))
+
+            hashes = [row[0] for row in cursor.fetchall()]
+
+            # Use soft-delete for each hash
+            deleted_count = 0
+            for content_hash in hashes:
+                success, _ = await self.delete(content_hash)
+                if success:
+                    deleted_count += 1
+
+            return deleted_count, f"Deleted {deleted_count} memories before {before_date}" + (f" with tag '{tag}'" if tag else "")
+
+        except Exception as e:
+            logger.error(f"Error deleting before date: {str(e)}")
+            return 0, f"Error: {str(e)}"
 
     async def cleanup_duplicates(self) -> Tuple[int, str]:
         """Remove duplicate memories based on content hash."""

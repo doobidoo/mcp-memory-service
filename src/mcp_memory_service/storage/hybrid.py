@@ -28,6 +28,7 @@ import time
 from typing import List, Dict, Any, Tuple, Optional
 from collections import deque
 from dataclasses import dataclass
+from datetime import date
 
 from .base import MemoryStorage
 from .sqlite_vec import SqliteVecMemoryStorage
@@ -77,11 +78,15 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SyncOperation:
     """Represents a pending sync operation."""
-    operation: str  # 'store', 'delete', 'update'
+    operation: str  # 'store', 'delete', 'update', 'delete_by_timeframe', 'delete_before_date'
     memory: Optional[Memory] = None
     content_hash: Optional[str] = None
     updates: Optional[Dict[str, Any]] = None
     preserve_timestamps: bool = True
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    before_date: Optional[date] = None
+    tag: Optional[str] = None
     timestamp: float = None
     retries: int = 0
     max_retries: int = 3
@@ -637,6 +642,35 @@ class BackgroundSyncService:
                 )
                 if not success:
                     raise Exception(f"Update operation failed: {message}")
+
+            elif operation.operation == 'delete_by_timeframe':
+                # Delete memories by timeframe in secondary storage
+                if operation.start_date and operation.end_date:
+                    success, message = await self.secondary.delete_by_timeframe(
+                        operation.start_date,
+                        operation.end_date,
+                        operation.tag
+                    )
+                    if not success:
+                        raise Exception(f"Delete by timeframe failed: {message}")
+                    self.sync_stats['operations_synced'] += 1
+                    logger.debug(f"Synced delete_by_timeframe: {message}")
+                else:
+                    raise ValueError("delete_by_timeframe operation missing start_date or end_date")
+
+            elif operation.operation == 'delete_before_date':
+                # Delete memories before date in secondary storage
+                if operation.before_date:
+                    success, message = await self.secondary.delete_before_date(
+                        operation.before_date,
+                        operation.tag
+                    )
+                    if not success:
+                        raise Exception(f"Delete before date failed: {message}")
+                    self.sync_stats['operations_synced'] += 1
+                    logger.debug(f"Synced delete_before_date: {message}")
+                else:
+                    raise ValueError("delete_before_date operation missing before_date")
 
             # Reset failure counters on success
             self.consecutive_failures = 0
@@ -1366,6 +1400,37 @@ class HybridMemoryStorage(MemoryStorage):
                 await self.sync_service.enqueue_operation(operation)
 
         return count_deleted, message
+
+    async def delete_by_timeframe(self, start_date: date, end_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
+        """Delete memories within a specific date range in primary storage and queue for secondary sync."""
+        count, message = await self.primary.delete_by_timeframe(start_date, end_date, tag)
+
+        if count > 0 and self.sync_service and not self._sync_paused:
+            # Queue for background sync to secondary
+            operation = SyncOperation(
+                operation='delete_by_timeframe',
+                start_date=start_date,
+                end_date=end_date,
+                tag=tag
+            )
+            await self.sync_service.enqueue_operation(operation)
+
+        return count, message
+
+    async def delete_before_date(self, before_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
+        """Delete memories created before a specific date in primary storage and queue for secondary sync."""
+        count, message = await self.primary.delete_before_date(before_date, tag)
+
+        if count > 0 and self.sync_service and not self._sync_paused:
+            # Queue for background sync to secondary
+            operation = SyncOperation(
+                operation='delete_before_date',
+                before_date=before_date,
+                tag=tag
+            )
+            await self.sync_service.enqueue_operation(operation)
+
+        return count, message
 
     async def cleanup_duplicates(self) -> Tuple[int, str]:
         """Clean up duplicates in primary storage."""
