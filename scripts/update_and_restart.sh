@@ -227,19 +227,68 @@ fi
 # Always use venv pip for installation (avoids system Python 3.14 issues)
 log_info "Installing with venv pip (this may take 1-2 minutes)..."
 
-# Detect platform and use CPU-only PyTorch on non-CUDA systems to avoid downloading 700+ MB CUDA packages
-PLATFORM=$(uname -s)
-if [ "$PLATFORM" = "Darwin" ]; then
-    log_info "macOS detected - using CPU-only PyTorch (no CUDA downloads)"
-    EXTRA_INDEX="--extra-index-url https://download.pytorch.org/whl/cpu"
-else
-    # Check if NVIDIA GPU is available on Linux
-    if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
-        log_info "NVIDIA GPU detected - using default PyTorch with CUDA"
-        EXTRA_INDEX=""
-    else
-        log_info "No NVIDIA GPU detected - using CPU-only PyTorch"
+# Detect platform and hardware using Python-based detection (consistent with install.py)
+DETECTION_SCRIPT="$SCRIPT_DIR/utils/detect_platform.py"
+
+if [ ! -f "$DETECTION_SCRIPT" ]; then
+    log_warning "Platform detection script not found, using basic detection"
+    # Fallback to simple detection
+    PLATFORM=$(uname -s)
+    if [ "$PLATFORM" = "Darwin" ]; then
+        log_info "macOS detected - using CPU-only PyTorch (no CUDA downloads)"
         EXTRA_INDEX="--extra-index-url https://download.pytorch.org/whl/cpu"
+    else
+        if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+            log_info "NVIDIA GPU detected - using default PyTorch with CUDA"
+            EXTRA_INDEX=""
+        else
+            log_info "No NVIDIA GPU detected - using CPU-only PyTorch"
+            EXTRA_INDEX="--extra-index-url https://download.pytorch.org/whl/cpu"
+        fi
+    fi
+    NEEDS_DIRECTML="False"
+else
+    # Use Python-based detection for comprehensive hardware support
+    PLATFORM_JSON=$("$VENV_PYTHON" "$DETECTION_SCRIPT" 2>/dev/null)
+
+    if [ $? -eq 0 ]; then
+        # Parse JSON output
+        ACCELERATOR=$(echo "$PLATFORM_JSON" | "$VENV_PYTHON" -c "import sys, json; print(json.load(sys.stdin).get('accelerator', 'cpu'))" 2>/dev/null || echo "cpu")
+        PYTORCH_INDEX=$(echo "$PLATFORM_JSON" | "$VENV_PYTHON" -c "import sys, json; print(json.load(sys.stdin).get('pytorch_index_url', ''))" 2>/dev/null || echo "")
+        NEEDS_DIRECTML=$(echo "$PLATFORM_JSON" | "$VENV_PYTHON" -c "import sys, json; print(json.load(sys.stdin).get('needs_directml', False))" 2>/dev/null || echo "False")
+
+        # Log detected accelerator
+        case "$ACCELERATOR" in
+            cuda)
+                CUDA_VER=$(echo "$PLATFORM_JSON" | "$VENV_PYTHON" -c "import sys, json; print(json.load(sys.stdin).get('cuda_version', 'Unknown'))" 2>/dev/null || echo "Unknown")
+                log_info "CUDA detected (${CUDA_VER}) - using optimized PyTorch"
+                ;;
+            rocm)
+                ROCM_VER=$(echo "$PLATFORM_JSON" | "$VENV_PYTHON" -c "import sys, json; print(json.load(sys.stdin).get('rocm_version', 'Unknown'))" 2>/dev/null || echo "Unknown")
+                log_info "ROCm detected (${ROCM_VER}) - using optimized PyTorch"
+                ;;
+            mps)
+                log_info "Apple Silicon MPS detected - using MPS-optimized PyTorch"
+                ;;
+            directml)
+                DML_VER=$(echo "$PLATFORM_JSON" | "$VENV_PYTHON" -c "import sys, json; print(json.load(sys.stdin).get('directml_version', 'Unknown'))" 2>/dev/null || echo "Unknown")
+                log_info "DirectML detected (${DML_VER}) - using CPU PyTorch + DirectML package"
+                ;;
+            *)
+                log_info "No GPU acceleration detected - using CPU-only PyTorch"
+                ;;
+        esac
+
+        # Set extra index URL
+        if [ -n "$PYTORCH_INDEX" ]; then
+            EXTRA_INDEX="--extra-index-url $PYTORCH_INDEX"
+        else
+            EXTRA_INDEX=""
+        fi
+    else
+        log_warning "Platform detection failed, using CPU-only PyTorch"
+        EXTRA_INDEX="--extra-index-url https://download.pytorch.org/whl/cpu"
+        NEEDS_DIRECTML="False"
     fi
 fi
 
@@ -257,6 +306,17 @@ if [ ${PIPESTATUS[0]} -ne 0 ]; then
 fi
 
 log_success "Dependencies installed"
+
+# Install DirectML if needed (Windows GPU acceleration)
+if [ "$NEEDS_DIRECTML" = "True" ]; then
+    log_info "Installing torch-directml for DirectML support..."
+    "$VENV_PIP" install torch-directml>=0.2.0 --quiet 2>&1
+    if [ $? -eq 0 ]; then
+        log_success "torch-directml installed"
+    else
+        log_warning "Failed to install torch-directml, GPU acceleration may not be available"
+    fi
+fi
 
 # Verify installation
 INSTALLED_VERSION=$("$VENV_PIP" show mcp-memory-service 2>/dev/null | grep "^Version:" | awk '{print $2}' || echo "unknown")

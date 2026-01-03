@@ -10,6 +10,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [8.69.0] - 2026-01-03
+
+### Added
+- **MCP Tool Annotations for Improved LLM Decision-Making**
+  - Added `readOnlyHint`, `destructiveHint`, and `title` annotations to all 24 MCP tools
+  - **Read-only tools** (12): `retrieve_memory`, `recall_memory`, `search_by_tag`, `check_database_health`, `get_cache_stats`, etc.
+  - **Destructive tools** (9): `delete_memory`, `update_memory_metadata`, `cleanup_duplicates`, `rate_memory`, etc.
+  - **Additive-only tools** (3): `store_memory`, `ingest_document`, `ingest_directory` (marked with `destructiveHint: false`)
+  - Bumped MCP SDK dependency from `>=1.0.0` to `>=1.8.0` for annotation support
+  - Enables MCP clients to auto-approve safe read-only operations and prompt for confirmation on destructive actions
+
+## [8.68.2] - 2026-01-03
+
+### Fixed
+- **Platform Detection Improvements - Hardware Acceleration** (`update_and_restart.sh`, `detect_platform.py`)
+  - **Problem**: Apple Silicon M1/M2/M3 Macs used CPU-only PyTorch instead of Metal Performance Shaders (MPS)
+  - **Impact**: Significant performance loss on M-series Macs (embedding generation 3-5x slower)
+  - **Root Cause**: Old bash-only detection treated all macOS as CPU-only, no MPS/ROCm/DirectML support
+  - **Solution**:
+    - Enhanced `update_and_restart.sh` with comprehensive hardware detection (MPS, CUDA, ROCm, DirectML, CPU)
+    - Created `scripts/utils/detect_platform.py` using shared `gpu_detection.py` module for consistency
+    - Python-based detection provides optimal PyTorch index selection per platform
+    - Graceful fallback to old logic if Python helper unavailable
+  - **Benefits**:
+    - MPS support for Apple Silicon (native Metal acceleration)
+    - CUDA version-specific PyTorch (cu121, cu118, cu102)
+    - ROCm support for AMD GPUs (rocm5.6)
+    - DirectML support for Windows GPU acceleration
+    - Consistent with `install.py` detection logic
+
+### Added
+- **Platform Detection Helper Documentation** (`scripts/utils/README_detect_platform.md`)
+  - Comprehensive guide for platform detection helper
+  - JSON output format documentation
+  - Supported platforms comparison table
+  - Integration details with `update_and_restart.sh`
+  - Example outputs for different hardware configurations
+
 ## [8.68.1] - 2026-01-03
 
 ### Fixed
