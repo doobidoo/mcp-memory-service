@@ -1256,23 +1256,27 @@ class MemoryServer:
                                 }
                             },
                             "required": ["content"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Store Memory",
+                            destructiveHint=False,
+                        ),
                     ),
                     types.Tool(
                         name="recall_memory",
                         description="""Retrieve memories using natural language time expressions and optional semantic search.
-                        
+
                         Supports various time-related expressions such as:
                         - "yesterday", "last week", "2 days ago"
                         - "last summer", "this month", "last January"
                         - "spring", "winter", "Christmas", "Thanksgiving"
                         - "morning", "evening", "yesterday afternoon"
-                        
+
                         Examples:
                         {
                             "query": "recall what I stored last week"
                         }
-                        
+
                         {
                             "query": "find information about databases from two months ago",
                             "n_results": 5
@@ -1292,7 +1296,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["query"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Recall Memory",
+                            readOnlyHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="retrieve_memory",
@@ -1317,7 +1325,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["query"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Retrieve Memory",
+                            readOnlyHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="retrieve_with_quality_boost",
@@ -1365,7 +1377,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["query"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Retrieve with Quality Boost",
+                            readOnlyHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="search_by_tag",
@@ -1395,7 +1411,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["tags"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Search by Tag",
+                            readOnlyHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="delete_memory",
@@ -1414,7 +1434,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["content_hash"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Delete Memory",
+                            destructiveHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="delete_by_tag",
@@ -1442,7 +1466,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["tags"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Delete by Tag",
+                            destructiveHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="delete_by_tags",
@@ -1473,7 +1501,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["tags"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Delete by Tags",
+                            destructiveHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="delete_by_all_tags",
@@ -1503,7 +1535,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["tags"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Delete by All Tags",
+                            destructiveHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="cleanup_duplicates",
@@ -1511,7 +1547,11 @@ class MemoryServer:
                         inputSchema={
                             "type": "object",
                             "properties": {}
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Cleanup Duplicates",
+                            destructiveHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="debug_retrieve",
@@ -1542,7 +1582,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["query"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Debug Retrieve",
+                            readOnlyHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="exact_match_retrieve",
@@ -1561,7 +1605,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["content"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Exact Match Retrieve",
+                            readOnlyHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="get_raw_embedding",
@@ -1580,7 +1628,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["content"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Get Raw Embedding",
+                            readOnlyHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="check_database_health",
@@ -1588,7 +1640,11 @@ class MemoryServer:
                         inputSchema={
                             "type": "object",
                             "properties": {}
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Check Database Health",
+                            readOnlyHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="get_cache_stats",
@@ -1607,7 +1663,11 @@ class MemoryServer:
                         inputSchema={
                             "type": "object",
                             "properties": {}
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Get Cache Stats",
+                            readOnlyHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="recall_by_timeframe",
@@ -1639,7 +1699,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["start_date"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Recall by Timeframe",
+                            readOnlyHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="delete_by_timeframe",
@@ -1671,7 +1735,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["start_date"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Delete by Timeframe",
+                            destructiveHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="delete_before_date",
@@ -1690,7 +1758,11 @@ class MemoryServer:
                                 "tag": {"type": "string"}
                             },
                             "required": ["before_date"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Delete Before Date",
+                            destructiveHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="update_memory_metadata",
@@ -1770,7 +1842,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["content_hash", "updates"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Update Memory Metadata",
+                            destructiveHint=True,
+                        ),
                     )
                 ]
                 
@@ -1801,17 +1877,25 @@ class MemoryServer:
                                     }
                                 },
                                 "required": ["time_horizon"]
-                            }
+                            },
+                            annotations=types.ToolAnnotations(
+                                title="Consolidate Memories",
+                                destructiveHint=True,
+                            ),
                         ),
                         types.Tool(
                             name="consolidation_status",
                             description="Get status and health information about the consolidation system.",
-                            inputSchema={"type": "object", "properties": {}}
+                            inputSchema={"type": "object", "properties": {}},
+                            annotations=types.ToolAnnotations(
+                                title="Consolidation Status",
+                                readOnlyHint=True,
+                            ),
                         ),
                         types.Tool(
                             name="consolidation_recommendations",
                             description="""Get recommendations for consolidation based on current memory state.
-                            
+
                             Example:
                             {
                                 "time_horizon": "monthly"
@@ -1826,17 +1910,25 @@ class MemoryServer:
                                     }
                                 },
                                 "required": ["time_horizon"]
-                            }
+                            },
+                            annotations=types.ToolAnnotations(
+                                title="Consolidation Recommendations",
+                                readOnlyHint=True,
+                            ),
                         ),
                         types.Tool(
                             name="scheduler_status",
                             description="Get consolidation scheduler status and job information.",
-                            inputSchema={"type": "object", "properties": {}}
+                            inputSchema={"type": "object", "properties": {}},
+                            annotations=types.ToolAnnotations(
+                                title="Scheduler Status",
+                                readOnlyHint=True,
+                            ),
                         ),
                         types.Tool(
                             name="trigger_consolidation",
                             description="""Manually trigger a consolidation job.
-                            
+
                             Example:
                             {
                                 "time_horizon": "weekly",
@@ -1857,12 +1949,16 @@ class MemoryServer:
                                     }
                                 },
                                 "required": ["time_horizon"]
-                            }
+                            },
+                            annotations=types.ToolAnnotations(
+                                title="Trigger Consolidation",
+                                destructiveHint=True,
+                            ),
                         ),
                         types.Tool(
                             name="pause_consolidation",
                             description="""Pause consolidation jobs.
-                            
+
                             Example:
                             {
                                 "time_horizon": "weekly"
@@ -1876,12 +1972,16 @@ class MemoryServer:
                                         "description": "Specific time horizon to pause, or omit to pause all jobs."
                                     }
                                 }
-                            }
+                            },
+                            annotations=types.ToolAnnotations(
+                                title="Pause Consolidation",
+                                destructiveHint=True,
+                            ),
                         ),
                         types.Tool(
                             name="resume_consolidation",
                             description="""Resume consolidation jobs.
-                            
+
                             Example:
                             {
                                 "time_horizon": "weekly"
@@ -1895,7 +1995,11 @@ class MemoryServer:
                                         "description": "Specific time horizon to resume, or omit to resume all jobs."
                                     }
                                 }
-                            }
+                            },
+                            annotations=types.ToolAnnotations(
+                                title="Resume Consolidation",
+                                destructiveHint=True,
+                            ),
                         )
                     ]
                     tools.extend(consolidation_tools)
@@ -1960,7 +2064,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["file_path"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Ingest Document",
+                            destructiveHint=False,
+                        ),
                     ),
                     types.Tool(
                         name="ingest_directory",
@@ -2023,7 +2131,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["directory_path"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Ingest Directory",
+                            destructiveHint=False,
+                        ),
                     )
                 ]
                 tools.extend(ingestion_tools)
@@ -2063,7 +2175,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["content_hash", "rating"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Rate Memory",
+                            destructiveHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="get_memory_quality",
@@ -2089,7 +2205,11 @@ class MemoryServer:
                                 }
                             },
                             "required": ["content_hash"]
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Get Memory Quality",
+                            readOnlyHint=True,
+                        ),
                     ),
                     types.Tool(
                         name="analyze_quality_distribution",
@@ -2122,7 +2242,11 @@ class MemoryServer:
                                     "default": 1.0
                                 }
                             }
-                        }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Analyze Quality Distribution",
+                            readOnlyHint=True,
+                        ),
                     )
                 ]
                 tools.extend(quality_tools)

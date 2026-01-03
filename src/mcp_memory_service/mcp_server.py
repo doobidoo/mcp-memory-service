@@ -54,7 +54,7 @@ except ImportError:
     FastMCP = _DummyFastMCP  # type: ignore
     Context = None  # type: ignore
 
-from mcp.types import TextContent
+from mcp.types import TextContent, ToolAnnotations
 
 # Import existing memory service components
 from .config import (
@@ -272,7 +272,12 @@ class StoreMemoryFailure(TypedDict):
 # CORE MEMORY OPERATIONS
 # =============================================================================
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Store Memory",
+        destructiveHint=False,
+    ),
+)
 async def store_memory(
     content: str,
     ctx: Context,
@@ -367,7 +372,12 @@ Examples:
         content_hash=memory_data["content_hash"]
     )
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Retrieve Memory",
+        readOnlyHint=True,
+    ),
+)
 async def retrieve_memory(
     query: str,
     ctx: Context,
@@ -427,7 +437,12 @@ Examples:
         n_results=n_results
     )
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Search by Tag",
+        readOnlyHint=True,
+    ),
+)
 async def search_by_tag(
     tags: Union[str, List[str]],
     ctx: Context,
@@ -485,7 +500,12 @@ Examples:
         match_all=match_all
     )
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Delete Memory",
+        destructiveHint=True,
+    ),
+)
 async def delete_memory(
     content_hash: str,
     ctx: Context
@@ -534,7 +554,12 @@ retrieve_memory(query: "outdated API documentation")
     memory_service = ctx.request_context.lifespan_context.memory_service
     return await memory_service.delete_memory(content_hash)
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Check Database Health",
+        readOnlyHint=True,
+    ),
+)
 async def check_database_health(ctx: Context) -> Dict[str, Any]:
     """Check database health, storage backend status, and retrieve comprehensive memory service statistics.
 
@@ -580,7 +605,12 @@ Common use cases:
     memory_service = ctx.request_context.lifespan_context.memory_service
     return await memory_service.health_check()
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="List Memories",
+        readOnlyHint=True,
+    ),
+)
 async def list_memories(
     ctx: Context,
     page: int = 1,
@@ -647,7 +677,12 @@ Examples:
         memory_type=memory_type
     )
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Get Cache Stats",
+        readOnlyHint=True,
+    ),
+)
 async def get_cache_stats(ctx: Context) -> Dict[str, Any]:
     """
     Get MCP server global cache statistics for performance monitoring.
