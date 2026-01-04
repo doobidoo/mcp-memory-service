@@ -106,14 +106,12 @@ def main():
         # No special index needed, standard PyPI has MPS support
         pytorch_index_url = ""
 
-    elif accelerator == "directml":
-        # DirectML on Windows - use CPU PyTorch + torch-directml package
-        pytorch_index_url = "https://download.pytorch.org/whl/cpu"
-        needs_directml = True
-
     else:
-        # CPU-only fallback
+        # Handles 'directml', 'cpu', and any other fallbacks
         pytorch_index_url = "https://download.pytorch.org/whl/cpu"
+        if accelerator == "directml":
+            # DirectML on Windows - use CPU PyTorch + torch-directml package
+            needs_directml = True
 
     # Build output
     output = {

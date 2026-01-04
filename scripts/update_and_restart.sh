@@ -249,7 +249,8 @@ if [ ! -f "$DETECTION_SCRIPT" ]; then
     NEEDS_DIRECTML="False"
 else
     # Use Python-based detection for comprehensive hardware support
-    PLATFORM_JSON=$("$VENV_PYTHON" "$DETECTION_SCRIPT" 2>/dev/null)
+    # Note: stderr not redirected to allow debug warnings from detect_platform.py
+    PLATFORM_JSON=$("$VENV_PYTHON" "$DETECTION_SCRIPT")
 
     if [ $? -eq 0 ]; then
         # Parse JSON output once for efficiency (single Python process with defaults)
