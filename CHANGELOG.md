@@ -10,15 +10,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-### Added
-- **MCP Tool Annotations for Improved LLM Decision-Making**
-  - Added `readOnlyHint`, `destructiveHint`, and `title` annotations to all 24 MCP tools
-  - **Read-only tools** (12): `retrieve_memory`, `recall_memory`, `search_by_tag`, `check_database_health`, `get_cache_stats`, etc.
-  - **Destructive tools** (9): `delete_memory`, `update_memory_metadata`, `cleanup_duplicates`, `rate_memory`, etc.
-  - **Additive-only tools** (3): `store_memory`, `ingest_document`, `ingest_directory` (marked with `destructiveHint: false`)
-  - Bumped MCP SDK dependency from `>=1.0.0` to `>=1.8.0` for annotation support
-  - Enables MCP clients to auto-approve safe read-only operations and prompt for confirmation on destructive actions
-
 ## [8.68.2] - 2026-01-04
 
 ### Added

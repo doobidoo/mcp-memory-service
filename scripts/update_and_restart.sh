@@ -279,7 +279,7 @@ print(defaults['rocm_version'])
 print(defaults['directml_version'])
 " 2>/dev/null)
 
-        if [ ${#PLATFORM_DATA[@]} -ge 3 ]; then
+        if [ ${#PLATFORM_DATA[@]} -eq 6 ]; then
             ACCELERATOR=${PLATFORM_DATA[0]}
             PYTORCH_INDEX=${PLATFORM_DATA[1]}
             NEEDS_DIRECTML=${PLATFORM_DATA[2]}
