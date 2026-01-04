@@ -33,17 +33,25 @@ sys.path.insert(0, str(src_dir))
 try:
     from mcp_memory_service.utils.gpu_detection import detect_gpu
 except ImportError as e:
-    # Fallback error output
+    # Fallback: Output minimal CPU-only config to stdout (graceful degradation)
+    # This allows bash scripts to continue with safe defaults
     print(json.dumps({
-        "error": f"Failed to import gpu_detection: {e}",
         "os": platform.system().lower(),
         "arch": platform.machine().lower(),
         "is_arm": platform.machine().lower() in ("arm64", "aarch64"),
+        "is_x86": platform.machine().lower() in ("x86_64", "amd64", "x64"),
         "accelerator": "cpu",
-        "pytorch_index_url": "",
+        "has_cuda": False,
+        "has_rocm": False,
+        "has_mps": False,
+        "has_directml": False,
+        "cuda_version": None,
+        "rocm_version": None,
+        "directml_version": None,
+        "pytorch_index_url": "https://download.pytorch.org/whl/cpu",
         "needs_directml": False
-    }), file=sys.stderr)
-    sys.exit(1)
+    }))
+    sys.exit(0)  # Exit with success for graceful fallback
 
 
 def main():
