@@ -252,19 +252,30 @@ else
     PLATFORM_JSON=$("$VENV_PYTHON" "$DETECTION_SCRIPT" 2>/dev/null)
 
     if [ $? -eq 0 ]; then
-        # Parse JSON output once for efficiency (single Python process)
+        # Parse JSON output once for efficiency (single Python process with defaults)
         mapfile -t PLATFORM_DATA < <(echo "$PLATFORM_JSON" | "$VENV_PYTHON" -c "
 import sys, json
+defaults = {
+    'accelerator': 'cpu',
+    'pytorch_index_url': '',
+    'needs_directml': False,
+    'cuda_version': 'Unknown',
+    'rocm_version': 'Unknown',
+    'directml_version': 'Unknown'
+}
 try:
     data = json.load(sys.stdin)
-    print(data.get('accelerator', 'cpu'))
-    print(data.get('pytorch_index_url', ''))
-    print(data.get('needs_directml', False))
-    print(data.get('cuda_version', 'Unknown'))
-    print(data.get('rocm_version', 'Unknown'))
-    print(data.get('directml_version', 'Unknown'))
-except Exception:
-    print('cpu\\n\\nFalse\\nUnknown\\nUnknown\\nUnknown')
+    if isinstance(data, dict):
+        defaults.update(data)
+except (json.JSONDecodeError, TypeError):
+    pass  # Use defaults if JSON is malformed or empty
+
+print(defaults['accelerator'])
+print(defaults['pytorch_index_url'])
+print(defaults['needs_directml'])
+print(defaults['cuda_version'])
+print(defaults['rocm_version'])
+print(defaults['directml_version'])
 " 2>/dev/null)
 
         if [ ${#PLATFORM_DATA[@]} -ge 3 ]; then
@@ -331,11 +342,13 @@ log_success "Dependencies installed"
 # Install DirectML if needed (Windows GPU acceleration)
 if [ "$NEEDS_DIRECTML" = "True" ]; then
     log_info "Installing torch-directml for DirectML support..."
-    "$VENV_PIP" install torch-directml>=0.2.0 --quiet 2>&1
+    INSTALL_OUTPUT=$("$VENV_PIP" install torch-directml>=0.2.0 --quiet 2>&1)
     if [ $? -eq 0 ]; then
         log_success "torch-directml installed"
     else
         log_warning "Failed to install torch-directml, GPU acceleration may not be available"
+        log_info "Installation output:"
+        echo "$INSTALL_OUTPUT"
     fi
 fi
 
