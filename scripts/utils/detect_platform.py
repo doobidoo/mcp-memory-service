@@ -33,6 +33,9 @@ sys.path.insert(0, str(src_dir))
 try:
     from mcp_memory_service.utils.gpu_detection import detect_gpu
 except ImportError as e:
+    # Log to stderr for debugging, then provide graceful fallback to stdout
+    print(f"Warning: Failed to import 'mcp_memory_service.utils.gpu_detection', falling back to CPU-only. Error: {e}", file=sys.stderr)
+
     # Fallback: Output minimal CPU-only config to stdout (graceful degradation)
     # This allows bash scripts to continue with safe defaults
     print(json.dumps({
@@ -83,20 +86,16 @@ def main():
     needs_directml = False
 
     if accelerator == "cuda":
-        # CUDA detected - determine version-specific index
-        cuda_version = gpu_info.get("cuda_version", "")
+        # CUDA detected - determine version-specific index (default to cu118)
+        pytorch_index_url = "https://download.pytorch.org/whl/cu118"  # Safe default for CUDA 11+
+        cuda_version = gpu_info.get("cuda_version")
         if cuda_version:
-            cuda_major = cuda_version.split('.')[0] if '.' in cuda_version else ""
+            cuda_major = cuda_version.split('.')[0]
             if cuda_major == "12":
                 pytorch_index_url = "https://download.pytorch.org/whl/cu121"
-            elif cuda_major == "11":
-                pytorch_index_url = "https://download.pytorch.org/whl/cu118"
             elif cuda_major == "10":
                 pytorch_index_url = "https://download.pytorch.org/whl/cu102"
-            else:
-                pytorch_index_url = "https://download.pytorch.org/whl/cu118"
-        else:
-            pytorch_index_url = "https://download.pytorch.org/whl/cu118"
+            # For CUDA 11 or other versions, use default cu118
 
     elif accelerator == "rocm":
         # ROCm detected - use ROCm index
