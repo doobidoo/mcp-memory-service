@@ -10,8 +10,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-## [8.69.0] - 2026-01-03
-
 ### Added
 - **MCP Tool Annotations for Improved LLM Decision-Making**
   - Added `readOnlyHint`, `destructiveHint`, and `title` annotations to all 24 MCP tools
@@ -21,7 +19,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Bumped MCP SDK dependency from `>=1.0.0` to `>=1.8.0` for annotation support
   - Enables MCP clients to auto-approve safe read-only operations and prompt for confirmation on destructive actions
 
-## [8.68.2] - 2026-01-03
+## [8.68.2] - 2026-01-04
+
+### Added
+- **Platform Detection Helper Documentation** (`scripts/utils/README_detect_platform.md`)
+  - Comprehensive guide for platform detection helper
+  - JSON output format documentation
+  - Supported platforms comparison table
+  - Integration details with `update_and_restart.sh`
+  - Example outputs for different hardware configurations
 
 ### Fixed
 - **Platform Detection Improvements - Hardware Acceleration** (`update_and_restart.sh`, `detect_platform.py`)
@@ -39,14 +45,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     - ROCm support for AMD GPUs (rocm5.6)
     - DirectML support for Windows GPU acceleration
     - Consistent with `install.py` detection logic
-
-### Added
-- **Platform Detection Helper Documentation** (`scripts/utils/README_detect_platform.md`)
-  - Comprehensive guide for platform detection helper
-  - JSON output format documentation
-  - Supported platforms comparison table
-  - Integration details with `update_and_restart.sh`
-  - Example outputs for different hardware configurations
 
 ## [8.68.1] - 2026-01-03
 
