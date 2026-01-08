@@ -72,11 +72,26 @@ async def setup_graph_data(memory_server, graph_storage):
     A -> D
     B -> D
     """
-    # Store test memories
-    mem_a = await memory_server.store_memory(content="Memory A", metadata={"tags": ["test"]})
-    mem_b = await memory_server.store_memory(content="Memory B", metadata={"tags": ["test"]})
-    mem_c = await memory_server.store_memory(content="Memory C", metadata={"tags": ["test"]})
-    mem_d = await memory_server.store_memory(content="Memory D", metadata={"tags": ["test"]})
+    import uuid
+    test_id = str(uuid.uuid4())[:8]  # Short unique ID for this test run
+
+    # Store test memories with unique content
+    mem_a = await memory_server.store_memory(
+        content=f"Graph test memory A {test_id}",
+        metadata={"tags": ["test", f"graph-test-{test_id}"]}
+    )
+    mem_b = await memory_server.store_memory(
+        content=f"Graph test memory B {test_id}",
+        metadata={"tags": ["test", f"graph-test-{test_id}"]}
+    )
+    mem_c = await memory_server.store_memory(
+        content=f"Graph test memory C {test_id}",
+        metadata={"tags": ["test", f"graph-test-{test_id}"]}
+    )
+    mem_d = await memory_server.store_memory(
+        content=f"Graph test memory D {test_id}",
+        metadata={"tags": ["test", f"graph-test-{test_id}"]}
+    )
 
     # Extract hashes with error handling
     assert mem_a.get("success"), f"Failed to store mem_a: {mem_a}"
