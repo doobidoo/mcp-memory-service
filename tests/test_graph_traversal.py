@@ -315,8 +315,13 @@ async def test_get_memory_subgraph_isolated(memory_server):
     if STORAGE_BACKEND not in ['sqlite_vec', 'hybrid']:
         pytest.skip(f"Graph operations not supported for backend: {STORAGE_BACKEND}")
 
-    # Store isolated memory
-    mem = await memory_server.store_memory(content="Isolated memory")
+    # Store isolated memory with unique content
+    import uuid
+    test_id = str(uuid.uuid4())[:8]
+    mem = await memory_server.store_memory(
+        content=f"Isolated graph test memory {test_id}"
+    )
+    assert mem.get("success"), f"Failed to store isolated memory: {mem}"
     hash_isolated = mem["hash"]
 
     result = await memory_server.handle_get_memory_subgraph({
