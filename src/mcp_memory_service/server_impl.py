@@ -2252,6 +2252,115 @@ class MemoryServer:
                 tools.extend(quality_tools)
                 logger.info(f"Added {len(quality_tools)} quality system tools")
 
+                # Graph traversal tools
+                graph_tools = [
+                    types.Tool(
+                        name="find_connected_memories",
+                        description="""Find memories connected to a given memory via associations.
+
+                        Performs breadth-first traversal of the association graph up to
+                        max_hops distance, returning all connected memories with their
+                        distance from the source.
+
+                        Example:
+                        {
+                            "hash": "abc123...",
+                            "max_hops": 2
+                        }""",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "hash": {
+                                    "type": "string",
+                                    "description": "Content hash of the starting memory"
+                                },
+                                "max_hops": {
+                                    "type": "number",
+                                    "description": "Maximum number of hops to traverse (default: 2)",
+                                    "default": 2
+                                }
+                            },
+                            "required": ["hash"]
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Find Connected Memories",
+                            readOnlyHint=True,
+                        ),
+                    ),
+                    types.Tool(
+                        name="find_shortest_path",
+                        description="""Find shortest path between two memories in the association graph.
+
+                        Uses breadth-first search to find the shortest sequence of associations
+                        connecting two memories. Returns null if no path exists.
+
+                        Example:
+                        {
+                            "hash1": "abc123...",
+                            "hash2": "def456...",
+                            "max_depth": 5
+                        }""",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "hash1": {
+                                    "type": "string",
+                                    "description": "Starting memory hash"
+                                },
+                                "hash2": {
+                                    "type": "string",
+                                    "description": "Target memory hash"
+                                },
+                                "max_depth": {
+                                    "type": "number",
+                                    "description": "Maximum path length (default: 5)",
+                                    "default": 5
+                                }
+                            },
+                            "required": ["hash1", "hash2"]
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Find Shortest Path",
+                            readOnlyHint=True,
+                        ),
+                    ),
+                    types.Tool(
+                        name="get_memory_subgraph",
+                        description="""Get subgraph around a memory for visualization.
+
+                        Extracts all nodes and edges within the specified radius for
+                        graph visualization. Returns nodes (memory hashes) and edges
+                        (associations with metadata).
+
+                        Example:
+                        {
+                            "hash": "abc123...",
+                            "radius": 2
+                        }""",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "hash": {
+                                    "type": "string",
+                                    "description": "Center memory hash"
+                                },
+                                "radius": {
+                                    "type": "number",
+                                    "description": "Number of hops to include (default: 2)",
+                                    "default": 2
+                                }
+                            },
+                            "required": ["hash"]
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Get Memory Subgraph",
+                            readOnlyHint=True,
+                        ),
+                    )
+                ]
+                tools.extend(graph_tools)
+                logger.info(f"Added {len(graph_tools)} graph traversal tools")
+
                 logger.info(f"Returning {len(tools)} tools")
                 return tools
             except Exception as e:
@@ -2354,6 +2463,16 @@ class MemoryServer:
                 elif name == "analyze_quality_distribution":
                     logger.info("Calling handle_analyze_quality_distribution")
                     return await self.handle_analyze_quality_distribution(arguments)
+                # Graph traversal tool handlers
+                elif name == "find_connected_memories":
+                    logger.info("Calling handle_find_connected_memories")
+                    return await self.handle_find_connected_memories(arguments)
+                elif name == "find_shortest_path":
+                    logger.info("Calling handle_find_shortest_path")
+                    return await self.handle_find_shortest_path(arguments)
+                elif name == "get_memory_subgraph":
+                    logger.info("Calling handle_get_memory_subgraph")
+                    return await self.handle_get_memory_subgraph(arguments)
                 else:
                     logger.warning(f"Unknown tool requested: {name}")
                     raise ValueError(f"Unknown tool: {name}")
@@ -2518,6 +2637,21 @@ class MemoryServer:
         """Analyze quality distribution (delegates to handler)."""
         from .server.handlers import quality as quality_handlers
         return await quality_handlers.handle_analyze_quality_distribution(self, arguments)
+
+    async def handle_find_connected_memories(self, arguments: dict) -> List[types.TextContent]:
+        """Find connected memories (delegates to handler)."""
+        from .server.handlers import graph as graph_handlers
+        return await graph_handlers.handle_find_connected_memories(self, arguments)
+
+    async def handle_find_shortest_path(self, arguments: dict) -> List[types.TextContent]:
+        """Find shortest path between memories (delegates to handler)."""
+        from .server.handlers import graph as graph_handlers
+        return await graph_handlers.handle_find_shortest_path(self, arguments)
+
+    async def handle_get_memory_subgraph(self, arguments: dict) -> List[types.TextContent]:
+        """Get memory subgraph for visualization (delegates to handler)."""
+        from .server.handlers import graph as graph_handlers
+        return await graph_handlers.handle_get_memory_subgraph(self, arguments)
 
     # ============================================================
     # Test Compatibility Wrapper Methods
