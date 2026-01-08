@@ -23,10 +23,35 @@ async def memory_server():
 
 @pytest_asyncio.fixture
 async def graph_storage():
-    """Create a test instance of graph storage."""
+    """Create a test instance of graph storage with table initialization."""
     if STORAGE_BACKEND not in ['sqlite_vec', 'hybrid']:
         pytest.skip(f"Graph operations not supported for backend: {STORAGE_BACKEND}")
     graph = GraphStorage(SQLITE_VEC_PATH)
+
+    # Create memory_graph table if it doesn't exist
+    conn = await graph._get_connection()
+    await graph._execute('''
+        CREATE TABLE IF NOT EXISTS memory_graph (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_hash TEXT NOT NULL,
+            target_hash TEXT NOT NULL,
+            similarity REAL DEFAULT 0.0,
+            connection_types TEXT,
+            metadata TEXT,
+            created_at REAL DEFAULT (unixepoch()),
+            UNIQUE(source_hash, target_hash)
+        )
+    ''')
+    await graph._execute('''
+        CREATE INDEX IF NOT EXISTS idx_memory_graph_source ON memory_graph(source_hash)
+    ''')
+    await graph._execute('''
+        CREATE INDEX IF NOT EXISTS idx_memory_graph_target ON memory_graph(target_hash)
+    ''')
+    await graph._execute('''
+        CREATE INDEX IF NOT EXISTS idx_memory_graph_similarity ON memory_graph(similarity)
+    ''')
+
     yield graph
     await graph.close()
 
