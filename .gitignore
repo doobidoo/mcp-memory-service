@@ -90,6 +90,9 @@ tests/test_db/chroma.sqlite3
 .pyscn/reports/
 .pyscn/history/
 
+# Quality analysis reports
+reports/
+
 # Project-specific artifacts
 backups/
 test_output.txt
