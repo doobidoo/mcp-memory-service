@@ -253,59 +253,80 @@ else
     PLATFORM_JSON=$("$VENV_PYTHON" "$DETECTION_SCRIPT")
 
     if [ $? -eq 0 ]; then
-        # Parse JSON output once for efficiency (single Python process with defaults)
-        mapfile -t PLATFORM_DATA < <(echo "$PLATFORM_JSON" | "$VENV_PYTHON" -c "
+        # Parse JSON fields directly (Bash 3.2 compatible - no mapfile/readarray)
+        # Note: Direct parsing is simpler and works on all bash versions
+        ACCELERATOR=$(echo "$PLATFORM_JSON" | "$VENV_PYTHON" -c "
 import sys, json
-defaults = {
-    'accelerator': 'cpu',
-    'pytorch_index_url': '',
-    'needs_directml': False,
-    'cuda_version': 'Unknown',
-    'rocm_version': 'Unknown',
-    'directml_version': 'Unknown'
-}
 try:
     data = json.load(sys.stdin)
-    if isinstance(data, dict):
-        defaults.update(data)
-except (json.JSONDecodeError, TypeError):
-    pass  # Use defaults if JSON is malformed or empty
-
-print(defaults['accelerator'])
-print(defaults['pytorch_index_url'])
-print(defaults['needs_directml'])
-print(defaults['cuda_version'])
-print(defaults['rocm_version'])
-print(defaults['directml_version'])
+    print(data.get('accelerator', 'cpu'))
+except (json.JSONDecodeError, TypeError, ValueError):
+    print('cpu')
 " 2>/dev/null)
 
-        if [ ${#PLATFORM_DATA[@]} -eq 6 ]; then
-            ACCELERATOR=${PLATFORM_DATA[0]}
-            PYTORCH_INDEX=${PLATFORM_DATA[1]}
-            NEEDS_DIRECTML=${PLATFORM_DATA[2]}
-        else
-            # Fallback if Python script fails to produce expected output
+        PYTORCH_INDEX=$(echo "$PLATFORM_JSON" | "$VENV_PYTHON" -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data.get('pytorch_index_url', ''))
+except (json.JSONDecodeError, TypeError, ValueError):
+    print('')
+" 2>/dev/null)
+
+        NEEDS_DIRECTML=$(echo "$PLATFORM_JSON" | "$VENV_PYTHON" -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data.get('needs_directml', False))
+except (json.JSONDecodeError, TypeError, ValueError):
+    print('False')
+" 2>/dev/null)
+
+        CUDA_VER=$(echo "$PLATFORM_JSON" | "$VENV_PYTHON" -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data.get('cuda_version', 'Unknown'))
+except (json.JSONDecodeError, TypeError, ValueError):
+    print('Unknown')
+" 2>/dev/null)
+
+        ROCM_VER=$(echo "$PLATFORM_JSON" | "$VENV_PYTHON" -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data.get('rocm_version', 'Unknown'))
+except (json.JSONDecodeError, TypeError, ValueError):
+    print('Unknown')
+" 2>/dev/null)
+
+        DIRECTML_VER=$(echo "$PLATFORM_JSON" | "$VENV_PYTHON" -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data.get('directml_version', 'Unknown'))
+except (json.JSONDecodeError, TypeError, ValueError):
+    print('Unknown')
+" 2>/dev/null)
+
+        # Validate accelerator value
+        if [ -z "$ACCELERATOR" ]; then
             ACCELERATOR="cpu"
-            PYTORCH_INDEX=""
-            NEEDS_DIRECTML="False"
         fi
 
         # Log detected accelerator
         case "$ACCELERATOR" in
             cuda)
-                CUDA_VER=${PLATFORM_DATA[3]:-Unknown}
                 log_info "CUDA detected (${CUDA_VER}) - using optimized PyTorch"
                 ;;
             rocm)
-                ROCM_VER=${PLATFORM_DATA[4]:-Unknown}
                 log_info "ROCm detected (${ROCM_VER}) - using optimized PyTorch"
                 ;;
             mps)
                 log_info "Apple Silicon MPS detected - using MPS-optimized PyTorch"
                 ;;
             directml)
-                DML_VER=${PLATFORM_DATA[5]:-Unknown}
-                log_info "DirectML detected (${DML_VER}) - using CPU PyTorch + DirectML package"
+                log_info "DirectML detected (${DIRECTML_VER}) - using CPU PyTorch + DirectML package"
                 ;;
             *)
                 log_info "No GPU acceleration detected - using CPU-only PyTorch"
