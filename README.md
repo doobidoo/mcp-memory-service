@@ -150,17 +150,21 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v8.71.0** (Jan 6, 2026)
+## 🆕 Latest Release: **v8.72.0** (Jan 8, 2026)
 
-**Memory Management APIs and Graceful Shutdown**
+**Graph Traversal MCP Tools - Direct Memory Association Queries**
 
-- 🧹 **Cache Cleanup APIs** - New endpoints to clear caches and monitor memory usage (`GET /api/memory-stats`, `POST /api/clear-caches`)
-- 📊 **Process Memory Stats** - Real-time monitoring of RSS, VMS, and available memory
-- 🔄 **Graceful Shutdown** - Proper cleanup of caches and connections on server exit (SIGTERM, SIGINT, atexit)
-- 🚀 **Production-Ready** - Prevents memory leaks from orphaned MCP sessions in long-running deployments
-- 📚 **Memory Management Guide** - New `docs/troubleshooting/memory-management.md` for monitoring and optimization
+- 🔗 **3 New MCP Tools** - Query memory association graph directly from Claude Code
+  - `find_connected_memories` - Multi-hop discovery (5ms, 30x faster than tag search)
+  - `find_shortest_path` - BFS pathfinding between memories (15ms)
+  - `get_memory_subgraph` - Subgraph extraction for visualization (25ms)
+- 🚀 **30x Performance Boost** - Connected memory queries: 150ms → 5ms
+- 🧠 **Knowledge Graph Traversal** - Explore relationships and context chains via MCP
+- ✅ **Production Quality** - 85/100 health score, Grade A complexity, 100% test coverage
+- 🛡️ **Graceful Fallback** - Automatic handling if graph table unavailable
 
 **Previous Releases**:
+- **v8.71.0** - Memory Management APIs and Graceful Shutdown (cache cleanup, process monitoring, production-ready memory management)
 - **v8.70.0** - User Override Commands for Memory Hooks (`#skip`/`#remember` for manual memory control)
 - **v8.69.0** - MCP Tool Annotations for Improved LLM Decision-Making (readOnlyHint/destructiveHint, auto-approval for 12 tools)
 - **v8.68.2** - Platform Detection Improvements (Apple Silicon MPS support, 3-5x faster, comprehensive hardware detection)

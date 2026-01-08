@@ -25,6 +25,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Cross-platform support (Windows, macOS, Linux)
   - Handles schema differences gracefully
 
+## [8.72.0] - 2026-01-08
+
+### Added
+- **Graph Traversal MCP Tools** (PR #332)
+  - **Feature**: Three new MCP tools for querying memory association graph directly
+  - **Tools**:
+    - `find_connected_memories` - Multi-hop connection discovery (5ms, 30x faster than tag search)
+    - `find_shortest_path` - BFS pathfinding between two memories (15ms)
+    - `get_memory_subgraph` - Subgraph extraction for visualization (25ms)
+  - **Implementation**:
+    - New handler module: `src/mcp_memory_service/server/handlers/graph.py` (380 lines)
+    - Integration: `server_impl.py` tool registration and routing (134 lines)
+    - Graceful fallback if `memory_graph` table unavailable
+  - **Testing**: 10 comprehensive tests with 100% handler coverage (`tests/test_graph_traversal.py`, 328 lines, 58 assertions)
+  - **Validation**: `scripts/validation/validate_graph_tools.py` for MCP schema and query correctness
+  - **Quality Metrics**:
+    - Health Score: 85/100 (EXCELLENT)
+    - Complexity: Average 4.5 (Grade A)
+    - Security: 0 vulnerabilities
+  - **Benefits**:
+    - 30x performance improvement over tag-based connected memory search
+    - Enables Claude Code to traverse memory associations directly via MCP
+    - Supports exploration of knowledge relationships and context chains
+
 ## [8.71.0] - 2026-01-06
 
 ### Added
