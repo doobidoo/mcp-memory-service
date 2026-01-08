@@ -78,6 +78,12 @@ async def setup_graph_data(memory_server, graph_storage):
     mem_c = await memory_server.store_memory(content="Memory C", metadata={"tags": ["test"]})
     mem_d = await memory_server.store_memory(content="Memory D", metadata={"tags": ["test"]})
 
+    # Extract hashes with error handling
+    assert mem_a.get("success"), f"Failed to store mem_a: {mem_a}"
+    assert mem_b.get("success"), f"Failed to store mem_b: {mem_b}"
+    assert mem_c.get("success"), f"Failed to store mem_c: {mem_c}"
+    assert mem_d.get("success"), f"Failed to store mem_d: {mem_d}"
+
     hash_a = mem_a["hash"]
     hash_b = mem_b["hash"]
     hash_c = mem_c["hash"]
