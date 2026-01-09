@@ -95,9 +95,6 @@ class ONNXRankerModel:
         if not ONNX_AVAILABLE:
             raise ImportError("ONNX Runtime is required but not installed. Install with: pip install onnxruntime")
 
-        if not TRANSFORMERS_AVAILABLE:
-            raise ImportError("Transformers and torch are required. Install with: pip install transformers torch")
-
         # Import config validation here to avoid circular imports
         from .config import validate_model_selection
 
@@ -110,10 +107,19 @@ class ONNXRankerModel:
         self._model = None
         self._tokenizer = None
 
-        # Ensure model is exported to ONNX
-        self._ensure_onnx_model()
+        # Check if ONNX model already exists (no transformers needed!)
+        onnx_path = self.MODEL_PATH / self.ONNX_MODEL_FILE
+        if not onnx_path.exists():
+            # Only require transformers if we need to export
+            if not TRANSFORMERS_AVAILABLE:
+                raise ImportError(
+                    f"ONNX model not found at {onnx_path}. "
+                    "Either download pre-exported model or install transformers+torch for export."
+                )
+            # Export model to ONNX
+            self._ensure_onnx_model()
 
-        # Initialize the model
+        # Initialize the model (works without transformers!)
         self._init_model()
 
     def _detect_providers(self, device: str) -> list:
@@ -283,8 +289,26 @@ class ONNXRankerModel:
             providers=self._preferred_providers
         )
 
-        # Initialize tokenizer from saved pretrained files (local only)
-        self._tokenizer = AutoTokenizer.from_pretrained(str(self.MODEL_PATH), local_files_only=True)
+        # Initialize tokenizer - try tokenizers package first (no transformers needed!)
+        tokenizer_json_path = self.MODEL_PATH / "tokenizer.json"
+        if tokenizer_json_path.exists():
+            try:
+                from tokenizers import Tokenizer
+                self._tokenizer = Tokenizer.from_file(str(tokenizer_json_path))
+                self._use_fast_tokenizer = True
+                logger.info("Loaded tokenizer using tokenizers package (no transformers)")
+            except ImportError:
+                # Fall back to transformers if tokenizers not available
+                if TRANSFORMERS_AVAILABLE:
+                    self._tokenizer = AutoTokenizer.from_pretrained(str(self.MODEL_PATH), local_files_only=True)
+                    self._use_fast_tokenizer = False
+                else:
+                    raise ImportError("Neither tokenizers nor transformers available for tokenizer loading")
+        elif TRANSFORMERS_AVAILABLE:
+            self._tokenizer = AutoTokenizer.from_pretrained(str(self.MODEL_PATH), local_files_only=True)
+            self._use_fast_tokenizer = False
+        else:
+            raise FileNotFoundError(f"tokenizer.json not found at {tokenizer_json_path} and transformers not available")
 
         logger.info(f"ONNX ranker model loaded. Active provider: {self._model.get_providers()[0]}")
 
@@ -309,19 +333,22 @@ class ONNXRankerModel:
             # Prepare input based on model type
             if self.model_config['type'] == 'classifier':
                 # DeBERTa: Evaluate memory content only (absolute quality)
-                # Query parameter is ignored for classifier models
-                text_input = memory_content[:512]  # Truncate to max length
-                inputs = self._tokenizer(
-                    text_input,
-                    padding=True,
-                    truncation=True,
-                    max_length=512,
-                    return_tensors="np"
-                )
+                text_input = memory_content[:512]
+
+                if self._use_fast_tokenizer:
+                    # Use tokenizers package
+                    encoded = self._tokenizer.encode(text_input)
+                    input_ids = np.array([encoded.ids], dtype=np.int64)
+                    attention_mask = np.array([encoded.attention_mask], dtype=np.int64)
+                else:
+                    # Use transformers AutoTokenizer
+                    inputs = self._tokenizer(text_input, padding=True, truncation=True, max_length=512, return_tensors="np")
+                    input_ids = inputs["input_ids"].astype(np.int64)
+                    attention_mask = inputs["attention_mask"].astype(np.int64)
 
                 ort_inputs = {
-                    "input_ids": inputs["input_ids"].astype(np.int64),
-                    "attention_mask": inputs["attention_mask"].astype(np.int64)
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask
                 }
 
             elif self.model_config['type'] == 'cross-encoder':
@@ -329,19 +356,45 @@ class ONNXRankerModel:
                 if not query:
                     return 0.0
 
-                inputs = self._tokenizer(
-                    query,
-                    memory_content,
-                    padding=True,
-                    truncation=True,
-                    max_length=512,
-                    return_tensors="np"
-                )
+                if self._use_fast_tokenizer:
+                    # Use tokenizers package - encode query and document separately then combine
+                    # Cross-encoders expect: [CLS] query [SEP] document [SEP]
+                    # with token_type_ids: 0 for query, 1 for document
+                    query_encoded = self._tokenizer.encode(query)
+                    doc_encoded = self._tokenizer.encode(memory_content)
+
+                    # Combine: [CLS] + query + [SEP] + doc + [SEP]
+                    # Most BERT tokenizers: CLS=101, SEP=102
+                    cls_id = 101
+                    sep_id = 102
+
+                    # Build input_ids: [CLS] query [SEP] doc [SEP]
+                    ids = [cls_id] + query_encoded.ids[1:-1] + [sep_id] + doc_encoded.ids[1:-1] + [sep_id]
+
+                    # Build token_type_ids: 0 for query part, 1 for doc part
+                    query_len = 1 + len(query_encoded.ids[1:-1]) + 1  # CLS + query + SEP
+                    doc_len = len(doc_encoded.ids[1:-1]) + 1  # doc + SEP
+                    type_ids = [0] * query_len + [1] * doc_len
+
+                    # Truncate to 512 tokens if needed
+                    if len(ids) > 512:
+                        ids = ids[:511] + [sep_id]
+                        type_ids = type_ids[:512]
+
+                    input_ids = np.array([ids], dtype=np.int64)
+                    attention_mask = np.ones_like(input_ids, dtype=np.int64)
+                    token_type_ids = np.array([type_ids], dtype=np.int64)
+                else:
+                    # Use transformers AutoTokenizer
+                    inputs = self._tokenizer(query, memory_content, padding=True, truncation=True, max_length=512, return_tensors="np")
+                    input_ids = inputs["input_ids"].astype(np.int64)
+                    attention_mask = inputs["attention_mask"].astype(np.int64)
+                    token_type_ids = inputs["token_type_ids"].astype(np.int64)
 
                 ort_inputs = {
-                    "input_ids": inputs["input_ids"].astype(np.int64),
-                    "attention_mask": inputs["attention_mask"].astype(np.int64),
-                    "token_type_ids": inputs["token_type_ids"].astype(np.int64)
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask,
+                    "token_type_ids": token_type_ids
                 }
 
             else:
@@ -392,15 +445,19 @@ def get_onnx_ranker_model(model_name: str = None, device: str = "auto") -> Optio
         logger.warning("ONNX Runtime not available")
         return None
 
-    if not TRANSFORMERS_AVAILABLE:
-        logger.warning("Transformers not available")
-        return None
-
     # Use config default if not specified
     if model_name is None:
         from .config import QualityConfig
         config = QualityConfig.from_env()
         model_name = config.local_model
+
+    # Check if ONNX model exists - if so, we don't need transformers!
+    model_path = Path.home() / ".cache" / "mcp_memory" / "onnx_models" / model_name
+    onnx_path = model_path / "model.onnx"
+
+    if not onnx_path.exists() and not TRANSFORMERS_AVAILABLE:
+        logger.warning(f"ONNX model not found at {onnx_path} and transformers not available for export")
+        return None
 
     try:
         return ONNXRankerModel(model_name=model_name, device=device)

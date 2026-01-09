@@ -154,7 +154,8 @@ class AsyncQualityScorer:
 
                     # Update memory metadata (already done by scorer, but ensure it's set)
                     memory.metadata['quality_score'] = quality_score
-                    memory.metadata['quality_provider'] = self.evaluator.last_provider
+                    # Provider is already set in memory.metadata by evaluate_quality()
+                    quality_provider = memory.metadata.get('quality_provider', 'unknown')
 
                     # Persist to storage if provided
                     if storage:
@@ -163,7 +164,7 @@ class AsyncQualityScorer:
                                 content_hash=memory.content_hash,
                                 updates={
                                     'quality_score': quality_score,
-                                    'quality_provider': self.evaluator.last_provider,
+                                    'quality_provider': quality_provider,
                                     'ai_scores': memory.metadata.get('ai_scores', []),
                                     'quality_components': memory.metadata.get('quality_components', {})
                                 },

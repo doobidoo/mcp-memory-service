@@ -18,12 +18,14 @@ from ..config import (
     INCLUDE_HOSTNAME,
     CONTENT_PRESERVE_BOUNDARIES,
     CONTENT_SPLIT_OVERLAP,
-    ENABLE_AUTO_SPLIT
+    ENABLE_AUTO_SPLIT,
+    MCP_QUALITY_BOOST_ENABLED
 )
 from ..storage.base import MemoryStorage
 from ..models.memory import Memory
 from ..utils.content_splitter import split_content
 from ..utils.hashing import generate_content_hash
+from ..quality.async_scorer import async_scorer
 
 logger = logging.getLogger(__name__)
 
@@ -330,6 +332,12 @@ class MemoryService:
                     success, message = await self.storage.store(memory)
                     if success:
                         stored_memories.append(self._format_memory_response(memory))
+                        # Queue chunk for AI quality scoring if enabled
+                        if MCP_QUALITY_BOOST_ENABLED:
+                            try:
+                                await async_scorer.score_memory(memory, query="", storage=self.storage)
+                            except Exception:
+                                pass  # Silent fail for background scoring
                     else:
                         failed_chunks.append({"index": i, "reason": message})
 
@@ -362,6 +370,13 @@ class MemoryService:
                 success, message = await self.storage.store(memory)
 
                 if success:
+                    # Queue for AI quality scoring if enabled
+                    if MCP_QUALITY_BOOST_ENABLED:
+                        try:
+                            await async_scorer.score_memory(memory, query="", storage=self.storage)
+                        except Exception as e:
+                            logger.debug(f"Background quality scoring queued (or failed silently): {e}")
+
                     return {
                         "success": True,
                         "memory": self._format_memory_response(memory)
@@ -447,6 +462,13 @@ class MemoryService:
                 memory_dict = self._format_memory_response(result.memory)
                 memory_dict['similarity_score'] = result.relevance_score
                 results.append(memory_dict)
+
+                # Queue for background AI quality scoring if enabled
+                if MCP_QUALITY_BOOST_ENABLED:
+                    try:
+                        await async_scorer.score_memory(result.memory, query=query, storage=self.storage)
+                    except Exception:
+                        pass  # Silent fail for background scoring
 
             return {
                 "memories": results,
