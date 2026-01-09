@@ -10,6 +10,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [8.74.0] - TBD
+
+### Added
+- **Cross-Platform Wrapper Scripts for Orphan Process Cleanup** (`scripts/run/`)
+  - **Python Wrapper** (`memory_wrapper_cleanup.py`): Universal cross-platform solution (recommended)
+  - **Bash Wrapper** (`memory_wrapper_cleanup.sh`): Native macOS/Linux implementation
+  - **PowerShell Wrapper** (`memory_wrapper_cleanup.ps1`): Native Windows implementation
+  - **Automatic Orphan Detection**: Identifies orphaned MCP memory processes when Claude Desktop/Code crashes
+    - Unix: Detects processes adopted by init/launchd (ppid == 1)
+    - Windows: Detects processes whose parent no longer exists
+  - **Database Lock Prevention**: Cleans up orphaned processes before starting new server instance
+  - **Safe Cleanup**: Only terminates actual orphans, preserves active sessions
+  - **Comprehensive Documentation** (`README_CLEANUP_WRAPPER.md`): Installation guide, troubleshooting, and technical details
+  - **Fixes**: SQLite "database is locked" errors when running multiple Claude instances after crashes
+
 ## [8.73.0] - 2026-01-09
 
 ### Added
