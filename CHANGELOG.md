@@ -10,20 +10,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-### Fixed
-- **Cloudflare D1 Schema Missing Columns** (`src/mcp_memory_service/storage/cloudflare.py`)
-  - **Problem**: D1 schema was missing `deleted_at` and `tags` columns, causing soft-delete operations to fail silently
-  - **Impact**: Tombstone-based sync between devices was broken - deleted memories on one device were not synced to others
-  - **Fix**: Added `deleted_at REAL DEFAULT NULL` and `tags TEXT` columns to D1 schema
-  - **Index**: Added `idx_memories_deleted_at` index for query performance
+## [8.73.0] - 2026-01-09
 
 ### Added
+- **Universal Permission Request Hook v1.0** (`claude-hooks/core/permission-request.js`)
+  - **Automatic MCP Tool Permission Management**: Eliminates repetitive permission prompts for safe operations
+  - **Safe-by-Default Design**: Auto-approves read-only operations (get, list, retrieve, search, query, etc.)
+  - **Destructive Operation Protection**: Requires confirmation for write/delete operations (delete, update, execute, etc.)
+  - **Universal MCP Server Support**: Works across all MCP servers (memory, browser, context7, playwright, etc.)
+  - **Zero Configuration**: Works out of the box with sensible defaults
+  - **Extensible Pattern Matching**: Configure custom patterns via `claude-hooks/config.json`
+  - **Comprehensive Documentation**: Installation guide, configuration reference, and troubleshooting
+  - **Installer Integration**: Added to core hooks installation via `install_hooks.py`
 - **Sync Status Maintenance Script** (`scripts/maintenance/sync_status.py`)
   - Compares local SQLite database with Cloudflare D1
   - Shows memory counts (total, active, tombstones) for both databases
   - Identifies sync discrepancies: local-only, D1-only, pending deletions
   - Cross-platform support (Windows, macOS, Linux)
   - Handles schema differences gracefully
+
+### Fixed
+- **Cloudflare D1 Schema Missing Columns** (`src/mcp_memory_service/storage/cloudflare.py`)
+  - **Problem**: D1 schema was missing `deleted_at` and `tags` columns, causing soft-delete operations to fail silently
+  - **Impact**: Tombstone-based sync between devices was broken - deleted memories on one device were not synced to others
+  - **Fix**: Added `deleted_at REAL DEFAULT NULL` and `tags TEXT` columns to D1 schema
+  - **Index**: Added `idx_memories_deleted_at` index for query performance
 
 ## [8.72.0] - 2026-01-08
 

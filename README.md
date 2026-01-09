@@ -150,20 +150,19 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v8.72.0** (Jan 8, 2026)
+## 🆕 Latest Release: **v8.73.0** (Jan 9, 2026)
 
-**Graph Traversal MCP Tools - Direct Memory Association Queries**
+**Universal Permission Request Hook - Automatic MCP Tool Permission Management**
 
-- 🔗 **3 New MCP Tools** - Query memory association graph directly from Claude Code
-  - `find_connected_memories` - Multi-hop discovery (5ms, 30x faster than tag search)
-  - `find_shortest_path` - BFS pathfinding between memories (15ms)
-  - `get_memory_subgraph` - Subgraph extraction for visualization (25ms)
-- 🚀 **30x Performance Boost** - Connected memory queries: 150ms → 5ms
-- 🧠 **Knowledge Graph Traversal** - Explore relationships and context chains via MCP
-- ✅ **Production Quality** - 85/100 health score, Grade A complexity, 100% test coverage
-- 🛡️ **Graceful Fallback** - Automatic handling if graph table unavailable
+- 🛡️ **Eliminates Repetitive Permission Prompts** - Auto-approves safe read-only MCP operations
+- 🔒 **Safe-by-Default Design** - Auto-approves get/list/retrieve/search, requires confirmation for delete/update/execute
+- 🌐 **Universal MCP Server Support** - Works across memory, browser, context7, playwright, and all MCP servers
+- ⚡ **Zero Configuration** - Works out of the box with sensible defaults, extensible via config.json
+- 📚 **Comprehensive Documentation** - Installation guide, configuration reference, and troubleshooting
+- 🔧 **Integrated Installation** - Added to core hooks via install_hooks.py
 
 **Previous Releases**:
+- **v8.72.0** - Graph Traversal MCP Tools (find_connected_memories, find_shortest_path, get_memory_subgraph - 5-25ms, 30x faster)
 - **v8.71.0** - Memory Management APIs and Graceful Shutdown (cache cleanup, process monitoring, production-ready memory management)
 - **v8.70.0** - User Override Commands for Memory Hooks (`#skip`/`#remember` for manual memory control)
 - **v8.69.0** - MCP Tool Annotations for Improved LLM Decision-Making (readOnlyHint/destructiveHint, auto-approval for 12 tools)
