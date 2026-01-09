@@ -92,10 +92,10 @@ def find_orphaned_processes_windows():
         
         # Get list of Python processes running mcp-memory-service
         result = subprocess.run(
-            ["wmic", "process", "where", 
+            ["wmic", "process", "where",
              "commandline like '%mcp-memory-service%' and name='python.exe'",
              "get", "processid,parentprocessid"],
-            capture_output=True, text=True, shell=True
+            capture_output=True, text=True
         )
         
         if result.returncode != 0:
@@ -116,7 +116,7 @@ def find_orphaned_processes_windows():
                     # Check if parent process exists
                     parent_check = subprocess.run(
                         ["tasklist", "/FI", f"PID eq {ppid}"],
-                        capture_output=True, text=True, shell=True
+                        capture_output=True, text=True
                     )
                     
                     # If parent doesn't exist in task list, it's orphaned
@@ -137,10 +137,10 @@ def kill_process(pid, force=False):
     
     try:
         if system == "Windows":
-            subprocess.run(
-                ["taskkill", "/F" if force else "", "/PID", str(pid)],
-                capture_output=True, shell=True
-            )
+            cmd = ["taskkill", "/PID", str(pid)]
+            if force:
+                cmd.insert(1, "/F")
+            subprocess.run(cmd, capture_output=True)
         else:
             sig = signal.SIGKILL if force else signal.SIGTERM
             os.kill(pid, sig)
