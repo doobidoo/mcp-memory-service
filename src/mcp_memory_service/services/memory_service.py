@@ -336,8 +336,8 @@ class MemoryService:
                         if MCP_QUALITY_BOOST_ENABLED:
                             try:
                                 await async_scorer.score_memory(memory, query="", storage=self.storage)
-                            except Exception:
-                                pass  # Silent fail for background scoring
+                            except Exception as e:
+                                logger.debug(f"Background quality scoring for chunk failed silently: {e}")
                     else:
                         failed_chunks.append({"index": i, "reason": message})
 
