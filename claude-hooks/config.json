@@ -211,5 +211,12 @@
     "enableDebug": true,
     "logToFile": true,
     "logFilePath": "./claude-hooks.log"
+  },
+  "permissionRequest": {
+    "enabled": true,
+    "autoApprove": true,
+    "customSafePatterns": [],
+    "customDestructivePatterns": [],
+    "logDecisions": false
   }
 }

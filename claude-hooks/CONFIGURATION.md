@@ -619,8 +619,163 @@ Expected output should show recent memories (< 7 days) in top 3 positions.
 
 ---
 
+## Permission Request Hook Configuration
+
+### `permissionRequest` Object
+
+Controls automatic MCP tool permission management.
+
+```json
+"permissionRequest": {
+  "enabled": true,
+  "autoApprove": true,
+  "customSafePatterns": [],
+  "customDestructivePatterns": [],
+  "logDecisions": false
+}
+```
+
+#### `enabled` (Boolean)
+
+Enable or disable the permission request hook entirely.
+
+**Default**: `true`
+
+**Impact**:
+- `true`: Hook intercepts permission requests and applies pattern matching
+- `false`: Hook is bypassed, Claude Code shows normal permission dialogs
+
+**Use Case**: Disable if you want manual control over all MCP tool permissions.
+
+#### `autoApprove` (Boolean)
+
+Automatically approve operations matching safe patterns.
+
+**Default**: `true`
+
+**Impact**:
+- `true`: Safe operations (get, list, retrieve, etc.) execute without prompts
+- `false`: All operations require manual confirmation (defeats hook purpose)
+
+**Recommendation**: Keep enabled unless debugging permission issues.
+
+#### `customSafePatterns` (Array of Strings)
+
+Additional tool name patterns to auto-approve beyond built-in safe patterns.
+
+**Default**: `[]`
+
+**Built-in Safe Patterns**: `get`, `list`, `read`, `retrieve`, `fetch`, `search`, `find`, `query`, `recall`, `check`, `status`, `health`, `stats`, `analyze`, `view`, `show`, `describe`, `inspect`
+
+**Example**:
+```json
+"customSafePatterns": ["audit", "report", "export", "validate"]
+```
+
+**Use Case**: Add organization-specific read-only operations that you trust.
+
+#### `customDestructivePatterns` (Array of Strings)
+
+Additional tool name patterns to block (require confirmation) beyond built-in destructive patterns.
+
+**Default**: `[]`
+
+**Built-in Destructive Patterns**: `delete`, `remove`, `destroy`, `drop`, `clear`, `wipe`, `purge`, `forget`, `erase`, `reset`, `update`, `modify`, `edit`, `change`, `write`, `create`, `deploy`, `publish`, `execute`, `run`, `eval`, `consolidate`
+
+**Example**:
+```json
+"customDestructivePatterns": ["archive", "migrate", "transform"]
+```
+
+**Use Case**: Add organization-specific operations that should always require confirmation.
+
+#### `logDecisions` (Boolean)
+
+Log permission decisions to console for debugging.
+
+**Default**: `false`
+
+**Impact**:
+- `true`: Logs every permission decision with tool name, server, and behavior
+- `false`: Silent operation (normal mode)
+
+**Example Log Output**:
+```
+[PermissionRequest Hook] Tool: retrieve_memory, Server: memory, Decision: allow
+[PermissionRequest Hook] Tool: delete_memory, Server: memory, Decision: prompt
+```
+
+**Use Case**: Enable when troubleshooting unexpected permission behavior.
+
+### Pattern Matching Logic
+
+The hook processes tool names in this order:
+
+1. **Strip MCP prefix**: `mcp__memory__retrieve_memory` → `retrieve_memory`
+2. **Check destructive patterns**: If matches, require confirmation
+3. **Check safe patterns**: If matches, auto-approve
+4. **Default**: Unknown patterns require confirmation (safe-by-default)
+
+### Configuration Examples
+
+#### Strict Mode (All Prompts)
+```json
+"permissionRequest": {
+  "enabled": true,
+  "autoApprove": false
+}
+```
+
+#### Permissive Mode (Trust More Operations)
+```json
+"permissionRequest": {
+  "enabled": true,
+  "autoApprove": true,
+  "customSafePatterns": ["export", "backup", "archive", "validate"]
+}
+```
+
+#### Debug Mode (Verbose Logging)
+```json
+"permissionRequest": {
+  "enabled": true,
+  "autoApprove": true,
+  "logDecisions": true
+}
+```
+
+#### Conservative Mode (Block More Operations)
+```json
+"permissionRequest": {
+  "enabled": true,
+  "autoApprove": true,
+  "customDestructivePatterns": ["sync", "push", "publish", "deploy"]
+}
+```
+
+### Testing Configuration
+
+Test your permission hook configuration:
+
+```bash
+# Test with read-only tool (should auto-approve)
+echo '{"tool_name": "mcp__memory__retrieve_memory", "server_name": "memory"}' | \
+  node ~/.claude/hooks/core/permission-request.js
+
+# Test with destructive tool (should prompt)
+echo '{"tool_name": "mcp__memory__delete_memory", "server_name": "memory"}' | \
+  node ~/.claude/hooks/core/permission-request.js
+
+# Test with custom pattern
+echo '{"tool_name": "mcp__custom__audit_logs", "server_name": "custom"}' | \
+  node ~/.claude/hooks/core/permission-request.js
+```
+
+---
+
 ## See Also
 
 - [README.md](./README.md) - General hooks documentation
+- [README-PERMISSION-REQUEST.md](./README-PERMISSION-REQUEST.md) - Permission hook detailed guide
 - [MIGRATION.md](./MIGRATION.md) - Migration guides
 - [README-NATURAL-TRIGGERS.md](./README-NATURAL-TRIGGERS.md) - Natural triggers documentation
