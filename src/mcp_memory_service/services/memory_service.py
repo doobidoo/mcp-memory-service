@@ -467,8 +467,8 @@ class MemoryService:
                 if MCP_QUALITY_BOOST_ENABLED:
                     try:
                         await async_scorer.score_memory(result.memory, query=query, storage=self.storage)
-                    except Exception:
-                        pass  # Silent fail for background scoring
+                    except Exception as e:
+                        logger.debug(f"Background quality scoring for retrieved memory failed silently: {e}")
 
             return {
                 "memories": results,
