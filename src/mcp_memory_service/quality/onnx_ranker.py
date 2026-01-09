@@ -357,33 +357,14 @@ class ONNXRankerModel:
                     return 0.0
 
                 if self._use_fast_tokenizer:
-                    # Use tokenizers package - encode query and document separately then combine
-                    # Cross-encoders expect: [CLS] query [SEP] document [SEP]
-                    # with token_type_ids: 0 for query, 1 for document
-                    query_encoded = self._tokenizer.encode(query)
-                    doc_encoded = self._tokenizer.encode(memory_content)
+                    # Use tokenizers package's ability to encode pairs, which correctly handles special tokens and token type IDs.
+                    self._tokenizer.enable_truncation(max_length=512)
+                    self._tokenizer.enable_padding(length=512)
+                    encoded = self._tokenizer.encode((query, memory_content))
 
-                    # Combine: [CLS] + query + [SEP] + doc + [SEP]
-                    # Most BERT tokenizers: CLS=101, SEP=102
-                    cls_id = 101
-                    sep_id = 102
-
-                    # Build input_ids: [CLS] query [SEP] doc [SEP]
-                    ids = [cls_id] + query_encoded.ids[1:-1] + [sep_id] + doc_encoded.ids[1:-1] + [sep_id]
-
-                    # Build token_type_ids: 0 for query part, 1 for doc part
-                    query_len = 1 + len(query_encoded.ids[1:-1]) + 1  # CLS + query + SEP
-                    doc_len = len(doc_encoded.ids[1:-1]) + 1  # doc + SEP
-                    type_ids = [0] * query_len + [1] * doc_len
-
-                    # Truncate to 512 tokens if needed
-                    if len(ids) > 512:
-                        ids = ids[:511] + [sep_id]
-                        type_ids = type_ids[:512]
-
-                    input_ids = np.array([ids], dtype=np.int64)
-                    attention_mask = np.ones_like(input_ids, dtype=np.int64)
-                    token_type_ids = np.array([type_ids], dtype=np.int64)
+                    input_ids = np.array([encoded.ids], dtype=np.int64)
+                    attention_mask = np.array([encoded.attention_mask], dtype=np.int64)
+                    token_type_ids = np.array([encoded.type_ids], dtype=np.int64)
                 else:
                     # Use transformers AutoTokenizer
                     inputs = self._tokenizer(query, memory_content, padding=True, truncation=True, max_length=512, return_tensors="np")
