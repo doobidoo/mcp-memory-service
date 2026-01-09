@@ -150,18 +150,19 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v8.73.0** (Jan 9, 2026)
+## 🆕 Latest Release: **v8.74.0** (Jan 9, 2026)
 
-**Universal Permission Request Hook - Automatic MCP Tool Permission Management**
+**Cross-Platform Orphan Process Cleanup - Database Lock Prevention**
 
-- 🛡️ **Eliminates Repetitive Permission Prompts** - Auto-approves safe read-only MCP operations
-- 🔒 **Safe-by-Default Design** - Auto-approves get/list/retrieve/search, requires confirmation for delete/update/execute
-- 🌐 **Universal MCP Server Support** - Works across memory, browser, context7, playwright, and all MCP servers
-- ⚡ **Zero Configuration** - Works out of the box with sensible defaults, extensible via config.json
-- 📚 **Comprehensive Documentation** - Installation guide, configuration reference, and troubleshooting
-- 🔧 **Integrated Installation** - Added to core hooks via install_hooks.py
+- 🧹 **Automatic Orphan Detection** - Identifies orphaned MCP memory processes after Claude Desktop/Code crashes
+- 🛡️ **Database Lock Prevention** - Eliminates "SQLite database is locked" errors from orphaned processes
+- 🌐 **Cross-Platform Wrappers** - Python, Bash (macOS/Linux), and PowerShell (Windows) implementations
+- 🔒 **Safe Cleanup** - Only terminates actual orphans (ppid == 1 on Unix, missing parent on Windows), preserves active sessions
+- 📚 **Comprehensive Documentation** - README_CLEANUP_WRAPPER.md with installation guide, troubleshooting, and technical details
+- 🔧 **22 Unit Tests** - Full test coverage with platform-specific validation
 
 **Previous Releases**:
+- **v8.73.0** - Universal Permission Request Hook (auto-approves safe operations, eliminates repetitive prompts for 12+ tools)
 - **v8.72.0** - Graph Traversal MCP Tools (find_connected_memories, find_shortest_path, get_memory_subgraph - 5-25ms, 30x faster)
 - **v8.71.0** - Memory Management APIs and Graceful Shutdown (cache cleanup, process monitoring, production-ready memory management)
 - **v8.70.0** - User Override Commands for Memory Hooks (`#skip`/`#remember` for manual memory control)
