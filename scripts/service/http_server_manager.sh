@@ -33,7 +33,17 @@ get_package_version() {
 
 # Function: Get running server version from health endpoint
 get_server_version() {
-    curl -s --max-time 2 "$HTTP_ENDPOINT/api/health" 2>/dev/null | \
+    # Try HTTP first
+    local version=$(curl -s --max-time 2 "$HTTP_ENDPOINT/api/health" 2>/dev/null | \
+        python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('version', 'unknown'))" 2>/dev/null)
+
+    if [ "$version" != "unknown" ] && [ -n "$version" ]; then
+        echo "$version"
+        return
+    fi
+
+    # Fallback to HTTPS
+    curl -k -s --max-time 2 "https://127.0.0.1:8000/api/health" 2>/dev/null | \
         python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('version', 'unknown'))" 2>/dev/null || echo "unknown"
 }
 
@@ -48,10 +58,17 @@ is_process_running() {
     return 1  # Not running
 }
 
-# Function: Check HTTP health
+# Function: Check HTTP/HTTPS health
 check_http_health() {
-    curl -s --max-time 2 "$HTTP_ENDPOINT/api/health" > /dev/null 2>&1
-    return $?
+    # Try HTTP first
+    if curl -s --max-time 2 "$HTTP_ENDPOINT/api/health" > /dev/null 2>&1; then
+        return 0
+    fi
+    # Fallback to HTTPS (with self-signed cert support)
+    if curl -k -s --max-time 2 "https://127.0.0.1:8000/api/health" > /dev/null 2>&1; then
+        return 0
+    fi
+    return 1
 }
 
 # Function: Get .env modification time
@@ -78,8 +95,19 @@ get_server_start_time() {
 
 # Function: Find process listening on port 8000
 find_port_process() {
-    # Use lsof to find process listening on port 8000
-    lsof -ti:8000 2>/dev/null || true
+    # Try lsof first (most reliable)
+    if command -v lsof &>/dev/null; then
+        lsof -ti:8000 2>/dev/null || true
+    # Fallback to ss (modern Linux systems)
+    elif command -v ss &>/dev/null; then
+        ss -tlnp 2>/dev/null | grep ":8000 " | sed -n 's/.*pid=\([0-9]*\).*/\1/p'
+    # Fallback to netstat (older systems)
+    elif command -v netstat &>/dev/null; then
+        netstat -tlnp 2>/dev/null | grep ":8000 " | awk '{print $7}' | cut -d'/' -f1
+    else
+        # No tools available, try grepping process list as last resort
+        ps aux | grep -E "run_http_server\.py|uvicorn.*:8000" | grep -v grep | awk '{print $2}'
+    fi
 }
 
 # Function: Stop server

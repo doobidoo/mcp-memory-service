@@ -10,6 +10,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+- **Multi-Protocol and Cross-Platform Port Detection** (`scripts/service/http_server_manager.sh`)
+  - **Problem**: Update script failed with port conflict on Linux systems without lsof installed
+  - **Root Cause**:
+    - Script used lsof exclusively, silently failed on systems without it (common on Arch/Manjaro)
+    - Health checks only tried HTTP, failed when server used HTTPS
+    - Led to "server not running" false positive → port conflict
+  - **Solution**:
+    - Port detection fallback chain: lsof → ss → netstat → ps
+    - Health check supports both HTTP and HTTPS protocols with automatic fallback
+    - Tested on Arch Linux with ss-only environment
+  - **Fixes**: Issue #341
+
 ## [8.74.0] - 2026-01-09
 
 ### Added
