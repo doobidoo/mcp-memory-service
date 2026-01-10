@@ -19,6 +19,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Tracking tables and completion reports
 
 ### Fixed
+- **MCP HTTP Transport**: Fix KeyError 'backend_info' in get_cache_stats tool (Issue #342, PR #343)
+  - **Problem**: `get_cache_stats` tool crashed with `KeyError: 'backend_info'` when called via HTTP transport
+  - **Root Cause**: Code tried to set `result["backend_info"]["embedding_model"]` without creating the dict first
+  - **Solution**: Create complete `backend_info` dict with all required fields (storage_backend, sqlite_path, embedding_model)
+  - **Impact**: HIGH severity (tool completely broken in HTTP transport), LOW risk fix
+  - **Testing**: Added regression test validating backend_info structure
+  - Thanks to @Sundeepg98 for reporting with clear reproduction steps!
 - **Hook Installer**: Auto-register PreToolUse hook in settings.json (Issue #335)
   - **Problem**: `permission-request.js` was copied but never registered in `settings.json`, so the hook never executed
   - **Solution**: Installer now auto-adds PreToolUse hook configuration for MCP permission management
