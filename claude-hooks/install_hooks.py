@@ -200,22 +200,31 @@ class HookInstaller:
         self.info("Detecting existing Claude Code MCP configuration...")
 
         try:
-            # Check if memory server is configured in Claude Code
-            result = subprocess.run(['claude', 'mcp', 'get', 'memory'],
-                                  capture_output=True, text=True, timeout=10)
+            # Try multiple common memory server names
+            memory_server_names = ['memory-service', 'memory', 'mcp-memory-service', 'extended-memory']
 
-            if result.returncode == 0:
-                # Parse the output to extract configuration details
-                config_info = self._parse_mcp_get_output(result.stdout)
-                if config_info:
-                    self.success(f"Found existing memory server: {config_info.get('command', 'Unknown')}")
-                    self.success(f"Status: {config_info.get('status', 'Unknown')}")
-                    self.success(f"Type: {config_info.get('type', 'Unknown')}")
-                    return config_info
-                else:
-                    self.warn("Memory server found but configuration could not be parsed")
-            else:
-                self.info("No existing memory server found in Claude Code MCP configuration")
+            for server_name in memory_server_names:
+                result = subprocess.run(['claude', 'mcp', 'get', server_name],
+                                      capture_output=True, text=True, timeout=10)
+
+                if result.returncode == 0:
+                    # Parse the output to extract configuration details
+                    config_info = self._parse_mcp_get_output(result.stdout)
+                    if config_info:
+                        self.success(f"Found existing memory server '{server_name}': {config_info.get('command', 'Unknown')}")
+                        self.success(f"Status: {config_info.get('status', 'Unknown')}")
+                        self.success(f"Type: {config_info.get('type', 'Unknown')}")
+                        return config_info
+
+            # If no specific server found, try listing all and searching for memory-related ones
+            result = subprocess.run(['claude', 'mcp', 'list'],
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0 and 'memory' in result.stdout.lower():
+                self.success("Found memory-related MCP server in configuration")
+                # Extract basic info from list output
+                return {'status': 'Connected', 'type': 'detected', 'command': 'See claude mcp list'}
+
+            self.info("No existing memory server found in Claude Code MCP configuration")
 
         except subprocess.TimeoutExpired:
             self.warn("Claude MCP command timed out")
@@ -227,7 +236,7 @@ class HookInstaller:
         return None
 
     def _parse_mcp_get_output(self, output: str) -> Optional[Dict]:
-        """Parse the output of 'claude mcp get memory' command."""
+        """Parse the output of 'claude mcp get memory-service' command."""
         config = {}
 
         try:
@@ -240,13 +249,17 @@ class HookInstaller:
                     config['type'] = line.replace('Type:', '').strip()
                 elif line.startswith('Command:'):
                     config['command'] = line.replace('Command:', '').strip()
+                elif line.startswith('URL:'):
+                    # HTTP servers show URL instead of Command
+                    config['command'] = line.replace('URL:', '').strip()
+                    config['url'] = line.replace('URL:', '').strip()
                 elif line.startswith('Scope:'):
                     config['scope'] = line.replace('Scope:', '').strip()
                 elif line.startswith('Environment:'):
                     config['environment'] = line.replace('Environment:', '').strip()
 
-            # Only return config if we found essential information
-            if 'command' in config and 'status' in config:
+            # Return config if we found essential information (status + type or command/url)
+            if 'status' in config and ('command' in config or 'type' in config):
                 return config
 
         except Exception as e:
@@ -353,14 +366,20 @@ class HookInstaller:
 
         # Validate command format
         command = detected_config.get('command', '')
+        server_type = detected_config.get('type', '').lower()
+
         if not command:
             issues.append("Memory server command is empty")
-        elif 'mcp_memory_service' not in command:
-            issues.append(f"Unexpected memory server command: {command}")
+        elif server_type == 'http':
+            # HTTP servers use URL, just verify it exists
+            if not ('http://' in command or 'https://' in command):
+                issues.append(f"HTTP server should have URL: {command}")
+        elif 'mcp' not in command.lower() and 'memory' not in command.lower():
+            # For stdio servers, check if it looks like a memory service
+            issues.append(f"Command doesn't appear to be a memory service: {command}")
 
         # Check server type
-        server_type = detected_config.get('type', '')
-        if server_type not in ['stdio', 'http']:
+        if server_type not in ['stdio', 'http', '']:
             issues.append(f"Unsupported server type: {server_type}")
 
         return len(issues) == 0, issues
