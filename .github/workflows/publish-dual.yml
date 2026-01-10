@@ -1,0 +1,116 @@
+name: Publish Dual Distribution (Main + Lite)
+
+# This workflow publishes both mcp-memory-service (full) and mcp-memory-service-lite (lightweight)
+# Both packages share the same codebase but have different dependencies
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 8.75.1)'
+        required: true
+        type: string
+
+jobs:
+  publish-main:
+    name: Publish Main Package (with PyTorch)
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install build hatchling twine
+
+    - name: Build main package
+      run: |
+        echo "Building mcp-memory-service (full version with PyTorch)"
+        python -m build
+
+    - name: Publish to PyPI
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+      run: |
+        python -m twine upload dist/* --skip-existing
+
+  publish-lite:
+    name: Publish Lite Package (ONNX only)
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install build hatchling twine
+
+    - name: Prepare lite package
+      run: |
+        echo "Preparing mcp-memory-service-lite (lightweight ONNX version)"
+        cp pyproject.toml pyproject-main.toml
+        cp pyproject-lite.toml pyproject.toml
+
+    - name: Build lite package
+      run: |
+        python -m build
+
+    - name: Publish lite to PyPI
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+      run: |
+        python -m twine upload dist/* --skip-existing
+
+    - name: Restore original pyproject.toml
+      run: |
+        mv pyproject-main.toml pyproject.toml
+
+  verify-packages:
+    name: Verify Both Packages
+    runs-on: ubuntu-latest
+    needs: [publish-main, publish-lite]
+
+    steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Wait for PyPI to update
+      run: sleep 60
+
+    - name: Test main package install
+      run: |
+        pip install mcp-memory-service --dry-run
+        echo "Main package available on PyPI"
+
+    - name: Test lite package install
+      run: |
+        pip install mcp-memory-service-lite --dry-run
+        echo "Lite package available on PyPI"

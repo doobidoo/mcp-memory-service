@@ -1,0 +1,91 @@
+[build-system]
+requires = ["hatchling", "python-semantic-release", "build"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-memory-service-lite"
+version = "8.75.1"
+description = "Lightweight MCP memory service with ONNX embeddings - no PyTorch required. 80% smaller install size."
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = [
+    "mcp", "model-context-protocol", "claude-desktop", "semantic-memory",
+    "vector-database", "ai-assistant", "sqlite-vec", "multi-client",
+    "semantic-search", "memory-consolidation", "ai-productivity", "vs-code",
+    "cursor", "continue", "fastapi", "developer-tools", "cross-platform",
+    "lightweight", "onnx"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Database :: Database Engines/Servers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+    "Framework :: FastAPI"
+]
+authors = [
+    { name = "Heinrich Krupp", email = "heinrich.krupp@gmail.com" }
+]
+maintainers = [
+    { name = "Sundeep G", email = "sundeepg98@gmail.com" }
+]
+license = { text = "Apache-2.0" }
+dependencies = [
+    "tokenizers==0.20.3",
+    "mcp>=1.8.0,<2.0.0",
+    "python-dotenv>=1.0.0",
+    "sqlite-vec>=0.1.0",
+    "build>=0.10.0",
+    "aiohttp>=3.8.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "python-multipart>=0.0.9",
+    "sse-starlette>=2.1.0",
+    "aiofiles>=23.2.1",
+    "psutil>=5.9.0",
+    "zeroconf>=0.130.0",
+    "pypdf2>=3.0.0",
+    "chardet>=5.0.0",
+    "click>=8.0.0",
+    "httpx>=0.24.0",
+    "authlib>=1.2.0",
+    "python-jose[cryptography]>=3.3.0",
+    "onnxruntime>=1.14.1",
+    "typing-extensions>=4.0.0; python_version < '3.11'",
+    "apscheduler>=3.11.0",
+]
+
+[project.optional-dependencies]
+# Machine learning dependencies for full torch-based embeddings
+ml = [
+    "sentence-transformers>=2.2.2",
+    "torch>=2.0.0"
+]
+# Full installation (lite + ml)
+full = [
+    "mcp-memory-service-lite[ml]"
+]
+
+[project.scripts]
+memory = "mcp_memory_service.cli.main:main"
+memory-server = "mcp_memory_service.cli.main:memory_server_main"
+mcp-memory-server = "mcp_memory_service.mcp_server:main"
+
+[project.urls]
+Homepage = "https://github.com/doobidoo/mcp-memory-service"
+Documentation = "https://github.com/doobidoo/mcp-memory-service#readme"
+Repository = "https://github.com/doobidoo/mcp-memory-service"
+Issues = "https://github.com/doobidoo/mcp-memory-service/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_memory_service"]
+
+[tool.hatch.version]
+path = "src/mcp_memory_service/__init__.py"
