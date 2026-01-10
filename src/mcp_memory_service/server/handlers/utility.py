@@ -27,7 +27,7 @@ from typing import List
 
 from mcp import types
 from ...server.cache_manager import _CACHE_STATS, _STORAGE_CACHE, _MEMORY_SERVICE_CACHE
-from ...config import STORAGE_BACKEND, SQLITE_VEC_PATH
+from ...config import STORAGE_BACKEND, SQLITE_VEC_PATH, EMBEDDING_MODEL_NAME
 from ..._version import __version__
 
 logger = logging.getLogger(__name__)
@@ -154,7 +154,8 @@ async def handle_get_cache_stats(server, arguments: dict) -> List[types.TextCont
         result["storage_cache"]["keys"] = list(_STORAGE_CACHE.keys())
         result["backend_info"] = {
             "storage_backend": STORAGE_BACKEND,
-            "sqlite_path": SQLITE_VEC_PATH
+            "sqlite_path": SQLITE_VEC_PATH,
+            "embedding_model": EMBEDDING_MODEL_NAME
         }
 
         logger.info(f"Cache stats retrieved: {result['message']}")
