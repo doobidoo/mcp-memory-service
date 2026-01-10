@@ -725,7 +725,11 @@ async def get_cache_stats(ctx: Context) -> Dict[str, Any]:
 
     # Add server-specific details
     result["storage_cache"]["keys"] = list(_STORAGE_CACHE.keys())
-    result["backend_info"]["embedding_model"] = EMBEDDING_MODEL_NAME
+    result["backend_info"] = {
+        "storage_backend": STORAGE_BACKEND,
+        "sqlite_path": SQLITE_VEC_PATH,
+        "embedding_model": EMBEDDING_MODEL_NAME
+    }
 
     return result
 
