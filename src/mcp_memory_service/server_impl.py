@@ -1293,6 +1293,10 @@ class MemoryServer:
                                     "type": "number",
                                     "default": 5,
                                     "description": "Maximum number of results to return."
+                                },
+                                "max_response_chars": {
+                                    "type": "number",
+                                    "description": "Maximum response size in characters. Truncates at memory boundaries to prevent context overflow. Recommended: 30000-50000. Default: unlimited."
                                 }
                             },
                             "required": ["query"]
@@ -1322,6 +1326,10 @@ class MemoryServer:
                                     "type": "number",
                                     "default": 5,
                                     "description": "Maximum number of results to return."
+                                },
+                                "max_response_chars": {
+                                    "type": "number",
+                                    "description": "Maximum response size in characters. Truncates at memory boundaries to prevent context overflow. Recommended: 30000-50000. Default: unlimited."
                                 }
                             },
                             "required": ["query"]
@@ -1374,6 +1382,10 @@ class MemoryServer:
                                     "minimum": 0.0,
                                     "maximum": 1.0,
                                     "description": "Quality score weight 0.0-1.0 (default 0.3 = 30% quality, 70% semantic)"
+                                },
+                                "max_response_chars": {
+                                    "type": "number",
+                                    "description": "Maximum response size in characters. Truncates at memory boundaries to prevent context overflow. Recommended: 30000-50000. Default: unlimited."
                                 }
                             },
                             "required": ["query"]
@@ -1408,6 +1420,10 @@ class MemoryServer:
                                         }
                                     ],
                                     "description": "List of tags to search for. Returns memories matching ANY of these tags. Accepts either an array of strings or a comma-separated string."
+                                },
+                                "max_response_chars": {
+                                    "type": "number",
+                                    "description": "Maximum response size in characters. Truncates at memory boundaries to prevent context overflow. Recommended: 30000-50000. Default: unlimited."
                                 }
                             },
                             "required": ["tags"]
@@ -1696,6 +1712,10 @@ class MemoryServer:
                                     "type": "number",
                                     "default": 5,
                                     "description": "Maximum number of results to return."
+                                },
+                                "max_response_chars": {
+                                    "type": "number",
+                                    "description": "Maximum response size in characters. Truncates at memory boundaries to prevent context overflow. Recommended: 30000-50000. Default: unlimited."
                                 }
                             },
                             "required": ["start_date"]
