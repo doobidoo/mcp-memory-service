@@ -21,23 +21,25 @@ from typing import Any, Dict, List, Tuple
 
 # Default max response size (can be overridden by environment variable)
 # 0 = unlimited (for backward compatibility)
-try:
-    DEFAULT_MAX_CHARS = int(os.environ.get("MCP_MAX_RESPONSE_CHARS", "0"))
-    if DEFAULT_MAX_CHARS < 0:
+DEFAULT_MAX_CHARS = 0
+raw_value = os.environ.get("MCP_MAX_RESPONSE_CHARS")
+if raw_value:
+    try:
+        value = int(raw_value)
+        if value >= 0:
+            DEFAULT_MAX_CHARS = value
+        else:
+            print(
+                f"WARNING: Invalid MCP_MAX_RESPONSE_CHARS value: {value}. "
+                "Must be non-negative. Using default 0 (unlimited).",
+                file=sys.stderr,
+            )
+    except ValueError:
         print(
-            f"WARNING: Invalid MCP_MAX_RESPONSE_CHARS value: {DEFAULT_MAX_CHARS}. "
-            "Must be non-negative. Using default 0 (unlimited).",
-            file=sys.stderr
+            f"WARNING: Invalid MCP_MAX_RESPONSE_CHARS value: '{raw_value}'. "
+            "Using default 0 (unlimited).",
+            file=sys.stderr,
         )
-        DEFAULT_MAX_CHARS = 0
-except ValueError:
-    print(
-        f"WARNING: Invalid MCP_MAX_RESPONSE_CHARS value: "
-        f"'{os.environ.get('MCP_MAX_RESPONSE_CHARS')}'. "
-        "Using default 0 (unlimited).",
-        file=sys.stderr
-    )
-    DEFAULT_MAX_CHARS = 0
 
 # Estimated overhead per memory for metadata formatting.
 # Accounts for: "=== Memory N ===", "Timestamp:", "Content:", "Hash:",
