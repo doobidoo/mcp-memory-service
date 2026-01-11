@@ -257,7 +257,7 @@ async def handle_retrieve_memory(server, arguments: dict) -> List[types.TextCont
         truncated_response = _get_truncated_response_if_needed(
             memories,
             max_response_chars,
-            lambda m: _memories_to_dicts(m, score_key='similarity_score')
+            _memories_to_dicts
         )
         if truncated_response:
             return truncated_response
