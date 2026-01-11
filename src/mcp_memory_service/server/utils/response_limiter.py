@@ -120,11 +120,6 @@ def truncate_memories(
         truncated.append(memory)
         current_chars += mem_size
 
-    # Ensure at least one memory if list wasn't empty (handles edge case)
-    if not truncated and memories:
-        truncated.append(memories[0])
-        current_chars = memory_sizes[0]
-
     shown_results = len(truncated)
 
     return truncated, {

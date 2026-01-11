@@ -26,7 +26,7 @@ import time
 import traceback
 import uuid
 from datetime import datetime
-from typing import List
+from typing import Callable, List, Optional
 
 from mcp import types
 
@@ -131,6 +131,48 @@ def _query_results_to_dicts(results: list) -> list:
     return memory_dicts
 
 
+def _get_truncated_response_if_needed(
+    memories: list,
+    max_chars: int,
+    to_dict_converter: Callable[[list], list],
+    header: str = ""
+) -> Optional[List[types.TextContent]]:
+    """
+    Apply truncation and return a formatted response if a character limit is set.
+
+    This helper consolidates the truncation logic used across multiple handlers
+    (handle_retrieve_memory, handle_retrieve_with_quality_boost, handle_search_by_tag,
+    handle_recall_memory, handle_recall_by_timeframe) to reduce code duplication.
+
+    Args:
+        memories: List of memory objects/dicts to potentially truncate
+        max_chars: Maximum response size in characters. 0 or negative = no truncation
+        to_dict_converter: Function to convert memories to standardized dict format
+        header: Optional header to prepend to the response
+
+    Returns:
+        List[types.TextContent] if truncation was applied (max_chars > 0),
+        None otherwise (caller should proceed with normal formatting)
+
+    Example:
+        truncated_response = _get_truncated_response_if_needed(
+            memories,
+            max_response_chars,
+            lambda m: _memories_to_dicts(m, score_key='similarity_score')
+        )
+        if truncated_response:
+            return truncated_response
+        # ... continue with normal formatting
+    """
+    if not (max_chars and max_chars > 0):
+        return None
+
+    memory_dicts = to_dict_converter(memories)
+    truncated, meta = truncate_memories(memory_dicts, max_chars)
+    response_text = header + format_truncated_response(truncated, meta)
+    return [types.TextContent(type="text", text=response_text)]
+
+
 async def handle_store_memory(server, arguments: dict) -> List[types.TextContent]:
     content = arguments.get("content")
     metadata = arguments.get("metadata", {})
@@ -212,11 +254,13 @@ async def handle_retrieve_memory(server, arguments: dict) -> List[types.TextCont
             return [types.TextContent(type="text", text="No matching memories found")]
 
         # Apply truncation if max_response_chars is specified
-        if max_response_chars and max_response_chars > 0:
-            memory_dicts = _memories_to_dicts(memories, score_key='similarity_score')
-            truncated, meta = truncate_memories(memory_dicts, max_response_chars)
-            response_text = format_truncated_response(truncated, meta)
-            return [types.TextContent(type="text", text=response_text)]
+        truncated_response = _get_truncated_response_if_needed(
+            memories,
+            max_response_chars,
+            lambda m: _memories_to_dicts(m, score_key='similarity_score')
+        )
+        if truncated_response:
+            return truncated_response
 
         # Format results in HTTP server style (different from MCP server)
         formatted_results = []
@@ -297,11 +341,14 @@ async def handle_retrieve_with_quality_boost(server, arguments: dict) -> List[ty
             return [types.TextContent(type="text", text="No matching memories found")]
 
         # Apply truncation if max_response_chars is specified
-        if max_response_chars and max_response_chars > 0:
-            truncated, meta = truncate_memories(_query_results_to_dicts(results), max_response_chars)
-            header = f"# Quality-Boosted Search Results\nQuery: {query}\nQuality Weight: {quality_weight:.1%}\n\n"
-            response_text = header + format_truncated_response(truncated, meta)
-            return [types.TextContent(type="text", text=response_text)]
+        truncated_response = _get_truncated_response_if_needed(
+            results,
+            max_response_chars,
+            _query_results_to_dicts,
+            header=f"# Quality-Boosted Search Results\nQuery: {query}\nQuality Weight: {quality_weight:.1%}\n\n"
+        )
+        if truncated_response:
+            return truncated_response
 
         # Format results with quality information
         response_parts = [
@@ -382,11 +429,13 @@ async def handle_search_by_tag(server, arguments: dict) -> List[types.TextConten
             )]
 
         # Apply truncation if max_response_chars is specified
-        if max_response_chars and max_response_chars > 0:
-            memory_dicts = _memories_to_dicts(memories)
-            truncated, meta = truncate_memories(memory_dicts, max_response_chars)
-            response_text = format_truncated_response(truncated, meta)
-            return [types.TextContent(type="text", text=response_text)]
+        truncated_response = _get_truncated_response_if_needed(
+            memories,
+            max_response_chars,
+            _memories_to_dicts
+        )
+        if truncated_response:
+            return truncated_response
 
         formatted_results = []
         for i, memory in enumerate(memories):
@@ -789,11 +838,14 @@ async def handle_recall_memory(server, arguments: dict) -> List[types.TextConten
             return [types.TextContent(type="text", text=no_results_msg)]
 
         # Apply truncation if max_response_chars is specified
-        if max_response_chars and max_response_chars > 0:
-            truncated, meta = truncate_memories(_query_results_to_dicts(results), max_response_chars)
-            header = f"Found memories{time_range_str}:\n\n" if time_range_str else ""
-            response_text = header + format_truncated_response(truncated, meta)
-            return [types.TextContent(type="text", text=response_text)]
+        truncated_response = _get_truncated_response_if_needed(
+            results,
+            max_response_chars,
+            _query_results_to_dicts,
+            header=f"Found memories{time_range_str}:\n\n" if time_range_str else ""
+        )
+        if truncated_response:
+            return truncated_response
 
         # Format results
         formatted_results = []
@@ -870,11 +922,14 @@ async def handle_recall_by_timeframe(server, arguments: dict) -> List[types.Text
             return [types.TextContent(type="text", text=f"No memories found from {start_date} to {end_date}")]
 
         # Apply truncation if max_response_chars is specified
-        if max_response_chars and max_response_chars > 0:
-            truncated, meta = truncate_memories(_query_results_to_dicts(results), max_response_chars)
-            header = f"Found memories from {start_date} to {end_date}:\n\n"
-            response_text = header + format_truncated_response(truncated, meta)
-            return [types.TextContent(type="text", text=response_text)]
+        truncated_response = _get_truncated_response_if_needed(
+            results,
+            max_response_chars,
+            _query_results_to_dicts,
+            header=f"Found memories from {start_date} to {end_date}:\n\n"
+        )
+        if truncated_response:
+            return truncated_response
 
         formatted_results = []
         for i, result in enumerate(results):
