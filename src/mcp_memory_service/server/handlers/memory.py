@@ -164,7 +164,7 @@ def _get_truncated_response_if_needed(
             return truncated_response
         # ... continue with normal formatting
     """
-    if not (max_chars and max_chars > 0):
+    if max_chars <= 0:
         return None
 
     memory_dicts = to_dict_converter(memories)
