@@ -99,6 +99,38 @@ def _memories_to_dicts(memories: list, score_key: str = 'similarity_score') -> l
     return result
 
 
+def _query_results_to_dicts(results: list) -> list:
+    """
+    Convert MemoryQueryResult objects to standardized dict format for truncation.
+
+    Handles results from storage.recall(), storage.retrieve_with_quality_boost(),
+    and similar methods that return objects with .memory and .relevance_score attributes.
+
+    Args:
+        results: List of MemoryQueryResult objects (with .memory and .relevance_score)
+
+    Returns:
+        List of dicts with standardized keys for truncate_memories()
+    """
+    memory_dicts = []
+    for result in results:
+        memory = result.memory
+        # Handle both timestamp (datetime) and created_at (various formats)
+        if hasattr(memory, 'timestamp') and memory.timestamp:
+            created_at = memory.timestamp.isoformat() if hasattr(memory.timestamp, 'isoformat') else memory.timestamp
+        else:
+            created_at = getattr(memory, 'created_at', None)
+
+        memory_dicts.append({
+            'content': memory.content,
+            'content_hash': memory.content_hash,
+            'created_at': created_at,
+            'tags': memory.tags if memory.tags else [],
+            'relevance_score': result.relevance_score if hasattr(result, 'relevance_score') else None,
+        })
+    return memory_dicts
+
+
 async def handle_store_memory(server, arguments: dict) -> List[types.TextContent]:
     content = arguments.get("content")
     metadata = arguments.get("metadata", {})
@@ -266,17 +298,7 @@ async def handle_retrieve_with_quality_boost(server, arguments: dict) -> List[ty
 
         # Apply truncation if max_response_chars is specified
         if max_response_chars and max_response_chars > 0:
-            memory_dicts = []
-            for result in results:
-                memory = result.memory
-                memory_dicts.append({
-                    'content': memory.content,
-                    'content_hash': memory.content_hash,
-                    'created_at': memory.created_at,
-                    'tags': memory.tags if memory.tags else [],
-                    'relevance_score': result.relevance_score,
-                })
-            truncated, meta = truncate_memories(memory_dicts, max_response_chars)
+            truncated, meta = truncate_memories(_query_results_to_dicts(results), max_response_chars)
             header = f"# Quality-Boosted Search Results\nQuery: {query}\nQuality Weight: {quality_weight:.1%}\n\n"
             response_text = header + format_truncated_response(truncated, meta)
             return [types.TextContent(type="text", text=response_text)]
@@ -699,10 +721,14 @@ async def handle_recall_memory(server, arguments: dict) -> List[types.TextConten
     """
     Handle memory recall requests with natural language time expressions.
 
-    This handler parses natural language time expressions from the query,
-    extracts time ranges, and combines them with optional semantic search.
+    Supports queries like:
+    - "yesterday"
+    - "last week"
+    - "2 days ago"
+    - "last Monday"
+    - "from January to March"
     """
-    from ...utils.time_parser import extract_time_expression, parse_time_expression
+    from ..utils.time_parser import extract_time_expression, parse_time_expression
 
     query = arguments.get("query", "")
     n_results = arguments.get("n_results", 5)
@@ -764,16 +790,7 @@ async def handle_recall_memory(server, arguments: dict) -> List[types.TextConten
 
         # Apply truncation if max_response_chars is specified
         if max_response_chars and max_response_chars > 0:
-            memory_dicts = []
-            for result in results:
-                memory_dicts.append({
-                    'content': result.memory.content,
-                    'content_hash': result.memory.content_hash,
-                    'created_at': result.memory.timestamp.isoformat() if result.memory.timestamp else None,
-                    'tags': result.memory.tags if result.memory.tags else [],
-                    'relevance_score': result.relevance_score if hasattr(result, 'relevance_score') else None
-                })
-            truncated, meta = truncate_memories(memory_dicts, max_response_chars)
+            truncated, meta = truncate_memories(_query_results_to_dicts(results), max_response_chars)
             header = f"Found memories{time_range_str}:\n\n" if time_range_str else ""
             response_text = header + format_truncated_response(truncated, meta)
             return [types.TextContent(type="text", text=response_text)]
@@ -854,15 +871,7 @@ async def handle_recall_by_timeframe(server, arguments: dict) -> List[types.Text
 
         # Apply truncation if max_response_chars is specified
         if max_response_chars and max_response_chars > 0:
-            memory_dicts = []
-            for result in results:
-                memory_dicts.append({
-                    'content': result.memory.content,
-                    'content_hash': result.memory.content_hash,
-                    'created_at': result.memory.timestamp.isoformat() if result.memory.timestamp else None,
-                    'tags': result.memory.tags if result.memory.tags else []
-                })
-            truncated, meta = truncate_memories(memory_dicts, max_response_chars)
+            truncated, meta = truncate_memories(_query_results_to_dicts(results), max_response_chars)
             header = f"Found memories from {start_date} to {end_date}:\n\n"
             response_text = header + format_truncated_response(truncated, meta)
             return [types.TextContent(type="text", text=response_text)]
