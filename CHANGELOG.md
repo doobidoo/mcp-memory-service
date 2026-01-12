@@ -19,11 +19,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Tracking tables and completion reports
 
 ### Fixed
+- **MCP HTTP Transport**: Fix KeyError 'backend_info' in get_cache_stats tool (Issue #342, PR #343)
+  - **Problem**: `get_cache_stats` tool crashed with `KeyError: 'backend_info'` when called via HTTP transport
+  - **Root Cause**: Code tried to set `result["backend_info"]["embedding_model"]` without creating the dict first
+  - **Solution**: Create complete `backend_info` dict with all required fields (storage_backend, sqlite_path, embedding_model)
+  - **Impact**: HIGH severity (tool completely broken in HTTP transport), LOW risk fix
+  - **Testing**: Added regression test validating backend_info structure
+  - Thanks to @Sundeepg98 for reporting with clear reproduction steps!
 - **Hook Installer**: Auto-register PreToolUse hook in settings.json (Issue #335)
   - **Problem**: `permission-request.js` was copied but never registered in `settings.json`, so the hook never executed
   - **Solution**: Installer now auto-adds PreToolUse hook configuration for MCP permission management
   - Added 7 new safe patterns: `store`, `remember`, `ingest`, `rate`, `proactive`, `context`, `summary`, `recommendations`
   - Hook now correctly auto-approves additive operations (e.g., `store_memory`)
+- **Memory Hooks**: Fix cluster memory categorization showing incorrect dates
+  - **Problem**: Consolidated cluster memories (from consolidation system) showed "🕒 today" in "Recent Work" section because hook used `created_at` (when cluster was created) instead of `temporal_span` (time period the cluster represents)
+  - **Solution**: Added new "📦 Consolidated Memories" section with proper temporal span display (e.g., "📅 180d span")
+  - **Changes**: Updated `claude-hooks/utilities/context-formatter.js` to detect `compressed_cluster` memory type and display `metadata.temporal_span.span_days`
+  - **Impact**: Prevents confusion between recent development and historical memory summaries
 
 ### Changed
 - **Hook Installer**: Refactored MCP configuration detection functions for improved maintainability (Issue #340)
@@ -31,6 +43,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Extracted 6 well-structured helper functions (avg complexity 3.83)
   - Fixed validation bug: Added 'detected' server type support (PR #339 follow-up)
   - Improved code grade distribution: 58% A-grade functions (up from 53%)
+- **Memory Consolidation**: Improved cluster concept quality with intelligent deduplication
+  - **Problem**: Cluster summaries showed redundant concepts (e.g., "memories, Memories, MEMORY, memory") and noise (SQL keywords like "BETWEEN")
+  - **Solution**: Added case-insensitive deduplication and filtering of SQL keywords/meta-concepts
+  - **Changes**: Enhanced `_extract_key_concepts()` in `consolidation/compression.py` to deduplicate case variants and filter 10 SQL keywords + 6 meta-concepts
+  - **Impact**: Cluster summaries now show meaningful thematic concepts instead of technical noise
 
 ## [8.75.1] - 2026-01-10
 

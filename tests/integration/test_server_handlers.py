@@ -260,3 +260,43 @@ class TestIssue198Regression:
         assert "error" in result[0].text.lower()
         # Should NOT be KeyError message
         assert "'message'" not in result[0].text
+
+
+class TestGetCacheStats:
+    """Test suite for get_cache_stats handler (Issue #342 regression test)."""
+
+    @pytest.mark.asyncio
+    async def test_get_cache_stats_backend_info_structure(self):
+        """
+        Test that get_cache_stats returns proper backend_info structure.
+
+        Regression test for Issue #342: KeyError 'backend_info' in HTTP transport.
+        The bug was that mcp_server.py tried to set result["backend_info"]["embedding_model"]
+        without creating the backend_info dict first.
+        """
+        server = MemoryServer()
+
+        # Call get_cache_stats handler
+        result = await server.handle_get_cache_stats({})
+
+        # Verify result is MCP TextContent
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert isinstance(result[0], types.TextContent)
+
+        # Parse JSON response
+        import json
+        data = json.loads(result[0].text)
+
+        # Verify backend_info structure exists and is complete
+        assert "backend_info" in data, "Result should contain backend_info"
+        backend_info = data["backend_info"]
+
+        assert isinstance(backend_info, dict), "backend_info should be a dict"
+        assert "storage_backend" in backend_info, "backend_info should contain storage_backend"
+        assert "sqlite_path" in backend_info, "backend_info should contain sqlite_path"
+        assert "embedding_model" in backend_info, "backend_info should contain embedding_model"
+
+        # Verify values are non-empty
+        assert backend_info["storage_backend"], "storage_backend should not be empty"
+        assert backend_info["embedding_model"], "embedding_model should not be empty"

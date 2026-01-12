@@ -462,6 +462,74 @@ async function queryMemoryService(memoryClient, query, config) {
     }
 }
 
+/**
+ * Calculate content similarity between two normalized strings
+ * Uses word overlap similarity with 80% threshold for deduplication
+ */
+function calculateContentSimilarity(str1, str2) {
+    if (!str1 || !str2) return 0;
+    if (str1 === str2) return 1;
+
+    // Use simple word overlap similarity
+    const words1 = new Set(str1.split(/\s+/).filter(w => w.length > 3));
+    const words2 = new Set(str2.split(/\s+/).filter(w => w.length > 3));
+
+    if (words1.size === 0 && words2.size === 0) return 1;
+    if (words1.size === 0 || words2.size === 0) return 0;
+
+    const intersection = new Set([...words1].filter(w => words2.has(w)));
+    const union = new Set([...words1, ...words2]);
+
+    return intersection.size / union.size;
+}
+
+/**
+ * Check if a new memory is a duplicate of any existing memory
+ * Uses 80% similarity threshold and never deduplicates cluster memories
+ */
+function isDuplicateMemory(newMemory, existingMemories) {
+    if (!newMemory || !newMemory.content) return false;
+
+    // Never deduplicate cluster memories - they are unique consolidations
+    if (newMemory.memory_type === 'compressed_cluster') {
+        return false;
+    }
+
+    // Normalize new memory content
+    const normalizedNew = (newMemory.content || '').toLowerCase()
+        .replace(/# session summary.*?\n/gi, '')
+        .replace(/\*\*date\*\*:.*?\n/gi, '')
+        .replace(/\*\*project\*\*:.*?\n/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    // Skip if content is too short
+    if (normalizedNew.length < 20) return false;
+
+    // Check similarity against all existing memories
+    for (const existing of existingMemories) {
+        if (!existing || !existing.content) continue;
+
+        // Normalize existing memory content
+        const normalizedExisting = (existing.content || '').toLowerCase()
+            .replace(/# session summary.*?\n/gi, '')
+            .replace(/\*\*date\*\*:.*?\n/gi, '')
+            .replace(/\*\*project\*\*:.*?\n/gi, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        // Calculate similarity
+        const similarity = calculateContentSimilarity(normalizedNew, normalizedExisting);
+
+        // 80% similarity threshold
+        if (similarity > 0.8) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 // ANSI Colors for console output
 const CONSOLE_COLORS = {
     RESET: '\x1b[0m',
@@ -761,14 +829,11 @@ async function executeSessionStart(context) {
                             _gitContextWeight: config.gitAnalysis?.gitContextWeight || 1.2
                         }));
                         
-                        // Avoid duplicates from previous git queries
-                        const newGitMemories = markedMemories.filter(newMem => 
-                            !allMemories.some(existing => 
-                                existing.content && newMem.content && 
-                                existing.content.substring(0, 100) === newMem.content.substring(0, 100)
-                            )
+                        // Filter out duplicates using similarity-based deduplication (80% threshold)
+                        const newGitMemories = markedMemories.filter(newMem =>
+                            !isDuplicateMemory(newMem, allMemories)
                         );
-                        
+
                         allMemories.push(...newGitMemories);
                         
                         if (verbose && showMemoryDetails && !cleanMode && newGitMemories.length > 0) {
@@ -810,16 +875,13 @@ async function executeSessionStart(context) {
                 }
 
                 const recentMemories = await queryMemoryService(memoryClient, recentQuery, config);
-                
-                // Filter out duplicates from git context phase
+
+                // Filter out duplicates using similarity-based deduplication (80% threshold)
                 if (recentMemories && recentMemories.length > 0) {
-                    const newRecentMemories = recentMemories.filter(newMem => 
-                        !allMemories.some(existing => 
-                            existing.content && newMem.content && 
-                            existing.content.substring(0, 100) === newMem.content.substring(0, 100)
-                        )
+                    const newRecentMemories = recentMemories.filter(newMem =>
+                        !isDuplicateMemory(newMem, allMemories)
                     );
-                    
+
                     allMemories.push(...newRecentMemories);
                 }
             }
@@ -845,15 +907,12 @@ async function executeSessionStart(context) {
                 const importantMemories = memoryClient ?
                     await memoryClient.queryMemoriesByTagsAndTime(importantTags, timeFilter, remainingSlots, false) :
                     [];
-                
-                // Avoid duplicates by checking content similarity  
-                const newMemories = (importantMemories || []).filter(newMem => 
-                    !allMemories.some(existing => 
-                        existing.content && newMem.content && 
-                        existing.content.substring(0, 100) === newMem.content.substring(0, 100)
-                    )
+
+                // Filter out duplicates using similarity-based deduplication (80% threshold)
+                const newMemories = (importantMemories || []).filter(newMem =>
+                    !isDuplicateMemory(newMem, allMemories)
                 );
-                
+
                 allMemories.push(...newMemories);
             }
             
@@ -871,14 +930,12 @@ async function executeSessionStart(context) {
                 }
 
                 const fallbackMemories = await queryMemoryService(memoryClient, fallbackQuery, config);
-                
-                const newFallbackMemories = (fallbackMemories || []).filter(newMem => 
-                    !allMemories.some(existing => 
-                        existing.content && newMem.content && 
-                        existing.content.substring(0, 100) === newMem.content.substring(0, 100)
-                    )
+
+                // Filter out duplicates using similarity-based deduplication (80% threshold)
+                const newFallbackMemories = (fallbackMemories || []).filter(newMem =>
+                    !isDuplicateMemory(newMem, allMemories)
                 );
-                
+
                 allMemories.push(...newFallbackMemories);
             }
         } else {
@@ -903,7 +960,32 @@ async function executeSessionStart(context) {
 
             allMemories.push(...(legacyMemories || []));
         }
-        
+
+        // Query specifically for consolidated cluster memories (always load 2-3 most recent)
+        // With regular consolidation (weekly/monthly), clusters should be < 2 weeks old
+        // last-month (30 days) provides buffer for irregular consolidation schedules
+        if (memoryClient) {
+            // Use tag-based search instead of semantic search for reliable cluster detection
+            // All consolidated clusters have the 'cluster' tag
+            const clusterMemories = await memoryClient.queryMemoriesByTagsAndTime(
+                ['cluster'],           // Tag-based filter (all clusters have this tag)
+                'last-month',         // Time window: sufficient for regularly created clusters
+                3                     // Limit: load 2-3 most recent clusters
+            );
+
+            // Filter to only keep compressed_cluster types and add to allMemories
+            const validClusters = (clusterMemories || []).filter(m => m.memory_type === 'compressed_cluster');
+
+            // Explicit logging about cluster availability
+            if (validClusters.length > 0 && verbose && showMemoryDetails && !cleanMode) {
+                console.log(`${CONSOLE_COLORS.MAGENTA}📦 Cluster Search${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Found ${CONSOLE_COLORS.BRIGHT}${validClusters.length}${CONSOLE_COLORS.RESET} consolidated memories`);
+            } else if (validClusters.length === 0 && verbose && showMemoryDetails && !cleanMode) {
+                console.log(`${CONSOLE_COLORS.GRAY}📦 Cluster Search${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}No clusters found (run consolidation to create)${CONSOLE_COLORS.RESET}`);
+            }
+
+            allMemories.push(...validClusters);
+        }
+
         // Skip memory retrieval if no memory client available
         if (!memoryClient) {
             if (verbose && !cleanMode) {
@@ -1120,7 +1202,7 @@ async function executeSessionStart(context) {
                 try {
                     const os = require('os');
                     const logPath = path.join(os.homedir(), '.claude', 'last-session-context.txt');
-                    const recencyPercent = maxMemories > 0 ? ((recentCount / maxMemories) * 100).toFixed(0) : 0;
+                    const recencyPercent = memories.length > 0 ? ((recentCount / memories.length) * 100).toFixed(0) : 0;
 
                     let logContent = `Session Started: ${new Date().toISOString()}\n`;
                     logContent += `Session ID: ${context.sessionId || 'unknown'}\n\n`;
@@ -1143,7 +1225,7 @@ async function executeSessionStart(context) {
                         }
                     }
                     logContent += `\n=== Memory Statistics ===\n`;
-                    logContent += `Memories Loaded: ${maxMemories}\n`;
+                    logContent += `Memories Loaded: ${memories.length}\n`;
                     logContent += `Recent (last week): ${recentCount} (${recencyPercent}%)\n`;
 
                     if (gitContext) {
@@ -1178,7 +1260,7 @@ async function executeSessionStart(context) {
                         timestamp: new Date().toISOString(),
                         sessionId: context.sessionId || 'unknown',
                         project: projectContext.name,
-                        memoriesLoaded: maxMemories,
+                        memoriesLoaded: memories.length,  // Use actual loaded count after deduplication
                         recentCount: recentCount,
                         gitCommits: gitContext ? gitContext.commits.length : 0,
                         gitKeywords: gitContext ? gitContext.developmentKeywords.keywords.slice(0, 3) : [],

@@ -196,11 +196,30 @@ class SemanticCompressionEngine(ConsolidationBase):
             if word not in stop_words and count >= 2:  # Must appear at least twice
                 concepts.add(word)
         
-        # Convert to list and limit
-        concept_list = list(concepts)
-        concept_list.sort(key=lambda x: word_counts.get(x.lower(), 0), reverse=True)
-        
-        return concept_list[:15]  # Limit to top 15 concepts
+        # Case-insensitive deduplication
+        concept_dict = {}
+        for concept in concepts:
+            lower_key = concept.lower()
+            if lower_key not in concept_dict:
+                # Prefer capitalized form (proper nouns)
+                concept_dict[lower_key] = concept
+            elif concept[0].isupper() and not concept_dict[lower_key][0].isupper():
+                # Replace lowercase with capitalized version
+                concept_dict[lower_key] = concept
+
+        # Filter SQL keywords and meta-concepts to reduce noise
+        SQL_KEYWORDS = {'between', 'select', 'where', 'from', 'join', 'inner', 'outer', 'group', 'order', 'limit'}
+        META_CONCEPTS = {'memory', 'memories', 'association', 'similarity', 'storage', 'retrieval'}
+
+        filtered_concepts = [
+            c for c in concept_dict.values()
+            if c.lower() not in SQL_KEYWORDS and c.lower() not in META_CONCEPTS
+        ]
+
+        # Sort by frequency (most common first)
+        filtered_concepts.sort(key=lambda x: word_counts.get(x.lower(), 0), reverse=True)
+
+        return filtered_concepts[:15]  # Limit to top 15 thematic concepts
     
     async def _generate_thematic_summary(self, memories: List[Memory], key_concepts: List[str]) -> str:
         """Generate a thematic summary of the memory cluster."""

@@ -286,7 +286,7 @@ function formatMemoriesForCLI(memories, projectContext, options = {}) {
 
     contextMessage += `${COLORS.CYAN}│${COLORS.RESET}\n`;
 
-    if (validMemories.length > 3) {
+    if (validMemories.length >= 1) {
         // Group by category with enhanced formatting
         const categories = groupMemoriesByCategory(validMemories.map(v => v.memory));
 
@@ -294,6 +294,7 @@ function formatMemoriesForCLI(memories, projectContext, options = {}) {
             'recent-work': { title: 'Recent Work', icon: '🔥', color: COLORS.GREEN },
             'current-problems': { title: 'Current Problems', icon: '⚠️', color: COLORS.YELLOW },
             'key-decisions': { title: 'Key Decisions', icon: '🎯', color: COLORS.CYAN },
+            'consolidated-memories': { title: 'Consolidated Memories', icon: '📦', color: COLORS.MAGENTA },
             'additional-context': { title: 'Additional Context', icon: '📋', color: COLORS.GRAY }
         };
 
@@ -453,24 +454,95 @@ function formatMemoryForCLI(memory, index, options = {}) {
 
         // Format date with standardized recency indicators
         let dateStr = '';
-        if (includeDate && memory.created_at_iso) {
-            const date = new Date(memory.created_at_iso);
-            const now = new Date();
-            const daysDiff = (now - date) / (1000 * 60 * 60 * 24);
+        if (includeDate) {
+            /**
+             * Format date range for cluster memories
+             * Returns human-readable date range based on temporal distance
+             */
+            function formatDateRange(startISO, endISO, spanDays) {
+                if (!startISO || !endISO) return null;
 
-            if (daysDiff < 1) {
-                dateStr = ` ${COLORS.GREEN}🕒 today${COLORS.RESET}`;
-            } else if (daysDiff < 2) {
-                dateStr = ` ${COLORS.CYAN}📅 yesterday${COLORS.RESET}`;
-            } else if (daysDiff <= 7) {
-                const daysAgo = Math.floor(daysDiff);
-                dateStr = ` ${COLORS.CYAN}📅 ${daysAgo}d ago${COLORS.RESET}`;
-            } else if (daysDiff <= 30) {
-                const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                dateStr = ` ${COLORS.CYAN}📅 ${formattedDate}${COLORS.RESET}`;
-            } else {
-                const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                dateStr = ` ${COLORS.GRAY}📅 ${formattedDate}${COLORS.RESET}`;
+                const start = new Date(startISO);
+                const end = new Date(endISO);
+
+                // Month names for formatting
+                const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+                const startMonth = monthNames[start.getUTCMonth()];
+                const startDay = start.getUTCDate();
+                const startYear = start.getUTCFullYear();
+
+                const endMonth = monthNames[end.getUTCMonth()];
+                const endDay = end.getUTCDate();
+                const endYear = end.getUTCFullYear();
+
+                // Same day
+                if (spanDays === 0) {
+                    return `${startMonth} ${startDay}`;
+                }
+
+                // Same month
+                if (start.getUTCMonth() === end.getUTCMonth() &&
+                    start.getUTCFullYear() === end.getUTCFullYear()) {
+                    return `${startMonth} ${startDay}-${endDay}`;
+                }
+
+                // Same year, different months
+                if (start.getUTCFullYear() === end.getUTCFullYear()) {
+                    return `${startMonth} ${startDay} - ${endMonth} ${endDay}`;
+                }
+
+                // Different years
+                return `${startYear}-${String(start.getUTCMonth() + 1).padStart(2, '0')}-${String(startDay).padStart(2, '0')} - ${endYear}-${String(end.getUTCMonth() + 1).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
+            }
+
+            // Special handling for consolidated cluster memories
+            if (memory.memory_type === 'compressed_cluster' && memory.metadata?.temporal_span) {
+                // Try to get span_days directly first
+                let spanDays = memory.metadata.temporal_span.span_days;
+
+                // Fallback: Calculate from Unix timestamps (start_time/end_time)
+                if (spanDays === undefined && memory.metadata.temporal_span.start_time && memory.metadata.temporal_span.end_time) {
+                    spanDays = Math.round((memory.metadata.temporal_span.end_time - memory.metadata.temporal_span.start_time) / (24 * 60 * 60));
+                }
+
+                // Try to format date range from ISO dates
+                let spanText = null;
+                if (memory.metadata.temporal_span.start_iso && memory.metadata.temporal_span.end_iso) {
+                    spanText = formatDateRange(
+                        memory.metadata.temporal_span.start_iso,
+                        memory.metadata.temporal_span.end_iso,
+                        spanDays
+                    );
+                }
+
+                // Fallback to span_description or calculated span
+                if (!spanText) {
+                    spanText = memory.metadata.temporal_span.span_description ||
+                              (spanDays !== undefined ? `${spanDays}d span` : 'unknown span');
+                }
+
+                dateStr = ` ${COLORS.GRAY}📅 ${spanText}${COLORS.RESET}`;
+            } else if (memory.created_at_iso) {
+                const date = new Date(memory.created_at_iso);
+                const now = new Date();
+                const daysDiff = (now - date) / (1000 * 60 * 60 * 24);
+
+                if (daysDiff < 1) {
+                    dateStr = ` ${COLORS.GREEN}🕒 today${COLORS.RESET}`;
+                } else if (daysDiff < 2) {
+                    dateStr = ` ${COLORS.CYAN}📅 yesterday${COLORS.RESET}`;
+                } else if (daysDiff <= 7) {
+                    const daysAgo = Math.floor(daysDiff);
+                    dateStr = ` ${COLORS.CYAN}📅 ${daysAgo}d ago${COLORS.RESET}`;
+                } else if (daysDiff <= 30) {
+                    const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    dateStr = ` ${COLORS.CYAN}📅 ${formattedDate}${COLORS.RESET}`;
+                } else {
+                    const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    dateStr = ` ${COLORS.GRAY}📅 ${formattedDate}${COLORS.RESET}`;
+                }
             }
         }
 
@@ -668,15 +740,19 @@ function isGenericSessionSummary(content) {
     if (!content || typeof content !== 'string') {
         return true;
     }
-    
-    // Check for generic patterns
+
+    // Check for generic patterns - these are placeholder summaries with no real value
     const genericPatterns = [
-        /## 🎯 Topics Discussed\s*-\s*implementation\s*-\s*\.\.\.?$/m,
-        /Topics Discussed.*implementation.*\.\.\..*$/s,
-        /Session Summary.*implementation.*\.\.\..*$/s
+        /## 🎯 Topics Discussed\s*implementation\s*architecture\s*performance\s*testing/i,
+        /We decided to use hooks for session management and implement automatic context injection/i,
+        /I learned that we need project detection and memory scoring algorithms/i,
+        /I implemented the project detector in project-detector/i,
+        /Next we need to test the complete system/i
     ];
-    
-    return genericPatterns.some(pattern => pattern.test(content));
+
+    // If content matches 3+ generic patterns, it's a generic summary
+    const matches = genericPatterns.filter(pattern => pattern.test(content)).length;
+    return matches >= 3;
 }
 
 /**
@@ -767,7 +843,13 @@ function deduplicateMemories(memories, options = {}) {
     
     for (const memory of sorted) {
         const content = memory.content || '';
-        
+
+        // Never deduplicate cluster memories - they are unique consolidations
+        if (memory.memory_type === 'compressed_cluster') {
+            deduplicated.push(memory);
+            continue;
+        }
+
         // Create a normalized version for comparison
         let normalized = content.toLowerCase()
             .replace(/# session summary.*?\n/gi, '') // Remove session headers
@@ -836,6 +918,7 @@ function groupMemoriesByCategory(memories, options = {}) {
             'recent-work': [],
             'current-problems': [],
             'key-decisions': [],
+            'consolidated-memories': [],
             'additional-context': []
         };
 
@@ -870,8 +953,14 @@ function groupMemoriesByCategory(memories, options = {}) {
                 tags.some(tag => ['decision', 'architecture', 'design', 'key-decisions', 'why'].includes(tag.toLowerCase())) ||
                 content.includes('decided to') || content.includes('architecture:');
 
-            // Categorize with priority: recent-work > current-problems > key-decisions > additional-context
-            if (isRecent && memory._gitContextType) {
+            // Detect consolidated cluster memories from consolidation system
+            const isCluster = type === 'compressed_cluster';
+
+            // Categorize with priority: cluster > recent-work > current-problems > key-decisions > additional-context
+            if (isCluster) {
+                // Consolidated memories should be in their own section
+                categories['consolidated-memories'].push(memory);
+            } else if (isRecent && memory._gitContextType) {
                 // Git context memories from recent development
                 categories['recent-work'].push(memory);
             } else if (isProblem) {
