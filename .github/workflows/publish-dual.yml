@@ -44,7 +44,7 @@ jobs:
     - name: Publish to PyPI
       env:
         TWINE_USERNAME: __token__
-        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
       run: |
         python -m twine upload dist/* --skip-existing
 
@@ -83,9 +83,12 @@ jobs:
     - name: Publish lite to PyPI
       env:
         TWINE_USERNAME: __token__
-        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
       run: |
         python -m twine upload dist/* --skip-existing
+
+    - name: Clean build artifacts
+      run: rm -rf dist/ build/ *.egg-info
 
     - name: Restore original pyproject.toml
       run: |
@@ -107,10 +110,12 @@ jobs:
 
     - name: Test main package install
       run: |
-        pip install mcp-memory-service --dry-run
-        echo "Main package available on PyPI"
+        python -m venv /tmp/test-main
+        /tmp/test-main/bin/pip install mcp-memory-service
+        /tmp/test-main/bin/python -c "import mcp_memory_service; print('Main package OK')"
 
     - name: Test lite package install
       run: |
-        pip install mcp-memory-service-lite --dry-run
-        echo "Lite package available on PyPI"
+        python -m venv /tmp/test-lite
+        /tmp/test-lite/bin/pip install mcp-memory-service-lite
+        /tmp/test-lite/bin/python -c "import mcp_memory_service; print('Lite package OK')"
