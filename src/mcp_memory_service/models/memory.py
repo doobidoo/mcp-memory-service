@@ -20,6 +20,8 @@ import time
 import logging
 import calendar
 
+from mcp_memory_service.models.ontology import MemoryTypeOntology
+
 # Try to import dateutil, but fall back to standard datetime parsing if not available
 try:
     from dateutil import parser as dateutil_parser
@@ -50,7 +52,7 @@ class Memory:
     timestamp: datetime = field(default_factory=datetime.now)
 
     def __post_init__(self):
-        """Initialize timestamps after object creation."""
+        """Initialize timestamps and validate ontology after object creation."""
         # Synchronize the timestamps
         self._sync_timestamps(
             created_at=self.created_at,
@@ -58,6 +60,16 @@ class Memory:
             updated_at=self.updated_at,
             updated_at_iso=self.updated_at_iso
         )
+
+        # Validate memory_type using ontology
+        if self.memory_type is not None:
+            if not MemoryTypeOntology.validate_memory_type(self.memory_type):
+                logger.warning(
+                    f"Invalid memory_type '{self.memory_type}'. "
+                    f"Valid types: {', '.join(MemoryTypeOntology.get_all_types()[:5])}... "
+                    f"Defaulting to 'observation'."
+                )
+                self.memory_type = "observation"  # Default to base type
 
     def _sync_timestamps(self, created_at=None, created_at_iso=None, updated_at=None, updated_at_iso=None):
         """
