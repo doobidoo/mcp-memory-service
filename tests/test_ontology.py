@@ -18,6 +18,7 @@ BaseMemoryType = ontology.BaseMemoryType
 TAXONOMY = ontology.TAXONOMY
 RELATIONSHIPS = ontology.RELATIONSHIPS
 validate_memory_type = ontology.validate_memory_type
+get_parent_type = ontology.get_parent_type
 
 
 class TestBurst11BaseMemoryTypes:
@@ -140,3 +141,29 @@ class TestBurst14MemoryTypeValidation:
         assert validate_memory_type("not_a_type") is False
         assert validate_memory_type("") is False
         assert validate_memory_type("ObSeRvAtIoN") is False  # Case sensitive
+
+
+class TestBurst15GetParentType:
+    """Tests for Burst 1.5: Get Parent Type Function"""
+
+    def test_subtype_returns_correct_parent(self):
+        """Subtypes should return their parent base type"""
+        assert get_parent_type("code_edit") == "observation"
+        assert get_parent_type("architecture") == "decision"
+        assert get_parent_type("insight") == "learning"
+        assert get_parent_type("bug") == "error"
+        assert get_parent_type("code_smell") == "pattern"
+
+    def test_base_type_returns_itself(self):
+        """Base types should return themselves (they are their own parent)"""
+        assert get_parent_type("observation") == "observation"
+        assert get_parent_type("decision") == "decision"
+        assert get_parent_type("learning") == "learning"
+        assert get_parent_type("error") == "error"
+        assert get_parent_type("pattern") == "pattern"
+
+    def test_invalid_type_returns_none(self):
+        """Invalid types should return None"""
+        assert get_parent_type("invalid_type") is None
+        assert get_parent_type("not_a_type") is None
+        assert get_parent_type("") is None

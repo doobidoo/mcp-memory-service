@@ -15,7 +15,7 @@ Usage:
 """
 
 from enum import Enum
-from typing import Dict, List, Final
+from typing import Dict, List, Optional, Final
 
 
 class BaseMemoryType(str, Enum):
@@ -126,3 +126,34 @@ def validate_memory_type(memory_type: str) -> bool:
         all_subtypes.extend(subtypes)
 
     return memory_type in all_subtypes
+
+
+def get_parent_type(subtype: str) -> Optional[str]:
+    """
+    Get the parent base type for a subtype. Returns itself if already a base type.
+
+    Args:
+        subtype: The subtype (or base type) to look up
+
+    Returns:
+        Parent base type string, or None if subtype is invalid
+
+    Examples:
+        >>> get_parent_type("code_edit")  # Subtype
+        'observation'
+        >>> get_parent_type("observation")  # Base type returns itself
+        'observation'
+        >>> get_parent_type("invalid")
+        None
+    """
+    # Check if it's already a base type
+    base_types = {member.value for member in BaseMemoryType}
+    if subtype in base_types:
+        return subtype
+
+    # Look up parent from taxonomy
+    for base_type, subtypes in TAXONOMY.items():
+        if subtype in subtypes:
+            return base_type
+
+    return None
