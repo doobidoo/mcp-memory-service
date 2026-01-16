@@ -21,6 +21,7 @@ import logging
 import calendar
 
 from mcp_memory_service.models.ontology import MemoryTypeOntology
+from mcp_memory_service.models.tag_taxonomy import TagTaxonomy
 
 # Try to import dateutil, but fall back to standard datetime parsing if not available
 try:
@@ -70,6 +71,23 @@ class Memory:
                     f"Defaulting to 'observation'."
                 )
                 self.memory_type = "observation"  # Default to base type
+
+        # Validate tags using taxonomy (soft validation)
+        if self.tags:
+            invalid_tags = []
+            for tag in self.tags:
+                # Parse tag to check namespace
+                namespace, value = TagTaxonomy.parse_tag(tag)
+                if namespace is not None:  # Has namespace
+                    if not TagTaxonomy.validate_tag(tag):
+                        invalid_tags.append(tag)
+
+            if invalid_tags:
+                logger.info(
+                    f"Tags with invalid namespaces: {', '.join(invalid_tags)}. "
+                    f"Valid namespaces: sys:, q:, proj:, topic:, t:, user:. "
+                    f"Legacy tags (no namespace) are still supported."
+                )
 
     def _sync_timestamps(self, created_at=None, created_at_iso=None, updated_at=None, updated_at_iso=None):
         """
