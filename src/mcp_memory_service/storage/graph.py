@@ -205,13 +205,16 @@ class GraphStorage:
                 relationship_filter = "AND mg.relationship_type = ?"
                 params.append(relationship_type)
 
-            # Build join condition based on direction
+            # Build join condition and selected hash based on direction
             if direction == "outgoing":
                 join_condition = "JOIN memory_graph mg ON cm.hash = mg.source_hash"
+                selected_hash = "mg.target_hash"
             elif direction == "incoming":
                 join_condition = "JOIN memory_graph mg ON cm.hash = mg.target_hash"
+                selected_hash = "mg.source_hash"
             else:  # both
                 join_condition = "JOIN memory_graph mg ON cm.hash = mg.source_hash"
+                selected_hash = "mg.target_hash"
 
             query = f"""
             WITH RECURSIVE connected_memories(hash, distance, path) AS (
@@ -222,14 +225,14 @@ class GraphStorage:
 
                 -- Recursive case: Find neighbors of connected memories
                 SELECT
-                    mg.target_hash,
+                    {selected_hash},
                     cm.distance + 1,
-                    cm.path || mg.target_hash || ','
+                    cm.path || {selected_hash} || ','
                 FROM connected_memories cm
                 {join_condition}
                 WHERE
                     cm.distance < ?  -- Limit recursion depth
-                    AND instr(cm.path, ',' || mg.target_hash || ',') = 0  -- Prevent cycles (exact match)
+                    AND instr(cm.path, ',' || {selected_hash} || ',') = 0  -- Prevent cycles (exact match)
                     {relationship_filter}
             )
             SELECT DISTINCT hash, distance
