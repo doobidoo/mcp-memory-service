@@ -85,7 +85,8 @@ class GraphStorage:
         similarity: float,
         connection_types: List[str],
         metadata: Optional[Dict[str, Any]] = None,
-        created_at: Optional[float] = None
+        created_at: Optional[float] = None,
+        relationship_type: str = "related"
     ) -> bool:
         """
         Store a memory association with bidirectional edges.
@@ -97,6 +98,7 @@ class GraphStorage:
             connection_types: List of connection types (e.g., ["semantic", "temporal"])
             metadata: Optional metadata dict with discovery context
             created_at: Optional timestamp (Unix epoch). If None, uses current time.
+            relationship_type: Type of relationship (default: "related")
 
         Returns:
             True if stored successfully, False otherwise
@@ -129,18 +131,18 @@ class GraphStorage:
                     # Insert or replace source → target
                     cursor.execute("""
                         INSERT OR REPLACE INTO memory_graph
-                        (source_hash, target_hash, similarity, connection_types, metadata, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        (source_hash, target_hash, similarity, connection_types, metadata, created_at, relationship_type)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                     """, (source_hash, target_hash, similarity, connection_types_json,
-                          metadata_json, created_at))
+                          metadata_json, created_at, relationship_type))
 
                     # Insert or replace target → source (bidirectional)
                     cursor.execute("""
                         INSERT OR REPLACE INTO memory_graph
-                        (source_hash, target_hash, similarity, connection_types, metadata, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        (source_hash, target_hash, similarity, connection_types, metadata, created_at, relationship_type)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                     """, (target_hash, source_hash, similarity, connection_types_json,
-                          metadata_json, created_at))
+                          metadata_json, created_at, relationship_type))
 
                     conn.commit()
                 finally:
@@ -156,7 +158,9 @@ class GraphStorage:
     async def find_connected(
         self,
         memory_hash: str,
-        max_hops: int = 2
+        max_hops: int = 2,
+        relationship_type: Optional[str] = None,
+        direction: str = "both"
     ) -> List[Tuple[str, int]]:
         """
         Find all memories connected within N hops using recursive CTE.
@@ -167,6 +171,8 @@ class GraphStorage:
         Args:
             memory_hash: Starting memory content hash
             max_hops: Maximum number of hops to traverse (default: 2)
+            relationship_type: Optional filter for specific relationship type
+            direction: Direction to traverse ("outgoing", "incoming", "both")
 
         Returns:
             List of (memory_hash, distance) tuples, sorted by distance
@@ -178,6 +184,11 @@ class GraphStorage:
             logger.error("Invalid memory hash (empty string)")
             return []
 
+        # Validate direction parameter
+        if direction not in ("outgoing", "incoming", "both"):
+            logger.error(f"Invalid direction '{direction}', must be 'outgoing', 'incoming', or 'both'")
+            return []
+
         try:
             conn = await self._get_connection()
 
@@ -185,7 +196,24 @@ class GraphStorage:
             # Base case: Direct neighbors (distance = 1)
             # Recursive case: Neighbors of neighbors (distance + 1)
             # Cycle prevention: Wrap hashes with delimiters to avoid substring matches
-            query = """
+
+            # Build WHERE clause for relationship_type filter
+            relationship_filter = ""
+            params = [memory_hash, f',{memory_hash},', max_hops]
+
+            if relationship_type is not None:
+                relationship_filter = "AND mg.relationship_type = ?"
+                params.append(relationship_type)
+
+            # Build join condition based on direction
+            if direction == "outgoing":
+                join_condition = "JOIN memory_graph mg ON cm.hash = mg.source_hash"
+            elif direction == "incoming":
+                join_condition = "JOIN memory_graph mg ON cm.hash = mg.target_hash"
+            else:  # both
+                join_condition = "JOIN memory_graph mg ON cm.hash = mg.source_hash"
+
+            query = f"""
             WITH RECURSIVE connected_memories(hash, distance, path) AS (
                 -- Base case: Start with the given memory
                 SELECT ?, 0, ?
@@ -198,10 +226,11 @@ class GraphStorage:
                     cm.distance + 1,
                     cm.path || mg.target_hash || ','
                 FROM connected_memories cm
-                JOIN memory_graph mg ON cm.hash = mg.source_hash
+                {join_condition}
                 WHERE
                     cm.distance < ?  -- Limit recursion depth
                     AND instr(cm.path, ',' || mg.target_hash || ',') = 0  -- Prevent cycles (exact match)
+                    {relationship_filter}
             )
             SELECT DISTINCT hash, distance
             FROM connected_memories
@@ -211,7 +240,7 @@ class GraphStorage:
 
             cursor = conn.cursor()
             try:
-                cursor.execute(query, (memory_hash, f',{memory_hash},', max_hops))
+                cursor.execute(query, params)
                 results = cursor.fetchall()
 
                 connected = [(row['hash'], row['distance']) for row in results]
@@ -225,11 +254,53 @@ class GraphStorage:
             logger.error(f"Failed to find connected memories: {e}")
             return []
 
+    async def get_relationship_types(self, memory_hash: str) -> Dict[str, int]:
+        """
+        Get count of each relationship type for a given memory.
+
+        Args:
+            memory_hash: Memory content hash
+
+        Returns:
+            Dict mapping relationship types to counts
+            Example: {"causes": 3, "fixes": 1, "related": 5}
+        """
+        if not memory_hash:
+            logger.error("Invalid memory hash (empty string)")
+            return {}
+
+        try:
+            conn = await self._get_connection()
+
+            query = """
+            SELECT relationship_type, COUNT(*) as count
+            FROM memory_graph
+            WHERE source_hash = ?
+            GROUP BY relationship_type
+            """
+
+            cursor = conn.cursor()
+            try:
+                cursor.execute(query, (memory_hash,))
+                results = cursor.fetchall()
+
+                relationship_counts = {row['relationship_type']: row['count'] for row in results}
+                logger.debug(f"Found {len(relationship_counts)} relationship types for {memory_hash}")
+
+                return relationship_counts
+            finally:
+                cursor.close()
+
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get relationship types: {e}")
+            return {}
+
     async def shortest_path(
         self,
         hash1: str,
         hash2: str,
-        max_depth: int = 5
+        max_depth: int = 5,
+        relationship_types: Optional[List[str]] = None
     ) -> Optional[List[str]]:
         """
         Find shortest path between two memories using recursive CTE (BFS).
@@ -244,6 +315,7 @@ class GraphStorage:
             hash1: Source memory content hash
             hash2: Target memory content hash
             max_depth: Maximum path length to search (default: 5)
+            relationship_types: Optional list of relationship types to filter by
 
         Returns:
             Ordered list of memory hashes representing path, or None if no path exists
@@ -262,7 +334,18 @@ class GraphStorage:
             # Recursive CTE for BFS pathfinding
             # Stops at first path found (BFS guarantees shortest)
             # Cycle prevention: Wrap hashes with delimiters to avoid substring matches
-            query = """
+
+            # Build WHERE clause for relationship_types filter
+            relationship_filter = ""
+            params = [hash1, f',{hash1},', max_depth, hash2, hash2]
+
+            if relationship_types is not None and len(relationship_types) > 0:
+                # Create IN clause for relationship types
+                placeholders = ','.join('?' * len(relationship_types))
+                relationship_filter = f"AND mg.relationship_type IN ({placeholders})"
+                params.extend(relationship_types)
+
+            query = f"""
             WITH RECURSIVE path_finder(current_hash, path, depth) AS (
                 -- Base case: Start from hash1
                 SELECT ?, ?, 1
@@ -280,6 +363,7 @@ class GraphStorage:
                     pf.depth < ?  -- Limit search depth
                     AND instr(pf.path, ',' || mg.target_hash || ',') = 0  -- Prevent cycles (exact match)
                     AND pf.current_hash != ?  -- Stop if target found (handled in outer query)
+                    {relationship_filter}
             )
             SELECT path
             FROM path_finder
@@ -290,7 +374,7 @@ class GraphStorage:
 
             cursor = conn.cursor()
             try:
-                cursor.execute(query, (hash1, f',{hash1},', max_depth, hash2, hash2))
+                cursor.execute(query, params)
                 result = cursor.fetchone()
 
                 if result:
@@ -311,7 +395,8 @@ class GraphStorage:
     async def get_subgraph(
         self,
         memory_hash: str,
-        radius: int = 2
+        radius: int = 2,
+        relationship_type: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Extract subgraph centered on given memory for visualization.
@@ -322,6 +407,7 @@ class GraphStorage:
         Args:
             memory_hash: Center node memory hash
             radius: Number of hops to include (default: 2)
+            relationship_type: Optional filter for specific relationship type
 
         Returns:
             Dict with "nodes" (list of hashes) and "edges" (list of edge objects)
@@ -334,7 +420,8 @@ class GraphStorage:
                         "target": "hash2",
                         "similarity": 0.65,
                         "connection_types": ["semantic", "temporal"],
-                        "metadata": {...}
+                        "metadata": {...},
+                        "relationship_type": "causes"
                     },
                     ...
                 ]
@@ -345,14 +432,18 @@ class GraphStorage:
             return {"nodes": [], "edges": []}
 
         try:
-            # Get all connected nodes within radius
-            connected = await self.find_connected(memory_hash, max_hops=radius)
+            # Get all connected nodes within radius (with optional relationship_type filter)
+            connected = await self.find_connected(
+                memory_hash,
+                max_hops=radius,
+                relationship_type=relationship_type
+            )
 
             # Build node set (include center node)
             nodes = {memory_hash}
             nodes.update(hash for hash, _ in connected)
 
-            # Check SQLite parameter limit (999 max, we use 2*len(nodes))
+            # Check SQLite parameter limit (999 max, we use 2*len(nodes) + maybe 1 for relationship_type)
             if len(nodes) > 499:
                 logger.warning(
                     f"Subgraph too large ({len(nodes)} nodes > 499 limit). "
@@ -368,22 +459,31 @@ class GraphStorage:
             # Use parameterized query with IN clause
             # Safety: placeholders are constructed from validated node set, not user input
             placeholders = ','.join('?' * len(nodes))
+
+            # Add relationship_type filter if specified
+            relationship_filter = ""
+            params = list(nodes) + list(nodes)
+
+            if relationship_type is not None:
+                relationship_filter = "AND relationship_type = ?"
+                params.append(relationship_type)
+
             query = f"""
             SELECT
                 source_hash,
                 target_hash,
                 similarity,
                 connection_types,
-                metadata
+                metadata,
+                relationship_type
             FROM memory_graph
             WHERE source_hash IN ({placeholders})
               AND target_hash IN ({placeholders})
+              {relationship_filter}
             """
 
             cursor = conn.cursor()
             try:
-                # Duplicate node list for both IN clauses
-                params = list(nodes) + list(nodes)
                 cursor.execute(query, params)
                 results = cursor.fetchall()
 
@@ -406,7 +506,8 @@ class GraphStorage:
                         "target": target,
                         "similarity": row['similarity'],
                         "connection_types": json.loads(row['connection_types']),
-                        "metadata": json.loads(row['metadata']) if row['metadata'] else {}
+                        "metadata": json.loads(row['metadata']) if row['metadata'] else {},
+                        "relationship_type": row['relationship_type']
                     })
 
                 subgraph = {
