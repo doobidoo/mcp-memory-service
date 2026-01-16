@@ -7,7 +7,18 @@ Tests the typed relationship functionality in graph storage.
 import sqlite3
 import tempfile
 import os
+import sys
 from pathlib import Path
+import importlib.util
+import pytest
+
+# Load association module directly
+association_path = Path(__file__).parent.parent / "src" / "mcp_memory_service" / "models" / "association.py"
+spec = importlib.util.spec_from_file_location("association", association_path)
+association = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(association)
+
+TypedAssociation = association.TypedAssociation
 
 
 class TestBurst31AddRelationshipTypeColumn:
@@ -122,3 +133,58 @@ class TestBurst31AddRelationshipTypeColumn:
             conn.close()
         finally:
             os.unlink(db_path)
+
+
+class TestBurst32TypedAssociationDataclass:
+    """Tests for Burst 3.2: TypedAssociation Dataclass"""
+
+    def test_dataclass_accepts_relationship_type(self):
+        """TypedAssociation should accept relationship_type field"""
+        assoc = TypedAssociation(
+            source_hash="abc123",
+            target_hash="def456",
+            similarity=0.85,
+            connection_types=["semantic"],
+            relationship_type="causes"
+        )
+        assert assoc.relationship_type == "causes"
+
+    def test_default_relationship_type_is_related(self):
+        """Default relationship_type should be 'related'"""
+        assoc = TypedAssociation(
+            source_hash="abc123",
+            target_hash="def456",
+            similarity=0.85,
+            connection_types=["semantic"]
+        )
+        assert assoc.relationship_type == "related"
+
+    def test_validation_prevents_invalid_similarity(self):
+        """Should raise ValueError for similarity outside [0.0, 1.0]"""
+        with pytest.raises(ValueError, match="similarity must be in range"):
+            TypedAssociation(
+                source_hash="abc123",
+                target_hash="def456",
+                similarity=1.5,
+                connection_types=["semantic"]
+            )
+
+    def test_validation_prevents_self_loop(self):
+        """Should raise ValueError for self-loop associations"""
+        with pytest.raises(ValueError, match="Cannot create self-loop"):
+            TypedAssociation(
+                source_hash="abc123",
+                target_hash="abc123",
+                similarity=0.85,
+                connection_types=["semantic"]
+            )
+
+    def test_validation_requires_non_empty_hashes(self):
+        """Should raise ValueError for empty hashes"""
+        with pytest.raises(ValueError, match="must be non-empty"):
+            TypedAssociation(
+                source_hash="",
+                target_hash="def456",
+                similarity=0.85,
+                connection_types=["semantic"]
+            )
