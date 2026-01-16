@@ -16,7 +16,7 @@ Usage:
     tag = TagTaxonomy.add_namespace("high", "q:")  # "q:high"
 """
 
-from typing import Final, Tuple, Optional
+from typing import Final, Tuple, Optional, List
 
 
 # Namespace constants - each ends with ":" for easy concatenation
@@ -54,3 +54,42 @@ def parse_tag(tag: str) -> Tuple[Optional[str], str]:
     else:
         # Legacy tag without namespace
         return (None, tag)
+
+
+# Valid namespaces list for validation
+VALID_NAMESPACES: Final[List[str]] = [
+    NAMESPACE_SYSTEM,
+    NAMESPACE_QUALITY,
+    NAMESPACE_PROJECT,
+    NAMESPACE_TOPIC,
+    NAMESPACE_TEMPORAL,
+    NAMESPACE_USER
+]
+
+
+def validate_tag(tag: str) -> bool:
+    """
+    Validate if a tag has a valid namespace or is a legacy tag.
+
+    Args:
+        tag: The tag string to validate
+
+    Returns:
+        True if tag has valid namespace OR is legacy format, False otherwise
+
+    Examples:
+        >>> validate_tag("q:high")  # Valid namespace
+        True
+        >>> validate_tag("legacy-tag")  # Legacy format (no namespace)
+        True
+        >>> validate_tag("invalid:tag")  # Invalid namespace
+        False
+    """
+    namespace, _ = parse_tag(tag)
+
+    # Legacy tags (no namespace) are valid for backward compatibility
+    if namespace is None:
+        return True
+
+    # Check if namespace is in valid list
+    return namespace in VALID_NAMESPACES

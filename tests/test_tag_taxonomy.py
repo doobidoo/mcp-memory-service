@@ -20,6 +20,7 @@ NAMESPACE_TOPIC = tag_taxonomy.NAMESPACE_TOPIC
 NAMESPACE_TEMPORAL = tag_taxonomy.NAMESPACE_TEMPORAL
 NAMESPACE_USER = tag_taxonomy.NAMESPACE_USER
 parse_tag = tag_taxonomy.parse_tag
+validate_tag = tag_taxonomy.validate_tag
 
 
 class TestBurst21NamespaceConstants:
@@ -98,3 +99,26 @@ class TestBurst22ParseTag:
         assert parse_tag("proj:mcp-memory") == ("proj:", "mcp-memory")
         assert parse_tag("t:2024-01") == ("t:", "2024-01")
         assert parse_tag("sys:auto-generated") == ("sys:", "auto-generated")
+
+
+class TestBurst23ValidateTag:
+    """Tests for Burst 2.3: Validate Tag Function"""
+
+    def test_valid_namespaced_tags(self):
+        """Tags with valid namespaces should return True"""
+        assert validate_tag("q:high") is True
+        assert validate_tag("proj:mcp-memory") is True
+        assert validate_tag("topic:authentication") is True
+        assert validate_tag("sys:auto") is True
+
+    def test_legacy_tags_validate_correctly(self):
+        """Legacy tags without namespace should return True (backward compat)"""
+        assert validate_tag("legacy-tag") is True
+        assert validate_tag("important") is True
+        assert validate_tag("mcp-memory-service") is True
+
+    def test_invalid_namespace_returns_false(self):
+        """Tags with invalid namespaces should return False"""
+        assert validate_tag("invalid:tag") is False
+        assert validate_tag("bad:value") is False
+        assert validate_tag("unknown:namespace") is False
