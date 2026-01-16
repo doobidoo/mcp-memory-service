@@ -21,6 +21,7 @@ validate_memory_type = ontology.validate_memory_type
 get_parent_type = ontology.get_parent_type
 get_all_types = ontology.get_all_types
 validate_relationship = ontology.validate_relationship
+MemoryTypeOntology = ontology.MemoryTypeOntology
 
 
 class TestBurst11BaseMemoryTypes:
@@ -220,3 +221,39 @@ class TestBurst17RelationshipTypeValidation:
         assert validate_relationship("invalid_relationship") is False
         assert validate_relationship("not_a_rel") is False
         assert validate_relationship("") is False
+
+
+class TestBurst18OntologyClassIntegration:
+    """Tests for Burst 1.8: Ontology Class Integration"""
+
+    def test_class_methods_accessible(self):
+        """All ontology methods should be accessible via the class"""
+        # Test that class has all expected methods
+        assert hasattr(MemoryTypeOntology, 'validate_memory_type')
+        assert hasattr(MemoryTypeOntology, 'get_parent_type')
+        assert hasattr(MemoryTypeOntology, 'get_all_types')
+        assert hasattr(MemoryTypeOntology, 'validate_relationship')
+
+    def test_validate_memory_type_via_class(self):
+        """validate_memory_type should work via class method"""
+        assert MemoryTypeOntology.validate_memory_type("observation") is True
+        assert MemoryTypeOntology.validate_memory_type("code_edit") is True
+        assert MemoryTypeOntology.validate_memory_type("invalid") is False
+
+    def test_get_parent_type_via_class(self):
+        """get_parent_type should work via class method"""
+        assert MemoryTypeOntology.get_parent_type("code_edit") == "observation"
+        assert MemoryTypeOntology.get_parent_type("observation") == "observation"
+        assert MemoryTypeOntology.get_parent_type("invalid") is None
+
+    def test_get_all_types_via_class(self):
+        """get_all_types should work via class method"""
+        all_types = MemoryTypeOntology.get_all_types()
+        assert len(all_types) == 26
+        assert "observation" in all_types
+        assert "code_edit" in all_types
+
+    def test_validate_relationship_via_class(self):
+        """validate_relationship should work via class method"""
+        assert MemoryTypeOntology.validate_relationship("causes") is True
+        assert MemoryTypeOntology.validate_relationship("invalid") is False

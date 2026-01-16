@@ -204,3 +204,48 @@ def validate_relationship(rel_type: str) -> bool:
         False
     """
     return rel_type in RELATIONSHIPS
+
+
+class MemoryTypeOntology:
+    """
+    Memory Type Ontology - Formal type system for knowledge graph classification.
+
+    Provides controlled vocabulary, validation, and type hierarchy management
+    for semantic memory classification. All methods are class methods for
+    stateless, pure functional access to the ontology.
+
+    Usage:
+        # Validate memory type
+        if MemoryTypeOntology.validate_memory_type("observation"):
+            print("Valid type")
+
+        # Get parent type
+        parent = MemoryTypeOntology.get_parent_type("code_edit")  # → "observation"
+
+        # Get all types
+        all_types = MemoryTypeOntology.get_all_types()
+
+        # Validate relationship
+        if MemoryTypeOntology.validate_relationship("causes"):
+            print("Valid relationship")
+    """
+
+    @classmethod
+    def validate_memory_type(cls, memory_type: str) -> bool:
+        """Validate if memory type exists in ontology."""
+        return validate_memory_type(memory_type)
+
+    @classmethod
+    def get_parent_type(cls, subtype: str) -> Optional[str]:
+        """Get parent base type for a subtype."""
+        return get_parent_type(subtype)
+
+    @classmethod
+    def get_all_types(cls) -> List[str]:
+        """Get flattened list of all types."""
+        return get_all_types()
+
+    @classmethod
+    def validate_relationship(cls, rel_type: str) -> bool:
+        """Validate if relationship type is valid."""
+        return validate_relationship(rel_type)
