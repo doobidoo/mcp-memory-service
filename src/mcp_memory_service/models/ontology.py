@@ -15,7 +15,7 @@ Usage:
 """
 
 from enum import Enum
-from typing import Final
+from typing import Dict, List, Final
 
 
 class BaseMemoryType(str, Enum):
@@ -30,3 +30,39 @@ class BaseMemoryType(str, Enum):
     LEARNING = "learning"
     ERROR = "error"
     PATTERN = "pattern"
+
+
+# Taxonomy hierarchy: base types → subtypes
+TAXONOMY: Final[Dict[str, List[str]]] = {
+    "observation": [
+        "code_edit",
+        "file_access",
+        "search",
+        "command",
+        "conversation"
+    ],
+    "decision": [
+        "architecture",
+        "tool_choice",
+        "approach",
+        "configuration"
+    ],
+    "learning": [
+        "insight",
+        "best_practice",
+        "anti_pattern",
+        "gotcha"
+    ],
+    "error": [
+        "bug",
+        "failure",
+        "exception",
+        "timeout"
+    ],
+    "pattern": [
+        "recurring_issue",
+        "code_smell",
+        "design_pattern",
+        "workflow"
+    ]
+}
