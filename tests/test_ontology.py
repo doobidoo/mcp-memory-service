@@ -16,6 +16,7 @@ spec.loader.exec_module(ontology)
 
 BaseMemoryType = ontology.BaseMemoryType
 TAXONOMY = ontology.TAXONOMY
+RELATIONSHIPS = ontology.RELATIONSHIPS
 
 
 class TestBurst11BaseMemoryTypes:
@@ -83,3 +84,30 @@ class TestBurst12TaxonomyHierarchy:
                 assert subtype.islower() or '_' in subtype, \
                     f"Subtype '{subtype}' should be lowercase with underscores"
                 assert ' ' not in subtype, f"Subtype '{subtype}' should not contain spaces"
+
+
+class TestBurst13RelationshipTypes:
+    """Tests for Burst 1.3: Relationship Types Definition"""
+
+    def test_six_relationship_types_defined(self):
+        """Should have exactly 6 relationship types"""
+        expected_types = {"causes", "fixes", "contradicts", "supports", "follows", "related"}
+        actual_types = set(RELATIONSHIPS.keys())
+        assert actual_types == expected_types
+
+    def test_each_type_has_description(self):
+        """Each relationship type should have a description"""
+        for rel_type, config in RELATIONSHIPS.items():
+            assert "description" in config, f"{rel_type} missing description"
+            assert len(config["description"]) > 0, f"{rel_type} has empty description"
+
+    def test_each_type_has_valid_patterns(self):
+        """Each relationship type should define valid source→target patterns"""
+        for rel_type, config in RELATIONSHIPS.items():
+            assert "valid_patterns" in config, f"{rel_type} missing valid_patterns"
+            assert len(config["valid_patterns"]) > 0, f"{rel_type} has no valid patterns"
+
+    def test_related_type_accepts_any_pattern(self):
+        """The 'related' type should accept any→any pattern (default fallback)"""
+        related_patterns = RELATIONSHIPS["related"]["valid_patterns"]
+        assert "any → any" in related_patterns, "related type should accept any→any pattern"

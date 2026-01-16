@@ -66,3 +66,32 @@ TAXONOMY: Final[Dict[str, List[str]]] = {
         "workflow"
     ]
 }
+
+
+# Relationship types with valid source → target patterns
+RELATIONSHIPS: Final[Dict[str, Dict[str, List[str]]]] = {
+    "causes": {
+        "description": "A causes B (causal relationship)",
+        "valid_patterns": ["observation → error", "decision → observation", "error → error"]
+    },
+    "fixes": {
+        "description": "A fixes B (remediation relationship)",
+        "valid_patterns": ["decision → error", "learning → error", "pattern → error"]
+    },
+    "contradicts": {
+        "description": "A contradicts B (conflict relationship)",
+        "valid_patterns": ["decision → decision", "learning → learning", "observation → observation"]
+    },
+    "supports": {
+        "description": "A supports B (reinforcement relationship)",
+        "valid_patterns": ["learning → decision", "observation → learning", "pattern → learning"]
+    },
+    "follows": {
+        "description": "A follows B (temporal/sequential relationship)",
+        "valid_patterns": ["observation → observation", "decision → decision", "any → any"]
+    },
+    "related": {
+        "description": "A is related to B (generic association)",
+        "valid_patterns": ["any → any"]
+    }
+}
