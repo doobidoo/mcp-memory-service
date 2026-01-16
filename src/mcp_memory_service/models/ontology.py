@@ -183,3 +183,24 @@ def get_all_types() -> List[str]:
         all_types.extend(subtypes)
 
     return all_types
+
+
+def validate_relationship(rel_type: str) -> bool:
+    """
+    Validate if a relationship type is in the allowed list.
+
+    Args:
+        rel_type: The relationship type string to validate
+
+    Returns:
+        True if relationship type is valid, False otherwise
+
+    Examples:
+        >>> validate_relationship("causes")
+        True
+        >>> validate_relationship("fixes")
+        True
+        >>> validate_relationship("invalid_rel")
+        False
+    """
+    return rel_type in RELATIONSHIPS

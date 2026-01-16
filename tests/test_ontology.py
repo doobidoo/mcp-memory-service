@@ -20,6 +20,7 @@ RELATIONSHIPS = ontology.RELATIONSHIPS
 validate_memory_type = ontology.validate_memory_type
 get_parent_type = ontology.get_parent_type
 get_all_types = ontology.get_all_types
+validate_relationship = ontology.validate_relationship
 
 
 class TestBurst11BaseMemoryTypes:
@@ -200,3 +201,22 @@ class TestBurst16GetAllTypes:
         assert "insight" in all_types
         assert "bug" in all_types
         assert "code_smell" in all_types
+
+
+class TestBurst17RelationshipTypeValidation:
+    """Tests for Burst 1.7: Relationship Type Validation"""
+
+    def test_valid_types_return_true(self):
+        """All 6 defined relationship types should validate as True"""
+        assert validate_relationship("causes") is True
+        assert validate_relationship("fixes") is True
+        assert validate_relationship("contradicts") is True
+        assert validate_relationship("supports") is True
+        assert validate_relationship("follows") is True
+        assert validate_relationship("related") is True
+
+    def test_invalid_types_return_false(self):
+        """Invalid relationship types should return False"""
+        assert validate_relationship("invalid_relationship") is False
+        assert validate_relationship("not_a_rel") is False
+        assert validate_relationship("") is False
