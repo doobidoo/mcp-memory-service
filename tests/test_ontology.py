@@ -19,6 +19,7 @@ TAXONOMY = ontology.TAXONOMY
 RELATIONSHIPS = ontology.RELATIONSHIPS
 validate_memory_type = ontology.validate_memory_type
 get_parent_type = ontology.get_parent_type
+get_all_types = ontology.get_all_types
 
 
 class TestBurst11BaseMemoryTypes:
@@ -167,3 +168,35 @@ class TestBurst15GetParentType:
         assert get_parent_type("invalid_type") is None
         assert get_parent_type("not_a_type") is None
         assert get_parent_type("") is None
+
+
+class TestBurst16GetAllTypes:
+    """Tests for Burst 1.6: Get All Types Function"""
+
+    def test_returns_correct_count(self):
+        """Should return 5 base types + 21 subtypes = 26 total"""
+        all_types = get_all_types()
+        assert len(all_types) == 26
+
+    def test_no_duplicates_in_list(self):
+        """Should not have duplicate types in the list"""
+        all_types = get_all_types()
+        assert len(all_types) == len(set(all_types))
+
+    def test_includes_base_types(self):
+        """Should include all base types"""
+        all_types = get_all_types()
+        assert "observation" in all_types
+        assert "decision" in all_types
+        assert "learning" in all_types
+        assert "error" in all_types
+        assert "pattern" in all_types
+
+    def test_includes_subtypes(self):
+        """Should include subtypes from all categories"""
+        all_types = get_all_types()
+        assert "code_edit" in all_types
+        assert "architecture" in all_types
+        assert "insight" in all_types
+        assert "bug" in all_types
+        assert "code_smell" in all_types

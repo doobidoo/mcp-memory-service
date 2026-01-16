@@ -157,3 +157,29 @@ def get_parent_type(subtype: str) -> Optional[str]:
             return base_type
 
     return None
+
+
+def get_all_types() -> List[str]:
+    """
+    Get flattened list of all valid memory types (base + subtypes).
+
+    Returns:
+        List of all type strings in the ontology
+
+    Examples:
+        >>> types = get_all_types()
+        >>> "observation" in types
+        True
+        >>> "code_edit" in types
+        True
+        >>> len(types)  # 5 base + 21 subtypes
+        26
+    """
+    # Get all base types
+    all_types = [member.value for member in BaseMemoryType]
+
+    # Add all subtypes
+    for subtypes in TAXONOMY.values():
+        all_types.extend(subtypes)
+
+    return all_types
