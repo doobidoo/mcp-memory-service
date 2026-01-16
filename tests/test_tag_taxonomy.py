@@ -21,6 +21,9 @@ NAMESPACE_TEMPORAL = tag_taxonomy.NAMESPACE_TEMPORAL
 NAMESPACE_USER = tag_taxonomy.NAMESPACE_USER
 parse_tag = tag_taxonomy.parse_tag
 validate_tag = tag_taxonomy.validate_tag
+add_namespace = tag_taxonomy.add_namespace
+filter_by_namespace = tag_taxonomy.filter_by_namespace
+TagTaxonomy = tag_taxonomy.TagTaxonomy
 
 
 class TestBurst21NamespaceConstants:
@@ -122,3 +125,71 @@ class TestBurst23ValidateTag:
         assert validate_tag("invalid:tag") is False
         assert validate_tag("bad:value") is False
         assert validate_tag("unknown:namespace") is False
+
+
+class TestBurst24AddNamespace:
+    """Tests for Burst 2.4: Add Namespace Function"""
+
+    def test_add_namespace_to_value(self):
+        """Should add namespace prefix to value"""
+        assert add_namespace("high", "q:") == "q:high"
+        assert add_namespace("mcp-memory", "proj:") == "proj:mcp-memory"
+
+    def test_strips_existing_namespace(self):
+        """Should strip existing namespace before adding new one"""
+        assert add_namespace("q:high", "proj:") == "proj:high"
+        assert add_namespace("topic:auth", "sys:") == "sys:auth"
+
+
+class TestBurst25FilterTagsByNamespace:
+    """Tests for Burst 2.5: Filter Tags by Namespace"""
+
+    def test_filters_quality_tags(self):
+        """Should filter only quality namespace tags"""
+        tags = ["q:high", "proj:auth", "q:medium", "legacy"]
+        result = filter_by_namespace(tags, "q:")
+        assert result == ["q:high", "q:medium"]
+
+    def test_empty_list_for_non_matching_namespace(self):
+        """Should return empty list when no tags match"""
+        tags = ["proj:auth", "legacy"]
+        result = filter_by_namespace(tags, "q:")
+        assert result == []
+
+    def test_filters_correctly_with_legacy_tags(self):
+        """Should exclude legacy tags from namespace filter"""
+        tags = ["legacy", "q:high"]
+        result = filter_by_namespace(tags, "q:")
+        assert result == ["q:high"]
+
+
+class TestBurst26TagTaxonomyClass:
+    """Tests for Burst 2.6: Tag Taxonomy Class"""
+
+    def test_class_methods_accessible(self):
+        """All methods should be accessible via class"""
+        assert hasattr(TagTaxonomy, 'parse_tag')
+        assert hasattr(TagTaxonomy, 'validate_tag')
+        assert hasattr(TagTaxonomy, 'add_namespace')
+        assert hasattr(TagTaxonomy, 'filter_by_namespace')
+
+    def test_parse_tag_via_class(self):
+        """parse_tag should work via class method"""
+        namespace, value = TagTaxonomy.parse_tag("q:high")
+        assert namespace == "q:"
+        assert value == "high"
+
+    def test_validate_tag_via_class(self):
+        """validate_tag should work via class method"""
+        assert TagTaxonomy.validate_tag("q:high") is True
+        assert TagTaxonomy.validate_tag("invalid:tag") is False
+
+    def test_add_namespace_via_class(self):
+        """add_namespace should work via class method"""
+        assert TagTaxonomy.add_namespace("high", "q:") == "q:high"
+
+    def test_filter_by_namespace_via_class(self):
+        """filter_by_namespace should work via class method"""
+        tags = ["q:high", "proj:auth", "q:medium"]
+        result = TagTaxonomy.filter_by_namespace(tags, "q:")
+        assert result == ["q:high", "q:medium"]
