@@ -16,7 +16,7 @@ Usage:
     tag = TagTaxonomy.add_namespace("high", "q:")  # "q:high"
 """
 
-from typing import Final
+from typing import Final, Tuple, Optional
 
 
 # Namespace constants - each ends with ":" for easy concatenation
@@ -26,3 +26,31 @@ NAMESPACE_PROJECT: Final[str] = "proj:"     # Project/repository context
 NAMESPACE_TOPIC: Final[str] = "topic:"      # Subject matter topics
 NAMESPACE_TEMPORAL: Final[str] = "t:"       # Time-based tags (t:2024-01, t:sprint-3)
 NAMESPACE_USER: Final[str] = "user:"        # User-defined custom tags
+
+
+def parse_tag(tag: str) -> Tuple[Optional[str], str]:
+    """
+    Parse a tag into namespace and value components.
+
+    Args:
+        tag: The tag string to parse
+
+    Returns:
+        Tuple of (namespace, value) if namespaced, or (None, tag) for legacy tags
+
+    Examples:
+        >>> parse_tag("q:high")
+        ("q:", "high")
+        >>> parse_tag("legacy-tag")
+        (None, "legacy-tag")
+        >>> parse_tag("topic:authentication")
+        ("topic:", "authentication")
+    """
+    if ":" in tag:
+        parts = tag.split(":", 1)  # Split on first colon only
+        namespace = parts[0] + ":"
+        value = parts[1]
+        return (namespace, value)
+    else:
+        # Legacy tag without namespace
+        return (None, tag)

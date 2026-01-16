@@ -19,6 +19,7 @@ NAMESPACE_PROJECT = tag_taxonomy.NAMESPACE_PROJECT
 NAMESPACE_TOPIC = tag_taxonomy.NAMESPACE_TOPIC
 NAMESPACE_TEMPORAL = tag_taxonomy.NAMESPACE_TEMPORAL
 NAMESPACE_USER = tag_taxonomy.NAMESPACE_USER
+parse_tag = tag_taxonomy.parse_tag
 
 
 class TestBurst21NamespaceConstants:
@@ -69,3 +70,31 @@ class TestBurst21NamespaceConstants:
             NAMESPACE_USER
         ]
         assert len(namespaces) == len(set(namespaces))
+
+
+class TestBurst22ParseTag:
+    """Tests for Burst 2.2: Parse Tag Function"""
+
+    def test_parse_namespaced_tag(self):
+        """Should parse namespaced tags into (namespace, value)"""
+        namespace, value = parse_tag("q:high")
+        assert namespace == "q:"
+        assert value == "high"
+
+    def test_parse_legacy_tag_without_namespace(self):
+        """Legacy tags without namespace should return (None, tag)"""
+        namespace, value = parse_tag("legacy-tag")
+        assert namespace is None
+        assert value == "legacy-tag"
+
+    def test_parse_handles_multiple_colons(self):
+        """Should split on first colon only"""
+        namespace, value = parse_tag("topic:auth:oauth2")
+        assert namespace == "topic:"
+        assert value == "auth:oauth2"
+
+    def test_parse_various_namespaces(self):
+        """Should correctly parse different namespace formats"""
+        assert parse_tag("proj:mcp-memory") == ("proj:", "mcp-memory")
+        assert parse_tag("t:2024-01") == ("t:", "2024-01")
+        assert parse_tag("sys:auto-generated") == ("sys:", "auto-generated")
