@@ -95,3 +95,34 @@ RELATIONSHIPS: Final[Dict[str, Dict[str, List[str]]]] = {
         "valid_patterns": ["any → any"]
     }
 }
+
+
+def validate_memory_type(memory_type: str) -> bool:
+    """
+    Validate if a memory type is in the ontology (base type or subtype).
+
+    Args:
+        memory_type: The type string to validate
+
+    Returns:
+        True if the type is valid (exists in base types or subtypes), False otherwise
+
+    Examples:
+        >>> validate_memory_type("observation")  # Base type
+        True
+        >>> validate_memory_type("code_edit")    # Subtype
+        True
+        >>> validate_memory_type("invalid")
+        False
+    """
+    # Check if it's a base type
+    base_types = {member.value for member in BaseMemoryType}
+    if memory_type in base_types:
+        return True
+
+    # Check if it's a subtype
+    all_subtypes = []
+    for subtypes in TAXONOMY.values():
+        all_subtypes.extend(subtypes)
+
+    return memory_type in all_subtypes

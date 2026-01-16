@@ -17,6 +17,7 @@ spec.loader.exec_module(ontology)
 BaseMemoryType = ontology.BaseMemoryType
 TAXONOMY = ontology.TAXONOMY
 RELATIONSHIPS = ontology.RELATIONSHIPS
+validate_memory_type = ontology.validate_memory_type
 
 
 class TestBurst11BaseMemoryTypes:
@@ -111,3 +112,31 @@ class TestBurst13RelationshipTypes:
         """The 'related' type should accept any→any pattern (default fallback)"""
         related_patterns = RELATIONSHIPS["related"]["valid_patterns"]
         assert "any → any" in related_patterns, "related type should accept any→any pattern"
+
+
+class TestBurst14MemoryTypeValidation:
+    """Tests for Burst 1.4: Memory Type Validation"""
+
+    def test_base_types_validate_correctly(self):
+        """All base types should validate as True"""
+        assert validate_memory_type("observation") is True
+        assert validate_memory_type("decision") is True
+        assert validate_memory_type("learning") is True
+        assert validate_memory_type("error") is True
+        assert validate_memory_type("pattern") is True
+
+    def test_subtypes_validate_correctly(self):
+        """All subtypes should validate as True"""
+        # Test a few subtypes from each category
+        assert validate_memory_type("code_edit") is True  # observation subtype
+        assert validate_memory_type("architecture") is True  # decision subtype
+        assert validate_memory_type("insight") is True  # learning subtype
+        assert validate_memory_type("bug") is True  # error subtype
+        assert validate_memory_type("code_smell") is True  # pattern subtype
+
+    def test_invalid_types_return_false(self):
+        """Invalid types should return False"""
+        assert validate_memory_type("invalid_type") is False
+        assert validate_memory_type("not_a_type") is False
+        assert validate_memory_type("") is False
+        assert validate_memory_type("ObSeRvAtIoN") is False  # Case sensitive
