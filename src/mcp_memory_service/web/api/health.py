@@ -28,7 +28,10 @@ from pydantic import BaseModel
 from ...storage.base import MemoryStorage
 from ..dependencies import get_storage
 
-from ... import __version__
+try:
+    from ... import __version__
+except (ImportError, AttributeError):
+    __version__ = "0.0.0.dev0"
 
 from ...config import OAUTH_ENABLED
 

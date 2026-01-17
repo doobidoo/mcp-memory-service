@@ -29,7 +29,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 
-from .. import __version__
+try:
+    from .. import __version__
+except (ImportError, AttributeError):
+    __version__ = "0.0.0.dev0"
 from ..config import (
     HTTP_PORT,
     HTTP_HOST,

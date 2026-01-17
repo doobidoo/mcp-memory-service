@@ -19,4 +19,7 @@ Provides HTTP REST API and Server-Sent Events (SSE) interface
 using FastAPI and SQLite-vec backend.
 """
 
-from .. import __version__
+try:
+    from .. import __version__
+except (ImportError, AttributeError):
+    __version__ = "0.0.0.dev0"

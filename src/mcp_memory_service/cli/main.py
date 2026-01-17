@@ -20,7 +20,10 @@ import click
 import sys
 import os
 
-from .. import __version__
+try:
+    from .. import __version__
+except (ImportError, AttributeError):
+    __version__ = "0.0.0.dev0"
 
 from .ingestion import add_ingestion_commands
 

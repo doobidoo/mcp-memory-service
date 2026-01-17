@@ -29,7 +29,10 @@ from mcp import types
 from ...server.cache_manager import _CACHE_STATS, _STORAGE_CACHE, _MEMORY_SERVICE_CACHE
 from ...config import STORAGE_BACKEND, SQLITE_VEC_PATH, EMBEDDING_MODEL_NAME
 
-from ... import __version__
+try:
+    from ... import __version__
+except (ImportError, AttributeError):
+    __version__ = "0.0.0.dev0"
 
 logger = logging.getLogger(__name__)
 
