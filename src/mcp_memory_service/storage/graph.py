@@ -159,6 +159,11 @@ class GraphStorage:
         """
         Store a memory association with bidirectional edges.
 
+        KNOWN LIMITATION: Bidirectional storage with same relationship_type is incorrect
+        for asymmetric relationships (causes, fixes, contradicts, supports). This will be
+        fixed in PR #348 to store only single directed edges. Current behavior is safe
+        because asymmetric relationships are not yet exposed in production APIs.
+
         Args:
             source_hash: Source memory content hash
             target_hash: Target memory content hash
@@ -167,6 +172,8 @@ class GraphStorage:
             metadata: Optional metadata dict with discovery context
             created_at: Optional timestamp (Unix epoch). If None, uses current time.
             relationship_type: Type of relationship (default: "related")
+                NOTE: Asymmetric types (causes, fixes, contradicts, supports) should not
+                be used in production until PR #348 is merged.
 
         Returns:
             True if stored successfully, False otherwise
@@ -193,6 +200,9 @@ class GraphStorage:
 
             # Store bidirectional edges (both A→B and B→A)
             # This simplifies queries - no need to check both directions
+            # TODO(PR #348): This is incorrect for asymmetric relationships.
+            # Should store only single directed edge for causes/fixes/contradicts/supports.
+            # See: https://github.com/doobidoo/mcp-memory-service/issues/348
             async with self._lock:  # Use instance lock for thread safety
                 cursor = conn.cursor()
                 try:
@@ -205,6 +215,7 @@ class GraphStorage:
                           metadata_json, created_at, relationship_type))
 
                     # Insert or replace target → source (bidirectional)
+                    # FIXME(PR #348): Remove this for asymmetric relationships
                     cursor.execute("""
                         INSERT OR REPLACE INTO memory_graph
                         (source_hash, target_hash, similarity, connection_types, metadata, created_at, relationship_type)
