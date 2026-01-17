@@ -11,6 +11,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Fixed
+- **Fix 33 API/HTTP test failures with package import error** (Issue #351)
+  - Changed relative imports to absolute imports in `web/api/backup.py` for pytest compatibility
+  - Fixed `ModuleNotFoundError: 'mcp_memory_service' is not a package` during test collection
+  - Resolved pytest `--import-mode=prepend` confusion with triple-dot relative imports
+  - **Test Results**: 829/914 tests passing (up from 818), all API/HTTP integration tests pass
+  - **Impact**: Single-line fix, no API changes, no breaking changes
+
 - **Fix validation tests and legacy type migration** (PR #350)
   - Fixed all 5 validation tests (editable install detection, version matching, runtime warnings)
   - Fixed `check_dev_setup.py` to import `_version.py` directly instead of text parsing
@@ -21,7 +28,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Restored core imports in `__init__.py` for pytest package recognition
   - Updated consolidation retention periods for new ontology types
   - **Test Results**: 818/851 tests passing (96%), all validation tests pass
-  - **Known Issue**: 33 API/HTTP tests still failing (pre-existing from PR #347, tracked separately)
 
 - **Fix bidirectional storage for asymmetric relationships** (PR #348)
   - Asymmetric relationships (causes, fixes, supports, follows) now store only directed edges

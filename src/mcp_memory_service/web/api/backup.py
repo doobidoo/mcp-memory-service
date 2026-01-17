@@ -24,8 +24,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
-from ...config import OAUTH_ENABLED
-from ...backup.scheduler import get_backup_service, get_backup_scheduler
+from mcp_memory_service.config import OAUTH_ENABLED
+from mcp_memory_service.backup.scheduler import get_backup_service, get_backup_scheduler
 
 # OAuth authentication imports (conditional)
 if OAUTH_ENABLED or TYPE_CHECKING:
