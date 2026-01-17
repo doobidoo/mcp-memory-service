@@ -24,10 +24,22 @@ except ImportError:
     except Exception:
         __version__ = "0.0.0.dev0"
 
-# Import core classes to anchor package structure (required for pytest package recognition)
-# Without at least one import, pytest fails with "'mcp_memory_service' is not a package"
-from .models.memory import Memory, MemoryQueryResult  # noqa: F401
+# Import core classes to establish package structure for pytest
+from .models import Memory, MemoryQueryResult
+from .storage import MemoryStorage
+from .utils import generate_content_hash
 
 # Export main classes
-__all__ = ['Memory', 'MemoryQueryResult', 'MemoryStorage', 'generate_content_hash', 'SqliteVecMemoryStorage']
+__all__ = [
+    'Memory',
+    'MemoryQueryResult',
+    'MemoryStorage',
+    'generate_content_hash',
+]
 
+# Conditional import for SqliteVecMemoryStorage (may not be available in all environments)
+try:
+    from .storage import SqliteVecMemoryStorage
+    __all__.append('SqliteVecMemoryStorage')
+except ImportError:
+    pass
