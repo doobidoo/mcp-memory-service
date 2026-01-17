@@ -173,6 +173,24 @@ class TestBurst26TagTaxonomyClass:
         assert hasattr(TagTaxonomy, 'add_namespace')
         assert hasattr(TagTaxonomy, 'filter_by_namespace')
 
+    def test_valid_namespaces_attribute_exists(self):
+        """VALID_NAMESPACES class attribute should be exposed for efficient access"""
+        assert hasattr(TagTaxonomy, 'VALID_NAMESPACES')
+        assert isinstance(TagTaxonomy.VALID_NAMESPACES, set)
+        assert len(TagTaxonomy.VALID_NAMESPACES) == 6
+
+    def test_valid_namespaces_contains_all_namespaces(self):
+        """VALID_NAMESPACES should contain all 6 namespace constants"""
+        expected_namespaces = {
+            NAMESPACE_SYSTEM,
+            NAMESPACE_QUALITY,
+            NAMESPACE_PROJECT,
+            NAMESPACE_TOPIC,
+            NAMESPACE_TEMPORAL,
+            NAMESPACE_USER
+        }
+        assert TagTaxonomy.VALID_NAMESPACES == expected_namespaces
+
     def test_parse_tag_via_class(self):
         """parse_tag should work via class method"""
         namespace, value = TagTaxonomy.parse_tag("q:high")

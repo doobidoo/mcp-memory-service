@@ -69,6 +69,39 @@ async def setup_graph():
     os.unlink(db_path)
 
 
+class TestSemanticReasonerValidation:
+    """Tests for SemanticReasoner input validation"""
+
+    def test_raises_on_none_graph_storage(self):
+        """Should raise ValueError when graph_storage is None"""
+        with pytest.raises(ValueError, match="graph_storage cannot be None"):
+            SemanticReasoner(None)
+
+    def test_raises_on_missing_find_connected_method(self):
+        """Should raise ValueError when graph_storage lacks find_connected method"""
+        class InvalidStorage:
+            def shortest_path(self):
+                pass
+
+        with pytest.raises(ValueError, match="graph_storage must have find_connected method"):
+            SemanticReasoner(InvalidStorage())
+
+    def test_raises_on_missing_shortest_path_method(self):
+        """Should raise ValueError when graph_storage lacks shortest_path method"""
+        class InvalidStorage:
+            def find_connected(self):
+                pass
+
+        with pytest.raises(ValueError, match="graph_storage must have shortest_path method"):
+            SemanticReasoner(InvalidStorage())
+
+    def test_accepts_valid_graph_storage(self, setup_graph):
+        """Should accept graph_storage with required methods"""
+        storage = setup_graph
+        reasoner = SemanticReasoner(storage)
+        assert reasoner.graph is storage
+
+
 class TestBurst43DetectContradictions:
     """Tests for Burst 4.3: detect_contradictions"""
 

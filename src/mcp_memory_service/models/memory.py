@@ -76,10 +76,11 @@ class Memory:
         if self.tags:
             invalid_tags = []
             for tag in self.tags:
-                # Parse tag to check namespace
+                # Parse tag to check namespace (parse only once for efficiency)
                 namespace, value = TagTaxonomy.parse_tag(tag)
                 if namespace is not None:  # Has namespace
-                    if not TagTaxonomy.validate_tag(tag):
+                    # Direct check using exposed VALID_NAMESPACES (avoids re-parsing)
+                    if namespace not in TagTaxonomy.VALID_NAMESPACES:
                         invalid_tags.append(tag)
 
             if invalid_tags:

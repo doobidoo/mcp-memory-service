@@ -18,6 +18,12 @@ from enum import Enum
 from typing import Dict, List, Optional, Final
 
 
+# Module-level caches for performance optimization
+_ALL_TYPES_CACHE: Optional[List[str]] = None
+_PARENT_TYPE_MAP_CACHE: Optional[Dict[str, str]] = None
+_BASE_TYPES_CACHE: Optional[set] = None
+
+
 class BaseMemoryType(str, Enum):
     """
     Base memory types forming the top-level ontology.
@@ -115,17 +121,19 @@ def validate_memory_type(memory_type: str) -> bool:
         >>> validate_memory_type("invalid")
         False
     """
+    global _BASE_TYPES_CACHE
+
+    # Initialize base types cache on first access
+    if _BASE_TYPES_CACHE is None:
+        _BASE_TYPES_CACHE = {member.value for member in BaseMemoryType}
+
     # Check if it's a base type
-    base_types = {member.value for member in BaseMemoryType}
-    if memory_type in base_types:
+    if memory_type in _BASE_TYPES_CACHE:
         return True
 
-    # Check if it's a subtype
-    all_subtypes = []
-    for subtypes in TAXONOMY.values():
-        all_subtypes.extend(subtypes)
-
-    return memory_type in all_subtypes
+    # Check if it's a subtype - leverage get_all_types cache
+    all_types = get_all_types()
+    return memory_type in all_types
 
 
 def get_parent_type(subtype: str) -> Optional[str]:
@@ -146,17 +154,27 @@ def get_parent_type(subtype: str) -> Optional[str]:
         >>> get_parent_type("invalid")
         None
     """
-    # Check if it's already a base type
-    base_types = {member.value for member in BaseMemoryType}
-    if subtype in base_types:
-        return subtype
+    global _PARENT_TYPE_MAP_CACHE, _BASE_TYPES_CACHE
 
-    # Look up parent from taxonomy
-    for base_type, subtypes in TAXONOMY.items():
-        if subtype in subtypes:
-            return base_type
+    # Initialize caches on first access
+    if _BASE_TYPES_CACHE is None:
+        _BASE_TYPES_CACHE = {member.value for member in BaseMemoryType}
 
-    return None
+    if _PARENT_TYPE_MAP_CACHE is None:
+        # Build reverse lookup map: subtype → parent
+        _PARENT_TYPE_MAP_CACHE = {}
+
+        # Base types map to themselves
+        for base_type in _BASE_TYPES_CACHE:
+            _PARENT_TYPE_MAP_CACHE[base_type] = base_type
+
+        # Subtypes map to their parent
+        for base_type, subtypes in TAXONOMY.items():
+            for st in subtypes:
+                _PARENT_TYPE_MAP_CACHE[st] = base_type
+
+    # Return cached lookup result
+    return _PARENT_TYPE_MAP_CACHE.get(subtype)
 
 
 def get_all_types() -> List[str]:
@@ -175,14 +193,21 @@ def get_all_types() -> List[str]:
         >>> len(types)  # 5 base + 21 subtypes
         26
     """
-    # Get all base types
-    all_types = [member.value for member in BaseMemoryType]
+    global _ALL_TYPES_CACHE
 
-    # Add all subtypes
-    for subtypes in TAXONOMY.values():
-        all_types.extend(subtypes)
+    # Initialize cache on first access
+    if _ALL_TYPES_CACHE is None:
+        # Get all base types
+        all_types = [member.value for member in BaseMemoryType]
 
-    return all_types
+        # Add all subtypes
+        for subtypes in TAXONOMY.values():
+            all_types.extend(subtypes)
+
+        _ALL_TYPES_CACHE = all_types
+
+    # Return copy to prevent mutation of cached list
+    return _ALL_TYPES_CACHE.copy()
 
 
 def validate_relationship(rel_type: str) -> bool:

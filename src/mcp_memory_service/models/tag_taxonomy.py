@@ -16,7 +16,7 @@ Usage:
     tag = TagTaxonomy.add_namespace("high", "q:")  # "q:high"
 """
 
-from typing import Final, Tuple, Optional, List
+from typing import Final, Tuple, Optional, List, Set
 
 
 # Namespace constants - each ends with ":" for easy concatenation
@@ -165,6 +165,16 @@ class TagTaxonomy:
         # Filter by namespace
         quality_tags = TagTaxonomy.filter_by_namespace(tags, "q:")
     """
+
+    # Expose valid namespaces for efficient external access
+    VALID_NAMESPACES: Final[Set[str]] = {
+        NAMESPACE_SYSTEM,
+        NAMESPACE_QUALITY,
+        NAMESPACE_PROJECT,
+        NAMESPACE_TOPIC,
+        NAMESPACE_TEMPORAL,
+        NAMESPACE_USER
+    }
 
     @classmethod
     def parse_tag(cls, tag: str) -> Tuple[Optional[str], str]:

@@ -34,6 +34,74 @@ import os
 
 logger = logging.getLogger(__name__)
 
+# SQL query templates for graph traversal
+# These templates use .format() for safe variable substitution (not user input)
+_QUERY_TEMPLATE_FIND_CONNECTED = """
+WITH RECURSIVE connected_memories(hash, distance, path) AS (
+    -- Base case: Start with the given memory
+    SELECT ?, 0, ?
+
+    UNION ALL
+
+    -- Recursive case: Find neighbors of connected memories
+    SELECT
+        {selected_hash},
+        cm.distance + 1,
+        cm.path || {selected_hash} || ','
+    FROM connected_memories cm
+    {join_condition}
+    WHERE
+        cm.distance < ?  -- Limit recursion depth
+        AND instr(cm.path, ',' || {selected_hash} || ',') = 0  -- Prevent cycles (exact match)
+        {relationship_filter}
+)
+SELECT DISTINCT hash, distance
+FROM connected_memories
+WHERE distance > 0  -- Exclude starting node
+ORDER BY distance, hash
+"""
+
+_QUERY_TEMPLATE_SHORTEST_PATH = """
+WITH RECURSIVE path_finder(current_hash, path, depth) AS (
+    -- Base case: Start from hash1
+    SELECT ?, ?, 1
+
+    UNION ALL
+
+    -- Recursive case: Expand path
+    SELECT
+        mg.target_hash,
+        pf.path || mg.target_hash || ',',
+        pf.depth + 1
+    FROM path_finder pf
+    JOIN memory_graph mg ON pf.current_hash = mg.source_hash
+    WHERE
+        pf.depth < ?  -- Limit search depth
+        AND instr(pf.path, ',' || mg.target_hash || ',') = 0  -- Prevent cycles (exact match)
+        AND pf.current_hash != ?  -- Stop if target found (handled in outer query)
+        {relationship_filter}
+)
+SELECT path
+FROM path_finder
+WHERE current_hash = ?  -- Found target
+ORDER BY depth
+LIMIT 1  -- Return shortest path only
+"""
+
+_QUERY_TEMPLATE_SUBGRAPH = """
+SELECT
+    source_hash,
+    target_hash,
+    similarity,
+    connection_types,
+    metadata,
+    relationship_type
+FROM memory_graph
+WHERE source_hash IN ({placeholders})
+  AND target_hash IN ({placeholders})
+  {relationship_filter}
+"""
+
 
 class GraphStorage:
     """
@@ -216,30 +284,11 @@ class GraphStorage:
                 join_condition = "JOIN memory_graph mg ON cm.hash = mg.source_hash"
                 selected_hash = "mg.target_hash"
 
-            query = f"""
-            WITH RECURSIVE connected_memories(hash, distance, path) AS (
-                -- Base case: Start with the given memory
-                SELECT ?, 0, ?
-
-                UNION ALL
-
-                -- Recursive case: Find neighbors of connected memories
-                SELECT
-                    {selected_hash},
-                    cm.distance + 1,
-                    cm.path || {selected_hash} || ','
-                FROM connected_memories cm
-                {join_condition}
-                WHERE
-                    cm.distance < ?  -- Limit recursion depth
-                    AND instr(cm.path, ',' || {selected_hash} || ',') = 0  -- Prevent cycles (exact match)
-                    {relationship_filter}
+            query = _QUERY_TEMPLATE_FIND_CONNECTED.format(
+                selected_hash=selected_hash,
+                join_condition=join_condition,
+                relationship_filter=relationship_filter
             )
-            SELECT DISTINCT hash, distance
-            FROM connected_memories
-            WHERE distance > 0  -- Exclude starting node
-            ORDER BY distance, hash
-            """
 
             cursor = conn.cursor()
             try:
@@ -348,32 +397,9 @@ class GraphStorage:
                 relationship_filter = f"AND mg.relationship_type IN ({placeholders})"
                 params.extend(relationship_types)
 
-            query = f"""
-            WITH RECURSIVE path_finder(current_hash, path, depth) AS (
-                -- Base case: Start from hash1
-                SELECT ?, ?, 1
-
-                UNION ALL
-
-                -- Recursive case: Expand path
-                SELECT
-                    mg.target_hash,
-                    pf.path || mg.target_hash || ',',
-                    pf.depth + 1
-                FROM path_finder pf
-                JOIN memory_graph mg ON pf.current_hash = mg.source_hash
-                WHERE
-                    pf.depth < ?  -- Limit search depth
-                    AND instr(pf.path, ',' || mg.target_hash || ',') = 0  -- Prevent cycles (exact match)
-                    AND pf.current_hash != ?  -- Stop if target found (handled in outer query)
-                    {relationship_filter}
+            query = _QUERY_TEMPLATE_SHORTEST_PATH.format(
+                relationship_filter=relationship_filter
             )
-            SELECT path
-            FROM path_finder
-            WHERE current_hash = ?  -- Found target
-            ORDER BY depth
-            LIMIT 1  -- Return shortest path only
-            """
 
             cursor = conn.cursor()
             try:
@@ -471,19 +497,10 @@ class GraphStorage:
                 relationship_filter = "AND relationship_type = ?"
                 params.append(relationship_type)
 
-            query = f"""
-            SELECT
-                source_hash,
-                target_hash,
-                similarity,
-                connection_types,
-                metadata,
-                relationship_type
-            FROM memory_graph
-            WHERE source_hash IN ({placeholders})
-              AND target_hash IN ({placeholders})
-              {relationship_filter}
-            """
+            query = _QUERY_TEMPLATE_SUBGRAPH.format(
+                placeholders=placeholders,
+                relationship_filter=relationship_filter
+            )
 
             cursor = conn.cursor()
             try:

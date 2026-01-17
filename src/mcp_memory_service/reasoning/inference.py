@@ -27,7 +27,16 @@ class SemanticReasoner:
 
         Args:
             graph_storage: GraphStorage instance for relationship queries
+
+        Raises:
+            ValueError: If graph_storage is None or missing required methods
         """
+        if graph_storage is None:
+            raise ValueError("graph_storage cannot be None")
+        if not hasattr(graph_storage, 'find_connected'):
+            raise ValueError("graph_storage must have find_connected method")
+        if not hasattr(graph_storage, 'shortest_path'):
+            raise ValueError("graph_storage must have shortest_path method")
         self.graph = graph_storage
 
     async def _get_connected(self, hash: str, rel_type: str, direction: str = "both") -> List[str]:
