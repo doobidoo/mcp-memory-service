@@ -23,6 +23,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - **Test Results**: 818/851 tests passing (96%), all validation tests pass
   - **Known Issue**: 33 API/HTTP tests still failing (pre-existing from PR #347, tracked separately)
 
+- **Fix bidirectional storage for asymmetric relationships** (PR #348)
+  - Asymmetric relationships (causes, fixes, supports, follows) now store only directed edges
+  - Symmetric relationships (related, contradicts) continue storing bidirectional edges
+  - Database migration (010) removes incorrect reverse edges from existing data
+  - Query infrastructure with `direction` parameter now works correctly with asymmetric storage
+  - SemanticReasoner methods (find_causes, find_fixes) validated with new storage model
+  - New `is_symmetric_relationship()` function in ontology.py for relationship classification
+  - Updated `store_association()` to conditionally store edges based on relationship symmetry
+  - Updated `find_connected()` direction="both" to use CASE expression for asymmetric edges
+  - **Breaking Change**: Code expecting bidirectional asymmetric edges will need updates
+
 ### Added
 - **Phase 0 Ontology Foundation - Core Implementation** (PR #347)
   - **Memory Type Ontology**: Formal classification system with 5 base types and 21 subtypes

@@ -32,6 +32,8 @@ from typing import List, Dict, Any, Tuple, Optional, Set
 from datetime import datetime, timezone
 import os
 
+from mcp_memory_service.models.ontology import is_symmetric_relationship
+
 logger = logging.getLogger(__name__)
 
 # SQL query templates for graph traversal
@@ -157,12 +159,10 @@ class GraphStorage:
         relationship_type: str = "related"
     ) -> bool:
         """
-        Store a memory association with bidirectional edges.
+        Store a memory association with relationship-aware edge directionality.
 
-        KNOWN LIMITATION: Bidirectional storage with same relationship_type is incorrect
-        for asymmetric relationships (causes, fixes, contradicts, supports). This will be
-        fixed in PR #348 to store only single directed edges. Current behavior is safe
-        because asymmetric relationships are not yet exposed in production APIs.
+        For symmetric relationships (related, contradicts), stores bidirectional edges (A→B and B→A).
+        For asymmetric relationships (causes, fixes, supports, follows), stores only directed edge (A→B).
 
         Args:
             source_hash: Source memory content hash
@@ -172,11 +172,14 @@ class GraphStorage:
             metadata: Optional metadata dict with discovery context
             created_at: Optional timestamp (Unix epoch). If None, uses current time.
             relationship_type: Type of relationship (default: "related")
-                NOTE: Asymmetric types (causes, fixes, contradicts, supports) should not
-                be used in production until PR #348 is merged.
+                Symmetric types (bidirectional): related, contradicts
+                Asymmetric types (directed): causes, fixes, supports, follows
 
         Returns:
             True if stored successfully, False otherwise
+
+        Raises:
+            ValueError: If relationship_type is invalid
         """
         if not source_hash or not target_hash:
             logger.error("Invalid hash provided (empty string)")
@@ -198,15 +201,11 @@ class GraphStorage:
             metadata_json = json.dumps(metadata or {})
             connection_types_json = json.dumps(connection_types)
 
-            # Store bidirectional edges (both A→B and B→A)
-            # This simplifies queries - no need to check both directions
-            # TODO(PR #348): This is incorrect for asymmetric relationships.
-            # Should store only single directed edge for causes/fixes/contradicts/supports.
-            # See: https://github.com/doobidoo/mcp-memory-service/issues/348
+            # Store edges based on relationship symmetry
             async with self._lock:  # Use instance lock for thread safety
                 cursor = conn.cursor()
                 try:
-                    # Insert or replace source → target
+                    # Always store the forward edge (source → target)
                     cursor.execute("""
                         INSERT OR REPLACE INTO memory_graph
                         (source_hash, target_hash, similarity, connection_types, metadata, created_at, relationship_type)
@@ -214,20 +213,22 @@ class GraphStorage:
                     """, (source_hash, target_hash, similarity, connection_types_json,
                           metadata_json, created_at, relationship_type))
 
-                    # Insert or replace target → source (bidirectional)
-                    # FIXME(PR #348): Remove this for asymmetric relationships
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO memory_graph
-                        (source_hash, target_hash, similarity, connection_types, metadata, created_at, relationship_type)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (target_hash, source_hash, similarity, connection_types_json,
-                          metadata_json, created_at, relationship_type))
+                    # Only store reverse edge for symmetric relationships
+                    if is_symmetric_relationship(relationship_type):
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO memory_graph
+                            (source_hash, target_hash, similarity, connection_types, metadata, created_at, relationship_type)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, (target_hash, source_hash, similarity, connection_types_json,
+                              metadata_json, created_at, relationship_type))
+                        logger.debug(f"Stored bidirectional association: {source_hash} ↔ {target_hash} (type: {relationship_type})")
+                    else:
+                        logger.debug(f"Stored directed association: {source_hash} → {target_hash} (type: {relationship_type})")
 
                     conn.commit()
                 finally:
                     cursor.close()
 
-            logger.debug(f"Stored bidirectional association: {source_hash} ↔ {target_hash}")
             return True
 
         except sqlite3.Error as e:
@@ -292,8 +293,10 @@ class GraphStorage:
                 join_condition = "JOIN memory_graph mg ON cm.hash = mg.target_hash"
                 selected_hash = "mg.source_hash"
             else:  # both
-                join_condition = "JOIN memory_graph mg ON cm.hash = mg.source_hash"
-                selected_hash = "mg.target_hash"
+                # For direction="both", check BOTH source and target columns
+                # This handles both symmetric (bidirectional edges) and asymmetric (single edge) correctly
+                join_condition = "JOIN memory_graph mg ON (cm.hash = mg.source_hash OR cm.hash = mg.target_hash)"
+                selected_hash = "CASE WHEN cm.hash = mg.source_hash THEN mg.target_hash ELSE mg.source_hash END"
 
             query = _QUERY_TEMPLATE_FIND_CONNECTED.format(
                 selected_hash=selected_hash,

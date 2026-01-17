@@ -32,31 +32,67 @@ class TestGraphStorage:
         assert result is True, "Association storage should return True"
 
     @pytest.mark.asyncio
-    async def test_store_bidirectional_association(self, graph_storage):
-        """Test that associations are stored bidirectionally (A→B and B→A).
+    async def test_store_bidirectional_symmetric(self, graph_storage):
+        """Test bidirectional storage for symmetric relationships (related, contradicts).
 
         Validates:
-        - Both directions of association exist
+        - Both directions of association exist for symmetric types
         - Can query from either direction
-        - Bidirectional edges simplify traversal queries
+        - Bidirectional edges work correctly for symmetric relationships
         """
         await graph_storage.store_association(
             source_hash="node_a",
             target_hash="node_b",
             similarity=0.80,
-            connection_types=["semantic", "temporal"],
-            metadata={"context": "test"}
+            connection_types=["semantic"],
+            relationship_type="related"  # Symmetric
         )
 
-        # Query from both directions
+        # Both directions should exist
         connected_from_a = await graph_storage.find_connected("node_a", max_hops=1)
         connected_from_b = await graph_storage.find_connected("node_b", max_hops=1)
 
-        # Both should find the connection
         assert len(connected_from_a) == 1, "Should find connection from A"
         assert len(connected_from_b) == 1, "Should find connection from B"
         assert connected_from_a[0][0] == "node_b", "A should connect to B"
         assert connected_from_b[0][0] == "node_a", "B should connect to A"
+
+    @pytest.mark.asyncio
+    async def test_store_directed_asymmetric(self, graph_storage):
+        """Test directed storage for asymmetric relationships (causes, fixes, supports).
+
+        Validates:
+        - Only forward direction exists for asymmetric types
+        - Can query incoming direction to find source
+        - Reverse outgoing direction does not exist
+        """
+        await graph_storage.store_association(
+            source_hash="decision_a",
+            target_hash="error_b",
+            similarity=0.90,
+            connection_types=["causal"],
+            relationship_type="causes"  # Asymmetric
+        )
+
+        # Only forward direction should exist
+        outgoing = await graph_storage.find_connected(
+            "decision_a", max_hops=1, direction="outgoing"
+        )
+        assert len(outgoing) == 1, "Should find outgoing edge"
+        assert outgoing[0][0] == "error_b", "decision_a should cause error_b"
+
+        # Can query incoming to find source
+        incoming = await graph_storage.find_connected(
+            "error_b", max_hops=1, direction="incoming"
+        )
+        assert len(incoming) == 1, "Should find incoming edge"
+        assert incoming[0][0] == "decision_a", "decision_a should be the cause"
+
+        # Reverse outgoing direction should NOT exist
+        reverse = await graph_storage.find_connected(
+            "error_b", max_hops=1, direction="outgoing"
+        )
+        assert len(reverse) == 0, "No error_b → decision_a edge should exist"
 
     @pytest.mark.asyncio
     async def test_duplicate_association_handling(self, graph_storage):

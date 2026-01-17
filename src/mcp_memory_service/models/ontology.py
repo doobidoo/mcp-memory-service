@@ -231,6 +231,47 @@ def validate_relationship(rel_type: str) -> bool:
     return rel_type in RELATIONSHIPS
 
 
+def is_symmetric_relationship(rel_type: str) -> bool:
+    """
+    Determine if a relationship type is symmetric (bidirectional).
+
+    Symmetric relationships work the same in both directions:
+    - related: A related to B implies B related to A
+    - contradicts: A contradicts B implies B contradicts A
+
+    Asymmetric relationships have directionality:
+    - causes: A causes B does NOT imply B causes A
+    - fixes: A fixes B does NOT imply B fixes A
+    - supports: A supports B does NOT imply B supports A
+    - follows: A follows B does NOT imply B follows A
+
+    Args:
+        rel_type: The relationship type string to check
+
+    Returns:
+        True if symmetric (bidirectional storage correct), False if asymmetric
+
+    Examples:
+        >>> is_symmetric_relationship("related")
+        True
+        >>> is_symmetric_relationship("causes")
+        False
+        >>> is_symmetric_relationship("contradicts")
+        True
+
+    Raises:
+        ValueError: If rel_type is not a valid relationship type
+    """
+    # Symmetric relationships (bidirectional semantics)
+    SYMMETRIC_RELATIONSHIPS = {"related", "contradicts"}
+
+    # Validate input first
+    if not validate_relationship(rel_type):
+        raise ValueError(f"Invalid relationship type: '{rel_type}'")
+
+    return rel_type in SYMMETRIC_RELATIONSHIPS
+
+
 class MemoryTypeOntology:
     """
     Memory Type Ontology - Formal type system for knowledge graph classification.
@@ -274,3 +315,8 @@ class MemoryTypeOntology:
     def validate_relationship(cls, rel_type: str) -> bool:
         """Validate if relationship type is valid."""
         return validate_relationship(rel_type)
+
+    @classmethod
+    def is_symmetric_relationship(cls, rel_type: str) -> bool:
+        """Check if relationship type is symmetric (bidirectional)."""
+        return is_symmetric_relationship(rel_type)

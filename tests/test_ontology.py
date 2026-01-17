@@ -21,6 +21,7 @@ validate_memory_type = ontology.validate_memory_type
 get_parent_type = ontology.get_parent_type
 get_all_types = ontology.get_all_types
 validate_relationship = ontology.validate_relationship
+is_symmetric_relationship = ontology.is_symmetric_relationship
 MemoryTypeOntology = ontology.MemoryTypeOntology
 
 
@@ -257,3 +258,38 @@ class TestBurst18OntologyClassIntegration:
         """validate_relationship should work via class method"""
         assert MemoryTypeOntology.validate_relationship("causes") is True
         assert MemoryTypeOntology.validate_relationship("invalid") is False
+
+
+class TestBurst19SymmetricRelationshipClassification:
+    """Tests for is_symmetric_relationship() - PR #348"""
+
+    def test_is_symmetric_relationship_symmetric_types(self):
+        """Test symmetric relationship types return True"""
+        assert is_symmetric_relationship("related") is True
+        assert is_symmetric_relationship("contradicts") is True
+
+    def test_is_symmetric_relationship_asymmetric_types(self):
+        """Test asymmetric relationship types return False"""
+        assert is_symmetric_relationship("causes") is False
+        assert is_symmetric_relationship("fixes") is False
+        assert is_symmetric_relationship("supports") is False
+        assert is_symmetric_relationship("follows") is False
+
+    def test_is_symmetric_relationship_invalid_type(self):
+        """Test invalid relationship type raises ValueError"""
+        try:
+            is_symmetric_relationship("invalid_type")
+            assert False, "Should have raised ValueError"
+        except ValueError as e:
+            assert "Invalid relationship type" in str(e)
+
+    def test_is_symmetric_relationship_via_class(self):
+        """Test is_symmetric_relationship works via class method"""
+        assert MemoryTypeOntology.is_symmetric_relationship("related") is True
+        assert MemoryTypeOntology.is_symmetric_relationship("causes") is False
+
+        try:
+            MemoryTypeOntology.is_symmetric_relationship("invalid")
+            assert False, "Should have raised ValueError"
+        except ValueError:
+            pass  # Expected
