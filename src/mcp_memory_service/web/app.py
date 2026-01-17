@@ -29,7 +29,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 
-from .. import __version__
+# Version import with fallback for testing scenarios
+try:
+    from .. import __version__
+except (ImportError, AttributeError):
+    # Fallback for pytest collection or when package not fully resolved
+    try:
+        from importlib.metadata import version
+        __version__ = version("mcp-memory-service")
+    except Exception:
+        __version__ = "0.0.0-dev"
 from ..config import (
     HTTP_PORT,
     HTTP_HOST,
