@@ -14,6 +14,9 @@
 
 """MCP Memory Service initialization."""
 
+# CRITICAL: Set __version__ FIRST before any imports or circular dependencies
+__version__ = "0.0.0.dev0"  # Default fallback
+
 # CRITICAL: Set offline mode BEFORE any other imports to prevent model downloads
 import os
 import platform
@@ -62,8 +65,7 @@ def setup_offline_mode():
 # Setup offline mode (conditionally) when this module is imported
 setup_offline_mode()
 
-# Import version - always succeeds with fallback chain
-__version__ = "0.0.0.dev0"  # Default fallback
+# Try to get actual version (already set default above)
 try:
     from ._version import __version__  # Try local version file first
 except (ImportError, Exception):
@@ -71,7 +73,7 @@ except (ImportError, Exception):
         from importlib.metadata import version as _get_version
         __version__ = _get_version("mcp-memory-service")  # Try installed package metadata
     except Exception:
-        pass  # Use default fallback
+        pass  # Use default fallback set at top of file
 
 from .models import Memory, MemoryQueryResult
 from .storage import MemoryStorage
