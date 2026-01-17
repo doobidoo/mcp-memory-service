@@ -102,6 +102,9 @@ RELATIONSHIPS: Final[Dict[str, Dict[str, List[str]]]] = {
     }
 }
 
+# Symmetric relationships (bidirectional semantics)
+SYMMETRIC_RELATIONSHIPS: Final[set] = {"related", "contradicts"}
+
 
 def validate_memory_type(memory_type: str) -> bool:
     """
@@ -262,9 +265,6 @@ def is_symmetric_relationship(rel_type: str) -> bool:
     Raises:
         ValueError: If rel_type is not a valid relationship type
     """
-    # Symmetric relationships (bidirectional semantics)
-    SYMMETRIC_RELATIONSHIPS = {"related", "contradicts"}
-
     # Validate input first
     if not validate_relationship(rel_type):
         raise ValueError(f"Invalid relationship type: '{rel_type}'")

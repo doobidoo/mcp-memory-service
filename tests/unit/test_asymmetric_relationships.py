@@ -1,13 +1,83 @@
 """Tests for asymmetric relationship semantic correctness."""
+import sys
+from pathlib import Path
 import pytest
-from mcp_memory_service.storage.graph import GraphStorage
+import tempfile
+import shutil
+import os
+import sqlite3
+import importlib.util
+
+# Load GraphStorage module directly without importing the package to avoid numpy issues
+repo_root = Path(__file__).parent.parent.parent
+graph_path = repo_root / "src" / "mcp_memory_service" / "storage" / "graph.py"
+ontology_path = repo_root / "src" / "mcp_memory_service" / "models" / "ontology.py"
+
+# Load ontology module first (dependency of graph)
+spec = importlib.util.spec_from_file_location("ontology", ontology_path)
+ontology_module = importlib.util.module_from_spec(spec)
+sys.modules['mcp_memory_service.models.ontology'] = ontology_module
+spec.loader.exec_module(ontology_module)
+
+# Load graph module
+spec = importlib.util.spec_from_file_location("graph", graph_path)
+graph_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(graph_module)
+
+GraphStorage = graph_module.GraphStorage
 
 
 @pytest.fixture
-async def graph_storage():
-    """Create GraphStorage instance with in-memory database."""
-    storage = GraphStorage(":memory:")
-    await storage.initialize()
+def temp_graph_db():
+    """Create a temporary database with graph table for testing."""
+    # Create temporary directory
+    temp_dir = tempfile.mkdtemp()
+    db_path = os.path.join(temp_dir, "test_graph.db")
+
+    # Initialize database with graph schema
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS memory_graph (
+            source_hash TEXT NOT NULL,
+            target_hash TEXT NOT NULL,
+            similarity REAL NOT NULL,
+            connection_types TEXT NOT NULL,
+            metadata TEXT,
+            created_at REAL NOT NULL,
+            relationship_type TEXT DEFAULT 'related',
+            PRIMARY KEY (source_hash, target_hash)
+        )
+    """)
+
+    # Create indexes for performance
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_graph_source
+        ON memory_graph(source_hash)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_graph_target
+        ON memory_graph(target_hash)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_graph_relationship
+        ON memory_graph(relationship_type)
+    """)
+
+    conn.commit()
+    conn.close()
+
+    yield db_path
+
+    # Cleanup
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@pytest.fixture
+async def graph_storage(temp_graph_db):
+    """Create GraphStorage instance with initialized database."""
+    storage = GraphStorage(temp_graph_db)
+    # Ensure connection is initialized
+    await storage._get_connection()
     yield storage
 
 

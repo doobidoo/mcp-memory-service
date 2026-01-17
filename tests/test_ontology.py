@@ -7,6 +7,7 @@ Tests the formal ontology layer for memory classification and type validation.
 import sys
 from pathlib import Path
 import importlib.util
+import pytest
 
 # Load ontology module directly without importing the package
 ontology_path = Path(__file__).parent.parent / "src" / "mcp_memory_service" / "models" / "ontology.py"
@@ -277,19 +278,13 @@ class TestBurst19SymmetricRelationshipClassification:
 
     def test_is_symmetric_relationship_invalid_type(self):
         """Test invalid relationship type raises ValueError"""
-        try:
+        with pytest.raises(ValueError, match="Invalid relationship type"):
             is_symmetric_relationship("invalid_type")
-            assert False, "Should have raised ValueError"
-        except ValueError as e:
-            assert "Invalid relationship type" in str(e)
 
     def test_is_symmetric_relationship_via_class(self):
         """Test is_symmetric_relationship works via class method"""
         assert MemoryTypeOntology.is_symmetric_relationship("related") is True
         assert MemoryTypeOntology.is_symmetric_relationship("causes") is False
 
-        try:
+        with pytest.raises(ValueError):
             MemoryTypeOntology.is_symmetric_relationship("invalid")
-            assert False, "Should have raised ValueError"
-        except ValueError:
-            pass  # Expected
