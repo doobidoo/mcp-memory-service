@@ -30,19 +30,29 @@ def check_editable_install():
 
 def check_version_match():
     """Check if installed version matches source code version."""
-    # Read source version
+    # Read source version from _version.py (single source of truth)
     repo_root = Path(__file__).parent.parent.parent
-    init_file = repo_root / "src" / "mcp_memory_service" / "__init__.py"
+    version_file = repo_root / "src" / "mcp_memory_service" / "_version.py"
     source_version = None
 
-    if not init_file.exists():
-        return None, "Unknown", "Source file not found"
+    if not version_file.exists():
+        return None, "Unknown", "Source version file not found"
 
-    with open(init_file) as f:
-        for line in f:
-            if line.startswith('__version__'):
-                source_version = line.split('=')[1].strip().strip('"\'')
-                break
+    # Import version directly from _version.py instead of text parsing
+    import sys
+    src_path = str(repo_root / "src")
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
+
+    try:
+        from mcp_memory_service._version import __version__ as source_version
+    except ImportError:
+        # Fallback to text parsing if import fails
+        with open(version_file) as f:
+            for line in f:
+                if line.startswith('__version__'):
+                    source_version = line.split('=')[1].strip().strip('"\'')
+                    break
 
     # Get installed version
     try:

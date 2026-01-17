@@ -14,18 +14,15 @@
 
 """MCP Memory Service - Semantic memory with persistent storage."""
 
-# Set version immediately - no imports, no function calls, just assignment
-__version__ = "0.0.0.dev0"
-
-# Try to load actual version without any complex logic
+# Load version from _version.py or package metadata
 try:
     from ._version import __version__
-except Exception:
+except ImportError:
     try:
-        from importlib.metadata import version
-        __version__ = version("mcp-memory-service")
+        from importlib.metadata import version as _get_version
+        __version__ = _get_version("mcp-memory-service")
     except Exception:
-        pass  # Keep default
+        __version__ = "0.0.0.dev0"
 
 # Export main classes - delay all other initialization
 __all__ = ['Memory', 'MemoryQueryResult', 'MemoryStorage', 'generate_content_hash', 'SqliteVecMemoryStorage']
