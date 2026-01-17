@@ -5,6 +5,8 @@ This test suite verifies that the fix for the timestamp regression bug
 (where created_at was being reset during metadata sync) works correctly.
 """
 
+from __future__ import annotations
+
 import pytest
 import pytest_asyncio
 import time
@@ -13,8 +15,12 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-from mcp_memory_service.models import Memory
+import mcp_memory_service.models
+import mcp_memory_service.storage.sqlite_vec
+
+# Type aliases
+Memory = mcp_memory_service.models.Memory
+SqliteVecMemoryStorage = mcp_memory_service.storage.sqlite_vec.SqliteVecMemoryStorage
 
 
 @pytest_asyncio.fixture
