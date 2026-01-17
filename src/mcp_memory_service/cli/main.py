@@ -20,7 +20,16 @@ import click
 import sys
 import os
 
-from .. import __version__
+# Version import with fallback for testing scenarios
+try:
+    from .. import __version__
+except (ImportError, AttributeError):
+    try:
+        from importlib.metadata import version
+        __version__ = version("mcp-memory-service")
+    except Exception:
+        __version__ = "0.0.0-dev"
+
 from .ingestion import add_ingestion_commands
 
 

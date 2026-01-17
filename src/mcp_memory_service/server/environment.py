@@ -27,7 +27,17 @@ from importlib.metadata import version as pkg_version
 from importlib.util import find_spec
 
 from .logging_config import logger
-from .. import __version__
+
+# Version import with fallback for testing scenarios
+try:
+    from .. import __version__
+except (ImportError, AttributeError):
+    try:
+        from importlib.metadata import version
+        __version__ = version("mcp-memory-service")
+    except Exception:
+        __version__ = "0.0.0-dev"
+
 from ..utils.system_detection import get_system_info, AcceleratorType
 from ..config import BACKUPS_PATH
 

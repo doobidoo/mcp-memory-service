@@ -288,8 +288,16 @@ except Exception as e:
 
 # Server settings
 SERVER_NAME = "memory"
-# Import version from main package for consistency
-from . import __version__ as SERVER_VERSION
+
+# Version import with fallback for testing scenarios
+try:
+    from . import __version__ as SERVER_VERSION
+except (ImportError, AttributeError):
+    try:
+        from importlib.metadata import version
+        SERVER_VERSION = version("mcp-memory-service")
+    except Exception:
+        SERVER_VERSION = "0.0.0-dev"
 
 # Storage backend configuration
 SUPPORTED_BACKENDS = ['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid']

@@ -61,8 +61,17 @@ from mcp.server import NotificationOptions, Server
 import mcp.server.stdio
 from mcp.types import Resource, Prompt
 
+# Version import with fallback for testing scenarios
+try:
+    from . import __version__
+except (ImportError, AttributeError):
+    try:
+        from importlib.metadata import version
+        __version__ = version("mcp-memory-service")
+    except Exception:
+        __version__ = "0.0.0-dev"
+
 # Package imports
-from . import __version__
 from .lm_studio_compat import patch_mcp_for_lm_studio, add_windows_timeout_handling
 from .dependency_check import run_dependency_check, get_recommended_timeout
 from .config import (
