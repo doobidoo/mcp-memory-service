@@ -12,85 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""MCP Memory Service initialization."""
+"""MCP Memory Service - Semantic memory with persistent storage."""
 
-# CRITICAL: Set __version__ FIRST before any imports or circular dependencies
-__version__ = "0.0.0.dev0"  # Default fallback
+# Set version immediately - no imports, no function calls, just assignment
+__version__ = "0.0.0.dev0"
 
-# CRITICAL: Set offline mode BEFORE any other imports to prevent model downloads
-import os
-import platform
-
-# Force offline mode for HuggingFace models - this MUST be done before any ML library imports
-def setup_offline_mode():
-    """Setup offline mode environment variables to prevent model downloads.
-
-    Offline mode is only enabled if:
-    1. User explicitly sets MCP_MEMORY_OFFLINE=1, OR
-    2. User has already set HF_HUB_OFFLINE or TRANSFORMERS_OFFLINE
-
-    This allows first-time installations to download models when needed.
-    """
-    # Configure cache paths first (always needed)
-    username = os.environ.get('USERNAME', os.environ.get('USER', ''))
-    if platform.system() == "Windows" and username:
-        default_hf_home = f"C:\\Users\\{username}\\.cache\\huggingface"
-        default_transformers_cache = f"C:\\Users\\{username}\\.cache\\huggingface\\transformers"
-        default_sentence_transformers_home = f"C:\\Users\\{username}\\.cache\\torch\\sentence_transformers"
-    else:
-        default_hf_home = os.path.expanduser("~/.cache/huggingface")
-        default_transformers_cache = os.path.expanduser("~/.cache/huggingface/transformers")
-        default_sentence_transformers_home = os.path.expanduser("~/.cache/torch/sentence_transformers")
-
-    # Set cache paths if not already set
-    if 'HF_HOME' not in os.environ:
-        os.environ['HF_HOME'] = default_hf_home
-    if 'TRANSFORMERS_CACHE' not in os.environ:
-        os.environ['TRANSFORMERS_CACHE'] = default_transformers_cache
-    if 'SENTENCE_TRANSFORMERS_HOME' not in os.environ:
-        os.environ['SENTENCE_TRANSFORMERS_HOME'] = default_sentence_transformers_home
-
-    # Only set offline mode if explicitly requested
-    # This allows first-time installations to download models when network is available
-    offline_requested = os.environ.get('MCP_MEMORY_OFFLINE', '').lower() in ('1', 'true', 'yes')
-    already_offline = (
-        os.environ.get('HF_HUB_OFFLINE', '').lower() in ('1', 'true', 'yes') or
-        os.environ.get('TRANSFORMERS_OFFLINE', '').lower() in ('1', 'true', 'yes')
-    )
-
-    if offline_requested or already_offline:
-        os.environ['HF_HUB_OFFLINE'] = '1'
-        os.environ['TRANSFORMERS_OFFLINE'] = '1'
-
-# Setup offline mode (conditionally) when this module is imported
-setup_offline_mode()
-
-# Try to get actual version (already set default above)
+# Try to load actual version without any complex logic
 try:
-    from ._version import __version__  # Try local version file first
-except (ImportError, Exception):
+    from ._version import __version__
+except Exception:
     try:
-        from importlib.metadata import version as _get_version
-        __version__ = _get_version("mcp-memory-service")  # Try installed package metadata
+        from importlib.metadata import version
+        __version__ = version("mcp-memory-service")
     except Exception:
-        pass  # Use default fallback set at top of file
+        pass  # Keep default
 
-from .models import Memory, MemoryQueryResult
-from .storage import MemoryStorage
-from .utils import generate_content_hash
-
-# Conditional imports
-__all__ = [
-    'Memory',
-    'MemoryQueryResult', 
-    'MemoryStorage',
-    'generate_content_hash'
-]
-
-# Import storage backends conditionally
-try:
-    from .storage import SqliteVecMemoryStorage
-    __all__.append('SqliteVecMemoryStorage')
-except ImportError:
-    SqliteVecMemoryStorage = None
+# Export main classes - delay all other initialization
+__all__ = ['Memory', 'MemoryQueryResult', 'MemoryStorage', 'generate_content_hash', 'SqliteVecMemoryStorage']
 

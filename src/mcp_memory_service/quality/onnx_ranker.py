@@ -12,10 +12,9 @@ from pathlib import Path
 from typing import Optional
 import numpy as np
 
-# Set HuggingFace cache paths before importing transformers
-os.environ['HF_HOME'] = os.path.expanduser('~/.cache/huggingface')
-if 'TRANSFORMERS_CACHE' not in os.environ:
-    os.environ['TRANSFORMERS_CACHE'] = os.path.expanduser('~/.cache/huggingface/hub')
+# Setup offline mode before importing transformers
+from ..offline_mode import setup_offline_mode
+setup_offline_mode()
 
 logger = logging.getLogger(__name__)
 
