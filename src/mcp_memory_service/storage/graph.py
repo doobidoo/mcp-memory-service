@@ -32,7 +32,7 @@ from typing import List, Dict, Any, Tuple, Optional, Set
 from datetime import datetime, timezone
 import os
 
-from mcp_memory_service.models.ontology import is_symmetric_relationship
+from mcp_memory_service.models.ontology import is_symmetric_relationship, validate_relationship
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +192,11 @@ class GraphStorage:
         # Validate similarity score bounds
         if not (0.0 <= similarity <= 1.0):
             logger.error(f"Invalid similarity score {similarity}, must be in range [0.0, 1.0]")
+            return False
+
+        # Validate relationship type
+        if not validate_relationship(relationship_type):
+            logger.error(f"Invalid relationship type: {relationship_type}")
             return False
 
         try:

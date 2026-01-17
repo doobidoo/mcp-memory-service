@@ -53,6 +53,9 @@ WHERE (source_hash, target_hash, relationship_type) IN (
 );
 
 -- Step 4: Verify no bidirectional asymmetric edges remain (should return 0)
+-- Note: This self-join query may be slow on very large datasets.
+-- If performance is an issue, consider adding LIMIT 1 (any match indicates a problem)
+-- or running this verification separately after migration completes.
 SELECT
     COUNT(*) as remaining_bidirectional_asymmetric_edges
 FROM memory_graph mg1

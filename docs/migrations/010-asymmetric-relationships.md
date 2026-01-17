@@ -84,6 +84,19 @@ This allows queries to work correctly with both:
 3. **Verifies cleanup**:
    - Confirms no bidirectional asymmetric edges remain
 
+### Migration Direction Limitation
+
+**Important**: The migration uses lexicographic ordering (`source_hash < target_hash`) to determine which edge to keep. This means:
+- The preserved direction may not reflect the original semantic direction
+- For example, if a user stored `decision_a causes error_b`, but lexicographically `error_b < decision_a`, the migration will keep `(error_b, decision_a, 'causes')` and delete the correct one
+
+**Impact**: This is acceptable because:
+- No production APIs currently expose asymmetric relationships (per PR description)
+- Going forward, all new asymmetric relationships will have the correct single direction
+- Any incorrect migrated data can be fixed by recreating the relationships with the correct direction
+
+**Recommendation**: If you have important asymmetric relationships in your database, consider manually reviewing them after migration.
+
 ### Before/After Example
 
 **Before Migration:**
