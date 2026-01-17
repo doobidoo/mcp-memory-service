@@ -28,15 +28,7 @@ from pydantic import BaseModel
 from ...storage.base import MemoryStorage
 from ..dependencies import get_storage
 
-# Version import with fallback for testing scenarios
-try:
-    from ... import __version__
-except (ImportError, AttributeError):
-    try:
-        from importlib.metadata import version
-        __version__ = version("mcp-memory-service")
-    except Exception:
-        __version__ = "0.0.0-dev"
+from ... import __version__
 
 from ...config import OAUTH_ENABLED
 

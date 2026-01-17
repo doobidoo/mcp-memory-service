@@ -29,15 +29,7 @@ from mcp import types
 from ...server.cache_manager import _CACHE_STATS, _STORAGE_CACHE, _MEMORY_SERVICE_CACHE
 from ...config import STORAGE_BACKEND, SQLITE_VEC_PATH, EMBEDDING_MODEL_NAME
 
-# Version import with fallback for testing scenarios
-try:
-    from ..._version import __version__
-except (ImportError, AttributeError):
-    try:
-        from importlib.metadata import version
-        __version__ = version("mcp-memory-service")
-    except Exception:
-        __version__ = "0.0.0-dev"
+from ... import __version__
 
 logger = logging.getLogger(__name__)
 

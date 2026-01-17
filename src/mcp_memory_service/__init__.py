@@ -62,17 +62,16 @@ def setup_offline_mode():
 # Setup offline mode (conditionally) when this module is imported
 setup_offline_mode()
 
-# Import version using importlib.metadata (standard approach) with fallback to _version.py
+# Import version - always succeeds with fallback chain
+__version__ = "0.0.0.dev0"  # Default fallback
 try:
-    from importlib.metadata import version as _get_version
-    __version__ = _get_version("mcp-memory-service")
-except Exception:
-    # Fallback to _version.py if package is not installed (e.g., during development/testing)
+    from ._version import __version__  # Try local version file first
+except (ImportError, Exception):
     try:
-        from ._version import __version__
-    except ImportError:
-        # Last resort fallback for edge cases
-        __version__ = "0.0.0.dev0"
+        from importlib.metadata import version as _get_version
+        __version__ = _get_version("mcp-memory-service")  # Try installed package metadata
+    except Exception:
+        pass  # Use default fallback
 
 from .models import Memory, MemoryQueryResult
 from .storage import MemoryStorage
