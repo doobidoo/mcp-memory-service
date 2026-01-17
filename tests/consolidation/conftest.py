@@ -28,10 +28,18 @@ def consolidation_config(temp_archive_path):
         # Decay settings
         decay_enabled=True,
         retention_periods={
-            'critical': 365,
-            'reference': 180,
-            'standard': 30,
-            'temporary': 7
+            # Base ontology types (from Phase 0 Ontology Foundation)
+            'decision': 365,      # Strategic choices, architecture decisions
+            'learning': 180,      # Insights, best practices, anti-patterns
+            'pattern': 90,        # Recurring issues, code smells, design patterns
+            'error': 30,          # Bugs, failures, exceptions
+            'observation': 30,    # Code edits, file access, searches, commands
+
+            # Legacy types for backward compatibility
+            'critical': 365,      # Maps to decision
+            'reference': 180,     # Maps to learning
+            'standard': 30,       # Maps to observation
+            'temporary': 7        # Maps to observation (short-lived)
         },
         
         # Association settings
@@ -69,7 +77,7 @@ def sample_memories():
             content="Critical system configuration backup completed successfully",
             content_hash="hash001",
             tags=["critical", "backup", "system"],
-            memory_type="critical",
+            memory_type="decision",  # Changed from 'critical' to valid ontology type
             embedding=[0.1, 0.2, 0.3, 0.4, 0.5] * 64,  # 320-dim embedding
             metadata={"importance_score": 2.0},
             created_at=base_time - 86400,  # 1 day ago
@@ -81,7 +89,7 @@ def sample_memories():
             content="System configuration updated with new security settings",
             content_hash="hash002",
             tags=["system", "security", "config"],
-            memory_type="standard",
+            memory_type="observation",  # Changed from 'standard' to valid ontology type
             embedding=[0.15, 0.25, 0.35, 0.45, 0.55] * 64,  # Similar embedding
             metadata={},
             created_at=base_time - 172800,  # 2 days ago
@@ -93,7 +101,7 @@ def sample_memories():
             content="Weather is nice today, went for a walk in the park",
             content_hash="hash003",
             tags=["personal", "weather"],
-            memory_type="temporary",
+            memory_type="observation",  # Changed from 'temporary' to valid ontology type
             embedding=[0.9, 0.8, 0.7, 0.6, 0.5] * 64,  # Different embedding
             metadata={},
             created_at=base_time - 259200,  # 3 days ago
@@ -105,7 +113,7 @@ def sample_memories():
             content="Python documentation: List comprehensions provide concise syntax",
             content_hash="hash004",
             tags=["reference", "python", "documentation"],
-            memory_type="reference",
+            memory_type="learning",  # Changed from 'reference' to valid ontology type
             embedding=[0.2, 0.3, 0.4, 0.5, 0.6] * 64,
             metadata={"importance_score": 1.5},
             created_at=base_time - 604800,  # 1 week ago
@@ -117,7 +125,7 @@ def sample_memories():
             content="Python best practices: Use list comprehensions for simple transformations",
             content_hash="hash005",
             tags=["python", "best-practices", "programming"],
-            memory_type="standard",
+            memory_type="observation",  # Changed from 'standard' to valid ontology type
             embedding=[0.25, 0.35, 0.45, 0.55, 0.65] * 64,  # Related to reference
             metadata={},
             created_at=base_time - 691200,  # 8 days ago
@@ -129,7 +137,7 @@ def sample_memories():
             content="test test test",
             content_hash="hash006",
             tags=["test"],
-            memory_type="temporary",
+            memory_type="observation",  # Changed from 'temporary' to valid ontology type
             embedding=[0.1, 0.1, 0.1, 0.1, 0.1] * 64,
             metadata={},
             created_at=base_time - 2592000,  # 30 days ago
@@ -141,7 +149,7 @@ def sample_memories():
             content="JavaScript arrow functions provide cleaner syntax for callbacks",
             content_hash="hash007",
             tags=["javascript", "programming", "syntax"],
-            memory_type="standard",
+            memory_type="observation",  # Changed from 'standard' to valid ontology type
             embedding=[0.3, 0.4, 0.5, 0.6, 0.7] * 64,  # Related to other programming
             metadata={},
             created_at=base_time - 777600,  # 9 days ago
@@ -153,14 +161,26 @@ def sample_memories():
             content="test test test duplicate",
             content_hash="hash008",
             tags=["test", "duplicate"],
-            memory_type="temporary",
+            memory_type="observation",  # Changed from 'temporary' to valid ontology type
             embedding=[0.11, 0.11, 0.11, 0.11, 0.11] * 64,  # Very similar to hash006
             metadata={},
             created_at=base_time - 2678400,  # 31 days ago
             created_at_iso=datetime.fromtimestamp(base_time - 2678400).isoformat() + 'Z'
+        ),
+
+        # Very old memory to ensure low relevance score for testing
+        Memory(
+            content="Old observation from long ago",
+            content_hash="hash009",
+            tags=["old", "archived"],
+            memory_type="observation",
+            embedding=[0.05, 0.05, 0.05, 0.05, 0.05] * 64,
+            metadata={},
+            created_at=base_time - 7776000,  # 90 days ago - ensures low decay factor
+            created_at_iso=datetime.fromtimestamp(base_time - 7776000).isoformat() + 'Z'
         )
     ]
-    
+
     return memories
 
 
@@ -244,19 +264,19 @@ def large_memory_set():
         if i < 30:  # First cluster - technical content
             base_embedding = [0.1, 0.2, 0.3, 0.4, 0.5]
             tags = ["technical", "programming"]
-            memory_type = "reference" if i % 5 == 0 else "standard"
+            memory_type = "learning" if i % 5 == 0 else "observation"  # Changed to valid ontology types
         elif i < 60:  # Second cluster - personal content  
             base_embedding = [0.6, 0.7, 0.8, 0.9, 1.0]
             tags = ["personal", "notes"]
-            memory_type = "standard"
+            memory_type = "observation"  # Changed to valid ontology type
         elif i < 90:  # Third cluster - work content
             base_embedding = [0.2, 0.4, 0.6, 0.8, 1.0]
             tags = ["work", "project"]
-            memory_type = "standard"
+            memory_type = "observation"  # Changed to valid ontology type
         else:  # Outliers
             base_embedding = [np.random.random() for _ in range(5)]
             tags = ["misc"]
-            memory_type = "temporary"
+            memory_type = "observation"  # Changed to valid ontology type
         
         # Add noise to embeddings
         embedding = []

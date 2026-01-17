@@ -189,7 +189,13 @@ class ControlledForgettingEngine(ConsolidationBase):
             
             # Memory type specific checks
             memory_type = self._extract_memory_type(memory)
-            if memory_type == 'temporary':
+            # Check for temporary memories (legacy type or tag-based)
+            is_temporary = (
+                memory_type == 'temporary' or  # Legacy support
+                'temporary' in memory.tags or
+                't:temporary' in memory.tags  # New tag taxonomy
+            )
+            if is_temporary:
                 age_days = self._get_memory_age_days(memory, current_time)
                 if age_days > 7:  # Temporary memories older than a week
                     forgetting_reasons.append("expired_temporary")
@@ -395,7 +401,7 @@ class ControlledForgettingEngine(ConsolidationBase):
             content=compressed_content,
             content_hash=compressed_hash,
             tags=memory.tags + ['compressed'],
-            memory_type='compressed',
+            memory_type='pattern',  # Changed from 'compressed' to valid ontology type
             metadata={
                 **memory.metadata,
                 'original_hash': memory.content_hash,

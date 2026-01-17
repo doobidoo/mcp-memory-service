@@ -102,7 +102,7 @@ class TestSemanticCompressionEngine:
         compressed_memory = results[0].compressed_memory
         
         # Check basic properties
-        assert compressed_memory.memory_type == "compressed_cluster"
+        assert compressed_memory.memory_type == "pattern"  # Updated to match ontology-compliant type
         assert len(compressed_memory.content) <= compression_engine.max_summary_length
         assert len(compressed_memory.content) > 0
         assert compressed_memory.content_hash is not None

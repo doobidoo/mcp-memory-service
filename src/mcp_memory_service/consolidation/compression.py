@@ -121,7 +121,7 @@ class SemanticCompressionEngine(ConsolidationBase):
             content=summary,
             content_hash=content_hash,
             tags=aggregated_tags,
-            memory_type='compressed_cluster',
+            memory_type='pattern',  # Changed from 'compressed_cluster' to valid ontology type
             metadata={
                 **aggregated_metadata,
                 'cluster_id': cluster.cluster_id,

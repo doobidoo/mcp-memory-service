@@ -31,10 +31,18 @@ class ConsolidationConfig:
     # Decay settings
     decay_enabled: bool = True
     retention_periods: Dict[str, int] = field(default_factory=lambda: {
-        'critical': 365,
-        'reference': 180, 
-        'standard': 30,
-        'temporary': 7
+        # Base ontology types (from Phase 0 Ontology Foundation)
+        'decision': 365,      # Strategic choices, architecture decisions
+        'learning': 180,      # Insights, best practices, anti-patterns
+        'pattern': 90,        # Recurring issues, code smells, design patterns
+        'error': 30,          # Bugs, failures, exceptions
+        'observation': 30,    # Code edits, file access, searches, commands
+
+        # Legacy types for backward compatibility (mapped to new types)
+        'critical': 365,      # Maps to decision
+        'reference': 180,     # Maps to learning
+        'standard': 30,       # Maps to observation
+        'temporary': 7        # Maps to observation (short-lived)
     })
     
     # Association settings

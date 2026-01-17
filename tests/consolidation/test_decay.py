@@ -74,7 +74,7 @@ class TestExponentialDecayCalculator:
             content="Critical memory",
             content_hash="critical",
             tags=["critical"],
-            memory_type="critical",
+            memory_type="decision",  # Changed from 'critical' to valid ontology type
             embedding=[0.1] * 320,
             created_at=(now - timedelta(days=age_days)).timestamp(),
             created_at_iso=(now - timedelta(days=age_days)).isoformat() + 'Z'
@@ -84,7 +84,7 @@ class TestExponentialDecayCalculator:
             content="Temporary memory",
             content_hash="temporary",
             tags=["temp"],
-            memory_type="temporary",
+            memory_type="observation",  # Changed from 'temporary' to valid ontology type
             embedding=[0.1] * 320,
             created_at=(now - timedelta(days=age_days)).timestamp(),
             created_at_iso=(now - timedelta(days=age_days)).isoformat() + 'Z'
@@ -220,7 +220,7 @@ class TestExponentialDecayCalculator:
             content="Old critical memory",
             content_hash="old_critical",
             tags=["critical", "important"],
-            memory_type="critical",
+            memory_type="decision",  # Changed from 'critical' to valid ontology type
             embedding=[0.1] * 320,
             created_at=(datetime.now() - timedelta(days=500)).timestamp(),
             created_at_iso=(datetime.now() - timedelta(days=500)).isoformat() + 'Z'

@@ -22,7 +22,7 @@ class TestHandleStoreMemory:
             "content": unique_content("Test memory content for integration test"),
             "metadata": {
                 "tags": ["test", "integration"],
-                "type": "note"
+                "type": "observation"  # Changed from 'note' to valid ontology type
             }
         })
 
@@ -103,7 +103,7 @@ class TestHandleStoreMemory:
             "content": unique_content("Test with string tags"),
             "metadata": {
                 "tags": "test,integration,string-tags",
-                "type": "note"
+                "type": "observation"  # Changed from 'note' to valid ontology type
             }
         })
 

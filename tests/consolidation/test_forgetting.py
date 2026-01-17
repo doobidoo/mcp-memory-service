@@ -199,7 +199,7 @@ class TestControlledForgettingEngine:
             content="Expired temporary memory",
             content_hash="expired_temp",
             tags=["temporary"],
-            memory_type="temporary",
+            memory_type="observation",  # Changed from 'temporary' to valid ontology type
             embedding=[0.1] * 320,
             created_at=(now - timedelta(days=10)).timestamp()  # Older than 7 days
         )
@@ -365,7 +365,7 @@ class TestControlledForgettingEngine:
         
         # Check compressed memory
         compressed = result.compressed_version
-        assert compressed.memory_type == "compressed"
+        assert compressed.memory_type == "pattern"  # Changed to match ontology-compliant type
         assert "compressed" in compressed.tags
         assert len(compressed.content) <= len(memory.content)
         assert "original_hash" in compressed.metadata

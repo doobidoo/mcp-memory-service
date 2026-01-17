@@ -51,6 +51,7 @@ class TestGraphStorageModes:
                 connection_types TEXT NOT NULL,
                 metadata TEXT,
                 created_at REAL NOT NULL,
+                relationship_type TEXT DEFAULT 'related',
                 PRIMARY KEY (source_hash, target_hash)
             )
         """)
