@@ -289,7 +289,15 @@ except Exception as e:
 # Server settings
 SERVER_NAME = "memory"
 
-from . import __version__ as SERVER_VERSION
+# Import version with fallback for circular import scenarios
+try:
+    from . import __version__ as SERVER_VERSION
+except (ImportError, AttributeError):
+    # Fallback if __init__.py isn't fully loaded yet (circular import)
+    try:
+        from ._version import __version__ as SERVER_VERSION
+    except ImportError:
+        SERVER_VERSION = "0.0.0.dev0"
 
 # Storage backend configuration
 SUPPORTED_BACKENDS = ['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid']
