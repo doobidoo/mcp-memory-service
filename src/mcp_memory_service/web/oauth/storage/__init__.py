@@ -63,7 +63,7 @@ def get_oauth_storage() -> OAuthStorage:
     global _oauth_storage
 
     if _oauth_storage is None:
-        from ...config import OAUTH_STORAGE_BACKEND, OAUTH_SQLITE_PATH
+        from ....config import OAUTH_STORAGE_BACKEND, OAUTH_SQLITE_PATH
 
         logger.info(f"Initializing OAuth storage backend: {OAUTH_STORAGE_BACKEND}")
 
