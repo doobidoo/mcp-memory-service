@@ -346,20 +346,56 @@ except (json.JSONDecodeError, TypeError, ValueError):
     fi
 fi
 
-"$VENV_PIP" install -e . $EXTRA_INDEX 2>&1 | while IFS= read -r line; do
-    # Show progress for key actions only
-    if echo "$line" | grep -qE "Processing|Installing|Collecting|Successfully|ERROR|WARNING"; then
-        echo "  $line"
+# Network connectivity check before pip install
+check_network() {
+    if ! ping -c 1 -W 2 8.8.8.8 &> /dev/null && ! ping -c 1 -W 2 1.1.1.1 &> /dev/null; then
+        return 1
+    fi
+    return 0
+}
+
+# Attempt installation with network check
+INSTALL_SUCCESS=false
+INSTALL_ATTEMPTS=0
+MAX_ATTEMPTS=3
+
+while [ $INSTALL_SUCCESS = false ] && [ $INSTALL_ATTEMPTS -lt $MAX_ATTEMPTS ]; do
+    INSTALL_ATTEMPTS=$((INSTALL_ATTEMPTS + 1))
+
+    if [ $INSTALL_ATTEMPTS -gt 1 ]; then
+        log_warning "Retrying installation (attempt $INSTALL_ATTEMPTS/$MAX_ATTEMPTS)..."
+        sleep 2
+    fi
+
+    # Check network connectivity
+    if ! check_network; then
+        log_error "No network connectivity detected. Please check your internet connection."
+        log_info "Waiting 5 seconds for network to stabilize..."
+        sleep 5
+        continue
+    fi
+
+    # Attempt installation
+    "$VENV_PIP" install -e . $EXTRA_INDEX 2>&1 | while IFS= read -r line; do
+        # Show progress for key actions only
+        if echo "$line" | grep -qE "Processing|Installing|Collecting|Successfully|ERROR|WARNING"; then
+            echo "  $line"
+        fi
+    done
+
+    # Check if installation succeeded
+    if [ ${PIPESTATUS[0]} -eq 0 ]; then
+        INSTALL_SUCCESS=true
+        log_success "Dependencies installed"
+    elif [ $INSTALL_ATTEMPTS -lt $MAX_ATTEMPTS ]; then
+        log_warning "Install had issues, will retry..."
+    else
+        log_error "Installation failed after $MAX_ATTEMPTS attempts"
+        log_info "Please check your network connection and try again"
+        log_info "You can also try running: .venv/bin/pip install -e ."
+        exit 1
     fi
 done
-
-# Fallback if filtered output fails
-if [ ${PIPESTATUS[0]} -ne 0 ]; then
-    log_warning "Install had issues, retrying with full output..."
-    "$VENV_PIP" install -e . $EXTRA_INDEX
-fi
-
-log_success "Dependencies installed"
 
 # Install DirectML if needed (Windows GPU acceleration)
 if [ "$NEEDS_DIRECTML" = "True" ]; then
