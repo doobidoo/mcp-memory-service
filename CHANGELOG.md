@@ -10,7 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [9.0.5] - 2026-01-18
+
+🚨 **CRITICAL HOTFIX** - Fixes OAuth 2.1 token endpoint routing bug
+
 ### Fixed
+- **CRITICAL: OAuth 2.1 token endpoint routing fixed** (Issue #358)
+  - **Root Cause**: `@router.post("/token")` decorator was on wrong function (`_handle_authorization_code_grant` instead of `token`)
+  - **Impact**: Token endpoint completely non-functional for all standard OAuth clients (Claude Desktop, MCPJam, etc.)
+  - **Symptoms**: HTTP 422 Unprocessable Entity errors when attempting to exchange authorization codes for access tokens
+  - **Incident**: OAuth clients could not complete authorization code flow - authorization succeeded but token exchange failed
+  - **Fix**: Moved `@router.post("/token")` decorator from internal helper function to correct public endpoint handler
+  - **Files Changed**:
+    - `src/mcp_memory_service/web/oauth/authorization.py:220` - Removed decorator from `_handle_authorization_code_grant`
+    - `src/mcp_memory_service/web/oauth/authorization.py:348` - Added decorator to `token` function
+  - **OAuth 2.1 Compliance**: Token endpoint now correctly implements RFC 6749 token exchange flow
+  - **Backward Compatibility**: Fixes broken functionality introduced in recent OAuth refactoring
+  - **Recommendation**: All users attempting to use OAuth authentication should upgrade to v9.0.5 immediately
 - **Script reliability improvements for update and server management**
   - **Network error handling**: Added retry logic (up to 3 attempts) to `update_and_restart.sh` for transient DNS/network failures
     - Network connectivity check before pip install (ping 8.8.8.8, 1.1.1.1)

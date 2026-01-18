@@ -150,24 +150,27 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v9.0.4** (January 17, 2026)
+## 🆕 Latest Release: **v9.0.5** (January 18, 2026)
 
-🚨 **CRITICAL HOTFIX** - Fixes OAuth validation blocking server startup
+🚨 **CRITICAL HOTFIX** - Fixes OAuth 2.1 token endpoint routing bug
 
-**Issue:** Server startup fails with `ValueError: Invalid OAuth configuration`
+**Issue:** OAuth token endpoint completely non-functional for all clients (HTTP 422 errors)
 
 **What's Fixed:**
-- 🔧 **OAuth Validation Fix** - Changed `OAUTH_ENABLED` default from `True` to `False` (opt-in, not opt-out)
-- 🛡️ **Made OAuth validation non-fatal** - Logs errors instead of raising exception
-- ✅ **Server now starts successfully** - Without JWT keys configured
-- 🚀 **All v9.0.3 users must upgrade immediately** - This fixes a critical blocking issue
+- 🔧 **OAuth Token Endpoint Routing** - Moved `@router.post("/token")` decorator to correct function
+- ⚡ **OAuth 2.1 Compliance** - Token endpoint now correctly implements RFC 6749 token exchange flow
+- ✅ **Authorization code flow works** - Claude Desktop, MCPJam, and all OAuth clients can now authenticate
+- 🛡️ **Script reliability improvements** - Network retry logic + server startup timeout increased to 20s
 
-**Root Cause:** `OAUTH_ENABLED` defaulted to `True`, causing validation to run at module import time
+**Root Cause:** Decorator was on internal helper function `_handle_authorization_code_grant` instead of public `token` endpoint handler
+
+**Plus:** Script reliability improvements (network retry logic, 10s → 20s server timeout for hybrid storage)
 
 **Migration from v9.0.0:**
 📖 [v9.0.0 Migration Guide](#migration-to-v900) - Breaking changes require database migration
 
 **Previous Releases**:
+- **v9.0.4** - OAuth validation blocking server startup fixed (OAUTH_ENABLED default changed to False, validation made non-fatal)
 - **v9.0.2** - Critical hotfix: Includes actual code fix for mass deletion bug (confirm_count parameter now REQUIRED)
 - **v9.0.1** - Incorrectly tagged release (⚠️ Does NOT contain fix - use v9.0.2 instead)
 - **v9.0.0** - Phase 0 Ontology Foundation (⚠️ Contains critical bug - upgrade to v9.0.2 immediately)
