@@ -217,7 +217,6 @@ async def authorize(
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_params)
 
 
-@router.post("/token", response_model=TokenResponse)
 async def _handle_authorization_code_grant(
     final_client_id: str,
     final_client_secret: str,
@@ -346,6 +345,7 @@ async def _handle_client_credentials_grant(
         scope="read write"
     )
 
+@router.post("/token", response_model=TokenResponse)
 async def token(
     request: Request,
     grant_type: str = Form(..., description="OAuth grant type"),
