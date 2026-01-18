@@ -150,26 +150,34 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v9.0.5** (January 18, 2026)
+## 🆕 Latest Release: **v9.0.6** (January 18, 2026)
 
-🚨 **CRITICAL HOTFIX** - Fixes OAuth 2.1 token endpoint routing bug
+**Production-Ready OAuth & Test Infrastructure Improvements**
 
-**Issue:** OAuth token endpoint completely non-functional for all clients (HTTP 422 errors)
+**What's New:**
+- 🔐 **OAuth Persistent Storage Backend** - SQLite-based OAuth storage for multi-worker deployments (Issue #360)
+- ⚡ **<10ms Token Operations** - Atomic one-time authorization code consumption prevents replay attacks
+- 🔧 **Pluggable Storage Architecture** - `MCP_OAUTH_STORAGE_BACKEND=sqlite` for production, `memory` for dev/testing
+- ✅ **uvx Test Compatibility Fixed** - All HTTP endpoint tests now pass in uvx CI environment (Issue #361)
 
-**What's Fixed:**
-- 🔧 **OAuth Token Endpoint Routing** - Moved `@router.post("/token")` decorator to correct function
-- ⚡ **OAuth 2.1 Compliance** - Token endpoint now correctly implements RFC 6749 token exchange flow
-- ✅ **Authorization code flow works** - Claude Desktop, MCPJam, and all OAuth clients can now authenticate
-- 🛡️ **Script reliability improvements** - Network retry logic + server startup timeout increased to 20s
+**Key Features:**
+- WAL mode for multi-process safety
+- 30 comprehensive OAuth storage tests (parametrized across backends)
+- Backward compatible (defaults to memory backend, no breaking changes)
 
-**Root Cause:** Decorator was on internal helper function `_handle_authorization_code_grant` instead of public `token` endpoint handler
+**Configuration:**
+```bash
+export MCP_OAUTH_STORAGE_BACKEND=sqlite  # Production multi-worker
+export MCP_OAUTH_SQLITE_PATH=./data/oauth.db  # Database location
+```
 
-**Plus:** Script reliability improvements (network retry logic, 10s → 20s server timeout for hybrid storage)
+**Documentation:** See [docs/oauth-storage-backends.md](docs/oauth-storage-backends.md) for complete guide
 
 **Migration from v9.0.0:**
 📖 [v9.0.0 Migration Guide](#migration-to-v900) - Breaking changes require database migration
 
 **Previous Releases**:
+- **v9.0.5** - CRITICAL HOTFIX: OAuth 2.1 token endpoint routing bug fixed (HTTP 422 errors eliminated)
 - **v9.0.4** - OAuth validation blocking server startup fixed (OAUTH_ENABLED default changed to False, validation made non-fatal)
 - **v9.0.2** - Critical hotfix: Includes actual code fix for mass deletion bug (confirm_count parameter now REQUIRED)
 - **v9.0.1** - Incorrectly tagged release (⚠️ Does NOT contain fix - use v9.0.2 instead)
