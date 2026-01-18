@@ -77,8 +77,13 @@ def get_oauth_storage() -> OAuthStorage:
     return _oauth_storage
 
 
-# Backward compatibility: maintain global instance
-oauth_storage = get_oauth_storage()
+# Lazy global instance - initialized on first access to avoid import-time issues
+def __getattr__(name):
+    """Lazy attribute access for backward compatibility."""
+    if name == "oauth_storage":
+        return get_oauth_storage()
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
 
 __all__ = [
     "OAuthStorage",
