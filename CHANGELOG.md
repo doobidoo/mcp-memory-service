@@ -10,6 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+- **Script reliability improvements for update and server management**
+  - **Network error handling**: Added retry logic (up to 3 attempts) to `update_and_restart.sh` for transient DNS/network failures
+    - Network connectivity check before pip install (ping 8.8.8.8, 1.1.1.1)
+    - 2-second delay between retries, 5-second wait when network check fails
+    - Clear error messages with helpful suggestions on failure
+    - Fixes DNS errors: "nodename nor servname provided, or not known" (Errno 8)
+  - **Server startup timeout**: Increased HTTP server initialization timeout from 10s to 20s
+    - Hybrid storage + embedding model loading takes 12-15 seconds
+    - Previous 10s timeout caused false "failed to start" errors
+    - Updated `http_server_manager.sh` to allow adequate initialization time
+  - **User Impact**: More reliable updates on unstable networks, no more premature timeout failures
+  - **Files Changed**:
+    - `scripts/update_and_restart.sh:349-398` - Network retry logic
+    - `scripts/service/http_server_manager.sh:182-185` - Timeout increase
+  - **Testing**: Server restart verified successful (6-13s startup, well within 20s limit)
+
 ## [9.0.4] - 2026-01-17
 
 🚨 **CRITICAL HOTFIX** - Fixes OAuth validation blocking server startup
