@@ -19,7 +19,11 @@ This package provides storage backends for OAuth clients, authorization codes,
 and access tokens. Multiple backends are supported:
 
 - MemoryOAuthStorage: In-memory storage (development, single-instance)
-- SqliteOAuthStorage: SQLite storage (production, persistent) [Phase 2]
+- SQLiteOAuthStorage: SQLite storage (production, persistent)
+
+Configure via environment variables:
+    export MCP_OAUTH_STORAGE_BACKEND=sqlite
+    export MCP_OAUTH_SQLITE_PATH=./data/oauth.db
 
 Usage:
     from mcp_memory_service.web.oauth.storage import create_oauth_storage
@@ -27,18 +31,60 @@ Usage:
     # Create in-memory storage
     storage = create_oauth_storage("memory")
 
-    # Future: Create SQLite storage
-    # storage = create_oauth_storage("sqlite", db_path="/path/to/oauth.db")
+    # Create SQLite storage
+    storage = create_oauth_storage("sqlite", db_path="/path/to/oauth.db")
 """
+
+import logging
+from typing import Optional
 
 from .base import OAuthStorage
 from .factory import create_oauth_storage
 from .memory import MemoryOAuthStorage
 from .sqlite import SQLiteOAuthStorage
 
+logger = logging.getLogger(__name__)
+
+# Global OAuth storage instance (initialized on first use)
+_oauth_storage: Optional[OAuthStorage] = None
+
+
+def get_oauth_storage() -> OAuthStorage:
+    """
+    Get or create global OAuth storage instance.
+
+    Uses configuration from environment variables:
+    - MCP_OAUTH_STORAGE_BACKEND: "memory" or "sqlite"
+    - MCP_OAUTH_SQLITE_PATH: Path to SQLite database (if backend=sqlite)
+
+    Returns:
+        Configured OAuth storage backend
+    """
+    global _oauth_storage
+
+    if _oauth_storage is None:
+        from ...config import OAUTH_STORAGE_BACKEND, OAUTH_SQLITE_PATH
+
+        logger.info(f"Initializing OAuth storage backend: {OAUTH_STORAGE_BACKEND}")
+
+        if OAUTH_STORAGE_BACKEND == "sqlite":
+            logger.info(f"Using SQLite OAuth storage at: {OAUTH_SQLITE_PATH}")
+            _oauth_storage = create_oauth_storage("sqlite", db_path=OAUTH_SQLITE_PATH)
+        else:
+            logger.info("Using in-memory OAuth storage (not persistent)")
+            _oauth_storage = create_oauth_storage("memory")
+
+    return _oauth_storage
+
+
+# Backward compatibility: maintain global instance
+oauth_storage = get_oauth_storage()
+
 __all__ = [
     "OAuthStorage",
     "create_oauth_storage",
     "MemoryOAuthStorage",
     "SQLiteOAuthStorage",
+    "get_oauth_storage",
+    "oauth_storage",
 ]
