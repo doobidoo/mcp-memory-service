@@ -689,6 +689,34 @@ if CONSOLIDATION_ENABLED:
 # OAuth 2.1 Configuration
 OAUTH_ENABLED = safe_get_bool_env('MCP_OAUTH_ENABLED', False)
 
+# OAuth Storage Backend Configuration
+OAUTH_STORAGE_BACKEND = os.getenv("MCP_OAUTH_STORAGE_BACKEND", "memory").lower()
+"""
+OAuth storage backend type.
+Options:
+- "memory": In-memory storage (default, dev/testing only)
+- "sqlite": SQLite persistent storage (recommended for production)
+
+Example:
+    export MCP_OAUTH_STORAGE_BACKEND=sqlite
+"""
+
+OAUTH_SQLITE_PATH = os.getenv(
+    "MCP_OAUTH_SQLITE_PATH",
+    os.path.join(get_base_directory(), "oauth.db")
+)
+"""
+Path to SQLite database for OAuth storage (when backend=sqlite).
+Defaults to: <base_directory>/oauth.db
+
+Example:
+    export MCP_OAUTH_SQLITE_PATH=./data/oauth.db
+"""
+
+logger.info(f"OAuth storage backend: {OAUTH_STORAGE_BACKEND}")
+if OAUTH_STORAGE_BACKEND == "sqlite":
+    logger.info(f"OAuth SQLite database path: {OAUTH_SQLITE_PATH}")
+
 # RSA key pair configuration for JWT signing (RS256)
 # Private key for signing tokens
 OAUTH_PRIVATE_KEY = os.getenv('MCP_OAUTH_PRIVATE_KEY')

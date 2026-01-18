@@ -33,7 +33,7 @@ from ...config import (
     get_jwt_algorithm,
     get_jwt_verification_key
 )
-from .storage import oauth_storage
+from .storage import get_oauth_storage
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +200,7 @@ async def authenticate_bearer_token(token: str) -> AuthenticationResult:
             )
 
         # Fallback: check if token is stored in OAuth storage
-        token_data = await oauth_storage.get_access_token(token)
+        token_data = await get_oauth_storage().get_access_token(token)
         if token_data:
             client_id = token_data.get("client_id")
             if not client_id:

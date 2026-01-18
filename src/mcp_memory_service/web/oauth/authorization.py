@@ -35,7 +35,7 @@ from ...config import (
     get_jwt_signing_key
 )
 from .models import TokenResponse
-from .storage import oauth_storage
+from .storage import get_oauth_storage
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ def create_access_token(client_id: str, scope: Optional[str] = None) -> tuple[st
 
 async def validate_redirect_uri(client_id: str, redirect_uri: Optional[str]) -> str:
     """Validate redirect URI against registered client."""
-    client = await oauth_storage.get_client(client_id)
+    client = await get_oauth_storage().get_client(client_id)
     if not client:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -176,10 +176,10 @@ async def authorize(
         validated_redirect_uri = await validate_redirect_uri(client_id, redirect_uri)
 
         # Generate authorization code
-        auth_code = oauth_storage.generate_authorization_code()
+        auth_code = get_oauth_storage().generate_authorization_code()
 
         # Store authorization code
-        await oauth_storage.store_authorization_code(
+        await get_oauth_storage().store_authorization_code(
             code=auth_code,
             client_id=client_id,
             redirect_uri=validated_redirect_uri,
@@ -243,7 +243,7 @@ async def _handle_authorization_code_grant(
         )
 
     # Authenticate client
-    if not await oauth_storage.authenticate_client(final_client_id, final_client_secret or ""):
+    if not await get_oauth_storage().authenticate_client(final_client_id, final_client_secret or ""):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
@@ -253,7 +253,7 @@ async def _handle_authorization_code_grant(
         )
 
     # Get and consume authorization code
-    code_data = await oauth_storage.get_authorization_code(code)
+    code_data = await get_oauth_storage().get_authorization_code(code)
     if not code_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -287,7 +287,7 @@ async def _handle_authorization_code_grant(
     access_token, expires_in = create_access_token(final_client_id, code_data["scope"])
 
     # Store access token for validation
-    await oauth_storage.store_access_token(
+    await get_oauth_storage().store_access_token(
         token=access_token,
         client_id=final_client_id,
         scope=code_data["scope"],
@@ -317,7 +317,7 @@ async def _handle_client_credentials_grant(
         )
 
     # Authenticate client
-    if not await oauth_storage.authenticate_client(final_client_id, final_client_secret):
+    if not await get_oauth_storage().authenticate_client(final_client_id, final_client_secret):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
@@ -330,7 +330,7 @@ async def _handle_client_credentials_grant(
     access_token, expires_in = create_access_token(final_client_id, "read write")
 
     # Store access token
-    await oauth_storage.store_access_token(
+    await get_oauth_storage().store_access_token(
         token=access_token,
         client_id=final_client_id,
         scope="read write",

@@ -30,7 +30,7 @@ from .models import (
     ClientRegistrationResponse,
     RegisteredClient
 )
-from .storage import oauth_storage
+from .storage import get_oauth_storage
 
 logger = logging.getLogger(__name__)
 
@@ -215,8 +215,8 @@ async def register_client(request: ClientRegistrationRequest) -> ClientRegistrat
             validate_response_types(request.response_types)
 
         # Generate client credentials
-        client_id = oauth_storage.generate_client_id()
-        client_secret = oauth_storage.generate_client_secret()
+        client_id = get_oauth_storage().generate_client_id()
+        client_secret = get_oauth_storage().generate_client_secret()
 
         # Prepare default values
         grant_types = request.grant_types or ["authorization_code"]
@@ -236,7 +236,7 @@ async def register_client(request: ClientRegistrationRequest) -> ClientRegistrat
         )
 
         # Store the client
-        await oauth_storage.store_client(registered_client)
+        await get_oauth_storage().store_client(registered_client)
 
         # Create response
         response = ClientRegistrationResponse(
@@ -285,7 +285,7 @@ async def get_client_info(client_id: str) -> ClientRegistrationResponse:
     """
     logger.info(f"Client info request for client_id={client_id}")
 
-    client = await oauth_storage.get_client(client_id)
+    client = await get_oauth_storage().get_client(client_id)
     if not client:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

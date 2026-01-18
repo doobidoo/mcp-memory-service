@@ -79,14 +79,15 @@ consolidation_scheduler: Optional["ConsolidationScheduler"] = None
 
 async def oauth_cleanup_background_task():
     """Background task to periodically clean up expired OAuth tokens and codes."""
-    from .oauth.storage import oauth_storage
+    from .oauth.storage import get_oauth_storage
 
     while True:
         try:
             # Clean up expired tokens every 5 minutes
             await asyncio.sleep(300)  # 5 minutes
 
-            cleanup_stats = await oauth_storage.cleanup_expired()
+            storage = get_oauth_storage()
+            cleanup_stats = await storage.cleanup_expired()
             if cleanup_stats["expired_codes_cleaned"] > 0 or cleanup_stats["expired_tokens_cleaned"] > 0:
                 logger.info(f"OAuth cleanup: removed {cleanup_stats['expired_codes_cleaned']} codes, "
                            f"{cleanup_stats['expired_tokens_cleaned']} tokens")

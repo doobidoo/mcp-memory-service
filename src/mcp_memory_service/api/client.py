@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 # Global storage instance (module-level singleton)
 _storage_instance: Optional[MemoryStorage] = None
-_initialization_lock = asyncio.Lock()
+_initialization_lock: Optional[asyncio.Lock] = None
 
 # Global consolidation instances (set by HTTP server)
 _consolidator_instance: Optional["DreamInspiredConsolidator"] = None
@@ -69,11 +69,15 @@ async def _get_storage_async() -> MemoryStorage:
     Raises:
         RuntimeError: If storage initialization fails
     """
-    global _storage_instance
+    global _storage_instance, _initialization_lock
 
     # Fast path: return existing instance
     if _storage_instance is not None:
         return _storage_instance
+
+    # Lazy initialize lock on first use
+    if _initialization_lock is None:
+        _initialization_lock = asyncio.Lock()
 
     # Slow path: create new instance with lock
     async with _initialization_lock:

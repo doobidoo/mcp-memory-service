@@ -38,7 +38,7 @@ See [Essential Commands](#essential-commands) for options (--no-restart, --force
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop with SQLite-vec, Cloudflare, and Hybrid storage backends.
 
-> **🆕 v9.0.5**: **CRITICAL HOTFIX** - Fixes OAuth 2.1 token endpoint routing bug. The `@router.post("/token")` decorator was on the wrong function, making token endpoint non-functional for all OAuth clients. All users attempting OAuth authentication should upgrade immediately. See [CHANGELOG.md](CHANGELOG.md#905---2026-01-18) for details.
+> **🆕 v9.0.6**: **OAuth Persistent Storage** - Adds SQLite-based OAuth storage for production multi-worker deployments. New `MCP_OAUTH_STORAGE_BACKEND` (memory|sqlite) environment variable with WAL mode, atomic code consumption, and <10ms performance. Backward compatible (defaults to memory backend). See [CHANGELOG.md](CHANGELOG.md#906---2026-01-18) for details.
 >
 > **Note**: When releasing new versions, update this line with current version + brief description. Use `.claude/agents/github-release-manager.md` agent for complete release workflow.
 
@@ -134,6 +134,10 @@ export CLOUDFLARE_VECTORIZE_INDEX="mcp-memory-index" # Required for Cloudflare b
 export MCP_HTTP_ENABLED=true                  # Enable HTTP server
 export MCP_HTTPS_ENABLED=true                 # Enable HTTPS (production)
 export MCP_API_KEY="$(openssl rand -base64 32)" # Generate secure API key
+
+# OAuth Storage (v9.0.6+)
+export MCP_OAUTH_STORAGE_BACKEND=sqlite       # memory (default) | sqlite (production)
+export MCP_OAUTH_SQLITE_PATH=./data/oauth.db  # SQLite database path
 ```
 
 **Configuration Precedence:** Environment variables > .env file > Global Claude Config > defaults
@@ -143,6 +147,27 @@ export MCP_API_KEY="$(openssl rand -base64 32)" # Generate secure API key
 **⚠️  Important:** When using hybrid or cloudflare backends, ensure Cloudflare credentials are properly configured. If health checks show "sqlite-vec" when you expect "cloudflare" or "hybrid", this indicates a configuration issue that needs to be resolved.
 
 **Platform Support:** macOS (MPS/CPU), Windows (CUDA/DirectML/CPU), Linux (CUDA/ROCm/CPU)
+
+## OAuth Storage Configuration (v9.0.6+)
+
+**Persistent Storage**: Production deployments should use SQLite backend for multi-worker support.
+
+```bash
+# Development (default)
+export MCP_OAUTH_STORAGE_BACKEND=memory
+
+# Production (recommended)
+export MCP_OAUTH_STORAGE_BACKEND=sqlite
+export MCP_OAUTH_SQLITE_PATH=./data/oauth.db
+```
+
+**Features**:
+- Multi-worker safe (WAL mode)
+- Survives server restarts
+- Atomic code consumption (prevents replay attacks)
+- <10ms performance
+
+**Documentation**: [docs/oauth-storage-backends.md](docs/oauth-storage-backends.md)
 
 ## Claude Code Hooks Configuration 🆕
 

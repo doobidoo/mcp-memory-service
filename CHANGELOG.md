@@ -10,6 +10,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [9.0.6] - 2026-01-18
+
+### Added
+- **OAuth Persistent Storage Backend** (#360): SQLite-based OAuth storage for multi-worker deployments
+  - New `MCP_OAUTH_STORAGE_BACKEND` environment variable (memory|sqlite)
+  - New `MCP_OAUTH_SQLITE_PATH` configuration for database location
+  - WAL mode enabled for multi-process safety
+  - Atomic one-time authorization code consumption (prevents replay attacks)
+  - Performance: <10ms token operations
+  - Backward compatible (defaults to memory backend)
+  - Comprehensive test suite (30 tests, parametrized across backends)
+  - Documentation: [docs/oauth-storage-backends.md](docs/oauth-storage-backends.md)
+
+### Fixed
+- **uvx HTTP Test Failures** (#361): Lazy initialization of asyncio.Lock in api/client.py
+  - Fixed module-level Lock creation that caused event loop context issues
+  - All HTTP endpoint tests now pass in uvx CI environment
+  - No impact on existing functionality
+
+### Technical Details
+- OAuth storage now supports pluggable backends via abstract base class
+- SQLite backend uses atomic UPDATE WHERE for race-safe code consumption
+- Factory pattern for backend selection (create_oauth_storage)
+- All backends tested with identical test suite (parametrized fixtures)
+
 ## [9.0.5] - 2026-01-18
 
 🚨 **CRITICAL HOTFIX** - Fixes OAuth 2.1 token endpoint routing bug
