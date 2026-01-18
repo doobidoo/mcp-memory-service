@@ -179,10 +179,10 @@ start_server() {
         echo "$pid" > "$PID_FILE"
         date +%s > "$START_TIME_FILE"
 
-        # Wait for server to initialize (hybrid storage takes ~4 seconds)
+        # Wait for server to initialize (hybrid storage + embedding model takes ~15 seconds)
         echo "Waiting for server to initialize..."
         local count=0
-        local max_wait=10
+        local max_wait=20
         while [ $count -lt $max_wait ]; do
             sleep 1
             count=$((count + 1))
