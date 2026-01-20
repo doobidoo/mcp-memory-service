@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [9.3.1] - 2026-01-20
+
 ### Fixed
 - **Fatal Python error during shutdown** (#368)
   - Fixed "database is locked" crash when Claude Desktop sends shutdown signal (SIGTERM/SIGINT)
@@ -18,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Server now shuts down cleanly without "Server disconnected" errors in Claude Desktop
   - Root cause: `sys.exit(0)` in signal handler tried to flush buffered stdio streams while locks were held
   - Solution: Use `os._exit(0)` to bypass I/O cleanup after `_cleanup_on_shutdown()` completes
+  - Resolved issue #368
 
 ## [9.3.0] - 2026-01-19
 

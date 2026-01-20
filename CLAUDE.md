@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop and 13+ AI applications. It uses vector embeddings for semantic search, supports multiple storage backends (SQLite-vec, Cloudflare, Hybrid), and includes advanced features like memory consolidation, quality scoring, and OAuth 2.1 team collaboration.
 
-**Current Version:** v9.3.0 - Relationship Inference Engine for knowledge graph relationships (see [CHANGELOG.md](CHANGELOG.md) for details)
+**Current Version:** v9.3.1 - Critical shutdown bug fix (SIGTERM/SIGINT handling) - see [CHANGELOG.md](CHANGELOG.md) for details
 
 ## Essential Commands
 

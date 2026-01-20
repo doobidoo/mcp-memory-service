@@ -148,30 +148,39 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 📊 **Web Dashboard** – Visualize and manage memories at `http://localhost:8000`
 🧬 **Knowledge Graph** – Interactive D3.js visualization of memory relationships 🆕
 
+### 🖥️ Dashboard Preview (v9.3.0)
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/doobidoo/mcp-memory-service/wiki/images/dashboard/mcp-memory-dashboard-v9.3.0-tour.gif" alt="MCP Memory Dashboard Tour" width="800"/>
+</p>
+
+| Dashboard | Quality Analytics | Browse Tags |
+|:---------:|:-----------------:|:-----------:|
+| ![Dashboard](https://raw.githubusercontent.com/doobidoo/mcp-memory-service/wiki/images/dashboard/01-dashboard.png) | ![Quality](https://raw.githubusercontent.com/doobidoo/mcp-memory-service/wiki/images/dashboard/13-quality.png) | ![Browse](https://raw.githubusercontent.com/doobidoo/mcp-memory-service/wiki/images/dashboard/03-browse.png) |
+
+**8 Dashboard Tabs:** Dashboard • Search • Browse • Documents • Manage • Analytics • **Quality** (NEW) • API Docs
+
+📖 See [Web Dashboard Guide](https://github.com/doobidoo/mcp-memory-service/wiki/Web-Dashboard-Guide) for complete documentation.
+
 ---
 
 
-## 🆕 Latest Release: **v9.3.0** (January 19, 2026)
+## 🆕 Latest Release: **v9.3.1** (January 20, 2026)
 
-**Relationship Inference Engine for Knowledge Graphs**
-
-**What's New:**
-- 🧠 **Intelligent Association Typing**: Automatically classifies relationships as causes, fixes, contradicts, supports, follows, or related
-- 🔍 **Multi-Factor Analysis**: Memory type combinations, content semantics, temporal patterns, contradiction detection
-- 📊 **Confidence Scoring**: 0.0-1.0 confidence scores with configurable minimum threshold (default: 0.6)
-- 🛠️ **Maintenance Scripts**: Batch re-classify existing memory types and graph relationships retroactively
-- ✨ **Rich Knowledge Graphs**: Meaningful relationship types beyond simple "related" connections
+**Critical Shutdown Bug Fix**
 
 **What's Fixed:**
-- 🐛 **Invalid 'knowledge' memory type** (#364): Removed from Web UI, added missing types (document, note, reference)
-- 🔧 **wandb dependency conflict** (#311): Fixed embedding model initialization failures, updated to wandb>=0.18.0
+- 🔧 **Fatal Python error during shutdown** (#368): Resolved "database is locked" crash when Claude Desktop sends shutdown signals (SIGTERM/SIGINT)
+- ✨ **Clean Server Shutdown**: Server now terminates cleanly without "Server disconnected" errors in Claude Desktop
+- 🐛 **Root Cause Fix**: Changed signal handler from `sys.exit(0)` to `os._exit(0)` to avoid buffered I/O lock deadlock during interpreter shutdown
 
-**Technical Highlights:**
-- New RelationshipInferenceEngine (433 lines) with 4 analysis methods
-- Automatic relationship type inference during consolidation
-- Comprehensive test coverage with all 34 ontology tests passing
+**Technical Details:**
+- Previous behavior: `sys.exit(0)` attempted to flush buffered streams, causing deadlock on held locks
+- New behavior: `os._exit(0)` bypasses I/O cleanup after proper `_cleanup_on_shutdown()` completes
+- Impact: Eliminates "Fatal Python error: _enter_buffered_busy: could not acquire lock" during shutdown
 
 **Previous Releases**:
+- **v9.3.0** - Relationship Inference Engine (Intelligent association typing, multi-factor analysis, confidence scoring)
 - **v9.2.1** - Critical Knowledge Graph bug fix (MigrationRunner, 37 test fixes, idempotent migrations)
 - **v9.2.0** - Knowledge Graph Dashboard with D3.js v7.9.0 (Interactive force-directed visualization, 6 typed relationships, 7-language support)
 - **v9.0.6** - OAuth Persistent Storage Backend (SQLite-based for multi-worker deployments, <10ms token operations)
