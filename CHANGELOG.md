@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+- **Fatal Python error during shutdown** (#368)
+  - Fixed "database is locked" crash when Claude Desktop sends shutdown signal (SIGTERM/SIGINT)
+  - Changed signal handler to use `os._exit(0)` instead of `sys.exit(0)` to avoid buffered I/O lock deadlock
+  - Prevents "Fatal Python error: _enter_buffered_busy: could not acquire lock" during interpreter shutdown
+  - Server now shuts down cleanly without "Server disconnected" errors in Claude Desktop
+  - Root cause: `sys.exit(0)` in signal handler tried to flush buffered stdio streams while locks were held
+  - Solution: Use `os._exit(0)` to bypass I/O cleanup after `_cleanup_on_shutdown()` completes
+
 ## [9.3.0] - 2026-01-19
 
 ### Added

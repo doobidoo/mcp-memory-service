@@ -3193,7 +3193,11 @@ def main():
     def signal_handler(signum, frame):
         logger.info(f"Received signal {signum}, shutting down gracefully...")
         _cleanup_on_shutdown()
-        sys.exit(0)
+        # Use os._exit(0) instead of sys.exit(0) to avoid buffered I/O lock issues
+        # during shutdown. os._exit() bypasses Python's cleanup which is safe here
+        # because _cleanup_on_shutdown() has already performed necessary cleanup.
+        # See: https://github.com/doobidoo/mcp-memory-service/issues/368
+        os._exit(0)
 
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)

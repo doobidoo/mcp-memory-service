@@ -182,6 +182,43 @@ If you're seeing "Method not found" errors or JSON error popups in Claude Deskto
 ### Acceleration Issues
 [Content from installation.md's acceleration section]
 
+## Server Shutdown Issues
+
+### Problem: Fatal Python Error During Shutdown
+**Error:** `Fatal Python error: _enter_buffered_busy: could not acquire lock for <_io.BufferedReader name='<stdin>'> at interpreter shutdown`
+
+**Symptoms:**
+- Server works correctly during operation
+- Crash occurs when Claude Desktop closes or switches conversations
+- "Server disconnected" errors appear in Claude Desktop
+- Error appears in MCP server logs (`~/Library/Logs/Claude/mcp-server-memory.log`)
+
+**Cause:** Signal handler (`SIGTERM`/`SIGINT`) calls `sys.exit(0)` while buffered I/O locks are held, causing a deadlock during Python interpreter shutdown.
+
+**Fixed In:** Version 9.3.1+ (Issue #368)
+
+**Solution:**
+1. **Update to Latest Version (Recommended)**
+   ```bash
+   cd path/to/mcp-memory-service
+   git pull origin master
+   pip install -e .
+   ```
+
+2. **Verify Fix**
+   - The signal handler now uses `os._exit(0)` instead of `sys.exit(0)`
+   - This bypasses buffered I/O cleanup after resources are already cleaned up
+   - Server should shut down cleanly without crashes
+
+3. **Restart Claude Desktop**
+   - Close Claude Desktop completely
+   - Start it again to load the updated server
+
+**Technical Details:**
+- `sys.exit(0)` attempts to flush all buffered streams during shutdown
+- When called from a signal handler, this can deadlock on I/O locks already held by interrupted code
+- `os._exit(0)` terminates immediately without I/O flush (safe after `_cleanup_on_shutdown()`)
+
 ## Debugging Tools
 
 [Content from installation.md's debugging section]
