@@ -52,6 +52,69 @@ def get_graph_storage() -> Optional[GraphStorage]:
     return None
 
 
+async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent]:
+    """Unified handler for graph operations."""
+    action = arguments.get("action")
+
+    if not action:
+        return [types.TextContent(type="text", text="Error: action parameter is required")]
+
+    # Validate action
+    valid_actions = ["connected", "path", "subgraph"]
+    if action not in valid_actions:
+        return [types.TextContent(
+            type="text",
+            text=f"Error: Invalid action '{action}'. Must be one of: {', '.join(valid_actions)}"
+        )]
+
+    try:
+        # Route to appropriate handler based on action
+        if action == "connected":
+            # Find connected memories
+            hash_val = arguments.get("hash")
+            if not hash_val:
+                return [types.TextContent(type="text", text="Error: hash is required for 'connected' action")]
+
+            return await handle_find_connected_memories(server, {
+                "hash": hash_val,
+                "max_hops": arguments.get("max_hops", 2)
+            })
+
+        elif action == "path":
+            # Find shortest path
+            hash1 = arguments.get("hash1")
+            hash2 = arguments.get("hash2")
+            if not hash1 or not hash2:
+                return [types.TextContent(type="text", text="Error: hash1 and hash2 are required for 'path' action")]
+
+            return await handle_find_shortest_path(server, {
+                "hash1": hash1,
+                "hash2": hash2,
+                "max_depth": arguments.get("max_depth", 5)
+            })
+
+        elif action == "subgraph":
+            # Get memory subgraph
+            hash_val = arguments.get("hash")
+            if not hash_val:
+                return [types.TextContent(type="text", text="Error: hash is required for 'subgraph' action")]
+
+            return await handle_get_memory_subgraph(server, {
+                "hash": hash_val,
+                "radius": arguments.get("radius", 2)
+            })
+
+        else:
+            # Should never reach here due to validation above
+            return [types.TextContent(type="text", text=f"Error: Unknown action '{action}'")]
+
+    except Exception as e:
+        import traceback
+        error_msg = f"Error in memory_graph action '{action}': {str(e)}"
+        logger.error(f"{error_msg}\n{traceback.format_exc()}")
+        return [types.TextContent(type="text", text=error_msg)]
+
+
 async def handle_find_connected_memories(
     server,
     arguments: dict

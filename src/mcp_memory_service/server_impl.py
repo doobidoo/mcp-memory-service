@@ -1203,7 +1203,7 @@ class MemoryServer:
             try:
                 tools = [
                     types.Tool(
-                        name="store_memory",
+                        name="memory_store",
                         description="""Store new information with optional tags.
 
                         Accepts two tag formats in metadata:
@@ -1513,40 +1513,61 @@ Examples:
                         ),
                     ),
                     types.Tool(
-                        name="search_by_tag",
-                        description="""Search memories by tags. Must use array format.
-                        Returns memories matching ANY of the specified tags.
+                        name="memory_list",
+                        description="""List and browse memories with pagination and optional filters.
 
-                        Example:
-                        {
-                            "tags": ["important", "reference"]
-                        }""",
+USE THIS WHEN:
+- User wants to browse all memories ("show me my memories", "list everything")
+- Need to paginate through large result sets
+- Filter by tag OR memory type for categorical browsing
+- User asks "what do I have stored", "browse my memories"
+
+Unlike memory_search (semantic search), this does categorical listing/filtering.
+
+PAGINATION:
+- page: 1-based page number (default: 1)
+- page_size: Results per page (default: 20, max: 100)
+
+FILTERS (combine with AND logic):
+- tags: Filter to memories with ANY of these tags
+- memory_type: Filter by type (note, reference, decision, etc.)
+
+Examples:
+{}  // List first 20 memories
+{"page": 2, "page_size": 50}
+{"tags": ["python", "reference"]}
+{"memory_type": "decision", "page_size": 10}
+{"tags": ["important"], "memory_type": "note"}
+""",
                         inputSchema={
                             "type": "object",
                             "properties": {
-                                "tags": {
-                                    "oneOf": [
-                                        {
-                                            "type": "array",
-                                            "items": {"type": "string"},
-                                            "description": "Tags as an array of strings"
-                                        },
-                                        {
-                                            "type": "string",
-                                            "description": "Tags as comma-separated string"
-                                        }
-                                    ],
-                                    "description": "List of tags to search for. Returns memories matching ANY of these tags. Accepts either an array of strings or a comma-separated string."
+                                "page": {
+                                    "type": "integer",
+                                    "default": 1,
+                                    "minimum": 1,
+                                    "description": "Page number (1-based)"
                                 },
-                                "max_response_chars": {
-                                    "type": "number",
-                                    "description": "Maximum response size in characters. Truncates at memory boundaries to prevent context overflow. Recommended: 30000-50000. Default: unlimited."
+                                "page_size": {
+                                    "type": "integer",
+                                    "default": 20,
+                                    "minimum": 1,
+                                    "maximum": 100,
+                                    "description": "Results per page"
+                                },
+                                "tags": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Filter by tags (returns memories with ANY of these tags)"
+                                },
+                                "memory_type": {
+                                    "type": "string",
+                                    "description": "Filter by memory type"
                                 }
-                            },
-                            "required": ["tags"]
+                            }
                         },
                         annotations=types.ToolAnnotations(
-                            title="Search by Tag",
+                            title="List Memories",
                             readOnlyHint=True,
                         ),
                     ),
@@ -1749,7 +1770,7 @@ Examples:
                         ),
                     ),
                     types.Tool(
-                        name="cleanup_duplicates",
+                        name="memory_cleanup",
                         description="Find and remove duplicate entries",
                         inputSchema={
                             "type": "object",
@@ -1842,7 +1863,7 @@ Examples:
                         ),
                     ),
                     types.Tool(
-                        name="check_database_health",
+                        name="memory_health",
                         description="Check database health and get statistics",
                         inputSchema={
                             "type": "object",
@@ -1854,7 +1875,7 @@ Examples:
                         ),
                     ),
                     types.Tool(
-                        name="get_cache_stats",
+                        name="memory_stats",
                         description="""Get MCP server global cache statistics for performance monitoring.
 
                         Returns detailed metrics about storage and memory service caching,
@@ -1976,7 +1997,7 @@ Examples:
                         ),
                     ),
                     types.Tool(
-                        name="update_memory_metadata",
+                        name="memory_update",
                         description="""Update memory metadata without recreating the entire memory entry.
                         
                         This provides efficient metadata updates while preserving the original
@@ -2293,132 +2314,86 @@ Examples:
                 # Add document ingestion tools
                 ingestion_tools = [
                     types.Tool(
-                        name="ingest_document",
-                        description="""Ingest a single document file into the memory database.
-                        
-                        Supports multiple formats:
-                        - PDF files (.pdf)
-                        - Text files (.txt, .md, .markdown, .rst)
-                        - JSON files (.json)
-                        
-                        The document will be parsed, chunked intelligently, and stored
-                        as multiple memories with appropriate metadata.
-                        
-                        Example:
-                        {
-                            "file_path": "/path/to/document.pdf",
-                            "tags": ["documentation", "manual"],
-                            "chunk_size": 1000
-                        }""",
+                        name="memory_ingest",
+                        description="""Ingest documents or directories into memory database.
+
+USE THIS WHEN:
+- User wants to import a document (PDF, TXT, MD, JSON)
+- Need to batch import a directory of documents
+- Building knowledge base from existing files
+
+SUPPORTED FORMATS:
+- PDF files (.pdf)
+- Text files (.txt, .md, .markdown, .rst)
+- JSON files (.json)
+
+MODE:
+- file: Ingest single document (requires file_path)
+- directory: Batch ingest all documents in directory (requires directory_path)
+
+CHUNKING:
+- Documents are split into chunks for better retrieval
+- chunk_size: Target characters per chunk (default: 1000)
+- chunk_overlap: Overlap between chunks (default: 200)
+
+Examples:
+{"file_path": "/path/to/document.pdf"}
+{"file_path": "/path/to/notes.md", "tags": ["documentation"]}
+{"directory_path": "/path/to/docs", "recursive": true}
+{"directory_path": "/path/to/project", "file_extensions": ["md", "txt"], "tags": ["project-docs"]}
+""",
                         inputSchema={
                             "type": "object",
                             "properties": {
                                 "file_path": {
                                     "type": "string",
-                                    "description": "Path to the document file to ingest."
+                                    "description": "Path to single document (for file mode)"
+                                },
+                                "directory_path": {
+                                    "type": "string",
+                                    "description": "Path to directory (for directory mode)"
                                 },
                                 "tags": {
-                                    "oneOf": [
-                                        {
-                                            "type": "array",
-                                            "items": {"type": "string"},
-                                            "description": "Tags as an array of strings"
-                                        },
-                                        {
-                                            "type": "string",
-                                            "description": "Tags as comma-separated string"
-                                        }
-                                    ],
-                                    "description": "Optional tags to apply to all memories created from this document. Accepts either an array of strings or a comma-separated string.",
-                                    "default": []
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "default": [],
+                                    "description": "Tags to apply to all ingested memories"
                                 },
                                 "chunk_size": {
-                                    "type": "number",
-                                    "description": "Target size for text chunks in characters (default: 1000).",
-                                    "default": 1000
+                                    "type": "integer",
+                                    "default": 1000,
+                                    "description": "Target chunk size in characters"
                                 },
                                 "chunk_overlap": {
-                                    "type": "number",
-                                    "description": "Characters to overlap between chunks (default: 200).",
-                                    "default": 200
+                                    "type": "integer",
+                                    "default": 200,
+                                    "description": "Overlap between chunks"
                                 },
                                 "memory_type": {
                                     "type": "string",
-                                    "description": "Type label for created memories (default: 'document').",
-                                    "default": "document"
-                                }
-                            },
-                            "required": ["file_path"]
-                        },
-                        annotations=types.ToolAnnotations(
-                            title="Ingest Document",
-                            destructiveHint=False,
-                        ),
-                    ),
-                    types.Tool(
-                        name="ingest_directory",
-                        description="""Batch ingest all supported documents from a directory.
-                        
-                        Recursively processes all supported file types in the directory,
-                        creating memories with consistent tagging and metadata.
-                        
-                        Supported formats: PDF, TXT, MD, JSON
-                        
-                        Example:
-                        {
-                            "directory_path": "/path/to/documents",
-                            "tags": ["knowledge-base"],
-                            "recursive": true,
-                            "file_extensions": ["pdf", "md", "txt"]
-                        }""",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "directory_path": {
-                                    "type": "string",
-                                    "description": "Path to the directory containing documents to ingest."
-                                },
-                                "tags": {
-                                    "oneOf": [
-                                        {
-                                            "type": "array",
-                                            "items": {"type": "string"},
-                                            "description": "Tags as an array of strings"
-                                        },
-                                        {
-                                            "type": "string",
-                                            "description": "Tags as comma-separated string"
-                                        }
-                                    ],
-                                    "description": "Optional tags to apply to all memories created. Accepts either an array of strings or a comma-separated string.",
-                                    "default": []
+                                    "default": "document",
+                                    "description": "Type label for created memories"
                                 },
                                 "recursive": {
                                     "type": "boolean",
-                                    "description": "Whether to process subdirectories recursively (default: true).",
-                                    "default": True
+                                    "default": true,
+                                    "description": "For directory mode: process subdirectories"
                                 },
                                 "file_extensions": {
                                     "type": "array",
                                     "items": {"type": "string"},
-                                    "description": "File extensions to process (default: all supported).",
-                                    "default": ["pdf", "txt", "md", "json"]
-                                },
-                                "chunk_size": {
-                                    "type": "number",
-                                    "description": "Target size for text chunks in characters (default: 1000).",
-                                    "default": 1000
+                                    "default": ["pdf", "txt", "md", "json"],
+                                    "description": "For directory mode: file types to process"
                                 },
                                 "max_files": {
-                                    "type": "number",
-                                    "description": "Maximum number of files to process (default: 100).",
-                                    "default": 100
+                                    "type": "integer",
+                                    "default": 100,
+                                    "description": "For directory mode: maximum files to process"
                                 }
-                            },
-                            "required": ["directory_path"]
+                            }
                         },
                         annotations=types.ToolAnnotations(
-                            title="Ingest Directory",
+                            title="Ingest Documents",
                             destructiveHint=False,
                         ),
                     )
@@ -2429,108 +2404,57 @@ Examples:
                 # Quality system tools
                 quality_tools = [
                     types.Tool(
-                        name="rate_memory",
-                        description="""Manually rate a memory's quality.
+                        name="memory_quality",
+                        description="""Memory quality management - rate, inspect, and analyze.
 
-                        Allows manual quality override with thumbs up/down rating.
-                        User ratings are weighted higher than AI scores in quality calculation.
+ACTIONS:
+- rate: Manually rate a memory's quality (thumbs up/down)
+- get: Get quality metrics for a specific memory
+- analyze: Analyze quality distribution across all memories
 
-                        Example:
-                        {
-                            "content_hash": "abc123def456",
-                            "rating": 1,
-                            "feedback": "Highly relevant information"
-                        }""",
+Examples:
+{"action": "rate", "content_hash": "abc123", "rating": 1, "feedback": "Very useful"}
+{"action": "get", "content_hash": "abc123"}
+{"action": "analyze"}
+{"action": "analyze", "min_quality": 0.5, "max_quality": 1.0}
+""",
                         inputSchema={
                             "type": "object",
                             "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "enum": ["rate", "get", "analyze"],
+                                    "description": "Quality action to perform"
+                                },
                                 "content_hash": {
                                     "type": "string",
-                                    "description": "Hash of the memory to rate"
+                                    "description": "Memory hash (required for rate/get)"
                                 },
                                 "rating": {
-                                    "type": "number",
-                                    "description": "Quality rating: -1 (thumbs down), 0 (neutral), 1 (thumbs up)",
-                                    "enum": [-1, 0, 1]
+                                    "type": "integer",
+                                    "enum": [-1, 0, 1],
+                                    "description": "For 'rate': -1 (thumbs down), 0 (neutral), 1 (thumbs up)"
                                 },
                                 "feedback": {
                                     "type": "string",
-                                    "description": "Optional feedback text explaining the rating",
-                                    "default": ""
-                                }
-                            },
-                            "required": ["content_hash", "rating"]
-                        },
-                        annotations=types.ToolAnnotations(
-                            title="Rate Memory",
-                            destructiveHint=True,
-                        ),
-                    ),
-                    types.Tool(
-                        name="get_memory_quality",
-                        description="""Get quality metrics for a specific memory.
-
-                        Returns comprehensive quality information including:
-                        - Current quality score (0.0-1.0)
-                        - Quality provider (which tier scored it)
-                        - Access count and last access time
-                        - Historical AI scores
-                        - User rating if present
-
-                        Example:
-                        {
-                            "content_hash": "abc123def456"
-                        }""",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "content_hash": {
-                                    "type": "string",
-                                    "description": "Hash of the memory to query"
-                                }
-                            },
-                            "required": ["content_hash"]
-                        },
-                        annotations=types.ToolAnnotations(
-                            title="Get Memory Quality",
-                            readOnlyHint=True,
-                        ),
-                    ),
-                    types.Tool(
-                        name="analyze_quality_distribution",
-                        description="""Analyze quality score distribution across all memories.
-
-                        Provides system-wide quality analytics including:
-                        - Total memory count
-                        - High/medium/low quality distribution
-                        - Average quality score
-                        - Provider breakdown (local/groq/gemini/implicit)
-                        - Top 10 highest scoring memories
-                        - Bottom 10 lowest scoring memories
-
-                        Example:
-                        {
-                            "min_quality": 0.0,
-                            "max_quality": 1.0
-                        }""",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
+                                    "description": "For 'rate': Optional feedback text"
+                                },
                                 "min_quality": {
                                     "type": "number",
-                                    "description": "Minimum quality threshold (default: 0.0)",
-                                    "default": 0.0
+                                    "default": 0.0,
+                                    "description": "For 'analyze': minimum quality threshold"
                                 },
                                 "max_quality": {
                                     "type": "number",
-                                    "description": "Maximum quality threshold (default: 1.0)",
-                                    "default": 1.0
+                                    "default": 1.0,
+                                    "description": "For 'analyze': maximum quality threshold"
                                 }
-                            }
+                            },
+                            "required": ["action"]
                         },
                         annotations=types.ToolAnnotations(
-                            title="Analyze Quality Distribution",
-                            readOnlyHint=True,
+                            title="Memory Quality",
+                            destructiveHint=False,
                         ),
                     )
                 ]
@@ -2540,105 +2464,59 @@ Examples:
                 # Graph traversal tools
                 graph_tools = [
                     types.Tool(
-                        name="find_connected_memories",
-                        description="""Find memories connected to a given memory via associations.
+                        name="memory_graph",
+                        description="""Memory association graph operations - explore connections between memories.
 
-                        Performs breadth-first traversal of the association graph up to
-                        max_hops distance, returning all connected memories with their
-                        distance from the source.
+ACTIONS:
+- connected: Find memories connected via associations (BFS traversal)
+- path: Find shortest path between two memories
+- subgraph: Get graph structure around a memory for visualization
 
-                        Example:
-                        {
-                            "hash": "abc123...",
-                            "max_hops": 2
-                        }""",
+Examples:
+{"action": "connected", "hash": "abc123", "max_hops": 2}
+{"action": "path", "hash1": "abc123", "hash2": "def456", "max_depth": 5}
+{"action": "subgraph", "hash": "abc123", "radius": 2}
+""",
                         inputSchema={
                             "type": "object",
                             "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "enum": ["connected", "path", "subgraph"],
+                                    "description": "Graph operation to perform"
+                                },
                                 "hash": {
                                     "type": "string",
-                                    "description": "Content hash of the starting memory"
+                                    "description": "Memory hash (for connected/subgraph)"
                                 },
-                                "max_hops": {
-                                    "type": "number",
-                                    "description": "Maximum number of hops to traverse (default: 2)",
-                                    "default": 2
-                                }
-                            },
-                            "required": ["hash"]
-                        },
-                        annotations=types.ToolAnnotations(
-                            title="Find Connected Memories",
-                            readOnlyHint=True,
-                        ),
-                    ),
-                    types.Tool(
-                        name="find_shortest_path",
-                        description="""Find shortest path between two memories in the association graph.
-
-                        Uses breadth-first search to find the shortest sequence of associations
-                        connecting two memories. Returns null if no path exists.
-
-                        Example:
-                        {
-                            "hash1": "abc123...",
-                            "hash2": "def456...",
-                            "max_depth": 5
-                        }""",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
                                 "hash1": {
                                     "type": "string",
-                                    "description": "Starting memory hash"
+                                    "description": "Start memory hash (for path)"
                                 },
                                 "hash2": {
                                     "type": "string",
-                                    "description": "Target memory hash"
+                                    "description": "End memory hash (for path)"
+                                },
+                                "max_hops": {
+                                    "type": "integer",
+                                    "default": 2,
+                                    "description": "For 'connected': max traversal depth"
                                 },
                                 "max_depth": {
-                                    "type": "number",
-                                    "description": "Maximum path length (default: 5)",
-                                    "default": 5
-                                }
-                            },
-                            "required": ["hash1", "hash2"]
-                        },
-                        annotations=types.ToolAnnotations(
-                            title="Find Shortest Path",
-                            readOnlyHint=True,
-                        ),
-                    ),
-                    types.Tool(
-                        name="get_memory_subgraph",
-                        description="""Get subgraph around a memory for visualization.
-
-                        Extracts all nodes and edges within the specified radius for
-                        graph visualization. Returns nodes (memory hashes) and edges
-                        (associations with metadata).
-
-                        Example:
-                        {
-                            "hash": "abc123...",
-                            "radius": 2
-                        }""",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "hash": {
-                                    "type": "string",
-                                    "description": "Center memory hash"
+                                    "type": "integer",
+                                    "default": 5,
+                                    "description": "For 'path': max path length"
                                 },
                                 "radius": {
-                                    "type": "number",
-                                    "description": "Number of hops to include (default: 2)",
-                                    "default": 2
+                                    "type": "integer",
+                                    "default": 2,
+                                    "description": "For 'subgraph': nodes to include"
                                 }
                             },
-                            "required": ["hash"]
+                            "required": ["action"]
                         },
                         annotations=types.ToolAnnotations(
-                            title="Get Memory Subgraph",
+                            title="Memory Graph",
                             readOnlyHint=True,
                         ),
                     )
@@ -2797,8 +2675,97 @@ Examples:
                     arguments = {k: v for k, v in arguments.items() if v is not None}
                     name = "memory_consolidate"
 
-                if name == "store_memory":
+                # Deprecation routing for simple renames
+                DEPRECATED_SIMPLE_RENAMES = {
+                    "store_memory": "memory_store",
+                    "check_database_health": "memory_health",
+                    "get_cache_stats": "memory_stats",
+                    "cleanup_duplicates": "memory_cleanup",
+                    "update_memory_metadata": "memory_update",
+                    "rate_memory": "memory_rate",
+                }
+
+                if name in DEPRECATED_SIMPLE_RENAMES:
+                    new_name = DEPRECATED_SIMPLE_RENAMES[name]
+                    logger.warning(f"Tool '{name}' is deprecated. Use '{new_name}' instead.")
+                    name = new_name
+
+                # Deprecation routing for list tools
+                if name == "search_by_tag":
+                    logger.warning(f"Tool 'search_by_tag' is deprecated. Use 'memory_list' instead.")
+                    # Convert tags parameter
+                    tags = arguments.get("tags")
+                    if tags:
+                        if isinstance(tags, str):
+                            tags = [t.strip() for t in tags.split(",")]
+                        arguments = {"tags": tags}
+                    name = "memory_list"
+
+                # Deprecation routing for ingest tools
+                if name == "ingest_document":
+                    logger.warning(f"Tool 'ingest_document' is deprecated. Use 'memory_ingest' instead.")
+                    name = "memory_ingest"
+                elif name == "ingest_directory":
+                    logger.warning(f"Tool 'ingest_directory' is deprecated. Use 'memory_ingest' instead.")
+                    name = "memory_ingest"
+
+                # Deprecation routing for quality tools
+                DEPRECATED_QUALITY_TOOLS = {
+                    "rate_memory": lambda a: {
+                        "action": "rate",
+                        "content_hash": a["content_hash"],
+                        "rating": a["rating"],
+                        "feedback": a.get("feedback", "")
+                    },
+                    "get_memory_quality": lambda a: {
+                        "action": "get",
+                        "content_hash": a["content_hash"]
+                    },
+                    "analyze_quality_distribution": lambda a: {
+                        "action": "analyze",
+                        "min_quality": a.get("min_quality", 0.0),
+                        "max_quality": a.get("max_quality", 1.0)
+                    },
+                }
+
+                if name in DEPRECATED_QUALITY_TOOLS:
+                    logger.warning(f"Tool '{name}' is deprecated. Use 'memory_quality' instead.")
+                    transformer = DEPRECATED_QUALITY_TOOLS[name]
+                    arguments = transformer(arguments)
+                    arguments = {k: v for k, v in arguments.items() if v is not None}
+                    name = "memory_quality"
+
+                # Deprecation routing for graph tools
+                DEPRECATED_GRAPH_TOOLS = {
+                    "find_connected_memories": lambda a: {
+                        "action": "connected",
+                        "hash": a["hash"],
+                        "max_hops": a.get("max_hops", 2)
+                    },
+                    "find_shortest_path": lambda a: {
+                        "action": "path",
+                        "hash1": a["hash1"],
+                        "hash2": a["hash2"],
+                        "max_depth": a.get("max_depth", 5)
+                    },
+                    "get_memory_subgraph": lambda a: {
+                        "action": "subgraph",
+                        "hash": a["hash"],
+                        "radius": a.get("radius", 2)
+                    },
+                }
+
+                if name in DEPRECATED_GRAPH_TOOLS:
+                    logger.warning(f"Tool '{name}' is deprecated. Use 'memory_graph' instead.")
+                    transformer = DEPRECATED_GRAPH_TOOLS[name]
+                    arguments = transformer(arguments)
+                    arguments = {k: v for k, v in arguments.items() if v is not None}
+                    name = "memory_graph"
+
+                if name == "memory_store":
                     return await self.handle_store_memory(arguments)
+                elif name == "memory_list":
+                    return await self.handle_memory_list(arguments)
                 elif name == "retrieve_memory":
                     return await self.handle_retrieve_memory(arguments)
                 elif name == "memory_search":
@@ -2819,7 +2786,7 @@ Examples:
                     return await self.handle_delete_by_tags(arguments)
                 elif name == "delete_by_all_tags":
                     return await self.handle_delete_by_all_tags(arguments)
-                elif name == "cleanup_duplicates":
+                elif name == "memory_cleanup":
                     return await self.handle_cleanup_duplicates(arguments)
                 elif name == "debug_retrieve":
                     return await self.handle_debug_retrieve(arguments)
@@ -2827,10 +2794,10 @@ Examples:
                     return await self.handle_exact_match_retrieve(arguments)
                 elif name == "get_raw_embedding":
                     return await self.handle_get_raw_embedding(arguments)
-                elif name == "check_database_health":
+                elif name == "memory_health":
                     logger.info("Calling handle_check_database_health")
                     return await self.handle_check_database_health(arguments)
-                elif name == "get_cache_stats":
+                elif name == "memory_stats":
                     logger.info("Calling handle_get_cache_stats")
                     return await self.handle_get_cache_stats(arguments)
                 elif name == "recall_by_timeframe":
@@ -2839,7 +2806,7 @@ Examples:
                     return await self.handle_delete_by_timeframe(arguments)
                 elif name == "delete_before_date":
                     return await self.handle_delete_before_date(arguments)
-                elif name == "update_memory_metadata":
+                elif name == "memory_update":
                     logger.info("Calling handle_update_memory_metadata")
                     return await self.handle_update_memory_metadata(arguments)
                 # Consolidation tool handlers
@@ -2867,6 +2834,9 @@ Examples:
                 elif name == "resume_consolidation":
                     logger.info("Calling handle_resume_consolidation")
                     return await self.handle_resume_consolidation(arguments)
+                elif name == "memory_ingest":
+                    logger.info("Calling handle_memory_ingest")
+                    return await self.handle_memory_ingest(arguments)
                 elif name == "ingest_document":
                     logger.info("Calling handle_ingest_document")
                     return await self.handle_ingest_document(arguments)
@@ -2874,7 +2844,10 @@ Examples:
                     logger.info("Calling handle_ingest_directory")
                     return await self.handle_ingest_directory(arguments)
                 # Quality system tool handlers
-                elif name == "rate_memory":
+                elif name == "memory_quality":
+                    logger.info("Calling handle_memory_quality")
+                    return await self.handle_memory_quality(arguments)
+                elif name == "memory_rate":
                     logger.info("Calling handle_rate_memory")
                     return await self.handle_rate_memory(arguments)
                 elif name == "get_memory_quality":
@@ -2884,6 +2857,9 @@ Examples:
                     logger.info("Calling handle_analyze_quality_distribution")
                     return await self.handle_analyze_quality_distribution(arguments)
                 # Graph traversal tool handlers
+                elif name == "memory_graph":
+                    logger.info("Calling handle_memory_graph")
+                    return await self.handle_memory_graph(arguments)
                 elif name == "find_connected_memories":
                     logger.info("Calling handle_find_connected_memories")
                     return await self.handle_find_connected_memories(arguments)
@@ -2921,6 +2897,11 @@ Examples:
         """Handle quality-boosted memory retrieval with reranking (delegates to handler)."""
         from .server.handlers import memory as memory_handlers
         return await memory_handlers.handle_retrieve_with_quality_boost(self, arguments)
+
+    async def handle_memory_list(self, arguments: dict) -> List[types.TextContent]:
+        """List memories with pagination and filters (delegates to handler)."""
+        from .server.handlers import memory as memory_handlers
+        return await memory_handlers.handle_memory_list(self, arguments)
 
     async def handle_search_by_tag(self, arguments: dict) -> List[types.TextContent]:
         """Search by tag (delegates to handler)."""
@@ -3048,6 +3029,11 @@ Examples:
         from .server.handlers import memory as memory_handlers
         return await memory_handlers.handle_delete_before_date(self, arguments)
 
+    async def handle_memory_ingest(self, arguments: dict) -> List[types.TextContent]:
+        """Handle unified document/directory ingestion (delegates to handler)."""
+        from .server.handlers import documents as document_handlers
+        return await document_handlers.handle_memory_ingest(self, arguments)
+
     async def handle_ingest_document(self, arguments: dict) -> List[types.TextContent]:
         """Handle document ingestion requests (delegates to handler)."""
         from .server.handlers import documents as document_handlers
@@ -3057,6 +3043,11 @@ Examples:
         """Handle directory ingestion requests (delegates to handler)."""
         from .server.handlers import documents as document_handlers
         return await document_handlers.handle_ingest_directory(self, arguments)
+
+    async def handle_memory_quality(self, arguments: dict) -> List[types.TextContent]:
+        """Unified quality management handler (delegates to handler)."""
+        from .server.handlers import quality as quality_handlers
+        return await quality_handlers.handle_memory_quality(self, arguments)
 
     async def handle_rate_memory(self, arguments: dict) -> List[types.TextContent]:
         """Handle memory quality rating (delegates to handler)."""
@@ -3072,6 +3063,11 @@ Examples:
         """Analyze quality distribution (delegates to handler)."""
         from .server.handlers import quality as quality_handlers
         return await quality_handlers.handle_analyze_quality_distribution(self, arguments)
+
+    async def handle_memory_graph(self, arguments: dict) -> List[types.TextContent]:
+        """Unified graph operations handler (delegates to handler)."""
+        from .server.handlers import graph as graph_handlers
+        return await graph_handlers.handle_memory_graph(self, arguments)
 
     async def handle_find_connected_memories(self, arguments: dict) -> List[types.TextContent]:
         """Find connected memories (delegates to handler)."""

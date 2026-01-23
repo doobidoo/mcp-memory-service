@@ -29,6 +29,60 @@ from mcp import types
 logger = logging.getLogger(__name__)
 
 
+async def handle_memory_quality(server, arguments: dict) -> List[types.TextContent]:
+    """Unified handler for quality management operations."""
+    action = arguments.get("action")
+
+    if not action:
+        return [types.TextContent(type="text", text="Error: action parameter is required")]
+
+    # Validate action
+    valid_actions = ["rate", "get", "analyze"]
+    if action not in valid_actions:
+        return [types.TextContent(
+            type="text",
+            text=f"Error: Invalid action '{action}'. Must be one of: {', '.join(valid_actions)}"
+        )]
+
+    try:
+        # Route to appropriate handler based on action
+        if action == "rate":
+            # Rate a memory
+            content_hash = arguments.get("content_hash")
+            if not content_hash:
+                return [types.TextContent(type="text", text="Error: content_hash is required for 'rate' action")]
+
+            return await handle_rate_memory(server, {
+                "content_hash": content_hash,
+                "rating": arguments.get("rating"),
+                "feedback": arguments.get("feedback", "")
+            })
+
+        elif action == "get":
+            # Get quality metrics
+            content_hash = arguments.get("content_hash")
+            if not content_hash:
+                return [types.TextContent(type="text", text="Error: content_hash is required for 'get' action")]
+
+            return await handle_get_memory_quality(server, {"content_hash": content_hash})
+
+        elif action == "analyze":
+            # Analyze quality distribution
+            return await handle_analyze_quality_distribution(server, {
+                "min_quality": arguments.get("min_quality", 0.0),
+                "max_quality": arguments.get("max_quality", 1.0)
+            })
+
+        else:
+            # Should never reach here due to validation above
+            return [types.TextContent(type="text", text=f"Error: Unknown action '{action}'")]
+
+    except Exception as e:
+        error_msg = f"Error in memory_quality action '{action}': {str(e)}"
+        logger.error(f"{error_msg}\n{traceback.format_exc()}")
+        return [types.TextContent(type="text", text=error_msg)]
+
+
 async def handle_rate_memory(server, arguments: dict) -> List[types.TextContent]:
     """Handle manual quality rating for a memory."""
     try:

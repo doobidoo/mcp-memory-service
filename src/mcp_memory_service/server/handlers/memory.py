@@ -402,6 +402,54 @@ async def handle_retrieve_with_quality_boost(server, arguments: dict) -> List[ty
         )]
 
 
+async def handle_memory_list(server, arguments: dict) -> List[types.TextContent]:
+    """Unified handler for listing memories with pagination and optional filters."""
+    from ...services.memory_service import normalize_tags
+    import json
+
+    try:
+        # Initialize storage when needed
+        await server._ensure_storage_initialized()
+
+        # Get parameters
+        page = arguments.get("page", 1)
+        page_size = arguments.get("page_size", 20)
+        tags = arguments.get("tags")
+        memory_type = arguments.get("memory_type")
+
+        # Normalize tags if provided
+        if tags:
+            tags = normalize_tags(tags)
+            # For list_memories, we need a single tag (legacy API)
+            # Use the first tag if multiple provided
+            tag = tags[0] if tags else None
+        else:
+            tag = None
+
+        # Call memory service list_memories
+        result = await server.memory_service.list_memories(
+            page=page,
+            page_size=page_size,
+            tag=tag,
+            memory_type=memory_type
+        )
+
+        # Check for errors
+        if result.get("error"):
+            return [types.TextContent(type="text", text=f"Error listing memories: {result['error']}")]
+
+        # Format response
+        return [types.TextContent(
+            type="text",
+            text=json.dumps(result, indent=2, default=str)
+        )]
+
+    except Exception as e:
+        error_msg = f"Error listing memories: {str(e)}"
+        logger.error(f"{error_msg}\n{traceback.format_exc()}")
+        return [types.TextContent(type="text", text=error_msg)]
+
+
 async def handle_search_by_tag(server, arguments: dict) -> List[types.TextContent]:
     from ...services.memory_service import normalize_tags
 

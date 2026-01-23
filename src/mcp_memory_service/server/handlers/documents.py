@@ -28,6 +28,32 @@ from mcp import types
 logger = logging.getLogger(__name__)
 
 
+async def handle_memory_ingest(server, arguments: dict) -> List[types.TextContent]:
+    """Unified handler for document/directory ingestion."""
+    import json
+
+    file_path = arguments.get("file_path")
+    directory_path = arguments.get("directory_path")
+
+    if file_path and directory_path:
+        return [types.TextContent(
+            type="text",
+            text=json.dumps({"error": "Provide either file_path OR directory_path, not both"}, indent=2)
+        )]
+
+    if file_path:
+        # Route to document ingestion
+        return await handle_ingest_document(server, arguments)
+    elif directory_path:
+        # Route to directory ingestion
+        return await handle_ingest_directory(server, arguments)
+    else:
+        return [types.TextContent(
+            type="text",
+            text=json.dumps({"error": "Either file_path or directory_path required"}, indent=2)
+        )]
+
+
 async def handle_ingest_document(server, arguments: dict) -> List[types.TextContent]:
     """Handle document ingestion requests."""
     try:
