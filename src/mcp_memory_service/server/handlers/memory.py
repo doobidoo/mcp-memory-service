@@ -578,6 +578,51 @@ async def handle_delete_by_all_tags(server, arguments: dict) -> List[types.TextC
         return [types.TextContent(type="text", text=f"Error deleting by all tags: {str(e)}")]
 
 
+async def handle_memory_delete(server, arguments: dict) -> List[types.TextContent]:
+    """Unified handler for memory deletion with flexible filtering."""
+    import json
+    from ...services.memory_service import normalize_tags
+
+    try:
+        # Initialize storage lazily when needed
+        storage = await server._ensure_storage_initialized()
+
+        # Normalize tags if present
+        tags = arguments.get("tags")
+        if tags:
+            tags = normalize_tags(tags)
+
+        # Call unified delete_memories method
+        result = await storage.delete_memories(
+            content_hash=arguments.get("content_hash"),
+            tags=tags,
+            tag_match=arguments.get("tag_match", "any"),
+            before=arguments.get("before"),
+            after=arguments.get("after"),
+            dry_run=arguments.get("dry_run", False)
+        )
+
+        # Format response
+        if result["success"]:
+            response = result["message"]
+            if result.get("dry_run"):
+                response += f"\n\nWould delete {result['deleted_count']} memories"
+                if result['deleted_count'] > 0:
+                    response += f"\nHashes: {', '.join(h[:16] + '...' for h in result['deleted_hashes'][:5])}"
+                    if result['deleted_count'] > 5:
+                        response += f" ... and {result['deleted_count'] - 5} more"
+            else:
+                response += f"\n\nDeleted {result['deleted_count']} memories"
+        else:
+            response = f"Error: {result.get('error', 'Unknown error')}"
+
+        return [types.TextContent(type="text", text=response)]
+
+    except Exception as e:
+        logger.error(f"Error in memory_delete: {str(e)}\n{traceback.format_exc()}")
+        return [types.TextContent(type="text", text=f"Error deleting memories: {str(e)}")]
+
+
 async def handle_cleanup_duplicates(server, arguments: dict) -> List[types.TextContent]:
     try:
         # Initialize storage lazily when needed
@@ -587,6 +632,120 @@ async def handle_cleanup_duplicates(server, arguments: dict) -> List[types.TextC
     except Exception as e:
         logger.error(f"Error cleaning up duplicates: {str(e)}\n{traceback.format_exc()}")
         return [types.TextContent(type="text", text=f"Error cleaning up duplicates: {str(e)}")]
+
+
+async def handle_memory_search(server, arguments: dict) -> List[types.TextContent]:
+    """Unified handler for memory search with flexible modes and filters."""
+    import json
+    from ...services.memory_service import normalize_tags
+
+    try:
+        # Initialize storage lazily when needed
+        storage = await server._ensure_storage_initialized()
+
+        # Normalize tags if present
+        tags = arguments.get("tags")
+        if tags:
+            tags = normalize_tags(tags)
+
+        # Get max_response_chars for truncation
+        max_response_chars = _get_max_response_chars(arguments)
+
+        # Call unified search_memories method
+        result = await storage.search_memories(
+            query=arguments.get("query"),
+            mode=arguments.get("mode", "semantic"),
+            time_expr=arguments.get("time_expr"),
+            after=arguments.get("after"),
+            before=arguments.get("before"),
+            tags=tags,
+            quality_boost=arguments.get("quality_boost", 0.0),
+            limit=arguments.get("limit", 10),
+            include_debug=arguments.get("include_debug", False)
+        )
+
+        # Check for errors
+        if "error" in result:
+            return [types.TextContent(type="text", text=f"Error: {result['error']}")]
+
+        memories = result["memories"]
+        total = result["total"]
+
+        # Apply truncation if needed
+        if max_response_chars > 0 and memories:
+            # Convert memories to dict format
+            memory_dicts = []
+            for memory in memories:
+                memory_dicts.append({
+                    'content': memory.content,
+                    'content_hash': memory.content_hash,
+                    'created_at': memory.created_at_iso if hasattr(memory, 'created_at_iso') else str(memory.created_at),
+                    'tags': memory.tags if memory.tags else [],
+                })
+
+            # Apply truncation
+            from ...utils.response_limiter import truncate_memories, format_truncated_response
+            truncated, meta = truncate_memories(memory_dicts, max_response_chars)
+
+            # Build header
+            header = f"Found {total} memories"
+            if result.get("mode"):
+                header += f" (mode: {result['mode']})"
+            if result.get("query"):
+                header += f" for query: '{result['query']}'"
+            header += "\n\n"
+
+            response_text = header + format_truncated_response(truncated, meta)
+            return [types.TextContent(type="text", text=response_text)]
+
+        # Format response without truncation
+        if not memories:
+            response = "No memories found"
+            if result.get("query"):
+                response += f" for query: '{result['query']}'"
+            return [types.TextContent(type="text", text=response)]
+
+        # Format memories
+        formatted_results = []
+        for idx, memory in enumerate(memories, 1):
+            created_at = memory.created_at_iso if hasattr(memory, 'created_at_iso') else str(memory.created_at)
+            tags_str = f" [{', '.join(memory.tags)}]" if memory.tags else ""
+
+            formatted_results.append(
+                f"{idx}. {memory.content}\n"
+                f"   Hash: {memory.content_hash[:16]}...\n"
+                f"   Created: {created_at}{tags_str}"
+            )
+
+        header = f"Found {total} memories"
+        if result.get("mode"):
+            header += f" (mode: {result['mode']})"
+        if result.get("query"):
+            header += f" for query: '{result['query']}'"
+
+        # Add debug info if present
+        if result.get("debug"):
+            debug = result["debug"]
+            header += f"\n\nDebug Info:"
+            header += f"\n  Pre-filter count: {debug.get('pre_filter_count', 'N/A')}"
+            header += f"\n  Post-filter count: {debug.get('post_filter_count', 'N/A')}"
+            if debug.get('quality_boost'):
+                header += f"\n  Quality boost: {debug['quality_boost']}"
+            if debug.get('time_filter'):
+                tf = debug['time_filter']
+                if tf.get('time_expr'):
+                    header += f"\n  Time expression: {tf['time_expr']}"
+                if tf.get('start_timestamp') or tf.get('end_timestamp'):
+                    header += f"\n  Time range: {tf.get('start_timestamp')} - {tf.get('end_timestamp')}"
+
+        return [types.TextContent(
+            type="text",
+            text=header + "\n\n" + "\n\n".join(formatted_results)
+        )]
+
+    except Exception as e:
+        logger.error(f"Error in memory_search: {str(e)}\n{traceback.format_exc()}")
+        return [types.TextContent(type="text", text=f"Error searching memories: {str(e)}")]
 
 
 async def handle_update_memory_metadata(server, arguments: dict) -> List[types.TextContent]:

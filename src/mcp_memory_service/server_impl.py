@@ -1349,6 +1349,114 @@ class MemoryServer:
                         ),
                     ),
                     types.Tool(
+                        name="memory_search",
+                        description="""Search memories with flexible modes and filters. Primary tool for finding stored information.
+
+USE THIS WHEN:
+- User asks "what do you remember about X", "recall", "find memories"
+- Looking for past decisions, preferences, context from previous sessions
+- Need semantic, exact, or time-based search
+- User references "last time we discussed", "you should know"
+
+MODES:
+- semantic (default): Finds conceptually similar content even if exact words differ
+- exact: Finds memories containing the exact query string
+- hybrid: Combines semantic similarity with quality scoring
+
+TIME FILTERS (can combine with other filters):
+- time_expr: Natural language like "yesterday", "last week", "2 days ago", "last month"
+- after/before: Explicit ISO dates (YYYY-MM-DD)
+
+QUALITY BOOST (for semantic/hybrid modes):
+- 0.0 = pure semantic ranking (default)
+- 0.3 = 30% quality weight, 70% semantic (recommended for important lookups)
+- 1.0 = pure quality ranking
+
+TAG FILTER:
+- Filter results to only memories with specific tags
+- Useful for categorical searches ("find all 'reference' memories about databases")
+
+DEBUG:
+- include_debug=true adds timing, embedding info, filter details
+
+Examples:
+{"query": "python async patterns"}
+{"query": "API endpoint", "mode": "exact"}
+{"time_expr": "last week", "limit": 20}
+{"query": "database config", "time_expr": "yesterday"}
+{"query": "architecture decisions", "tags": ["important"], "quality_boost": 0.3}
+{"after": "2024-01-01", "before": "2024-06-30", "limit": 50}
+{"query": "error handling", "include_debug": true}""",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "Search query (required for semantic/exact modes, optional for time-only searches)"
+                                },
+                                "mode": {
+                                    "type": "string",
+                                    "enum": ["semantic", "exact", "hybrid"],
+                                    "default": "semantic",
+                                    "description": "Search mode"
+                                },
+                                "time_expr": {
+                                    "type": "string",
+                                    "description": "Natural language time filter (e.g., 'last week', 'yesterday', '3 days ago')"
+                                },
+                                "after": {
+                                    "type": "string",
+                                    "description": "Return memories created after this date (ISO format: YYYY-MM-DD)"
+                                },
+                                "before": {
+                                    "type": "string",
+                                    "description": "Return memories created before this date (ISO format: YYYY-MM-DD)"
+                                },
+                                "tags": {
+                                    "oneOf": [
+                                        {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "description": "Tags as an array of strings"
+                                        },
+                                        {
+                                            "type": "string",
+                                            "description": "Tags as comma-separated string"
+                                        }
+                                    ],
+                                    "description": "Filter to memories with any of these tags"
+                                },
+                                "quality_boost": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1,
+                                    "default": 0,
+                                    "description": "Quality weight for reranking (0.0-1.0)"
+                                },
+                                "limit": {
+                                    "type": "integer",
+                                    "default": 10,
+                                    "minimum": 1,
+                                    "maximum": 100,
+                                    "description": "Maximum results to return"
+                                },
+                                "include_debug": {
+                                    "type": "boolean",
+                                    "default": false,
+                                    "description": "Include debug information in response"
+                                },
+                                "max_response_chars": {
+                                    "type": "number",
+                                    "description": "Maximum response size in characters. Truncates at memory boundaries to prevent context overflow. Recommended: 30000-50000. Default: unlimited."
+                                }
+                            }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Search Memories (Unified)",
+                            readOnlyHint=True,
+                        ),
+                    ),
+                    types.Tool(
                         name="retrieve_with_quality_boost",
                         description="""Search memories with quality-based reranking.
 
@@ -1462,6 +1570,80 @@ class MemoryServer:
                         },
                         annotations=types.ToolAnnotations(
                             title="Delete Memory",
+                            destructiveHint=True,
+                        ),
+                    ),
+                    types.Tool(
+                        name="memory_delete",
+                        description="""Delete memories with flexible filtering. Combine filters for precise targeting.
+
+USE THIS WHEN:
+- User says "delete", "remove", "forget" specific memories
+- Need to clean up by tag, time range, or specific hash
+- Bulk deletion with safety preview (dry_run=true)
+
+FILTER COMBINATIONS (AND logic when multiple specified):
+- content_hash only: Delete single memory by hash
+- tags only: Delete memories with matching tags
+- before/after: Delete memories in time range
+- tags + time: Delete tagged memories within time range
+
+SAFETY FEATURES:
+- dry_run=true: Preview what will be deleted without deleting
+- Returns deleted_hashes for audit trail
+- No filters = error (prevents accidental mass deletion)
+
+Examples:
+{"content_hash": "abc123def456"}
+{"tags": ["temporary", "draft"], "tag_match": "any"}
+{"tags": ["archived", "old"], "tag_match": "all"}
+{"before": "2024-01-01"}
+{"after": "2024-06-01", "before": "2024-12-31"}
+{"tags": ["cleanup"], "before": "2024-01-01", "dry_run": true}""",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "content_hash": {
+                                    "type": "string",
+                                    "description": "Specific memory hash to delete (ignores other filters if provided)"
+                                },
+                                "tags": {
+                                    "oneOf": [
+                                        {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "description": "Tags as an array of strings"
+                                        },
+                                        {
+                                            "type": "string",
+                                            "description": "Tags as comma-separated string"
+                                        }
+                                    ],
+                                    "description": "Filter by these tags"
+                                },
+                                "tag_match": {
+                                    "type": "string",
+                                    "enum": ["any", "all"],
+                                    "default": "any",
+                                    "description": "Match ANY tag or ALL tags"
+                                },
+                                "before": {
+                                    "type": "string",
+                                    "description": "Delete memories created before this date (ISO format: YYYY-MM-DD)"
+                                },
+                                "after": {
+                                    "type": "string",
+                                    "description": "Delete memories created after this date (ISO format: YYYY-MM-DD)"
+                                },
+                                "dry_run": {
+                                    "type": "boolean",
+                                    "default": false,
+                                    "description": "Preview deletions without executing"
+                                }
+                            }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Delete Memories (Unified)",
                             destructiveHint=True,
                         ),
                     ),
@@ -1909,6 +2091,80 @@ class MemoryServer:
                             },
                             annotations=types.ToolAnnotations(
                                 title="Consolidate Memories",
+                                destructiveHint=True,
+                            ),
+                        ),
+                        types.Tool(
+                            name="memory_consolidate",
+                            description="""Memory consolidation management - run, monitor, and control memory optimization.
+
+USE THIS WHEN:
+- User asks about memory optimization, cleanup, or consolidation
+- Need to check consolidation system health
+- Want to manually trigger or schedule consolidation
+- Need to pause/resume consolidation jobs
+
+ACTIONS:
+- run: Execute consolidation for a time horizon (requires time_horizon)
+  Performs dream-inspired memory consolidation:
+  • Exponential decay scoring
+  • Creative association discovery
+  • Semantic clustering and compression
+  • Controlled forgetting with archival
+
+- status: Get consolidation system health and statistics
+
+- recommend: Get optimization recommendations for a time horizon (requires time_horizon)
+  Analyzes memory state and suggests whether consolidation is needed
+
+- scheduler: View all scheduled consolidation jobs
+  Shows next run times and execution statistics
+
+- pause: Pause consolidation (all or specific horizon)
+  Temporarily stops automatic consolidation jobs
+
+- resume: Resume paused consolidation
+  Re-enables previously paused consolidation jobs
+
+TIME HORIZONS:
+- daily: Consolidate last 24 hours
+- weekly: Consolidate last 7 days
+- monthly: Consolidate last 30 days
+- quarterly: Consolidate last 90 days
+- yearly: Consolidate last 365 days
+
+Examples:
+{"action": "status"}
+{"action": "run", "time_horizon": "weekly"}
+{"action": "run", "time_horizon": "daily", "immediate": true}
+{"action": "recommend", "time_horizon": "monthly"}
+{"action": "scheduler"}
+{"action": "pause"}
+{"action": "pause", "time_horizon": "daily"}
+{"action": "resume", "time_horizon": "weekly"}""",
+                            inputSchema={
+                                "type": "object",
+                                "properties": {
+                                    "action": {
+                                        "type": "string",
+                                        "enum": ["run", "status", "recommend", "scheduler", "pause", "resume"],
+                                        "description": "Consolidation action to perform"
+                                    },
+                                    "time_horizon": {
+                                        "type": "string",
+                                        "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"],
+                                        "description": "Time horizon (required for run/recommend, optional for pause/resume)"
+                                    },
+                                    "immediate": {
+                                        "type": "boolean",
+                                        "default": true,
+                                        "description": "For 'run' action: execute immediately vs schedule for later"
+                                    }
+                                },
+                                "required": ["action"]
+                            },
+                            annotations=types.ToolAnnotations(
+                                title="Consolidate Memories (Unified)",
                                 destructiveHint=True,
                             ),
                         ),
@@ -2408,15 +2664,145 @@ class MemoryServer:
             try:
                 if arguments is None:
                     arguments = {}
-                
+
                 logger.info(f"Processing tool: {name}")
                 if MCP_CLIENT == 'lm_studio':
                     print(f"Processing tool: {name}", file=sys.stdout, flush=True)
-                
+
+                # Deprecation routing for consolidated delete tools
+                DEPRECATED_DELETE_TOOLS = {
+                    "delete_by_tag": lambda a: {
+                        "tags": [a["tags"]] if isinstance(a.get("tags"), str) and "," not in a["tags"] else a["tags"],
+                        "tag_match": "any"
+                    },
+                    "delete_by_tags": lambda a: {
+                        "tags": a["tags"],
+                        "tag_match": "any"
+                    },
+                    "delete_by_all_tags": lambda a: {
+                        "tags": a["tags"],
+                        "tag_match": "all"
+                    },
+                    "delete_by_timeframe": lambda a: {
+                        "after": a.get("start_date"),
+                        "before": a.get("end_date"),
+                        "tags": [a["tag"]] if a.get("tag") else None
+                    },
+                    "delete_before_date": lambda a: {
+                        "before": a["before_date"],
+                        "tags": [a["tag"]] if a.get("tag") else None
+                    },
+                }
+
+                # Deprecation routing for consolidated search tools
+                DEPRECATED_SEARCH_TOOLS = {
+                    "retrieve_memory": lambda a: {
+                        "query": a["query"],
+                        "limit": a.get("n_results", 5),
+                        "mode": "semantic",
+                        "max_response_chars": a.get("max_response_chars")
+                    },
+                    "recall_memory": lambda a: {
+                        "query": a.get("query"),
+                        "time_expr": a.get("query"),  # query contains the time expression
+                        "limit": a.get("n_results", 5),
+                        "mode": "semantic",
+                        "max_response_chars": a.get("max_response_chars")
+                    },
+                    "recall_by_timeframe": lambda a: {
+                        "after": a.get("start_date"),
+                        "before": a.get("end_date"),
+                        "limit": a.get("n_results", 5),
+                        "max_response_chars": a.get("max_response_chars")
+                    },
+                    "retrieve_with_quality_boost": lambda a: {
+                        "query": a["query"],
+                        "quality_boost": a.get("quality_weight", 0.3),
+                        "limit": a.get("n_results", 10),
+                        "mode": "hybrid",
+                        "max_response_chars": a.get("max_response_chars")
+                    },
+                    "exact_match_retrieve": lambda a: {
+                        "query": a["content"],
+                        "mode": "exact"
+                    },
+                    "debug_retrieve": lambda a: {
+                        "query": a["query"],
+                        "limit": a.get("n_results", 5),
+                        "include_debug": True,
+                        "max_response_chars": a.get("max_response_chars")
+                    },
+                }
+
+                if name in DEPRECATED_DELETE_TOOLS:
+                    logger.warning(f"Tool '{name}' is deprecated. Use 'memory_delete' instead.")
+                    transformer = DEPRECATED_DELETE_TOOLS[name]
+                    arguments = transformer(arguments)
+                    # Filter out None values
+                    arguments = {k: v for k, v in arguments.items() if v is not None}
+                    name = "memory_delete"
+
+                # Deprecation routing for consolidated consolidation tools
+                DEPRECATED_CONSOLIDATION_TOOLS = {
+                    "consolidate_memories": lambda a: {
+                        "action": "run",
+                        "time_horizon": a["time_horizon"]
+                    },
+                    "consolidation_status": lambda a: {
+                        "action": "status"
+                    },
+                    "consolidation_recommendations": lambda a: {
+                        "action": "recommend",
+                        "time_horizon": a["time_horizon"]
+                    },
+                    "scheduler_status": lambda a: {
+                        "action": "scheduler"
+                    },
+                    "trigger_consolidation": lambda a: {
+                        "action": "run",
+                        "time_horizon": a["time_horizon"],
+                        "immediate": a.get("immediate", True)
+                    },
+                    "pause_consolidation": lambda a: {
+                        "action": "pause",
+                        "time_horizon": a.get("time_horizon")
+                    },
+                    "resume_consolidation": lambda a: {
+                        "action": "resume",
+                        "time_horizon": a.get("time_horizon")
+                    },
+                }
+
+                if name in DEPRECATED_DELETE_TOOLS:
+                    logger.warning(f"Tool '{name}' is deprecated. Use 'memory_delete' instead.")
+                    transformer = DEPRECATED_DELETE_TOOLS[name]
+                    arguments = transformer(arguments)
+                    # Filter out None values
+                    arguments = {k: v for k, v in arguments.items() if v is not None}
+                    name = "memory_delete"
+
+                if name in DEPRECATED_SEARCH_TOOLS:
+                    logger.warning(f"Tool '{name}' is deprecated. Use 'memory_search' instead.")
+                    transformer = DEPRECATED_SEARCH_TOOLS[name]
+                    arguments = transformer(arguments)
+                    # Filter out None values
+                    arguments = {k: v for k, v in arguments.items() if v is not None}
+                    name = "memory_search"
+
+                if name in DEPRECATED_CONSOLIDATION_TOOLS:
+                    logger.warning(f"Tool '{name}' is deprecated. Use 'memory_consolidate' instead.")
+                    transformer = DEPRECATED_CONSOLIDATION_TOOLS[name]
+                    arguments = transformer(arguments)
+                    # Filter out None values
+                    arguments = {k: v for k, v in arguments.items() if v is not None}
+                    name = "memory_consolidate"
+
                 if name == "store_memory":
                     return await self.handle_store_memory(arguments)
                 elif name == "retrieve_memory":
                     return await self.handle_retrieve_memory(arguments)
+                elif name == "memory_search":
+                    return await self.handle_memory_search(arguments)
                 elif name == "retrieve_with_quality_boost":
                     return await self.handle_retrieve_with_quality_boost(arguments)
                 elif name == "recall_memory":
@@ -2425,6 +2811,8 @@ class MemoryServer:
                     return await self.handle_search_by_tag(arguments)
                 elif name == "delete_memory":
                     return await self.handle_delete_memory(arguments)
+                elif name == "memory_delete":
+                    return await self.handle_memory_delete(arguments)
                 elif name == "delete_by_tag":
                     return await self.handle_delete_by_tag(arguments)
                 elif name == "delete_by_tags":
@@ -2458,6 +2846,9 @@ class MemoryServer:
                 elif name == "consolidate_memories":
                     logger.info("Calling handle_consolidate_memories")
                     return await self.handle_consolidate_memories(arguments)
+                elif name == "memory_consolidate":
+                    logger.info("Calling handle_memory_consolidate")
+                    return await self.handle_memory_consolidate(arguments)
                 elif name == "consolidation_status":
                     logger.info("Calling handle_consolidation_status")
                     return await self.handle_consolidation_status(arguments)
@@ -2521,6 +2912,11 @@ class MemoryServer:
         from .server.handlers import memory as memory_handlers
         return await memory_handlers.handle_retrieve_memory(self, arguments)
 
+    async def handle_memory_search(self, arguments: dict) -> List[types.TextContent]:
+        """Unified memory search (delegates to handler)."""
+        from .server.handlers import memory as memory_handlers
+        return await memory_handlers.handle_memory_search(self, arguments)
+
     async def handle_retrieve_with_quality_boost(self, arguments: dict) -> List[types.TextContent]:
         """Handle quality-boosted memory retrieval with reranking (delegates to handler)."""
         from .server.handlers import memory as memory_handlers
@@ -2535,6 +2931,11 @@ class MemoryServer:
         """Delete memory (delegates to handler)."""
         from .server.handlers import memory as memory_handlers
         return await memory_handlers.handle_delete_memory(self, arguments)
+
+    async def handle_memory_delete(self, arguments: dict) -> List[types.TextContent]:
+        """Unified memory deletion (delegates to handler)."""
+        from .server.handlers import memory as memory_handlers
+        return await memory_handlers.handle_memory_delete(self, arguments)
 
     async def handle_delete_by_tag(self, arguments: dict) -> List[types.TextContent]:
         """Handler for deleting memories by tags (delegates to handler)."""
@@ -2566,6 +2967,11 @@ class MemoryServer:
         """Handle memory consolidation requests (delegates to handler)."""
         from .server.handlers import consolidation as consolidation_handlers
         return await consolidation_handlers.handle_consolidate_memories(self, arguments)
+
+    async def handle_memory_consolidate(self, arguments: dict) -> List[types.TextContent]:
+        """Unified memory consolidation management (delegates to handler)."""
+        from .server.handlers import consolidation as consolidation_handlers
+        return await consolidation_handlers.handle_memory_consolidate(self, arguments)
 
     async def handle_consolidation_status(self, arguments: dict) -> List[types.TextContent]:
         """Handle consolidation status requests (delegates to handler)."""

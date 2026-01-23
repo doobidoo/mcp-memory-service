@@ -18,6 +18,7 @@ Copyright (c) 2024 Heinrich Krupp
 Licensed under the MIT License. See LICENSE file in the project root for full license text.
 """
 import asyncio
+import warnings
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone, timedelta, date
@@ -380,6 +381,234 @@ class MemoryStorage(ABC):
 
         return total_count, f"Deleted {total_count} memories across {len(tags)} tag(s)"
 
+    async def delete_memories(
+        self,
+        content_hash: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        tag_match: str = "any",
+        before: Optional[str] = None,
+        after: Optional[str] = None,
+        dry_run: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Unified memory deletion with flexible filtering.
+
+        This method consolidates all delete operations into a single flexible interface.
+        Combines filters with AND logic for precise targeting.
+
+        Args:
+            content_hash: Specific memory hash to delete (ignores other filters if provided)
+            tags: List of tags to filter by
+            tag_match: "any" to match ANY tag, "all" to match ALL tags (default: "any")
+            before: Delete memories created before this ISO date (YYYY-MM-DD)
+            after: Delete memories created after this ISO date (YYYY-MM-DD)
+            dry_run: If True, preview deletions without executing (default: False)
+
+        Returns:
+            Dictionary with:
+                - success: bool
+                - deleted_count: int
+                - deleted_hashes: List[str] (if dry_run, shows what would be deleted)
+                - dry_run: bool
+                - message: str
+
+        Filter Logic:
+            - If content_hash: Delete single memory (ignores other filters)
+            - If tags: Filter by tags using tag_match mode
+            - If before/after: Filter by time range
+            - Multiple filters combine with AND logic
+            - dry_run: Preview deletions without executing
+
+        Examples:
+            # Delete single memory
+            await storage.delete_memories(content_hash="abc123")
+
+            # Delete by tags (ANY match)
+            await storage.delete_memories(tags=["temporary", "draft"])
+
+            # Delete by tags (ALL match)
+            await storage.delete_memories(tags=["archived", "old"], tag_match="all")
+
+            # Delete by time range
+            await storage.delete_memories(before="2024-01-01")
+            await storage.delete_memories(after="2024-06-01", before="2024-12-31")
+
+            # Combined filters
+            await storage.delete_memories(tags=["cleanup"], before="2024-01-01")
+
+            # Dry run preview
+            await storage.delete_memories(tags=["test"], dry_run=True)
+        """
+        try:
+            # Validate tag_match parameter
+            if tag_match not in ("any", "all"):
+                return {
+                    "success": False,
+                    "deleted_count": 0,
+                    "deleted_hashes": [],
+                    "dry_run": dry_run,
+                    "error": f"Invalid tag_match: {tag_match}. Must be 'any' or 'all'"
+                }
+
+            # Case 1: Delete single memory by hash
+            if content_hash:
+                if dry_run:
+                    # Check if memory exists
+                    memory = await self.get_by_hash(content_hash)
+                    if memory:
+                        return {
+                            "success": True,
+                            "deleted_count": 1,
+                            "deleted_hashes": [content_hash],
+                            "dry_run": True,
+                            "message": f"Would delete 1 memory with hash: {content_hash}"
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "deleted_count": 0,
+                            "deleted_hashes": [],
+                            "dry_run": True,
+                            "error": f"Memory not found: {content_hash}"
+                        }
+
+                # Execute deletion
+                success, message = await self.delete(content_hash)
+                return {
+                    "success": success,
+                    "deleted_count": 1 if success else 0,
+                    "deleted_hashes": [content_hash] if success else [],
+                    "dry_run": False,
+                    "message": message if success else message,
+                    "error": message if not success else None
+                }
+
+            # Case 2: No filters provided - error to prevent accidental mass deletion
+            if not tags and not before and not after:
+                return {
+                    "success": False,
+                    "deleted_count": 0,
+                    "deleted_hashes": [],
+                    "dry_run": dry_run,
+                    "error": "At least one filter required (content_hash, tags, before, or after)"
+                }
+
+            # Case 3: Filter-based deletion (tags and/or time range)
+            # Get all memories first for filtering
+            all_memories = await self.list_memories()
+
+            # Apply filters
+            filtered_memories = []
+            for memory in all_memories:
+                # Tag filter
+                if tags:
+                    if tag_match == "any":
+                        # Match ANY tag
+                        if not any(tag in memory.tags for tag in tags):
+                            continue
+                    else:  # tag_match == "all"
+                        # Match ALL tags
+                        if not all(tag in memory.tags for tag in tags):
+                            continue
+
+                # Time filters
+                if before or after:
+                    # Parse memory creation time
+                    try:
+                        memory_date = datetime.fromisoformat(memory.created_at_iso.replace('Z', '+00:00')).date()
+                    except Exception:
+                        # Skip memories with invalid timestamps
+                        continue
+
+                    if before:
+                        try:
+                            before_date = datetime.fromisoformat(before).date()
+                            if memory_date >= before_date:
+                                continue
+                        except ValueError:
+                            return {
+                                "success": False,
+                                "deleted_count": 0,
+                                "deleted_hashes": [],
+                                "dry_run": dry_run,
+                                "error": f"Invalid before date format: {before}. Use YYYY-MM-DD"
+                            }
+
+                    if after:
+                        try:
+                            after_date = datetime.fromisoformat(after).date()
+                            if memory_date <= after_date:
+                                continue
+                        except ValueError:
+                            return {
+                                "success": False,
+                                "deleted_count": 0,
+                                "deleted_hashes": [],
+                                "dry_run": dry_run,
+                                "error": f"Invalid after date format: {after}. Use YYYY-MM-DD"
+                            }
+
+                # Memory passed all filters
+                filtered_memories.append(memory)
+
+            # Dry run: return what would be deleted
+            if dry_run:
+                deleted_hashes = [m.content_hash for m in filtered_memories]
+                return {
+                    "success": True,
+                    "deleted_count": len(filtered_memories),
+                    "deleted_hashes": deleted_hashes,
+                    "dry_run": True,
+                    "message": f"Would delete {len(filtered_memories)} memories"
+                }
+
+            # Execute deletions
+            deleted_count = 0
+            deleted_hashes = []
+            errors = []
+
+            for memory in filtered_memories:
+                try:
+                    success, msg = await self.delete(memory.content_hash)
+                    if success:
+                        deleted_count += 1
+                        deleted_hashes.append(memory.content_hash)
+                    else:
+                        errors.append(f"{memory.content_hash}: {msg}")
+                except Exception as e:
+                    errors.append(f"{memory.content_hash}: {str(e)}")
+
+            # Build response
+            if errors:
+                error_summary = "; ".join(errors[:3])
+                if len(errors) > 3:
+                    error_summary += f" (+{len(errors) - 3} more errors)"
+                return {
+                    "success": deleted_count > 0,
+                    "deleted_count": deleted_count,
+                    "deleted_hashes": deleted_hashes,
+                    "dry_run": False,
+                    "message": f"Deleted {deleted_count} memories with {len(errors)} failures",
+                    "error": error_summary
+                }
+
+            return {
+                "success": True,
+                "deleted_count": deleted_count,
+                "deleted_hashes": deleted_hashes,
+                "dry_run": False,
+                "message": f"Successfully deleted {deleted_count} memories"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "deleted_count": 0,
+                "deleted_hashes": [],
+                "dry_run": dry_run,
+                "error": f"Delete operation failed: {str(e)}"
+            }
+
     @abstractmethod
     async def cleanup_duplicates(self) -> Tuple[int, str]:
         """Remove duplicate memories. Returns (count_removed, message)."""
@@ -615,3 +844,290 @@ class MemoryStorage(ABC):
             }
         """
         return {"nodes": [], "edges": []}
+
+    async def search_memories(
+        self,
+        query: Optional[str] = None,
+        mode: str = "semantic",
+        time_expr: Optional[str] = None,
+        after: Optional[str] = None,
+        before: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        quality_boost: float = 0.0,
+        limit: int = 10,
+        include_debug: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Unified memory search with flexible modes and filters.
+
+        This method consolidates all search/retrieve operations into a single flexible interface.
+        Supports semantic search, exact matching, time-based filtering, tag filtering, and
+        quality-based reranking.
+
+        Args:
+            query: Search query string (required for semantic/exact modes, optional for time-only)
+            mode: Search mode - "semantic" (default), "exact", or "hybrid"
+            time_expr: Natural language time filter (e.g., "last week", "yesterday", "2 days ago")
+            after: Return memories created after this ISO date (YYYY-MM-DD)
+            before: Return memories created before this ISO date (YYYY-MM-DD)
+            tags: Filter to memories with any of these tags
+            quality_boost: Quality weight for reranking 0.0-1.0 (0.0=pure semantic, 1.0=pure quality)
+            limit: Maximum number of results to return (default: 10)
+            include_debug: Include debug information in response (default: False)
+
+        Returns:
+            Dictionary with:
+                - memories: List[Memory] - Matching memories
+                - total: int - Number of results
+                - query: str - The query used
+                - mode: str - The search mode used
+                - debug: Dict (if include_debug=True) - Debug information
+
+        Modes:
+            - semantic: Vector similarity search (default) - finds conceptually similar content
+            - exact: Exact string match in content - finds memories containing the exact query
+            - hybrid: Semantic search with quality-based reranking
+
+        Time Filters:
+            - time_expr: Natural language like "yesterday", "last week", "2 days ago", "last month"
+            - after/before: Explicit ISO dates (YYYY-MM-DD)
+            - If both time_expr and after/before provided, time_expr takes precedence
+
+        Quality Boost (for semantic/hybrid modes):
+            - 0.0: Pure semantic ranking (default)
+            - 0.3: 30% quality weight, 70% semantic (recommended for important lookups)
+            - 1.0: Pure quality ranking
+
+        Examples:
+            # Semantic search
+            await storage.search_memories(query="python async patterns")
+
+            # Exact match
+            await storage.search_memories(query="async def", mode="exact")
+
+            # Time-based
+            await storage.search_memories(time_expr="last week", limit=20)
+
+            # Combined filters
+            await storage.search_memories(
+                query="database config",
+                time_expr="yesterday",
+                tags=["important"]
+            )
+
+            # Quality-boosted search
+            await storage.search_memories(
+                query="architecture decisions",
+                tags=["important"],
+                quality_boost=0.3,
+                mode="hybrid"
+            )
+
+            # Time range search
+            await storage.search_memories(
+                after="2024-01-01",
+                before="2024-06-30",
+                limit=50
+            )
+
+            # Debug mode
+            await storage.search_memories(
+                query="error handling",
+                include_debug=True
+            )
+        """
+        try:
+            # Validate mode
+            if mode not in ("semantic", "exact", "hybrid"):
+                return {
+                    "memories": [],
+                    "total": 0,
+                    "query": query,
+                    "mode": mode,
+                    "error": f"Invalid mode: {mode}. Must be 'semantic', 'exact', or 'hybrid'"
+                }
+
+            # Validate quality_boost
+            if not 0.0 <= quality_boost <= 1.0:
+                return {
+                    "memories": [],
+                    "total": 0,
+                    "query": query,
+                    "mode": mode,
+                    "error": f"Invalid quality_boost: {quality_boost}. Must be 0.0-1.0"
+                }
+
+            pre_filter_count = 0
+            start_time = None
+            end_time = None
+
+            # Parse time expression if provided
+            if time_expr:
+                try:
+                    from ..utils.time_parser import extract_time_expression
+                    # Extract time range from natural language
+                    _, (start_timestamp, end_timestamp) = extract_time_expression(time_expr)
+                    start_time = start_timestamp
+                    end_time = end_timestamp
+                except Exception as e:
+                    logger.warning(f"Failed to parse time expression '{time_expr}': {e}")
+                    # Continue without time filter rather than failing
+
+            # Use explicit after/before if no time_expr
+            if not time_expr:
+                if after:
+                    try:
+                        after_date = datetime.fromisoformat(after)
+                        start_time = after_date.timestamp()
+                    except ValueError:
+                        return {
+                            "memories": [],
+                            "total": 0,
+                            "query": query,
+                            "mode": mode,
+                            "error": f"Invalid after date format: {after}. Use YYYY-MM-DD"
+                        }
+
+                if before:
+                    try:
+                        before_date = datetime.fromisoformat(before)
+                        end_time = before_date.timestamp()
+                    except ValueError:
+                        return {
+                            "memories": [],
+                            "total": 0,
+                            "query": query,
+                            "mode": mode,
+                            "error": f"Invalid before date format: {before}. Use YYYY-MM-DD"
+                        }
+
+            # Perform search based on mode
+            results = []
+
+            if mode == "exact":
+                # Exact string match
+                if not query:
+                    return {
+                        "memories": [],
+                        "total": 0,
+                        "query": query,
+                        "mode": mode,
+                        "error": "query required for exact mode"
+                    }
+
+                # Get memories with exact content match
+                matched_memories = await self.get_by_exact_content(query)
+                # Convert to MemoryQueryResult format for consistency
+                results = [
+                    MemoryQueryResult(memory=m, relevance_score=1.0, debug_info=None)
+                    for m in matched_memories
+                ]
+                pre_filter_count = len(results)
+
+            elif mode in ("semantic", "hybrid"):
+                # Vector similarity search
+                if not query and not start_time and not end_time and not tags:
+                    return {
+                        "memories": [],
+                        "total": 0,
+                        "query": query,
+                        "mode": mode,
+                        "error": "At least one filter required (query, time_expr, after, before, or tags)"
+                    }
+
+                if query:
+                    # Determine fetch limit (over-fetch if quality boost enabled)
+                    fetch_limit = limit * 3 if quality_boost > 0 and mode == "hybrid" else limit
+
+                    # Use quality-boosted retrieval if enabled
+                    if quality_boost > 0:
+                        results = await self.retrieve_with_quality_boost(
+                            query,
+                            n_results=fetch_limit,
+                            quality_boost=True,
+                            quality_weight=quality_boost
+                        )
+                    else:
+                        results = await self.retrieve(query, n_results=fetch_limit)
+
+                    pre_filter_count = len(results)
+                else:
+                    # Time-only or tag-only search - get all memories then filter
+                    all_memories = await self.list_memories()
+                    results = [
+                        MemoryQueryResult(memory=m, relevance_score=0.5, debug_info=None)
+                        for m in all_memories
+                    ]
+                    pre_filter_count = len(results)
+
+            # Apply time filters
+            if start_time is not None or end_time is not None:
+                filtered_results = []
+                for result in results:
+                    memory_timestamp = result.memory.created_at
+
+                    # Skip if no timestamp
+                    if not memory_timestamp:
+                        continue
+
+                    # Check time range
+                    if start_time is not None and memory_timestamp < start_time:
+                        continue
+                    if end_time is not None and memory_timestamp > end_time:
+                        continue
+
+                    filtered_results.append(result)
+
+                results = filtered_results
+
+            # Apply tag filters
+            if tags:
+                filtered_results = []
+                for result in results:
+                    # Match ANY tag
+                    if any(tag in result.memory.tags for tag in tags):
+                        filtered_results.append(result)
+                results = filtered_results
+
+            # Limit results
+            results = results[:limit]
+
+            # Extract memories from results
+            memories = [r.memory for r in results]
+
+            # Build response
+            response = {
+                "memories": memories,
+                "total": len(memories),
+                "query": query,
+                "mode": mode
+            }
+
+            # Add debug info if requested
+            if include_debug:
+                response["debug"] = {
+                    "time_filter": {
+                        "time_expr": time_expr,
+                        "after": after,
+                        "before": before,
+                        "start_timestamp": start_time,
+                        "end_timestamp": end_time
+                    },
+                    "tag_filter": tags,
+                    "quality_boost": quality_boost,
+                    "pre_filter_count": pre_filter_count,
+                    "post_filter_count": len(memories),
+                    "limit": limit
+                }
+
+            return response
+
+        except Exception as e:
+            logger.error(f"Search operation failed: {e}")
+            return {
+                "memories": [],
+                "total": 0,
+                "query": query,
+                "mode": mode,
+                "error": f"Search operation failed: {str(e)}"
+            }

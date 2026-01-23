@@ -308,3 +308,71 @@ async def handle_resume_consolidation(server, arguments: dict) -> List[types.Tex
         error_msg = f"Error resuming consolidation: {str(e)}"
         logger.error(f"{error_msg}\n{traceback.format_exc()}")
         return [types.TextContent(type="text", text=error_msg)]
+
+
+async def handle_memory_consolidate(server, arguments: dict) -> List[types.TextContent]:
+    """
+    Unified handler for memory consolidation management.
+
+    Routes to appropriate handler based on action parameter.
+    Consolidates all consolidation operations into a single tool.
+    """
+    action = arguments.get("action")
+
+    if not action:
+        return [types.TextContent(type="text", text="Error: action parameter is required")]
+
+    # Validate action
+    valid_actions = ["run", "status", "recommend", "scheduler", "pause", "resume"]
+    if action not in valid_actions:
+        return [types.TextContent(
+            type="text",
+            text=f"Error: Invalid action '{action}'. Must be one of: {', '.join(valid_actions)}"
+        )]
+
+    try:
+        # Route to appropriate handler based on action
+        if action == "run":
+            # Run consolidation (requires time_horizon)
+            time_horizon = arguments.get("time_horizon")
+            if not time_horizon:
+                return [types.TextContent(type="text", text="Error: time_horizon is required for 'run' action")]
+
+            return await handle_consolidate_memories(server, {"time_horizon": time_horizon})
+
+        elif action == "status":
+            # Get consolidation system status
+            return await handle_consolidation_status(server, {})
+
+        elif action == "recommend":
+            # Get recommendations (requires time_horizon)
+            time_horizon = arguments.get("time_horizon")
+            if not time_horizon:
+                return [types.TextContent(type="text", text="Error: time_horizon is required for 'recommend' action")]
+
+            return await handle_consolidation_recommendations(server, {"time_horizon": time_horizon})
+
+        elif action == "scheduler":
+            # Get scheduler status
+            return await handle_scheduler_status(server, {})
+
+        elif action == "pause":
+            # Pause consolidation (optional time_horizon)
+            return await handle_pause_consolidation(server, {
+                "time_horizon": arguments.get("time_horizon")
+            })
+
+        elif action == "resume":
+            # Resume consolidation (optional time_horizon)
+            return await handle_resume_consolidation(server, {
+                "time_horizon": arguments.get("time_horizon")
+            })
+
+        else:
+            # Should never reach here due to validation above
+            return [types.TextContent(type="text", text=f"Error: Unknown action '{action}'")]
+
+    except Exception as e:
+        error_msg = f"Error in memory_consolidate action '{action}': {str(e)}"
+        logger.error(f"{error_msg}\n{traceback.format_exc()}")
+        return [types.TextContent(type="text", text=error_msg)]
