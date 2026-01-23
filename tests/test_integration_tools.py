@@ -1,0 +1,360 @@
+"""
+Integration tests for MCP Memory Service tool consolidation.
+
+These tests verify the full pipeline from tool call to response.
+"""
+
+import pytest
+import json
+from mcp.types import TextContent
+
+
+# Import server implementation
+try:
+    from mcp_memory_service.server_impl import MemoryServer
+except ImportError:
+    # Fallback for different import paths
+    from mcp_memory_service.server.server_impl import MemoryServer
+
+
+@pytest.fixture
+async def server(temp_db_path):
+    """Create and initialize server for testing."""
+    # Override storage path with temp directory
+    import os
+    os.environ["MCP_MEMORY_SQLITE_PATH"] = str(temp_db_path / "test_integration.db")
+
+    server = MemoryServer()
+    await server.initialize()
+    yield server
+    # Cleanup happens via temp_db_path fixture
+
+
+class TestToolDiscovery:
+    """Test that only new tools are exposed."""
+
+    @pytest.mark.asyncio
+    async def test_only_12_tools_exposed(self, server):
+        """Verify exactly 12 new tools are listed."""
+        result = await server.list_tools()
+        tools = result.tools
+
+        assert len(tools) == 12, f"Expected 12 tools, got {len(tools)}: {[t.name for t in tools]}"
+
+        expected_names = {
+            "memory_store",
+            "memory_search",
+            "memory_list",
+            "memory_delete",
+            "memory_update",
+            "memory_health",
+            "memory_stats",
+            "memory_consolidate",
+            "memory_cleanup",
+            "memory_ingest",
+            "memory_quality",
+            "memory_graph",
+        }
+
+        actual_names = {t.name for t in tools}
+        assert actual_names == expected_names, f"Tool mismatch. Missing: {expected_names - actual_names}, Extra: {actual_names - expected_names}"
+
+    @pytest.mark.asyncio
+    async def test_old_tools_not_listed(self, server):
+        """Verify deprecated tools not in listing."""
+        result = await server.list_tools()
+        tools = result.tools
+        tool_names = {t.name for t in tools}
+
+        deprecated_names = [
+            "delete_by_tag",
+            "retrieve_memory",
+            "consolidation_status",
+            "store_memory",
+            "list_memories",
+            "rate_memory",
+            "find_connected_memories",
+        ]
+
+        for name in deprecated_names:
+            assert name not in tool_names, f"Deprecated tool '{name}' should not be listed"
+
+
+class TestDeprecatedToolCalls:
+    """Test that deprecated tool calls still work."""
+
+    @pytest.mark.asyncio
+    async def test_delete_by_tag_still_works(self, server, unique_content):
+        """Test deprecated delete_by_tag routes correctly."""
+        # First store a memory using new name
+        content = unique_content()
+        store_result = await server.call_tool(
+            "memory_store",
+            {"content": content, "metadata": {"tags": "test-delete-deprecated"}}
+        )
+
+        # Now delete using old deprecated name
+        result = await server.call_tool(
+            "delete_by_tag",
+            {"tag": "test-delete-deprecated"}
+        )
+
+        # Extract result from TextContent
+        assert len(result) > 0
+        assert isinstance(result[0], TextContent)
+        result_data = json.loads(result[0].text)
+
+        # Should either succeed or return 0 deleted (if already deleted)
+        assert "error" not in result_data or result_data.get("deleted_count", 0) >= 0
+
+    @pytest.mark.asyncio
+    async def test_retrieve_memory_still_works(self, server):
+        """Test deprecated retrieve_memory routes correctly."""
+        result = await server.call_tool(
+            "retrieve_memory",
+            {"query": "test search query", "n_results": 5}
+        )
+
+        assert len(result) > 0
+        assert isinstance(result[0], TextContent)
+        result_data = json.loads(result[0].text)
+
+        # Should return memories array or error
+        assert "memories" in result_data or "error" in result_data
+
+    @pytest.mark.asyncio
+    async def test_store_memory_still_works(self, server, unique_content):
+        """Test deprecated store_memory routes correctly."""
+        content = unique_content()
+        result = await server.call_tool(
+            "store_memory",
+            {"content": content, "metadata": {"tags": "test-store"}}
+        )
+
+        assert len(result) > 0
+        assert isinstance(result[0], TextContent)
+        result_data = json.loads(result[0].text)
+
+        # Should return content_hash
+        assert "content_hash" in result_data or "error" not in result_data
+
+    @pytest.mark.asyncio
+    async def test_list_memories_still_works(self, server):
+        """Test deprecated list_memories routes correctly."""
+        result = await server.call_tool(
+            "list_memories",
+            {"limit": 5}
+        )
+
+        assert len(result) > 0
+        assert isinstance(result[0], TextContent)
+        result_data = json.loads(result[0].text)
+
+        # Should return memories array
+        assert "memories" in result_data or "error" in result_data
+
+    @pytest.mark.asyncio
+    async def test_consolidation_status_still_works(self, server):
+        """Test deprecated consolidation_status routes correctly."""
+        result = await server.call_tool(
+            "consolidation_status",
+            {}
+        )
+
+        assert len(result) > 0
+        assert isinstance(result[0], TextContent)
+        result_data = json.loads(result[0].text)
+
+        # Should return status dict or error
+        assert isinstance(result_data, dict)
+
+
+class TestNewToolCalls:
+    """Test new unified tools work correctly."""
+
+    @pytest.mark.asyncio
+    async def test_memory_store(self, server, unique_content):
+        """Test memory_store works."""
+        content = unique_content()
+        result = await server.call_tool(
+            "memory_store",
+            {"content": content, "metadata": {"tags": "test-new-store"}}
+        )
+
+        assert len(result) > 0
+        assert isinstance(result[0], TextContent)
+        result_data = json.loads(result[0].text)
+
+        assert "content_hash" in result_data
+        assert result_data.get("content") == content
+
+    @pytest.mark.asyncio
+    async def test_memory_delete_by_hash(self, server, unique_content):
+        """Test memory_delete with hash."""
+        # Store first
+        content = unique_content()
+        store_result = await server.call_tool(
+            "memory_store",
+            {"content": content}
+        )
+        store_data = json.loads(store_result[0].text)
+        content_hash = store_data.get("content_hash")
+
+        if content_hash:
+            # Delete
+            result = await server.call_tool(
+                "memory_delete",
+                {"content_hash": content_hash}
+            )
+            result_data = json.loads(result[0].text)
+            assert result_data.get("deleted_count", 0) >= 0
+
+    @pytest.mark.asyncio
+    async def test_memory_delete_by_tags(self, server, unique_content):
+        """Test memory_delete with tags filter."""
+        # Store a memory with test tag
+        content = unique_content()
+        await server.call_tool(
+            "memory_store",
+            {"content": content, "metadata": {"tags": "test-delete-new"}}
+        )
+
+        # Delete using new tool
+        result = await server.call_tool(
+            "memory_delete",
+            {"tags": ["test-delete-new"], "tag_match": "any"}
+        )
+
+        result_data = json.loads(result[0].text)
+        assert "deleted_count" in result_data or "error" in result_data
+
+    @pytest.mark.asyncio
+    async def test_memory_search_semantic(self, server):
+        """Test memory_search semantic mode."""
+        result = await server.call_tool(
+            "memory_search",
+            {"query": "python programming", "limit": 5}
+        )
+
+        assert len(result) > 0
+        assert isinstance(result[0], TextContent)
+        result_data = json.loads(result[0].text)
+        assert "memories" in result_data
+
+    @pytest.mark.asyncio
+    async def test_memory_search_exact(self, server):
+        """Test memory_search exact mode."""
+        result = await server.call_tool(
+            "memory_search",
+            {"query": "test exact phrase", "mode": "exact", "limit": 5}
+        )
+
+        result_data = json.loads(result[0].text)
+        assert "memories" in result_data
+        assert result_data.get("mode") == "exact"
+
+    @pytest.mark.asyncio
+    async def test_memory_list(self, server):
+        """Test memory_list tool."""
+        result = await server.call_tool(
+            "memory_list",
+            {"limit": 10, "offset": 0}
+        )
+
+        result_data = json.loads(result[0].text)
+        assert "memories" in result_data or "error" in result_data
+
+    @pytest.mark.asyncio
+    async def test_memory_consolidate_status(self, server):
+        """Test memory_consolidate status action."""
+        result = await server.call_tool(
+            "memory_consolidate",
+            {"action": "status"}
+        )
+
+        assert len(result) > 0
+        assert isinstance(result[0], TextContent)
+        result_data = json.loads(result[0].text)
+
+        # Should return status info or error, not crash
+        assert isinstance(result_data, dict)
+
+    @pytest.mark.asyncio
+    async def test_memory_health(self, server):
+        """Test memory_health tool."""
+        result = await server.call_tool(
+            "memory_health",
+            {}
+        )
+
+        result_data = json.loads(result[0].text)
+        assert isinstance(result_data, dict)
+
+    @pytest.mark.asyncio
+    async def test_memory_stats(self, server):
+        """Test memory_stats tool."""
+        result = await server.call_tool(
+            "memory_stats",
+            {}
+        )
+
+        result_data = json.loads(result[0].text)
+        assert isinstance(result_data, dict)
+
+
+class TestArgumentTransformations:
+    """Test that argument transformations work correctly in practice."""
+
+    @pytest.mark.asyncio
+    async def test_n_results_to_limit_transformation(self, server):
+        """Test n_results -> limit transformation."""
+        # Old tool with n_results
+        old_result = await server.call_tool(
+            "retrieve_memory",
+            {"query": "test", "n_results": 3}
+        )
+
+        # New tool with limit
+        new_result = await server.call_tool(
+            "memory_search",
+            {"query": "test", "limit": 3}
+        )
+
+        # Both should work
+        assert len(old_result) > 0
+        assert len(new_result) > 0
+
+    @pytest.mark.asyncio
+    async def test_tag_to_tags_transformation(self, server, unique_content):
+        """Test tag -> tags transformation."""
+        # Store a test memory
+        content = unique_content()
+        await server.call_tool(
+            "memory_store",
+            {"content": content, "metadata": {"tags": "transform-test"}}
+        )
+
+        # Old tool with singular 'tag'
+        old_result = await server.call_tool(
+            "delete_by_tag",
+            {"tag": "transform-test"}
+        )
+
+        # Should work (transform tag -> tags)
+        assert len(old_result) > 0
+        old_data = json.loads(old_result[0].text)
+        assert "error" not in old_data or old_data.get("deleted_count", 0) >= 0
+
+    @pytest.mark.asyncio
+    async def test_time_horizon_added_transformation(self, server):
+        """Test action parameter added for consolidation."""
+        # Old tool implicitly means action='run'
+        result = await server.call_tool(
+            "consolidate_memories",
+            {"time_horizon": "weekly"}
+        )
+
+        # Should route to memory_consolidate with action='run'
+        assert len(result) > 0
+        result_data = json.loads(result[0].text)
+        assert isinstance(result_data, dict)

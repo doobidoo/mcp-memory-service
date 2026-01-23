@@ -42,7 +42,7 @@ DEPRECATED_TOOLS: Dict[str, Tuple[str, ArgTransformer]] = {
     # Phase 1: Delete consolidation
     "delete_memory": ("memory_delete", lambda a: {"content_hash": a["content_hash"]}),
     "delete_by_tag": ("memory_delete", lambda a: {
-        "tags": [a["tags"]] if isinstance(a.get("tags"), str) and "," not in a["tags"] else a["tags"],
+        "tags": [a["tag"]],
         "tag_match": "any"
     }),
     "delete_by_tags": ("memory_delete", lambda a: {"tags": a["tags"], "tag_match": "any"}),
@@ -135,14 +135,16 @@ DEPRECATED_TOOLS: Dict[str, Tuple[str, ArgTransformer]] = {
 
     # Phase 4: Ingest merge
     "ingest_document": ("memory_ingest", lambda a: {
-        "file_path": a["file_path"],
+        "path": a["file_path"],
+        "mode": "file",
         "tags": a.get("tags", []),
         "chunk_size": a.get("chunk_size", 1000),
         "chunk_overlap": a.get("chunk_overlap", 200),
         "memory_type": a.get("memory_type", "document")
     }),
     "ingest_directory": ("memory_ingest", lambda a: {
-        "directory_path": a["directory_path"],
+        "path": a["directory_path"],
+        "mode": "directory",
         "tags": a.get("tags", []),
         "recursive": a.get("recursive", True),
         "file_extensions": a.get("file_extensions", ["pdf", "txt", "md", "json"]),
