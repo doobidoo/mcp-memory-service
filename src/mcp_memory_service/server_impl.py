@@ -74,6 +74,7 @@ except (ImportError, AttributeError):
 # Package imports
 from .lm_studio_compat import patch_mcp_for_lm_studio, add_windows_timeout_handling
 from .dependency_check import run_dependency_check, get_recommended_timeout
+from .compat import is_deprecated, transform_deprecated_call
 from .config import (
     BACKUPS_PATH,
     SERVER_NAME,
@@ -2533,13 +2534,15 @@ Examples:
         
         @self.server.call_tool()
         async def handle_call_tool(name: str, arguments: dict | None) -> List[types.TextContent]:
+            """Handle tool calls with centralized deprecation support."""
             # Add immediate debugging to catch any protocol issues
             if MCP_CLIENT == 'lm_studio':
                 print(f"TOOL CALL INTERCEPTED: {name}", file=sys.stdout, flush=True)
             logger.info(f"=== HANDLING TOOL CALL: {name} ===")
             logger.info(f"Arguments: {arguments}")
-            
+
             try:
+                # Ensure arguments is a dict
                 if arguments is None:
                     arguments = {}
 
@@ -2547,229 +2550,48 @@ Examples:
                 if MCP_CLIENT == 'lm_studio':
                     print(f"Processing tool: {name}", file=sys.stdout, flush=True)
 
-                # Deprecation routing for consolidated delete tools
-                DEPRECATED_DELETE_TOOLS = {
-                    "delete_by_tag": lambda a: {
-                        "tags": [a["tags"]] if isinstance(a.get("tags"), str) and "," not in a["tags"] else a["tags"],
-                        "tag_match": "any"
-                    },
-                    "delete_by_tags": lambda a: {
-                        "tags": a["tags"],
-                        "tag_match": "any"
-                    },
-                    "delete_by_all_tags": lambda a: {
-                        "tags": a["tags"],
-                        "tag_match": "all"
-                    },
-                    "delete_by_timeframe": lambda a: {
-                        "after": a.get("start_date"),
-                        "before": a.get("end_date"),
-                        "tags": [a["tag"]] if a.get("tag") else None
-                    },
-                    "delete_before_date": lambda a: {
-                        "before": a["before_date"],
-                        "tags": [a["tag"]] if a.get("tag") else None
-                    },
-                }
+                # Handle deprecated tools using centralized compatibility layer
+                if is_deprecated(name):
+                    name, arguments = transform_deprecated_call(name, arguments)
+                    logger.info(f"Transformed to: {name} with arguments: {arguments}")
 
-                # Deprecation routing for consolidated search tools
-                DEPRECATED_SEARCH_TOOLS = {
-                    "retrieve_memory": lambda a: {
-                        "query": a["query"],
-                        "limit": a.get("n_results", 5),
-                        "mode": "semantic",
-                        "max_response_chars": a.get("max_response_chars")
-                    },
-                    "recall_memory": lambda a: {
-                        "query": a.get("query"),
-                        "time_expr": a.get("query"),  # query contains the time expression
-                        "limit": a.get("n_results", 5),
-                        "mode": "semantic",
-                        "max_response_chars": a.get("max_response_chars")
-                    },
-                    "recall_by_timeframe": lambda a: {
-                        "after": a.get("start_date"),
-                        "before": a.get("end_date"),
-                        "limit": a.get("n_results", 5),
-                        "max_response_chars": a.get("max_response_chars")
-                    },
-                    "retrieve_with_quality_boost": lambda a: {
-                        "query": a["query"],
-                        "quality_boost": a.get("quality_weight", 0.3),
-                        "limit": a.get("n_results", 10),
-                        "mode": "hybrid",
-                        "max_response_chars": a.get("max_response_chars")
-                    },
-                    "exact_match_retrieve": lambda a: {
-                        "query": a["content"],
-                        "mode": "exact"
-                    },
-                    "debug_retrieve": lambda a: {
-                        "query": a["query"],
-                        "limit": a.get("n_results", 5),
-                        "include_debug": True,
-                        "max_response_chars": a.get("max_response_chars")
-                    },
-                }
-
-                if name in DEPRECATED_DELETE_TOOLS:
-                    logger.warning(f"Tool '{name}' is deprecated. Use 'memory_delete' instead.")
-                    transformer = DEPRECATED_DELETE_TOOLS[name]
-                    arguments = transformer(arguments)
-                    # Filter out None values
-                    arguments = {k: v for k, v in arguments.items() if v is not None}
-                    name = "memory_delete"
-
-                # Deprecation routing for consolidated consolidation tools
-                DEPRECATED_CONSOLIDATION_TOOLS = {
-                    "consolidate_memories": lambda a: {
-                        "action": "run",
-                        "time_horizon": a["time_horizon"]
-                    },
-                    "consolidation_status": lambda a: {
-                        "action": "status"
-                    },
-                    "consolidation_recommendations": lambda a: {
-                        "action": "recommend",
-                        "time_horizon": a["time_horizon"]
-                    },
-                    "scheduler_status": lambda a: {
-                        "action": "scheduler"
-                    },
-                    "trigger_consolidation": lambda a: {
-                        "action": "run",
-                        "time_horizon": a["time_horizon"],
-                        "immediate": a.get("immediate", True)
-                    },
-                    "pause_consolidation": lambda a: {
-                        "action": "pause",
-                        "time_horizon": a.get("time_horizon")
-                    },
-                    "resume_consolidation": lambda a: {
-                        "action": "resume",
-                        "time_horizon": a.get("time_horizon")
-                    },
-                }
-
-                if name in DEPRECATED_DELETE_TOOLS:
-                    logger.warning(f"Tool '{name}' is deprecated. Use 'memory_delete' instead.")
-                    transformer = DEPRECATED_DELETE_TOOLS[name]
-                    arguments = transformer(arguments)
-                    # Filter out None values
-                    arguments = {k: v for k, v in arguments.items() if v is not None}
-                    name = "memory_delete"
-
-                if name in DEPRECATED_SEARCH_TOOLS:
-                    logger.warning(f"Tool '{name}' is deprecated. Use 'memory_search' instead.")
-                    transformer = DEPRECATED_SEARCH_TOOLS[name]
-                    arguments = transformer(arguments)
-                    # Filter out None values
-                    arguments = {k: v for k, v in arguments.items() if v is not None}
-                    name = "memory_search"
-
-                if name in DEPRECATED_CONSOLIDATION_TOOLS:
-                    logger.warning(f"Tool '{name}' is deprecated. Use 'memory_consolidate' instead.")
-                    transformer = DEPRECATED_CONSOLIDATION_TOOLS[name]
-                    arguments = transformer(arguments)
-                    # Filter out None values
-                    arguments = {k: v for k, v in arguments.items() if v is not None}
-                    name = "memory_consolidate"
-
-                # Deprecation routing for simple renames
-                DEPRECATED_SIMPLE_RENAMES = {
-                    "store_memory": "memory_store",
-                    "check_database_health": "memory_health",
-                    "get_cache_stats": "memory_stats",
-                    "cleanup_duplicates": "memory_cleanup",
-                    "update_memory_metadata": "memory_update",
-                    "rate_memory": "memory_rate",
-                }
-
-                if name in DEPRECATED_SIMPLE_RENAMES:
-                    new_name = DEPRECATED_SIMPLE_RENAMES[name]
-                    logger.warning(f"Tool '{name}' is deprecated. Use '{new_name}' instead.")
-                    name = new_name
-
-                # Deprecation routing for list tools
-                if name == "search_by_tag":
-                    logger.warning(f"Tool 'search_by_tag' is deprecated. Use 'memory_list' instead.")
-                    # Convert tags parameter
-                    tags = arguments.get("tags")
-                    if tags:
-                        if isinstance(tags, str):
-                            tags = [t.strip() for t in tags.split(",")]
-                        arguments = {"tags": tags}
-                    name = "memory_list"
-
-                # Deprecation routing for ingest tools
-                if name == "ingest_document":
-                    logger.warning(f"Tool 'ingest_document' is deprecated. Use 'memory_ingest' instead.")
-                    name = "memory_ingest"
-                elif name == "ingest_directory":
-                    logger.warning(f"Tool 'ingest_directory' is deprecated. Use 'memory_ingest' instead.")
-                    name = "memory_ingest"
-
-                # Deprecation routing for quality tools
-                DEPRECATED_QUALITY_TOOLS = {
-                    "rate_memory": lambda a: {
-                        "action": "rate",
-                        "content_hash": a["content_hash"],
-                        "rating": a["rating"],
-                        "feedback": a.get("feedback", "")
-                    },
-                    "get_memory_quality": lambda a: {
-                        "action": "get",
-                        "content_hash": a["content_hash"]
-                    },
-                    "analyze_quality_distribution": lambda a: {
-                        "action": "analyze",
-                        "min_quality": a.get("min_quality", 0.0),
-                        "max_quality": a.get("max_quality", 1.0)
-                    },
-                }
-
-                if name in DEPRECATED_QUALITY_TOOLS:
-                    logger.warning(f"Tool '{name}' is deprecated. Use 'memory_quality' instead.")
-                    transformer = DEPRECATED_QUALITY_TOOLS[name]
-                    arguments = transformer(arguments)
-                    arguments = {k: v for k, v in arguments.items() if v is not None}
-                    name = "memory_quality"
-
-                # Deprecation routing for graph tools
-                DEPRECATED_GRAPH_TOOLS = {
-                    "find_connected_memories": lambda a: {
-                        "action": "connected",
-                        "hash": a["hash"],
-                        "max_hops": a.get("max_hops", 2)
-                    },
-                    "find_shortest_path": lambda a: {
-                        "action": "path",
-                        "hash1": a["hash1"],
-                        "hash2": a["hash2"],
-                        "max_depth": a.get("max_depth", 5)
-                    },
-                    "get_memory_subgraph": lambda a: {
-                        "action": "subgraph",
-                        "hash": a["hash"],
-                        "radius": a.get("radius", 2)
-                    },
-                }
-
-                if name in DEPRECATED_GRAPH_TOOLS:
-                    logger.warning(f"Tool '{name}' is deprecated. Use 'memory_graph' instead.")
-                    transformer = DEPRECATED_GRAPH_TOOLS[name]
-                    arguments = transformer(arguments)
-                    arguments = {k: v for k, v in arguments.items() if v is not None}
-                    name = "memory_graph"
-
+                # Route to handler (using NEW tool names only)
                 if name == "memory_store":
                     return await self.handle_store_memory(arguments)
-                elif name == "memory_list":
-                    return await self.handle_memory_list(arguments)
-                elif name == "retrieve_memory":
-                    return await self.handle_retrieve_memory(arguments)
                 elif name == "memory_search":
                     return await self.handle_memory_search(arguments)
+                elif name == "memory_list":
+                    return await self.handle_memory_list(arguments)
+                elif name == "memory_delete":
+                    return await self.handle_memory_delete(arguments)
+                elif name == "memory_update":
+                    logger.info("Calling handle_update_memory_metadata")
+                    return await self.handle_update_memory_metadata(arguments)
+                elif name == "memory_health":
+                    logger.info("Calling handle_check_database_health")
+                    return await self.handle_check_database_health(arguments)
+                elif name == "memory_stats":
+                    logger.info("Calling handle_get_cache_stats")
+                    return await self.handle_get_cache_stats(arguments)
+                elif name == "memory_consolidate":
+                    logger.info("Calling handle_memory_consolidate")
+                    return await self.handle_memory_consolidate(arguments)
+                elif name == "memory_cleanup":
+                    return await self.handle_cleanup_duplicates(arguments)
+                elif name == "memory_ingest":
+                    logger.info("Calling handle_memory_ingest")
+                    return await self.handle_memory_ingest(arguments)
+                elif name == "memory_quality":
+                    logger.info("Calling handle_memory_quality")
+                    return await self.handle_memory_quality(arguments)
+                elif name == "memory_graph":
+                    logger.info("Calling handle_memory_graph")
+                    return await self.handle_memory_graph(arguments)
+
+                # Legacy handlers (for tools that haven't been fully migrated yet)
+                # These will be removed once all old tool definitions are removed
+                elif name == "retrieve_memory":
+                    return await self.handle_retrieve_memory(arguments)
                 elif name == "retrieve_with_quality_boost":
                     return await self.handle_retrieve_with_quality_boost(arguments)
                 elif name == "recall_memory":
@@ -2778,44 +2600,27 @@ Examples:
                     return await self.handle_search_by_tag(arguments)
                 elif name == "delete_memory":
                     return await self.handle_delete_memory(arguments)
-                elif name == "memory_delete":
-                    return await self.handle_memory_delete(arguments)
                 elif name == "delete_by_tag":
                     return await self.handle_delete_by_tag(arguments)
                 elif name == "delete_by_tags":
                     return await self.handle_delete_by_tags(arguments)
                 elif name == "delete_by_all_tags":
                     return await self.handle_delete_by_all_tags(arguments)
-                elif name == "memory_cleanup":
-                    return await self.handle_cleanup_duplicates(arguments)
                 elif name == "debug_retrieve":
                     return await self.handle_debug_retrieve(arguments)
                 elif name == "exact_match_retrieve":
                     return await self.handle_exact_match_retrieve(arguments)
                 elif name == "get_raw_embedding":
                     return await self.handle_get_raw_embedding(arguments)
-                elif name == "memory_health":
-                    logger.info("Calling handle_check_database_health")
-                    return await self.handle_check_database_health(arguments)
-                elif name == "memory_stats":
-                    logger.info("Calling handle_get_cache_stats")
-                    return await self.handle_get_cache_stats(arguments)
                 elif name == "recall_by_timeframe":
                     return await self.handle_recall_by_timeframe(arguments)
                 elif name == "delete_by_timeframe":
                     return await self.handle_delete_by_timeframe(arguments)
                 elif name == "delete_before_date":
                     return await self.handle_delete_before_date(arguments)
-                elif name == "memory_update":
-                    logger.info("Calling handle_update_memory_metadata")
-                    return await self.handle_update_memory_metadata(arguments)
-                # Consolidation tool handlers
                 elif name == "consolidate_memories":
                     logger.info("Calling handle_consolidate_memories")
                     return await self.handle_consolidate_memories(arguments)
-                elif name == "memory_consolidate":
-                    logger.info("Calling handle_memory_consolidate")
-                    return await self.handle_memory_consolidate(arguments)
                 elif name == "consolidation_status":
                     logger.info("Calling handle_consolidation_status")
                     return await self.handle_consolidation_status(arguments)
@@ -2834,19 +2639,12 @@ Examples:
                 elif name == "resume_consolidation":
                     logger.info("Calling handle_resume_consolidation")
                     return await self.handle_resume_consolidation(arguments)
-                elif name == "memory_ingest":
-                    logger.info("Calling handle_memory_ingest")
-                    return await self.handle_memory_ingest(arguments)
                 elif name == "ingest_document":
                     logger.info("Calling handle_ingest_document")
                     return await self.handle_ingest_document(arguments)
                 elif name == "ingest_directory":
                     logger.info("Calling handle_ingest_directory")
                     return await self.handle_ingest_directory(arguments)
-                # Quality system tool handlers
-                elif name == "memory_quality":
-                    logger.info("Calling handle_memory_quality")
-                    return await self.handle_memory_quality(arguments)
                 elif name == "memory_rate":
                     logger.info("Calling handle_rate_memory")
                     return await self.handle_rate_memory(arguments)
@@ -2856,10 +2654,6 @@ Examples:
                 elif name == "analyze_quality_distribution":
                     logger.info("Calling handle_analyze_quality_distribution")
                     return await self.handle_analyze_quality_distribution(arguments)
-                # Graph traversal tool handlers
-                elif name == "memory_graph":
-                    logger.info("Calling handle_memory_graph")
-                    return await self.handle_memory_graph(arguments)
                 elif name == "find_connected_memories":
                     logger.info("Calling handle_find_connected_memories")
                     return await self.handle_find_connected_memories(arguments)
