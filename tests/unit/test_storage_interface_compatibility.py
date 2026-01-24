@@ -20,13 +20,11 @@ def get_all_storage_classes():
     """Get all concrete storage backend classes."""
     from mcp_memory_service.storage.base import MemoryStorage
     from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-    from mcp_memory_service.storage.cloudflare import CloudflareStorage
-    from mcp_memory_service.storage.hybrid import HybridMemoryStorage
+    from mcp_memory_service.storage.qdrant_storage import QdrantStorage
 
     return [
         ('SqliteVecMemoryStorage', SqliteVecMemoryStorage),
-        ('CloudflareStorage', CloudflareStorage),
-        ('HybridMemoryStorage', HybridMemoryStorage),
+        ('QdrantStorage', QdrantStorage),
     ]
 
 
@@ -264,6 +262,21 @@ def test_backends_handle_tags_parameter_consistently():
                     f"{name}.{method_name} 'tags' parameter inconsistent: {name}={has_tags}, {first_name}={first_value}"
 
 
+def _normalize_type_str(type_hint) -> str:
+    """Normalize type string for comparison.
+
+    Handles Python 3.9+ (dict[str, Any]) vs legacy (typing.Dict[str, Any]) equivalence.
+    """
+    type_str = str(type_hint)
+    # Normalize built-in generic aliases to typing module equivalents
+    type_str = type_str.replace('dict[', 'Dict[')
+    type_str = type_str.replace('list[', 'List[')
+    type_str = type_str.replace('tuple[', 'Tuple[')
+    type_str = type_str.replace('set[', 'Set[')
+    type_str = type_str.replace('typing.', '')
+    return type_str
+
+
 def test_return_type_consistency():
     """Test that methods return consistent types across backends.
 
@@ -291,14 +304,16 @@ def test_return_type_consistency():
                     # Some methods may not have type hints
                     pass
 
-        # If we have return types, they should match
+        # If we have return types, they should match (normalized)
         if len(return_types) > 1:
             first_name = list(return_types.keys())[0]
             first_type = return_types[first_name]
+            first_normalized = _normalize_type_str(first_type)
 
             for name, return_type in return_types.items():
+                normalized = _normalize_type_str(return_type)
                 # Allow for Coroutine wrappers in async methods
-                assert return_type == first_type or str(return_type).startswith('typing.Coroutine'), \
+                assert normalized == first_normalized or 'Coroutine' in normalized, \
                     f"{name}.{method_name} return type {return_type} doesn't match {first_name} {first_type}"
 
 

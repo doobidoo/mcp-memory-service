@@ -60,6 +60,11 @@ def mock_qdrant_client():
     client.delete.return_value = MagicMock(status="acknowledged")
     client.set_payload.return_value = MagicMock(status="acknowledged")
 
+    # query_points returns QueryResponse with .points attribute
+    mock_query_response = MagicMock()
+    mock_query_response.points = []
+    client.query_points.return_value = mock_query_response
+
     return client
 
 
@@ -338,8 +343,9 @@ class TestQdrantRetrieve:
         mock_embedding_service.encode.return_value = [mock_array]  # Returns list of arrays
         qdrant_storage.embedding_service = mock_embedding_service
 
-        # Mock search results
-        mock_qdrant_client.search.return_value = [
+        # Mock query_points results (returns QueryResponse with .points attribute)
+        mock_query_response = MagicMock()
+        mock_query_response.points = [
             MagicMock(
                 id="hash1",
                 score=0.95,
@@ -365,6 +371,7 @@ class TestQdrantRetrieve:
                 }
             )
         ]
+        mock_qdrant_client.query_points.return_value = mock_query_response
 
         results = await qdrant_storage.retrieve("test query", n_results=2)
 
@@ -385,7 +392,10 @@ class TestQdrantRetrieve:
         mock_embedding_service.encode.return_value = [mock_array]
         qdrant_storage.embedding_service = mock_embedding_service
 
-        mock_qdrant_client.search.return_value = []
+        # Mock query_points with empty results
+        mock_query_response = MagicMock()
+        mock_query_response.points = []
+        mock_qdrant_client.query_points.return_value = mock_query_response
 
         await qdrant_storage.retrieve(
             "test query",
@@ -393,8 +403,8 @@ class TestQdrantRetrieve:
             tags=["important", "urgent"]
         )
 
-        # Verify search was called with tag filter
-        call_args = mock_qdrant_client.search.call_args
+        # Verify query_points was called with tag filter
+        call_args = mock_qdrant_client.query_points.call_args
         assert call_args is not None
         query_filter = call_args[1].get("query_filter")
 
@@ -414,7 +424,10 @@ class TestQdrantRetrieve:
         mock_embedding_service.encode.return_value = [mock_array]
         qdrant_storage.embedding_service = mock_embedding_service
 
-        mock_qdrant_client.search.return_value = []
+        # Mock query_points with empty results
+        mock_query_response = MagicMock()
+        mock_query_response.points = []
+        mock_qdrant_client.query_points.return_value = mock_query_response
 
         await qdrant_storage.retrieve(
             "test query",
@@ -422,8 +435,8 @@ class TestQdrantRetrieve:
             memory_type="document"
         )
 
-        # Verify search was called with memory_type filter
-        call_args = mock_qdrant_client.search.call_args
+        # Verify query_points was called with memory_type filter
+        call_args = mock_qdrant_client.query_points.call_args
         assert call_args is not None
         query_filter = call_args[1].get("query_filter")
 
@@ -443,7 +456,9 @@ class TestQdrantRetrieve:
         mock_embedding_service.encode.return_value = [mock_array]
         qdrant_storage.embedding_service = mock_embedding_service
 
-        mock_qdrant_client.search.return_value = [
+        # Mock query_points results (returns QueryResponse with .points attribute)
+        mock_query_response = MagicMock()
+        mock_query_response.points = [
             MagicMock(
                 id="hash1",
                 score=0.95,
@@ -467,6 +482,7 @@ class TestQdrantRetrieve:
                 }
             )
         ]
+        mock_qdrant_client.query_points.return_value = mock_query_response
 
         results = await qdrant_storage.retrieve(
             "test query",
@@ -490,7 +506,10 @@ class TestQdrantRetrieve:
         mock_embedding_service.encode.return_value = [mock_array]
         qdrant_storage.embedding_service = mock_embedding_service
 
-        mock_qdrant_client.search.return_value = []
+        # Mock query_points with empty results
+        mock_query_response = MagicMock()
+        mock_query_response.points = []
+        mock_qdrant_client.query_points.return_value = mock_query_response
 
         results = await qdrant_storage.retrieve("no matches")
 

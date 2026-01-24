@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/codebase-remediation/tasks.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-12-30T13:13:54.404Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767100434402_lgeh9xydl",
+      "approvalTitle": "tasks.md - Codebase Remediation Tasks"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-12-30T13:39:15.765Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767100434402_lgeh9xydl",
+      "approvalTitle": "tasks.md - Codebase Remediation Tasks"
+    }
+  ]
+}

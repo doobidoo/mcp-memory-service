@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/codebase-remediation/design.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-12-30T13:08:05.184Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767100085182_m19qxkd20",
+      "approvalTitle": "design.md - Codebase Remediation Design"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-12-30T13:11:39.787Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767100085182_m19qxkd20",
+      "approvalTitle": "design.md - Codebase Remediation Design"
+    }
+  ]
+}

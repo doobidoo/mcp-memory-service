@@ -12,11 +12,107 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+Storage backends for MCP Memory Service.
+
+Provides:
+- BaseStorage: Protocol defining storage interface
+- MemoryStorage: ABC for backward compatibility
+- SqliteVecMemoryStorage: SQLite-vec backend (development)
+- QdrantStorage: Qdrant backend (production)
+"""
+
+from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
+
+from ..models.memory import Memory, MemoryQueryResult
+
+
+@runtime_checkable
+class BaseStorage(Protocol):
+    """
+    Protocol defining the core storage interface.
+
+    Implementations must provide these methods for compatibility.
+    Uses structural subtyping - no explicit inheritance required.
+    """
+
+    async def initialize(self) -> None:
+        """Initialize the storage backend."""
+        ...
+
+    async def store(self, memory: Memory) -> Tuple[bool, str]:
+        """Store a memory. Returns (success, message)."""
+        ...
+
+    async def retrieve(
+        self,
+        query: str,
+        n_results: int = 5,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None,
+        min_similarity: Optional[float] = None,
+        offset: int = 0
+    ) -> List[MemoryQueryResult]:
+        """Retrieve memories by semantic search."""
+        ...
+
+    async def search_by_tag(
+        self,
+        tags: List[str],
+        limit: int = 10,
+        offset: int = 0,
+        match_all: bool = False,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None
+    ) -> List[Memory]:
+        """Search memories by tags."""
+        ...
+
+    async def get_all_memories(
+        self,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        memory_type: Optional[str] = None,
+        tags: Optional[List[str]] = None
+    ) -> List[Memory]:
+        """List all memories with optional filters."""
+        ...
+
+    async def delete(self, content_hash: str) -> Tuple[bool, str]:
+        """Delete a memory by hash."""
+        ...
+
+    async def count_all_memories(
+        self,
+        memory_type: Optional[str] = None,
+        tags: Optional[List[str]] = None
+    ) -> int:
+        """Count total memories."""
+        ...
+
+    async def get_stats(self) -> Dict[str, Any]:
+        """Get storage health and statistics."""
+        ...
+
+    async def close(self) -> None:
+        """Close storage connections."""
+        ...
+
+
+# Export ABC for backward compatibility
 from .base import MemoryStorage
 
-# Conditional imports based on available dependencies
-__all__ = ['MemoryStorage']
+# Export factory function
+from .factory import create_storage_instance, get_storage_backend_class
 
+__all__ = [
+    'BaseStorage',
+    'MemoryStorage',
+    'create_storage_instance',
+    'get_storage_backend_class',
+]
+
+# Conditional imports for backends
 try:
     from .sqlite_vec import SqliteVecMemoryStorage
     __all__.append('SqliteVecMemoryStorage')
@@ -24,13 +120,7 @@ except ImportError:
     SqliteVecMemoryStorage = None
 
 try:
-    from .cloudflare import CloudflareStorage
-    __all__.append('CloudflareStorage')
+    from .qdrant_storage import QdrantStorage
+    __all__.append('QdrantStorage')
 except ImportError:
-    CloudflareStorage = None
-
-try:
-    from .hybrid import HybridMemoryStorage
-    __all__.append('HybridMemoryStorage')
-except ImportError:
-    HybridMemoryStorage = None
+    QdrantStorage = None

@@ -519,10 +519,10 @@ async def test_delete_memory_error(memory_service, mock_storage):
     assert "Failed to delete memory" in result["error"]
 
 
-# Test health_check method
+# Test check_database_health method
 
 @pytest.mark.asyncio
-async def test_health_check_success(memory_service, mock_storage):
+async def test_check_database_health_success(memory_service, mock_storage):
     """Test successful health check."""
     mock_storage.get_stats.return_value = {
         "backend": "sqlite-vec",
@@ -530,7 +530,7 @@ async def test_health_check_success(memory_service, mock_storage):
         "database_size": "5MB"
     }
 
-    result = await memory_service.health_check()
+    result = await memory_service.check_database_health()
 
     assert result["healthy"] is True
     assert result["storage_type"] == "sqlite-vec"
@@ -539,11 +539,11 @@ async def test_health_check_success(memory_service, mock_storage):
 
 
 @pytest.mark.asyncio
-async def test_health_check_failure(memory_service, mock_storage):
+async def test_check_database_health_failure(memory_service, mock_storage):
     """Test health check when storage fails."""
     mock_storage.get_stats.side_effect = Exception("Health check failed")
 
-    result = await memory_service.health_check()
+    result = await memory_service.check_database_health()
 
     assert result["healthy"] is False
     assert "error" in result

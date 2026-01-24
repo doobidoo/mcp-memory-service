@@ -22,6 +22,7 @@ Sensitive values use SecretStr for security.
 import os
 import sys
 import secrets
+import threading
 import time
 import logging
 from pathlib import Path
@@ -179,7 +180,7 @@ class StorageSettings(BaseSettings):
         extra='ignore'
     )
 
-    storage_backend: Literal['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid', 'qdrant'] = Field(
+    storage_backend: Literal['sqlite_vec', 'sqlite-vec', 'qdrant'] = Field(
         default='sqlite_vec',
         description="Storage backend to use"
     )
@@ -214,25 +215,11 @@ class ContentLimitsSettings(BaseSettings):
         extra='ignore'
     )
 
-    cloudflare_max_content_length: int = Field(
-        default=800,
-        ge=100,
-        le=10000,
-        description="Cloudflare content length limit (characters)"
-    )
-
     sqlitevec_max_content_length: Optional[int] = Field(
         default=None,
         ge=100,
         le=10000,
         description="SQLite-vec content length limit (None = unlimited)"
-    )
-
-    hybrid_max_content_length: int = Field(
-        default=800,
-        ge=100,
-        le=10000,
-        description="Hybrid backend content length limit (characters)"
     )
 
     enable_auto_split: bool = Field(
@@ -253,189 +240,6 @@ class ContentLimitsSettings(BaseSettings):
     )
 
 
-class CloudflareSettings(BaseSettings):
-    """Cloudflare backend configuration with secure credential handling."""
-
-    model_config = SettingsConfigDict(
-        env_prefix='CLOUDFLARE_',
-        env_file='.env',
-        env_file_encoding='utf-8',
-        case_sensitive=False,
-        extra='ignore'
-    )
-
-    # Required credentials (SecretStr for security)
-    api_token: Optional[SecretStr] = Field(
-        default=None,
-        description="Cloudflare API token"
-    )
-
-    account_id: Optional[str] = Field(
-        default=None,
-        description="Cloudflare account ID"
-    )
-
-    vectorize_index: Optional[str] = Field(
-        default=None,
-        description="Cloudflare Vectorize index name"
-    )
-
-    d1_database_id: Optional[str] = Field(
-        default=None,
-        description="Cloudflare D1 database ID"
-    )
-
-    # Optional settings
-    r2_bucket: Optional[str] = Field(
-        default=None,
-        description="Cloudflare R2 bucket for large content"
-    )
-
-    embedding_model: str = Field(
-        default='@cf/baai/bge-base-en-v1.5',
-        description="Cloudflare embedding model"
-    )
-
-    large_content_threshold: int = Field(
-        default=1048576,  # 1MB
-        description="Threshold for storing content in R2 (bytes)"
-    )
-
-    max_retries: int = Field(default=3, ge=1, le=10)
-    base_delay: float = Field(default=1.0, ge=0.1, le=10.0)
-
-    # Service limits
-    d1_max_size_gb: int = Field(default=10, description="D1 database hard limit (GB)")
-    vectorize_max_vectors: int = Field(default=5_000_000, description="Max vectors per index")
-    max_metadata_size_kb: int = Field(default=10, description="Max metadata size per vector (KB)")
-    max_filter_size_bytes: int = Field(default=2048, description="Max filter query size (bytes)")
-    max_string_index_size_bytes: int = Field(default=64, description="Max indexed string size (bytes)")
-    batch_insert_limit: int = Field(default=200_000, description="Max batch insert size")
-
-    # Warning thresholds
-    warning_threshold_percent: int = Field(default=80, ge=0, le=100)
-    critical_threshold_percent: int = Field(default=95, ge=0, le=100)
-
-    @property
-    def is_configured(self) -> bool:
-        """Check if all required Cloudflare settings are provided."""
-        return all([
-            self.api_token,
-            self.account_id,
-            self.vectorize_index,
-            self.d1_database_id
-        ])
-
-
-class HybridSettings(BaseSettings):
-    """Hybrid backend configuration (SQLite-vec + Cloudflare)."""
-
-    model_config = SettingsConfigDict(
-        env_prefix='MCP_HYBRID_',
-        env_file='.env',
-        env_file_encoding='utf-8',
-        case_sensitive=False,
-        extra='ignore'
-    )
-
-    # Sync service configuration
-    sync_interval: int = Field(
-        default=300,
-        ge=1,
-        le=3600,
-        description="Background sync interval (seconds)"
-    )
-
-    batch_size: int = Field(
-        default=50,
-        ge=1,
-        le=1000,
-        description="Batch size for sync operations"
-    )
-
-    max_queue_size: int = Field(
-        default=1000,
-        ge=10,
-        le=10000,
-        description="Maximum sync operation queue size"
-    )
-
-    max_retries: int = Field(default=3, ge=1, le=10)
-
-    # Health checks
-    enable_health_checks: bool = Field(default=True)
-    health_check_interval: int = Field(default=60, ge=10, le=600)
-    sync_on_startup: bool = Field(default=True)
-
-    # Initial sync tuning
-    max_empty_batches: int = Field(
-        default=20,
-        ge=1,
-        description="Stop after N batches without new syncs"
-    )
-
-    min_check_count: int = Field(
-        default=1000,
-        ge=1,
-        description="Minimum memories to check before early stop"
-    )
-
-    # Fallback behavior
-    fallback_to_primary: bool = Field(default=True)
-    warn_on_secondary_failure: bool = Field(default=True)
-
-    # Leader election
-    leader_election_enabled: bool = Field(
-        default=True,
-        description="Enable leader election for single-writer SQLite"
-    )
-
-    leader_health_check_interval: int = Field(
-        default=30,
-        ge=5,
-        le=300,
-        description="Follower health check interval (seconds)"
-    )
-
-    leader_heartbeat_interval: int = Field(
-        default=10,
-        ge=1,
-        le=60,
-        description="Leader heartbeat interval (seconds)"
-    )
-
-    leader_stale_threshold: int = Field(
-        default=45,
-        ge=10,
-        le=300,
-        description="Leader considered stale after this many seconds"
-    )
-
-    # Adaptive sync
-    adaptive_sync_enabled: bool = Field(
-        default=True,
-        description="Enable adaptive sync intervals based on activity"
-    )
-
-    sync_active_interval: int = Field(
-        default=5,
-        ge=1,
-        le=60,
-        description="Sync interval when active (seconds)"
-    )
-
-    sync_idle_interval: int = Field(
-        default=60,
-        ge=10,
-        le=600,
-        description="Sync interval when idle (seconds)"
-    )
-
-    idle_threshold: int = Field(
-        default=300,
-        ge=60,
-        description="Seconds without writes to be considered idle"
-    )
 
 
 class HTTPSettings(BaseSettings):
@@ -461,11 +265,8 @@ class HTTPSettings(BaseSettings):
     ssl_cert_file: Optional[str] = Field(default=None)
     ssl_key_file: Optional[str] = Field(default=None)
 
-    # mDNS Service Discovery (disabled: zeroconf removed, k8s handles discovery)
+    # mDNS Service Discovery (disabled: zeroconf removed)
     mdns_enabled: bool = Field(default=False)
-    mdns_service_name: str = Field(default='MCP Memory Service')
-    mdns_service_type: str = Field(default='_mcp-memory._tcp.local.')
-    mdns_discovery_timeout: int = Field(default=5, ge=1, le=60)
 
     @field_validator('cors_origins', mode='before')
     @classmethod
@@ -570,85 +371,6 @@ class OAuthSettings(BaseSettings):
             raise ValueError("No JWT verification key available")
 
 
-class DocumentSettings(BaseSettings):
-    """Document processing configuration."""
-
-    model_config = SettingsConfigDict(
-        env_prefix='MCP_',
-        env_file='.env',
-        env_file_encoding='utf-8',
-        case_sensitive=False,
-        extra='ignore'
-    )
-
-    llamaparse_api_key: Optional[SecretStr] = Field(
-        default=None,
-        alias='LLAMAPARSE_API_KEY',
-        description="LlamaParse API key for enhanced document parsing"
-    )
-
-    document_chunk_size: int = Field(
-        default=1000,
-        ge=100,
-        le=10000,
-        description="Document chunk size (characters)"
-    )
-
-    document_chunk_overlap: int = Field(
-        default=200,
-        ge=0,
-        le=1000,
-        description="Overlap between document chunks (characters)"
-    )
-
-
-class ConsolidationSettings(BaseSettings):
-    """Memory consolidation configuration."""
-
-    model_config = SettingsConfigDict(
-        env_prefix='MCP_',
-        env_file='.env',
-        env_file_encoding='utf-8',
-        case_sensitive=False,
-        extra='ignore'
-    )
-
-    consolidation_enabled: bool = Field(default=False)
-
-    # Decay settings
-    decay_enabled: bool = Field(default=True)
-    retention_critical: int = Field(default=365, ge=1)
-    retention_reference: int = Field(default=180, ge=1)
-    retention_standard: int = Field(default=30, ge=1)
-    retention_temporary: int = Field(default=7, ge=1)
-
-    # Association settings
-    associations_enabled: bool = Field(default=True)
-    association_min_similarity: float = Field(default=0.3, ge=0.0, le=1.0)
-    association_max_similarity: float = Field(default=0.7, ge=0.0, le=1.0)
-    association_max_pairs: int = Field(default=100, ge=1)
-
-    # Clustering settings
-    clustering_enabled: bool = Field(default=True)
-    clustering_min_size: int = Field(default=5, ge=2)
-    clustering_algorithm: Literal['dbscan', 'hierarchical', 'simple'] = Field(default='dbscan')
-
-    # Compression settings
-    compression_enabled: bool = Field(default=True)
-    compression_max_length: int = Field(default=500, ge=100)
-    compression_preserve_originals: bool = Field(default=True)
-
-    # Forgetting settings
-    forgetting_enabled: bool = Field(default=True)
-    forgetting_relevance_threshold: float = Field(default=0.1, ge=0.0, le=1.0)
-    forgetting_access_threshold: int = Field(default=90, ge=1)
-
-    # Scheduling
-    schedule_daily: str = Field(default='02:00')
-    schedule_weekly: str = Field(default='SUN 03:00')
-    schedule_monthly: str = Field(default='01 04:00')
-    schedule_quarterly: str = Field(default='disabled')
-    schedule_yearly: str = Field(default='disabled')
 
 
 class QdrantSettings(BaseSettings):
@@ -790,13 +512,9 @@ class Settings(BaseSettings):
     server: ServerSettings = Field(default_factory=ServerSettings)
     storage: StorageSettings = Field(default_factory=StorageSettings)
     content_limits: ContentLimitsSettings = Field(default_factory=ContentLimitsSettings)
-    cloudflare: CloudflareSettings = Field(default_factory=CloudflareSettings)
-    hybrid: HybridSettings = Field(default_factory=HybridSettings)
     qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
     http: HTTPSettings = Field(default_factory=HTTPSettings)
     oauth: OAuthSettings = Field(default_factory=OAuthSettings)
-    document: DocumentSettings = Field(default_factory=DocumentSettings)
-    consolidation: ConsolidationSettings = Field(default_factory=ConsolidationSettings)
     toon: TOONSettings = Field(default_factory=TOONSettings)
     debug: DebugSettings = Field(default_factory=DebugSettings)
 
@@ -805,28 +523,8 @@ class Settings(BaseSettings):
         """Validate that required backend configuration is present."""
         backend = self.storage.storage_backend
 
-        if backend in ['cloudflare', 'hybrid']:
-            if not self.cloudflare.is_configured:
-                missing = []
-                if not self.cloudflare.api_token:
-                    missing.append('CLOUDFLARE_API_TOKEN')
-                if not self.cloudflare.account_id:
-                    missing.append('CLOUDFLARE_ACCOUNT_ID')
-                if not self.cloudflare.vectorize_index:
-                    missing.append('CLOUDFLARE_VECTORIZE_INDEX')
-                if not self.cloudflare.d1_database_id:
-                    missing.append('CLOUDFLARE_D1_DATABASE_ID')
-
-                if backend == 'cloudflare':
-                    error_msg = f"Cloudflare backend requires: {', '.join(missing)}"
-                    logger.error(error_msg)
-                    raise ValueError(error_msg)
-                else:  # hybrid
-                    logger.warning(f"Hybrid mode missing Cloudflare config: {', '.join(missing)}")
-                    logger.warning("Hybrid mode will operate in SQLite-only mode")
-
         # Set SQLite path if needed
-        if backend in ['sqlite_vec', 'hybrid']:
+        if backend == 'sqlite_vec':
             if not self.paths.sqlite_path:
                 self.paths.sqlite_path = os.path.join(self.paths.base_dir, 'sqlite_vec.db')
                 logger.info(f"Using default SQLite path: {self.paths.sqlite_path}")
@@ -860,19 +558,13 @@ class Settings(BaseSettings):
         logger.info(f"Storage Backend: {self.storage.storage_backend}")
         logger.info(f"Base Directory: {self.paths.base_dir}")
 
-        if self.storage.storage_backend in ['sqlite_vec', 'hybrid']:
+        if self.storage.storage_backend == 'sqlite_vec':
             logger.info(f"SQLite Path: {self.paths.sqlite_path}")
-
-        if self.storage.storage_backend in ['cloudflare', 'hybrid']:
-            logger.info(f"Cloudflare Configured: {self.cloudflare.is_configured}")
-            if self.cloudflare.is_configured:
-                logger.info(f"  Vectorize Index: {self.cloudflare.vectorize_index}")
-                logger.info(f"  D1 Database: {self.cloudflare.d1_database_id}")
-
-        if self.storage.storage_backend == 'hybrid':
-            logger.info(f"Hybrid Sync: interval={self.hybrid.sync_interval}s, batch={self.hybrid.batch_size}")
-            logger.info(f"Leader Election: {self.hybrid.leader_election_enabled}")
-            logger.info(f"Adaptive Sync: {self.hybrid.adaptive_sync_enabled}")
+        elif self.storage.storage_backend == 'qdrant':
+            if self.qdrant.url:
+                logger.info(f"Qdrant URL: {self.qdrant.url}")
+            else:
+                logger.info(f"Qdrant Storage: {self.qdrant.storage_path}")
 
         if self.http.http_enabled:
             logger.info(f"HTTP Server: {self.http.http_host}:{self.http.http_port}")
@@ -895,14 +587,24 @@ class _SettingsProxy:
     This ensures environment variables are read at runtime, not import time,
     which is critical for Docker deployments where env vars may not be fully
     propagated during module import.
+
+    Thread-safe: Uses double-checked locking pattern to prevent race conditions.
     """
     _instance: Optional[Settings] = None
+    _lock: threading.Lock = threading.Lock()
+
+    def _get_instance(self) -> Settings:
+        """Get or create the Settings instance in a thread-safe manner."""
+        if self._instance is None:
+            with self._lock:
+                # Double-check after acquiring lock
+                if self._instance is None:
+                    self._instance = Settings()
+                    self._instance.log_configuration()
+        return self._instance
 
     def __getattr__(self, name: str):
-        if self._instance is None:
-            self._instance = Settings()
-            self._instance.log_configuration()
-        return getattr(self._instance, name)
+        return getattr(self._get_instance(), name)
 
 # Create lazy proxy
 settings = _SettingsProxy()
@@ -920,11 +622,8 @@ def __getattr__(name: str):
     This is called when a module attribute is not found via normal lookup,
     allowing us to defer Settings instantiation until the value is actually needed.
     """
-    # Get settings instance (lazy-loaded)
-    _settings = settings._instance if settings._instance else Settings()
-    if settings._instance is None:
-        settings._instance = _settings
-        _settings.log_configuration()
+    # Get settings instance (thread-safe lazy-loading)
+    _settings = settings._get_instance()
 
     # Map attribute names to settings paths
     # This provides lazy evaluation - settings are only loaded when first accessed
@@ -944,52 +643,10 @@ def __getattr__(name: str):
         'USE_ONNX': lambda: _settings.storage.use_onnx,
 
         # Content limits
-        'CLOUDFLARE_MAX_CONTENT_LENGTH': lambda: _settings.content_limits.cloudflare_max_content_length,
         'SQLITEVEC_MAX_CONTENT_LENGTH': lambda: _settings.content_limits.sqlitevec_max_content_length,
-        'HYBRID_MAX_CONTENT_LENGTH': lambda: _settings.content_limits.hybrid_max_content_length,
         'ENABLE_AUTO_SPLIT': lambda: _settings.content_limits.enable_auto_split,
         'CONTENT_SPLIT_OVERLAP': lambda: _settings.content_limits.content_split_overlap,
         'CONTENT_PRESERVE_BOUNDARIES': lambda: _settings.content_limits.content_preserve_boundaries,
-
-        # Cloudflare
-        'CLOUDFLARE_API_TOKEN': lambda: _settings.cloudflare.api_token.get_secret_value() if _settings.cloudflare.api_token else None,
-        'CLOUDFLARE_ACCOUNT_ID': lambda: _settings.cloudflare.account_id,
-        'CLOUDFLARE_VECTORIZE_INDEX': lambda: _settings.cloudflare.vectorize_index,
-        'CLOUDFLARE_D1_DATABASE_ID': lambda: _settings.cloudflare.d1_database_id,
-        'CLOUDFLARE_R2_BUCKET': lambda: _settings.cloudflare.r2_bucket,
-        'CLOUDFLARE_EMBEDDING_MODEL': lambda: _settings.cloudflare.embedding_model,
-        'CLOUDFLARE_LARGE_CONTENT_THRESHOLD': lambda: _settings.cloudflare.large_content_threshold,
-        'CLOUDFLARE_MAX_RETRIES': lambda: _settings.cloudflare.max_retries,
-        'CLOUDFLARE_BASE_DELAY': lambda: _settings.cloudflare.base_delay,
-        'CLOUDFLARE_D1_MAX_SIZE_GB': lambda: _settings.cloudflare.d1_max_size_gb,
-        'CLOUDFLARE_VECTORIZE_MAX_VECTORS': lambda: _settings.cloudflare.vectorize_max_vectors,
-        'CLOUDFLARE_MAX_METADATA_SIZE_KB': lambda: _settings.cloudflare.max_metadata_size_kb,
-        'CLOUDFLARE_MAX_FILTER_SIZE_BYTES': lambda: _settings.cloudflare.max_filter_size_bytes,
-        'CLOUDFLARE_MAX_STRING_INDEX_SIZE_BYTES': lambda: _settings.cloudflare.max_string_index_size_bytes,
-        'CLOUDFLARE_BATCH_INSERT_LIMIT': lambda: _settings.cloudflare.batch_insert_limit,
-        'CLOUDFLARE_WARNING_THRESHOLD_PERCENT': lambda: _settings.cloudflare.warning_threshold_percent,
-        'CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT': lambda: _settings.cloudflare.critical_threshold_percent,
-
-        # Hybrid
-        'HYBRID_SYNC_INTERVAL': lambda: _settings.hybrid.sync_interval,
-        'HYBRID_BATCH_SIZE': lambda: _settings.hybrid.batch_size,
-        'HYBRID_MAX_QUEUE_SIZE': lambda: _settings.hybrid.max_queue_size,
-        'HYBRID_MAX_RETRIES': lambda: _settings.hybrid.max_retries,
-        'HYBRID_ENABLE_HEALTH_CHECKS': lambda: _settings.hybrid.enable_health_checks,
-        'HYBRID_HEALTH_CHECK_INTERVAL': lambda: _settings.hybrid.health_check_interval,
-        'HYBRID_SYNC_ON_STARTUP': lambda: _settings.hybrid.sync_on_startup,
-        'HYBRID_MAX_EMPTY_BATCHES': lambda: _settings.hybrid.max_empty_batches,
-        'HYBRID_MIN_CHECK_COUNT': lambda: _settings.hybrid.min_check_count,
-        'HYBRID_FALLBACK_TO_PRIMARY': lambda: _settings.hybrid.fallback_to_primary,
-        'HYBRID_WARN_ON_SECONDARY_FAILURE': lambda: _settings.hybrid.warn_on_secondary_failure,
-        'HYBRID_LEADER_ELECTION_ENABLED': lambda: _settings.hybrid.leader_election_enabled,
-        'HYBRID_LEADER_HEALTH_CHECK_INTERVAL': lambda: _settings.hybrid.leader_health_check_interval,
-        'HYBRID_LEADER_HEARTBEAT_INTERVAL': lambda: _settings.hybrid.leader_heartbeat_interval,
-        'HYBRID_LEADER_STALE_THRESHOLD': lambda: _settings.hybrid.leader_stale_threshold,
-        'HYBRID_ADAPTIVE_SYNC_ENABLED': lambda: _settings.hybrid.adaptive_sync_enabled,
-        'HYBRID_SYNC_ACTIVE_INTERVAL': lambda: _settings.hybrid.sync_active_interval,
-        'HYBRID_SYNC_IDLE_INTERVAL': lambda: _settings.hybrid.sync_idle_interval,
-        'HYBRID_IDLE_THRESHOLD': lambda: _settings.hybrid.idle_threshold,
 
         # HTTP
         'HTTP_ENABLED': lambda: _settings.http.http_enabled,
@@ -1002,9 +659,6 @@ def __getattr__(name: str):
         'SSL_CERT_FILE': lambda: _settings.http.ssl_cert_file,
         'SSL_KEY_FILE': lambda: _settings.http.ssl_key_file,
         'MDNS_ENABLED': lambda: _settings.http.mdns_enabled,
-        'MDNS_SERVICE_NAME': lambda: _settings.http.mdns_service_name,
-        'MDNS_SERVICE_TYPE': lambda: _settings.http.mdns_service_type,
-        'MDNS_DISCOVERY_TIMEOUT': lambda: _settings.http.mdns_discovery_timeout,
         'DATABASE_PATH': lambda: _settings.paths.sqlite_path or os.path.join(_settings.paths.base_dir, 'memory_http.db'),
 
         # OAuth
@@ -1016,45 +670,6 @@ def __getattr__(name: str):
         'OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES': lambda: _settings.oauth.access_token_expire_minutes,
         'OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES': lambda: _settings.oauth.authorization_code_expire_minutes,
         'ALLOW_ANONYMOUS_ACCESS': lambda: _settings.oauth.allow_anonymous_access,
-
-        # Document processing
-        'LLAMAPARSE_API_KEY': lambda: _settings.document.llamaparse_api_key.get_secret_value() if _settings.document.llamaparse_api_key else None,
-        'DOCUMENT_CHUNK_SIZE': lambda: _settings.document.document_chunk_size,
-        'DOCUMENT_CHUNK_OVERLAP': lambda: _settings.document.document_chunk_overlap,
-
-        # Consolidation
-        'CONSOLIDATION_ENABLED': lambda: _settings.consolidation.consolidation_enabled,
-        'CONSOLIDATION_ARCHIVE_PATH': lambda: os.path.join(_settings.paths.base_dir, 'consolidation_archive'),
-        'CONSOLIDATION_CONFIG': lambda: {
-            'decay_enabled': _settings.consolidation.decay_enabled,
-            'retention_periods': {
-                'critical': _settings.consolidation.retention_critical,
-                'reference': _settings.consolidation.retention_reference,
-                'standard': _settings.consolidation.retention_standard,
-                'temporary': _settings.consolidation.retention_temporary,
-            },
-            'associations_enabled': _settings.consolidation.associations_enabled,
-            'min_similarity': _settings.consolidation.association_min_similarity,
-            'max_similarity': _settings.consolidation.association_max_similarity,
-            'max_pairs_per_run': _settings.consolidation.association_max_pairs,
-            'clustering_enabled': _settings.consolidation.clustering_enabled,
-            'min_cluster_size': _settings.consolidation.clustering_min_size,
-            'clustering_algorithm': _settings.consolidation.clustering_algorithm,
-            'compression_enabled': _settings.consolidation.compression_enabled,
-            'max_summary_length': _settings.consolidation.compression_max_length,
-            'preserve_originals': _settings.consolidation.compression_preserve_originals,
-            'forgetting_enabled': _settings.consolidation.forgetting_enabled,
-            'relevance_threshold': _settings.consolidation.forgetting_relevance_threshold,
-            'access_threshold_days': _settings.consolidation.forgetting_access_threshold,
-            'archive_location': os.path.join(_settings.paths.base_dir, 'consolidation_archive')
-        },
-        'CONSOLIDATION_SCHEDULE': lambda: {
-            'daily': _settings.consolidation.schedule_daily,
-            'weekly': _settings.consolidation.schedule_weekly,
-            'monthly': _settings.consolidation.schedule_monthly,
-            'quarterly': _settings.consolidation.schedule_quarterly,
-            'yearly': _settings.consolidation.schedule_yearly
-        },
 
         # TOON
         'ENABLE_TOON_FORMAT': lambda: _settings.toon.enable_toon_format,
@@ -1074,7 +689,7 @@ def __getattr__(name: str):
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 # Constants that don't need lazy loading
-SUPPORTED_BACKENDS = ['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid', 'qdrant']
+SUPPORTED_BACKENDS = ['sqlite_vec', 'sqlite-vec', 'qdrant']
 
 # Note: All config values are now lazy-loaded via __getattr__ above
 # Do not add assignments here - they will trigger eager Settings() instantiation
@@ -1097,12 +712,12 @@ def get_jwt_verification_key() -> str:
 
 def get_oauth_issuer() -> str:
     """Get OAuth issuer URL from settings."""
-    _settings = settings._instance if settings._instance else Settings()
+    _settings = settings._get_instance()
     return _settings.oauth.issuer
 
 def validate_oauth_configuration() -> None:
     """Validate OAuth configuration at startup."""
-    _settings = settings._instance if settings._instance else Settings()
+    _settings = settings._get_instance()
 
     if not _settings.oauth.enabled:
         logger.info("OAuth validation skipped: OAuth disabled")
@@ -1161,7 +776,7 @@ def _ensure_onnx_cache() -> str:
     This is called lazily only when ONNX_MODEL_CACHE is accessed.
     Returns the cache directory path.
     """
-    _settings = settings._instance if settings._instance else Settings()
+    _settings = settings._get_instance()
     if _settings.storage.use_onnx:
         cache_path = os.path.join(_settings.paths.base_dir, 'onnx_models')
         os.makedirs(cache_path, exist_ok=True)

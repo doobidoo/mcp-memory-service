@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/steering/tech.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-12-30T12:10:36.454Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767096636453_an0oaeil7",
+      "approvalTitle": "Tech Steering Document - Python 3.13+, Qdrant Primary"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-12-30T12:14:07.469Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767096636453_an0oaeil7",
+      "approvalTitle": "Tech Steering Document - Python 3.13+, Qdrant Primary"
+    }
+  ]
+}

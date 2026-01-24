@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/codebase-remediation/requirements.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-12-30T13:03:15.495Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767099795494_rm1r83unz",
+      "approvalTitle": "requirements.md - Codebase Remediation Requirements"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-12-30T13:06:31.398Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767099795494_rm1r83unz",
+      "approvalTitle": "requirements.md - Codebase Remediation Requirements"
+    }
+  ]
+}

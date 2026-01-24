@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/steering/product.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-12-30T11:51:45.236Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767095505226_ite9sfw6q",
+      "approvalTitle": "Product Steering Document - MCP Memory Service Remediation"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-12-30T12:03:03.487Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767095505226_ite9sfw6q",
+      "approvalTitle": "Product Steering Document - MCP Memory Service Remediation"
+    }
+  ]
+}
