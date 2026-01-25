@@ -85,7 +85,7 @@ def sample_memory():
 
 @pytest.fixture
 def qdrant_storage(mock_qdrant_client):
-    """Create QdrantStorage instance with mocked client."""
+    """Create QdrantStorage instance with mocked client and embedding."""
     with patch('src.mcp_memory_service.storage.qdrant_storage.QdrantClient', return_value=mock_qdrant_client):
         storage = QdrantStorage(
             embedding_model="all-MiniLM-L6-v2",
@@ -96,6 +96,8 @@ def qdrant_storage(mock_qdrant_client):
         # Inject the mock client
         storage.client = mock_qdrant_client
         storage._vector_size = 384
+        # Mock _generate_embedding to avoid CUDA issues
+        storage._generate_embedding = MagicMock(return_value=[0.5] * 384)
         return storage
 
 
@@ -335,13 +337,7 @@ class TestQdrantRetrieve:
     async def test_retrieve_semantic_search(self, qdrant_storage, mock_qdrant_client):
         """Test semantic search returns top N results."""
         qdrant_storage._initialized = True
-
-        # Mock embedding service - need to return array with tolist() method
-        mock_array = MagicMock()
-        mock_array.tolist.return_value = [0.5] * 384
-        mock_embedding_service = MagicMock()
-        mock_embedding_service.encode.return_value = [mock_array]  # Returns list of arrays
-        qdrant_storage.embedding_service = mock_embedding_service
+        # Embedding is mocked via fixture's _generate_embedding mock
 
         # Mock query_points results (returns QueryResponse with .points attribute)
         mock_query_response = MagicMock()
@@ -384,13 +380,7 @@ class TestQdrantRetrieve:
     async def test_retrieve_with_tag_filter(self, qdrant_storage, mock_qdrant_client):
         """Test retrieval with tag filtering (OR logic)."""
         qdrant_storage._initialized = True
-
-        # Mock embedding service - need to return array with tolist() method
-        mock_array = MagicMock()
-        mock_array.tolist.return_value = [0.5] * 384
-        mock_embedding_service = MagicMock()
-        mock_embedding_service.encode.return_value = [mock_array]
-        qdrant_storage.embedding_service = mock_embedding_service
+        # Embedding is mocked via fixture's _generate_embedding mock
 
         # Mock query_points with empty results
         mock_query_response = MagicMock()
@@ -416,13 +406,7 @@ class TestQdrantRetrieve:
     async def test_retrieve_with_memory_type_filter(self, qdrant_storage, mock_qdrant_client):
         """Test retrieval with memory type filtering (AND logic)."""
         qdrant_storage._initialized = True
-
-        # Mock embedding service - need to return array with tolist() method
-        mock_array = MagicMock()
-        mock_array.tolist.return_value = [0.5] * 384
-        mock_embedding_service = MagicMock()
-        mock_embedding_service.encode.return_value = [mock_array]
-        qdrant_storage.embedding_service = mock_embedding_service
+        # Embedding is mocked via fixture's _generate_embedding mock
 
         # Mock query_points with empty results
         mock_query_response = MagicMock()
@@ -448,13 +432,7 @@ class TestQdrantRetrieve:
     async def test_retrieve_applies_min_similarity(self, qdrant_storage, mock_qdrant_client):
         """Test minimum similarity threshold filtering."""
         qdrant_storage._initialized = True
-
-        # Mock embedding service - need to return array with tolist() method
-        mock_array = MagicMock()
-        mock_array.tolist.return_value = [0.5] * 384
-        mock_embedding_service = MagicMock()
-        mock_embedding_service.encode.return_value = [mock_array]
-        qdrant_storage.embedding_service = mock_embedding_service
+        # Embedding is mocked via fixture's _generate_embedding mock
 
         # Mock query_points results (returns QueryResponse with .points attribute)
         mock_query_response = MagicMock()
@@ -498,13 +476,7 @@ class TestQdrantRetrieve:
     async def test_retrieve_empty_results(self, qdrant_storage, mock_qdrant_client):
         """Test retrieval with no matches returns empty list."""
         qdrant_storage._initialized = True
-
-        # Mock embedding service - need to return array with tolist() method
-        mock_array = MagicMock()
-        mock_array.tolist.return_value = [0.5] * 384
-        mock_embedding_service = MagicMock()
-        mock_embedding_service.encode.return_value = [mock_array]
-        qdrant_storage.embedding_service = mock_embedding_service
+        # Embedding is mocked via fixture's _generate_embedding mock
 
         # Mock query_points with empty results
         mock_query_response = MagicMock()
