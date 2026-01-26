@@ -202,7 +202,7 @@ def test_memory_service_has_required_methods():
         'list_memories',  # Not get_all_memories
         'search_by_tag',
         'get_memory_by_hash',
-        'health_check',
+        'check_database_health',
     ]
 
     for method in required_methods:

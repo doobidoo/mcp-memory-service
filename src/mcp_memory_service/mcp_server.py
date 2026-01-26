@@ -38,30 +38,7 @@ sys.path.insert(0, str(src_dir))
 from fastmcp import FastMCP, Context
 
 # Import existing memory service components
-from .config import (
-    STORAGE_BACKEND,
-    CONSOLIDATION_ENABLED,
-    EMBEDDING_MODEL_NAME,
-    INCLUDE_HOSTNAME,
-    SQLITE_VEC_PATH,
-    CLOUDFLARE_API_TOKEN,
-    CLOUDFLARE_ACCOUNT_ID,
-    CLOUDFLARE_VECTORIZE_INDEX,
-    CLOUDFLARE_D1_DATABASE_ID,
-    CLOUDFLARE_R2_BUCKET,
-    CLOUDFLARE_EMBEDDING_MODEL,
-    CLOUDFLARE_LARGE_CONTENT_THRESHOLD,
-    CLOUDFLARE_MAX_RETRIES,
-    CLOUDFLARE_BASE_DELAY,
-    HYBRID_SYNC_INTERVAL,
-    HYBRID_BATCH_SIZE,
-    HYBRID_MAX_QUEUE_SIZE,
-    HYBRID_SYNC_ON_STARTUP,
-    HYBRID_FALLBACK_TO_PRIMARY,
-    CONTENT_PRESERVE_BOUNDARIES,
-    CONTENT_SPLIT_OVERLAP,
-    ENABLE_AUTO_SPLIT,
-)
+from .config import STORAGE_BACKEND, SQLITE_VEC_PATH
 from .storage.base import MemoryStorage
 from .services.memory_service import MemoryService
 from .resources.toon_documentation import TOON_FORMAT_DOCUMENTATION

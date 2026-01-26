@@ -8,7 +8,6 @@ sessions/.archived/
 
 # Local tooling
 .serena/
-.spec-workflow/
 .coverage
 htmlcov/
 

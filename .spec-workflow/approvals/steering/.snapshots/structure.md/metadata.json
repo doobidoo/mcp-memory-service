@@ -1,0 +1,30 @@
+{
+  "filePath": ".spec-workflow/steering/structure.md",
+  "currentVersion": 3,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-12-30T12:49:52.166Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767098992165_4gecxwbnz",
+      "approvalTitle": "Structure Steering Document - Hexagonal Architecture, ~2K lines"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-12-30T12:53:03.082Z",
+      "trigger": "revision_requested",
+      "approvalId": "approval_1767098992165_4gecxwbnz",
+      "approvalTitle": "Structure Steering Document - Hexagonal Architecture, ~2K lines"
+    },
+    {
+      "version": 3,
+      "filename": "snapshot-003.json",
+      "timestamp": "2025-12-30T12:57:12.114Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767099267233_t2fb0jxcy",
+      "approvalTitle": "structure.md - Project Structure (typing.Protocol fixed)"
+    }
+  ]
+}

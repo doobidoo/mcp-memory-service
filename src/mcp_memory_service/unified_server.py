@@ -120,16 +120,13 @@ class UnifiedServer:
 
             # FastMCP v2.0 async API
             if transport == "http":
-                # Pass host and port for HTTP transport
-                # Override uvicorn's ws config to avoid 'websockets-sansio' bug in FastMCP v2.13
                 await mcp.run_async(
-                    transport="http", 
-                    host=host, 
+                    transport="http",
+                    host=host,
                     port=port,
-                    uvicorn_config={"ws": "none"}  # Disable WebSockets (MCP uses SSE)
+                    uvicorn_config={"ws": "none"}
                 )
             else:
-                # stdio transport doesn't need host/port
                 await mcp.run_async(transport="stdio")
         except Exception as e:
             logger.error(f"MCP server failed: {e}", exc_info=True)

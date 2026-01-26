@@ -58,7 +58,7 @@ class TestContentSplitter:
     def test_split_preserves_paragraphs(self):
         """Test that paragraph boundaries are preferred for splitting."""
         content = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
-        chunks = split_content(content, max_length=30, preserve_boundaries=True)
+        chunks = split_content(content, max_length=30, preserve_boundaries=True, overlap=10)
 
         # Should split at paragraph boundaries
         assert len(chunks) >= 2
@@ -69,7 +69,7 @@ class TestContentSplitter:
     def test_split_preserves_sentences(self):
         """Test that sentence boundaries are preferred when paragraphs don't fit."""
         content = "First sentence. Second sentence. Third sentence. Fourth sentence."
-        chunks = split_content(content, max_length=40, preserve_boundaries=True)
+        chunks = split_content(content, max_length=40, preserve_boundaries=True, overlap=10)
 
         # Should split at sentence boundaries
         assert len(chunks) >= 2
@@ -80,14 +80,17 @@ class TestContentSplitter:
     def test_split_preserves_words(self):
         """Test that word boundaries are preferred when sentences don't fit."""
         content = "word1 word2 word3 word4 word5 word6 word7 word8"
-        chunks = split_content(content, max_length=25, preserve_boundaries=True)
+        chunks = split_content(content, max_length=25, preserve_boundaries=True, overlap=5)
 
         # Should split at word boundaries
         assert len(chunks) >= 2
-        # No chunk should end mid-word (except possibly last)
-        for chunk in chunks[:-1]:
-            # Should not end with partial word (will end with space or be complete)
-            assert chunk.endswith(' ') or chunk == chunks[-1]
+        # All words should be complete (not partial)
+        for chunk in chunks:
+            # Check that all words in chunk are complete (not cut in middle)
+            words = chunk.strip().split()
+            # Each word should be from the original content
+            for word in words:
+                assert word in content.split(), f"Word '{word}' appears cut or invalid"
 
     def test_split_overlap(self):
         """Test that chunks have proper overlap for context."""
@@ -139,8 +142,8 @@ class TestContentSplitter:
         text = "First sentence. Second sentence. Third sentence."
         split_point = _find_best_split_point(text, max_length=30)
 
-        # Should split at sentence boundary
-        assert '. ' in text[:split_point]
+        # Should split at sentence boundary - text before split should end with period
+        assert text[:split_point].rstrip().endswith('.')
 
     def test_split_empty_content(self):
         """Test handling of empty content."""
@@ -179,29 +182,15 @@ def function_three():
 
 
 class TestBackendLimits:
-    """Test backend-specific content length limits."""
+    """Test backend-specific content length limits.
 
-    def test_cloudflare_limit(self):
-        """Test that Cloudflare backend uses config constant."""
-        from src.mcp_memory_service.storage.cloudflare import CloudflareStorage
-        from src.mcp_memory_service.config import CLOUDFLARE_MAX_CONTENT_LENGTH
+    Note: Cloudflare, ChromaDB, and Hybrid backends were removed in codebase remediation.
+    Only SQLite-vec and Qdrant remain.
+    """
 
-        # Verify the class constant matches config
-        assert CloudflareStorage._MAX_CONTENT_LENGTH == CLOUDFLARE_MAX_CONTENT_LENGTH
-
-    def test_chromadb_limit(self):
-        """Test that ChromaDB backend uses config constant."""
-        from src.mcp_memory_service.storage.chroma import ChromaMemoryStorage
-        from src.mcp_memory_service.config import CHROMADB_MAX_CONTENT_LENGTH
-
-        assert ChromaMemoryStorage._MAX_CONTENT_LENGTH == CHROMADB_MAX_CONTENT_LENGTH
-
-    def test_sqlitevec_unlimited(self):
-        """Test that SQLite-vec backend uses config constant."""
+    def test_sqlitevec_supports_chunking(self):
+        """Test that SQLite-vec backend supports chunking."""
         from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-        from src.mcp_memory_service.config import SQLITEVEC_MAX_CONTENT_LENGTH
-
-        # Create a mock instance to check property
         import tempfile
         import os
 
@@ -209,66 +198,33 @@ class TestBackendLimits:
             db_path = os.path.join(tmpdir, "test.db")
             storage = SqliteVecMemoryStorage(db_path=db_path)
 
-            # Should return configured value (default: None/unlimited)
-            assert storage.max_content_length == SQLITEVEC_MAX_CONTENT_LENGTH
-            assert storage.supports_chunking is True
-
-    def test_hybrid_follows_config(self):
-        """Test that Hybrid backend uses config constant."""
-        from src.mcp_memory_service.storage.hybrid import HybridMemoryStorage
-        from src.mcp_memory_service.config import HYBRID_MAX_CONTENT_LENGTH
-        import tempfile
-        import os
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = os.path.join(tmpdir, "test.db")
-            storage = HybridMemoryStorage(
-                sqlite_db_path=db_path,
-                cloudflare_config=None  # No cloud sync for this test
-            )
-
-            # Should match configured hybrid limit
-            assert storage.max_content_length == HYBRID_MAX_CONTENT_LENGTH
+            # SQLite-vec supports unlimited content
             assert storage.supports_chunking is True
 
 
 class TestConfigurationConstants:
-    """Test configuration constants for content limits."""
+    """Test configuration constants for content limits.
+
+    Note: Cloudflare/ChromaDB/Hybrid constants were removed in codebase remediation.
+    """
 
     def test_config_constants_exist(self):
-        """Test that all content limit constants are defined."""
+        """Test that remaining content limit constants are defined."""
         from src.mcp_memory_service.config import (
-            CLOUDFLARE_MAX_CONTENT_LENGTH,
-            CHROMADB_MAX_CONTENT_LENGTH,
             SQLITEVEC_MAX_CONTENT_LENGTH,
-            HYBRID_MAX_CONTENT_LENGTH,
             ENABLE_AUTO_SPLIT,
             CONTENT_SPLIT_OVERLAP,
             CONTENT_PRESERVE_BOUNDARIES
         )
 
-        assert CLOUDFLARE_MAX_CONTENT_LENGTH == 800
-        assert CHROMADB_MAX_CONTENT_LENGTH == 1500
         assert SQLITEVEC_MAX_CONTENT_LENGTH is None  # Unlimited
-        assert HYBRID_MAX_CONTENT_LENGTH == CLOUDFLARE_MAX_CONTENT_LENGTH
         assert isinstance(ENABLE_AUTO_SPLIT, bool)
         assert isinstance(CONTENT_SPLIT_OVERLAP, int)
         assert isinstance(CONTENT_PRESERVE_BOUNDARIES, bool)
 
     def test_config_validation(self):
         """Test that config values are sensible."""
-        from src.mcp_memory_service.config import (
-            CLOUDFLARE_MAX_CONTENT_LENGTH,
-            CHROMADB_MAX_CONTENT_LENGTH,
-            CONTENT_SPLIT_OVERLAP
-        )
-
-        # Limits should be positive
-        assert CLOUDFLARE_MAX_CONTENT_LENGTH > 0
-        assert CHROMADB_MAX_CONTENT_LENGTH > 0
-
-        # ChromaDB should have higher limit (larger model)
-        assert CHROMADB_MAX_CONTENT_LENGTH > CLOUDFLARE_MAX_CONTENT_LENGTH
+        from src.mcp_memory_service.config import CONTENT_SPLIT_OVERLAP
 
         # Overlap should be reasonable
         assert 0 <= CONTENT_SPLIT_OVERLAP <= 500

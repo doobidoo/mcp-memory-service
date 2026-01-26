@@ -36,19 +36,14 @@ from ..config import (
     CORS_ORIGINS,
     DATABASE_PATH,
     EMBEDDING_MODEL_NAME,
-    MDNS_ENABLED,
-    HTTPS_ENABLED,
-    OAUTH_ENABLED
 )
 from .dependencies import set_storage, get_storage, create_storage_backend
 from .api.health import router as health_router
 from .api.memories import router as memories_router
 from .api.search import router as search_router
 from .api.events import router as events_router
-from .api.sync import router as sync_router
 from .api.manage import router as manage_router
 from .api.analytics import router as analytics_router
-from .api.documents import router as documents_router
 from .api.mcp import router as mcp_router
 from .sse import sse_manager
 
@@ -57,39 +52,11 @@ logger = logging.getLogger(__name__)
 # Global storage instance
 storage: Optional["MemoryStorage"] = None
 
-# Global mDNS advertiser instance
-mdns_advertiser: Optional[Any] = None
-
-# Global OAuth cleanup task
-oauth_cleanup_task: Optional[asyncio.Task] = None
-
-
-async def oauth_cleanup_background_task():
-    """Background task to periodically clean up expired OAuth tokens and codes."""
-    from .oauth.storage import oauth_storage
-
-    while True:
-        try:
-            # Clean up expired tokens every 5 minutes
-            await asyncio.sleep(300)  # 5 minutes
-
-            cleanup_stats = await oauth_storage.cleanup_expired()
-            if cleanup_stats["expired_codes_cleaned"] > 0 or cleanup_stats["expired_tokens_cleaned"] > 0:
-                logger.info(f"OAuth cleanup: removed {cleanup_stats['expired_codes_cleaned']} codes, "
-                           f"{cleanup_stats['expired_tokens_cleaned']} tokens")
-
-        except asyncio.CancelledError:
-            logger.info("OAuth cleanup task cancelled")
-            break
-        except Exception as e:
-            logger.error(f"Error in OAuth cleanup task: {e}")
-            # Continue running even if there's an error
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan management."""
-    global storage, mdns_advertiser, oauth_cleanup_task
+    global storage
 
     # Startup
     logger.info("Starting MCP Memory Service HTTP interface...")
@@ -124,62 +91,14 @@ async def lifespan(app: FastAPI):
         await sse_manager.start()
         logger.info("SSE Manager started")
 
-        # Start OAuth cleanup task if enabled
-        if OAUTH_ENABLED:
-            oauth_cleanup_task = asyncio.create_task(oauth_cleanup_background_task())
-            logger.info("OAuth cleanup background task started")
-        
-        # Start mDNS service advertisement if enabled
-        if MDNS_ENABLED:
-            try:
-                from ..discovery.mdns_service import ServiceAdvertiser
-                mdns_advertiser = ServiceAdvertiser(
-                    host=HTTP_HOST,
-                    port=HTTP_PORT,
-                    https_enabled=HTTPS_ENABLED
-                )
-                success = await mdns_advertiser.start()
-                if success:
-                    logger.info("mDNS service advertisement started")
-                else:
-                    logger.warning("Failed to start mDNS service advertisement")
-                    mdns_advertiser = None
-            except ImportError:
-                logger.warning("mDNS support not available (zeroconf not installed)")
-                mdns_advertiser = None
-            except Exception as e:
-                logger.error(f"Error starting mDNS advertisement: {e}")
-                mdns_advertiser = None
-        else:
-            logger.info("mDNS service advertisement disabled")
-            
     except Exception as e:
         logger.error(f"Failed to initialize storage: {e}")
         raise
-    
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down MCP Memory Service HTTP interface...")
-    
-    # Stop mDNS advertisement
-    if mdns_advertiser:
-        try:
-            await mdns_advertiser.stop()
-            logger.info("mDNS service advertisement stopped")
-        except Exception as e:
-            logger.error(f"Error stopping mDNS advertisement: {e}")
-    
-    # Stop OAuth cleanup task
-    if oauth_cleanup_task:
-        try:
-            oauth_cleanup_task.cancel()
-            await oauth_cleanup_task
-            logger.info("OAuth cleanup task stopped")
-        except asyncio.CancelledError:
-            logger.info("OAuth cleanup task cancelled successfully")
-        except Exception as e:
-            logger.error(f"Error stopping OAuth cleanup task: {e}")
 
     # Stop SSE manager
     await sse_manager.stop()
@@ -227,32 +146,9 @@ def create_app() -> FastAPI:
     logger.info(f"✓ Included analytics router with {len(analytics_router.routes)} routes")
     app.include_router(events_router, prefix="/api", tags=["events"])
     logger.info(f"✓ Included events router with {len(events_router.routes)} routes")
-    app.include_router(sync_router, prefix="/api", tags=["sync"])
-    logger.info(f"✓ Included sync router with {len(sync_router.routes)} routes")
-    try:
-        app.include_router(documents_router, prefix="/api/documents", tags=["documents"])
-        logger.info(f"✓ Included documents router with {len(documents_router.routes)} routes")
-    except Exception as e:
-        logger.error(f"✗ Failed to include documents router: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-    
+
     # Include MCP protocol router
     app.include_router(mcp_router, tags=["mcp-protocol"])
-
-    # Include OAuth routers if enabled
-    if OAUTH_ENABLED:
-        from .oauth.discovery import router as oauth_discovery_router
-        from .oauth.registration import router as oauth_registration_router
-        from .oauth.authorization import router as oauth_authorization_router
-
-        app.include_router(oauth_discovery_router, tags=["oauth-discovery"])
-        app.include_router(oauth_registration_router, prefix="/oauth", tags=["oauth"])
-        app.include_router(oauth_authorization_router, prefix="/oauth", tags=["oauth"])
-
-        logger.info("OAuth 2.1 endpoints enabled")
-    else:
-        logger.info("OAuth 2.1 endpoints disabled")
 
     # Serve static files (dashboard)
     static_path = os.path.join(os.path.dirname(__file__), "static")

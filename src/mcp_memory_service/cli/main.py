@@ -21,7 +21,6 @@ import sys
 import os
 
 from .. import __version__
-from .ingestion import add_ingestion_commands
 
 
 @click.group(invoke_without_command=True)
@@ -52,7 +51,7 @@ def cli(ctx):
 @cli.command()
 @click.option('--debug', is_flag=True, help='Enable debug logging')
 @click.option('--storage-backend', '-s', default=None,
-              type=click.Choice(['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid']), help='Storage backend to use (defaults to environment or sqlite_vec)')
+              type=click.Choice(['sqlite_vec', 'sqlite-vec', 'qdrant']), help='Storage backend to use (defaults to environment or sqlite_vec)')
 def server(debug, storage_backend):
     """
     Start the MCP Memory Service server.
@@ -64,21 +63,21 @@ def server(debug, storage_backend):
     if storage_backend is not None:
         os.environ['MCP_MEMORY_STORAGE_BACKEND'] = storage_backend
     
-    # Import and run the server main function
-    from ..server import main as server_main
-    
+    # Import and run the unified server
+    from ..unified_server import main as server_main
+
     # Set debug flag
     if debug:
         import logging
         logging.basicConfig(level=logging.DEBUG)
-    
+
     # Start the server
     server_main()
 
 
 @cli.command()
 @click.option('--storage-backend', '-s', default='sqlite_vec',
-              type=click.Choice(['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid']), help='Storage backend to use')
+              type=click.Choice(['sqlite_vec', 'sqlite-vec', 'qdrant']), help='Storage backend to use')
 def status():
     """
     Show memory service status and statistics.
@@ -112,8 +111,6 @@ def status():
     asyncio.run(show_status())
 
 
-# Add ingestion commands to the CLI group
-add_ingestion_commands(cli)
 
 
 def memory_server_main():

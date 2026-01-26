@@ -15,9 +15,8 @@
 """
 Command Line Interface for MCP Memory Service
 
-Provides CLI commands for document ingestion, memory management, and database operations.
+Provides CLI commands for memory management and database operations.
+Note: Ingestion commands removed during remediation.
 """
 
-from .ingestion import add_ingestion_commands
-
-__all__ = ['add_ingestion_commands']
+__all__: list[str] = []

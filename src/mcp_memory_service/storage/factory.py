@@ -13,10 +13,10 @@
 # limitations under the License.
 
 """
-Shared storage backend factory for the MCP Memory Service.
+Storage backend factory for the MCP Memory Service.
 
-This module provides a single, shared factory function for creating storage backends,
-eliminating code duplication between the MCP server and web interface initialization.
+Provides factory functions for creating storage backends.
+Supported backends: Qdrant (production), SQLite-vec (development).
 """
 
 import logging
@@ -27,57 +27,33 @@ from .base import MemoryStorage
 logger = logging.getLogger(__name__)
 
 
-def _fallback_to_sqlite_vec() -> Type[MemoryStorage]:
-    """
-    Helper function to fallback to SQLite-vec storage when other backends fail to import.
-
-    Returns:
-        SqliteVecMemoryStorage class
-    """
-    logger.warning("Falling back to SQLite-vec storage")
-    from .sqlite_vec import SqliteVecMemoryStorage
-    return SqliteVecMemoryStorage
-
-
 def get_storage_backend_class() -> Type[MemoryStorage]:
     """
     Get storage backend class based on configuration.
 
     Returns:
-        Storage backend class
+        Storage backend class (QdrantStorage or SqliteVecMemoryStorage)
     """
     from ..config import STORAGE_BACKEND
 
     backend = STORAGE_BACKEND.lower()
 
-    if backend == "sqlite-vec" or backend == "sqlite_vec":
+    if backend in ("sqlite-vec", "sqlite_vec"):
         from .sqlite_vec import SqliteVecMemoryStorage
         return SqliteVecMemoryStorage
-    elif backend == "cloudflare":
-        try:
-            from .cloudflare import CloudflareStorage
-            return CloudflareStorage
-        except ImportError as e:
-            logger.error(f"Failed to import Cloudflare storage: {e}")
-            raise
-    elif backend == "hybrid":
-        try:
-            from .hybrid import HybridMemoryStorage
-            return HybridMemoryStorage
-        except ImportError as e:
-            logger.error(f"Failed to import Hybrid storage: {e}")
-            return _fallback_to_sqlite_vec()
+
     elif backend == "qdrant":
-        try:
-            from .qdrant_storage import QdrantStorage
-            return QdrantStorage
-        except ImportError as e:
-            logger.error(f"Failed to import Qdrant storage: {e}")
-            raise ImportError("qdrant-client not installed. Install with: uv pip install qdrant-client") from e
+        from .qdrant_storage import QdrantStorage
+        return QdrantStorage
+
     else:
-        logger.warning(f"Unknown storage backend '{backend}', defaulting to SQLite-vec")
-        from .sqlite_vec import SqliteVecMemoryStorage
-        return SqliteVecMemoryStorage
+        # Fail fast on invalid configuration - don't silently default
+        supported = ["sqlite_vec", "sqlite-vec", "qdrant"]
+        raise ValueError(
+            f"Unknown storage backend '{backend}'. "
+            f"Supported backends: {', '.join(supported)}. "
+            f"Set MCP_MEMORY_STORAGE_BACKEND environment variable."
+        )
 
 
 async def create_storage_instance(sqlite_path: str) -> MemoryStorage:
@@ -85,73 +61,23 @@ async def create_storage_instance(sqlite_path: str) -> MemoryStorage:
     Create and initialize storage backend instance based on configuration.
 
     Args:
-        sqlite_path: Path to SQLite database file (used for SQLite-vec and Hybrid backends)
+        sqlite_path: Path to SQLite database file (used for SQLite-vec backend)
 
     Returns:
         Initialized storage backend instance
     """
-    from ..config import (
-        EMBEDDING_MODEL_NAME,
-        CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID,
-        CLOUDFLARE_VECTORIZE_INDEX, CLOUDFLARE_D1_DATABASE_ID,
-        CLOUDFLARE_R2_BUCKET, CLOUDFLARE_EMBEDDING_MODEL,
-        CLOUDFLARE_LARGE_CONTENT_THRESHOLD, CLOUDFLARE_MAX_RETRIES,
-        CLOUDFLARE_BASE_DELAY,
-        HYBRID_SYNC_INTERVAL, HYBRID_BATCH_SIZE,
-        settings
-    )
+    from ..config import EMBEDDING_MODEL_NAME, settings
 
-    logger.info(f"Creating storage backend instance (sqlite_path: {sqlite_path})...")
+    logger.info(f"Creating storage backend instance...")
 
-    # Get storage class based on configuration
     StorageClass = get_storage_backend_class()
 
-    # Create storage instance based on backend type
     if StorageClass.__name__ == "SqliteVecMemoryStorage":
         storage = StorageClass(
             db_path=sqlite_path,
             embedding_model=EMBEDDING_MODEL_NAME
         )
         logger.info(f"Initialized SQLite-vec storage at {sqlite_path}")
-
-    elif StorageClass.__name__ == "CloudflareStorage":
-        storage = StorageClass(
-            api_token=CLOUDFLARE_API_TOKEN,
-            account_id=CLOUDFLARE_ACCOUNT_ID,
-            vectorize_index=CLOUDFLARE_VECTORIZE_INDEX,
-            d1_database_id=CLOUDFLARE_D1_DATABASE_ID,
-            r2_bucket=CLOUDFLARE_R2_BUCKET,
-            embedding_model=CLOUDFLARE_EMBEDDING_MODEL,
-            large_content_threshold=CLOUDFLARE_LARGE_CONTENT_THRESHOLD,
-            max_retries=CLOUDFLARE_MAX_RETRIES,
-            base_delay=CLOUDFLARE_BASE_DELAY
-        )
-        logger.info(f"Initialized Cloudflare storage with vectorize index: {CLOUDFLARE_VECTORIZE_INDEX}")
-
-    elif StorageClass.__name__ == "HybridMemoryStorage":
-        # Prepare Cloudflare configuration dict
-        cloudflare_config = None
-        if all([CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_VECTORIZE_INDEX, CLOUDFLARE_D1_DATABASE_ID]):
-            cloudflare_config = {
-                'api_token': CLOUDFLARE_API_TOKEN,
-                'account_id': CLOUDFLARE_ACCOUNT_ID,
-                'vectorize_index': CLOUDFLARE_VECTORIZE_INDEX,
-                'd1_database_id': CLOUDFLARE_D1_DATABASE_ID,
-                'r2_bucket': CLOUDFLARE_R2_BUCKET,
-                'embedding_model': CLOUDFLARE_EMBEDDING_MODEL,
-                'large_content_threshold': CLOUDFLARE_LARGE_CONTENT_THRESHOLD,
-                'max_retries': CLOUDFLARE_MAX_RETRIES,
-                'base_delay': CLOUDFLARE_BASE_DELAY
-            }
-
-        storage = StorageClass(
-            sqlite_db_path=sqlite_path,
-            embedding_model=EMBEDDING_MODEL_NAME,
-            cloudflare_config=cloudflare_config,
-            sync_interval=HYBRID_SYNC_INTERVAL,
-            batch_size=HYBRID_BATCH_SIZE
-        )
-        logger.info(f"Initialized hybrid storage with SQLite at {sqlite_path}")
 
     elif StorageClass.__name__ == "QdrantStorage":
         # Determine mode: server (URL) or embedded (path)
@@ -177,11 +103,8 @@ async def create_storage_instance(sqlite_path: str) -> MemoryStorage:
             logger.info(f"Initialized Qdrant storage in embedded mode: {settings.qdrant.storage_path}")
 
     else:
-        # Unknown storage backend - this should not happen as get_storage_backend_class
-        # already handles unknown backends by falling back to SQLite-vec
         raise ValueError(f"Unsupported storage backend class: {StorageClass.__name__}")
 
-    # Initialize storage backend
     await storage.initialize()
     logger.info(f"Storage backend {StorageClass.__name__} initialized successfully")
 
