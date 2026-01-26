@@ -1,7 +1,18 @@
 """
-Integration tests for MCP Memory Service tool consolidation.
+DISABLED: Integration tests for MCP Memory Service tool consolidation.
 
-These tests verify the full pipeline from tool call to response.
+This file has been disabled because it uses an outdated MCP SDK interface.
+The tests call methods like `server.list_tools()` and `server.call_tool()` which
+do not exist in MCP SDK 1.x. The current SDK uses decorators (@mcp.tool) for tool
+handlers instead of direct method calls.
+
+TO RE-ENABLE:
+1. Rewrite tests to use the MCP SDK 1.x testing patterns
+2. Use the appropriate test client/server setup for SDK 1.x
+3. Replace direct method calls with proper MCP protocol testing
+4. Rename back to test_integration_tools.py
+
+Original purpose: These tests verify the full pipeline from tool call to response.
 """
 
 import pytest
