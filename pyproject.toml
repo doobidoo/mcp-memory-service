@@ -54,6 +54,7 @@ dependencies = [
     "httpx>=0.24.0",
     "authlib>=1.2.0",
     "python-jose[cryptography]>=3.3.0",
+    "requests>=2.31.0",
     "sentence-transformers>=2.2.2",
     "torch>=2.0.0",
     "typing-extensions>=4.0.0; python_version < '3.11'",
