@@ -22,7 +22,7 @@ async def server(temp_db_path):
     """Create and initialize server for testing."""
     # Override storage path with temp directory
     import os
-    os.environ["MCP_MEMORY_SQLITE_PATH"] = str(temp_db_path / "test_integration.db")
+    os.environ["MCP_MEMORY_SQLITE_PATH"] = os.path.join(temp_db_path, "test_integration.db")
 
     server = MemoryServer()
     await server.initialize()
