@@ -780,6 +780,30 @@ SOLUTIONS:
             logger.info("🐳 Docker environment detected - adjusting model loading strategy")
 
         try:
+            # Check if we should use external embedding API (e.g., vLLM, Ollama, OpenAI)
+            external_api_url = os.environ.get('MCP_EXTERNAL_EMBEDDING_URL')
+            if external_api_url:
+                logger.info(f"Using external embedding API: {external_api_url}")
+                try:
+                    from ..embeddings.external_api import get_external_embedding_model
+
+                    external_model_name = os.environ.get('MCP_EXTERNAL_EMBEDDING_MODEL', 'nomic-embed-text')
+                    cache_key = f"external_{external_api_url}_{external_model_name}"
+
+                    if cache_key in _MODEL_CACHE:
+                        self.embedding_model = _MODEL_CACHE[cache_key]
+                        logger.info("Using cached external embedding model")
+                        return
+
+                    ext_model = get_external_embedding_model(external_api_url, external_model_name)
+                    self.embedding_model = ext_model
+                    self.embedding_dimension = ext_model.embedding_dimension
+                    _MODEL_CACHE[cache_key] = ext_model
+                    logger.info(f"External embedding API connected. Dimension: {self.embedding_dimension}")
+                    return
+                except Exception as e:
+                    logger.warning(f"Failed to connect to external embedding API: {e}, falling back to local models")
+
             # Check if we should use ONNX
             use_onnx = os.environ.get('MCP_MEMORY_USE_ONNX', '').lower() in ('1', 'true', 'yes')
 
