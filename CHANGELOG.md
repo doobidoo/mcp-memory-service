@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.1.2] - 2026-01-27
+
 ### Fixed
 - **Windows PowerShell 7+ compatibility**: Fixed SSL certificate validation in `manage_service.ps1`
   - Extends previous fix from `update_and_restart.ps1` to `manage_service.ps1`
