@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.1.1] - 2026-01-27
+
 ### Fixed
 - **Missing `requests` dependency**: Added `requests>=2.28.0` to pyproject.toml (Fixes #378)
   - `sentence-transformers` requires `requests` but doesn't declare it as a dependency

@@ -170,17 +170,17 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.1.0** (January 25, 2026)
+## 🆕 Latest Release: **v10.1.1** (January 27, 2026)
 
-**NEW FEATURE: Python 3.14 Support**
+**BUGFIX RELEASE: Dependency & Windows Compatibility Fixes**
 
 **What's New:**
-- 🐍 **Python 3.14 Compatibility**: Expanded Python support from 3.10-3.13 to 3.10-3.14
-- 📦 **Tokenizers Upgrade**: Updated to >=0.22.2 (resolves PyO3 compatibility issues)
-- 🔄 **Zero Breaking Changes**: Full backward compatibility maintained across all Python versions
-- ✅ **1005 Tests Passing**: All tests verified across Python 3.10-3.14
+- 🔧 **Missing Dependency Fixed**: Added `requests>=2.28.0` to dependencies (Fixes #378 - ModuleNotFoundError)
+- 🪟 **Windows PowerShell 7+ Support**: Fixed SSL certificate validation in update scripts
+- 📊 **Relationship Inference Tuning**: Improved documentation for graph analytics threshold configuration
 
 **Previous Releases**:
+- **v10.1.0** - Python 3.14 Support (Extended compatibility to 3.10-3.14, tokenizers upgrade)
 - **v10.0.3** - CRITICAL FIX: Backup Scheduler Now Works (2 critical bugs fixed, FastAPI lifespan integration)
 - **v10.0.2** - Tool List Cleanup (Only 12 unified tools visible, 64% tool reduction complete)
 - **v10.0.1** - CRITICAL HOTFIX: MCP tools loading restored (Python boolean fix)
