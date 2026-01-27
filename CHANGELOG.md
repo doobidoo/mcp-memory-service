@@ -11,6 +11,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Fixed
+- **Missing `requests` dependency**: Added `requests>=2.28.0` to pyproject.toml (Fixes #378)
+  - `sentence-transformers` requires `requests` but doesn't declare it as a dependency
+  - Caused `ModuleNotFoundError: No module named 'requests'` during embedding initialization
+  - Affects fresh installations without `requests` pre-installed
 - **Windows PowerShell 7+ compatibility**: Fixed `update_and_restart.ps1` SSL certificate validation
   - PowerShell 5.1: Uses `ICertificatePolicy` (.NET Framework)
   - PowerShell 7+: Uses `-SkipCertificateCheck` parameter on `Invoke-RestMethod`
