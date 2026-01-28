@@ -27,8 +27,8 @@ Example usage with Ollama:
     # Pull and run embedding model
     ollama pull nomic-embed-text
 
-    # Configure MCP Memory Service
-    export MCP_EXTERNAL_EMBEDDING_URL=http://localhost:11434/api/embeddings
+    # Configure MCP Memory Service (use /v1/embeddings for OpenAI compatibility)
+    export MCP_EXTERNAL_EMBEDDING_URL=http://localhost:11434/v1/embeddings
     export MCP_EXTERNAL_EMBEDDING_MODEL=nomic-embed-text
 """
 
@@ -192,10 +192,15 @@ class ExternalEmbeddingModel:
                 batch_embeddings = [None] * len(batch)
                 for item in data['data']:
                     idx = item.get('index', 0)
-                    if idx < len(batch_embeddings):
+                    if 0 <= idx < len(batch):
                         batch_embeddings[idx] = item['embedding']
                     else:
-                        batch_embeddings.append(item['embedding'])
+                        logger.warning(f"API returned invalid index {idx} for batch size {len(batch)}")
+
+                # Verify all embeddings were returned
+                if None in batch_embeddings:
+                    missing_indices = [i for i, emb in enumerate(batch_embeddings) if emb is None]
+                    raise RuntimeError(f"API did not return embeddings for indices: {missing_indices}")
 
                 all_embeddings.extend(batch_embeddings)
 

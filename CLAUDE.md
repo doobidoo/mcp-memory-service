@@ -275,6 +275,20 @@ export MCP_MEMORY_SQLITE_PRAGMAS=journal_mode=WAL,busy_timeout=15000,cache_size=
 
 **CRITICAL:** `MCP_MEMORY_SQLITE_PRAGMAS` must include `journal_mode=WAL` for concurrent access. Omitting WAL disables concurrent reads/writes and causes "database is locked" errors when HTTP server and MCP server run simultaneously.
 
+### External Embedding APIs
+
+**Note:** Only supported with `sqlite_vec` backend (not compatible with `hybrid` or `cloudflare`).
+
+```bash
+export MCP_EXTERNAL_EMBEDDING_URL=http://localhost:8890/v1/embeddings
+export MCP_EXTERNAL_EMBEDDING_MODEL=nomic-embed-text
+export MCP_EXTERNAL_EMBEDDING_API_KEY=sk-xxx  # Optional
+```
+
+**Supported backends:** vLLM, Ollama, Text Embeddings Inference (TEI), OpenAI, or any OpenAI-compatible `/v1/embeddings` endpoint.
+
+**Important:** Embedding dimensions must match your database schema. Changing dimensions requires re-embedding all memories. See [`docs/deployment/external-embeddings.md`](docs/deployment/external-embeddings.md) for details.
+
 ### Claude Desktop Integration
 
 **Recommended configuration** (`~/.claude/config.json`):

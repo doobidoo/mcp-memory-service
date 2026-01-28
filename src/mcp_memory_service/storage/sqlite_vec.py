@@ -783,12 +783,28 @@ SOLUTIONS:
             # Check if we should use external embedding API (e.g., vLLM, Ollama, OpenAI)
             external_api_url = os.environ.get('MCP_EXTERNAL_EMBEDDING_URL')
             if external_api_url:
+                # Validate backend compatibility - external APIs only work with sqlite_vec
+                storage_backend = os.environ.get('MCP_MEMORY_STORAGE_BACKEND', 'sqlite_vec')
+                if storage_backend in ('hybrid', 'cloudflare'):
+                    logger.warning(
+                        f"⚠️  External embedding API not supported with '{storage_backend}' backend. "
+                        "External APIs only work with 'sqlite_vec' backend. "
+                        f"The '{storage_backend}' backend will use its default embedding method. "
+                        "Falling back to local models (ONNX/SentenceTransformer) for SQLite-vec component."
+                    )
+                    external_api_url = None  # Disable external API
+
+            if external_api_url:
                 logger.info(f"Using external embedding API: {external_api_url}")
                 try:
                     from ..embeddings.external_api import get_external_embedding_model
 
-                    external_model_name = os.environ.get('MCP_EXTERNAL_EMBEDDING_MODEL', 'nomic-embed-text')
-                    cache_key = f"external_{external_api_url}_{external_model_name}"
+                    # Default model name for external embedding APIs
+                    DEFAULT_EXTERNAL_EMBEDDING_MODEL = 'nomic-embed-text'
+                    external_model_name = os.environ.get('MCP_EXTERNAL_EMBEDDING_MODEL', DEFAULT_EXTERNAL_EMBEDDING_MODEL)
+                    external_api_key = os.environ.get('MCP_EXTERNAL_EMBEDDING_API_KEY')
+                    # Include API key in cache key to handle different auth contexts
+                    cache_key = f"external_{external_api_url}_{external_model_name}_{external_api_key}"
 
                     if cache_key in _MODEL_CACHE:
                         self.embedding_model = _MODEL_CACHE[cache_key]
@@ -799,9 +815,19 @@ SOLUTIONS:
                     self.embedding_model = ext_model
                     self.embedding_dimension = ext_model.embedding_dimension
                     _MODEL_CACHE[cache_key] = ext_model
+
+                    # Warn if dimension differs from default ONNX dimension
+                    if self.embedding_dimension != 384:
+                        logger.warning(
+                            f"⚠️  External embedding dimension ({self.embedding_dimension}) differs from "
+                            f"default ONNX dimension (384). Ensure this matches your database schema "
+                            f"or you may encounter errors. To fix: delete your database or use a "
+                            f"compatible model."
+                        )
+
                     logger.info(f"External embedding API connected. Dimension: {self.embedding_dimension}")
                     return
-                except Exception as e:
+                except (ConnectionError, RuntimeError, ImportError) as e:
                     logger.warning(f"Failed to connect to external embedding API: {e}, falling back to local models")
 
             # Check if we should use ONNX

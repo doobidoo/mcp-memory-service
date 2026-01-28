@@ -815,6 +815,33 @@ export MCP_MAX_RESPONSE_CHARS=50000  # Default: unlimited
 - Truncates at memory boundaries (preserves data integrity)
 - Recommended: 30000-50000 characters for optimal context usage
 
+### External Embedding APIs
+
+Use external embedding services instead of running models locally:
+
+```bash
+# vLLM example
+export MCP_EXTERNAL_EMBEDDING_URL=http://localhost:8890/v1/embeddings
+export MCP_EXTERNAL_EMBEDDING_MODEL=nomic-ai/nomic-embed-text-v1.5
+
+# Ollama example
+export MCP_EXTERNAL_EMBEDDING_URL=http://localhost:11434/v1/embeddings
+export MCP_EXTERNAL_EMBEDDING_MODEL=nomic-embed-text
+
+# OpenAI example
+export MCP_EXTERNAL_EMBEDDING_URL=https://api.openai.com/v1/embeddings
+export MCP_EXTERNAL_EMBEDDING_MODEL=text-embedding-3-small
+export MCP_EXTERNAL_EMBEDDING_API_KEY=sk-xxx
+```
+
+**Benefits:**
+- Share embedding infrastructure across multiple MCP instances
+- Offload GPU/CPU to dedicated servers
+- Use models not available in SentenceTransformers
+- Use hosted services (OpenAI, Cohere)
+
+**Note:** Only supported with `sqlite_vec` backend. See [`docs/deployment/external-embeddings.md`](docs/deployment/external-embeddings.md) for detailed setup.
+
 ## 🏗️ Architecture
 
 ```

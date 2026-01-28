@@ -189,3 +189,186 @@ class TestFactoryFunction:
 
         assert isinstance(model, ExternalEmbeddingModel)
         assert model.embedding_dimension == 768
+
+    @patch('mcp_memory_service.embeddings.external_api.requests.post')
+    def test_missing_embeddings_error(self, mock_post):
+        """Test that missing embeddings in response raises error."""
+        # First call for connection verification
+        mock_response_init = MagicMock()
+        mock_response_init.status_code = 200
+        mock_response_init.json.return_value = {
+            'data': [{'embedding': [0.1] * 768, 'index': 0}]
+        }
+
+        # Second call returns incomplete response (missing index 1)
+        mock_response_encode = MagicMock()
+        mock_response_encode.status_code = 200
+        mock_response_encode.json.return_value = {
+            'data': [
+                {'embedding': [0.1] * 768, 'index': 0},
+                # Missing index 1
+                {'embedding': [0.3] * 768, 'index': 2}
+            ]
+        }
+        mock_response_encode.raise_for_status = MagicMock()
+
+        mock_post.side_effect = [mock_response_init, mock_response_encode]
+
+        model = ExternalEmbeddingModel(
+            api_url='http://test:8890/v1/embeddings',
+            model_name='test-model'
+        )
+
+        with pytest.raises(RuntimeError, match="API did not return embeddings for indices"):
+            model.encode(["sentence 1", "sentence 2", "sentence 3"])
+
+    @patch('mcp_memory_service.embeddings.external_api.requests.post')
+    def test_invalid_index_warning(self, mock_post):
+        """Test that invalid index in response logs warning but continues."""
+        # First call for connection verification
+        mock_response_init = MagicMock()
+        mock_response_init.status_code = 200
+        mock_response_init.json.return_value = {
+            'data': [{'embedding': [0.1] * 768, 'index': 0}]
+        }
+
+        # Second call returns response with out-of-range index
+        mock_response_encode = MagicMock()
+        mock_response_encode.status_code = 200
+        mock_response_encode.json.return_value = {
+            'data': [
+                {'embedding': [0.1] * 768, 'index': 0},
+                {'embedding': [0.2] * 768, 'index': 1},
+                {'embedding': [0.3] * 768, 'index': 99}  # Invalid index
+            ]
+        }
+        mock_response_encode.raise_for_status = MagicMock()
+
+        mock_post.side_effect = [mock_response_init, mock_response_encode]
+
+        model = ExternalEmbeddingModel(
+            api_url='http://test:8890/v1/embeddings',
+            model_name='test-model'
+        )
+
+        # Should raise error because index 2 is missing
+        with pytest.raises(RuntimeError, match="API did not return embeddings for indices"):
+            model.encode(["sentence 1", "sentence 2", "sentence 3"])
+
+
+class TestHybridBackendCompatibility:
+    """Tests for hybrid backend compatibility checks.
+
+    These tests require the full test environment with aiosqlite and sqlite-vec.
+    Run with: pytest tests/test_external_embeddings.py -v
+    """
+
+    @pytest.mark.integration
+    @patch.dict(os.environ, {
+        'MCP_MEMORY_STORAGE_BACKEND': 'hybrid',
+        'MCP_EXTERNAL_EMBEDDING_URL': 'http://test:8890/v1/embeddings'
+    })
+    def test_external_embedding_rejected_for_hybrid_backend(self, caplog):
+        """Test that external API is disabled for hybrid backend with warning."""
+        pytest.importorskip('aiosqlite', reason="aiosqlite required for storage tests")
+        pytest.importorskip('sqlite_vec', reason="sqlite-vec required for storage tests")
+
+        import logging
+        from mcp_memory_service.storage.sqlite_vec import SqliteVecStorage
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+            temp_db = f.name
+
+        with caplog.at_level(logging.WARNING):
+            try:
+                storage = SqliteVecStorage(temp_db)
+                # Should have logged warning about hybrid incompatibility
+                assert any(
+                    "not supported with 'hybrid' backend" in record.message
+                    for record in caplog.records
+                ), "Expected warning about hybrid backend incompatibility"
+
+                # Should NOT have external API model loaded
+                assert not hasattr(storage.embedding_model, 'api_url')
+            finally:
+                import os as os_module
+                if os_module.path.exists(temp_db):
+                    os_module.unlink(temp_db)
+
+    @pytest.mark.integration
+    @patch.dict(os.environ, {
+        'MCP_MEMORY_STORAGE_BACKEND': 'cloudflare',
+        'MCP_EXTERNAL_EMBEDDING_URL': 'http://test:8890/v1/embeddings'
+    })
+    def test_external_embedding_rejected_for_cloudflare_backend(self, caplog):
+        """Test that external API is disabled for cloudflare backend with warning."""
+        pytest.importorskip('aiosqlite', reason="aiosqlite required for storage tests")
+        pytest.importorskip('sqlite_vec', reason="sqlite-vec required for storage tests")
+
+        import logging
+        from mcp_memory_service.storage.sqlite_vec import SqliteVecStorage
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+            temp_db = f.name
+
+        with caplog.at_level(logging.WARNING):
+            try:
+                storage = SqliteVecStorage(temp_db)
+                # Should have logged warning about cloudflare incompatibility
+                assert any(
+                    "not supported with 'cloudflare' backend" in record.message
+                    for record in caplog.records
+                ), "Expected warning about cloudflare backend incompatibility"
+
+                # Should NOT have external API model loaded
+                assert not hasattr(storage.embedding_model, 'api_url')
+            finally:
+                import os as os_module
+                if os_module.path.exists(temp_db):
+                    os_module.unlink(temp_db)
+
+    @pytest.mark.integration
+    @patch.dict(os.environ, {
+        'MCP_MEMORY_STORAGE_BACKEND': 'sqlite_vec',
+        'MCP_EXTERNAL_EMBEDDING_URL': 'http://test:8890/v1/embeddings',
+        'MCP_EXTERNAL_EMBEDDING_MODEL': 'test-model'
+    })
+    @patch('mcp_memory_service.embeddings.external_api.requests.post')
+    def test_external_embedding_allowed_for_sqlite_vec_backend(self, mock_post, caplog):
+        """Test that external API is allowed for sqlite_vec backend."""
+        pytest.importorskip('aiosqlite', reason="aiosqlite required for storage tests")
+        pytest.importorskip('sqlite_vec', reason="sqlite-vec required for storage tests")
+
+        import logging
+        from mcp_memory_service.storage.sqlite_vec import SqliteVecStorage
+        import tempfile
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            'data': [{'embedding': [0.1] * 768, 'index': 0}]
+        }
+        mock_post.return_value = mock_response
+
+        with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+            temp_db = f.name
+
+        with caplog.at_level(logging.WARNING):
+            try:
+                storage = SqliteVecStorage(temp_db, embedding_dimension=768)
+
+                # Should NOT have logged warning about backend incompatibility
+                assert not any(
+                    "not supported with" in record.message
+                    for record in caplog.records
+                ), "Should not warn about incompatibility for sqlite_vec backend"
+
+                # Should have external API model loaded
+                assert hasattr(storage.embedding_model, 'api_url')
+                assert storage.embedding_model.embedding_dimension == 768
+            finally:
+                import os as os_module
+                if os_module.path.exists(temp_db):
+                    os_module.unlink(temp_db)

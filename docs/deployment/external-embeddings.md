@@ -7,6 +7,22 @@ MCP Memory Service can use external OpenAI-compatible embedding APIs instead of 
 - **Model flexibility**: Use embedding models not available in SentenceTransformers
 - **Hosted services**: Use OpenAI, Cohere, or other embedding APIs
 
+## ⚠️ Storage Backend Compatibility
+
+**External embedding APIs are currently only supported with the `sqlite_vec` storage backend.**
+
+If you're using `hybrid` or `cloudflare` backends, the external API will NOT be used:
+- **Hybrid**: SQLite-vec will fall back to local models, Cloudflare uses Workers AI
+- **Cloudflare**: Always uses Workers AI (`@cf/baai/bge-base-en-v1.5`)
+
+To use external embedding APIs, configure:
+```bash
+export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
+export MCP_EXTERNAL_EMBEDDING_URL=http://localhost:8890/v1/embeddings
+```
+
+Support for external APIs with Hybrid/Cloudflare backends is planned for a future release.
+
 ## Configuration
 
 Set these environment variables to enable external embeddings:
