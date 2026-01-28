@@ -10,13 +10,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.2.0] - 2026-01-28
+
 ### Added
 - **External Embedding API Support** (#386): Use external OpenAI-compatible embedding APIs (vLLM, Ollama, TEI, OpenAI) instead of local models
   - Configure via `MCP_EXTERNAL_EMBEDDING_URL`, `MCP_EXTERNAL_EMBEDDING_MODEL`, `MCP_EXTERNAL_EMBEDDING_API_KEY`
   - **Important**: Only supported with `sqlite_vec` backend (not compatible with `hybrid` or `cloudflare` backends)
   - Graceful fallback to local models if external API unavailable
   - Supports any OpenAI-compatible `/v1/embeddings` endpoint
+  - Automatic dimension detection from API responses
+  - Backend validation ensures correct configuration
+  - 10/10 core tests passing (3 integration tests require refactoring)
   - See `docs/deployment/external-embeddings.md` for setup guide
+  - Contributor: @isiahw1
 
 ## [10.1.2] - 2026-01-27
 

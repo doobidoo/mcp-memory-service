@@ -170,16 +170,21 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.1.2** (January 27, 2026)
+## 🆕 Latest Release: **v10.2.0** (January 28, 2026)
 
-**BUGFIX RELEASE: Windows PowerShell 7+ Service Management Fix**
+**NEW FEATURE: External Embedding API Support**
 
 **What's New:**
-- 🪟 **Windows Service Management Fix**: Extended PowerShell 7+ SSL compatibility to `manage_service.ps1`
-  - Completes Windows PowerShell 7+ support across all service management scripts
-  - Fixes `ICertificatePolicy` error when managing services on PowerShell 7+
+- 🔌 **External Embedding API Integration**: Connect to external OpenAI-compatible embedding APIs (vLLM, Ollama, Text Embeddings Inference, OpenAI)
+  - Use powerful embedding models hosted on your own infrastructure or cloud services
+  - Graceful fallback to local models if external API unavailable
+  - Automatic dimension detection and backend validation
+  - Simple configuration via environment variables
+  - See [docs/deployment/external-embeddings.md](docs/deployment/external-embeddings.md) for setup guide
+  - Thanks to @isiahw1 for this contribution!
 
 **Previous Releases**:
+- **v10.1.2** - Windows PowerShell 7+ Service Management Fix (SSL compatibility for manage_service.ps1)
 - **v10.1.1** - Dependency & Windows Compatibility Fixes (requests dependency, PowerShell 7+ SSL support)
 - **v10.1.0** - Python 3.14 Support (Extended compatibility to 3.10-3.14, tokenizers upgrade)
 - **v10.0.3** - CRITICAL FIX: Backup Scheduler Now Works (2 critical bugs fixed, FastAPI lifespan integration)
