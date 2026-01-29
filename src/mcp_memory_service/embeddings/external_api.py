@@ -125,9 +125,18 @@ class ExternalEmbeddingModel:
 
             # Try to get error message from response
             try:
-                error_detail = response.json().get('error', {}).get('message', response.text)
-            except Exception:
+                error_json = response.json()
+                # Handle different error formats from various APIs
+                error_detail = (
+                    error_json.get('error', {}).get('message') or
+                    error_json.get('detail') or
+                    error_json.get('message') or
+                    response.text
+                )
+            except requests.exceptions.JSONDecodeError:
                 error_detail = response.text
+            except Exception as e:
+                error_detail = f"{response.text} (parse error: {e})"
 
             raise ConnectionError(
                 f"API returned status {response.status_code}: {error_detail}"
@@ -190,12 +199,21 @@ class ExternalEmbeddingModel:
 
                 # Extract embeddings in order (API may return out of order)
                 batch_embeddings = [None] * len(batch)
+                seen_indices = set()
                 for item in data['data']:
-                    idx = item.get('index', 0)
-                    if 0 <= idx < len(batch):
-                        batch_embeddings[idx] = item['embedding']
-                    else:
-                        logger.warning(f"API returned invalid index {idx} for batch size {len(batch)}")
+                    if 'index' not in item:
+                        raise RuntimeError(f"API response from {self.api_url} is missing the 'index' field.")
+
+                    idx = item['index']
+                    if not (0 <= idx < len(batch)):
+                        logger.warning(f"API returned out-of-bounds index {idx} for batch size {len(batch)}")
+                        continue
+
+                    if idx in seen_indices:
+                        raise RuntimeError(f"API returned duplicate index {idx} in the same batch.")
+                    seen_indices.add(idx)
+
+                    batch_embeddings[idx] = item['embedding']
 
                 # Verify all embeddings were returned
                 if None in batch_embeddings:

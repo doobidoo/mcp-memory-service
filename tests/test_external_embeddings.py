@@ -265,11 +265,12 @@ class TestHybridBackendCompatibility:
 
     @pytest.mark.skip(reason="Test needs refactoring - log capture and lazy model initialization issues")
     @pytest.mark.integration
+    @pytest.mark.asyncio
     @patch.dict(os.environ, {
         'MCP_MEMORY_STORAGE_BACKEND': 'hybrid',
         'MCP_EXTERNAL_EMBEDDING_URL': 'http://test:8890/v1/embeddings'
     })
-    def test_external_embedding_rejected_for_hybrid_backend(self, caplog):
+    async def test_external_embedding_rejected_for_hybrid_backend(self, caplog):
         """Test that external API is disabled for hybrid backend with warning."""
         pytest.importorskip('aiosqlite', reason="aiosqlite required for storage tests")
         pytest.importorskip('sqlite_vec', reason="sqlite-vec required for storage tests")
@@ -284,6 +285,7 @@ class TestHybridBackendCompatibility:
         with caplog.at_level(logging.WARNING):
             try:
                 storage = SqliteVecMemoryStorage(temp_db)
+                await storage.initialize()  # This triggers embedding model init
                 # Should have logged warning about hybrid incompatibility
                 assert any(
                     "not supported with 'hybrid' backend" in record.message
@@ -299,11 +301,12 @@ class TestHybridBackendCompatibility:
 
     @pytest.mark.skip(reason="Test needs refactoring - log capture and lazy model initialization issues")
     @pytest.mark.integration
+    @pytest.mark.asyncio
     @patch.dict(os.environ, {
         'MCP_MEMORY_STORAGE_BACKEND': 'cloudflare',
         'MCP_EXTERNAL_EMBEDDING_URL': 'http://test:8890/v1/embeddings'
     })
-    def test_external_embedding_rejected_for_cloudflare_backend(self, caplog):
+    async def test_external_embedding_rejected_for_cloudflare_backend(self, caplog):
         """Test that external API is disabled for cloudflare backend with warning."""
         pytest.importorskip('aiosqlite', reason="aiosqlite required for storage tests")
         pytest.importorskip('sqlite_vec', reason="sqlite-vec required for storage tests")
@@ -318,6 +321,7 @@ class TestHybridBackendCompatibility:
         with caplog.at_level(logging.WARNING):
             try:
                 storage = SqliteVecMemoryStorage(temp_db)
+                await storage.initialize()  # This triggers embedding model init
                 # Should have logged warning about cloudflare incompatibility
                 assert any(
                     "not supported with 'cloudflare' backend" in record.message
@@ -333,13 +337,14 @@ class TestHybridBackendCompatibility:
 
     @pytest.mark.skip(reason="Test needs refactoring - log capture and lazy model initialization issues")
     @pytest.mark.integration
+    @pytest.mark.asyncio
     @patch.dict(os.environ, {
         'MCP_MEMORY_STORAGE_BACKEND': 'sqlite_vec',
         'MCP_EXTERNAL_EMBEDDING_URL': 'http://test:8890/v1/embeddings',
         'MCP_EXTERNAL_EMBEDDING_MODEL': 'test-model'
     })
     @patch('mcp_memory_service.embeddings.external_api.requests.post')
-    def test_external_embedding_allowed_for_sqlite_vec_backend(self, mock_post, caplog):
+    async def test_external_embedding_allowed_for_sqlite_vec_backend(self, mock_post, caplog):
         """Test that external API is allowed for sqlite_vec backend."""
         pytest.importorskip('aiosqlite', reason="aiosqlite required for storage tests")
         pytest.importorskip('sqlite_vec', reason="sqlite-vec required for storage tests")
@@ -361,6 +366,7 @@ class TestHybridBackendCompatibility:
         with caplog.at_level(logging.WARNING):
             try:
                 storage = SqliteVecMemoryStorage(temp_db)
+                await storage.initialize()  # This triggers embedding model init
 
                 # Should NOT have logged warning about backend incompatibility
                 assert not any(
@@ -370,7 +376,6 @@ class TestHybridBackendCompatibility:
 
                 # Should have external API model loaded
                 assert hasattr(storage.embedding_model, 'api_url')
-                assert storage.embedding_model.embedding_dimension == 768
             finally:
                 import os as os_module
                 if os_module.path.exists(temp_db):

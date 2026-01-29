@@ -494,62 +494,114 @@ class MemoryStorage(ABC):
                 }
 
             # Case 3: Filter-based deletion (tags and/or time range)
-            # Get all memories first for filtering
-            all_memories = await self.get_all_memories()
-
-            # Apply filters
+            # Try optimized SQL-level filtering first (Issue #374 optimization)
+            use_optimized = False
             filtered_memories = []
-            for memory in all_memories:
-                # Tag filter
-                if tags:
-                    if tag_match == "any":
-                        # Match ANY tag
-                        if not any(tag in memory.tags for tag in tags):
-                            continue
-                    else:  # tag_match == "all"
-                        # Match ALL tags
-                        if not all(tag in memory.tags for tag in tags):
-                            continue
 
-                # Time filters
-                if before or after:
-                    # Parse memory creation time
+            # Check for optimized backend methods - SQL filtering is 30-280x faster
+            if tags and not before and not after and tag_match == "any":
+                # Optimized path: tag-only deletion with ANY match
+                if hasattr(self, 'delete_by_tags') and not dry_run:
+                    use_optimized = True
+                    count, message, deleted_hashes = await self.delete_by_tags(tags)
+                    return {
+                        "success": count > 0,
+                        "deleted_count": count,
+                        "deleted_hashes": deleted_hashes,
+                        "dry_run": False,
+                        "message": message
+                    }
+                elif hasattr(self, 'get_memories_by_tags'):
+                    # Use optimized query for dry_run
+                    use_optimized = True
+                    filtered_memories = await self.get_memories_by_tags(tags, match_mode="any")
+
+            elif (before or after) and not tags:
+                # Optimized path: time-only filtering (no tags)
+                if hasattr(self, 'get_memories_by_time_range'):
+                    use_optimized = True
                     try:
-                        memory_date = datetime.fromisoformat(memory.created_at_iso.replace('Z', '+00:00')).date()
-                    except Exception:
-                        # Skip memories with invalid timestamps
-                        continue
+                        # Convert date strings to timestamps
+                        if after:
+                            after_date = datetime.fromisoformat(after)
+                            start_time = after_date.timestamp()
+                        else:
+                            start_time = 0.0
 
-                    if before:
-                        try:
-                            before_date = datetime.fromisoformat(before).date()
-                            if memory_date >= before_date:
+                        if before:
+                            before_date = datetime.fromisoformat(before)
+                            end_time = before_date.timestamp()
+                        else:
+                            end_time = datetime.now().timestamp()
+
+                        filtered_memories = await self.get_memories_by_time_range(
+                            start_time=start_time,
+                            end_time=end_time
+                        )
+                    except ValueError as e:
+                        return {
+                            "success": False,
+                            "deleted_count": 0,
+                            "deleted_hashes": [],
+                            "dry_run": dry_run,
+                            "error": f"Invalid date format: {e}. Use YYYY-MM-DD"
+                        }
+
+            # Fallback: Load all memories and filter in Python (slower but always works)
+            if not use_optimized:
+                all_memories = await self.get_all_memories()
+
+                for memory in all_memories:
+                    # Tag filter
+                    if tags:
+                        if tag_match == "any":
+                            # Match ANY tag
+                            if not any(tag in memory.tags for tag in tags):
                                 continue
-                        except ValueError:
-                            return {
-                                "success": False,
-                                "deleted_count": 0,
-                                "deleted_hashes": [],
-                                "dry_run": dry_run,
-                                "error": f"Invalid before date format: {before}. Use YYYY-MM-DD"
-                            }
-
-                    if after:
-                        try:
-                            after_date = datetime.fromisoformat(after).date()
-                            if memory_date <= after_date:
+                        else:  # tag_match == "all"
+                            # Match ALL tags
+                            if not all(tag in memory.tags for tag in tags):
                                 continue
-                        except ValueError:
-                            return {
-                                "success": False,
-                                "deleted_count": 0,
-                                "deleted_hashes": [],
-                                "dry_run": dry_run,
-                                "error": f"Invalid after date format: {after}. Use YYYY-MM-DD"
-                            }
 
-                # Memory passed all filters
-                filtered_memories.append(memory)
+                    # Time filters
+                    if before or after:
+                        # Parse memory creation time
+                        try:
+                            memory_date = datetime.fromisoformat(memory.created_at_iso.replace('Z', '+00:00')).date()
+                        except Exception:
+                            # Skip memories with invalid timestamps
+                            continue
+
+                        if before:
+                            try:
+                                before_date = datetime.fromisoformat(before).date()
+                                if memory_date >= before_date:
+                                    continue
+                            except ValueError:
+                                return {
+                                    "success": False,
+                                    "deleted_count": 0,
+                                    "deleted_hashes": [],
+                                    "dry_run": dry_run,
+                                    "error": f"Invalid before date format: {before}. Use YYYY-MM-DD"
+                                }
+
+                        if after:
+                            try:
+                                after_date = datetime.fromisoformat(after).date()
+                                if memory_date <= after_date:
+                                    continue
+                            except ValueError:
+                                return {
+                                    "success": False,
+                                    "deleted_count": 0,
+                                    "deleted_hashes": [],
+                                    "dry_run": dry_run,
+                                    "error": f"Invalid after date format: {after}. Use YYYY-MM-DD"
+                                }
+
+                    # Memory passed all filters
+                    filtered_memories.append(memory)
 
             # Dry run: return what would be deleted
             if dry_run:
@@ -1052,13 +1104,30 @@ class MemoryStorage(ABC):
 
                     pre_filter_count = len(results)
                 else:
-                    # Time-only or tag-only search - get all memories then filter
-                    all_memories = await self.get_all_memories()
-                    results = [
-                        MemoryQueryResult(memory=m, relevance_score=0.5, debug_info=None)
-                        for m in all_memories
-                    ]
-                    pre_filter_count = len(results)
+                    # Time-only or tag-only search - try optimized path first (Issue #374)
+                    use_optimized_search = False
+
+                    # Optimized: time-range only query
+                    if (start_time is not None or end_time is not None) and not tags:
+                        if hasattr(self, 'get_memories_by_time_range'):
+                            use_optimized_search = True
+                            st = start_time if start_time is not None else 0.0
+                            et = end_time if end_time is not None else datetime.now().timestamp()
+                            memories = await self.get_memories_by_time_range(st, et)
+                            results = [
+                                MemoryQueryResult(memory=m, relevance_score=0.5, debug_info=None)
+                                for m in memories
+                            ]
+                            pre_filter_count = len(results)
+
+                    # Fallback: load all memories then filter
+                    if not use_optimized_search:
+                        all_memories = await self.get_all_memories()
+                        results = [
+                            MemoryQueryResult(memory=m, relevance_score=0.5, debug_info=None)
+                            for m in all_memories
+                        ]
+                        pre_filter_count = len(results)
 
             # Apply time filters
             if start_time is not None or end_time is not None:

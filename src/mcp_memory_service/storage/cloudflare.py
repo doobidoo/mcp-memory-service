@@ -1080,10 +1080,66 @@ class CloudflareStorage(MemoryStorage):
             
             logger.info(f"Deleted {deleted_count} memories with tag: {tag}")
             return deleted_count, f"Deleted {deleted_count} memories"
-            
+
         except Exception as e:
             logger.error(f"Failed to delete by tag {tag}: {e}")
             return 0, f"Deletion failed: {str(e)}"
+
+    async def delete_by_tags(self, tags: List[str]) -> Tuple[int, str, List[str]]:
+        """
+        Delete memories matching ANY of the given tags (optimized for Issue #374).
+
+        Uses D1 SQL query with OR conditions for efficient bulk deletion.
+
+        Returns:
+            Tuple of (count, message, deleted_hashes)
+        """
+        try:
+            if not tags:
+                return 0, "No tags provided", []
+
+            # Build OR condition for tag matching
+            # Pattern matches: tag at start, middle, end, or exact match
+            conditions = []
+            params = []
+            for tag in tags:
+                stripped_tag = tag.strip()
+                conditions.append("(tags LIKE ? OR tags LIKE ? OR tags LIKE ? OR tags = ?)")
+                params.extend([f"{stripped_tag},%", f"%,{stripped_tag},%", f"%,{stripped_tag}", stripped_tag])
+
+            where_clause = " OR ".join(conditions)
+
+            # Find matching memories
+            sql = f'''
+                SELECT content_hash FROM memories
+                WHERE ({where_clause})
+                AND deleted_at IS NULL
+            '''
+
+            payload = {"sql": sql, "params": params}
+            response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+            result = response.json()
+
+            if not result.get("success") or not result.get("result", [{}])[0].get("results"):
+                return 0, f"No memories found matching tags: {tags}", []
+
+            hashes = [row["content_hash"] for row in result["result"][0]["results"]]
+
+            # Delete each matching memory
+            deleted_count = 0
+            deleted_hashes = []
+            for content_hash in hashes:
+                success, _ = await self.delete(content_hash)
+                if success:
+                    deleted_count += 1
+                    deleted_hashes.append(content_hash)
+
+            logger.info(f"Deleted {deleted_count} memories matching tags: {tags}")
+            return deleted_count, f"Successfully deleted {deleted_count} memories matching {len(tags)} tag(s)", deleted_hashes
+
+        except Exception as e:
+            logger.error(f"Failed to delete by tags {tags}: {e}")
+            return 0, f"Deletion failed: {str(e)}", []
 
     async def delete_by_timeframe(self, start_date: date, end_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
         """Delete memories within a specific date range."""
