@@ -249,9 +249,14 @@ if ($UseUv) {
 
 Write-SuccessLog "Dependencies installed"
 
-# Verify installation
+# Verify installation - use same tool that was used for installation
 try {
-    $PipShow = pip show mcp-memory-service 2>&1 | Out-String
+    if ($UseUv) {
+        $PipShow = uv pip show mcp-memory-service 2>&1 | Out-String
+    } else {
+        $PipShow = pip show mcp-memory-service 2>&1 | Out-String
+    }
+
     if ($PipShow -match 'Version:\s+(.+)') {
         $InstalledVersion = $Matches[1].Trim()
     } else {
@@ -261,10 +266,18 @@ try {
     if ($InstalledVersion -ne $NewVersion) {
         Write-WarningLog "Installation version mismatch! Expected: $NewVersion, Got: $InstalledVersion"
         Write-WarningLog "Retrying installation..."
-        & pip install -e . --force-reinstall --quiet 2>&1 | Out-Null
+        if ($UseUv) {
+            & uv pip install -e . --reinstall --quiet 2>&1 | Out-Null
+        } else {
+            & pip install -e . --force-reinstall --quiet 2>&1 | Out-Null
+        }
 
         # Re-check
-        $PipShow = pip show mcp-memory-service 2>&1 | Out-String
+        if ($UseUv) {
+            $PipShow = uv pip show mcp-memory-service 2>&1 | Out-String
+        } else {
+            $PipShow = pip show mcp-memory-service 2>&1 | Out-String
+        }
         if ($PipShow -match 'Version:\s+(.+)') {
             $InstalledVersion = $Matches[1].Trim()
         }
