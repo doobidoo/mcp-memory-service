@@ -1030,8 +1030,8 @@ class MemoryStorage(ABC):
                     if end_timestamp is not None:
                         end_time = end_timestamp
                 except Exception as e:
-                    logger.warning(f"Failed to parse time expression '{time_expr}': {e}")
                     # Continue without time filter rather than failing
+                    pass
 
             # Use explicit after/before if no time_expr
             if not time_expr:
