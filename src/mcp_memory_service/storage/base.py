@@ -1019,14 +1019,16 @@ class MemoryStorage(ABC):
             # Parse time expression if provided
             if time_expr:
                 try:
-                    from ..utils.time_parser import extract_time_expression
-                    # Extract time range from natural language
-                    _, (start_timestamp, end_timestamp) = extract_time_expression(time_expr)
-                    start_time = start_timestamp
-                    end_time = end_timestamp
+                    from ..utils.time_parser import parse_time_expression
+                    # Parse time range from natural language
+                    start_timestamp, end_timestamp = parse_time_expression(time_expr)
+                    if start_timestamp is not None:
+                        start_time = start_timestamp
+                    if end_timestamp is not None:
+                        end_time = end_timestamp
                 except Exception as e:
-                    logger.warning(f"Failed to parse time expression '{time_expr}': {e}")
                     # Continue without time filter rather than failing
+                    pass
 
             # Use explicit after/before if no time_expr
             if not time_expr:
