@@ -185,14 +185,15 @@ function generateTags(detectionResult, projectName = null) {
     }
 
     if (detectionResult.matchedPattern) {
-        tags.push(detectionResult.matchedPattern);
+        tags.push(detectionResult.matchedPattern.toLowerCase());  // Case-normalize
     }
 
     if (projectName) {
-        tags.push(projectName);
+        tags.push(projectName.toLowerCase());  // Case-normalize
     }
 
-    return tags;
+    // Deduplicate case-insensitively
+    return [...new Set(tags.map(t => t.toLowerCase()))];
 }
 
 /**
@@ -203,19 +204,30 @@ function generateTags(detectionResult, projectName = null) {
  * @returns {string} Truncated content
  */
 function truncateContent(content, maxLength = 4000) {
-    if (!content || content.length <= maxLength) {
+    if (content.length <= maxLength) {
         return content;
     }
 
-    // Try to truncate at a sentence boundary
     const truncated = content.substring(0, maxLength);
-    const lastSentence = truncated.lastIndexOf('. ');
 
-    if (lastSentence > maxLength * 0.8) {
-        return truncated.substring(0, lastSentence + 1) + '\n[truncated]';
+    // Search for multiple sentence boundary delimiters
+    const delimiters = ['. ', '! ', '? ', '.\n', '!\n', '?\n', '.\t', ';\n', '\n\n'];
+    let bestBreak = -1;
+
+    for (const delimiter of delimiters) {
+        const pos = truncated.lastIndexOf(delimiter);
+        if (pos > bestBreak) {
+            bestBreak = pos;
+        }
     }
 
-    return truncated + '\n[truncated]';
+    // Use best break point if it preserves at least 70% of content
+    // (Lowered from 80% to allow more flexibility in finding good breaks)
+    if (bestBreak > maxLength * 0.7) {
+        return truncated.substring(0, bestBreak + 1) + '\n[truncated]';
+    } else {
+        return truncated + '\n[truncated]';
+    }
 }
 
 /**

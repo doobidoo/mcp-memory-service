@@ -690,3 +690,169 @@ async def test_chunked_storage_partial_success(mock_storage):
     assert result.get("failed_chunks", 0) > 0, "Should report at least one failed chunk"
     total_attempted = len(result["memories"]) + result.get("failed_chunks", 0)
     assert result["total_chunks"] == total_attempted, "Total chunks should match attempted"
+
+
+# Test normalize_tags function
+
+def test_normalize_tags_case_insensitive():
+    """Test that normalize_tags() handles case variations."""
+    from mcp_memory_service.services.memory_service import normalize_tags
+
+    # Test case variations
+    result = normalize_tags(["Tag", "tag", "TAG", "TaG"])
+    assert result == ["tag"], f"Expected ['tag'], got {result}"
+
+    # Test with mixed tags
+    result = normalize_tags(["Python", "python", "Code", "code"])
+    assert result == ["python", "code"], f"Expected ['python', 'code'], got {result}"
+
+    # Test empty and whitespace
+    result = normalize_tags(["Tag1", "", "  ", "Tag2", "TAG1"])
+    assert result == ["tag1", "tag2"], f"Expected ['tag1', 'tag2'], got {result}"
+
+
+def test_normalize_tags_comma_separated():
+    """Test that comma-separated strings are normalized."""
+    from mcp_memory_service.services.memory_service import normalize_tags
+
+    result = normalize_tags("Python,JAVA,JavaScript,java")
+    assert result == ["python", "java", "javascript"], f"Expected ['python', 'java', 'javascript'], got {result}"
+
+
+def test_normalize_tags_whitespace_handling():
+    """Test that whitespace is handled correctly."""
+    from mcp_memory_service.services.memory_service import normalize_tags
+
+    # Leading/trailing whitespace
+    result = normalize_tags(["  Python  ", " Java ", "JavaScript"])
+    assert result == ["python", "java", "javascript"]
+
+    # Comma-separated with whitespace
+    result = normalize_tags(" Python , Java , JavaScript ")
+    assert result == ["python", "java", "javascript"]
+
+
+def test_normalize_tags_none_and_empty():
+    """Test that None and empty inputs return empty list."""
+    from mcp_memory_service.services.memory_service import normalize_tags
+
+    assert normalize_tags(None) == []
+    assert normalize_tags("") == []
+    assert normalize_tags("   ") == []
+    assert normalize_tags([]) == []
+
+
+def test_normalize_tags_preserves_order():
+    """Test that first occurrence order is preserved."""
+    from mcp_memory_service.services.memory_service import normalize_tags
+
+    result = normalize_tags(["zebra", "apple", "ZEBRA", "banana", "Apple"])
+    assert result == ["zebra", "apple", "banana"], "Should preserve order of first occurrence"
+
+
+def test_normalize_tags_non_string_elements():
+    """Test that non-string elements are filtered out."""
+    from mcp_memory_service.services.memory_service import normalize_tags
+
+    # Mixed types should be filtered
+    result = normalize_tags(["tag1", 123, "tag2", None, "tag3"])
+    assert result == ["tag1", "tag2", "tag3"]
+
+
+@pytest.mark.asyncio
+async def test_store_memory_deduplicates_tags(memory_service, mock_storage):
+    """Test that store_memory deduplicates tags case-insensitively."""
+    mock_storage.store.return_value = (True, "Success")
+
+    result = await memory_service.store_memory(
+        content="Test content for tag deduplication",
+        tags=["Test", "test", "PROJECT"],
+        metadata={"tags": ["project", "Test", "Another"]}
+    )
+
+    # Verify tags were normalized and deduplicated
+    stored_memory = mock_storage.store.call_args.args[0]
+    # Tags should be lowercase and unique
+    expected_tags = sorted(["another", "project", "test"])
+    assert sorted(stored_memory.tags) == expected_tags, \
+        f"Expected {expected_tags}, got {sorted(stored_memory.tags)}"
+
+
+@pytest.mark.asyncio
+async def test_store_memory_preserves_tag_functionality(memory_service, mock_storage):
+    """Test that tag normalization doesn't break existing functionality."""
+    mock_storage.store.return_value = (True, "Success")
+    mock_storage.retrieve.return_value = []
+
+    # Store with mixed-case tags
+    result1 = await memory_service.store_memory(
+        content="Python development tips",
+        tags=["Python", "Development", "Best-Practices"]
+    )
+
+    # Verify stored memory has normalized tags
+    stored_memory = mock_storage.store.call_args.args[0]
+    assert sorted(stored_memory.tags) == ["best-practices", "development", "python"], \
+        "Tags should be normalized to lowercase"
+
+
+@pytest.mark.asyncio
+async def test_store_memory_metadata_tags_normalized(memory_service, mock_storage):
+    """Test that tags in metadata are also normalized."""
+    mock_storage.store.return_value = (True, "Success")
+
+    result = await memory_service.store_memory(
+        content="Test content",
+        tags=["Tag1", "TAG2"],
+        metadata={"custom_field": "value", "tags": ["TAG2", "Tag3"]}
+    )
+
+    stored_memory = mock_storage.store.call_args.args[0]
+    # All tags should be combined and normalized
+    expected_tags = sorted(["tag1", "tag2", "tag3"])
+    assert sorted(stored_memory.tags) == expected_tags, \
+        f"Expected {expected_tags}, got {sorted(stored_memory.tags)}"
+
+
+@pytest.mark.asyncio
+async def test_normalize_tags_with_search_by_tag(memory_service, mock_storage, sample_memories):
+    """Test that search_by_tag normalizes input tags."""
+    mock_storage.search_by_tag.return_value = sample_memories[:2]
+
+    # Search with mixed-case tag
+    result = await memory_service.search_by_tag(tags="Python")
+
+    # Verify tag was normalized before passing to storage
+    mock_storage.search_by_tag.assert_called_once_with(tags=["python"])
+
+    # Search with multiple mixed-case tags
+    mock_storage.reset_mock()
+    result = await memory_service.search_by_tag(tags=["Python", "JAVA", "javascript"])
+
+    # Should normalize all tags
+    call_args = mock_storage.search_by_tag.call_args.kwargs
+    assert sorted(call_args["tags"]) == ["java", "javascript", "python"]
+
+
+@pytest.mark.asyncio
+async def test_normalize_tags_integration_workflow(memory_service, mock_storage):
+    """Test end-to-end tag normalization workflow."""
+    mock_storage.store.return_value = (True, "Success")
+    mock_storage.search_by_tag.return_value = []
+
+    # Store memory with various tag formats
+    result = await memory_service.store_memory(
+        content="Integration test for tag normalization",
+        tags="Python, JAVA",  # Comma-separated string with mixed case
+        metadata={"tags": ["JavaScript", "python"]}  # Additional tags in metadata
+    )
+
+    stored_memory = mock_storage.store.call_args.args[0]
+
+    # All tags should be normalized, deduplicated, and combined
+    expected_tags = sorted(["java", "javascript", "python"])
+    assert sorted(stored_memory.tags) == expected_tags, \
+        f"Expected {expected_tags}, got {sorted(stored_memory.tags)}"
+
+    # Verify no duplicate python tag
+    assert stored_memory.tags.count("python") == 1, "Should not have duplicate 'python' tag"

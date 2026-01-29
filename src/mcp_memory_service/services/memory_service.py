@@ -34,11 +34,11 @@ def normalize_tags(tags: Union[str, List[str], None]) -> List[str]:
     """
     Normalize tags to a consistent list format.
 
-    Handles all input formats:
-    - None → []
-    - "tag1,tag2,tag3" → ["tag1", "tag2", "tag3"]
-    - "single-tag" → ["single-tag"]
-    - ["tag1", "tag2"] → ["tag1", "tag2"]
+    Applies:
+    - Whitespace stripping
+    - Case normalization (lowercase)
+    - Deduplication
+    - Empty tag removal
 
     Args:
         tags: Tags in any supported format (None, string, comma-separated string, or list)
@@ -49,17 +49,38 @@ def normalize_tags(tags: Union[str, List[str], None]) -> List[str]:
     if tags is None:
         return []
 
+    # Convert to list if string
     if isinstance(tags, str):
-        # Empty string returns empty list
         if not tags.strip():
             return []
         # Split by comma if present, otherwise single tag
         if ',' in tags:
-            return [tag.strip() for tag in tags.split(',') if tag.strip()]
-        return [tags.strip()]
+            tags = [tag.strip() for tag in tags.split(',') if tag.strip()]
+        else:
+            tags = [tags.strip()]
 
-    # Already a list - return as-is
-    return tags
+    # Case-normalize, deduplicate, remove empties
+    normalized = []
+    seen_lower = set()
+
+    for tag in tags:
+        if not isinstance(tag, str):
+            continue
+
+        tag_stripped = tag.strip()
+        if not tag_stripped:
+            continue
+
+        tag_lower = tag_stripped.lower()
+
+        # Skip if already seen (case-insensitive deduplication)
+        if tag_lower in seen_lower:
+            continue
+
+        seen_lower.add(tag_lower)
+        normalized.append(tag_lower)  # Store in lowercase
+
+    return normalized
 
 
 class MemoryResult(TypedDict):
@@ -288,8 +309,8 @@ class MemoryService:
             final_metadata = metadata or {}
             if metadata and "tags" in metadata:
                 metadata_tags = normalize_tags(metadata.get("tags"))
-                # Merge with parameter tags and remove duplicates
-                final_tags = list(set(final_tags + metadata_tags))
+                # Merge with parameter tags (normalize_tags already deduplicates)
+                final_tags = normalize_tags(final_tags + metadata_tags)  # Re-normalize after merge
 
             # Apply hostname tagging if provided (for consistent source tracking)
             if client_hostname:

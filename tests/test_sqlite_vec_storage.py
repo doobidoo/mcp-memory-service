@@ -1384,3 +1384,241 @@ async def test_embedding_model_initialization():
         if storage.conn:
             storage.conn.close()
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+class TestSemanticDeduplication:
+    """Test semantic deduplication functionality in SQLite-vec storage."""
+
+    @pytest_asyncio.fixture
+    async def storage(self):
+        """Create a test storage instance with semantic dedup enabled."""
+        temp_dir = tempfile.mkdtemp()
+        db_path = os.path.join(temp_dir, "test_semantic_dedup.db")
+
+        # Force enable semantic dedup for these tests
+        original_env = os.environ.get('MCP_SEMANTIC_DEDUP_ENABLED')
+        os.environ['MCP_SEMANTIC_DEDUP_ENABLED'] = 'true'
+
+        storage = SqliteVecMemoryStorage(db_path)
+        await storage.initialize()
+
+        yield storage
+
+        # Cleanup
+        if storage.conn:
+            storage.conn.close()
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+        # Restore original env var
+        if original_env is None:
+            os.environ.pop('MCP_SEMANTIC_DEDUP_ENABLED', None)
+        else:
+            os.environ['MCP_SEMANTIC_DEDUP_ENABLED'] = original_env
+
+    @pytest.mark.asyncio
+    async def test_semantic_duplicate_detection(self, storage):
+        """Test that semantically similar memories are rejected within 24 hours."""
+        # Store original memory
+        original = Memory(
+            content="Claude Code is a powerful CLI tool for software engineering.",
+            content_hash=generate_content_hash("Claude Code is a powerful CLI tool for software engineering."),
+            tags=["claude-code", "tool"],
+            memory_type="note"
+        )
+        success1, msg1 = await storage.store(original)
+        assert success1, f"Failed to store original: {msg1}"
+
+        # Try to store semantically similar memory (reformulation)
+        similar = Memory(
+            content="The Claude Code CLI is an excellent software development tool.",
+            content_hash=generate_content_hash("The Claude Code CLI is an excellent software development tool."),
+            tags=["claude-code", "cli"],
+            memory_type="note"
+        )
+        success2, msg2 = await storage.store(similar)
+        assert not success2, "Should reject semantic duplicate"
+        assert "semantically similar" in msg2.lower(), f"Expected semantic duplicate message, got: {msg2}"
+
+        # Verify original is still retrievable
+        results = await storage.retrieve("Claude Code", n_results=5)
+        assert len(results) == 1, "Should only have original memory"
+        assert results[0].memory.content == original.content
+
+    @pytest.mark.asyncio
+    async def test_semantic_duplicate_time_window(self, storage):
+        """Test that semantic dedup respects time window."""
+        # Set 1-hour time window for testing
+        storage.semantic_dedup_time_window = 1
+
+        # Store original memory
+        original = Memory(
+            content="Machine learning models require large datasets for training.",
+            content_hash=generate_content_hash("Machine learning models require large datasets for training."),
+            tags=["ml", "training"],
+            memory_type="note"
+        )
+        success1, msg1 = await storage.store(original)
+        assert success1, f"Failed to store original: {msg1}"
+
+        # Mock time to be 2 hours later (outside 1-hour window)
+        with patch('time.time', return_value=time.time() + 2 * 3600):
+            # Should allow storage after time window expires
+            similar = Memory(
+                content="ML models need big datasets to train properly.",
+                content_hash=generate_content_hash("ML models need big datasets to train properly."),
+                tags=["ml", "datasets"],
+                memory_type="note"
+            )
+            success2, msg2 = await storage.store(similar)
+            assert success2, f"Should allow storage after time window: {msg2}"
+
+        # Verify both memories exist
+        results = await storage.retrieve("machine learning datasets", n_results=5)
+        assert len(results) == 2, "Should have both memories after time window"
+
+    @pytest.mark.asyncio
+    async def test_semantic_duplicate_disabled(self):
+        """Test that semantic dedup can be disabled via config."""
+        # Temporarily disable semantic dedup
+        original_env = os.environ.get('MCP_SEMANTIC_DEDUP_ENABLED')
+        os.environ['MCP_SEMANTIC_DEDUP_ENABLED'] = 'false'
+
+        temp_dir = tempfile.mkdtemp()
+        db_path = os.path.join(temp_dir, "test_dedup_disabled.db")
+
+        try:
+            storage = SqliteVecMemoryStorage(db_path)
+            await storage.initialize()
+
+            # Store original memory
+            original = Memory(
+                content="Python is a versatile programming language.",
+                content_hash=generate_content_hash("Python is a versatile programming language."),
+                tags=["python", "programming"],
+                memory_type="note"
+            )
+            success1, msg1 = await storage.store(original)
+            assert success1, f"Failed to store original: {msg1}"
+
+            # Try to store similar memory - should succeed when disabled
+            similar = Memory(
+                content="Python is a flexible programming language.",
+                content_hash=generate_content_hash("Python is a flexible programming language."),
+                tags=["python", "coding"],
+                memory_type="note"
+            )
+            success2, msg2 = await storage.store(similar)
+            assert success2, f"Should allow similar content when dedup disabled: {msg2}"
+
+            # Verify both memories exist
+            results = await storage.retrieve("Python programming", n_results=5)
+            assert len(results) == 2, "Should have both memories when dedup disabled"
+
+            storage.close()
+
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            # Restore original env var
+            if original_env is None:
+                os.environ.pop('MCP_SEMANTIC_DEDUP_ENABLED', None)
+            else:
+                os.environ['MCP_SEMANTIC_DEDUP_ENABLED'] = original_env
+
+    @pytest.mark.asyncio
+    async def test_semantic_duplicate_different_content(self, storage):
+        """Test that genuinely different content is not flagged as duplicate."""
+        # Store memory about Claude Code
+        memory1 = Memory(
+            content="Claude Code is a powerful CLI tool for software engineering.",
+            content_hash=generate_content_hash("Claude Code is a powerful CLI tool for software engineering."),
+            tags=["claude-code"],
+            memory_type="note"
+        )
+        success1, msg1 = await storage.store(memory1)
+        assert success1, f"Failed to store first memory: {msg1}"
+
+        # Store completely different memory about Python
+        memory2 = Memory(
+            content="Python is excellent for data science and machine learning.",
+            content_hash=generate_content_hash("Python is excellent for data science and machine learning."),
+            tags=["python"],
+            memory_type="note"
+        )
+        success2, msg2 = await storage.store(memory2)
+        assert success2, f"Should allow different content: {msg2}"
+
+        # Verify both exist
+        results = await storage.retrieve("software", n_results=10)
+        assert len(results) >= 2, "Should have both different memories"
+
+    @pytest.mark.asyncio
+    async def test_semantic_duplicate_threshold_configuration(self):
+        """Test that similarity threshold can be configured."""
+        temp_dir = tempfile.mkdtemp()
+        db_path = os.path.join(temp_dir, "test_threshold.db")
+
+        # Set high threshold (0.95) - only very similar content will be rejected
+        original_threshold = os.environ.get('MCP_SEMANTIC_DEDUP_THRESHOLD')
+        os.environ['MCP_SEMANTIC_DEDUP_THRESHOLD'] = '0.95'
+        os.environ['MCP_SEMANTIC_DEDUP_ENABLED'] = 'true'
+
+        try:
+            storage = SqliteVecMemoryStorage(db_path)
+            await storage.initialize()
+
+            # Store original
+            original = Memory(
+                content="Testing semantic similarity threshold configuration.",
+                content_hash=generate_content_hash("Testing semantic similarity threshold configuration."),
+                tags=["test"],
+                memory_type="note"
+            )
+            success1, msg1 = await storage.store(original)
+            assert success1, f"Failed to store original: {msg1}"
+
+            # Store somewhat similar content - should be allowed with high threshold
+            similar = Memory(
+                content="Examining semantic similarity threshold settings.",
+                content_hash=generate_content_hash("Examining semantic similarity threshold settings."),
+                tags=["test"],
+                memory_type="note"
+            )
+            success2, msg2 = await storage.store(similar)
+            # With 0.95 threshold, moderately similar content should be allowed
+            # (it's only rejected if similarity > 0.95)
+
+            storage.close()
+
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            # Restore original env var
+            if original_threshold is None:
+                os.environ.pop('MCP_SEMANTIC_DEDUP_THRESHOLD', None)
+            else:
+                os.environ['MCP_SEMANTIC_DEDUP_THRESHOLD'] = original_threshold
+            os.environ.pop('MCP_SEMANTIC_DEDUP_ENABLED', None)
+
+    @pytest.mark.asyncio
+    async def test_semantic_duplicate_exact_match_takes_precedence(self, storage):
+        """Test that exact hash duplicates are still caught even with semantic dedup."""
+        # Store original memory
+        content = "This is the exact same content."
+        memory1 = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["test"],
+            memory_type="note"
+        )
+        success1, msg1 = await storage.store(memory1)
+        assert success1, f"Failed to store original: {msg1}"
+
+        # Try to store exact same content
+        memory2 = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["test"],
+            memory_type="note"
+        )
+        success2, msg2 = await storage.store(memory2)
+        assert not success2, "Should reject exact duplicate"
+        assert "exact match" in msg2.lower(), f"Expected exact match message, got: {msg2}"

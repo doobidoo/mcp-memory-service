@@ -10,6 +10,71 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.4.0] - 2026-01-29
+
+### Added
+- **Semantic Deduplication** (Issues #390, #391): Prevents storing semantically similar content within configurable time window
+  - New `_check_semantic_duplicate()` method in SQLiteVecStorage using KNN cosine similarity
+  - Configurable via environment variables:
+    - `MCP_SEMANTIC_DEDUP_ENABLED` (default: true) - Enable/disable feature
+    - `MCP_SEMANTIC_DEDUP_TIME_WINDOW_HOURS` (default: 24) - Time window for duplicate detection
+    - `MCP_SEMANTIC_DEDUP_THRESHOLD` (default: 0.85) - Similarity threshold (0.0-1.0)
+  - Catches cross-hook duplicates (e.g., PostToolUse + SessionEnd reformulations)
+  - Returns descriptive error messages: "Duplicate content detected (semantically similar to {hash}...)"
+  - Efficient KNN search using sqlite-vec's `vec_distance_cosine()` function
+  - Comprehensive test suite with 6 new tests covering time windows, configuration, and edge cases
+
+- **Memory Budget Optimization** (Issue #390): Increased memory retrieval capacity and reserved slots for curated memories
+  - Increased `maxMemoriesPerSession` from 8 to 14 slots (75% increase)
+  - New `reservedTagSlots` configuration (default: 3) - Guarantees minimum slots for tag-based retrieval
+  - Smart slot allocation across retrieval phases:
+    - Phase 0 (Git): Up to 3 slots (adaptive)
+    - Phase 1 (Recent): ~60% of remaining slots
+    - Phase 2 (Tags): At least `reservedTagSlots`, more if available
+  - Prevents semantic search from crowding out curated memories
+  - Configuration documentation added to session-start.js
+
+- **Enhanced Content Truncation** (Issue #392): Multi-delimiter sentence boundary detection
+  - Expanded from 4 to 9-10 delimiter types: `. ` `! ` `? ` `.\n` `!\n` `?\n` `.\t` `;\n` `\n\n`
+  - Improved break point algorithm preserves natural sentence boundaries
+  - Lowered threshold from 80% to 70% for more flexibility
+  - Applied consistently across auto-capture-patterns.js and context-formatter.js
+  - Eliminates mid-sentence cuts at colons/commas when better delimiters present
+
+### Changed
+- **Tag Case-Normalization** (Issue #391): All tags stored in lowercase with case-insensitive deduplication
+  - Updated `normalize_tags()` in memory_service.py to convert all tags to lowercase
+  - Eliminates duplicate tags like `["Tag", "tag", "TAG"]` → `["tag"]`
+  - Applied across all tag sources: parameter tags, metadata tags, hook-generated tags
+  - JavaScript hooks updated for consistent case-normalization:
+    - auto-capture-patterns.js: generateTags() normalizes all tags
+    - session-end.js: Project name, language, topics, frameworks all lowercase
+  - Comprehensive test suite with 11 new tests for unit and integration scenarios
+  - Backward compatible: Existing mixed-case tags remain unchanged, searches already case-insensitive
+
+- **Hook Deduplication Threshold** (Issue #391): Improved Jaccard similarity detection
+  - Lowered threshold from 80% to 65% in context-formatter.js
+  - Catches more cross-hook reformulations (55-70% similarity range)
+  - Maintains balance between duplicate detection and legitimate variations
+
+### Fixed
+- **Test Environment Isolation**: Disabled semantic deduplication during tests
+  - Prevents interference with existing test expectations
+  - Tests can now create similar content without triggering dedup
+  - Added clear documentation in conftest.py
+
+### Documentation
+- Added comprehensive implementation plan in fix-plan-issues-390-391-392.md
+- Updated .env.example with semantic deduplication configuration
+- Added 17 new tests with detailed documentation
+- Created TEST_ADDITIONS_SUMMARY.md documenting all test scenarios
+
+### Performance
+- Semantic dedup adds <100ms overhead per storage operation
+- KNN search leverages sqlite-vec's optimized cosine distance calculations
+- No impact on retrieval performance
+- Hook execution time unchanged (<10s total)
+
 ## [10.3.0] - 2026-01-29
 
 ### Added

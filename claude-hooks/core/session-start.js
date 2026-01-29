@@ -17,6 +17,19 @@ const { getVersionInfo, formatVersionDisplay } = require('../utilities/version-c
 const { detectUserOverrides, logOverride } = require('../utilities/user-override-detector');
 
 /**
+ * Memory Service Configuration
+ *
+ * maxMemoriesPerSession: Total memory budget (default: 14)
+ * reservedTagSlots: Minimum slots guaranteed for tag-based retrieval (default: 3)
+ *
+ * Phase slot allocation:
+ * - Phase 0 (Git): Up to 3 slots (adaptive)
+ * - Phase 1 (Recent): ~60% of remaining slots (min 2)
+ * - Phase 2 (Tags): At least `reservedTagSlots` slots, more if available
+ * - Phase 3 (Fallback): Only if < 3 total memories
+ */
+
+/**
  * Load hook configuration
  */
 async function loadConfig() {
@@ -44,7 +57,8 @@ async function loadConfig() {
                     toolCallTimeout: 10000
                 },
                 defaultTags: ['claude-code', 'auto-generated'],
-                maxMemoriesPerSession: 8,
+                maxMemoriesPerSession: 14,      // Increased from 8 to support session + curated memories
+                reservedTagSlots: 3,             // NEW: Minimum slots reserved for Phase 2 tag-based retrieval
                 injectAfterCompacting: false
             },
             projectDetection: {
@@ -887,8 +901,20 @@ async function executeSessionStart(context) {
             }
             
             // Phase 2: Important tagged memories - fill remaining slots
-            const remainingSlots = maxMemories - allMemories.length;
-            if (remainingSlots > 0) {
+            // Calculate reserved tag slots
+            const reservedTagSlots = config.memoryService.reservedTagSlots || 3;
+            const currentMemoryCount = allMemories.length;
+
+            // Ensure we reserve slots for tags even if phases 0&1 filled many slots
+            const remainingForTags = Math.max(
+                maxMemories - currentMemoryCount,        // Natural remaining slots
+                reservedTagSlots - currentMemoryCount    // Force reservation if needed
+            );
+
+            // If we need to exceed maxMemories to meet reservation, expand temporarily
+            const effectiveMaxForPhase2 = currentMemoryCount + remainingForTags;
+
+            if (remainingForTags > 0) {
                 // Build tag list for important memories
                 const importantTags = [
                     projectContext.name,
@@ -900,12 +926,12 @@ async function executeSessionStart(context) {
                 const timeFilter = 'last-2-weeks';
 
                 if (verbose && showMemoryDetails && showPhaseDetails && !cleanMode) {
-                    console.log(`${CONSOLE_COLORS.BLUE}🎯 Phase 2${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Searching important tagged memories (${remainingSlots} slots)`);
+                    console.log(`${CONSOLE_COLORS.BLUE}🎯 Phase 2${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Searching important tagged memories (${remainingForTags} slots)`);
                 }
 
                 // Use new tag-time filtering method for efficient recency prioritization
                 const importantMemories = memoryClient ?
-                    await memoryClient.queryMemoriesByTagsAndTime(importantTags, timeFilter, remainingSlots, false) :
+                    await memoryClient.queryMemoriesByTagsAndTime(importantTags, timeFilter, remainingForTags, false) :
                     [];
 
                 // Filter out duplicates using similarity-based deduplication (80% threshold)

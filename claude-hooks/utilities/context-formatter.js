@@ -719,14 +719,20 @@ function extractMeaningfulContent(content, maxLength = 500, options = {}) {
         return processedContent;
     }
 
-    // Try to find a good breaking point (sentence, paragraph, or code block)
-    const breakPoints = ['. ', '\n\n', '\n', '; '];
+    // Sentence break point truncation with expanded delimiters
+    const breakPoints = ['. ', '! ', '? ', '.\n', '!\n', '?\n', '.\t', '\n\n', '\n', '; '];
+    let bestBreak = -1;
 
-    for (const breakPoint of breakPoints) {
-        const lastBreak = processedContent.lastIndexOf(breakPoint, maxLength - 3);
-        if (lastBreak > maxLength * 0.7) { // Only use if we keep at least 70% of desired length
-            return processedContent.substring(0, lastBreak + (breakPoint === '. ' ? 1 : 0)).trim();
+    for (const bp of breakPoints) {
+        const pos = processedContent.lastIndexOf(bp, maxLength - 3);
+        // Take the latest break point that preserves >= 70% of target
+        if (pos > bestBreak && pos >= maxLength * 0.7) {
+            bestBreak = pos;
         }
+    }
+
+    if (bestBreak > 0) {
+        return processedContent.substring(0, bestBreak + 1).trim();
     }
 
     // Fallback to hard truncation
@@ -867,7 +873,7 @@ function deduplicateMemories(memories, options = {}) {
         let isDuplicate = false;
         for (const seenNormalized of seenContent) {
             const similarity = calculateContentSimilarity(normalized, seenNormalized);
-            if (similarity > 0.8) { // 80% similarity threshold
+            if (similarity > 0.65) { // 65% similarity threshold (lowered to catch more duplicates)
                 isDuplicate = true;
                 break;
             }

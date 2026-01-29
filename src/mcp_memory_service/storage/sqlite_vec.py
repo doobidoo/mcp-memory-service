@@ -242,6 +242,11 @@ class SqliteVecMemoryStorage(MemoryStorage):
         self.enable_cache = True
         self.batch_size = 32
 
+        # Semantic deduplication configuration
+        self.semantic_dedup_enabled = os.getenv('MCP_SEMANTIC_DEDUP_ENABLED', 'true').lower() == 'true'
+        self.semantic_dedup_time_window = int(os.getenv('MCP_SEMANTIC_DEDUP_TIME_WINDOW_HOURS', '24'))
+        self.semantic_dedup_threshold = float(os.getenv('MCP_SEMANTIC_DEDUP_THRESHOLD', '0.85'))
+
         # Ensure directory exists
         os.makedirs(os.path.dirname(self.db_path) if os.path.dirname(self.db_path) else '.', exist_ok=True)
 
@@ -1037,21 +1042,79 @@ SOLUTIONS:
         except Exception as e:
             logger.error(f"Failed to generate embedding: {str(e)}")
             raise RuntimeError(f"Failed to generate embedding: {str(e)}") from e
-    
+
+    async def _check_semantic_duplicate(
+        self,
+        content: str,
+        time_window_hours: int = 24,
+        similarity_threshold: float = 0.85
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Check if a semantically similar memory was stored within time window.
+
+        Args:
+            content: Content to check for duplicates
+            time_window_hours: Hours to look back (default: 24)
+            similarity_threshold: Cosine similarity threshold (default: 0.85)
+
+        Returns:
+            (is_duplicate, existing_content_hash)
+        """
+        if not self.conn:
+            return False, None
+
+        # Calculate time cutoff
+        cutoff_timestamp = time.time() - (time_window_hours * 3600)
+
+        # Generate embedding for incoming content
+        embedding = self._generate_embedding(content)
+        embedding_blob = serialize_float32(embedding)
+
+        # KNN search for similar memories created after cutoff
+        # Query: Find memories with cosine similarity > threshold within time window
+        cursor = self.conn.execute('''
+            SELECT m.content_hash, m.content,
+                   vec_distance_cosine(me.content_embedding, ?) as similarity
+            FROM memories m
+            JOIN memory_embeddings me ON m.rowid = me.rowid
+            WHERE m.created_at > ?
+              AND m.deleted_at IS NULL
+            ORDER BY similarity ASC
+            LIMIT 1
+        ''', (embedding_blob, cutoff_timestamp))
+
+        result = cursor.fetchone()
+        if result and result[2] <= (1.0 - similarity_threshold):
+            # Note: cosine distance = 1 - cosine similarity
+            # Distance <= 0.15 means similarity >= 0.85
+            return True, result[0]  # is_duplicate, existing_hash
+
+        return False, None
+
     async def store(self, memory: Memory) -> Tuple[bool, str]:
         """Store a memory in the SQLite-vec database."""
         try:
             if not self.conn:
                 return False, "Database not initialized"
             
-            # Check for duplicates (only active memories, not soft-deleted)
+            # Check for exact hash duplicates
             cursor = self.conn.execute(
                 'SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
                 (memory.content_hash,)
             )
             if cursor.fetchone():
-                return False, "Duplicate content detected"
-            
+                return False, "Duplicate content detected (exact match)"
+
+            # Check for semantic duplicates within configured time window (only if enabled)
+            if self.semantic_dedup_enabled:
+                is_duplicate, existing_hash = await self._check_semantic_duplicate(
+                    memory.content,
+                    time_window_hours=self.semantic_dedup_time_window,
+                    similarity_threshold=self.semantic_dedup_threshold
+                )
+                if is_duplicate:
+                    return False, f"Duplicate content detected (semantically similar to {existing_hash[:8]}...)"
+
             # Generate and validate embedding
             try:
                 embedding = self._generate_embedding(memory.content)

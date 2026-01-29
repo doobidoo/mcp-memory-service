@@ -9,6 +9,11 @@ from typing import Callable, Optional, List
 # Add src directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
 
+# Disable semantic deduplication during tests to avoid interference with test expectations
+# Tests often use similar content patterns (e.g., "Test memory 1", "Test memory 2")
+# which would be caught by semantic dedup and cause unexpected failures
+os.environ['MCP_SEMANTIC_DEDUP_ENABLED'] = 'false'
+
 # Reserved tag for test memories - enables automatic cleanup
 TEST_MEMORY_TAG = "__test__"
 
