@@ -1,0 +1,42 @@
+{
+  "name": "mcp-memory-video",
+  "version": "1.0.0",
+  "description": "Technical Showcase video for MCP Memory Service",
+  "scripts": {
+    "extract-data": "tsx scripts/extract-project-data.ts",
+    "dev": "remotion studio",
+    "build": "remotion render MCPMemoryShowcase out/showcase.mp4",
+    "build:short": "remotion render MCPMemoryShowcase-Short out/showcase-short.mp4",
+    "build:gif": "remotion render MCPMemoryShowcase out/preview.gif --codec=gif --scale=0.5",
+    "preview": "remotion preview out/showcase.mp4",
+    "upgrade": "remotion upgrade"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.197",
+    "@remotion/layout-utils": "^4.0.197",
+    "@remotion/three": "^4.0.197",
+    "@react-three/drei": "^9.96.0",
+    "@react-three/fiber": "^8.15.16",
+    "prism-react-renderer": "^2.3.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "recharts": "^2.12.0",
+    "remotion": "^4.0.197",
+    "three": "^0.161.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.48",
+    "@types/three": "^0.161.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  },
+  "keywords": [
+    "remotion",
+    "video",
+    "mcp",
+    "technical-showcase"
+  ],
+  "author": "",
+  "license": "ISC"
+}
