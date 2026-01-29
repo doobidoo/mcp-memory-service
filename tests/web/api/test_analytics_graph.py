@@ -45,8 +45,11 @@ def temp_db():
 
 
 @pytest_asyncio.fixture
-async def initialized_storage(temp_db):
+async def initialized_storage(temp_db, monkeypatch):
     """Create and initialize a real SQLite storage backend with graph data."""
+    # Disable semantic deduplication for tests to avoid "Test memory 0", "Test memory 1" being flagged as duplicates
+    monkeypatch.setenv('MCP_SEMANTIC_DEDUP_ENABLED', 'false')
+
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
     yield storage
