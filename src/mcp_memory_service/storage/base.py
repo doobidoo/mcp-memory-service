@@ -18,11 +18,14 @@ Copyright (c) 2024 Heinrich Krupp
 Licensed under the MIT License. See LICENSE file in the project root for full license text.
 """
 import asyncio
+import logging
 import warnings
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone, timedelta, date
 from ..models.memory import Memory, MemoryQueryResult
+
+logger = logging.getLogger(__name__)
 
 class MemoryStorage(ABC):
     """Abstract base class for memory storage implementations."""
@@ -1027,8 +1030,8 @@ class MemoryStorage(ABC):
                     if end_timestamp is not None:
                         end_time = end_timestamp
                 except Exception as e:
+                    logger.warning(f"Failed to parse time expression '{time_expr}': {e}")
                     # Continue without time filter rather than failing
-                    pass
 
             # Use explicit after/before if no time_expr
             if not time_expr:

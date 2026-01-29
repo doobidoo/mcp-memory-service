@@ -4,6 +4,7 @@ Test for Issue #396: time_expr natural language parsing fails for 'last week', '
 This test reproduces the reported issue where time_expr parameter fails for certain
 natural language expressions but works for others.
 """
+import os
 import pytest
 import asyncio
 from datetime import datetime, timedelta, date
@@ -17,7 +18,6 @@ async def test_time_expr_parsing_issue_396(temp_db_path):
     """Test that time_expr correctly parses 'last week' and '3 days ago'."""
 
     # Create storage with temp database
-    import os
     db_file = os.path.join(temp_db_path, "test_issue_396.db")
     storage = SqliteVecMemoryStorage(db_path=db_file)
     await storage.initialize()
@@ -114,7 +114,6 @@ async def test_time_expr_parsing_issue_396(temp_db_path):
 async def test_time_expr_edge_cases(temp_db_path):
     """Test additional time_expr edge cases."""
 
-    import os
     db_file = os.path.join(temp_db_path, "test_edge_cases.db")
     storage = SqliteVecMemoryStorage(db_path=db_file)
     await storage.initialize()
@@ -142,12 +141,10 @@ async def test_time_expr_edge_cases(temp_db_path):
     ]
 
     for time_expr in test_cases:
-        print(f"\nTesting time_expr='{time_expr}'")
         result = await storage.search_memories(
             time_expr=time_expr,
             limit=10
         )
-        print(f"  Found {result['total']} memories")
         # Don't assert on results, just verify no errors
         assert "error" not in result, f"Should not error for time_expr='{time_expr}'"
 
