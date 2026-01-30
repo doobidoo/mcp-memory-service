@@ -84,6 +84,12 @@ const Connections: React.FC<{ nodes: VectorNode[]; time: number }> = ({ nodes, t
 export const VectorSpace3D: React.FC<VectorSpace3DProps> = ({ frame }) => {
   const time = frame / 30;
 
+  // Seeded random for consistent node positions across frames
+  const seededRandom = (seed: number) => {
+    const x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+  };
+
   const nodes = useMemo<VectorNode[]>(() => {
     const count = 45; // More nodes
     const nodes: VectorNode[] = [];
@@ -99,14 +105,15 @@ export const VectorSpace3D: React.FC<VectorSpace3DProps> = ({ frame }) => {
       const cluster = Math.floor(i / (count / 3));
       const center = clusterCenters[cluster];
 
+      // Use seeded random so positions stay consistent across frames
       nodes.push({
         position: [
-          center[0] + (Math.random() - 0.5) * 8, // Larger spread (was 5)
-          center[1] + (Math.random() - 0.5) * 8,
-          center[2] + (Math.random() - 0.5) * 8,
+          center[0] + (seededRandom(i * 3) - 0.5) * 8,
+          center[1] + (seededRandom(i * 3 + 1) - 0.5) * 8,
+          center[2] + (seededRandom(i * 3 + 2) - 0.5) * 8,
         ],
         color: colors[cluster],
-        size: 0.4 + Math.random() * 0.3, // Even larger nodes (was 0.3 + 0.2)
+        size: 0.4 + seededRandom(i * 7) * 0.3,
         cluster,
       });
     }

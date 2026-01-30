@@ -29,7 +29,7 @@ export const Video: React.FC = () => {
       {/* Background Music */}
       <Audio
         src={staticFile('showreel-music-promo-advertising-opener-vlog-background-intro-theme-261601.mp3')}
-        volume={0.3}
+        volume={0.5}
       />
       {/* Scene 1: Hero Intro (0-10s) */}
       <Sequence from={0} durationInFrames={300 + transitionDuration}>
