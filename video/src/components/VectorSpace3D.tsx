@@ -24,12 +24,12 @@ const VectorNode: React.FC<{ node: VectorNode; time: number }> = ({ node, time }
   useFrame(() => {
     if (!meshRef.current) return;
 
-    // Gentle floating
+    // Very gentle floating - much slower
     const offset = time + node.position[0];
-    meshRef.current.position.y = node.position[1] + Math.sin(offset * 0.3) * 0.5;
+    meshRef.current.position.y = node.position[1] + Math.sin(offset * 0.05) * 0.3;
 
-    // Subtle pulse
-    const pulse = 1 + Math.sin(offset * 2) * 0.1;
+    // Very subtle pulse - much slower
+    const pulse = 1 + Math.sin(offset * 0.3) * 0.05;
     meshRef.current.scale.setScalar(pulse);
   });
 
@@ -78,7 +78,7 @@ const Connections: React.FC<{ nodes: VectorNode[]; time: number }> = ({ nodes, t
           new THREE.Vector3(...n2.position),
         ];
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const opacity = 0.4 + Math.sin(time + i * 0.2) * 0.2;
+        const opacity = 0.4 + Math.sin(time * 0.3 + i * 0.2) * 0.1;
 
         return (
           <line key={i} geometry={geometry}>
