@@ -17,30 +17,30 @@ export const AIMLIntelligence: React.FC = () => {
     extrapolateRight: 'clamp',
   });
 
-  // Features
+  // Features - compact version
   const features = [
     {
       icon: '🧠',
       title: 'Vector Embeddings',
-      desc: 'ONNX local model (384 dimensions)',
+      desc: 'ONNX (384-dim)',
       delay: 240,
     },
     {
       icon: '⭐',
       title: 'Quality Scoring',
-      desc: '3-tier system: ONNX → Groq → Gemini',
+      desc: '3-tier system',
       delay: 300,
     },
     {
       icon: '🌙',
       title: 'Consolidation',
-      desc: 'Dream-inspired maintenance',
+      desc: 'Dream-inspired',
       delay: 360,
     },
     {
       icon: '🔗',
-      title: 'Relationship Inference',
-      desc: 'Automatic graph building',
+      title: 'Graph Building',
+      desc: 'Auto relationships',
       delay: 420,
     },
   ];
@@ -77,16 +77,17 @@ export const AIMLIntelligence: React.FC = () => {
           AI/ML Intelligence
         </h1>
 
-        {/* 2-Column Layout */}
+        {/* 2-Column Layout - FIXED: explicit height */}
         <div
           style={{
             display: 'grid',
             gridTemplateColumns: '1.3fr 1fr',
             gap: 80,
             flex: 1,
+            alignItems: 'stretch',
           }}
         >
-          {/* LEFT: 3D Vector Space - BIGGER */}
+          {/* LEFT: 3D Vector Space - BIGGER with fixed height */}
           <div
             style={{
               position: 'relative',
@@ -94,6 +95,7 @@ export const AIMLIntelligence: React.FC = () => {
               borderRadius: 20,
               border: `3px solid ${colors.aiml.from}60`,
               overflow: 'hidden',
+              minHeight: 0, // Prevent grid blowout
             }}
           >
             {frame >= 60 && (
@@ -149,13 +151,14 @@ export const AIMLIntelligence: React.FC = () => {
             )}
           </div>
 
-          {/* RIGHT: Features */}
+          {/* RIGHT: Features - compact to fit quality tiers */}
           <div
             style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: 30,
-              justifyContent: 'center',
+              gap: 20,
+              justifyContent: 'flex-start',
+              alignSelf: 'stretch',
             }}
           >
             {features.map((feature, i) => {
@@ -178,8 +181,8 @@ export const AIMLIntelligence: React.FC = () => {
                     opacity,
                     transform: `translateX(${x}px)`,
                     backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                    padding: '25px 30px',
-                    borderRadius: 16,
+                    padding: '18px 24px',
+                    borderRadius: 12,
                     border: `2px solid ${colors.aiml.from}40`,
                   }}
                 >
@@ -187,67 +190,69 @@ export const AIMLIntelligence: React.FC = () => {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: 16,
-                      marginBottom: 12,
+                      gap: 12,
                     }}
                   >
-                    <div style={{ fontSize: 36 }}>{feature.icon}</div>
-                    <div
-                      style={{
-                        fontSize: 24,
-                        fontWeight: 'bold',
-                        color: '#FFFFFF',
-                        fontFamily: fontFamilies.sans,
-                      }}
-                    >
-                      {feature.title}
+                    <div style={{ fontSize: 32 }}>{feature.icon}</div>
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 20,
+                          fontWeight: 'bold',
+                          color: '#FFFFFF',
+                          fontFamily: fontFamilies.sans,
+                          marginBottom: 4,
+                        }}
+                      >
+                        {feature.title}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 15,
+                          color: '#FFFFFF',
+                          fontFamily: fontFamilies.sans,
+                          opacity: 0.8,
+                        }}
+                      >
+                        {feature.desc}
+                      </div>
                     </div>
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 18,
-                      color: '#FFFFFF',
-                      fontFamily: fontFamilies.sans,
-                      opacity: 0.9,
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {feature.desc}
                   </div>
                 </div>
               );
             })}
 
-            {/* Quality Tiers Box */}
+            {/* Quality Tiers Box - compact to fit */}
             {frame >= 480 && (
               <div
                 style={{
                   backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                  padding: '25px',
-                  borderRadius: 16,
+                  padding: '18px 24px',
+                  borderRadius: 12,
                   border: `2px solid ${colors.aiml.from}40`,
                   opacity: interpolate(frame, [480, 510], [0, 1], {
                     extrapolateRight: 'clamp',
                   }),
+                  marginTop: 10,
                 }}
               >
                 <div
                   style={{
-                    fontSize: 20,
+                    fontSize: 18,
                     fontWeight: 'bold',
                     color: '#FFFFFF',
                     fontFamily: fontFamilies.sans,
-                    marginBottom: 12,
+                    marginBottom: 10,
                   }}
                 >
                   Quality Tiers
                 </div>
                 <div
                   style={{
-                    fontSize: 16,
+                    fontSize: 14,
                     fontFamily: fontFamilies.mono,
                     color: '#A78BFA',
-                    lineHeight: 1.8,
+                    lineHeight: 1.6,
                   }}
                 >
                   <div>Tier 1: ONNX (80-150ms) → $0</div>

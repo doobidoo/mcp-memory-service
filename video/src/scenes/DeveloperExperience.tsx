@@ -296,7 +296,7 @@ export const DeveloperExperience: React.FC = () => {
                     http://localhost:8000/api/memories
                   </div>
                   <div style={{ color: '#3B82F6' }}>-H "Content-Type: application/json"</div>
-                  <div style={{ color: '#94A3B8' }}>-d '{"{'}"content": "...", "tags": [...]{'}'}'</div>
+                  <div style={{ color: '#94A3B8' }}>-d '&#123;"content": "...", "tags": [...]&#125;'</div>
                 </div>
               </div>
             )}
