@@ -32,7 +32,7 @@ export const Outro: React.FC = () => {
 
   // Badges
   const badges = [
-    { icon: '⭐', text: 'GitHub Stars', value: '500+' },
+    { icon: '⭐', text: 'GitHub Stars', value: '1200+' },
     { icon: '✅', text: 'Tests', value: projectData.testCount },
     { icon: '🚀', text: 'Version', value: `v${projectData.version}` },
     { icon: '💾', text: 'Storage', value: 'Hybrid' },
