@@ -20,7 +20,7 @@ export const ArchitectureTour: React.FC = () => {
   const layers = [
     {
       title: 'MCP Server Layer',
-      items: ['35 Tools', 'Global Cache', 'Client Detection'],
+      items: ['12 Tools', 'Global Cache', 'Client Detection'],
       color: '#3B82F6',
       delay: 60,
     },

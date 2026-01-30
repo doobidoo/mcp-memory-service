@@ -104,9 +104,9 @@ export const VectorSpace3D: React.FC<VectorSpace3DProps> = ({ frame }) => {
     // Brighter, more contrasting colors
     const colors = ['#A78BFA', '#F472B6', '#60A5FA'];
     const clusterCenters = [
-      [-7, 2, 1],
-      [0, -2, -1],
-      [7, 1, 2],
+      [-6, 0, 1],   // links
+      [1, -3, -1],  // mitte: nach rechts, nach unten
+      [7, -1, 2],   // rechts: passt in Box
     ];
 
     for (let i = 0; i < count; i++) {
