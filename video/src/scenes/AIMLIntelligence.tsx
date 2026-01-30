@@ -77,7 +77,7 @@ export const AIMLIntelligence: React.FC = () => {
           AI/ML Intelligence
         </h1>
 
-        {/* 2-Column Layout - FIXED: explicit height */}
+        {/* 2-Column Layout - VectorSpace dominant */}
         <div
           style={{
             display: 'grid',
@@ -151,14 +151,13 @@ export const AIMLIntelligence: React.FC = () => {
             )}
           </div>
 
-          {/* RIGHT: Features - compact to fit quality tiers */}
+          {/* RIGHT: Features - better vertical spacing */}
           <div
             style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: 20,
-              justifyContent: 'flex-start',
-              alignSelf: 'stretch',
+              gap: 28,
+              justifyContent: 'center',
             }}
           >
             {features.map((feature, i) => {
@@ -222,7 +221,7 @@ export const AIMLIntelligence: React.FC = () => {
               );
             })}
 
-            {/* Quality Tiers Box - compact to fit */}
+            {/* Quality Tiers Box - more breathing room */}
             {frame >= 480 && (
               <div
                 style={{
@@ -233,7 +232,6 @@ export const AIMLIntelligence: React.FC = () => {
                   opacity: interpolate(frame, [480, 510], [0, 1], {
                     extrapolateRight: 'clamp',
                   }),
-                  marginTop: 10,
                 }}
               >
                 <div

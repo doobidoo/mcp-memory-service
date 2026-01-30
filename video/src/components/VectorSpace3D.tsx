@@ -104,9 +104,9 @@ export const VectorSpace3D: React.FC<VectorSpace3DProps> = ({ frame }) => {
     // Brighter, more contrasting colors
     const colors = ['#A78BFA', '#F472B6', '#60A5FA'];
     const clusterCenters = [
-      [-10, 4, 3],
-      [0, -5, -3],
-      [10, 3, 4],
+      [-7, 2, 1],
+      [0, -2, -1],
+      [7, 1, 2],
     ];
 
     for (let i = 0; i < count; i++) {
@@ -129,7 +129,7 @@ export const VectorSpace3D: React.FC<VectorSpace3DProps> = ({ frame }) => {
   }, []);
 
   return (
-    <Canvas camera={{ position: [0, 0, 28], fov: 55 }}>
+    <Canvas camera={{ position: [0, 0, 26], fov: 50 }}>
       {/* Brighter ambient light for better visibility */}
       <ambientLight intensity={0.6} />
       <pointLight position={[10, 10, 10]} intensity={1.2} color="#A78BFA" />
