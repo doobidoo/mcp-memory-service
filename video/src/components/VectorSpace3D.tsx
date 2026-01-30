@@ -19,22 +19,9 @@ interface VectorSpace3DProps {
 }
 
 const VectorNode: React.FC<{ node: VectorNode; time: number }> = ({ node, time }) => {
-  const meshRef = useRef<THREE.Mesh>(null);
-
-  useFrame(() => {
-    if (!meshRef.current) return;
-
-    // Very gentle floating - much slower
-    const offset = time + node.position[0];
-    meshRef.current.position.y = node.position[1] + Math.sin(offset * 0.05) * 0.3;
-
-    // Very subtle pulse - much slower
-    const pulse = 1 + Math.sin(offset * 0.3) * 0.05;
-    meshRef.current.scale.setScalar(pulse);
-  });
-
+  // Statische Nodes - keine Animation mehr
   return (
-    <mesh ref={meshRef} position={node.position}>
+    <mesh position={node.position}>
       <sphereGeometry args={[node.size, 24, 24]} />
       <meshStandardMaterial
         color={node.color}
@@ -78,13 +65,12 @@ const Connections: React.FC<{ nodes: VectorNode[]; time: number }> = ({ nodes, t
           new THREE.Vector3(...n2.position),
         ];
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const opacity = 0.4 + Math.sin(time * 0.3 + i * 0.2) * 0.1;
 
         return (
           <line key={i} geometry={geometry}>
             <lineBasicMaterial
               color={n1.color}
-              opacity={opacity}
+              opacity={0.4}
               transparent
               linewidth={1.5}
             />
@@ -136,11 +122,14 @@ export const VectorSpace3D: React.FC<VectorSpace3DProps> = ({ frame }) => {
       <pointLight position={[-10, -10, -10]} intensity={1.0} color="#F472B6" />
       <pointLight position={[0, 10, -10]} intensity={0.8} color="#60A5FA" />
 
-      {nodes.map((node, i) => (
-        <VectorNode key={i} node={node} time={time} />
-      ))}
+      {/* Sanfte Kamera-Rotation für subtile Bewegung */}
+      <group rotation={[0, time * 0.05, 0]}>
+        {nodes.map((node, i) => (
+          <VectorNode key={i} node={node} time={time} />
+        ))}
 
-      <Connections nodes={nodes} time={time} />
+        <Connections nodes={nodes} time={time} />
+      </group>
     </Canvas>
   );
 };
