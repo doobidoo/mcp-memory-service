@@ -2,6 +2,7 @@ import { Sequence } from 'remotion';
 import { HeroIntro } from './scenes/HeroIntro';
 import { PerformanceSpotlight } from './scenes/PerformanceSpotlight';
 import { ArchitectureTour } from './scenes/ArchitectureTour';
+import { AIMLIntelligence } from './scenes/AIMLIntelligence';
 import { SceneTransition } from './components/SceneTransition';
 
 /**
@@ -11,7 +12,7 @@ import { SceneTransition } from './components/SceneTransition';
  * - 0-450 frames (0-15s): HeroIntro
  * - 450-1500 frames (15-50s): PerformanceSpotlight
  * - 1500-2700 frames (50-90s): ArchitectureTour
- * - 2700-4050 frames (90-135s): AIMLIntelligence (TODO)
+ * - 2700-4050 frames (90-135s): AIMLIntelligence
  * - 4050-4950 frames (135-165s): DeveloperExperience (TODO)
  * - 4950-5400 frames (165-180s): Outro (TODO)
  *
@@ -40,6 +41,13 @@ export const Video: React.FC = () => {
       <Sequence from={1500} durationInFrames={1200}>
         <SceneTransition type="flip" direction="left">
           <ArchitectureTour />
+        </SceneTransition>
+      </Sequence>
+
+      {/* Scene 4: AI/ML Intelligence (90-135s) */}
+      <Sequence from={2700} durationInFrames={1350}>
+        <SceneTransition type="flip" direction="left">
+          <AIMLIntelligence />
         </SceneTransition>
       </Sequence>
 
