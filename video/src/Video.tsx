@@ -3,55 +3,70 @@ import { HeroIntro } from './scenes/HeroIntro';
 import { PerformanceSpotlight } from './scenes/PerformanceSpotlight';
 import { ArchitectureTour } from './scenes/ArchitectureTour';
 import { AIMLIntelligence } from './scenes/AIMLIntelligence';
+import { DeveloperExperience } from './scenes/DeveloperExperience';
+import { Outro } from './scenes/Outro';
 import { SceneTransition } from './components/SceneTransition';
 
 /**
  * Main video composition for MCP Memory Service Technical Showcase
  *
- * Timeline:
- * - 0-450 frames (0-15s): HeroIntro
- * - 450-1500 frames (15-50s): PerformanceSpotlight
- * - 1500-2700 frames (50-90s): ArchitectureTour
- * - 2700-4050 frames (90-135s): AIMLIntelligence
- * - 4050-4950 frames (135-165s): DeveloperExperience (TODO)
- * - 4950-5400 frames (165-180s): Outro (TODO)
+ * Complete 2-minute technical showcase with 6 scenes (faster pace):
+ * - HeroIntro: Brain icon + 3D particles (0-10s)
+ * - Performance: Speedometer, metrics, benchmarks (10-30s)
+ * - Architecture: Layered diagram, code, patterns (30-55s)
+ * - AI/ML: Vector space, features, quality tiers (55-80s)
+ * - Developer Experience: Code examples, dashboard (80-105s)
+ * - Outro: GitHub link, badges, tagline (105-120s)
  *
- * Transitions:
- * - 30 frame (1s) transitions between scenes
- * - 3D flip effect for professional look
+ * Professional 3D flip transitions throughout
  */
 export const Video: React.FC = () => {
+  // Transition duration: 30 frames = 1 second overlap
+  const transitionDuration = 30;
+
   return (
     <>
-      {/* Scene 1: Hero Intro (0-15s) */}
-      <Sequence from={0} durationInFrames={450}>
+      {/* Scene 1: Hero Intro (0-10s) */}
+      <Sequence from={0} durationInFrames={300 + transitionDuration}>
         <SceneTransition type="fade">
           <HeroIntro />
         </SceneTransition>
       </Sequence>
 
-      {/* Scene 2: Performance Spotlight (15-50s) */}
-      <Sequence from={450} durationInFrames={1050}>
+      {/* Scene 2: Performance Spotlight (10-30s) */}
+      <Sequence from={300 - transitionDuration} durationInFrames={600 + transitionDuration * 2}>
         <SceneTransition type="flip" direction="left">
           <PerformanceSpotlight />
         </SceneTransition>
       </Sequence>
 
-      {/* Scene 3: Architecture Tour (50-90s) */}
-      <Sequence from={1500} durationInFrames={1200}>
+      {/* Scene 3: Architecture Tour (30-55s) */}
+      <Sequence from={900 - transitionDuration} durationInFrames={750 + transitionDuration * 2}>
         <SceneTransition type="flip" direction="left">
           <ArchitectureTour />
         </SceneTransition>
       </Sequence>
 
-      {/* Scene 4: AI/ML Intelligence (90-135s) */}
-      <Sequence from={2700} durationInFrames={1350}>
+      {/* Scene 4: AI/ML Intelligence (55-80s) */}
+      <Sequence from={1650 - transitionDuration} durationInFrames={750 + transitionDuration * 2}>
         <SceneTransition type="flip" direction="left">
           <AIMLIntelligence />
         </SceneTransition>
       </Sequence>
 
-      {/* TODO: Add remaining scenes */}
+      {/* Scene 5: Developer Experience (80-105s) */}
+      <Sequence from={2400 - transitionDuration} durationInFrames={750 + transitionDuration * 2}>
+        <SceneTransition type="flip" direction="left">
+          <DeveloperExperience />
+        </SceneTransition>
+      </Sequence>
+
+      {/* Scene 6: Outro (105-120s) */}
+      <Sequence from={3150 - transitionDuration} durationInFrames={450 + transitionDuration}>
+        <SceneTransition type="fade">
+          <Outro />
+        </SceneTransition>
+      </Sequence>
     </>
   );
 };

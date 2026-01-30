@@ -11,7 +11,7 @@ export const RemotionRoot: React.FC = () => {
       <Composition
         id="MCPMemoryShowcase"
         component={Video}
-        durationInFrames={5400} // 180 seconds at 30fps
+        durationInFrames={3600} // 120 seconds at 30fps (was 180s)
         fps={30}
         width={1920}
         height={1080}

@@ -39,9 +39,9 @@ const VectorNode: React.FC<{ node: VectorNode; time: number }> = ({ node, time }
       <meshStandardMaterial
         color={node.color}
         emissive={node.color}
-        emissiveIntensity={0.8}
-        metalness={0.5}
-        roughness={0.3}
+        emissiveIntensity={1.2}
+        metalness={0.6}
+        roughness={0.2}
       />
     </mesh>
   );
@@ -50,7 +50,7 @@ const VectorNode: React.FC<{ node: VectorNode; time: number }> = ({ node, time }
 const Connections: React.FC<{ nodes: VectorNode[]; time: number }> = ({ nodes, time }) => {
   const connections = useMemo(() => {
     const lines: [VectorNode, VectorNode][] = [];
-    const maxDistance = 6;
+    const maxDistance = 10; // Increased to match larger clusters (was 6)
 
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
@@ -99,13 +99,14 @@ export const VectorSpace3D: React.FC<VectorSpace3DProps> = ({ frame }) => {
   const time = frame / 30;
 
   const nodes = useMemo<VectorNode[]>(() => {
-    const count = 30;
+    const count = 45; // More nodes
     const nodes: VectorNode[] = [];
-    const colors = ['#8B5CF6', '#EC4899', '#3B82F6'];
+    // Brighter, more contrasting colors
+    const colors = ['#A78BFA', '#F472B6', '#60A5FA'];
     const clusterCenters = [
-      [-8, 3, 2],
-      [0, -4, -2],
-      [8, 2, 3],
+      [-10, 4, 3],
+      [0, -5, -3],
+      [10, 3, 4],
     ];
 
     for (let i = 0; i < count; i++) {
@@ -114,12 +115,12 @@ export const VectorSpace3D: React.FC<VectorSpace3DProps> = ({ frame }) => {
 
       nodes.push({
         position: [
-          center[0] + (Math.random() - 0.5) * 4,
-          center[1] + (Math.random() - 0.5) * 4,
-          center[2] + (Math.random() - 0.5) * 4,
+          center[0] + (Math.random() - 0.5) * 8, // Larger spread (was 5)
+          center[1] + (Math.random() - 0.5) * 8,
+          center[2] + (Math.random() - 0.5) * 8,
         ],
         color: colors[cluster],
-        size: 0.2 + Math.random() * 0.15,
+        size: 0.4 + Math.random() * 0.3, // Even larger nodes (was 0.3 + 0.2)
         cluster,
       });
     }
@@ -128,11 +129,12 @@ export const VectorSpace3D: React.FC<VectorSpace3DProps> = ({ frame }) => {
   }, []);
 
   return (
-    <Canvas camera={{ position: [0, 0, 25], fov: 50 }}>
-      <ambientLight intensity={0.3} />
-      <pointLight position={[10, 10, 10]} intensity={0.8} color="#8B5CF6" />
-      <pointLight position={[-10, -10, -10]} intensity={0.6} color="#EC4899" />
-      <pointLight position={[0, 10, -10]} intensity={0.5} color="#3B82F6" />
+    <Canvas camera={{ position: [0, 0, 28], fov: 55 }}>
+      {/* Brighter ambient light for better visibility */}
+      <ambientLight intensity={0.6} />
+      <pointLight position={[10, 10, 10]} intensity={1.2} color="#A78BFA" />
+      <pointLight position={[-10, -10, -10]} intensity={1.0} color="#F472B6" />
+      <pointLight position={[0, 10, -10]} intensity={0.8} color="#60A5FA" />
 
       {nodes.map((node, i) => (
         <VectorNode key={i} node={node} time={time} />

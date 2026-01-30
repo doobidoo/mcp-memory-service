@@ -94,8 +94,14 @@ export const CountUp: React.FC<CountUpProps> = ({
         <div
           style={{
             fontSize: labelSize,
-            color: '#94A3B8',
+            color: '#FFFFFF',
             fontFamily: 'Inter',
+            fontWeight: '600',
+            textShadow: '0 2px 10px rgba(0, 0, 0, 0.9)',
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            padding: '8px 20px',
+            borderRadius: 8,
+            border: '1px solid rgba(255, 255, 255, 0.2)',
           }}
         >
           {label}

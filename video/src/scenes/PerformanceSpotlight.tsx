@@ -1,310 +1,274 @@
 /**
- * PerformanceSpotlight Scene (15-50s / 450-1500 frames)
- *
- * Timeline:
- * - 0-3s: Green gradient wash, title drop
- * - 3-10s: Speedometer animates (0 → 5ms)
- * - 10-20s: Metrics count up (534,628x, 5ms, 90%)
- * - 20-25s: Code snippet fades in
- * - 25-35s: Bar chart comparing backends
+ * PerformanceSpotlight Scene (10-30s / 300-900 frames)
+ * REDESIGNED: Clean 2-column layout with better visibility
  */
 
 import { AbsoluteFill, useCurrentFrame, interpolate, spring, useVideoConfig } from 'remotion';
 import { colors, gradient } from '../styles/colors';
 import { fontFamilies } from '../styles/fonts';
-import { Speedometer } from '../components/Speedometer';
-import { CountUp } from '../components/CountUp';
-import { CodeBlock } from '../components/CodeBlock';
 
 export const PerformanceSpotlight: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  // Title animation (0-90 frames / 0-3s)
-  const titleY = spring({
-    frame,
-    fps,
-    from: -100,
-    to: 0,
-    config: {
-      damping: 18,
-      stiffness: 90,
-    },
-  });
-
+  // Title animation
   const titleOpacity = interpolate(frame, [0, 30], [0, 1], {
     extrapolateRight: 'clamp',
   });
 
-  // Racing particles for background effect
-  const particleCount = 30;
-  const particles = Array.from({ length: particleCount }, (_, i) => ({
-    id: i,
-    y: (i / particleCount) * 1080,
-    speed: 5 + Math.random() * 10,
-    size: 2 + Math.random() * 4,
-    delay: Math.random() * 100,
-  }));
-
-  // Code snippet
-  const codeSnippet = `MCP_MEMORY_SQLITE_PRAGMAS=journal_mode=WAL,\\
-  busy_timeout=15000,cache_size=20000`;
+  // Key metrics
+  const metrics = [
+    { value: 5, unit: 'ms', label: 'Average Read Time', delay: 60 },
+    { value: 534628, unit: 'x', label: 'Global Cache Speedup', delay: 120 },
+    { value: 90, unit: '%', label: 'Token Reduction', delay: 180 },
+  ];
 
   // Backend comparison data
   const backends = [
-    { name: 'SQLite-Vec', time: 5, color: colors.performance.from },
-    { name: 'Hybrid', time: 5, color: colors.architecture.from },
-    { name: 'Cloudflare', time: 45, color: colors.aiml.from },
+    { name: 'SQLite-Vec', time: 5, color: '#10B981' },
+    { name: 'Hybrid', time: 5, color: '#3B82F6' },
+    { name: 'Cloudflare', time: 45, color: '#8B5CF6' },
   ];
 
   return (
     <AbsoluteFill
       style={{
         background: gradient(colors.performance.from, colors.performance.to),
-        justifyContent: 'center',
-        alignItems: 'center',
       }}
     >
-      {/* Racing particles background */}
-      {particles.map((particle) => {
-        const particleX = ((frame + particle.delay) * particle.speed) % 2000 - 100;
-        const particleOpacity = interpolate(
-          particleX,
-          [0, 500, 1500, 2000],
-          [0, 0.5, 0.5, 0]
-        );
-
-        return (
-          <div
-            key={particle.id}
-            style={{
-              position: 'absolute',
-              left: particleX,
-              top: particle.y,
-              width: particle.size,
-              height: particle.size,
-              borderRadius: '50%',
-              backgroundColor: '#F8FAFC',
-              opacity: particleOpacity,
-            }}
-          />
-        );
-      })}
-
-      {/* Main content */}
+      {/* Main container with proper spacing */}
       <div
         style={{
-          position: 'relative',
-          zIndex: 1,
           width: '100%',
           height: '100%',
           display: 'flex',
           flexDirection: 'column',
-          alignItems: 'center',
-          padding: '80px',
+          padding: '60px 100px',
         }}
       >
         {/* Title */}
         <h1
           style={{
             fontFamily: fontFamilies.mono,
-            fontSize: 64,
+            fontSize: 72,
             fontWeight: 'bold',
-            color: colors.textPrimary,
+            color: '#FFFFFF',
             margin: 0,
-            transform: `translateY(${titleY}px)`,
+            marginBottom: 60,
             opacity: titleOpacity,
-            textShadow: '0 0 30px rgba(16, 185, 129, 0.3)',
+            textShadow: '0 4px 20px rgba(0, 0, 0, 0.5)',
           }}
         >
           Performance
         </h1>
 
-        {/* Content grid */}
+        {/* 2-Column Layout */}
         <div
           style={{
-            display: 'flex',
-            width: '100%',
-            maxWidth: 1600,
-            marginTop: 60,
-            gap: 60,
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 80,
+            flex: 1,
           }}
         >
-          {/* Left: Speedometer */}
+          {/* LEFT COLUMN: Key Metrics */}
           <div
             style={{
-              flex: 1,
               display: 'flex',
               flexDirection: 'column',
-              alignItems: 'center',
+              gap: 50,
               justifyContent: 'center',
             }}
           >
-            {frame >= 90 && (
-              <Speedometer
-                maxValue={100}
-                currentValue={5}
-                label="Average Read Time"
-                color={colors.performance.from}
-                unit="ms"
-                startFrame={90}
-              />
-            )}
-          </div>
-
-          {/* Right: Metrics */}
-          <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 40,
-              justifyContent: 'center',
-            }}
-          >
-            {/* Metric 1: Cache boost */}
-            {frame >= 300 && (
-              <CountUp
-                to={534628}
-                suffix="x"
-                fontSize={72}
-                color={colors.textPrimary}
-                glowColor={colors.performance.from}
-                delay={300}
-                label="Faster with Global Caching"
-                labelSize={18}
-              />
-            )}
-
-            {/* Metric 2: Token reduction */}
-            {frame >= 420 && (
-              <CountUp
-                to={90}
-                suffix="%"
-                fontSize={56}
-                color={colors.textPrimary}
-                glowColor={colors.performance.from}
-                delay={420}
-                label="Token Reduction (HTTP API vs MCP)"
-                labelSize={18}
-              />
-            )}
-          </div>
-        </div>
-
-        {/* Code snippet */}
-        {frame >= 600 && (
-          <div style={{ marginTop: 40, width: '100%', maxWidth: 900 }}>
-            <CodeBlock
-              code={codeSnippet}
-              language="bash"
-              startFrame={600}
-              animationDuration={90}
-              fontSize={18}
-            />
-          </div>
-        )}
-
-        {/* Backend comparison chart */}
-        {frame >= 750 && (
-          <div
-            style={{
-              marginTop: 50,
-              width: '100%',
-              maxWidth: 800,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 20,
-            }}
-          >
-            <div
-              style={{
-                fontSize: 24,
-                fontFamily: fontFamilies.sans,
-                color: colors.textSecondary,
-                textAlign: 'center',
-              }}
-            >
-              Backend Response Times
-            </div>
-            {backends.map((backend, i) => {
-              const barFrame = Math.max(0, frame - (750 + i * 20));
-              const barProgress = spring({
-                frame: barFrame,
+            {metrics.map((metric, i) => {
+              const metricFrame = Math.max(0, frame - metric.delay);
+              const progress = spring({
+                frame: metricFrame,
                 fps,
-                config: {
-                  damping: 20,
-                  stiffness: 80,
-                },
+                config: { damping: 20, stiffness: 80 },
               });
-
-              const barWidth = interpolate(
-                barProgress,
-                [0, 1],
-                [0, (backend.time / 50) * 600]
-              );
+              const value = interpolate(progress, [0, 1], [0, metric.value]);
+              const formatted = Math.floor(value).toLocaleString();
 
               return (
                 <div
-                  key={backend.name}
+                  key={i}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 20,
+                    opacity: interpolate(metricFrame, [0, 20], [0, 1], {
+                      extrapolateRight: 'clamp',
+                    }),
                   }}
                 >
                   <div
                     style={{
-                      width: 140,
-                      fontSize: 18,
-                      fontFamily: fontFamilies.sans,
-                      color: colors.textPrimary,
-                      textAlign: 'right',
+                      fontSize: i === 0 ? 120 : 80,
+                      fontWeight: 'bold',
+                      color: '#FFFFFF',
+                      fontFamily: fontFamilies.mono,
+                      textShadow: '0 0 40px rgba(16, 185, 129, 0.6)',
+                      marginBottom: 10,
                     }}
                   >
-                    {backend.name}
+                    {formatted}
+                    <span style={{ fontSize: i === 0 ? 60 : 40 }}>{metric.unit}</span>
                   </div>
                   <div
                     style={{
-                      flex: 1,
-                      height: 40,
-                      backgroundColor: '#1E293B',
-                      borderRadius: 8,
-                      position: 'relative',
-                      overflow: 'hidden',
+                      fontSize: 24,
+                      color: '#FFFFFF',
+                      fontFamily: fontFamilies.sans,
+                      fontWeight: '600',
+                      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                      padding: '12px 24px',
+                      borderRadius: 12,
+                      display: 'inline-block',
+                      border: '2px solid rgba(255, 255, 255, 0.2)',
                     }}
                   >
-                    <div
-                      style={{
-                        width: barWidth,
-                        height: '100%',
-                        backgroundColor: backend.color,
-                        borderRadius: 8,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'flex-end',
-                        paddingRight: 12,
-                      }}
-                    >
-                      {barProgress > 0.5 && (
-                        <span
-                          style={{
-                            fontSize: 16,
-                            fontWeight: 'bold',
-                            color: colors.textPrimary,
-                            fontFamily: fontFamilies.sans,
-                          }}
-                        >
-                          {backend.time}ms
-                        </span>
-                      )}
-                    </div>
+                    {metric.label}
                   </div>
                 </div>
               );
             })}
           </div>
-        )}
+
+          {/* RIGHT COLUMN: Backend Comparison */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              gap: 40,
+            }}
+          >
+            {/* Config snippet at top */}
+            {frame >= 240 && (
+              <div
+                style={{
+                  backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                  padding: '30px',
+                  borderRadius: 16,
+                  border: '2px solid rgba(16, 185, 129, 0.3)',
+                  opacity: interpolate(frame, [240, 270], [0, 1], {
+                    extrapolateRight: 'clamp',
+                  }),
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 18,
+                    fontFamily: fontFamilies.mono,
+                    color: '#10B981',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  MCP_MEMORY_SQLITE_PRAGMAS=
+                  <br />
+                  journal_mode=WAL,busy_timeout=15000
+                </div>
+              </div>
+            )}
+
+            {/* Backend chart */}
+            {frame >= 300 && (
+              <div
+                style={{
+                  backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                  padding: '40px',
+                  borderRadius: 16,
+                  border: '2px solid rgba(16, 185, 129, 0.3)',
+                  opacity: interpolate(frame, [300, 330], [0, 1], {
+                    extrapolateRight: 'clamp',
+                  }),
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 32,
+                    fontFamily: fontFamilies.sans,
+                    color: '#FFFFFF',
+                    fontWeight: 'bold',
+                    marginBottom: 30,
+                    textShadow: '0 2px 10px rgba(0, 0, 0, 0.8)',
+                  }}
+                >
+                  Backend Response Times
+                </div>
+                {backends.map((backend, i) => {
+                  const barFrame = Math.max(0, frame - (330 + i * 15));
+                  const barProgress = spring({
+                    frame: barFrame,
+                    fps,
+                    config: { damping: 20, stiffness: 80 },
+                  });
+                  const barWidth = interpolate(barProgress, [0, 1], [0, (backend.time / 50) * 100]);
+
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 20,
+                        marginBottom: 20,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 150,
+                          fontSize: 22,
+                          fontFamily: fontFamilies.sans,
+                          color: '#FFFFFF',
+                          textAlign: 'right',
+                          fontWeight: 'bold',
+                        }}
+                      >
+                        {backend.name}
+                      </div>
+                      <div
+                        style={{
+                          flex: 1,
+                          height: 50,
+                          backgroundColor: '#0F172A',
+                          borderRadius: 10,
+                          overflow: 'hidden',
+                          position: 'relative',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: `${barWidth}%`,
+                            height: '100%',
+                            backgroundColor: backend.color,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-end',
+                            paddingRight: 16,
+                            boxShadow: `0 0 20px ${backend.color}80`,
+                          }}
+                        >
+                          {barProgress > 0.5 && (
+                            <span
+                              style={{
+                                fontSize: 22,
+                                fontWeight: 'bold',
+                                color: '#FFFFFF',
+                                fontFamily: fontFamilies.mono,
+                                textShadow: '0 2px 8px rgba(0, 0, 0, 1)',
+                              }}
+                            >
+                              {backend.time}ms
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </AbsoluteFill>
   );
