@@ -1,6 +1,6 @@
 /**
  * Memory Service Logo
- * Uses the brain icon with animations
+ * Uses the brain icon with subtle animations
  */
 
 import { interpolate, spring, useCurrentFrame, useVideoConfig, Img, staticFile } from 'remotion';
@@ -24,16 +24,13 @@ export const MemoryLogo: React.FC<MemoryLogoProps> = ({ size = 140, opacity = 1 
     },
   });
 
-  const scale = interpolate(breathe, [0, 1], [0.96, 1.04]);
+  const scale = interpolate(breathe, [0, 1], [0.98, 1.02]);
 
-  // Rotating glow effect
-  const glowRotation = (frame / 60) * 360; // Full rotation every 2 seconds
-
-  // Pulsing glow intensity
+  // Subtle pulsing glow intensity
   const glowIntensity = interpolate(
-    Math.sin(frame / 20),
+    Math.sin(frame / 25),
     [-1, 1],
-    [30, 60]
+    [20, 35]
   );
 
   return (
@@ -45,16 +42,14 @@ export const MemoryLogo: React.FC<MemoryLogoProps> = ({ size = 140, opacity = 1 
         opacity,
       }}
     >
-      {/* Rotating glow rings */}
+      {/* Subtle purple glow */}
       <div
         style={{
           position: 'absolute',
-          inset: -20,
+          inset: -15,
           borderRadius: '50%',
-          background: `radial-gradient(circle, rgba(139, 92, 246, 0.3) 0%, transparent 70%)`,
+          background: `radial-gradient(circle, rgba(139, 92, 246, 0.2) 0%, transparent 70%)`,
           filter: `blur(${glowIntensity}px)`,
-          transform: `rotate(${glowRotation}deg)`,
-          animation: 'pulse 2s ease-in-out infinite',
         }}
       />
 
@@ -65,20 +60,8 @@ export const MemoryLogo: React.FC<MemoryLogoProps> = ({ size = 140, opacity = 1 
           width: size,
           height: size,
           transform: `scale(${scale})`,
-          filter: `drop-shadow(0 0 ${glowIntensity * 0.5}px rgba(139, 92, 246, 0.8))`,
+          filter: `drop-shadow(0 0 ${glowIntensity * 0.4}px rgba(139, 92, 246, 0.6))`,
           borderRadius: '20%',
-        }}
-      />
-
-      {/* Additional subtle outer glow */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: -30,
-          borderRadius: '50%',
-          background: `radial-gradient(circle, rgba(236, 72, 153, 0.2) 0%, transparent 60%)`,
-          filter: 'blur(40px)',
-          animation: 'pulse 3s ease-in-out infinite',
         }}
       />
     </div>

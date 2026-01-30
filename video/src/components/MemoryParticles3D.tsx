@@ -1,6 +1,5 @@
 import { useMemo, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 
 interface Particle {
@@ -8,7 +7,7 @@ interface Particle {
   velocity: [number, number, number];
   color: string;
   size: number;
-  phase: number; // For individual animation offset
+  phase: number;
 }
 
 interface MemoryParticles3DProps {
@@ -49,9 +48,9 @@ const AnimatedParticle: React.FC<{
     const pulse = Math.sin(offset * 1.5) * 0.3 + 1.0;
     meshRef.current.scale.setScalar(pulse);
 
-    // Update point light if it exists
+    // Update point light
     if (lightRef.current) {
-      lightRef.current.intensity = pulse * 2;
+      lightRef.current.intensity = pulse * 1.5;
     }
   });
 
@@ -62,20 +61,19 @@ const AnimatedParticle: React.FC<{
         <meshStandardMaterial
           color={particle.color}
           emissive={particle.color}
-          emissiveIntensity={1.2}
-          metalness={0.8}
-          roughness={0.2}
-          toneMapped={false}
+          emissiveIntensity={1.5}
+          metalness={0.9}
+          roughness={0.1}
         />
       </mesh>
 
-      {/* Point light for each particle for dramatic glow */}
+      {/* Point light for glow effect */}
       <pointLight
         ref={lightRef}
         position={particle.position}
         color={particle.color}
-        intensity={2}
-        distance={8}
+        intensity={1.5}
+        distance={6}
         decay={2}
       />
     </group>
@@ -83,7 +81,7 @@ const AnimatedParticle: React.FC<{
 };
 
 /**
- * Enhanced connection lines with gradient and animation
+ * Enhanced connection lines
  */
 const Connections: React.FC<{
   particles: Particle[];
@@ -115,9 +113,8 @@ const Connections: React.FC<{
   return (
     <>
       {connections.map(([p1, p2, distance], i) => {
-        // Dramatic opacity with pulsing
-        const baseOpacity = THREE.MathUtils.lerp(0.8, 0.2, distance / 8);
-        const pulse = Math.sin(time * 2 + i * 0.3) * 0.4 + 0.6;
+        const baseOpacity = THREE.MathUtils.lerp(0.7, 0.15, distance / 8);
+        const pulse = Math.sin(time * 2 + i * 0.3) * 0.3 + 0.7;
         const finalOpacity = baseOpacity * pulse;
 
         const points = [
@@ -126,7 +123,6 @@ const Connections: React.FC<{
         ];
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
 
-        // Alternate colors for visual interest
         const color = i % 3 === 0 ? '#8B5CF6' : i % 3 === 1 ? '#EC4899' : '#3B82F6';
 
         return (
@@ -135,7 +131,7 @@ const Connections: React.FC<{
               color={color}
               opacity={finalOpacity}
               transparent
-              linewidth={3}
+              linewidth={2}
             />
           </line>
         );
@@ -145,11 +141,10 @@ const Connections: React.FC<{
 };
 
 /**
- * Camera animation for dynamic movement
+ * Camera animation
  */
 const CameraRig: React.FC<{ time: number }> = ({ time }) => {
   useFrame(({ camera }) => {
-    // Slow orbital camera movement
     const radius = 30;
     const speed = 0.1;
     camera.position.x = Math.sin(time * speed) * radius * 0.3;
@@ -162,34 +157,28 @@ const CameraRig: React.FC<{ time: number }> = ({ time }) => {
 };
 
 /**
- * Enhanced 3D particle system with bloom and dramatic effects
+ * Enhanced 3D particle system with dramatic lighting
  */
 export const MemoryParticles3D: React.FC<MemoryParticles3DProps> = ({ frame }) => {
-  const time = frame / 30; // Convert to seconds
+  const time = frame / 30;
 
-  // Generate particles with better distribution and variety
   const particles = useMemo<Particle[]>(() => {
-    const count = 50; // Increased for more density
+    const count = 50;
     const particles: Particle[] = [];
     const colors = ['#8B5CF6', '#EC4899', '#3B82F6', '#10B981', '#F59E0B'];
 
-    // Create 5 clusters
     const clusterCenters = [
       [-10, 6, 4],
       [10, -5, 3],
       [-6, -8, -5],
       [8, 7, -4],
-      [0, 0, 0], // Center cluster
+      [0, 0, 0],
     ];
 
     for (let i = 0; i < count; i++) {
       const clusterIndex = Math.floor(i / (count / 5));
       const center = clusterCenters[clusterIndex];
-
-      // Varied sizes for depth
       const size = 0.15 + Math.random() * 0.25;
-
-      // Random spread with some particles closer to center
       const spread = 4 + Math.random() * 3;
 
       particles.push({
@@ -205,7 +194,7 @@ export const MemoryParticles3D: React.FC<MemoryParticles3DProps> = ({ frame }) =
         ],
         color: colors[clusterIndex],
         size,
-        phase: Math.random() * Math.PI * 2, // Random phase offset
+        phase: Math.random() * Math.PI * 2,
       });
     }
 
@@ -217,33 +206,19 @@ export const MemoryParticles3D: React.FC<MemoryParticles3DProps> = ({ frame }) =
       camera={{ position: [0, 0, 30], fov: 60 }}
       gl={{ antialias: true, alpha: true }}
     >
-      {/* Dramatic lighting setup */}
       <ambientLight intensity={0.2} />
-      <pointLight position={[20, 20, 20]} intensity={1.5} color="#8B5CF6" />
-      <pointLight position={[-20, -20, -20]} intensity={1.2} color="#EC4899" />
-      <pointLight position={[0, 20, -20]} intensity={1.0} color="#3B82F6" />
-      <pointLight position={[-15, 0, 15]} intensity={0.8} color="#10B981" />
+      <pointLight position={[20, 20, 20]} intensity={1.2} color="#8B5CF6" />
+      <pointLight position={[-20, -20, -20]} intensity={1.0} color="#EC4899" />
+      <pointLight position={[0, 20, -20]} intensity={0.8} color="#3B82F6" />
+      <pointLight position={[-15, 0, 15]} intensity={0.6} color="#10B981" />
 
-      {/* Animated camera */}
       <CameraRig time={time} />
 
-      {/* Particles with lights */}
       {particles.map((particle, i) => (
         <AnimatedParticle key={i} particle={particle} time={time} />
       ))}
 
-      {/* Connection lines */}
       <Connections particles={particles} time={time} />
-
-      {/* Post-processing for bloom/glow effect */}
-      <EffectComposer>
-        <Bloom
-          intensity={1.5}
-          luminanceThreshold={0.2}
-          luminanceSmoothing={0.9}
-          mipmapBlur
-        />
-      </EffectComposer>
     </Canvas>
   );
 };
