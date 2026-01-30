@@ -1,103 +1,86 @@
 /**
  * Memory Service Logo
- * SVG icon representing memory/neural connections
+ * Uses the brain icon with animations
  */
 
-import { interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { interpolate, spring, useCurrentFrame, useVideoConfig, Img, staticFile } from 'remotion';
 
 interface MemoryLogoProps {
   size?: number;
   opacity?: number;
 }
 
-export const MemoryLogo: React.FC<MemoryLogoProps> = ({ size = 120, opacity = 1 }) => {
+export const MemoryLogo: React.FC<MemoryLogoProps> = ({ size = 140, opacity = 1 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  // Pulse animation
-  const pulse = spring({
+  // Gentle breathing scale animation
+  const breathe = spring({
     frame,
     fps,
     config: {
       damping: 200,
-      stiffness: 100,
+      stiffness: 50,
     },
   });
 
-  const scale = interpolate(pulse, [0, 1], [0.95, 1.05]);
+  const scale = interpolate(breathe, [0, 1], [0.96, 1.04]);
 
-  // Glow intensity
+  // Rotating glow effect
+  const glowRotation = (frame / 60) * 360; // Full rotation every 2 seconds
+
+  // Pulsing glow intensity
   const glowIntensity = interpolate(
-    Math.sin(frame / 15),
+    Math.sin(frame / 20),
     [-1, 1],
-    [0.3, 0.7]
+    [30, 60]
   );
 
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 120 120"
+    <div
       style={{
+        position: 'relative',
+        width: size,
+        height: size,
         opacity,
-        transform: `scale(${scale})`,
-        filter: `drop-shadow(0 0 ${30 * glowIntensity}px rgba(139, 92, 246, ${glowIntensity}))`,
       }}
     >
-      <defs>
-        <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#8B5CF6" />
-          <stop offset="50%" stopColor="#EC4899" />
-          <stop offset="100%" stopColor="#3B82F6" />
-        </linearGradient>
-      </defs>
-
-      {/* Outer circle */}
-      <circle
-        cx="60"
-        cy="60"
-        r="55"
-        fill="none"
-        stroke="url(#logoGradient)"
-        strokeWidth="3"
-        opacity="0.3"
+      {/* Rotating glow rings */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: -20,
+          borderRadius: '50%',
+          background: `radial-gradient(circle, rgba(139, 92, 246, 0.3) 0%, transparent 70%)`,
+          filter: `blur(${glowIntensity}px)`,
+          transform: `rotate(${glowRotation}deg)`,
+          animation: 'pulse 2s ease-in-out infinite',
+        }}
       />
 
-      {/* Memory nodes (small circles) */}
-      <circle cx="60" cy="30" r="6" fill="url(#logoGradient)" />
-      <circle cx="35" cy="45" r="5" fill="url(#logoGradient)" />
-      <circle cx="85" cy="45" r="5" fill="url(#logoGradient)" />
-      <circle cx="30" cy="75" r="6" fill="url(#logoGradient)" />
-      <circle cx="60" cy="70" r="7" fill="url(#logoGradient)" />
-      <circle cx="90" cy="75" r="6" fill="url(#logoGradient)" />
-      <circle cx="45" cy="90" r="5" fill="url(#logoGradient)" />
-      <circle cx="75" cy="90" r="5" fill="url(#logoGradient)" />
+      {/* Brain icon */}
+      <Img
+        src={staticFile('assets/brain-icon.png')}
+        style={{
+          width: size,
+          height: size,
+          transform: `scale(${scale})`,
+          filter: `drop-shadow(0 0 ${glowIntensity * 0.5}px rgba(139, 92, 246, 0.8))`,
+          borderRadius: '20%',
+        }}
+      />
 
-      {/* Connection lines between nodes */}
-      <line x1="60" y1="30" x2="35" y2="45" stroke="url(#logoGradient)" strokeWidth="2" opacity="0.5" />
-      <line x1="60" y1="30" x2="85" y2="45" stroke="url(#logoGradient)" strokeWidth="2" opacity="0.5" />
-      <line x1="35" y1="45" x2="30" y2="75" stroke="url(#logoGradient)" strokeWidth="2" opacity="0.5" />
-      <line x1="85" y1="45" x2="90" y2="75" stroke="url(#logoGradient)" strokeWidth="2" opacity="0.5" />
-      <line x1="60" y1="70" x2="30" y2="75" stroke="url(#logoGradient)" strokeWidth="2" opacity="0.5" />
-      <line x1="60" y1="70" x2="90" y2="75" stroke="url(#logoGradient)" strokeWidth="2" opacity="0.5" />
-      <line x1="30" y1="75" x2="45" y2="90" stroke="url(#logoGradient)" strokeWidth="2" opacity="0.5" />
-      <line x1="90" y1="75" x2="75" y2="90" stroke="url(#logoGradient)" strokeWidth="2" opacity="0.5" />
-      <line x1="60" y1="70" x2="45" y2="90" stroke="url(#logoGradient)" strokeWidth="2" opacity="0.5" />
-      <line x1="60" y1="70" x2="75" y2="90" stroke="url(#logoGradient)" strokeWidth="2" opacity="0.5" />
-
-      {/* Center 'M' for Memory */}
-      <text
-        x="60"
-        y="64"
-        fontSize="40"
-        fontWeight="bold"
-        fontFamily="JetBrains Mono, monospace"
-        fill="url(#logoGradient)"
-        textAnchor="middle"
-        dominantBaseline="middle"
-      >
-        M
-      </text>
-    </svg>
+      {/* Additional subtle outer glow */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: -30,
+          borderRadius: '50%',
+          background: `radial-gradient(circle, rgba(236, 72, 153, 0.2) 0%, transparent 60%)`,
+          filter: 'blur(40px)',
+          animation: 'pulse 3s ease-in-out infinite',
+        }}
+      />
+    </div>
   );
 };

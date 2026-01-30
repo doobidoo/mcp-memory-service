@@ -12,11 +12,12 @@
     "upgrade": "remotion upgrade"
   },
   "dependencies": {
+    "@react-three/drei": "^9.96.0",
+    "@react-three/fiber": "^8.15.16",
+    "@react-three/postprocessing": "^3.0.4",
     "@remotion/cli": "^4.0.197",
     "@remotion/layout-utils": "^4.0.197",
     "@remotion/three": "^4.0.197",
-    "@react-three/drei": "^9.96.0",
-    "@react-three/fiber": "^8.15.16",
     "prism-react-renderer": "^2.3.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
