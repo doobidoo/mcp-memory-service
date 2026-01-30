@@ -1,4 +1,4 @@
-import { Sequence } from 'remotion';
+import { Sequence, Audio, staticFile } from 'remotion';
 import { HeroIntro } from './scenes/HeroIntro';
 import { PerformanceSpotlight } from './scenes/PerformanceSpotlight';
 import { ArchitectureTour } from './scenes/ArchitectureTour';
@@ -26,6 +26,11 @@ export const Video: React.FC = () => {
 
   return (
     <>
+      {/* Background Music */}
+      <Audio
+        src={staticFile('showreel-music-promo-advertising-opener-vlog-background-intro-theme-261601.mp3')}
+        volume={0.3}
+      />
       {/* Scene 1: Hero Intro (0-10s) */}
       <Sequence from={0} durationInFrames={300 + transitionDuration}>
         <SceneTransition type="fade">
