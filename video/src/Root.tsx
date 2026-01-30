@@ -1,7 +1,11 @@
 import { Composition } from 'remotion';
 import { Video } from './Video';
+import { useLoadFonts } from './styles/fonts';
 
 export const RemotionRoot: React.FC = () => {
+  // Load fonts before rendering
+  useLoadFonts();
+
   return (
     <>
       <Composition

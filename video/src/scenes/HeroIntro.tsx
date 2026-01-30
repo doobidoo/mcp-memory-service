@@ -1,6 +1,8 @@
 import { AbsoluteFill, useCurrentFrame, interpolate, spring, useVideoConfig } from 'remotion';
 import { colors } from '../styles/colors';
+import { fontFamilies } from '../styles/fonts';
 import { MemoryParticles3D } from '../components/MemoryParticles3D';
+import { MemoryLogo } from '../components/MemoryLogo';
 
 /**
  * HeroIntro Scene (0-15s / 0-450 frames)
@@ -10,30 +12,62 @@ import { MemoryParticles3D } from '../components/MemoryParticles3D';
  * - 3-8s: Title animation: "MCP Memory Service" (word-by-word, 100ms stagger)
  * - 8-12s: Tagline: "Semantic Memory for AI Applications" with glow
  * - 12-15s: 3D particle background - glowing spheres connecting with lines
+ *
+ * Enhancements:
+ * - Professional fonts (JetBrains Mono, Inter)
+ * - SVG logo with pulse animation
+ * - Fine-tuned spring configs for smoother motion
+ * - Enhanced 3D particles (40 nodes, dynamic movement)
  */
 export const HeroIntro: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  // Logo fade-in (0-90 frames / 0-3s)
-  const logoOpacity = interpolate(frame, [0, 90], [0, 1], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
+  // Logo fade-in (0-90 frames / 0-3s) - smoother transition
+  const logoOpacity = spring({
+    frame,
+    fps,
+    from: 0,
+    to: 1,
+    config: {
+      damping: 25,
+      stiffness: 80,
+    },
+    durationInFrames: 90,
   });
 
-  // Title words with stagger
+  // Title words with stagger - improved spring config
   const titleWords = ['MCP', 'Memory', 'Service'];
 
-  // Tagline fade-in (240-300 frames / 8-10s)
-  const taglineOpacity = interpolate(frame, [240, 300], [0, 1], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
+  // Tagline fade-in (240-330 frames / 8-11s) - longer, smoother fade
+  const taglineOpacity = spring({
+    frame: Math.max(0, frame - 240),
+    fps,
+    from: 0,
+    to: 1,
+    config: {
+      damping: 30,
+      stiffness: 60,
+    },
   });
 
-  // 3D particles start at frame 360 (12s)
-  const particlesOpacity = interpolate(frame, [360, 420], [0, 1], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
+  // Tagline glow pulse
+  const glowIntensity = interpolate(
+    Math.sin(frame / 20),
+    [-1, 1],
+    [20, 40]
+  );
+
+  // 3D particles start at frame 360 (12s) - smoother fade
+  const particlesOpacity = spring({
+    frame: Math.max(0, frame - 360),
+    fps,
+    from: 0,
+    to: 0.7, // Slightly transparent so text remains visible
+    config: {
+      damping: 40,
+      stiffness: 50,
+    },
   });
 
   return (
@@ -57,63 +91,44 @@ export const HeroIntro: React.FC = () => {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: 40,
+          gap: 48,
           zIndex: 1,
         }}
       >
-        {/* Logo (placeholder - will be replaced with actual logo) */}
-        <div
-          style={{
-            opacity: logoOpacity,
-            width: 120,
-            height: 120,
-            backgroundColor: colors.aiml.from,
-            borderRadius: 24,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 64,
-            fontWeight: 'bold',
-            color: colors.textPrimary,
-            boxShadow: `0 0 60px ${colors.aiml.from}80`,
-          }}
-        >
-          M
-        </div>
+        {/* Logo */}
+        <MemoryLogo size={140} opacity={logoOpacity} />
 
         {/* Title with staggered animation */}
-        <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 28, alignItems: 'center' }}>
           {titleWords.map((word, index) => {
-            const startFrame = 90 + index * 30; // 3s start + 1s stagger per word
-            const endFrame = startFrame + 45; // 1.5s slide duration
+            const startFrame = 90 + index * 35; // 3s start + slightly longer stagger
 
-            const slideY = spring({
+            // Improved spring animation
+            const progress = spring({
               frame: Math.max(0, frame - startFrame),
               fps,
               config: {
-                damping: 15,
-                stiffness: 100,
+                damping: 18,
+                stiffness: 90,
+                overshootClamping: false, // Allow slight overshoot for bounce
               },
-              from: 50,
-              to: 0,
             });
 
-            const wordOpacity = interpolate(frame, [startFrame, endFrame], [0, 1], {
-              extrapolateLeft: 'clamp',
-              extrapolateRight: 'clamp',
-            });
+            const slideY = interpolate(progress, [0, 1], [60, 0]);
+            const wordOpacity = interpolate(progress, [0, 0.3, 1], [0, 0.8, 1]);
 
             return (
               <h1
                 key={word}
                 style={{
-                  fontFamily: 'sans-serif',
+                  fontFamily: fontFamilies.mono,
                   fontSize: 72,
                   fontWeight: 'bold',
                   color: colors.textPrimary,
                   margin: 0,
                   transform: `translateY(${slideY}px)`,
                   opacity: wordOpacity,
+                  letterSpacing: '-0.02em',
                 }}
               >
                 {word}
@@ -125,12 +140,14 @@ export const HeroIntro: React.FC = () => {
         {/* Tagline */}
         <p
           style={{
-            fontFamily: 'sans-serif',
-            fontSize: 28,
+            fontFamily: fontFamilies.sans,
+            fontSize: 32,
+            fontWeight: '400',
             color: colors.textSecondary,
             margin: 0,
             opacity: taglineOpacity,
-            textShadow: `0 0 20px ${colors.aiml.from}40`,
+            textShadow: `0 0 ${glowIntensity}px ${colors.aiml.from}60`,
+            letterSpacing: '0.02em',
           }}
         >
           Semantic Memory for AI Applications
