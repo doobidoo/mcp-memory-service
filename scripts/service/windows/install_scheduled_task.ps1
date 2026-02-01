@@ -72,8 +72,13 @@ if ($ExistingTask) {
 
 Write-Host "[INFO] Creating scheduled task..." -ForegroundColor Green
 
-# Create the action
-$Action = New-ScheduledTaskAction -Execute "powershell.exe" `
+# Create the action (use full path — Task Scheduler has minimal PATH)
+$PowerShellPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+if (-not (Test-Path $PowerShellPath)) {
+    # Fallback: resolve from current session
+    $PowerShellPath = (Get-Command powershell.exe).Source
+}
+$Action = New-ScheduledTaskAction -Execute $PowerShellPath `
     -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$WrapperScript`"" `
     -WorkingDirectory $ProjectRoot
 
