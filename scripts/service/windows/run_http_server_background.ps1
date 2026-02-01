@@ -161,8 +161,8 @@ while ($RestartCount -lt $MaxRestarts) {
                     "C:\Python3*\python.exe"
                 )
                 foreach ($Pattern in $PythonCandidates) {
-                    $Match = Get-Item $Pattern -ErrorAction SilentlyContinue | Select-Object -First 1
-                    if ($Match) { $PythonPath = $Match.FullName; break }
+                    $Matches = Get-Item $Pattern -ErrorAction SilentlyContinue
+                    if ($Matches) { $PythonPath = ($Matches | Sort-Object Name -Descending | Select-Object -First 1).FullName; break }
                 }
             }
 
