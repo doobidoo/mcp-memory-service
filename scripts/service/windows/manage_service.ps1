@@ -221,7 +221,7 @@ function Start-Server {
                 UseBasicParsing = $true
                 ErrorAction = 'SilentlyContinue'
             }
-                $Response = Invoke-WebRequest @params
+            $Response = Invoke-WebRequest @params
             if ($Response.StatusCode -eq 200) {
                 Write-Host "[SUCCESS] Server started successfully!" -ForegroundColor Green
                 Write-Host "Dashboard: http://127.0.0.1:8000/" -ForegroundColor Cyan

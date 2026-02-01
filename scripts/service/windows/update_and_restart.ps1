@@ -307,7 +307,7 @@ if ($NoRestart) {
                 TimeoutSec = 2
                 ErrorAction = 'SilentlyContinue'
             }
-                $HealthResponse = Invoke-RestMethod @params
+            $HealthResponse = Invoke-RestMethod @params
             $ServerVersion = $HealthResponse.version
 
             if ($ServerVersion -eq $NewVersion) {

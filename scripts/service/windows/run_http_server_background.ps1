@@ -67,7 +67,7 @@ function Find-Executable {
         (Join-Path $env:USERPROFILE ".local\bin\uv.exe"),
         (Join-Path $env:LOCALAPPDATA "uv\uv.exe"),
         (Join-Path $env:USERPROFILE ".cargo\bin\uv.exe"),
-        "C:\ProgramData\uv\uv.exe"
+        (Join-Path $env:ProgramData "uv\uv.exe")
     )
 
     foreach ($Path in $Candidates) {
@@ -144,9 +144,38 @@ while ($RestartCount -lt $MaxRestarts) {
             $ProcessInfo.FileName = $UvPath
             $ProcessInfo.Arguments = "run python scripts/server/run_http_server.py"
         } else {
-            # Fallback: run python directly
-            $PythonPath = (Get-Command python -ErrorAction SilentlyContinue).Source
-            if (-not $PythonPath) { $PythonPath = "python" }
+            # Fallback: run python directly (same PATH issue applies)
+            $PythonPath = $null
+
+            # Try py.exe launcher first (installed in SystemRoot, reliably on PATH)
+            $PyLauncher = Join-Path $env:SystemRoot "py.exe"
+            if (Test-Path $PyLauncher) {
+                $PythonPath = $PyLauncher
+            }
+
+            # Try common Python install locations
+            if (-not $PythonPath) {
+                $PythonCandidates = @(
+                    (Join-Path $env:LOCALAPPDATA "Programs\Python\Python3*\python.exe"),
+                    (Join-Path $env:ProgramFiles "Python3*\python.exe"),
+                    "C:\Python3*\python.exe"
+                )
+                foreach ($Pattern in $PythonCandidates) {
+                    $Match = Get-Item $Pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($Match) { $PythonPath = $Match.FullName; break }
+                }
+            }
+
+            # Last resort: PATH resolution
+            if (-not $PythonPath) {
+                $PythonPath = (Get-Command python -ErrorAction SilentlyContinue).Source
+            }
+
+            if (-not $PythonPath) {
+                Write-Log "Neither uv nor python found. Cannot start server." "ERROR"
+                throw "No Python executable found"
+            }
+
             $ProcessInfo.FileName = $PythonPath
             $ProcessInfo.Arguments = "scripts/server/run_http_server.py"
         }
