@@ -162,7 +162,7 @@ while ($RestartCount -lt $MaxRestarts) {
                 )
                 foreach ($Pattern in $PythonCandidates) {
                     $Matches = Get-Item $Pattern -ErrorAction SilentlyContinue
-                    if ($Matches) { $PythonPath = ($Matches | Sort-Object Name -Descending | Select-Object -First 1).FullName; break }
+                    if ($Matches) { $PythonPath = ($Matches | Sort-Object DirectoryName -Descending | Select-Object -First 1).FullName; break }
                 }
             }
 
