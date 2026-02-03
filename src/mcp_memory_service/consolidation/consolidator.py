@@ -32,6 +32,8 @@ from ..storage.graph import GraphStorage
 from ..config import GRAPH_STORAGE_MODE
 from .relationship_inference import RelationshipInferenceEngine
 
+logger = logging.getLogger(__name__)
+
 
 # Protocol for storage backend interface
 class StorageProtocol(Protocol):
