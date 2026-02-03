@@ -18,7 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Ensures proper error logging during memory consolidation operations
 - **Windows Task Scheduler HTTP Dashboard** (PR #402): Fixed 6 bugs preventing scheduled task from starting HTTP dashboard on Windows
   - Fixed Task Scheduler PATH issues by using full path resolution via $env:SystemRoot for powershell.exe
-  - Added robust executable discovery (Find-Executable) that probes known uv/python install locations (~\.local\bin, %LOCALAPPDATA%\uv, .cargo\bin)
+  - Added robust executable discovery (Find-Executable) that probes known uv/python install locations (`$env:USERPROFILE\.local\bin`, `$env:LOCALAPPDATA\uv`, `$env:USERPROFILE\.cargo\bin`)
   - Fixed $using:LogFile silent failure in .NET event handlers by changing to $script:LogFile for proper log capture
   - Corrected health check URLs from https:// to http:// (server defaults to HTTP)
   - Fixed display URLs in status output to show correct http:// protocol
