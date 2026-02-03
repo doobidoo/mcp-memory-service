@@ -10,6 +10,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.4.3] - 2026-02-04
+
+### Fixed
+- **Consolidation Logger** (PR #404): Fixed NameError in consolidator.py where logger.warning() was called but no module-level logger existed
+  - Added module-level logger import to prevent crashes in `_handle_compression_results` and `_apply_forgetting_results` methods
+  - Ensures proper error logging during memory consolidation operations
+- **Windows Task Scheduler HTTP Dashboard** (PR #402): Fixed 6 bugs preventing scheduled task from starting HTTP dashboard on Windows
+  - Fixed Task Scheduler PATH issues by using full path resolution via $env:SystemRoot for powershell.exe
+  - Added robust executable discovery (Find-Executable) that probes known uv/python install locations (~\.local\bin, %LOCALAPPDATA%\uv, .cargo\bin)
+  - Fixed $using:LogFile silent failure in .NET event handlers by changing to $script:LogFile for proper log capture
+  - Corrected health check URLs from https:// to http:// (server defaults to HTTP)
+  - Fixed display URLs in status output to show correct http:// protocol
+  - Added executable path logging for easier Task Scheduler debugging
+  - Improved Python version discovery with py.exe launcher and descending version sort (prefers latest)
+
 ## [10.4.2] - 2026-02-01
 
 ### Fixed

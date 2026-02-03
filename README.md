@@ -179,18 +179,19 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.4.2** (February 1, 2026)
+## 🆕 Latest Release: **v10.4.3** (February 4, 2026)
 
-**CRITICAL FIX: Docker Container Startup**
+**Windows Compatibility & Consolidation Stability**
 
 **What's Fixed:**
-- 🐛 **Docker ModuleNotFoundError**: Fixed critical bug preventing Docker container startup (Issue #400)
-  - Container failed with "ModuleNotFoundError: No module named 'aiosqlite'"
-  - Root cause: Core dependencies not installed properly with optional dependency groups
-  - Split installation into three steps ensuring core dependencies always installed
-  - All Docker users should upgrade immediately to this version
+- 🪟 **Windows Task Scheduler**: Fixed 6 bugs preventing HTTP dashboard scheduled task startup (PR #402)
+  - PATH resolution, executable discovery, log capture, health check URLs, Python version sorting
+  - Windows users can now reliably run HTTP dashboard as scheduled task
+- 🔧 **Consolidation Logger**: Fixed NameError crash in memory consolidation (PR #404)
+  - Added missing module-level logger preventing crashes during compression/forgetting operations
 
 **Previous Releases**:
+- **v10.4.2** - Docker Container Startup Fix (ModuleNotFoundError: aiosqlite)
 - **v10.4.1** - Bug Fix: Time Expression Parsing (natural language time expressions fixed)
 - **v10.4.0** - Memory Hook Quality Improvements (semantic deduplication, tag normalization, budget optimization)
 - **v10.3.0** - SQL-Level Filtering Optimization (115x performance speedup, efficient bulk operations)
