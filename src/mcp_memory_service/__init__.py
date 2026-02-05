@@ -46,7 +46,7 @@ def setup_ml_cache_paths():
 # Setup cache paths immediately when this module is imported
 setup_ml_cache_paths()
 
-__version__ = "9.0.0"
+__version__ = "10.0.0"
 
 from .models import Memory, MemoryQueryResult  # noqa: E402
 from .storage import MemoryStorage  # noqa: E402

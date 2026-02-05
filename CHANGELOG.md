@@ -8,6 +8,22 @@ For older releases, see [CHANGELOG-HISTORIC.md](./CHANGELOG-HISTORIC.md).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [10.0.0](https://github.com/27Bslash6/mcp-memory-service/compare/v9.0.0...v10.0.0) (2026-02-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* Removes OAuth, Cloudflare, Hybrid storage backends, consolidation, ingestion, sync, and mDNS discovery modules.
+
+### Features
+
+* **search:** implement hybrid search with RRF fusion ([#8](https://github.com/27Bslash6/mcp-memory-service/issues/8)) ([20e133e](https://github.com/27Bslash6/mcp-memory-service/commit/20e133e4689b048b67dbcda193acd98695f49ac5))
+
+
+### Refactoring
+
+* Major codebase remediation (56% code reduction) ([#6](https://github.com/27Bslash6/mcp-memory-service/issues/6)) ([a27e51f](https://github.com/27Bslash6/mcp-memory-service/commit/a27e51f9630a122f7216b588a379a80a44be14f5))
+
 ## [9.0.0](https://github.com/27Bslash6/mcp-memory-service/compare/v8.13.0...v9.0.0) (2025-12-09)
 
 
