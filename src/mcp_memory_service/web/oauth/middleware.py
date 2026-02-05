@@ -20,7 +20,7 @@ Provides Bearer token validation with fallback to API key authentication.
 
 import logging
 from typing import Optional, Dict, Any
-from fastapi import HTTPException, status, Depends
+from fastapi import HTTPException, status, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt, ExpiredSignatureError
 from jose.jwt import JWTClaimsError
@@ -290,6 +290,7 @@ def authenticate_api_key(api_key: str) -> AuthenticationResult:
 
 
 async def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme)
 ) -> AuthenticationResult:
     """
