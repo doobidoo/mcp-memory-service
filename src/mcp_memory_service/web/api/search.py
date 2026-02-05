@@ -111,7 +111,7 @@ def memory_to_search_result(memory: Memory, reason: str = None) -> SearchResult:
 async def semantic_search(
     request: SemanticSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Perform semantic similarity search on memory content.
@@ -207,7 +207,7 @@ async def semantic_search(
 async def tag_search(
     request: TagSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Search memories by tags with optional time filtering.
@@ -289,7 +289,7 @@ async def tag_search(
 async def time_search(
     request: TimeSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Search memories by time-based queries.
@@ -359,7 +359,7 @@ async def find_similar(
     content_hash: str,
     n_results: int = Query(default=10, ge=1, le=100, description="Number of similar memories to find"),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Find memories similar to a specific memory identified by its content hash.

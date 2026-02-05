@@ -154,7 +154,7 @@ MCP_TOOLS = [
 @router.post("")
 async def mcp_endpoint(
     request: MCPRequest,
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """Main MCP protocol endpoint for processing MCP requests."""
     try:
@@ -398,7 +398,7 @@ async def handle_tool_call(storage, tool_name: str, arguments: Dict[str, Any]) -
 
 @router.get("/tools")
 async def list_mcp_tools(
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """List available MCP tools for discovery."""
     return {

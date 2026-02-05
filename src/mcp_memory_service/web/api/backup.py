@@ -79,7 +79,7 @@ class BackupListResponse(BaseModel):
 
 @router.get("/backup/status", response_model=BackupStatusResponse)
 async def get_backup_status(
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get current backup service status.
@@ -110,7 +110,7 @@ async def get_backup_status(
 
 @router.post("/backup/now", response_model=BackupCreateResponse)
 async def trigger_backup(
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Manually trigger an immediate backup.
@@ -142,7 +142,7 @@ async def trigger_backup(
 
 @router.get("/backup/list", response_model=BackupListResponse)
 async def list_backups(
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     List all available backups.

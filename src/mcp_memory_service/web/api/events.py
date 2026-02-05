@@ -40,7 +40,7 @@ class SSEStatsResponse(BaseModel):
 @router.get("/events")
 async def events_endpoint(
     request: Request,
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Server-Sent Events endpoint for real-time updates.
@@ -58,7 +58,7 @@ async def events_endpoint(
 
 @router.get("/events/stats")
 async def get_sse_stats(
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get statistics about current SSE connections.

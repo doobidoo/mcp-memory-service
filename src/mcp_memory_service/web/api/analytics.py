@@ -376,7 +376,7 @@ class StorageStats(BaseModel):
 @router.get("/overview", response_model=AnalyticsOverview, tags=["analytics"])
 async def get_analytics_overview(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get overview analytics for the memory system.
@@ -458,7 +458,7 @@ def _generate_interval_label(date: datetime, period: PeriodType) -> str:
 async def get_memory_growth(
     period: PeriodType = Query(PeriodType.MONTH, description="Time period: week, month, quarter, year"),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get memory growth data over time.
@@ -548,7 +548,7 @@ async def get_tag_usage_analytics(
     period: str = Query("all", description="Time period: week, month, all"),
     limit: int = Query(20, description="Maximum number of tags to return"),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get tag usage analytics.
@@ -593,7 +593,7 @@ async def get_tag_usage_analytics(
 @router.get("/memory-types", response_model=MemoryTypeData, tags=["analytics"])
 async def get_memory_type_distribution(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get distribution of memories by type.
@@ -671,7 +671,7 @@ async def get_memory_type_distribution(
 @router.get("/relationship-types", response_model=Dict[str, int], tags=["analytics"])
 async def get_relationship_type_distribution(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get distribution of relationship types in the knowledge graph.
@@ -700,7 +700,7 @@ async def get_graph_visualization(
     limit: int = Query(100, description="Maximum number of nodes to include", ge=1, le=500),
     min_connections: int = Query(1, description="Minimum connections per node", ge=1),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get knowledge graph data for interactive visualization.
@@ -721,7 +721,7 @@ async def get_graph_visualization(
 
 @router.get("/search-analytics", response_model=SearchAnalytics, tags=["analytics"])
 async def get_search_analytics(
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get search usage analytics.
@@ -742,7 +742,7 @@ async def get_search_analytics(
 @router.get("/performance", response_model=PerformanceMetrics, tags=["analytics"])
 async def get_performance_metrics(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get system performance metrics.
@@ -763,7 +763,7 @@ async def get_performance_metrics(
 async def get_activity_heatmap(
     days: int = Query(365, description="Number of days to include in heatmap"),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get activity heatmap data for calendar view.
@@ -833,7 +833,7 @@ async def get_top_tags_report(
     period: str = Query("30d", description="Time period: 7d, 30d, 90d, all"),
     limit: int = Query(20, description="Maximum number of tags to return"),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get enhanced top tags report with trends and co-occurrence patterns.
@@ -936,7 +936,7 @@ async def get_top_tags_report(
 async def get_activity_breakdown(
     granularity: str = Query("daily", description="Time granularity: hourly, daily, weekly"),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get activity breakdown and patterns.
@@ -1003,7 +1003,7 @@ async def get_activity_breakdown(
 @router.get("/storage-stats", response_model=StorageStats, tags=["analytics"])
 async def get_storage_stats(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get storage statistics and largest memories.

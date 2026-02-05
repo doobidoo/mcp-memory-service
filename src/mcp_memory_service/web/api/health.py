@@ -84,7 +84,7 @@ async def health_check():
 @router.get("/health/detailed", response_model=DetailedHealthResponse)
 async def detailed_health_check(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """Detailed health check with system and storage information."""
     
@@ -200,7 +200,7 @@ async def detailed_health_check(
 @router.get("/health/sync-status")
 async def sync_status(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """Get current initial sync status for hybrid storage."""
 
@@ -267,7 +267,7 @@ class ClearCachesResponse(BaseModel):
 
 @router.get("/memory-stats", response_model=MemoryStatsResponse)
 async def get_memory_stats(
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get detailed memory usage statistics for the process.
@@ -311,7 +311,7 @@ async def get_memory_stats(
 
 @router.post("/clear-caches", response_model=ClearCachesResponse)
 async def clear_caches(
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Clear all caches to free memory.

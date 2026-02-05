@@ -90,7 +90,7 @@ class SystemOperationRequest(BaseModel):
 async def bulk_delete_memories(
     request: BulkDeleteRequest,
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Perform bulk delete operations on memories.
@@ -186,7 +186,7 @@ async def bulk_delete_memories(
 @router.post("/cleanup-duplicates", response_model=BulkOperationResponse, tags=["management"])
 async def cleanup_duplicates(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Clean up duplicate memories in the database.
@@ -215,7 +215,7 @@ async def cleanup_duplicates(
 @router.get("/untagged/count", tags=["management"])
 async def count_untagged_memories(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Count memories without tags.
@@ -253,7 +253,7 @@ async def count_untagged_memories(
 async def delete_untagged_memories(
     confirm_count: int,
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Delete all memories without tags.
@@ -334,7 +334,7 @@ async def delete_untagged_memories(
 @router.get("/tags/stats", response_model=TagStatsListResponse, tags=["management"])
 async def get_tag_statistics(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Get detailed statistics for all tags.
@@ -377,7 +377,7 @@ async def rename_tag(
     new_tag: str,
     confirm_count: Optional[int] = Query(None, description="Confirmation count"),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Rename a tag across all memories.
@@ -414,7 +414,7 @@ async def rename_tag(
 async def perform_system_operation(
     operation: str,
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Perform system maintenance operations.
