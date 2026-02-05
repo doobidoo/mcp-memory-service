@@ -138,16 +138,34 @@ The OAuth system supports three scopes:
 - **`write`**: Access to create/update endpoints
 - **`admin`**: Access to administrative endpoints
 
-### Backward Compatibility
+### API Key Authentication (OAuth-Free)
 
-API key authentication continues to work:
+API key authentication works without OAuth enabled, perfect for single-user deployments or when you don't need team collaboration features:
 
 ```bash
-# Legacy API key authentication
-export MCP_API_KEY="your-api-key"
-curl -H "Authorization: Bearer $MCP_API_KEY" \
+# Configure API key
+export MCP_API_KEY="your-secret-key"
+export MCP_OAUTH_ENABLED=false  # OAuth not required
+export MCP_ALLOW_ANONYMOUS_ACCESS=false  # Require authentication
+
+# Start server
+python scripts/server/run_http_server.py
+
+# Option 1: X-API-Key header (recommended, more secure)
+curl -H "X-API-Key: your-secret-key" \
+     http://localhost:8000/api/memories
+
+# Option 2: Query parameter (convenient, less secure - avoid in production)
+curl "http://localhost:8000/api/memories?api_key=your-secret-key"
+
+# Option 3: Bearer token (backward compatible)
+curl -H "Authorization: Bearer your-secret-key" \
      http://localhost:8000/api/memories
 ```
+
+**When to use API Key vs OAuth:**
+- **API Key**: Single-user deployments, scripts, local development
+- **OAuth**: Team collaboration, Claude Code HTTP transport, multi-user access
 
 ## Security Considerations
 
