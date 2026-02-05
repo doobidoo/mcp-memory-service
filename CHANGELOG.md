@@ -10,6 +10,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.4.4] - 2026-02-05
+
+### Security
+- **CRITICAL: Timing Attack Vulnerability** (PR #411): Fixed CWE-208 timing attack in API key comparison
+  - Replaced direct string comparison with `secrets.compare_digest()` for constant-time comparison
+  - Prevents attackers from determining correct API key character-by-character via timing analysis
+  - All API key authentication methods now use secure comparison (X-API-Key header, query parameter, Bearer token)
+  - Severity: CRITICAL - Recommend immediate upgrade for all deployments using API key authentication
+
+### Fixed
+- **API Key Authentication without OAuth** (Issue #407, PR #411): API key auth now works independently of OAuth configuration
+  - Root cause: API routes had conditional OAuth dependencies that prevented API key authentication when `MCP_OAUTH_ENABLED=false`
+  - Solution: Removed OAuth conditionals from ALL 44 API route endpoints
+  - Authentication middleware now handles all auth methods unconditionally: OAuth, API key, or anonymous
+  - Enables simple single-user deployments without OAuth overhead
+
+### Added
+- **X-API-Key Header Authentication** (PR #411): Recommended method for API key authentication
+  - Usage: `curl -H "X-API-Key: your-secret-key" http://localhost:8000/api/memories`
+  - More secure than query parameters (not logged in server logs)
+  - Works with all API endpoints
+- **Query Parameter Authentication** (PR #411): Convenient fallback for scripts/browsers
+  - Usage: `curl "http://localhost:8000/api/memories?api_key=your-secret-key"`
+  - Warning: Logs API keys in server logs - use X-API-Key header in production
+- **Bearer Token Compatibility** (PR #411): Backward compatible with existing Bearer token auth
+  - Usage: `curl -H "Authorization: Bearer your-secret-key" http://localhost:8000/api/memories`
+
+### Changed
+- **OAuth Import Behavior** (PR #411): OAuth authentication modules now always imported regardless of configuration
+  - Previous behavior caused FastAPI AssertionError when `OAUTH_ENABLED=false`
+  - Middleware decides auth method at runtime based on configuration
+  - Allows server startup with OAuth disabled while maintaining proper authentication
+
 ## [10.4.3] - 2026-02-04
 
 ### Fixed

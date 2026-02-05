@@ -179,18 +179,22 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.4.3** (February 4, 2026)
+## 🆕 Latest Release: **v10.4.4** (February 5, 2026)
 
-**Windows Compatibility & Consolidation Stability**
+**CRITICAL Security Fix & API Key Authentication**
 
-**What's Fixed:**
-- 🪟 **Windows Task Scheduler**: Fixed 6 bugs preventing HTTP dashboard scheduled task startup (PR #402)
-  - PATH resolution, executable discovery, log capture, health check URLs, Python version sorting
-  - Windows users can now reliably run HTTP dashboard as scheduled task
-- 🔧 **Consolidation Logger**: Fixed NameError crash in memory consolidation (PR #404)
-  - Added missing module-level logger preventing crashes during compression/forgetting operations
+**What's New:**
+- 🔒 **CRITICAL Security Fix**: Fixed timing attack vulnerability in API key comparison (CWE-208)
+  - Prevents attackers from determining API keys via timing analysis
+  - Immediate upgrade recommended for all API key deployments
+- 🔑 **API Key Authentication Fixed**: Works independently without OAuth (Issue #407)
+  - X-API-Key header support (recommended, secure)
+  - Query parameter fallback (convenient for scripts)
+  - Bearer token backward compatibility
+- 🛡️ **Single-User Deployments**: Simple API key setup without OAuth overhead
 
 **Previous Releases**:
+- **v10.4.3** - Windows Task Scheduler & Consolidation Stability (6 bugs fixed, logger NameError resolved)
 - **v10.4.2** - Docker Container Startup Fix (ModuleNotFoundError: aiosqlite)
 - **v10.4.1** - Bug Fix: Time Expression Parsing (natural language time expressions fixed)
 - **v10.4.0** - Memory Hook Quality Improvements (semantic deduplication, tag normalization, budget optimization)
