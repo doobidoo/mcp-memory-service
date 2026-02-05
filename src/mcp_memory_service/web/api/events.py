@@ -6,17 +6,12 @@ from fastapi import APIRouter, Request, Depends
 from pydantic import BaseModel
 from typing import Dict, Any, List, TYPE_CHECKING
 
-from ...config import OAUTH_ENABLED
+# OAuth config no longer needed - auth is always enabled
 from ..sse import create_event_stream, sse_manager
 from ..dependencies import get_storage
 
-# OAuth authentication imports (conditional)
-if OAUTH_ENABLED or TYPE_CHECKING:
-    from ..oauth.middleware import require_read_access, AuthenticationResult
-else:
-    # Provide type stubs when OAuth is disabled
-    AuthenticationResult = None
-    require_read_access = None
+# OAuth authentication imports
+from ..oauth.middleware import require_read_access, AuthenticationResult
 
 router = APIRouter()
 

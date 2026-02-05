@@ -15,16 +15,10 @@ from pydantic import BaseModel, ConfigDict
 
 from ..dependencies import get_storage
 from ...utils.hashing import generate_content_hash
-from ...config import OAUTH_ENABLED
+# OAuth config no longer needed - auth is always enabled
 
 # Import OAuth dependencies only when needed
-if OAUTH_ENABLED or TYPE_CHECKING:
-    from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
-else:
-    # Provide type stubs when OAuth is disabled
-    AuthenticationResult = None
-    require_read_access = None
-    require_write_access = None
+from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
 
 logger = logging.getLogger(__name__)
 

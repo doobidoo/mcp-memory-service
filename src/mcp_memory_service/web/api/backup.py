@@ -26,14 +26,8 @@ from pydantic import BaseModel
 
 from mcp_memory_service.config import OAUTH_ENABLED
 
-# OAuth authentication imports (conditional)
-if OAUTH_ENABLED or TYPE_CHECKING:
-    from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
-else:
-    # Provide type stubs when OAuth is disabled
-    AuthenticationResult = None
-    require_read_access = None
-    require_write_access = None
+# OAuth authentication imports
+from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
 
 router = APIRouter()
 

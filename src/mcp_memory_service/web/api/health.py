@@ -33,15 +33,10 @@ try:
 except (ImportError, AttributeError):
     __version__ = "0.0.0.dev0"
 
-from ...config import OAUTH_ENABLED
+# OAuth config no longer needed - auth is always enabled
 
-# OAuth authentication imports (conditional)
-if OAUTH_ENABLED or TYPE_CHECKING:
-    from ..oauth.middleware import require_read_access, AuthenticationResult
-else:
-    # Provide type stubs when OAuth is disabled
-    AuthenticationResult = None
-    require_read_access = None
+# OAuth authentication imports
+from ..oauth.middleware import require_read_access, AuthenticationResult
 
 router = APIRouter()
 

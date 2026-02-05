@@ -28,18 +28,12 @@ from ...storage.base import MemoryStorage
 from ...models.memory import Memory
 from ...services.memory_service import MemoryService
 from ...utils.hashing import generate_content_hash
-from ...config import INCLUDE_HOSTNAME, OAUTH_ENABLED
+# OAuth config no longer needed - auth is always enabled
 from ..dependencies import get_storage, get_memory_service
 from ..sse import sse_manager, create_memory_stored_event, create_memory_deleted_event
 
-# OAuth authentication imports (conditional)
-if OAUTH_ENABLED or TYPE_CHECKING:
-    from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
-else:
-    # Provide type stubs when OAuth is disabled
-    AuthenticationResult = None
-    require_read_access = None
-    require_write_access = None
+# OAuth authentication imports
+from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
