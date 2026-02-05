@@ -339,6 +339,24 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"}
         )
 
+    # Check for API key authentication without Bearer token
+    # Try X-API-Key header first (recommended for security)
+    if API_KEY:
+        api_key_header = request.headers.get("X-API-Key")
+        if api_key_header:
+            api_key_result = authenticate_api_key(api_key_header)
+            if api_key_result.authenticated:
+                logger.debug("Authenticated via X-API-Key header")
+                return api_key_result
+
+        # Try query parameter as fallback (less secure, but convenient)
+        api_key_param = request.query_params.get("api_key")
+        if api_key_param:
+            api_key_result = authenticate_api_key(api_key_param)
+            if api_key_result.authenticated:
+                logger.debug("Authenticated via api_key query parameter")
+                return api_key_result
+
     # Allow anonymous access only if explicitly enabled
     if ALLOW_ANONYMOUS_ACCESS:
         logger.debug("Anonymous access explicitly enabled, granting read-only access")
@@ -353,11 +371,11 @@ async def get_current_user(
     if API_KEY or OAUTH_ENABLED:
         logger.debug("No valid authentication provided")
         if OAUTH_ENABLED and API_KEY:
-            error_msg = "Authorization required. Provide valid OAuth Bearer token or API key."
+            error_msg = "Authorization required. Provide valid OAuth Bearer token or API key (via X-API-Key header or api_key query parameter)."
         elif OAUTH_ENABLED:
             error_msg = "Authorization required. Provide valid OAuth Bearer token."
         else:
-            error_msg = "Authorization required. Provide valid API key."
+            error_msg = "Authorization required. Provide valid API key via X-API-Key header or api_key query parameter."
     else:
         logger.debug("No authentication configured and anonymous access disabled")
         error_msg = "Authentication is required. Set MCP_ALLOW_ANONYMOUS_ACCESS=true to enable anonymous access."
