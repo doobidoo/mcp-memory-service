@@ -85,4 +85,3 @@ Checklist:
   - `PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128`
   - Reduce model cache sizes; see `configure_environment()` in `server.py`.
 - Tune SQLite pragmas via `MCP_MEMORY_SQLITE_PRAGMAS`.
-

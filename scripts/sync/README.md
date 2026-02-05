@@ -75,7 +75,7 @@ python import_memories.py --db-path /path/to/central.db exports/*.json
    ```bash
    # On Windows PC
    python export_memories.py --output windows_memories.json
-   
+
    # On MacBook
    python export_memories.py --output macbook_memories.json
    ```
@@ -90,7 +90,7 @@ python import_memories.py --db-path /path/to/central.db exports/*.json
    ```bash
    # Analyze first
    python import_memories.py --dry-run /tmp/*.json
-   
+
    # Import for real
    python import_memories.py /tmp/windows_memories.json /tmp/macbook_memories.json
    ```

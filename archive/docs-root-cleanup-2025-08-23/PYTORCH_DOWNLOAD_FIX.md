@@ -26,7 +26,7 @@ The issue was that **UV package manager isolation** prevented environment variab
 **Instead of**:
 ```json
 {
-  "command": "uv", 
+  "command": "uv",
   "args": ["--directory", "...", "run", "memory"]
 }
 ```
@@ -50,7 +50,7 @@ Downloading torch (230.2MiB)  ← PROBLEM
 ```
 Setting up offline mode...
 HF_HUB_OFFLINE: 1
-HF_HOME: C:\Users\heinrich.krupp\.cache\huggingface  
+HF_HOME: C:\Users\heinrich.krupp\.cache\huggingface
 Starting MCP Memory Service in offline mode...
 [No download messages] ← FIXED!
 ```

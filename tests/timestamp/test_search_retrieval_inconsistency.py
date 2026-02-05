@@ -6,21 +6,21 @@ between storage and retrieval in ChromaDB where different timestamp fields
 are used for querying vs storing.
 """
 
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 import asyncio
-import json
 import tempfile
 import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Any
+from datetime import datetime
 
 from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.utils.hashing import generate_content_hash
 from mcp_memory_service.utils.time_parser import extract_time_expression
-from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+
 
 class SearchRetrievalInconsistencyTest:
     """Test suite to identify search/retrieval timestamp inconsistencies."""
@@ -36,17 +36,14 @@ class SearchRetrievalInconsistencyTest:
         self.temp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.temp_db.close()
 
-        self.storage = SqliteVecMemoryStorage(
-            db_path=self.temp_db.name,
-            embedding_model="all-MiniLM-L6-v2"
-        )
+        self.storage = SqliteVecMemoryStorage(db_path=self.temp_db.name, embedding_model="all-MiniLM-L6-v2")
         await self.storage.initialize()
         print(f"✅ Storage initialized: {self.temp_db.name}")
 
     async def cleanup(self):
         """Clean up test environment."""
         self.storage = None
-        if hasattr(self, 'temp_db') and os.path.exists(self.temp_db.name):
+        if hasattr(self, "temp_db") and os.path.exists(self.temp_db.name):
             os.unlink(self.temp_db.name)
             print("✅ Test database cleaned up")
 
@@ -70,20 +67,17 @@ class SearchRetrievalInconsistencyTest:
                 "metadata": {
                     "generated_by": "claude-code-session-end-hook",
                     "generated_at": datetime.fromtimestamp(yesterday_middle).isoformat() + "Z",
-                    "session_analysis": {"topics": ["development", "testing"]}
+                    "session_analysis": {"topics": ["development", "testing"]},
                 },
-                "memory_type": "session-summary"
+                "memory_type": "session-summary",
             },
             {
                 "name": "manual_memory_yesterday",
                 "content": "Manual note stored yesterday about project progress",
                 "timestamp": yesterday_end,
                 "tags": ["manual-note", "project-progress", "yesterday"],
-                "metadata": {
-                    "created_by": "manual-storage",
-                    "source": "user-input"
-                },
-                "memory_type": "note"
+                "metadata": {"created_by": "manual-storage", "source": "user-input"},
+                "memory_type": "note",
             },
             {
                 "name": "hook_style_memory_today",
@@ -92,21 +86,18 @@ class SearchRetrievalInconsistencyTest:
                 "tags": ["claude-code-session", "session-consolidation", "today-work"],
                 "metadata": {
                     "generated_by": "claude-code-session-end-hook",
-                    "generated_at": datetime.fromtimestamp(now - (2 * 60 * 60)).isoformat() + "Z"
+                    "generated_at": datetime.fromtimestamp(now - (2 * 60 * 60)).isoformat() + "Z",
                 },
-                "memory_type": "session-summary"
+                "memory_type": "session-summary",
             },
             {
                 "name": "manual_memory_today",
                 "content": "Manual note stored today about urgent task",
                 "timestamp": now - (1 * 60 * 60),  # 1 hour ago
                 "tags": ["manual-note", "urgent-task", "today"],
-                "metadata": {
-                    "created_by": "manual-storage",
-                    "source": "user-input"
-                },
-                "memory_type": "note"
-            }
+                "metadata": {"created_by": "manual-storage", "source": "user-input"},
+                "memory_type": "note",
+            },
         ]
 
         stored_memories = []
@@ -120,17 +111,13 @@ class SearchRetrievalInconsistencyTest:
                 memory_type=case["memory_type"],
                 metadata=case["metadata"],
                 created_at=case["timestamp"],
-                created_at_iso=datetime.fromtimestamp(case["timestamp"]).isoformat() + "Z"
+                created_at_iso=datetime.fromtimestamp(case["timestamp"]).isoformat() + "Z",
             )
 
             # Store the memory
             success, message = await self.storage.store(memory)
             if success:
-                stored_memories.append({
-                    "name": case["name"],
-                    "memory": memory,
-                    "expected_timestamp": case["timestamp"]
-                })
+                stored_memories.append({"name": case["name"], "memory": memory, "expected_timestamp": case["timestamp"]})
                 print(f"✅ Stored {case['name']}: {datetime.fromtimestamp(case['timestamp'])}")
             else:
                 print(f"❌ Failed to store {case['name']}: {message}")
@@ -184,7 +171,7 @@ class SearchRetrievalInconsistencyTest:
             "found_count": len(found_memories),
             "missing_memories": list(missing_memories),
             "unexpected_memories": list(unexpected_memories),
-            "search_consistent": len(missing_memories) == 0 and len(unexpected_memories) == 0
+            "search_consistent": len(missing_memories) == 0 and len(unexpected_memories) == 0,
         }
 
         if search_analysis["search_consistent"]:
@@ -210,11 +197,7 @@ class SearchRetrievalInconsistencyTest:
         print(f"🕐 Yesterday range: {start_ts} to {end_ts}")
 
         # Check each stored memory's timestamp against the range
-        timestamp_analysis = {
-            "memories_in_range": [],
-            "memories_out_of_range": [],
-            "timestamp_precision_issues": []
-        }
+        timestamp_analysis = {"memories_in_range": [], "memories_out_of_range": [], "timestamp_precision_issues": []}
 
         for mem_info in self.test_memories:
             memory = mem_info["memory"]
@@ -233,18 +216,20 @@ class SearchRetrievalInconsistencyTest:
                 timestamp_analysis["memories_in_range"].append(mem_info["name"])
 
             if in_range != actually_in_range:
-                timestamp_analysis["timestamp_precision_issues"].append({
-                    "memory": mem_info["name"],
-                    "expected_in_range": in_range,
-                    "actually_in_range": actually_in_range,
-                    "expected_timestamp": expected_ts,
-                    "stored_timestamp": memory.created_at
-                })
+                timestamp_analysis["timestamp_precision_issues"].append(
+                    {
+                        "memory": mem_info["name"],
+                        "expected_in_range": in_range,
+                        "actually_in_range": actually_in_range,
+                        "expected_timestamp": expected_ts,
+                        "stored_timestamp": memory.created_at,
+                    }
+                )
 
             print(f"   Should be in yesterday range: {in_range}")
             print(f"   Memory timestamp in range: {actually_in_range}")
 
-        print(f"\n📊 Timestamp Analysis Summary:")
+        print("\n📊 Timestamp Analysis Summary:")
         print(f"   Memories in yesterday range: {len(timestamp_analysis['memories_in_range'])}")
         print(f"   Timestamp precision issues: {len(timestamp_analysis['timestamp_precision_issues'])}")
 
@@ -259,10 +244,7 @@ class SearchRetrievalInconsistencyTest:
             print("⚠️  No test memories available for analysis")
             return {}
 
-        serialization_analysis = {
-            "memory_field_analysis": [],
-            "consistent_fields": True
-        }
+        serialization_analysis = {"memory_field_analysis": [], "consistent_fields": True}
 
         for mem_info in self.test_memories:
             memory = mem_info["memory"]
@@ -277,7 +259,7 @@ class SearchRetrievalInconsistencyTest:
                 "timestamp_float": memory_dict.get("timestamp_float"),
                 "timestamp_str": memory_dict.get("timestamp_str"),
                 "updated_at": memory_dict.get("updated_at"),
-                "updated_at_iso": memory_dict.get("updated_at_iso")
+                "updated_at_iso": memory_dict.get("updated_at_iso"),
             }
 
             print(f"\n📝 {mem_info['name']} serialization fields:")
@@ -294,11 +276,13 @@ class SearchRetrievalInconsistencyTest:
             analysis_entry = {
                 "memory_name": mem_info["name"],
                 "timestamp_fields": timestamp_fields,
-                "has_all_required": all([
-                    timestamp_fields.get("created_at") is not None,
-                    timestamp_fields.get("created_at_iso") is not None,
-                    timestamp_fields.get("timestamp") is not None
-                ])
+                "has_all_required": all(
+                    [
+                        timestamp_fields.get("created_at") is not None,
+                        timestamp_fields.get("created_at_iso") is not None,
+                        timestamp_fields.get("timestamp") is not None,
+                    ]
+                ),
             }
 
             serialization_analysis["memory_field_analysis"].append(analysis_entry)
@@ -392,11 +376,13 @@ class SearchRetrievalInconsistencyTest:
         finally:
             await self.cleanup()
 
+
 async def main():
     """Main test execution."""
     test_suite = SearchRetrievalInconsistencyTest()
     success = await test_suite.run_all_tests()
     return 0 if success else 1
+
 
 if __name__ == "__main__":
     exit_code = asyncio.run(main())

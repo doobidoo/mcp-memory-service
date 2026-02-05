@@ -30,19 +30,19 @@ print_error() {
 
 show_status() {
     print_header "Memory Sync Status"
-    
+
     if [ ! -f "$STAGING_DB" ]; then
         echo "Staging database not initialized"
         return
     fi
-    
+
     STAGED_COUNT=$(sqlite3 "$STAGING_DB" "SELECT COUNT(*) FROM staged_memories WHERE conflict_status = 'none';" 2>/dev/null || echo "0")
     CONFLICT_COUNT=$(sqlite3 "$STAGING_DB" "SELECT COUNT(*) FROM staged_memories WHERE conflict_status = 'detected';" 2>/dev/null || echo "0")
     FAILED_COUNT=$(sqlite3 "$STAGING_DB" "SELECT COUNT(*) FROM staged_memories WHERE conflict_status = 'push_failed';" 2>/dev/null || echo "0")
-    
+
     LAST_REMOTE_SYNC=$(sqlite3 "$STAGING_DB" "SELECT value FROM sync_status WHERE key = 'last_remote_sync';" 2>/dev/null || echo "Never")
     LAST_PUSH=$(sqlite3 "$STAGING_DB" "SELECT value FROM sync_status WHERE key = 'last_push_attempt';" 2>/dev/null || echo "Never")
-    
+
     echo "Staged changes ready: $STAGED_COUNT"
     echo "Conflicts detected: $CONFLICT_COUNT"
     echo "Failed pushes: $FAILED_COUNT"
@@ -52,7 +52,7 @@ show_status() {
 
 full_sync() {
     print_header "Starting Full Memory Sync"
-    
+
     # Step 1: Stash local changes
     print_header "Step 1: Stashing Local Changes"
     if ! "$SCRIPT_DIR/stash_local_changes.sh"; then
@@ -60,15 +60,15 @@ full_sync() {
         return 1
     fi
     print_success "Local changes stashed"
-    
-    # Step 2: Pull remote changes  
+
+    # Step 2: Pull remote changes
     print_header "Step 2: Pulling Remote Changes"
     if ! "$SCRIPT_DIR/pull_remote_changes.sh"; then
         print_error "Failed to pull remote changes"
         return 1
     fi
     print_success "Remote changes pulled"
-    
+
     # Step 3: Apply staged changes
     print_header "Step 3: Applying Staged Changes"
     if ! "$SCRIPT_DIR/apply_local_changes.sh"; then
@@ -76,7 +76,7 @@ full_sync() {
     else
         print_success "Staged changes applied"
     fi
-    
+
     # Step 4: Push remaining changes to remote
     print_header "Step 4: Pushing to Remote API"
     if ! "$SCRIPT_DIR/push_to_remote.sh"; then
@@ -84,32 +84,32 @@ full_sync() {
     else
         print_success "Changes pushed to remote"
     fi
-    
+
     print_header "Full Sync Completed"
     show_status
 }
 
 quick_push() {
     print_header "Quick Push to Remote"
-    
+
     if ! "$SCRIPT_DIR/push_to_remote.sh"; then
         print_error "Push failed"
         return 1
     fi
-    
+
     print_success "Quick push completed"
     show_status
 }
 
 quick_pull() {
     print_header "Quick Pull from Remote"
-    
+
     if ! "$SCRIPT_DIR/pull_remote_changes.sh"; then
         print_error "Pull failed"
         return 1
     fi
-    
-    print_success "Quick pull completed" 
+
+    print_success "Quick pull completed"
     show_status
 }
 

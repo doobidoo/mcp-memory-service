@@ -14,11 +14,11 @@ curl -k -s -X POST "$MCP_ENDPOINT" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $API_KEY" \
   -d '{
-    "jsonrpc": "2.0", 
-    "id": 1, 
-    "method": "tools/call", 
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
     "params": {
-      "name": "search_by_tag", 
+      "name": "search_by_tag",
       "arguments": {
         "tags": ["distributable-reference"]
       }

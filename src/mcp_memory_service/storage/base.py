@@ -17,18 +17,21 @@ MCP Memory Service
 Copyright (c) 2024 Heinrich Krupp
 Licensed under the MIT License. See LICENSE file in the project root for full license text.
 """
+
 import asyncio
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
+from typing import Any
+
 from ..models.memory import Memory, MemoryQueryResult
+
 
 class MemoryStorage(ABC):
     """Abstract base class for memory storage implementations."""
 
     @property
     @abstractmethod
-    def max_content_length(self) -> Optional[int]:
+    def max_content_length(self) -> int | None:
         """
         Maximum content length supported by this storage backend.
 
@@ -53,13 +56,13 @@ class MemoryStorage(ABC):
     async def initialize(self) -> None:
         """Initialize the storage backend."""
         pass
-    
+
     @abstractmethod
-    async def store(self, memory: Memory) -> Tuple[bool, str]:
+    async def store(self, memory: Memory) -> tuple[bool, str]:
         """Store a memory. Returns (success, message)."""
         pass
 
-    async def store_batch(self, memories: List[Memory]) -> List[Tuple[bool, str]]:
+    async def store_batch(self, memories: list[Memory]) -> list[tuple[bool, str]]:
         """
         Store multiple memories in a single operation.
 
@@ -76,10 +79,7 @@ class MemoryStorage(ABC):
         if not memories:
             return []
 
-        results = await asyncio.gather(
-            *(self.store(memory) for memory in memories),
-            return_exceptions=True
-        )
+        results = await asyncio.gather(*(self.store(memory) for memory in memories), return_exceptions=True)
 
         # Process results to handle potential exceptions from gather
         final_results = []
@@ -90,17 +90,17 @@ class MemoryStorage(ABC):
             else:
                 final_results.append(res)
         return final_results
-    
+
     @abstractmethod
     async def retrieve(
         self,
         query: str,
         n_results: int = 5,
-        tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None,
-        offset: int = 0
-    ) -> List[MemoryQueryResult]:
+        tags: list[str] | None = None,
+        memory_type: str | None = None,
+        min_similarity: float | None = None,
+        offset: int = 0,
+    ) -> list[MemoryQueryResult]:
         """
         Retrieve memories by semantic search with optional filtering and pagination.
 
@@ -116,17 +116,17 @@ class MemoryStorage(ABC):
             List of MemoryQueryResult objects, filtered and sorted by relevance
         """
         pass
-    
+
     @abstractmethod
     async def search_by_tag(
         self,
-        tags: List[str],
+        tags: list[str],
         limit: int = 10,
         offset: int = 0,
         match_all: bool = False,
-        start_timestamp: Optional[float] = None,
-        end_timestamp: Optional[float] = None
-    ) -> List[Memory]:
+        start_timestamp: float | None = None,
+        end_timestamp: float | None = None,
+    ) -> list[Memory]:
         """
         Search memories by tags with optional date filtering.
 
@@ -143,7 +143,7 @@ class MemoryStorage(ABC):
         """
         pass
 
-    async def search_by_tag_chronological(self, tags: List[str], limit: int = None, offset: int = 0) -> List[Memory]:
+    async def search_by_tag_chronological(self, tags: list[str], limit: int = None, offset: int = 0) -> list[Memory]:
         """
         Search memories by tags with chronological ordering (newest first).
 
@@ -166,7 +166,7 @@ class MemoryStorage(ABC):
         return memories
 
     @abstractmethod
-    async def get_memory_by_hash(self, content_hash: str) -> Optional[Memory]:
+    async def get_memory_by_hash(self, content_hash: str) -> Memory | None:
         """
         Retrieve a specific memory by its content hash.
 
@@ -179,16 +179,16 @@ class MemoryStorage(ABC):
         pass
 
     @abstractmethod
-    async def delete(self, content_hash: str) -> Tuple[bool, str]:
+    async def delete(self, content_hash: str) -> tuple[bool, str]:
         """Delete a memory by its hash."""
         pass
-    
+
     @abstractmethod
-    async def delete_by_tag(self, tag: str) -> Tuple[int, str]:
+    async def delete_by_tag(self, tag: str) -> tuple[int, str]:
         """Delete memories by tag. Returns (count_deleted, message)."""
         pass
 
-    async def delete_by_tags(self, tags: List[str]) -> Tuple[int, str]:
+    async def delete_by_tags(self, tags: list[str]) -> tuple[int, str]:
         """
         Delete memories matching ANY of the given tags.
 
@@ -225,7 +225,7 @@ class MemoryStorage(ABC):
         return total_count, f"Deleted {total_count} memories across {len(tags)} tag(s)"
 
     @abstractmethod
-    async def delete_by_all_tags(self, tags: List[str]) -> Tuple[int, str]:
+    async def delete_by_all_tags(self, tags: list[str]) -> tuple[int, str]:
         """
         Delete memories matching ALL of the given tags (AND logic).
 
@@ -238,12 +238,14 @@ class MemoryStorage(ABC):
         pass
 
     @abstractmethod
-    async def cleanup_duplicates(self) -> Tuple[int, str]:
+    async def cleanup_duplicates(self) -> tuple[int, str]:
         """Remove duplicate memories. Returns (count_removed, message)."""
         pass
-    
+
     @abstractmethod
-    async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
+    async def update_memory_metadata(
+        self, content_hash: str, updates: dict[str, Any], preserve_timestamps: bool = True
+    ) -> tuple[bool, str]:
         """
         Update memory metadata without recreating the entire memory entry.
 
@@ -273,61 +275,51 @@ class MemoryStorage(ABC):
         Returns:
             True if update was successful, False otherwise
         """
-        updates = {
-            'tags': memory.tags,
-            'metadata': memory.metadata,
-            'memory_type': memory.memory_type
-        }
-        success, _ = await self.update_memory_metadata(
-            memory.content_hash,
-            updates,
-            preserve_timestamps=True
-        )
+        updates = {"tags": memory.tags, "metadata": memory.metadata, "memory_type": memory.memory_type}
+        success, _ = await self.update_memory_metadata(memory.content_hash, updates, preserve_timestamps=True)
         return success
-    
-    async def get_stats(self) -> Dict[str, Any]:
+
+    async def get_stats(self) -> dict[str, Any]:
         """Get storage statistics. Override for specific implementations."""
-        return {
-            "total_memories": 0,
-            "storage_backend": self.__class__.__name__,
-            "status": "operational"
-        }
-    
-    async def get_all_tags(self) -> List[str]:
+        return {"total_memories": 0, "storage_backend": self.__class__.__name__, "status": "operational"}
+
+    async def get_all_tags(self) -> list[str]:
         """Get all unique tags in the storage. Override for specific implementations."""
         return []
-    
-    async def get_recent_memories(self, n: int = 10) -> List[Memory]:
+
+    async def get_recent_memories(self, n: int = 10) -> list[Memory]:
         """Get n most recent memories. Override for specific implementations."""
         return []
-    
+
     async def recall_memory(
         self,
         query: str,
         n_results: int = 5,
-        tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None,
-        offset: int = 0
-    ) -> List[Memory]:
+        tags: list[str] | None = None,
+        memory_type: str | None = None,
+        min_similarity: float | None = None,
+        offset: int = 0,
+    ) -> list[Memory]:
         """Recall memories based on natural language time expression. Override for specific implementations."""
         # Default implementation just uses regular search
         results = await self.retrieve(query, n_results, tags, memory_type, min_similarity, offset)
         return [r.memory for r in results]
-    
+
     async def search(
         self,
         query: str,
         n_results: int = 5,
-        tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None,
-        offset: int = 0
-    ) -> List[MemoryQueryResult]:
+        tags: list[str] | None = None,
+        memory_type: str | None = None,
+        min_similarity: float | None = None,
+        offset: int = 0,
+    ) -> list[MemoryQueryResult]:
         """Search memories. Default implementation uses retrieve."""
         return await self.retrieve(query, n_results, tags, memory_type, min_similarity, offset)
-    
-    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None, tags: Optional[List[str]] = None) -> List[Memory]:
+
+    async def get_all_memories(
+        self, limit: int = None, offset: int = 0, memory_type: str | None = None, tags: list[str] | None = None
+    ) -> list[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
 
@@ -341,8 +333,8 @@ class MemoryStorage(ABC):
             List of Memory objects ordered by created_at DESC, optionally filtered by type and tags
         """
         return []
-    
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None) -> int:
+
+    async def count_all_memories(self, memory_type: str | None = None, tags: list[str] | None = None) -> int:
         """
         Get total count of memories in storage.
 
@@ -355,7 +347,7 @@ class MemoryStorage(ABC):
         """
         return 0
 
-    async def count_memories_by_tag(self, tags: List[str]) -> int:
+    async def count_memories_by_tag(self, tags: list[str]) -> int:
         """
         Count memories that match any of the given tags.
 
@@ -371,11 +363,7 @@ class MemoryStorage(ABC):
 
     @abstractmethod
     async def count_semantic_search(
-        self,
-        query: str,
-        tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None
+        self, query: str, tags: list[str] | None = None, memory_type: str | None = None, min_similarity: float | None = None
     ) -> int:
         """
         Count memories matching semantic search criteria.
@@ -396,11 +384,7 @@ class MemoryStorage(ABC):
 
     @abstractmethod
     async def count_tag_search(
-        self,
-        tags: List[str],
-        match_all: bool = False,
-        start_timestamp: Optional[float] = None,
-        end_timestamp: Optional[float] = None
+        self, tags: list[str], match_all: bool = False, start_timestamp: float | None = None, end_timestamp: float | None = None
     ) -> int:
         """
         Count memories matching tag search with optional date filtering.
@@ -421,10 +405,10 @@ class MemoryStorage(ABC):
     @abstractmethod
     async def count_time_range(
         self,
-        start_timestamp: Optional[float] = None,
-        end_timestamp: Optional[float] = None,
-        tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None
+        start_timestamp: float | None = None,
+        end_timestamp: float | None = None,
+        tags: list[str] | None = None,
+        memory_type: str | None = None,
     ) -> int:
         """
         Count memories within time range with optional filters.
@@ -440,14 +424,14 @@ class MemoryStorage(ABC):
         """
         pass
 
-    async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
+    async def get_memories_by_time_range(self, start_time: float, end_time: float) -> list[Memory]:
         """Get memories within a time range. Override for specific implementations."""
         return []
-    
-    async def get_memory_connections(self) -> Dict[str, int]:
+
+    async def get_memory_connections(self) -> dict[str, int]:
         """Get memory connection statistics. Override for specific implementations."""
         return {}
-    
-    async def get_access_patterns(self) -> Dict[str, datetime]:
+
+    async def get_access_patterns(self) -> dict[str, datetime]:
         """Get memory access pattern statistics. Override for specific implementations."""
         return {}

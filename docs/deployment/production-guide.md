@@ -31,7 +31,7 @@ avahi-browse -t _mcp-memory._tcp
 ## 📋 **Service Details**
 
 - **Service Name**: `memory._mcp-memory._tcp.local.`
-- **HTTPS Address**: https://localhost:8000 
+- **HTTPS Address**: https://localhost:8000
 - **API Key**: `mcp-0b1ccbde2197a08dcb12d41af4044be6`
 - **Auto-Startup**: ✅ Enabled
 - **Consolidation**: ✅ Active
@@ -41,7 +41,7 @@ avahi-browse -t _mcp-memory._tcp
 
 ```bash
 ./service_control.sh start     # Start service
-./service_control.sh stop      # Stop service  
+./service_control.sh stop      # Stop service
 ./service_control.sh status    # Show status
 ./service_control.sh logs      # View logs
 ./service_control.sh health    # Test API

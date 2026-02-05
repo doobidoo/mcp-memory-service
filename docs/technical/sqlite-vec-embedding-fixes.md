@@ -51,7 +51,7 @@ This document summarizes the fixes applied to resolve issue #64 where semantic s
 
 ### sqlite_vec.py:
 
-1. **Initialize method**: 
+1. **Initialize method**:
    - Added sentence-transformers check
    - Moved model initialization before table creation
 

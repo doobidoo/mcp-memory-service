@@ -49,7 +49,7 @@ When calling a tool, use this EXACT JSON structure:
 **IMPORTANT: Parameter Rules for store_memory:**
 - `content` (REQUIRED): String containing the information to store
 - `metadata` (OPTIONAL): Object containing:
-  - `tags` (OPTIONAL): Array of strings - e.g., ["database", "health", "check"] 
+  - `tags` (OPTIONAL): Array of strings - e.g., ["database", "health", "check"]
   - `type` (OPTIONAL): String - "note", "fact", "reminder", "decision", etc.
 
 **NOTE: The MCP server expects tags INSIDE the metadata object, not as a separate parameter!**

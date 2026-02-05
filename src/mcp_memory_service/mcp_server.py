@@ -14,12 +14,11 @@ Features:
 - SSL/HTTPS support with proper certificate handling
 """
 
-import asyncio
 import logging
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Any, Union, TypedDict
+from typing import Any, TypedDict
 
 try:
     from typing import NotRequired  # Python 3.11+
@@ -27,7 +26,6 @@ except ImportError:
     from typing_extensions import NotRequired  # Python 3.10
 import os
 import sys
-import socket
 from pathlib import Path
 
 # Add src to path for imports
@@ -35,14 +33,14 @@ current_dir = Path(__file__).parent
 src_dir = current_dir.parent.parent
 sys.path.insert(0, str(src_dir))
 
-from fastmcp import FastMCP, Context
+from fastmcp import Context, FastMCP  # noqa: E402
 
 # Import existing memory service components
-from .config import STORAGE_BACKEND, SQLITE_VEC_PATH
-from .storage.base import MemoryStorage
-from .services.memory_service import MemoryService
-from .resources.toon_documentation import TOON_FORMAT_DOCUMENTATION
-from .formatters.toon import format_search_results_as_toon
+from .config import SQLITE_VEC_PATH, STORAGE_BACKEND  # noqa: E402
+from .formatters.toon import format_search_results_as_toon  # noqa: E402
+from .resources.toon_documentation import TOON_FORMAT_DOCUMENTATION  # noqa: E402
+from .services.memory_service import MemoryService  # noqa: E402
+from .storage.base import MemoryStorage  # noqa: E402
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Default to INFO level
@@ -72,6 +70,7 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
         # Fallback to creating storage if running standalone
         logger.info("No shared storage found, initializing new instance (standalone mode)")
         from .storage.factory import create_storage_instance
+
         storage = await create_storage_instance(SQLITE_VEC_PATH)
 
     # Initialize memory service with shared business logic
@@ -108,6 +107,7 @@ def toon_format_docs() -> str:
     """
     return TOON_FORMAT_DOCUMENTATION
 
+
 # =============================================================================
 # TYPE DEFINITIONS
 # =============================================================================
@@ -127,7 +127,7 @@ class StoreMemorySplitSuccess(TypedDict):
     success: bool
     message: str
     chunks_created: int
-    chunk_hashes: List[str]
+    chunk_hashes: list[str]
 
 
 class StoreMemoryFailure(TypedDict):
@@ -136,7 +136,7 @@ class StoreMemoryFailure(TypedDict):
     success: bool
     message: str
     chunks_created: NotRequired[int]
-    chunk_hashes: NotRequired[List[str]]
+    chunk_hashes: NotRequired[list[str]]
 
 
 # =============================================================================
@@ -148,11 +148,11 @@ class StoreMemoryFailure(TypedDict):
 async def store_memory(
     content: str,
     ctx: Context,
-    tags: Union[str, List[str], None] = None,
+    tags: str | list[str] | None = None,
     memory_type: str = "note",
-    metadata: Optional[Dict[str, Any]] = None,
-    client_hostname: Optional[str] = None,
-) -> Union[StoreMemorySuccess, StoreMemorySplitSuccess, StoreMemoryFailure]:
+    metadata: dict[str, Any] | None = None,
+    client_hostname: str | None = None,
+) -> StoreMemorySuccess | StoreMemorySplitSuccess | StoreMemoryFailure:
     """
     Store a new memory for future semantic retrieval.
 
@@ -207,9 +207,7 @@ async def store_memory(
         if "memory" in result:
             # Single memory case
             return StoreMemorySuccess(
-                success=True,
-                message="Memory stored successfully",
-                content_hash=result["memory"]["content_hash"]
+                success=True, message="Memory stored successfully", content_hash=result["memory"]["content_hash"]
             )
         elif "memories" in result:
             # Chunked memory case
@@ -218,32 +216,28 @@ async def store_memory(
                 success=True,
                 message=f"Memory stored as {result['total_chunks']} chunks",
                 chunks_created=result["total_chunks"],
-                chunk_hashes=chunk_hashes
+                chunk_hashes=chunk_hashes,
             )
 
     # Failure case
-    return StoreMemoryFailure(
-        success=False,
-        message=result.get("error", "Unknown error occurred")
-    )
+    return StoreMemoryFailure(success=False, message=result.get("error", "Unknown error occurred"))
 
 
 @mcp.tool()
-async def retrieve_memory(
-    query: str,
-    ctx: Context,
-    page: int = 1,
-    page_size: int = 10,
-    min_similarity: float = 0.6
-) -> str:
+async def retrieve_memory(query: str, ctx: Context, page: int = 1, page_size: int = 10, min_similarity: float = 0.6) -> str:
     """
-    Retrieve memories using semantic similarity search with automatic quality filtering.
+    Retrieve memories using hybrid search (semantic + tag matching).
 
-    Uses vector embeddings to find memories with similar meaning to the query.
-    Default min_similarity of 0.6 filters out low-quality matches.
+    Combines vector similarity with automatic tag extraction for improved retrieval.
+    When query terms match existing tags, those memories receive a score boost.
+    This solves the "rathole problem" where project-specific queries return
+    semantically similar but categorically unrelated results.
+
+    Hybrid search is enabled by default. To opt-out to pure vector search:
+    - Set environment variable MCP_MEMORY_HYBRID_ALPHA=1.0
 
     Args:
-        query: Natural language search query
+        query: Natural language search query (tags extracted automatically)
         page: Page number (1-indexed, default: 1)
         page_size: Results per page (default: 10, max: 100)
         min_similarity: Quality threshold (0.0-1.0, default: 0.6)
@@ -268,9 +262,7 @@ async def retrieve_memory(
     """
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
-    result = await memory_service.retrieve_memories(
-        query=query, page=page, page_size=page_size, min_similarity=min_similarity
-    )
+    result = await memory_service.retrieve_memories(query=query, page=page, page_size=page_size, min_similarity=min_similarity)
 
     # Extract pagination metadata
     pagination = {
@@ -278,7 +270,7 @@ async def retrieve_memory(
         "total": result.get("total", 0),
         "page_size": result.get("page_size", page_size),
         "has_more": result.get("has_more", False),
-        "total_pages": result.get("total_pages", 0)
+        "total_pages": result.get("total_pages", 0),
     }
 
     # Convert results to TOON format with pagination
@@ -287,13 +279,7 @@ async def retrieve_memory(
 
 
 @mcp.tool()
-async def search_by_tag(
-    tags: Union[str, List[str]],
-    ctx: Context,
-    match_all: bool = False,
-    page: int = 1,
-    page_size: int = 10
-) -> str:
+async def search_by_tag(tags: str | list[str], ctx: Context, match_all: bool = False, page: int = 1, page_size: int = 10) -> str:
     """
     Search memories by exact tag matches with flexible filtering.
 
@@ -331,9 +317,7 @@ async def search_by_tag(
     """
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
-    result = await memory_service.search_by_tag(
-        tags=tags, match_all=match_all, page=page, page_size=page_size
-    )
+    result = await memory_service.search_by_tag(tags=tags, match_all=match_all, page=page, page_size=page_size)
 
     # Extract pagination metadata
     pagination = {
@@ -341,7 +325,7 @@ async def search_by_tag(
         "total": result.get("total", 0),
         "page_size": result.get("page_size", page_size),
         "has_more": result.get("has_more", False),
-        "total_pages": result.get("total_pages", 0)
+        "total_pages": result.get("total_pages", 0),
     }
 
     # Convert results to TOON format with pagination
@@ -350,7 +334,7 @@ async def search_by_tag(
 
 
 @mcp.tool()
-async def delete_memory(content_hash: str, ctx: Context) -> Dict[str, Union[bool, str]]:
+async def delete_memory(content_hash: str, ctx: Context) -> dict[str, bool | str]:
     """
     Permanently delete a specific memory by its unique identifier.
 
@@ -377,7 +361,7 @@ async def delete_memory(content_hash: str, ctx: Context) -> Dict[str, Union[bool
 
 
 @mcp.tool()
-async def check_database_health(ctx: Context) -> Dict[str, Any]:
+async def check_database_health(ctx: Context) -> dict[str, Any]:
     """
     Check memory database health and get storage statistics.
 
@@ -405,8 +389,8 @@ async def list_memories(
     ctx: Context,
     page: int = 1,
     page_size: int = 10,
-    tag: Optional[str] = None,
-    memory_type: Optional[str] = None,
+    tag: str | None = None,
+    memory_type: str | None = None,
 ) -> str:
     """
     List memories in chronological order with optional filtering.
@@ -442,9 +426,7 @@ async def list_memories(
     """
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
-    result = await memory_service.list_memories(
-        page=page, page_size=page_size, tag=tag, memory_type=memory_type
-    )
+    result = await memory_service.list_memories(page=page, page_size=page_size, tag=tag, memory_type=memory_type)
 
     # Extract pagination metadata
     pagination = {
@@ -452,7 +434,7 @@ async def list_memories(
         "total": result.get("total", 0),
         "page_size": result.get("page_size", page_size),
         "has_more": result.get("has_more", False),
-        "total_pages": result.get("total_pages", 0)
+        "total_pages": result.get("total_pages", 0),
     }
 
     # Convert results to TOON format with pagination

@@ -34,19 +34,19 @@ claude /memory-store --type "note" "Remember to update the Docker configuration 
 I'll use a **hybrid remote-first approach** with local fallback for reliability:
 
 ### Primary: Remote API Storage
-- **Try remote first**: `https://narrowbox.local:8443/api/memories` 
+- **Try remote first**: `https://narrowbox.local:8443/api/memories`
 - **Real-time sync**: Changes immediately available across all clients
 - **Single source of truth**: Consolidated database on remote server
 
 ### Fallback: Local Staging
 - **If remote fails**: Store locally in staging database for later sync
-- **Offline capability**: Continue working when remote is unreachable  
+- **Offline capability**: Continue working when remote is unreachable
 - **Auto-sync**: Changes pushed to remote when connectivity returns
 
 ### Smart Sync Workflow
 ```
 1. Try remote API directly (fastest path)
-2. If offline/failed: Stage locally + notify user  
+2. If offline/failed: Stage locally + notify user
 3. On reconnect: ./sync/memory_sync.sh automatically syncs
 4. Conflict resolution: Remote wins, with user notification
 ```

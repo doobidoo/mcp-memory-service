@@ -12,14 +12,14 @@ Tests cover:
 Skip logic: Runs on ARM64 (aarch64, arm64), gracefully skips on AMD64/x86_64.
 """
 
-import platform
-import pytest
-import pytest_asyncio
 import asyncio
+import platform
 import tempfile
 import time
 from pathlib import Path
-from typing import List
+
+import pytest
+import pytest_asyncio
 
 # Platform detection
 IS_ARM64 = platform.machine().lower() in ["aarch64", "arm64"]
@@ -34,6 +34,7 @@ class TestQdrantARM64Import:
         """Verify qdrant-client imports successfully on ARM64 (pure Python wheel)."""
         try:
             import qdrant_client
+
             assert qdrant_client is not None
             # Verify it's the pure Python implementation
             assert hasattr(qdrant_client, "QdrantClient")
@@ -43,8 +44,9 @@ class TestQdrantARM64Import:
     @pytest.mark.skipif(not IS_ARM64, reason=ARM64_SKIP_REASON)
     def test_no_native_binary_dependencies(self):
         """Ensure qdrant-client has no native binary dependencies on ARM64."""
-        import qdrant_client
         import inspect
+
+        import qdrant_client
 
         # Check module file location - pure Python should be in site-packages
         module_file = inspect.getfile(qdrant_client)
@@ -89,14 +91,15 @@ class TestQdrantARM64Startup:
         """Ensure Qdrant startup produces no error logs on ARM64."""
         from qdrant_client import QdrantClient
 
-        client = QdrantClient(path=str(storage_path))
+        QdrantClient(path=str(storage_path))
 
         # Check logs for any error indicators
         error_keywords = ["ELFCLASS32", "incompatible", "wrong ELF class", "binary"]
         for record in caplog.records:
             for keyword in error_keywords:
-                assert keyword.lower() not in record.message.lower(), \
-                    f"Found error keyword '{keyword}' in logs: {record.message}"
+                assert (
+                    keyword.lower() not in record.message.lower()
+                ), f"Found error keyword '{keyword}' in logs: {record.message}"
 
 
 class TestQdrantARM64Operations:
@@ -107,6 +110,7 @@ class TestQdrantARM64Operations:
         """Create Qdrant client with temporary storage."""
         with tempfile.TemporaryDirectory(prefix="qdrant_ops_") as tmpdir:
             from qdrant_client import QdrantClient
+
             client = QdrantClient(path=tmpdir)
             yield client
 
@@ -121,8 +125,7 @@ class TestQdrantARM64Operations:
 
         # Create collection
         qdrant_client.create_collection(
-            collection_name=collection_name,
-            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE)
+            collection_name=collection_name, vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE)
         )
 
         # Verify collection exists
@@ -134,29 +137,22 @@ class TestQdrantARM64Operations:
     @pytest.mark.asyncio
     async def test_vector_insert_arm64(self, qdrant_client):
         """Verify vector insertion works on ARM64."""
-        from qdrant_client.models import Distance, VectorParams, PointStruct
         import numpy as np
+        from qdrant_client.models import Distance, PointStruct, VectorParams
 
         collection_name = "test_arm64_insert"
         vector_size = 384
 
         # Setup collection
         qdrant_client.create_collection(
-            collection_name=collection_name,
-            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE)
+            collection_name=collection_name, vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE)
         )
 
         # Insert test vector
         test_vector = np.random.rand(vector_size).tolist()
         qdrant_client.upsert(
             collection_name=collection_name,
-            points=[
-                PointStruct(
-                    id=1,
-                    vector=test_vector,
-                    payload={"content": "test memory", "tags": ["arm64"]}
-                )
-            ]
+            points=[PointStruct(id=1, vector=test_vector, payload={"content": "test memory", "tags": ["arm64"]})],
         )
 
         # Verify insertion
@@ -167,32 +163,24 @@ class TestQdrantARM64Operations:
     @pytest.mark.asyncio
     async def test_vector_search_arm64(self, qdrant_client):
         """Verify vector search works on ARM64."""
-        from qdrant_client.models import Distance, VectorParams, PointStruct
         import numpy as np
+        from qdrant_client.models import Distance, PointStruct, VectorParams
 
         collection_name = "test_arm64_search"
         vector_size = 384
 
         # Setup collection with test data
         qdrant_client.create_collection(
-            collection_name=collection_name,
-            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE)
+            collection_name=collection_name, vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE)
         )
 
         # Insert multiple vectors
         test_vectors = [np.random.rand(vector_size).tolist() for _ in range(10)]
-        points = [
-            PointStruct(id=i, vector=vec, payload={"index": i})
-            for i, vec in enumerate(test_vectors)
-        ]
+        points = [PointStruct(id=i, vector=vec, payload={"index": i}) for i, vec in enumerate(test_vectors)]
         qdrant_client.upsert(collection_name=collection_name, points=points)
 
         # Search using first vector
-        results = qdrant_client.search(
-            collection_name=collection_name,
-            query_vector=test_vectors[0],
-            limit=5
-        )
+        results = qdrant_client.search(collection_name=collection_name, query_vector=test_vectors[0], limit=5)
 
         # Verify search results
         assert len(results) > 0
@@ -215,8 +203,7 @@ class TestQdrantARM64Performance:
             collection_name = "perf_test"
 
             client.create_collection(
-                collection_name=collection_name,
-                vectors_config=VectorParams(size=384, distance=Distance.COSINE)
+                collection_name=collection_name, vectors_config=VectorParams(size=384, distance=Distance.COSINE)
             )
 
             yield client, collection_name
@@ -225,8 +212,8 @@ class TestQdrantARM64Performance:
     @pytest.mark.asyncio
     async def test_insert_performance_arm64(self, qdrant_storage):
         """Benchmark insert operations on ARM64."""
-        from qdrant_client.models import PointStruct
         import numpy as np
+        from qdrant_client.models import PointStruct
 
         client, collection_name = qdrant_storage
         num_vectors = 100
@@ -234,10 +221,7 @@ class TestQdrantARM64Performance:
 
         # Generate test data
         vectors = [np.random.rand(vector_size).tolist() for _ in range(num_vectors)]
-        points = [
-            PointStruct(id=i, vector=vec, payload={"index": i})
-            for i, vec in enumerate(vectors)
-        ]
+        points = [PointStruct(id=i, vector=vec, payload={"index": i}) for i, vec in enumerate(vectors)]
 
         # Benchmark batch insert
         start = time.perf_counter()
@@ -252,8 +236,8 @@ class TestQdrantARM64Performance:
     @pytest.mark.asyncio
     async def test_search_performance_arm64(self, qdrant_storage):
         """Benchmark search operations on ARM64."""
-        from qdrant_client.models import PointStruct
         import numpy as np
+        from qdrant_client.models import PointStruct
 
         client, collection_name = qdrant_storage
         num_vectors = 1000
@@ -261,10 +245,7 @@ class TestQdrantARM64Performance:
 
         # Insert test data
         vectors = [np.random.rand(vector_size).tolist() for _ in range(num_vectors)]
-        points = [
-            PointStruct(id=i, vector=vec, payload={"index": i})
-            for i, vec in enumerate(vectors)
-        ]
+        points = [PointStruct(id=i, vector=vec, payload={"index": i}) for i, vec in enumerate(vectors)]
         client.upsert(collection_name=collection_name, points=points)
 
         # Benchmark search
@@ -273,11 +254,7 @@ class TestQdrantARM64Performance:
 
         for _ in range(10):
             start = time.perf_counter()
-            client.search(
-                collection_name=collection_name,
-                query_vector=query_vector,
-                limit=10
-            )
+            client.search(collection_name=collection_name, query_vector=query_vector, limit=10)
             search_times.append(time.perf_counter() - start)
 
         # Performance target: <50ms p50 latency on ARM64
@@ -288,8 +265,8 @@ class TestQdrantARM64Performance:
     @pytest.mark.asyncio
     async def test_concurrent_operations_arm64(self, qdrant_storage):
         """Verify concurrent operations work correctly on ARM64."""
-        from qdrant_client.models import PointStruct
         import numpy as np
+        from qdrant_client.models import PointStruct
 
         client, collection_name = qdrant_storage
         vector_size = 384
@@ -297,18 +274,11 @@ class TestQdrantARM64Performance:
         async def insert_batch(start_id: int, count: int):
             """Insert a batch of vectors."""
             vectors = [np.random.rand(vector_size).tolist() for _ in range(count)]
-            points = [
-                PointStruct(id=start_id + i, vector=vec, payload={"batch": start_id})
-                for i, vec in enumerate(vectors)
-            ]
+            points = [PointStruct(id=start_id + i, vector=vec, payload={"batch": start_id}) for i, vec in enumerate(vectors)]
             client.upsert(collection_name=collection_name, points=points)
 
         # Run concurrent inserts
-        await asyncio.gather(
-            insert_batch(0, 50),
-            insert_batch(50, 50),
-            insert_batch(100, 50)
-        )
+        await asyncio.gather(insert_batch(0, 50), insert_batch(50, 50), insert_batch(100, 50))
 
         # Verify all insertions succeeded
         count = client.count(collection_name=collection_name)
@@ -328,7 +298,7 @@ class TestQdrantARM64PlatformInfo:
             "system": platform.system(),
             "release": platform.release(),
             "python_version": sys.version,
-            "python_implementation": platform.python_implementation()
+            "python_implementation": platform.python_implementation(),
         }
 
         # Print for test output visibility

@@ -42,35 +42,35 @@ SKIPPED_COUNT=0
 
 # Process each staged change
 sqlite3 "$STAGING_DB" "
-SELECT id, content, content_hash, tags, metadata, memory_type, 
+SELECT id, content, content_hash, tags, metadata, memory_type,
        operation, staged_at, original_created_at, source_machine
-FROM staged_memories 
+FROM staged_memories
 WHERE conflict_status = 'none'
 ORDER BY staged_at ASC;
 " | while IFS='|' read -r id content content_hash tags metadata memory_type operation staged_at created_at source_machine; do
 
     # Escape single quotes for SQL
     content_escaped=$(echo "$content" | sed "s/'/''/g")
-    tags_escaped=$(echo "$tags" | sed "s/'/''/g") 
+    tags_escaped=$(echo "$tags" | sed "s/'/''/g")
     metadata_escaped=$(echo "$metadata" | sed "s/'/''/g")
-    
+
     case "$operation" in
         "INSERT")
             # Check if content already exists in main database (by hash)
             EXISTING_COUNT=$(sqlite3 "$MAIN_DB" "
-                SELECT COUNT(*) FROM memories 
-                WHERE content = '$content_escaped' 
+                SELECT COUNT(*) FROM memories
+                WHERE content = '$content_escaped'
                    OR (content_hash IS NOT NULL AND content_hash = '$content_hash');
             " 2>/dev/null || echo "0")
-            
+
             if [ "$EXISTING_COUNT" -gt 0 ]; then
                 echo "$(date): CONFLICT: Content already exists (hash: ${content_hash:0:8}...)"
                 echo "$(date): CONFLICT: ${content:0:80}..." >> "$CONFLICT_LOG"
-                
+
                 # Mark as conflict in staging
                 sqlite3 "$STAGING_DB" "
-                UPDATE staged_memories 
-                SET conflict_status = 'detected' 
+                UPDATE staged_memories
+                SET conflict_status = 'detected'
                 WHERE id = '$id';
                 "
                 CONFLICT_COUNT=$((CONFLICT_COUNT + 1))
@@ -82,7 +82,7 @@ ORDER BY staged_at ASC;
                 INSERT INTO memories (content, content_hash, tags, metadata, memory_type, created_at, updated_at)
                 VALUES (
                     '$content_escaped',
-                    '$content_hash', 
+                    '$content_hash',
                     '$tags_escaped',
                     '$metadata_escaped',
                     '$memory_type',
@@ -90,11 +90,11 @@ ORDER BY staged_at ASC;
                     datetime('now')
                 );
                 " 2>&1)
-                
+
                 if [ $? -eq 0 ]; then
                     echo "$(date): Applied: ${content:0:50}..."
                     APPLIED_COUNT=$((APPLIED_COUNT + 1))
-                    
+
                     # Remove from staging on successful application
                     sqlite3 "$STAGING_DB" "DELETE FROM staged_memories WHERE id = '$id';"
                 else
@@ -104,20 +104,20 @@ ORDER BY staged_at ASC;
                 fi
             fi
             ;;
-            
+
         "UPDATE")
             # For updates, try to find the record and update it
             # This is more complex and depends on your schema
             echo "$(date): UPDATE operation not yet implemented for: ${content:0:50}..."
             SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
             ;;
-            
+
         "DELETE")
             # For deletes, remove the record if it exists
             echo "$(date): DELETE operation not yet implemented for ID: $id"
             SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
             ;;
-            
+
         *)
             echo "$(date): Unknown operation: $operation"
             SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
@@ -139,8 +139,8 @@ echo "$(date): Remaining staged: $FINAL_STAGED_COUNT"
 
 # Update sync status
 sqlite3 "$STAGING_DB" "
-UPDATE sync_status 
-SET value = datetime('now'), updated_at = CURRENT_TIMESTAMP 
+UPDATE sync_status
+SET value = datetime('now'), updated_at = CURRENT_TIMESTAMP
 WHERE key = 'last_local_sync';
 "
 

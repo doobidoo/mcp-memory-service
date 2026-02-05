@@ -38,7 +38,7 @@ curl -k -s -X POST https://TARGET_IP:8443/mcp \
 
 This will provide you with:
 - Project structure and architecture details
-- Key commands for development, testing, and deployment  
+- Key commands for development, testing, and deployment
 - Environment variables and configuration options
 - Recent changes including v5.0.2 ONNX implementation
 - Issue management patterns and current status
@@ -72,7 +72,7 @@ curl -k -s -X POST https://TARGET_IP:8443/mcp \
 
 ## Memory Categories Available
 - **Project Structure**: Server architecture, file locations, component relationships
-- **Key Commands**: Installation, testing, debugging, deployment commands  
+- **Key Commands**: Installation, testing, debugging, deployment commands
 - **Environment Variables**: Configuration options and platform-specific settings
 - **Recent Changes**: Version history, resolved issues, breaking changes
 - **Testing Practices**: Framework preferences, test patterns, validation steps

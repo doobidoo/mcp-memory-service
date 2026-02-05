@@ -4,9 +4,9 @@ Get up and running with MCP Memory Service Claude Code commands in just 2 minute
 
 ## Prerequisites
 
-✅ [Claude Code CLI](https://claude.ai/code) installed and working  
-✅ Python 3.10+ with pip  
-✅ 5 minutes of your time  
+✅ [Claude Code CLI](https://claude.ai/code) installed and working
+✅ Python 3.10+ with pip
+✅ 5 minutes of your time
 
 ## Step 1: Install MCP Memory Service with Commands
 
@@ -54,7 +54,7 @@ claude /memory-context --summary "Initial setup and testing"
 
 ## 🎯 You're Done!
 
-That's it! You now have powerful memory capabilities integrated directly into Claude Code. 
+That's it! You now have powerful memory capabilities integrated directly into Claude Code.
 
 ## Available Commands
 
@@ -114,10 +114,10 @@ memory
 
 ## What Makes This Special?
 
-🚀 **Zero Configuration**: No MCP server setup required  
-🧠 **Context Intelligence**: Understands your current project and session  
-💬 **Conversational Interface**: Natural, CCPlugins-compatible commands  
-⚡ **Instant Access**: Direct command-line memory operations  
-🛠️ **Professional Grade**: Enterprise-level capabilities through simple commands  
+🚀 **Zero Configuration**: No MCP server setup required
+🧠 **Context Intelligence**: Understands your current project and session
+💬 **Conversational Interface**: Natural, CCPlugins-compatible commands
+⚡ **Instant Access**: Direct command-line memory operations
+🛠️ **Professional Grade**: Enterprise-level capabilities through simple commands
 
 **Enjoy your enhanced Claude Code experience with persistent memory!** 🎉

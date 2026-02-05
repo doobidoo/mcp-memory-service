@@ -21,8 +21,8 @@ fi
 
 # Get count of changes ready to push
 PUSH_COUNT=$(sqlite3 "$STAGING_DB" "
-SELECT COUNT(*) FROM staged_memories 
-WHERE conflict_status = 'none' 
+SELECT COUNT(*) FROM staged_memories
+WHERE conflict_status = 'none'
   AND operation IN ('INSERT', 'UPDATE');
 " 2>/dev/null || echo "0")
 
@@ -54,16 +54,16 @@ PUSHED_COUNT=0
 FAILED_COUNT=0
 
 sqlite3 "$STAGING_DB" "
-SELECT id, content, content_hash, tags, metadata, memory_type, 
+SELECT id, content, content_hash, tags, metadata, memory_type,
        operation, staged_at, original_created_at, source_machine
-FROM staged_memories 
-WHERE conflict_status = 'none' 
+FROM staged_memories
+WHERE conflict_status = 'none'
   AND operation IN ('INSERT', 'UPDATE')
 ORDER BY staged_at ASC;
 " | while IFS='|' read -r id content content_hash tags metadata memory_type operation staged_at created_at source_machine; do
 
     echo "$(date): Pushing: ${content:0:50}..."
-    
+
     # Prepare JSON payload
     # Note: This assumes the API accepts the memory service format
     JSON_PAYLOAD=$(cat << EOF
@@ -76,41 +76,41 @@ ORDER BY staged_at ASC;
 }
 EOF
 )
-    
+
     # Prepare curl command with optional API key
     CURL_CMD="curl -k -s -X POST"
     CURL_CMD="$CURL_CMD -H 'Content-Type: application/json'"
     CURL_CMD="$CURL_CMD -H 'X-Client-Hostname: $HOSTNAME'"
-    
+
     if [ -n "$API_KEY" ]; then
         CURL_CMD="$CURL_CMD -H 'Authorization: Bearer $API_KEY'"
     fi
-    
+
     CURL_CMD="$CURL_CMD -d '$JSON_PAYLOAD'"
     CURL_CMD="$CURL_CMD '$REMOTE_API'"
-    
+
     # Execute push to remote API
     RESPONSE=$(eval "$CURL_CMD" 2>&1)
     CURL_EXIT_CODE=$?
-    
+
     if [ $CURL_EXIT_CODE -eq 0 ]; then
         # Check if response indicates success
         if echo "$RESPONSE" | grep -q '"success":\s*true\|"status":\s*"success"\|content_hash'; then
             echo "$(date): Successfully pushed: ${content:0:30}..."
-            
+
             # Remove from staging on successful push
             sqlite3 "$STAGING_DB" "DELETE FROM staged_memories WHERE id = '$id';"
             PUSHED_COUNT=$((PUSHED_COUNT + 1))
-            
+
         elif echo "$RESPONSE" | grep -q '"error"\|"message"\|HTTP.*[45][0-9][0-9]'; then
             echo "$(date): API error for: ${content:0:30}..."
             echo "$(date): Response: $RESPONSE"
             FAILED_COUNT=$((FAILED_COUNT + 1))
-            
+
             # Mark as failed but don't delete (for retry)
             sqlite3 "$STAGING_DB" "
-            UPDATE staged_memories 
-            SET conflict_status = 'push_failed' 
+            UPDATE staged_memories
+            SET conflict_status = 'push_failed'
             WHERE id = '$id';
             "
         else
@@ -121,10 +121,10 @@ EOF
         echo "$(date): Network error pushing: ${content:0:30}..."
         echo "$(date): Error: $RESPONSE"
         FAILED_COUNT=$((FAILED_COUNT + 1))
-        
+
         # Don't mark as failed if it's a network issue - keep for retry
     fi
-    
+
     # Small delay to avoid overwhelming the API
     sleep 0.5
 done
@@ -140,7 +140,7 @@ echo "$(date): Remaining staged: $REMAINING_COUNT changes"
 
 # Update sync status
 sqlite3 "$STAGING_DB" "
-INSERT OR REPLACE INTO sync_status (key, value) VALUES 
+INSERT OR REPLACE INTO sync_status (key, value) VALUES
 ('last_push_attempt', datetime('now'));
 "
 

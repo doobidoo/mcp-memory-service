@@ -267,7 +267,7 @@ curl -H "Authorization: Bearer $MCP_API_KEY" \
    sudo nano /etc/systemd/system/mcp-memory.service
    # Find: Environment=MCP_API_KEY=old-key-here
    # Replace with: Environment=MCP_API_KEY=new-key-here
-   
+
    # Reload systemd
    sudo systemctl daemon-reload
    ```
@@ -321,7 +321,7 @@ curl -H "Authorization: Bearer $MCP_API_KEY" \
    ```bash
    # Wrong: No auth header
    curl http://localhost:8000/api/memories
-   
+
    # Correct: Include auth header
    curl -H "Authorization: Bearer $MCP_API_KEY" http://localhost:8000/api/memories
    ```
@@ -330,7 +330,7 @@ curl -H "Authorization: Bearer $MCP_API_KEY" \
    ```bash
    # Wrong: Missing "Bearer " prefix
    curl -H "Authorization: $MCP_API_KEY" http://localhost:8000/api/memories
-   
+
    # Correct: Include "Bearer " prefix
    curl -H "Authorization: Bearer $MCP_API_KEY" http://localhost:8000/api/memories
    ```
@@ -436,7 +436,7 @@ Debug logs will show:
 For production systems requiring zero downtime:
 
 1. **Multiple Keys**: Implement support for multiple valid keys
-2. **Staged Rollout**: 
+2. **Staged Rollout**:
    - Add new key to server (both keys valid)
    - Update all clients to use new key
    - Remove old key from server

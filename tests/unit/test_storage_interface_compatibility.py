@@ -10,21 +10,21 @@ Added to prevent production bugs like v8.12.0 where:
   - Database-level filtering wasn't uniformly implemented
 """
 
-import pytest
 import inspect
 from abc import ABC
 from typing import get_type_hints
 
+import pytest
+
 
 def get_all_storage_classes():
     """Get all concrete storage backend classes."""
-    from mcp_memory_service.storage.base import MemoryStorage
-    from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
     from mcp_memory_service.storage.qdrant_storage import QdrantStorage
+    from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
     return [
-        ('SqliteVecMemoryStorage', SqliteVecMemoryStorage),
-        ('QdrantStorage', QdrantStorage),
+        ("SqliteVecMemoryStorage", SqliteVecMemoryStorage),
+        ("QdrantStorage", QdrantStorage),
     ]
 
 
@@ -45,8 +45,7 @@ def test_all_backends_inherit_from_base():
     from mcp_memory_service.storage.base import MemoryStorage
 
     for name, storage_class in get_all_storage_classes():
-        assert issubclass(storage_class, MemoryStorage), \
-            f"{name} must inherit from MemoryStorage"
+        assert issubclass(storage_class, MemoryStorage), f"{name} must inherit from MemoryStorage"
 
 
 def test_all_backends_implement_required_methods():
@@ -55,15 +54,13 @@ def test_all_backends_implement_required_methods():
 
     # Get abstract methods from base class
     abstract_methods = {
-        name for name, method in inspect.getmembers(MemoryStorage)
-        if getattr(method, '__isabstractmethod__', False)
+        name for name, method in inspect.getmembers(MemoryStorage) if getattr(method, "__isabstractmethod__", False)
     }
 
     # Each backend must implement all abstract methods
     for name, storage_class in get_all_storage_classes():
         for method_name in abstract_methods:
-            assert hasattr(storage_class, method_name), \
-                f"{name} missing required method: {method_name}"
+            assert hasattr(storage_class, method_name), f"{name} missing required method: {method_name}"
 
 
 def test_store_signature_compatibility():
@@ -80,8 +77,7 @@ def test_store_signature_compatibility():
 
     for name, sig in signatures.items():
         params = list(sig.parameters.keys())[1:]  # Skip 'self'
-        assert params == first_params, \
-            f"{name}.store parameters {params} don't match {first_name} {first_params}"
+        assert params == first_params, f"{name}.store parameters {params} don't match {first_name} {first_params}"
 
 
 def test_get_all_memories_signature_compatibility():
@@ -98,8 +94,7 @@ def test_get_all_memories_signature_compatibility():
 
     for name, sig in signatures.items():
         params = list(sig.parameters.keys())[1:]  # Skip 'self'
-        assert params == first_params, \
-            f"{name}.get_all_memories parameters {params} don't match {first_name} {first_params}"
+        assert params == first_params, f"{name}.get_all_memories parameters {params} don't match {first_name} {first_params}"
 
 
 def test_count_all_memories_signature_compatibility():
@@ -111,7 +106,7 @@ def test_count_all_memories_signature_compatibility():
     signatures = {}
 
     for name, storage_class in get_all_storage_classes():
-        if hasattr(storage_class, 'count_all_memories'):
+        if hasattr(storage_class, "count_all_memories"):
             sig = inspect.signature(storage_class.count_all_memories)
             signatures[name] = sig
 
@@ -122,8 +117,9 @@ def test_count_all_memories_signature_compatibility():
 
         for name, sig in signatures.items():
             params = list(sig.parameters.keys())[1:]  # Skip 'self'
-            assert params == first_params, \
-                f"{name}.count_all_memories parameters {params} don't match {first_name} {first_params}"
+            assert (
+                params == first_params
+            ), f"{name}.count_all_memories parameters {params} don't match {first_name} {first_params}"
 
 
 def test_retrieve_signature_compatibility():
@@ -140,8 +136,7 @@ def test_retrieve_signature_compatibility():
 
     for name, sig in signatures.items():
         params = list(sig.parameters.keys())[1:]  # Skip 'self'
-        assert params == first_params, \
-            f"{name}.retrieve parameters {params} don't match {first_name} {first_params}"
+        assert params == first_params, f"{name}.retrieve parameters {params} don't match {first_name} {first_params}"
 
 
 def test_delete_signature_compatibility():
@@ -158,8 +153,7 @@ def test_delete_signature_compatibility():
 
     for name, sig in signatures.items():
         params = list(sig.parameters.keys())[1:]  # Skip 'self'
-        assert params == first_params, \
-            f"{name}.delete parameters {params} don't match {first_name} {first_params}"
+        assert params == first_params, f"{name}.delete parameters {params} don't match {first_name} {first_params}"
 
 
 def test_get_stats_signature_compatibility():
@@ -176,8 +170,7 @@ def test_get_stats_signature_compatibility():
 
     for name, sig in signatures.items():
         params = list(sig.parameters.keys())[1:]  # Skip 'self'
-        assert params == first_params, \
-            f"{name}.get_stats parameters {params} don't match {first_name} {first_params}"
+        assert params == first_params, f"{name}.get_stats parameters {params} don't match {first_name} {first_params}"
 
 
 def test_all_backends_have_same_public_methods():
@@ -189,20 +182,19 @@ def test_all_backends_have_same_public_methods():
 
     # Get public methods from base class (those without leading underscore)
     base_methods = {
-        name for name, method in inspect.getmembers(MemoryStorage, predicate=inspect.isfunction)
-        if not name.startswith('_')
+        name for name, method in inspect.getmembers(MemoryStorage, predicate=inspect.isfunction) if not name.startswith("_")
     }
 
     for name, storage_class in get_all_storage_classes():
         backend_methods = {
-            method_name for method_name, method in inspect.getmembers(storage_class, predicate=inspect.isfunction)
-            if not method_name.startswith('_')
+            method_name
+            for method_name, method in inspect.getmembers(storage_class, predicate=inspect.isfunction)
+            if not method_name.startswith("_")
         }
 
         # Backend should implement all base methods
         missing = base_methods - backend_methods
-        assert not missing, \
-            f"{name} missing public methods: {missing}"
+        assert not missing, f"{name} missing public methods: {missing}"
 
 
 def test_async_method_consistency():
@@ -214,8 +206,7 @@ def test_async_method_consistency():
 
     # Get all public methods from base class
     base_methods = [
-        name for name, method in inspect.getmembers(MemoryStorage, predicate=inspect.isfunction)
-        if not name.startswith('_')
+        name for name, method in inspect.getmembers(MemoryStorage, predicate=inspect.isfunction) if not name.startswith("_")
     ]
 
     # Track which methods are async in each backend
@@ -232,8 +223,9 @@ def test_async_method_consistency():
     for method_name, async_backends in async_status.items():
         if async_backends:
             all_backends = {name for name, _ in get_all_storage_classes()}
-            assert async_backends == all_backends, \
-                f"{method_name} is async in {async_backends} but not in {all_backends - async_backends}"
+            assert (
+                async_backends == all_backends
+            ), f"{method_name} is async in {async_backends} but not in {all_backends - async_backends}"
 
 
 def test_backends_handle_tags_parameter_consistently():
@@ -242,7 +234,7 @@ def test_backends_handle_tags_parameter_consistently():
     This specifically targets the v8.12.0 bug where count_all_memories()
     had 'tags' in some backends but not others.
     """
-    methods_with_tags = ['get_all_memories', 'count_all_memories']
+    methods_with_tags = ["get_all_memories", "count_all_memories"]
 
     for method_name in methods_with_tags:
         has_tags_param = {}
@@ -250,7 +242,7 @@ def test_backends_handle_tags_parameter_consistently():
         for name, storage_class in get_all_storage_classes():
             if hasattr(storage_class, method_name):
                 sig = inspect.signature(getattr(storage_class, method_name))
-                has_tags_param[name] = 'tags' in sig.parameters
+                has_tags_param[name] = "tags" in sig.parameters
 
         # All backends should handle tags consistently
         if has_tags_param:
@@ -258,8 +250,9 @@ def test_backends_handle_tags_parameter_consistently():
             first_value = has_tags_param[first_name]
 
             for name, has_tags in has_tags_param.items():
-                assert has_tags == first_value, \
-                    f"{name}.{method_name} 'tags' parameter inconsistent: {name}={has_tags}, {first_name}={first_value}"
+                assert (
+                    has_tags == first_value
+                ), f"{name}.{method_name} 'tags' parameter inconsistent: {name}={has_tags}, {first_name}={first_value}"
 
 
 def _normalize_type_str(type_hint) -> str:
@@ -269,11 +262,11 @@ def _normalize_type_str(type_hint) -> str:
     """
     type_str = str(type_hint)
     # Normalize built-in generic aliases to typing module equivalents
-    type_str = type_str.replace('dict[', 'Dict[')
-    type_str = type_str.replace('list[', 'List[')
-    type_str = type_str.replace('tuple[', 'Tuple[')
-    type_str = type_str.replace('set[', 'Set[')
-    type_str = type_str.replace('typing.', '')
+    type_str = type_str.replace("dict[", "Dict[")
+    type_str = type_str.replace("list[", "List[")
+    type_str = type_str.replace("tuple[", "Tuple[")
+    type_str = type_str.replace("set[", "Set[")
+    type_str = type_str.replace("typing.", "")
     return type_str
 
 
@@ -285,7 +278,7 @@ def test_return_type_consistency():
     from mcp_memory_service.storage.base import MemoryStorage
 
     # Methods to check return types
-    methods_to_check = ['get_stats', 'store', 'delete']
+    methods_to_check = ["get_stats", "store", "delete"]
 
     for method_name in methods_to_check:
         if not hasattr(MemoryStorage, method_name):
@@ -298,8 +291,8 @@ def test_return_type_consistency():
                 method = getattr(storage_class, method_name)
                 try:
                     type_hints = get_type_hints(method)
-                    if 'return' in type_hints:
-                        return_types[name] = type_hints['return']
+                    if "return" in type_hints:
+                        return_types[name] = type_hints["return"]
                 except Exception:
                     # Some methods may not have type hints
                     pass
@@ -313,8 +306,9 @@ def test_return_type_consistency():
             for name, return_type in return_types.items():
                 normalized = _normalize_type_str(return_type)
                 # Allow for Coroutine wrappers in async methods
-                assert normalized == first_normalized or 'Coroutine' in normalized, \
-                    f"{name}.{method_name} return type {return_type} doesn't match {first_name} {first_type}"
+                assert (
+                    normalized == first_normalized or "Coroutine" in normalized
+                ), f"{name}.{method_name} return type {return_type} doesn't match {first_name} {first_type}"
 
 
 if __name__ == "__main__":

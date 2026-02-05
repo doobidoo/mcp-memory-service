@@ -17,12 +17,11 @@ CLI utilities for MCP Memory Service.
 """
 
 import os
-from typing import Optional
 
 from ..storage.base import MemoryStorage
 
 
-async def get_storage(backend: Optional[str] = None) -> MemoryStorage:
+async def get_storage(backend: str | None = None) -> MemoryStorage:
     """
     Get storage backend for CLI operations.
 
@@ -33,30 +32,29 @@ async def get_storage(backend: Optional[str] = None) -> MemoryStorage:
         Initialized storage backend
     """
     if backend is None:
-        backend = os.getenv('MCP_MEMORY_STORAGE_BACKEND', 'sqlite_vec').lower()
+        backend = os.getenv("MCP_MEMORY_STORAGE_BACKEND", "sqlite_vec").lower()
 
     backend = backend.lower()
 
-    if backend in ('sqlite_vec', 'sqlite-vec'):
+    if backend in ("sqlite_vec", "sqlite-vec"):
+        from ..config import EMBEDDING_MODEL_NAME, SQLITE_VEC_PATH
         from ..storage.sqlite_vec import SqliteVecMemoryStorage
-        from ..config import SQLITE_VEC_PATH, EMBEDDING_MODEL_NAME
-        storage = SqliteVecMemoryStorage(
-            db_path=SQLITE_VEC_PATH,
-            embedding_model=EMBEDDING_MODEL_NAME
-        )
+
+        storage = SqliteVecMemoryStorage(db_path=SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
         await storage.initialize()
         return storage
 
-    elif backend == 'qdrant':
-        from ..storage.qdrant_storage import QdrantStorage
+    elif backend == "qdrant":
         from ..config import EMBEDDING_MODEL_NAME, settings
+        from ..storage.qdrant_storage import QdrantStorage
+
         if settings.qdrant.url:
             storage = QdrantStorage(
                 url=settings.qdrant.url,
                 embedding_model=EMBEDDING_MODEL_NAME,
                 collection_name=settings.qdrant.COLLECTION_NAME,
                 quantization_enabled=settings.qdrant.quantization_enabled,
-                distance_metric=settings.qdrant.DISTANCE_METRIC
+                distance_metric=settings.qdrant.DISTANCE_METRIC,
             )
         else:
             storage = QdrantStorage(
@@ -64,7 +62,7 @@ async def get_storage(backend: Optional[str] = None) -> MemoryStorage:
                 embedding_model=EMBEDDING_MODEL_NAME,
                 collection_name=settings.qdrant.COLLECTION_NAME,
                 quantization_enabled=settings.qdrant.quantization_enabled,
-                distance_metric=settings.qdrant.DISTANCE_METRIC
+                distance_metric=settings.qdrant.DISTANCE_METRIC,
             )
         await storage.initialize()
         return storage

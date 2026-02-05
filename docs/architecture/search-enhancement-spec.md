@@ -1,9 +1,9 @@
 # Advanced Hybrid Search Enhancement Specification
 
-**Version**: 1.0  
-**Date**: 2025-09-20  
-**Status**: Design Phase  
-**Priority**: High Enhancement  
+**Version**: 1.0
+**Date**: 2025-09-20
+**Status**: Design Phase
+**Priority**: High Enhancement
 
 ## Executive Summary
 
@@ -13,7 +13,7 @@ This document specifies an enterprise-grade hybrid search enhancement that combi
 
 ### Existing Search Capabilities
 - **Semantic Search**: Vector-based similarity using sentence transformers
-- **Tag Search**: Filter by tags with AND/OR operations  
+- **Tag Search**: Filter by tags with AND/OR operations
 - **Time Search**: Natural language time-based filtering
 - **Similar Search**: Find memories similar to a known content hash
 
@@ -373,6 +373,6 @@ The combination of hybrid search, content consolidation, and intelligent relatio
 
 ---
 
-**Document Prepared By**: Claude Code  
-**Review Required**: Development Team, Product Owner  
+**Document Prepared By**: Claude Code
+**Review Required**: Development Team, Product Owner
 **Approval Required**: Technical Lead, Project Stakeholder

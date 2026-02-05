@@ -21,14 +21,13 @@ OAuth 2.1 support removed during security remediation (CVE in python-jose).
 
 import logging
 import secrets
-from typing import Optional
 
-from fastapi import HTTPException, status, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from ...config import (
-    API_KEY,
     ALLOW_ANONYMOUS_ACCESS,
+    API_KEY,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,10 +42,10 @@ class AuthenticationResult:
     def __init__(
         self,
         authenticated: bool,
-        client_id: Optional[str] = None,
-        scope: Optional[str] = None,
-        auth_method: Optional[str] = None,
-        error: Optional[str] = None
+        client_id: str | None = None,
+        scope: str | None = None,
+        auth_method: str | None = None,
+        error: str | None = None,
     ):
         self.authenticated = authenticated
         self.client_id = client_id
@@ -66,14 +65,11 @@ class AuthenticationResult:
         if not self.has_scope(required_scope):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": "insufficient_scope",
-                    "error_description": f"Required scope '{required_scope}' not granted"
-                }
+                detail={"error": "insufficient_scope", "error_description": f"Required scope '{required_scope}' not granted"},
             )
 
 
-def authenticate_api_key(api_key: Optional[str]) -> AuthenticationResult:
+def authenticate_api_key(api_key: str | None) -> AuthenticationResult:
     """
     Validate API key authentication using constant-time comparison.
 
@@ -82,29 +78,17 @@ def authenticate_api_key(api_key: Optional[str]) -> AuthenticationResult:
     """
     if not api_key or not isinstance(api_key, str):
         logger.debug("API key authentication failed: invalid input")
-        return AuthenticationResult(
-            authenticated=False,
-            auth_method="api_key",
-            error="invalid_api_key"
-        )
+        return AuthenticationResult(authenticated=False, auth_method="api_key", error="invalid_api_key")
 
     api_key = api_key.strip()
     if not api_key:
         logger.debug("API key authentication failed: empty key")
-        return AuthenticationResult(
-            authenticated=False,
-            auth_method="api_key",
-            error="invalid_api_key"
-        )
+        return AuthenticationResult(authenticated=False, auth_method="api_key", error="invalid_api_key")
 
     # Check if API key is configured
     if not API_KEY:
         logger.debug("API key authentication failed: no API key configured")
-        return AuthenticationResult(
-            authenticated=False,
-            auth_method="api_key",
-            error="api_key_not_configured"
-        )
+        return AuthenticationResult(authenticated=False, auth_method="api_key", error="api_key_not_configured")
 
     # Validate API key using constant-time comparison (CWE-208 fix)
     if secrets.compare_digest(api_key, API_KEY):
@@ -113,20 +97,14 @@ def authenticate_api_key(api_key: Optional[str]) -> AuthenticationResult:
             authenticated=True,
             client_id="api_key_client",
             scope="read write admin",  # API key gets full access
-            auth_method="api_key"
+            auth_method="api_key",
         )
 
     logger.debug("API key authentication failed: key mismatch")
-    return AuthenticationResult(
-        authenticated=False,
-        auth_method="api_key",
-        error="invalid_api_key"
-    )
+    return AuthenticationResult(authenticated=False, auth_method="api_key", error="invalid_api_key")
 
 
-async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme)
-) -> AuthenticationResult:
+async def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)) -> AuthenticationResult:
     """
     Get current authenticated user.
 
@@ -147,11 +125,8 @@ async def get_current_user(
         # Bearer token provided but not a valid API key
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "error": "invalid_token",
-                "error_description": "Use API key authentication or enable anonymous access."
-            },
-            headers={"WWW-Authenticate": "Bearer"}
+            detail={"error": "invalid_token", "error_description": "Use API key authentication or enable anonymous access."},
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     # Allow anonymous access only if explicitly enabled
@@ -161,7 +136,7 @@ async def get_current_user(
             authenticated=True,
             client_id="anonymous",
             scope="read",  # Read-only: anonymous users cannot modify data (CWE-269 fix)
-            auth_method="none"
+            auth_method="none",
         )
 
     # No credentials provided and anonymous access not allowed
@@ -172,11 +147,8 @@ async def get_current_user(
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail={
-            "error": "authorization_required",
-            "error_description": error_msg
-        },
-        headers={"WWW-Authenticate": "Bearer"}
+        detail={"error": "authorization_required", "error_description": error_msg},
+        headers={"WWW-Authenticate": "Bearer"},
     )
 
 
@@ -187,6 +159,7 @@ def require_scope(scope: str):
     Usage:
         @app.get("/admin", dependencies=[Depends(require_scope("admin"))])
     """
+
     async def scope_dependency(user: AuthenticationResult = Depends(get_current_user)):
         user.require_scope(scope)
         return user

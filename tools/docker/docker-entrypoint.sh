@@ -38,35 +38,35 @@ if [ "${UV_ACTIVE}" = "1" ]; then
     # Start the keep-alive process in the background
     keep_stdin_alive &
     KEEPALIVE_PID=$!
-    
+
     # Run the server
     python -u uv_wrapper.py "$@" &
     SERVER_PID=$!
-    
+
     # Wait for the server process
     wait $SERVER_PID
     SERVER_EXIT_CODE=$?
-    
+
     # Clean up the keep-alive process
     kill $KEEPALIVE_PID 2>/dev/null || true
-    
+
     exit $SERVER_EXIT_CODE
 else
     echo "[INFO] Running directly with Python"
     # Start the keep-alive process in the background
     keep_stdin_alive &
     KEEPALIVE_PID=$!
-    
+
     # Run the server
     python -u -m mcp_memory_service.server "$@" &
     SERVER_PID=$!
-    
+
     # Wait for the server process
     wait $SERVER_PID
     SERVER_EXIT_CODE=$?
-    
+
     # Clean up the keep-alive process
     kill $KEEPALIVE_PID 2>/dev/null || true
-    
+
     exit $SERVER_EXIT_CODE
 fi

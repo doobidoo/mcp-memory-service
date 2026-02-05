@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -25,8 +29,9 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check src/
 
-  test:
+  unit-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -39,11 +44,35 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev
 
-      - name: Run tests
-        run: uv run pytest tests/ -v --tb=short
+      - name: Run unit tests
+        run: uv run pytest tests/unit tests/eval -v --tb=short -m "not slow"
         env:
           MCP_MEMORY_STORAGE_BACKEND: sqlite_vec
           MCP_OAUTH_ENABLED: "false"
+          CUDA_VISIBLE_DEVICES: ""
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: false  # Disabled for PRs - enable for nightly builds
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration -v --tb=short
+        env:
+          MCP_MEMORY_STORAGE_BACKEND: sqlite_vec
+          MCP_OAUTH_ENABLED: "false"
+          CUDA_VISIBLE_DEVICES: ""
 
   docker:
     runs-on: ubuntu-latest
@@ -53,13 +82,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build image
+      - name: Build image (CPU variant)
         uses: docker/build-push-action@v5
         with:
           context: .
           push: false
           load: true
           tags: mcp-memory:test
+          build-args: |
+            CUDA_ENABLED=false
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

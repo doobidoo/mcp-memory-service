@@ -46,7 +46,7 @@ curl -X POST "http://localhost:8080/api/documents/upload" \\
   -F "chunk_size=$CHUNK_SIZE" \\
   -F "chunk_overlap=$CHUNK_OVERLAP" \\
   -F "memory_type=$MEMORY_TYPE" \\
-  
+
 ```
 
 Then I'll monitor the upload progress:

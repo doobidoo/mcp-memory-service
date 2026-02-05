@@ -287,7 +287,7 @@ If migration failed or corrupted data:
    ```bash
    # Clean the target database
    rm /path/to/sqlite_vec.db
-   
+
    # Use enhanced migration
    python scripts/migrate_v5_enhanced.py \
      --chroma-path /path/to/chroma \

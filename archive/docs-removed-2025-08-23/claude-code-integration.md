@@ -14,7 +14,7 @@ Before you begin, ensure you have:
 
 The MCP Memory Service offers **two integration methods** with Claude Code:
 
-### 🎯 Method 1: Conversational Commands (Recommended) 
+### 🎯 Method 1: Conversational Commands (Recommended)
 **New in v2.2.0** - Direct command syntax following the CCPlugins pattern
 
 ### 🔧 Method 2: MCP Server Registration
@@ -153,7 +153,7 @@ claude /memory-store --tags "mDNS,architecture" "Decided to use zeroconf library
 # Later, recall what was decided
 claude /memory-recall "what did we decide about mDNS last week?"
 
-# Search for related technical information  
+# Search for related technical information
 claude /memory-search --tags "mDNS,zeroconf"
 
 # Check if everything is working correctly

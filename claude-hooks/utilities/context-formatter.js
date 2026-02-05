@@ -8,7 +8,7 @@
  */
 function isCLIEnvironment() {
     // Check for Claude Code specific environment indicators
-    return process.env.CLAUDE_CODE_CLI === 'true' || 
+    return process.env.CLAUDE_CODE_CLI === 'true' ||
            process.env.TERM_PROGRAM === 'claude-code' ||
            process.argv.some(arg => arg.includes('claude')) ||
            (process.stdout.isTTY === false); // Explicitly check for non-TTY contexts
@@ -38,39 +38,39 @@ function convertMarkdownToANSI(text, options = {}) {
         stripOnly = false,  // If true, only strip markdown without adding ANSI
         preserveStructure = true  // If true, maintain line breaks and spacing
     } = options;
-    
+
     if (!text || typeof text !== 'string') {
         return text;
     }
-    
+
     // Check if markdown conversion is disabled via environment
     if (process.env.CLAUDE_MARKDOWN_TO_ANSI === 'false') {
         return text;
     }
-    
+
     let processed = text;
-    
+
     // Process headers (must be done before other replacements)
     // H1: # Header -> Bold Cyan
     processed = processed.replace(/^#\s+(.+)$/gm, (match, content) => {
         return stripOnly ? content : `${COLORS.BRIGHT}${COLORS.CYAN}${content}${COLORS.RESET}`;
     });
-    
+
     // H2: ## Header -> Bold Cyan (slightly different from H1 in real terminal apps)
     processed = processed.replace(/^##\s+(.+)$/gm, (match, content) => {
         return stripOnly ? content : `${COLORS.BRIGHT}${COLORS.CYAN}${content}${COLORS.RESET}`;
     });
-    
+
     // H3: ### Header -> Bold
     processed = processed.replace(/^###\s+(.+)$/gm, (match, content) => {
         return stripOnly ? content : `${COLORS.BRIGHT}${content}${COLORS.RESET}`;
     });
-    
+
     // H4-H6: #### Header -> Bold (but could be differentiated if needed)
     processed = processed.replace(/^#{4,6}\s+(.+)$/gm, (match, content) => {
         return stripOnly ? content : `${COLORS.BRIGHT}${content}${COLORS.RESET}`;
     });
-    
+
     // Bold text: **text** or __text__
     processed = processed.replace(/\*\*([^*]+)\*\*/g, (match, content) => {
         return stripOnly ? content : `${COLORS.BRIGHT}${content}${COLORS.RESET}`;
@@ -78,19 +78,19 @@ function convertMarkdownToANSI(text, options = {}) {
     processed = processed.replace(/__([^_]+)__/g, (match, content) => {
         return stripOnly ? content : `${COLORS.BRIGHT}${content}${COLORS.RESET}`;
     });
-    
+
     // Code blocks MUST be processed before inline code to avoid conflicts
     // Code blocks: ```language\ncode\n```
     processed = processed.replace(/```(\w*)\n?([\s\S]*?)```/g, (match, lang, content) => {
         if (stripOnly) {
             return content.trim();
         }
-        const lines = content.trim().split('\n').map(line => 
+        const lines = content.trim().split('\n').map(line =>
             `${COLORS.GRAY}${line}${COLORS.RESET}`
         );
         return lines.join('\n');
     });
-    
+
     // Italic text: *text* or _text_ (avoiding URLs and bold syntax)
     // More conservative pattern to avoid matching within URLs
     processed = processed.replace(/(?<!\*)\*(?!\*)([^*\n]+)(?<!\*)\*(?!\*)/g, (match, content) => {
@@ -99,41 +99,41 @@ function convertMarkdownToANSI(text, options = {}) {
     processed = processed.replace(/(?<!_)_(?!_)([^_\n]+)(?<!_)_(?!_)/g, (match, content) => {
         return stripOnly ? content : `${COLORS.DIM}${content}${COLORS.RESET}`;
     });
-    
+
     // Inline code: `code` (after code blocks to avoid matching backticks in blocks)
     processed = processed.replace(/`([^`]+)`/g, (match, content) => {
         return stripOnly ? content : `${COLORS.GRAY}${content}${COLORS.RESET}`;
     });
-    
+
     // Lists: Convert markdown bullets to better symbols
     // Unordered lists: - item or * item
     processed = processed.replace(/^[\s]*[-*]\s+(.+)$/gm, (match, content) => {
         return stripOnly ? content : `  ${COLORS.CYAN}•${COLORS.RESET} ${content}`;
     });
-    
+
     // Ordered lists: 1. item
     processed = processed.replace(/^[\s]*\d+\.\s+(.+)$/gm, (match, content) => {
         return stripOnly ? content : `  ${COLORS.CYAN}›${COLORS.RESET} ${content}`;
     });
-    
+
     // Links: [text](url) - process before blockquotes so links in quotes work
     processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
         return stripOnly ? text : `${COLORS.CYAN}${text}${COLORS.RESET}`;
     });
-    
+
     // Blockquotes: > quote
     processed = processed.replace(/^>\s+(.+)$/gm, (match, content) => {
         return stripOnly ? content : `${COLORS.DIM}│ ${content}${COLORS.RESET}`;
     });
-    
+
     // Horizontal rules: --- or *** or ___
     processed = processed.replace(/^[-*_]{3,}$/gm, () => {
         return stripOnly ? '' : `${COLORS.DIM}${'─'.repeat(40)}${COLORS.RESET}`;
     });
-    
+
     // Clean up any double resets or color artifacts
     processed = processed.replace(/(\x1b\[0m)+/g, COLORS.RESET);
-    
+
     return processed;
 }
 
@@ -468,12 +468,12 @@ function extractMeaningfulContent(content, maxLength = 500, options = {}) {
     if (!content || typeof content !== 'string') {
         return 'No content available';
     }
-    
+
     const {
         convertMarkdown = isCLIEnvironment(),  // Auto-convert in CLI mode
         stripMarkdown = false  // Just strip without ANSI colors
     } = options;
-    
+
     // Check if this is a session summary with structured sections
     if (content.includes('# Session Summary') || content.includes('## 🎯') || content.includes('## 🏛️') || content.includes('## 💡')) {
         const sections = {
@@ -483,14 +483,14 @@ function extractMeaningfulContent(content, maxLength = 500, options = {}) {
             nextSteps: [],
             topics: []
         };
-        
+
         // Extract structured sections
         const lines = content.split('\n');
         let currentSection = null;
-        
+
         for (const line of lines) {
             const trimmed = line.trim();
-            
+
             if (trimmed.includes('🏛️') && trimmed.includes('Decision')) {
                 currentSection = 'decisions';
                 continue;
@@ -510,7 +510,7 @@ function extractMeaningfulContent(content, maxLength = 500, options = {}) {
                 currentSection = null; // Reset on new major section
                 continue;
             }
-            
+
             // Collect bullet points under current section
             if (currentSection && trimmed.startsWith('- ') && trimmed.length > 2) {
                 const item = trimmed.substring(2).trim();
@@ -519,10 +519,10 @@ function extractMeaningfulContent(content, maxLength = 500, options = {}) {
                 }
             }
         }
-        
+
         // Build meaningful summary from extracted sections
         const meaningfulParts = [];
-        
+
         if (sections.decisions.length > 0) {
             meaningfulParts.push(`Decisions: ${sections.decisions.slice(0, 2).join('; ')}`);
         }
@@ -535,11 +535,11 @@ function extractMeaningfulContent(content, maxLength = 500, options = {}) {
         if (sections.nextSteps.length > 0) {
             meaningfulParts.push(`Next: ${sections.nextSteps.slice(0, 2).join('; ')}`);
         }
-        
+
         if (meaningfulParts.length > 0) {
             const extracted = meaningfulParts.join(' | ');
             const truncated = extracted.length > maxLength ? extracted.substring(0, maxLength - 3) + '...' : extracted;
-            
+
             // Apply markdown conversion if requested
             if (convertMarkdown) {
                 return convertMarkdownToANSI(truncated, { stripOnly: stripMarkdown });
@@ -547,28 +547,28 @@ function extractMeaningfulContent(content, maxLength = 500, options = {}) {
             return truncated;
         }
     }
-    
+
     // For non-structured content, apply markdown conversion first if needed
     let processedContent = content;
     if (convertMarkdown) {
         processedContent = convertMarkdownToANSI(content, { stripOnly: stripMarkdown });
     }
-    
+
     // Then use smart truncation
     if (processedContent.length <= maxLength) {
         return processedContent;
     }
-    
+
     // Try to find a good breaking point (sentence, paragraph, or code block)
     const breakPoints = ['. ', '\n\n', '\n', '; '];
-    
+
     for (const breakPoint of breakPoints) {
         const lastBreak = processedContent.lastIndexOf(breakPoint, maxLength - 3);
         if (lastBreak > maxLength * 0.7) { // Only use if we keep at least 70% of desired length
             return processedContent.substring(0, lastBreak + (breakPoint === '. ' ? 1 : 0)) + '...';
         }
     }
-    
+
     // Fallback to hard truncation
     return processedContent.substring(0, maxLength - 3) + '...';
 }
@@ -580,14 +580,14 @@ function isGenericSessionSummary(content) {
     if (!content || typeof content !== 'string') {
         return true;
     }
-    
+
     // Check for generic patterns
     const genericPatterns = [
         /## 🎯 Topics Discussed\s*-\s*implementation\s*-\s*\.\.\.?$/m,
         /Topics Discussed.*implementation.*\.\.\..*$/s,
         /Session Summary.*implementation.*\.\.\..*$/s
     ];
-    
+
     return genericPatterns.some(pattern => pattern.test(content));
 }
 
@@ -603,35 +603,35 @@ function formatMemory(memory, index = 0, options = {}) {
             includeDate = true,
             showOnlyRelevantTags = true
         } = options;
-        
+
         // Extract meaningful content using smart parsing
         // For non-CLI, strip markdown without adding ANSI colors
         const content = extractMeaningfulContent(
-            memory.content || 'No content available', 
+            memory.content || 'No content available',
             maxContentLength,
             { convertMarkdown: true, stripMarkdown: true }
         );
-        
+
         // Skip generic/empty session summaries
         if (isGenericSessionSummary(memory.content) && !includeScore) {
             return null; // Signal to skip this memory
         }
-        
+
         // Format date more concisely
         let dateStr = '';
         if (includeDate && memory.created_at_iso) {
             const date = new Date(memory.created_at_iso);
             dateStr = ` (${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`;
         }
-        
+
         // Build formatted memory
         let formatted = `${index + 1}. ${content}${dateStr}`;
-        
+
         // Add only the most relevant tags
         if (showOnlyRelevantTags && memory.tags && memory.tags.length > 0) {
             const relevantTags = memory.tags.filter(tag => {
                 const tagLower = tag.toLowerCase();
-                return !tagLower.startsWith('source:') && 
+                return !tagLower.startsWith('source:') &&
                        !tagLower.startsWith('claude-code-session') &&
                        !tagLower.startsWith('session-consolidation') &&
                        tagLower !== 'claude-code' &&
@@ -639,15 +639,15 @@ function formatMemory(memory, index = 0, options = {}) {
                        tagLower !== 'implementation' &&
                        tagLower.length > 2;
             });
-            
+
             // Only show tags if they add meaningful context (max 3)
             if (relevantTags.length > 0 && relevantTags.length <= 5) {
                 formatted += `\n   Tags: ${relevantTags.slice(0, 3).join(', ')}`;
             }
         }
-        
+
         return formatted;
-        
+
     } catch (error) {
         // Silently fail with error message to avoid noise
         return `${index + 1}. [Error formatting memory: ${error.message}]`;
@@ -661,25 +661,25 @@ function deduplicateMemories(memories, options = {}) {
     if (!Array.isArray(memories) || memories.length <= 1) {
         return memories;
     }
-    
+
     const deduplicated = [];
     const seenContent = new Set();
-    
+
     // Sort by relevance score (highest first) and recency
     const sorted = memories.sort((a, b) => {
         const scoreA = a.relevanceScore || 0;
         const scoreB = b.relevanceScore || 0;
         if (scoreA !== scoreB) return scoreB - scoreA;
-        
+
         // If scores are equal, prefer more recent
         const dateA = new Date(a.created_at_iso || 0);
         const dateB = new Date(b.created_at_iso || 0);
         return dateB - dateA;
     });
-    
+
     for (const memory of sorted) {
         const content = memory.content || '';
-        
+
         // Create a normalized version for comparison
         let normalized = content.toLowerCase()
             .replace(/# session summary.*?\n/gi, '') // Remove session headers
@@ -687,12 +687,12 @@ function deduplicateMemories(memories, options = {}) {
             .replace(/\*\*project\*\*:.*?\n/gi, '') // Remove project lines
             .replace(/\s+/g, ' ')                   // Normalize whitespace
             .trim();
-        
+
         // Skip if content is too generic or already seen
         if (normalized.length < 20 || isGenericSessionSummary(content)) {
             continue;
         }
-        
+
         // Check for substantial similarity
         let isDuplicate = false;
         for (const seenNormalized of seenContent) {
@@ -702,13 +702,13 @@ function deduplicateMemories(memories, options = {}) {
                 break;
             }
         }
-        
+
         if (!isDuplicate) {
             seenContent.add(normalized);
             deduplicated.push(memory);
         }
     }
-    
+
     // Only log if in verbose mode (can be passed via options)
     if (options?.verbose !== false && memories.length !== deduplicated.length) {
         console.log(`[Context Formatter] Deduplicated ${memories.length} → ${deduplicated.length} memories`);
@@ -722,17 +722,17 @@ function deduplicateMemories(memories, options = {}) {
 function calculateContentSimilarity(str1, str2) {
     if (!str1 || !str2) return 0;
     if (str1 === str2) return 1;
-    
+
     // Use simple word overlap similarity
     const words1 = new Set(str1.split(/\s+/).filter(w => w.length > 3));
     const words2 = new Set(str2.split(/\s+/).filter(w => w.length > 3));
-    
+
     if (words1.size === 0 && words2.size === 0) return 1;
     if (words1.size === 0 || words2.size === 0) return 0;
-    
+
     const intersection = new Set([...words1].filter(w => words2.has(w)));
     const union = new Set([...words1, ...words2]);
-    
+
     return intersection.size / union.size;
 }
 
@@ -743,7 +743,7 @@ function groupMemoriesByCategory(memories, options = {}) {
     try {
         // First deduplicate to remove redundant content
         const deduplicated = deduplicateMemories(memories, options);
-        
+
         const categories = {
             gitContext: [],
             recent: [],
@@ -754,13 +754,13 @@ function groupMemoriesByCategory(memories, options = {}) {
             features: [],
             other: []
         };
-        
+
         const now = new Date();
-        
+
         deduplicated.forEach(memory => {
             const type = memory.memory_type?.toLowerCase() || 'other';
             const tags = memory.tags || [];
-            
+
             // Check if memory is recent (within last week)
             let isRecent = false;
             if (memory.created_at_iso) {
@@ -768,7 +768,7 @@ function groupMemoriesByCategory(memories, options = {}) {
                 const daysDiff = (now - memDate) / (1000 * 60 * 60 * 24);
                 isRecent = daysDiff <= 7;
             }
-            
+
             // Prioritize git context categorization (highest priority)
             if (memory._gitContextType) {
                 categories.gitContext.push(memory);
@@ -788,9 +788,9 @@ function groupMemoriesByCategory(memories, options = {}) {
                 categories.other.push(memory);
             }
         });
-        
+
         return categories;
-        
+
     } catch (error) {
         if (options?.verbose !== false) {
             console.warn('[Context Formatter] Error grouping memories:', error.message);
@@ -805,29 +805,29 @@ function groupMemoriesByCategory(memories, options = {}) {
 function createProjectSummary(projectContext) {
     try {
         let summary = `**Project**: ${projectContext.name}`;
-        
+
         if (projectContext.language && projectContext.language !== 'Unknown') {
             summary += ` (${projectContext.language})`;
         }
-        
+
         if (projectContext.frameworks && projectContext.frameworks.length > 0) {
             summary += `\n**Frameworks**: ${projectContext.frameworks.join(', ')}`;
         }
-        
+
         if (projectContext.tools && projectContext.tools.length > 0) {
             summary += `\n**Tools**: ${projectContext.tools.join(', ')}`;
         }
-        
+
         if (projectContext.git && projectContext.git.isRepo) {
             summary += `\n**Branch**: ${projectContext.git.branch || 'unknown'}`;
-            
+
             if (projectContext.git.lastCommit) {
                 summary += `\n**Last Commit**: ${projectContext.git.lastCommit}`;
             }
         }
-        
+
         return summary;
-        
+
     } catch (error) {
         // Silently fail with fallback summary
         return `**Project**: ${projectContext.name || 'Unknown Project'}`;
@@ -843,7 +843,7 @@ function formatMemoriesForContext(memories, projectContext, options = {}) {
         if (isCLIEnvironment()) {
             return formatMemoriesForCLI(memories, projectContext, options);
         }
-        
+
         const {
             includeProjectSummary = true,
             includeScore = false,
@@ -853,93 +853,93 @@ function formatMemoriesForContext(memories, projectContext, options = {}) {
             maxContentLength = 500,
             storageInfo = null
         } = options;
-        
+
         if (!memories || memories.length === 0) {
             return `## 📋 Memory Context\n\nNo relevant memories found for this session.\n`;
         }
-        
+
         // Filter out null/generic memories and limit number
         const validMemories = [];
         let memoryIndex = 0;
-        
+
         for (const memory of memories) {
             if (validMemories.length >= maxMemories) break;
-            
+
             const formatted = formatMemory(memory, memoryIndex, {
                 includeScore,
                 maxContentLength: maxContentLength,
                 includeDate: includeTimestamp,
                 showOnlyRelevantTags: true
             });
-            
+
             if (formatted) { // formatMemory returns null for generic summaries
                 validMemories.push({ memory, formatted });
                 memoryIndex++;
             }
         }
-        
+
         if (validMemories.length === 0) {
             return `## 📋 Memory Context\n\nNo meaningful memories found for this session (filtered out generic content).\n`;
         }
-        
+
         // Start building context message
         let contextMessage = '## 🧠 Memory Context Loaded\n\n';
-        
+
         // Add project summary
         if (includeProjectSummary && projectContext) {
             contextMessage += createProjectSummary(projectContext) + '\n\n';
         }
-        
+
         // Add storage information
         if (storageInfo) {
             contextMessage += `**Storage**: ${storageInfo.description}`;
-            
+
             // Add health information if available
             if (storageInfo.health && storageInfo.health.totalMemories > 0) {
                 const memoryCount = storageInfo.health.totalMemories;
                 const dbSize = storageInfo.health.databaseSizeMB;
                 const uniqueTags = storageInfo.health.uniqueTags;
-                
+
                 contextMessage += ` - ${memoryCount} memories`;
                 if (dbSize > 0) contextMessage += `, ${dbSize}MB`;
                 if (uniqueTags > 0) contextMessage += `, ${uniqueTags} unique tags`;
             }
             contextMessage += '\n';
-            
+
             if (storageInfo.location && !storageInfo.location.includes('Configuration Error') && !storageInfo.location.includes('Health parse error')) {
                 contextMessage += `**Location**: \`${storageInfo.location}\`\n`;
             }
-            
+
             if (storageInfo.health && storageInfo.health.embeddingModel && storageInfo.health.embeddingModel !== 'Unknown') {
                 contextMessage += `**Embedding Model**: ${storageInfo.health.embeddingModel}\n`;
             }
-            
+
             contextMessage += '\n';
         }
-        
+
         contextMessage += `**Loaded ${validMemories.length} relevant memories from your project history:**\n\n`;
-        
+
         if (groupByCategory && validMemories.length > 3) {
             // Group and format by category only if we have enough content
             const categories = groupMemoriesByCategory(validMemories.map(v => v.memory));
-            
+
             const categoryTitles = {
                 gitContext: '### ⚡ Current Development (Git Context)',
                 recent: '### 🕒 Recent Work (Last Week)',
                 decisions: '### 🎯 Key Decisions',
-                architecture: '### 🏗️ Architecture & Design', 
+                architecture: '### 🏗️ Architecture & Design',
                 insights: '### 💡 Insights & Learnings',
                 bugs: '### 🐛 Bug Fixes & Issues',
                 features: '### ✨ Features & Implementation',
                 other: '### 📝 Additional Context'
             };
-            
+
             let hasContent = false;
             Object.entries(categories).forEach(([category, categoryMemories]) => {
                 if (categoryMemories.length > 0) {
                     contextMessage += `${categoryTitles[category]}\n`;
                     hasContent = true;
-                    
+
                     categoryMemories.forEach((memory, index) => {
                         const formatted = formatMemory(memory, index, {
                             includeScore,
@@ -953,28 +953,28 @@ function formatMemoriesForContext(memories, projectContext, options = {}) {
                     });
                 }
             });
-            
+
             if (!hasContent) {
                 // Fallback to linear format
                 validMemories.forEach(({ formatted }) => {
                     contextMessage += `${formatted}\n\n`;
                 });
             }
-            
+
         } else {
             // Simple linear formatting for small lists
             validMemories.forEach(({ formatted }) => {
                 contextMessage += `${formatted}\n\n`;
             });
         }
-        
+
         // Add concise footer
         contextMessage += '---\n';
         contextMessage += '*This context was automatically loaded based on your project and recent activities. ';
         contextMessage += 'Use this information to maintain continuity with your previous work and decisions.*';
-        
+
         return contextMessage;
-        
+
     } catch (error) {
         // Return error context without logging to avoid noise
         return `## 📋 Memory Context\n\n*Error loading context: ${error.message}*\n`;
@@ -987,11 +987,11 @@ function formatMemoriesForContext(memories, projectContext, options = {}) {
 function formatSessionConsolidation(sessionData, projectContext) {
     try {
         const timestamp = new Date().toISOString();
-        
+
         let consolidation = `# Session Summary - ${projectContext.name}\n`;
         consolidation += `**Date**: ${new Date().toLocaleDateString()}\n`;
         consolidation += `**Project**: ${projectContext.name} (${projectContext.language})\n\n`;
-        
+
         if (sessionData.topics && sessionData.topics.length > 0) {
             consolidation += `## 🎯 Topics Discussed\n`;
             sessionData.topics.forEach(topic => {
@@ -999,7 +999,7 @@ function formatSessionConsolidation(sessionData, projectContext) {
             });
             consolidation += '\n';
         }
-        
+
         if (sessionData.decisions && sessionData.decisions.length > 0) {
             consolidation += `## 🏛️ Decisions Made\n`;
             sessionData.decisions.forEach(decision => {
@@ -1007,7 +1007,7 @@ function formatSessionConsolidation(sessionData, projectContext) {
             });
             consolidation += '\n';
         }
-        
+
         if (sessionData.insights && sessionData.insights.length > 0) {
             consolidation += `## 💡 Key Insights\n`;
             sessionData.insights.forEach(insight => {
@@ -1015,7 +1015,7 @@ function formatSessionConsolidation(sessionData, projectContext) {
             });
             consolidation += '\n';
         }
-        
+
         if (sessionData.codeChanges && sessionData.codeChanges.length > 0) {
             consolidation += `## 💻 Code Changes\n`;
             sessionData.codeChanges.forEach(change => {
@@ -1023,7 +1023,7 @@ function formatSessionConsolidation(sessionData, projectContext) {
             });
             consolidation += '\n';
         }
-        
+
         if (sessionData.nextSteps && sessionData.nextSteps.length > 0) {
             consolidation += `## 📋 Next Steps\n`;
             sessionData.nextSteps.forEach(step => {
@@ -1031,11 +1031,11 @@ function formatSessionConsolidation(sessionData, projectContext) {
             });
             consolidation += '\n';
         }
-        
+
         consolidation += `---\n*Session captured by Claude Code Memory Awareness at ${timestamp}*`;
-        
+
         return consolidation;
-        
+
     } catch (error) {
         // Return error without logging to avoid noise
         return `Session Summary Error: ${error.message}`;
@@ -1094,7 +1094,7 @@ if (require.main === module) {
             relevanceScore: 0.78
         }
     ];
-    
+
     const mockProjectContext = {
         name: 'mcp-memory-service',
         language: 'JavaScript',
@@ -1103,13 +1103,13 @@ if (require.main === module) {
         branch: 'main',
         lastCommit: 'cdabc9a feat: enhance deduplication script'
     };
-    
+
     console.log('\n=== CONTEXT FORMATTING TEST ===');
     const formatted = formatMemoriesForContext(mockMemories, mockProjectContext, {
         includeScore: true,
         groupByCategory: true
     });
-    
+
     console.log(formatted);
     console.log('\n=== END TEST ===');
 }

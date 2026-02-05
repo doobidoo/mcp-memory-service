@@ -1,6 +1,6 @@
 {
   "name": "mcp-integration-tests",
-  "version": "1.0.0", 
+  "version": "1.0.0",
   "description": "Integration tests for HTTP-MCP bridge",
   "main": "test_bridge_integration.js",
   "scripts": {

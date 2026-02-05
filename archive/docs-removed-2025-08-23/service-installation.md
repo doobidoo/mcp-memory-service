@@ -246,15 +246,15 @@ To change your API key after installation:
    # Linux (system service)
    sudo systemctl daemon-reload
    sudo systemctl restart mcp-memory
-   
+
    # Linux (user service)
    systemctl --user daemon-reload
    systemctl --user restart mcp-memory
-   
+
    # macOS
    launchctl unload ~/Library/LaunchAgents/com.mcp.memory-service.plist
    launchctl load ~/Library/LaunchAgents/com.mcp.memory-service.plist
-   
+
    # Or use the installer
    python install_service.py --restart
    ```

@@ -6,10 +6,10 @@ Only API key authentication and anonymous access are currently supported.
 
 from .middleware import (
     AuthenticationResult,
+    get_current_user,
+    require_admin_access,
     require_read_access,
     require_write_access,
-    require_admin_access,
-    get_current_user,
 )
 
 __all__ = [

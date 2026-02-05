@@ -6,12 +6,12 @@ This script checks if the HTTP server is accessible and provides
 helpful feedback to users about how to start it if it's not running.
 """
 
-import sys
-import os
-from urllib.request import urlopen, Request
-from urllib.error import URLError, HTTPError
 import json
+import os
 import ssl
+import sys
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 
 def check_http_server(verbose: bool = False) -> bool:
@@ -25,9 +25,9 @@ def check_http_server(verbose: bool = False) -> bool:
         bool: True if server is running, False otherwise
     """
     # Determine the endpoint from environment
-    https_enabled = os.getenv('MCP_HTTPS_ENABLED', 'false').lower() == 'true'
-    http_port = int(os.getenv('MCP_HTTP_PORT', '8000'))
-    https_port = int(os.getenv('MCP_HTTPS_PORT', '8443'))
+    https_enabled = os.getenv("MCP_HTTPS_ENABLED", "false").lower() == "true"
+    http_port = int(os.getenv("MCP_HTTP_PORT", "8000"))
+    https_port = int(os.getenv("MCP_HTTPS_PORT", "8443"))
 
     if https_enabled:
         endpoint = f"https://localhost:{https_port}/api/health"
@@ -43,7 +43,7 @@ def check_http_server(verbose: bool = False) -> bool:
         req = Request(endpoint)
         with urlopen(req, timeout=3, context=ctx) as response:
             if response.status == 200:
-                data = json.loads(response.read().decode('utf-8'))
+                data = json.loads(response.read().decode("utf-8"))
                 if verbose:
                     print("[OK] HTTP server is running")
                     print(f"   Version: {data.get('version', 'unknown')}")
@@ -57,10 +57,10 @@ def check_http_server(verbose: bool = False) -> bool:
     except (URLError, HTTPError, json.JSONDecodeError) as e:
         if verbose:
             print("[ERROR] HTTP server is NOT running")
-            print(f"\nTo start the HTTP server, run:")
-            print(f"   uv run python scripts/server/run_http_server.py")
-            print(f"\n   Or for HTTPS:")
-            print(f"   MCP_HTTPS_ENABLED=true uv run python scripts/server/run_http_server.py")
+            print("\nTo start the HTTP server, run:")
+            print("   uv run python scripts/server/run_http_server.py")
+            print("\n   Or for HTTPS:")
+            print("   MCP_HTTPS_ENABLED=true uv run python scripts/server/run_http_server.py")
             print(f"\nError: {str(e)}")
         return False
 
@@ -69,13 +69,9 @@ def main():
     """Main entry point for CLI usage."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Check if MCP Memory Service HTTP server is running"
-    )
+    parser = argparse.ArgumentParser(description="Check if MCP Memory Service HTTP server is running")
     parser.add_argument(
-        "-q", "--quiet",
-        action="store_true",
-        help="Only return exit code (0=running, 1=not running), no output."
+        "-q", "--quiet", action="store_true", help="Only return exit code (0=running, 1=not running), no output."
     )
 
     args = parser.parse_args()

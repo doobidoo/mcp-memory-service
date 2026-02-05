@@ -16,8 +16,8 @@ fi
 
 # Get conflicts
 CONFLICTS=$(sqlite3 "$STAGING_DB" "
-SELECT id, content, staged_at, conflict_status 
-FROM staged_memories 
+SELECT id, content, staged_at, conflict_status
+FROM staged_memories
 WHERE conflict_status IN ('detected', 'push_failed')
 ORDER BY staged_at DESC;
 ")
@@ -41,14 +41,14 @@ echo "$CONFLICTS" | while IFS='|' read -r id content staged_at status; do
     echo "  2. Delete (abandon change)"
     echo "  3. Skip for now"
     echo ""
-    
+
     read -p "Choose action (1/2/3): " action
-    
+
     case $action in
         1)
             sqlite3 "$STAGING_DB" "
-            UPDATE staged_memories 
-            SET conflict_status = 'none' 
+            UPDATE staged_memories
+            SET conflict_status = 'none'
             WHERE id = '$id';
             "
             echo -e "${GREEN}Marked for retry${NC}"

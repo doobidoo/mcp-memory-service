@@ -47,16 +47,16 @@ graph TB
     LMS --> MCP
     VSC --> MCP
     GEN --> MCP
-    
+
     MCP --> SRV
     HTTP --> SRV
     WEB --> HTTP
-    
+
     SRV --> AUTH
     SRV --> CACHE
     SRV --> EMB
     SRV --> ABS
-    
+
     ABS --> HYBRID
     ABS --> CLOUDFLARE
     ABS --> SQLITE
@@ -69,7 +69,7 @@ graph TB
     SQLITE --> DB
     REMOTE --> HTTP
     CHROMA --> DB
-    
+
     DB --> FS
     SRV --> MDNS
 ```

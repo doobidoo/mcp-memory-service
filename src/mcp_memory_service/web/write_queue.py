@@ -21,8 +21,9 @@ Usage:
 
 import asyncio
 import logging
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
 from datetime import datetime
+from typing import Any
 
 from fastapi import HTTPException
 
@@ -103,9 +104,7 @@ class WriteQueue:
         """
         if self.queue.full():
             current_size = self.queue.qsize()
-            logger.warning(
-                f"Write queue full ({current_size}/{self.max_size}), rejecting operation"
-            )
+            logger.warning(f"Write queue full ({current_size}/{self.max_size}), rejecting operation")
             raise HTTPException(
                 status_code=429,
                 detail=f"Write queue full ({current_size}/{self.max_size}), please retry after 5 seconds",
@@ -116,9 +115,7 @@ class WriteQueue:
         await self.queue.put(write_op)
 
         queue_size = self.queue.qsize()
-        logger.debug(
-            f"Operation enqueued, queue size: {queue_size}/{self.max_size}"
-        )
+        logger.debug(f"Operation enqueued, queue size: {queue_size}/{self.max_size}")
 
         return write_op.future
 
@@ -146,9 +143,7 @@ class WriteQueue:
 
                 while not self.queue.empty():
                     try:
-                        write_op = await asyncio.wait_for(
-                            self.queue.get(), timeout=1.0
-                        )
+                        write_op = await asyncio.wait_for(self.queue.get(), timeout=1.0)
 
                         # Calculate queue latency
                         latency = (datetime.now() - write_op.enqueued_at).total_seconds()
@@ -172,9 +167,7 @@ class WriteQueue:
                             exc_info=True,
                         )
 
-                logger.debug(
-                    f"Queue processor finished: {processed} processed, {errors} errors"
-                )
+                logger.debug(f"Queue processor finished: {processed} processed, {errors} errors")
         else:
             logger.debug("Queue processor already running, skipping")
 

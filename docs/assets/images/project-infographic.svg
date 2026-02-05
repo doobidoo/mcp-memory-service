@@ -1,16 +1,16 @@
 <svg width="800" height="1200" viewBox="0 0 800 1200" xmlns="http://www.w3.org/2000/svg">
   <!-- Background -->
   <rect width="800" height="1200" fill="#f8f9fa"/>
-  
+
   <!-- Header -->
   <rect width="800" height="120" fill="#1a1a1a"/>
   <text x="400" y="60" font-family="Arial, sans-serif" font-size="36" font-weight="bold" fill="white" text-anchor="middle">MCP Memory Service</text>
   <text x="400" y="90" font-family="Arial, sans-serif" font-size="18" fill="#888" text-anchor="middle">Production-Ready Knowledge Management Platform</text>
-  
+
   <!-- Performance Metrics Section -->
   <g transform="translate(0, 140)">
     <text x="400" y="30" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="#333" text-anchor="middle">Performance Metrics</text>
-    
+
     <!-- Metric Cards -->
     <g transform="translate(50, 60)">
       <!-- Card 1 -->
@@ -18,19 +18,19 @@
       <text x="80" y="35" font-family="Arial, sans-serif" font-size="32" font-weight="bold" fill="#1976d2" text-anchor="middle">319+</text>
       <text x="80" y="60" font-family="Arial, sans-serif" font-size="14" fill="#555" text-anchor="middle">Memories</text>
       <text x="80" y="80" font-family="Arial, sans-serif" font-size="14" fill="#555" text-anchor="middle">Managed</text>
-      
+
       <!-- Card 2 -->
       <rect x="190" y="0" width="160" height="100" rx="10" fill="#e8f5e9" stroke="#4caf50" stroke-width="2"/>
       <text x="270" y="35" font-family="Arial, sans-serif" font-size="32" font-weight="bold" fill="#388e3c" text-anchor="middle">828ms</text>
       <text x="270" y="60" font-family="Arial, sans-serif" font-size="14" fill="#555" text-anchor="middle">Avg Query</text>
       <text x="270" y="80" font-family="Arial, sans-serif" font-size="14" fill="#555" text-anchor="middle">Time</text>
-      
+
       <!-- Card 3 -->
       <rect x="380" y="0" width="160" height="100" rx="10" fill="#fff3e0" stroke="#ff9800" stroke-width="2"/>
       <text x="460" y="35" font-family="Arial, sans-serif" font-size="32" font-weight="bold" fill="#f57c00" text-anchor="middle">100%</text>
       <text x="460" y="60" font-family="Arial, sans-serif" font-size="14" fill="#555" text-anchor="middle">Cache Hit</text>
       <text x="460" y="80" font-family="Arial, sans-serif" font-size="14" fill="#555" text-anchor="middle">Ratio</text>
-      
+
       <!-- Card 4 -->
       <rect x="570" y="0" width="160" height="100" rx="10" fill="#fce4ec" stroke="#e91e63" stroke-width="2"/>
       <text x="650" y="35" font-family="Arial, sans-serif" font-size="32" font-weight="bold" fill="#c2185b" text-anchor="middle">20MB</text>
@@ -38,11 +38,11 @@
       <text x="650" y="80" font-family="Arial, sans-serif" font-size="14" fill="#555" text-anchor="middle">Storage</text>
     </g>
   </g>
-  
+
   <!-- Features Section -->
   <g transform="translate(0, 380)">
     <text x="400" y="30" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="#333" text-anchor="middle">16 Comprehensive Operations</text>
-    
+
     <!-- Feature Categories -->
     <g transform="translate(50, 60)">
       <!-- Memory Operations -->
@@ -54,7 +54,7 @@
       <text x="15" y="110" font-family="Arial, sans-serif" font-size="14" fill="#555">• delete_memory</text>
       <text x="15" y="130" font-family="Arial, sans-serif" font-size="14" fill="#555">• update_metadata</text>
       <text x="15" y="150" font-family="Arial, sans-serif" font-size="14" fill="#555">• exact_match_retrieve</text>
-      
+
       <!-- Database Management -->
       <rect x="250" y="0" width="220" height="180" rx="10" fill="#f5f5f5" stroke="#999" stroke-width="1"/>
       <text x="360" y="25" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#333" text-anchor="middle">Database Management</text>
@@ -63,7 +63,7 @@
       <text x="265" y="90" font-family="Arial, sans-serif" font-size="14" fill="#555">• check_health</text>
       <text x="265" y="110" font-family="Arial, sans-serif" font-size="14" fill="#555">• get_stats</text>
       <text x="265" y="130" font-family="Arial, sans-serif" font-size="14" fill="#555">• cleanup_duplicates</text>
-      
+
       <!-- Advanced Features -->
       <rect x="500" y="0" width="200" height="180" rx="10" fill="#f5f5f5" stroke="#999" stroke-width="1"/>
       <text x="600" y="25" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#333" text-anchor="middle">Advanced Features</text>
@@ -73,38 +73,38 @@
       <text x="515" y="110" font-family="Arial, sans-serif" font-size="14" fill="#555">• check_embedding</text>
     </g>
   </g>
-  
+
   <!-- Architecture -->
   <g transform="translate(0, 650)">
     <text x="400" y="30" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="#333" text-anchor="middle">Architecture Stack</text>
-    
+
     <g transform="translate(150, 60)">
       <!-- Stack layers -->
       <rect x="0" y="0" width="500" height="50" rx="5" fill="#4a90e2" stroke="#357abd" stroke-width="2"/>
       <text x="250" y="30" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="white" text-anchor="middle">React Dashboard + Real-time Statistics</text>
-      
+
       <rect x="0" y="60" width="500" height="50" rx="5" fill="#5cb85c" stroke="#449d44" stroke-width="2"/>
       <text x="250" y="90" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="white" text-anchor="middle">MCP Protocol (stdin/stdout)</text>
-      
+
       <rect x="0" y="120" width="500" height="50" rx="5" fill="#f0ad4e" stroke="#ec971f" stroke-width="2"/>
       <text x="250" y="150" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="white" text-anchor="middle">Python Server + Sentence Transformers</text>
-      
+
       <rect x="0" y="180" width="500" height="50" rx="5" fill="#d9534f" stroke="#c9302c" stroke-width="2"/>
       <text x="250" y="210" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="white" text-anchor="middle">ChromaDB Vector Storage</text>
     </g>
   </g>
-  
+
   <!-- Sponsorship CTA -->
   <g transform="translate(0, 950)">
     <rect x="50" y="0" width="700" height="200" rx="15" fill="#1a1a1a"/>
     <text x="400" y="40" font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="white" text-anchor="middle">Support Open Source Development</text>
-    
+
     <text x="400" y="80" font-family="Arial, sans-serif" font-size="16" fill="#ccc" text-anchor="middle">Your sponsorship enables:</text>
     <text x="200" y="110" font-family="Arial, sans-serif" font-size="14" fill="#aaa">✓ New feature development</text>
     <text x="200" y="135" font-family="Arial, sans-serif" font-size="14" fill="#aaa">✓ Bug fixes &amp; maintenance</text>
     <text x="450" y="110" font-family="Arial, sans-serif" font-size="14" fill="#aaa">✓ Documentation improvements</text>
     <text x="450" y="135" font-family="Arial, sans-serif" font-size="14" fill="#aaa">✓ Community support</text>
-    
+
     <rect x="300" y="155" width="200" height="35" rx="20" fill="#ea4aaa" stroke="none"/>
     <text x="400" y="178" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="white" text-anchor="middle">Become a Sponsor</text>
   </g>

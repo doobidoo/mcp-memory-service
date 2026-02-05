@@ -12,28 +12,24 @@ Tests:
 import asyncio
 import hashlib
 import json
-import os
 import platform
-import shutil
-import tempfile
-import time
 import random
-from pathlib import Path
-from typing import Dict, List, Any
-from unittest.mock import patch, MagicMock
+import shutil
+import time
 import uuid
+from unittest.mock import patch
 
-import pytest
-import psutil
 import numpy as np
+import psutil
+import pytest
+from src.mcp_memory_service.models.memory import Memory
 
 # Import real Qdrant and storage classes
 from src.mcp_memory_service.storage.qdrant_storage import QdrantStorage
 from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-from src.mcp_memory_service.models.memory import Memory
 
 
-def create_deterministic_embedding(text: str, vector_size: int = 384) -> List[float]:
+def create_deterministic_embedding(text: str, vector_size: int = 384) -> list[float]:
     """
     Create a deterministic embedding based on text content.
 
@@ -66,22 +62,21 @@ class TestQdrantIntegration:
         storage_path.mkdir(exist_ok=True)
 
         storage = QdrantStorage(
-            storage_path=str(storage_path),
-            embedding_model="all-MiniLM-L6-v2",
-            collection_name="test_memories"
+            storage_path=str(storage_path), embedding_model="all-MiniLM-L6-v2", collection_name="test_memories"
         )
 
         # Mock the embedding generation to avoid downloading models
-        def mock_embedding(text: str) -> List[float]:
+        def mock_embedding(text: str) -> list[float]:
             return create_deterministic_embedding(text, vector_size=384)
 
-        async def mock_query_embedding(query: str) -> List[float]:
+        async def mock_query_embedding(query: str) -> list[float]:
             return create_deterministic_embedding(query, vector_size=384)
 
         # Create a mock embedding service
         class MockEmbeddingService:
             def encode(self, texts, convert_to_numpy=False):
                 import numpy as np
+
                 result = [create_deterministic_embedding(text, vector_size=384) for text in texts]
                 if convert_to_numpy:
                     return np.array(result)
@@ -102,20 +97,17 @@ class TestQdrantIntegration:
     async def sqlite_storage(self, tmp_path, monkeypatch):
         """Create SQLite storage for migration tests with mocked embeddings."""
         db_path = tmp_path / "sqlite_vec.db"
-        storage = SqliteVecMemoryStorage(
-            db_path=str(db_path),
-            embedding_model="all-MiniLM-L6-v2"
-        )
+        storage = SqliteVecMemoryStorage(db_path=str(db_path), embedding_model="all-MiniLM-L6-v2")
 
         # Mock the embedding generation to avoid downloading models
-        def mock_embedding(text: str) -> List[float]:
+        def mock_embedding(text: str) -> list[float]:
             return create_deterministic_embedding(text, vector_size=384)
 
         monkeypatch.setattr(storage, "_generate_embedding", mock_embedding)
 
         await storage.initialize()
         yield storage
-        if hasattr(storage, 'close'):
+        if hasattr(storage, "close"):
             await storage.close()
 
     @pytest.mark.asyncio
@@ -130,7 +122,7 @@ class TestQdrantIntegration:
                 content=content,
                 content_hash=content_hash,
                 tags=[f"tag{i % 5}", "integration", "test"],
-                metadata={"index": i, "test": "end_to_end"}
+                metadata={"index": i, "test": "end_to_end"},
             )
             success, msg = await qdrant_storage.store(memory)
             assert success, f"Failed to store memory: {msg}"
@@ -140,19 +132,12 @@ class TestQdrantIntegration:
         assert len(stored_hashes) == 100
 
         # Retrieve similar memories
-        retrieve_results = await qdrant_storage.retrieve(
-            "Testing Qdrant integration",
-            n_results=10
-        )
+        retrieve_results = await qdrant_storage.retrieve("Testing Qdrant integration", n_results=10)
         assert len(retrieve_results) > 0
         assert all("integration" in r.tags for r in retrieve_results)
 
         # Filter by tags
-        tag_results = await qdrant_storage.retrieve(
-            "memory",
-            n_results=50,
-            tags=["tag0"]
-        )
+        tag_results = await qdrant_storage.retrieve("memory", n_results=50, tags=["tag0"])
         assert len(tag_results) == 20  # 100 memories, i % 5 == 0 for 20 of them
 
         # Update existing memory (upsert)
@@ -161,16 +146,13 @@ class TestQdrantIntegration:
             content=update_content,
             content_hash=hashlib.sha256(update_content.encode()).hexdigest(),
             tags=["updated", "test"],
-            metadata={"updated": True}
+            metadata={"updated": True},
         )
         success, msg = await qdrant_storage.store(updated_memory)
         assert success, f"Failed to update memory: {msg}"
 
         # Verify update
-        search_updated = await qdrant_storage.retrieve(
-            updated_memory.content,
-            n_results=1
-        )
+        search_updated = await qdrant_storage.retrieve(updated_memory.content, n_results=1)
         assert len(search_updated) > 0
         assert "updated" in search_updated[0].tags
 
@@ -193,10 +175,7 @@ class TestQdrantIntegration:
             content = f"Performance test memory {i}: {uuid.uuid4()}"
             content_hash = hashlib.sha256(content.encode()).hexdigest()
             memory = Memory(
-                content=content,
-                content_hash=content_hash,
-                tags=[f"perf{i % 10}", "benchmark"],
-                metadata={"index": i}
+                content=content, content_hash=content_hash, tags=[f"perf{i % 10}", "benchmark"], metadata={"index": i}
             )
             await qdrant_storage.store(memory)
         store_time = time.time() - start_time
@@ -219,10 +198,7 @@ class TestQdrantIntegration:
             content = f"Performance test memory {i}: {uuid.uuid4()}"
             content_hash = hashlib.sha256(content.encode()).hexdigest()
             memory = Memory(
-                content=content,
-                content_hash=content_hash,
-                tags=[f"perf{i % 10}", "benchmark"],
-                metadata={"index": i}
+                content=content, content_hash=content_hash, tags=[f"perf{i % 10}", "benchmark"], metadata={"index": i}
             )
             await qdrant_storage.store(memory)
 
@@ -240,7 +216,7 @@ class TestQdrantIntegration:
         p50_latency_10k = np.percentile(latencies_10k, 50)
         assert p50_latency_10k < 80, f"P50 latency @ 10K {p50_latency_10k}ms exceeds 80ms target"
 
-        print(f"\nPerformance Results:")
+        print("\nPerformance Results:")
         print(f"  Store 1K memories: {store_time:.2f}s")
         print(f"  P50 latency @ 1K: {p50_latency:.2f}ms")
         print(f"  P95 latency @ 1K: {p95_latency:.2f}ms")
@@ -259,7 +235,7 @@ class TestQdrantIntegration:
                 content=content,
                 content_hash=content_hash,
                 tags=[f"migrate{i % 5}", "sqlite", "test"],
-                metadata={"index": i, "source": "sqlite"}
+                metadata={"index": i, "source": "sqlite"},
             )
             await sqlite_storage.store(memory)
             sqlite_memories.append(memory)
@@ -305,12 +281,7 @@ class TestQdrantIntegration:
         for i in range(100):
             content = f"Failure test memory {i}: {uuid.uuid4()}"
             content_hash = hashlib.sha256(content.encode()).hexdigest()
-            memory = Memory(
-                content=content,
-                content_hash=content_hash,
-                tags=[f"fail{i % 5}", "test"],
-                metadata={"index": i}
-            )
+            memory = Memory(content=content, content_hash=content_hash, tags=[f"fail{i % 5}", "test"], metadata={"index": i})
             await sqlite_storage.store(memory)
             sqlite_memories.append(memory)
 
@@ -330,11 +301,11 @@ class TestQdrantIntegration:
 
                     # Save checkpoint every batch
                     if (i + 1) % batch_size == 0:
-                        with open(checkpoint_file, 'w') as f:
+                        with open(checkpoint_file, "w") as f:
                             json.dump(checkpoint, f)
 
         # Resume from checkpoint
-        with open(checkpoint_file, 'r') as f:
+        with open(checkpoint_file) as f:
             resumed_checkpoint = json.load(f)
 
         assert resumed_checkpoint["last_index"] == 49
@@ -379,14 +350,12 @@ class TestQdrantIntegration:
         assert len(retry_checkpoint["migrated"]) == 30
 
         # Test 3: Disk full simulation
-        with patch('pathlib.Path.mkdir') as mock_mkdir:
+        with patch("pathlib.Path.mkdir") as mock_mkdir:
             mock_mkdir.side_effect = OSError("No space left on device")
 
             with pytest.raises(OSError) as exc_info:
                 temp_storage = QdrantStorage(
-                    storage_path="/tmp/full_disk_test",
-                    embedding_model="all-MiniLM-L6-v2",
-                    collection_name="test"
+                    storage_path="/tmp/full_disk_test", embedding_model="all-MiniLM-L6-v2", collection_name="test"
                 )
                 await temp_storage.initialize()
 
@@ -406,7 +375,7 @@ class TestQdrantIntegration:
                     content=content,
                     content_hash=content_hash,
                     tags=["concurrent", f"writer{task_id}"],
-                    metadata={"writer": task_id, "index": i}
+                    metadata={"writer": task_id, "index": i},
                 )
                 await qdrant_storage.store(memory)
                 await asyncio.sleep(0.01)  # Small delay to interleave operations
@@ -414,11 +383,8 @@ class TestQdrantIntegration:
         async def read_task(task_id: int):
             """Read memories concurrently."""
             results = []
-            for i in range(5):
-                result = await qdrant_storage.retrieve(
-                    "Concurrent write",
-                    n_results=10
-                )
+            for _i in range(5):
+                result = await qdrant_storage.retrieve("Concurrent write", n_results=10)
                 results.append(len(result))
                 await asyncio.sleep(0.02)  # Small delay
             return results
@@ -445,13 +411,11 @@ class TestQdrantIntegration:
                 content=duplicate_content,
                 content_hash=duplicate_hash,
                 tags=["duplicate", f"task{task_id}"],
-                metadata={"task": task_id}
+                metadata={"task": task_id},
             )
             return await qdrant_storage.store(memory)
 
-        duplicate_results = await asyncio.gather(
-            *[duplicate_write(i) for i in range(10)]
-        )
+        duplicate_results = await asyncio.gather(*[duplicate_write(i) for i in range(10)])
 
         # All writes should succeed (upsert)
         assert all(r[0] for r in duplicate_results)  # Check success flag
@@ -470,12 +434,7 @@ class TestQdrantIntegration:
             for i in range(20):
                 content = f"Mixed op store {i}: {uuid.uuid4()}"
                 content_hash = hashlib.sha256(content.encode()).hexdigest()
-                memory = Memory(
-                    content=content,
-                    content_hash=content_hash,
-                    tags=["mixed"],
-                    metadata={"op": "store", "index": i}
-                )
+                memory = Memory(content=content, content_hash=content_hash, tags=["mixed"], metadata={"op": "store", "index": i})
                 op = qdrant_storage.store(memory)
                 operations.append(op)
 
@@ -494,12 +453,7 @@ class TestQdrantIntegration:
             for i in range(5):
                 content = f"Temp for deletion {i}"
                 content_hash = hashlib.sha256(content.encode()).hexdigest()
-                memory = Memory(
-                    content=content,
-                    content_hash=content_hash,
-                    tags=["temp"],
-                    metadata={"temp": True}
-                )
+                memory = Memory(content=content, content_hash=content_hash, tags=["temp"], metadata={"temp": True})
                 success, msg = await qdrant_storage.store(memory)
                 if success:
                     temp_hashes.append(memory.content_hash)
@@ -526,9 +480,7 @@ class TestQdrantIntegration:
 
         rapid_tasks = []
         for i in range(100):
-            rapid_tasks.append(
-                qdrant_storage.retrieve(f"rapid test {i % 10}", n_results=1)
-            )
+            rapid_tasks.append(qdrant_storage.retrieve(f"rapid test {i % 10}", n_results=1))
 
         rapid_results = await asyncio.gather(*rapid_tasks, return_exceptions=True)
 
@@ -537,10 +489,7 @@ class TestQdrantIntegration:
         assert len(successful) > 90  # Allow up to 10% failures under extreme load
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif(
-        platform.machine().lower() not in ["aarch64", "arm64"],
-        reason="ARM64-specific test"
-    )
+    @pytest.mark.skipif(platform.machine().lower() not in ["aarch64", "arm64"], reason="ARM64-specific test")
     async def test_arm64_platform_integration(self, qdrant_storage):
         """Test ARM64 platform-specific integration."""
         # This test runs only on ARM64 platforms
@@ -553,10 +502,7 @@ class TestQdrantIntegration:
             content = f"ARM64 test memory {i}"
             content_hash = hashlib.sha256(content.encode()).hexdigest()
             memory = Memory(
-                content=content,
-                content_hash=content_hash,
-                tags=["arm64", "platform"],
-                metadata={"platform": platform.machine()}
+                content=content, content_hash=content_hash, tags=["arm64", "platform"], metadata={"platform": platform.machine()}
             )
             await qdrant_storage.store(memory)
 
@@ -579,11 +525,11 @@ class TestQdrantIntegration:
         storage_a = QdrantStorage(
             storage_path=str(tmp_path / "model_a"),
             embedding_model="all-MiniLM-L6-v2",  # 384 dimensions
-            collection_name="memories_a"
+            collection_name="memories_a",
         )
 
         # Mock embedding generation
-        def mock_embedding(text: str) -> List[float]:
+        def mock_embedding(text: str) -> list[float]:
             return create_deterministic_embedding(text, vector_size=384)
 
         monkeypatch.setattr(storage_a, "_generate_embedding", mock_embedding)
@@ -599,7 +545,7 @@ class TestQdrantIntegration:
                 content=content,
                 content_hash=content_hash,
                 tags=[f"model{i % 5}", "test"],
-                metadata={"index": i, "model": "MiniLM"}
+                metadata={"index": i, "model": "MiniLM"},
             )
             success, msg = await storage_a.store(memory)
             if success:
@@ -609,11 +555,11 @@ class TestQdrantIntegration:
         storage_b = QdrantStorage(
             storage_path=str(tmp_path / "model_b"),
             embedding_model="sentence-transformers/all-mpnet-base-v2",  # 768 dimensions
-            collection_name="memories_b"
+            collection_name="memories_b",
         )
 
         # Mock embedding generation for model B (different dimension for testing)
-        def mock_embedding_b(text: str) -> List[float]:
+        def mock_embedding_b(text: str) -> list[float]:
             return create_deterministic_embedding(text, vector_size=384)  # Note: still 384 for test compatibility
 
         monkeypatch.setattr(storage_b, "_generate_embedding", mock_embedding_b)
@@ -633,10 +579,7 @@ class TestQdrantIntegration:
                     if success:
                         checkpoint["re_embedded"].append(original.content_hash)
             except Exception as e:
-                checkpoint["failed"].append({
-                    "hash": memory.content_hash,
-                    "error": str(e)
-                })
+                checkpoint["failed"].append({"hash": memory.content_hash, "error": str(e)})
 
         # Verify all re-embedded
         assert len(checkpoint["re_embedded"]) == 100
@@ -661,13 +604,11 @@ class TestQdrantIntegration:
     async def test_collection_backup_and_rollback(self, tmp_path, monkeypatch):
         """Test collection backup and rollback functionality."""
         storage = QdrantStorage(
-            storage_path=str(tmp_path / "backup_test"),
-            embedding_model="all-MiniLM-L6-v2",
-            collection_name="main_collection"
+            storage_path=str(tmp_path / "backup_test"), embedding_model="all-MiniLM-L6-v2", collection_name="main_collection"
         )
 
         # Mock embedding generation
-        def mock_embedding(text: str) -> List[float]:
+        def mock_embedding(text: str) -> list[float]:
             return create_deterministic_embedding(text, vector_size=384)
 
         monkeypatch.setattr(storage, "_generate_embedding", mock_embedding)
@@ -680,10 +621,7 @@ class TestQdrantIntegration:
             content = f"Initial memory {i}"
             content_hash = hashlib.sha256(content.encode()).hexdigest()
             memory = Memory(
-                content=content,
-                content_hash=content_hash,
-                tags=["initial", "backup_test"],
-                metadata={"version": 1, "index": i}
+                content=content, content_hash=content_hash, tags=["initial", "backup_test"], metadata={"version": 1, "index": i}
             )
             success, msg = await storage.store(memory)
             if success:
@@ -694,7 +632,7 @@ class TestQdrantIntegration:
         backup_storage = QdrantStorage(
             storage_path=str(tmp_path / "backup_test"),
             embedding_model="all-MiniLM-L6-v2",
-            collection_name="main_collection_backup"
+            collection_name="main_collection_backup",
         )
 
         # Mock embedding generation for backup storage
@@ -713,10 +651,7 @@ class TestQdrantIntegration:
             content = f"New memory {i}"
             content_hash = hashlib.sha256(content.encode()).hexdigest()
             memory = Memory(
-                content=content,
-                content_hash=content_hash,
-                tags=["new", "post_backup"],
-                metadata={"version": 2, "index": i}
+                content=content, content_hash=content_hash, tags=["new", "post_backup"], metadata={"version": 2, "index": i}
             )
             await storage.store(memory)
 

@@ -4,13 +4,13 @@
 
 # Arguments from git:
 # %O = ancestor's version
-# %A = current version  
+# %A = current version
 # %B = other version
 # %L = conflict marker length
 # %P = path to file
 
 ANCESTOR="$1"
-CURRENT="$2" 
+CURRENT="$2"
 OTHER="$3"
 MARKER_LENGTH="$4"
 PATH="$5"

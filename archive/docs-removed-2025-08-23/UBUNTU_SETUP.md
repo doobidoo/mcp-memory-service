@@ -7,7 +7,7 @@ This guide shows how to set up the MCP Memory Service with SQLite-vec backend on
 ## ✅ Prerequisites Met
 
 You have successfully completed:
-- ✅ SQLite-vec installation and testing  
+- ✅ SQLite-vec installation and testing
 - ✅ Basic dependencies (sentence-transformers, torch, mcp)
 - ✅ Environment configuration
 
@@ -24,7 +24,7 @@ export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
 
 # Key packages installed:
 - sqlite-vec (0.1.6)
-- sentence-transformers (5.0.0)  
+- sentence-transformers (5.0.0)
 - torch (2.7.1+cpu)
 - mcp (1.11.0)
 ```
@@ -176,7 +176,7 @@ print('✅ Server can start with sqlite-vec backend')
    ```bash
    # Make sure you're in the virtual environment
    source venv/bin/activate
-   
+
    # Check installed packages
    pip list | grep -E "(sqlite-vec|sentence|torch|mcp)"
    ```
@@ -214,7 +214,7 @@ source ~/.bashrc
 ## 🎉 Next Steps
 
 1. **Start using the memory service** with Claude Code
-2. **Store development notes** and project information  
+2. **Store development notes** and project information
 3. **Build up your memory database** over time
 4. **Enjoy faster, lighter memory operations**
 

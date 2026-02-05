@@ -12,7 +12,7 @@ This guide helps you configure the MCP Memory Service to work with Claude Deskto
 
 ✅ **Your Claude Desktop Config Updated**:
 - Added offline mode environment variables (`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`)
-- Added cache path configurations 
+- Added cache path configurations
 - Kept your existing SQLite-vec backend setup
 
 ✅ **Verified Components Working**:
@@ -33,7 +33,7 @@ Your active config at `%APPDATA%\Claude\claude_desktop_config.json` now has:
 
 See `examples/claude_desktop_config_windows.json` for an anonymized template with:
 - SQLite-vec backend configuration (recommended)
-- ChromaDB alternative configuration  
+- ChromaDB alternative configuration
 - Offline mode settings
 - Performance optimizations
 

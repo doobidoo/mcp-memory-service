@@ -19,20 +19,14 @@ Provides intelligent content chunking that respects natural boundaries
 like sentences, paragraphs, and code blocks to maintain readability.
 """
 
-import re
-import math
-from typing import List, Optional
 import logging
+import math
+import re
 
 logger = logging.getLogger(__name__)
 
 
-def split_content(
-    content: str,
-    max_length: int,
-    preserve_boundaries: bool = True,
-    overlap: int = 50
-) -> List[str]:
+def split_content(content: str, max_length: int, preserve_boundaries: bool = True, overlap: int = 50) -> list[str]:
     """
     Split content into chunks respecting natural boundaries.
 
@@ -71,7 +65,7 @@ def split_content(
     return _split_preserving_boundaries(content, max_length, overlap)
 
 
-def _split_by_characters(content: str, max_length: int, overlap: int) -> List[str]:
+def _split_by_characters(content: str, max_length: int, overlap: int) -> list[str]:
     """Split content by character count with overlap."""
     chunks = []
     start = 0
@@ -87,7 +81,7 @@ def _split_by_characters(content: str, max_length: int, overlap: int) -> List[st
     return chunks
 
 
-def _split_preserving_boundaries(content: str, max_length: int, overlap: int) -> List[str]:
+def _split_preserving_boundaries(content: str, max_length: int, overlap: int) -> list[str]:
     """
     Split content while preserving natural boundaries.
 
@@ -124,7 +118,7 @@ def _split_preserving_boundaries(content: str, max_length: int, overlap: int) ->
             # Find a good boundary for overlap start if possible
             if overlap > 0 and overlap_start > 0:
                 # Try to start overlap at a space
-                space_pos = remaining[overlap_start:split_point].find(' ')
+                space_pos = remaining[overlap_start:split_point].find(" ")
                 if space_pos != -1:
                     overlap_start += space_pos + 1
             next_start = overlap_start
@@ -150,23 +144,23 @@ def _find_best_split_point(text: str, max_length: int) -> int:
     text_to_search = text[:max_length]
 
     # Priority 1: Double newline (paragraph break)
-    pos = text_to_search.rfind('\n\n')
+    pos = text_to_search.rfind("\n\n")
     if pos != -1:
         return pos + 2
 
     # Priority 2: Single newline
-    pos = text_to_search.rfind('\n')
+    pos = text_to_search.rfind("\n")
     if pos != -1:
         return pos + 1
 
     # Priority 3: Sentence ending
-    sentence_pattern = r'[.!?](?=\s|$)'
+    sentence_pattern = r"[.!?](?=\s|$)"
     matches = list(re.finditer(sentence_pattern, text_to_search))
     if matches:
         return matches[-1].end()
 
     # Priority 4: Word boundary (space)
-    pos = text_to_search.rfind(' ')
+    pos = text_to_search.rfind(" ")
     if pos != -1:
         return pos + 1
 
@@ -201,7 +195,7 @@ def estimate_chunks_needed(content_length: int, max_length: int, overlap: int = 
     return 1 + int(num_additional_chunks)
 
 
-def validate_chunk_lengths(chunks: List[str], max_length: int) -> bool:
+def validate_chunk_lengths(chunks: list[str], max_length: int) -> bool:
     """
     Validate that all chunks are within the specified length limit.
 

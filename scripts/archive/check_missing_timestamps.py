@@ -4,17 +4,19 @@ Check for memories without timestamps in the MCP memory service database.
 This script analyzes the storage backend for entries missing timestamp data.
 """
 
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import asyncio
 import json
-from typing import List, Dict, Any
 from datetime import datetime
+from typing import Any
 
-from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+
 
 class TimestampAnalyzer:
     """Analyze memory database for missing timestamp entries."""
@@ -36,7 +38,7 @@ class TimestampAnalyzer:
                 os.path.expanduser("~/.mcp_memory_service/storage.db"),
                 os.path.expanduser("~/.mcp_memory_service/memory.db"),
                 "storage.db",
-                "memory.db"
+                "memory.db",
             ]
             for path in common_paths:
                 if os.path.exists(path):
@@ -46,10 +48,7 @@ class TimestampAnalyzer:
             return False
 
         try:
-            self.storage = SqliteVecMemoryStorage(
-                db_path=self.db_path,
-                embedding_model="all-MiniLM-L6-v2"
-            )
+            self.storage = SqliteVecMemoryStorage(db_path=self.db_path, embedding_model="all-MiniLM-L6-v2")
             await self.storage.initialize()
             print("✅ Storage initialized successfully")
             return True
@@ -57,7 +56,7 @@ class TimestampAnalyzer:
             print(f"❌ Failed to initialize storage: {e}")
             return False
 
-    async def get_all_memories(self) -> List[Memory]:
+    async def get_all_memories(self) -> list[Memory]:
         """Retrieve all memories from the database."""
         try:
             # SQLite-Vec has a limit of 4096 for k in knn queries, so use direct database access
@@ -66,9 +65,10 @@ class TimestampAnalyzer:
             print(f"❌ Error with direct query, trying search approach: {e}")
             return await self.get_memories_via_search()
 
-    async def get_memories_direct_query(self) -> List[Memory]:
+    async def get_memories_direct_query(self) -> list[Memory]:
         """Get all memories using direct database queries."""
         import sqlite3
+
         memories = []
 
         try:
@@ -91,37 +91,37 @@ class TimestampAnalyzer:
                 try:
                     # Safely parse JSON fields
                     tags = []
-                    if row['tags']:
+                    if row["tags"]:
                         try:
-                            tags = json.loads(row['tags'])
+                            tags = json.loads(row["tags"])
                         except (json.JSONDecodeError, TypeError):
                             tags = []
 
                     metadata = {}
-                    if row['metadata']:
+                    if row["metadata"]:
                         try:
-                            metadata = json.loads(row['metadata'])
+                            metadata = json.loads(row["metadata"])
                         except (json.JSONDecodeError, TypeError):
                             metadata = {}
 
                     # Reconstruct Memory object from database row
                     memory_dict = {
-                        'content': row['content'] or '',
-                        'content_hash': row['content_hash'] or '',
-                        'tags': tags,
-                        'memory_type': row['memory_type'] or 'unknown',
-                        'created_at': row['created_at'],
-                        'created_at_iso': row['created_at_iso'],
-                        'updated_at': row['updated_at'],
-                        'updated_at_iso': row['updated_at_iso'],
-                        'metadata': metadata
+                        "content": row["content"] or "",
+                        "content_hash": row["content_hash"] or "",
+                        "tags": tags,
+                        "memory_type": row["memory_type"] or "unknown",
+                        "created_at": row["created_at"],
+                        "created_at_iso": row["created_at_iso"],
+                        "updated_at": row["updated_at"],
+                        "updated_at_iso": row["updated_at_iso"],
+                        "metadata": metadata,
                     }
 
                     memory = Memory.from_dict(memory_dict)
                     memories.append(memory)
 
                 except Exception as e:
-                    print(f"⚠️  Error processing memory {i+1}: {e}")
+                    print(f"⚠️  Error processing memory {i + 1}: {e}")
                     # Continue processing other memories
                     continue
 
@@ -130,11 +130,11 @@ class TimestampAnalyzer:
 
         except Exception as e:
             print(f"❌ Direct query failed: {e}")
-            if 'conn' in locals():
+            if "conn" in locals():
                 conn.close()
             return []
 
-    async def get_memories_via_search(self) -> List[Memory]:
+    async def get_memories_via_search(self) -> list[Memory]:
         """Get memories using search with smaller batches."""
         memories = []
 
@@ -165,7 +165,7 @@ class TimestampAnalyzer:
             print(f"❌ All search approaches failed: {e}")
             return []
 
-    def analyze_timestamp_fields(self, memories: List[Memory]) -> Dict[str, Any]:
+    def analyze_timestamp_fields(self, memories: list[Memory]) -> dict[str, Any]:
         """Analyze timestamp fields across all memories."""
         analysis = {
             "total_memories": len(memories),
@@ -175,7 +175,7 @@ class TimestampAnalyzer:
             "invalid_timestamps": 0,
             "problematic_memories": [],
             "timestamp_formats": set(),
-            "timestamp_range": {"earliest": None, "latest": None}
+            "timestamp_range": {"earliest": None, "latest": None},
         }
 
         for memory in memories:
@@ -191,13 +191,15 @@ class TimestampAnalyzer:
 
             if not has_created_at and not has_created_at_iso:
                 analysis["missing_both_timestamps"] += 1
-                analysis["problematic_memories"].append({
-                    "content_hash": memory.content_hash,
-                    "content_preview": memory.content[:100] + "..." if len(memory.content) > 100 else memory.content,
-                    "tags": memory.tags,
-                    "memory_type": memory.memory_type,
-                    "issue": "missing_both_timestamps"
-                })
+                analysis["problematic_memories"].append(
+                    {
+                        "content_hash": memory.content_hash,
+                        "content_preview": memory.content[:100] + "..." if len(memory.content) > 100 else memory.content,
+                        "tags": memory.tags,
+                        "memory_type": memory.memory_type,
+                        "issue": "missing_both_timestamps",
+                    }
+                )
 
             # Track timestamp formats and ranges
             if has_created_at_iso:
@@ -205,33 +207,41 @@ class TimestampAnalyzer:
 
             if has_created_at:
                 try:
-                    if analysis["timestamp_range"]["earliest"] is None or memory.created_at < analysis["timestamp_range"]["earliest"]:
+                    if (
+                        analysis["timestamp_range"]["earliest"] is None
+                        or memory.created_at < analysis["timestamp_range"]["earliest"]
+                    ):
                         analysis["timestamp_range"]["earliest"] = memory.created_at
-                    if analysis["timestamp_range"]["latest"] is None or memory.created_at > analysis["timestamp_range"]["latest"]:
+                    if (
+                        analysis["timestamp_range"]["latest"] is None
+                        or memory.created_at > analysis["timestamp_range"]["latest"]
+                    ):
                         analysis["timestamp_range"]["latest"] = memory.created_at
                 except:
                     analysis["invalid_timestamps"] += 1
-                    analysis["problematic_memories"].append({
-                        "content_hash": memory.content_hash,
-                        "content_preview": memory.content[:100] + "..." if len(memory.content) > 100 else memory.content,
-                        "created_at": str(memory.created_at),
-                        "issue": "invalid_timestamp"
-                    })
+                    analysis["problematic_memories"].append(
+                        {
+                            "content_hash": memory.content_hash,
+                            "content_preview": memory.content[:100] + "..." if len(memory.content) > 100 else memory.content,
+                            "created_at": str(memory.created_at),
+                            "issue": "invalid_timestamp",
+                        }
+                    )
 
         # Convert set to list for JSON serialization
         analysis["timestamp_formats"] = list(analysis["timestamp_formats"])
 
         return analysis
 
-    def print_analysis_report(self, analysis: Dict[str, Any]):
+    def print_analysis_report(self, analysis: dict[str, Any]):
         """Print a detailed analysis report."""
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("TIMESTAMP ANALYSIS REPORT")
-        print("="*70)
+        print("=" * 70)
 
         total = analysis["total_memories"]
 
-        print(f"\n📊 OVERVIEW:")
+        print("\n📊 OVERVIEW:")
         print(f"  Total memories analyzed: {total}")
         print(f"  Missing created_at (float): {analysis['missing_created_at']}")
         print(f"  Missing created_at_iso (ISO string): {analysis['missing_created_at_iso']}")
@@ -239,13 +249,13 @@ class TimestampAnalyzer:
         print(f"  Invalid timestamp values: {analysis['invalid_timestamps']}")
 
         if total > 0:
-            print(f"\n📈 PERCENTAGES:")
-            print(f"  Missing created_at: {analysis['missing_created_at']/total*100:.1f}%")
-            print(f"  Missing created_at_iso: {analysis['missing_created_at_iso']/total*100:.1f}%")
-            print(f"  Missing both: {analysis['missing_both_timestamps']/total*100:.1f}%")
-            print(f"  Invalid timestamps: {analysis['invalid_timestamps']/total*100:.1f}%")
+            print("\n📈 PERCENTAGES:")
+            print(f"  Missing created_at: {analysis['missing_created_at'] / total * 100:.1f}%")
+            print(f"  Missing created_at_iso: {analysis['missing_created_at_iso'] / total * 100:.1f}%")
+            print(f"  Missing both: {analysis['missing_both_timestamps'] / total * 100:.1f}%")
+            print(f"  Invalid timestamps: {analysis['invalid_timestamps'] / total * 100:.1f}%")
 
-        print(f"\n🕐 TIMESTAMP RANGE:")
+        print("\n🕐 TIMESTAMP RANGE:")
         if analysis["timestamp_range"]["earliest"] and analysis["timestamp_range"]["latest"]:
             earliest = datetime.fromtimestamp(analysis["timestamp_range"]["earliest"])
             latest = datetime.fromtimestamp(analysis["timestamp_range"]["latest"])
@@ -254,17 +264,17 @@ class TimestampAnalyzer:
         else:
             print("  No valid timestamps found")
 
-        print(f"\n📝 TIMESTAMP FORMATS DETECTED:")
+        print("\n📝 TIMESTAMP FORMATS DETECTED:")
         for fmt in analysis["timestamp_formats"]:
             print(f"  - {fmt}")
 
         if analysis["problematic_memories"]:
             print(f"\n⚠️  PROBLEMATIC MEMORIES ({len(analysis['problematic_memories'])}):")
             for i, memory in enumerate(analysis["problematic_memories"][:10]):  # Show first 10
-                print(f"  {i+1}. Issue: {memory['issue']}")
+                print(f"  {i + 1}. Issue: {memory['issue']}")
                 print(f"     Content: {memory['content_preview']}")
                 print(f"     Hash: {memory['content_hash']}")
-                if 'tags' in memory:
+                if "tags" in memory:
                     print(f"     Tags: {memory.get('tags', [])}")
                 print()
 
@@ -272,7 +282,7 @@ class TimestampAnalyzer:
                 print(f"  ... and {len(analysis['problematic_memories']) - 10} more")
 
         # Health assessment
-        print(f"\n🏥 DATABASE HEALTH ASSESSMENT:")
+        print("\n🏥 DATABASE HEALTH ASSESSMENT:")
         if analysis["missing_both_timestamps"] == 0:
             print("  ✅ EXCELLENT: All memories have at least one timestamp field")
         elif analysis["missing_both_timestamps"] < total * 0.1:
@@ -300,13 +310,17 @@ class TimestampAnalyzer:
 
         # Save detailed report to file
         report_file = "timestamp_analysis_report.json"
-        with open(report_file, 'w') as f:
+        with open(report_file, "w") as f:
             # Convert any datetime objects to strings for JSON serialization
             json_analysis = analysis.copy()
             if json_analysis["timestamp_range"]["earliest"]:
-                json_analysis["timestamp_range"]["earliest_iso"] = datetime.fromtimestamp(json_analysis["timestamp_range"]["earliest"]).isoformat()
+                json_analysis["timestamp_range"]["earliest_iso"] = datetime.fromtimestamp(
+                    json_analysis["timestamp_range"]["earliest"]
+                ).isoformat()
             if json_analysis["timestamp_range"]["latest"]:
-                json_analysis["timestamp_range"]["latest_iso"] = datetime.fromtimestamp(json_analysis["timestamp_range"]["latest"]).isoformat()
+                json_analysis["timestamp_range"]["latest_iso"] = datetime.fromtimestamp(
+                    json_analysis["timestamp_range"]["latest"]
+                ).isoformat()
 
             json.dump(json_analysis, f, indent=2, default=str)
 
@@ -314,24 +328,22 @@ class TimestampAnalyzer:
 
         return analysis["missing_both_timestamps"] == 0
 
+
 async def main():
     """Main analysis execution."""
     import argparse
 
     parser = argparse.ArgumentParser(description="Check for memories without timestamps")
     parser.add_argument("--db-path", help="Path to database file")
-    parser.add_argument("--storage", default="sqlite_vec", choices=["sqlite_vec"],
-                       help="Storage backend to analyze")
+    parser.add_argument("--storage", default="sqlite_vec", choices=["sqlite_vec"], help="Storage backend to analyze")
 
     args = parser.parse_args()
 
-    analyzer = TimestampAnalyzer(
-        storage_backend=args.storage,
-        db_path=args.db_path
-    )
+    analyzer = TimestampAnalyzer(storage_backend=args.storage, db_path=args.db_path)
 
     success = await analyzer.run_analysis()
     return 0 if success else 1
+
 
 if __name__ == "__main__":
     exit_code = asyncio.run(main())

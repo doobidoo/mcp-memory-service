@@ -10,7 +10,7 @@ Converts memory search results to TOON format with DoS protection:
 import re
 import signal
 from contextlib import contextmanager
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from toon_format import encode
 
@@ -47,7 +47,7 @@ def timeout_context(seconds: int):
         signal.signal(signal.SIGALRM, old_handler)
 
 
-def validate_memory_for_encoding(memory: Dict[str, Any]) -> None:
+def validate_memory_for_encoding(memory: dict[str, Any]) -> None:
     """Validate memory meets security requirements for encoding.
 
     Security limits:
@@ -66,10 +66,7 @@ def validate_memory_for_encoding(memory: Dict[str, Any]) -> None:
     max_content_size = 10 * 1024 * 1024  # 10MB
 
     if content_size > max_content_size:
-        raise ValueError(
-            f"Memory content size {content_size} bytes exceeds "
-            f"maximum {max_content_size} bytes (10MB limit)"
-        )
+        raise ValueError(f"Memory content size {content_size} bytes exceeds maximum {max_content_size} bytes (10MB limit)")
 
     # Validate metadata nesting depth
     # Use 500 as limit to stay well within Python's ~1000 recursion limit
@@ -78,9 +75,7 @@ def validate_memory_for_encoding(memory: Dict[str, Any]) -> None:
         max_depth = 500
         depth = _get_nested_depth(metadata, max_depth=max_depth)
         if depth > max_depth:
-            raise ValueError(
-                f"Metadata nesting depth {depth} exceeds maximum {max_depth} levels"
-            )
+            raise ValueError(f"Metadata nesting depth {depth} exceeds maximum {max_depth} levels")
 
 
 def _get_nested_depth(obj: Any, current_depth: int = 0, max_depth: int = 500) -> int:
@@ -153,7 +148,7 @@ def sanitize_header_value(value: str) -> str:
     return sanitized
 
 
-def _format_pagination_header(pagination: Dict[str, Any]) -> str:
+def _format_pagination_header(pagination: dict[str, Any]) -> str:
     """Format pagination metadata as a header line.
 
     Creates a comment-style header with pagination information:
@@ -176,10 +171,7 @@ def _format_pagination_header(pagination: Dict[str, Any]) -> str:
     return f"# page={page} total={total} page_size={page_size} has_more={str(has_more).lower()} total_pages={total_pages}"
 
 
-def format_search_results_as_toon(
-    results: List[Dict[str, Any]],
-    pagination: Dict[str, Any] | None = None
-) -> Tuple[str, str]:
+def format_search_results_as_toon(results: list[dict[str, Any]], pagination: dict[str, Any] | None = None) -> tuple[str, str]:
     """Convert memory search results to TOON format with security hardening.
 
     Extracts all memory fields and encodes to TOON with:

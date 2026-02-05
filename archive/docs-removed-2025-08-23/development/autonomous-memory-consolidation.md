@@ -21,23 +21,23 @@ from datetime import datetime
 class AutonomousDecayCalculator:
     def __init__(self, retention_periods):
         self.retention_periods = retention_periods
-    
+
     def calculate_relevance(self, memory):
         """Calculate memory relevance using pure math."""
         age = (datetime.now() - memory.created_at).total_seconds() / 86400  # days
         base_score = memory.importance_score
-        
+
         retention_period = self.retention_periods.get(
-            memory.memory_type, 
+            memory.memory_type,
             self.retention_periods['default']
         )
-        
+
         # Exponential decay
         decay_factor = math.exp(-age / retention_period)
-        
+
         # Connection boost (pure counting)
         connection_boost = 1 + (0.1 * len(memory.connections))
-        
+
         return base_score * decay_factor * connection_boost
 ```
 
@@ -53,22 +53,22 @@ import random
 class AutonomousAssociationEngine:
     def __init__(self, similarity_threshold=(0.3, 0.7)):
         self.min_similarity, self.max_similarity = similarity_threshold
-    
+
     def find_associations(self, memories):
         """Find creative connections using only embeddings."""
         # Limit pairs to prevent combinatorial explosion
         max_pairs = min(100, len(memories) * (len(memories) - 1) // 2)
-        
+
         if len(memories) < 2:
             return []
-        
+
         # Random sampling of pairs
         all_pairs = list(combinations(range(len(memories)), 2))
         sampled_pairs = random.sample(
-            all_pairs, 
+            all_pairs,
             min(max_pairs, len(all_pairs))
         )
-        
+
         associations = []
         for i, j in sampled_pairs:
             # Cosine similarity using existing embeddings
@@ -76,7 +76,7 @@ class AutonomousAssociationEngine:
                 memories[i].embedding,
                 memories[j].embedding
             )
-            
+
             # Check if in creative "sweet spot"
             if self.min_similarity < similarity < self.max_similarity:
                 associations.append({
@@ -85,17 +85,17 @@ class AutonomousAssociationEngine:
                     'similarity': similarity,
                     'discovered_at': datetime.now()
                 })
-        
+
         return associations
-    
+
     def _cosine_similarity(self, vec1, vec2):
         """Calculate cosine similarity between two vectors."""
         vec1 = np.array(vec1)
         vec2 = np.array(vec2)
-        
+
         dot_product = np.dot(vec1, vec2)
         norm_product = np.linalg.norm(vec1) * np.linalg.norm(vec2)
-        
+
         return dot_product / norm_product if norm_product > 0 else 0
 ```
 
@@ -109,16 +109,16 @@ class AutonomousPruningEngine:
         self.relevance_threshold = config['relevance_threshold']
         self.access_threshold_days = config['access_threshold_days']
         self.protected_tags = {'important', 'critical', 'reference'}
-    
+
     def identify_forgettable_memories(self, memories):
         """Identify memories for archival using rules."""
         forgettable = []
-        
+
         for memory in memories:
             # Skip protected memories
             if memory.tags & self.protected_tags:
                 continue
-            
+
             # Check relevance score
             if memory.relevance_score < self.relevance_threshold:
                 # Check connections
@@ -127,10 +127,10 @@ class AutonomousPruningEngine:
                     days_since_access = (
                         datetime.now() - memory.last_accessed
                     ).days
-                    
+
                     if days_since_access > self.access_threshold_days:
                         forgettable.append(memory)
-        
+
         return forgettable
 ```
 
@@ -146,33 +146,33 @@ import numpy as np
 class AutonomousCompressionEngine:
     def __init__(self):
         self.keyword_extractor = TFIDFKeywordExtractor()
-    
+
     def compress_cluster(self, memories):
         """Compress memories without using generative AI."""
         if not memories:
             return None
-        
+
         # 1. Find centroid (most representative memory)
         embeddings = np.array([m.embedding for m in memories])
         centroid = np.mean(embeddings, axis=0)
-        
+
         # Calculate distances to centroid
         distances = [
-            np.linalg.norm(centroid - emb) 
+            np.linalg.norm(centroid - emb)
             for emb in embeddings
         ]
         representative_idx = np.argmin(distances)
         representative_memory = memories[representative_idx]
-        
+
         # 2. Extract keywords using TF-IDF
         all_content = ' '.join([m.content for m in memories])
         keywords = self.keyword_extractor.extract(all_content, top_k=20)
-        
+
         # 3. Aggregate metadata
         all_tags = set()
         for memory in memories:
             all_tags.update(memory.tags)
-        
+
         # 4. Create structured summary (not prose)
         compressed = {
             "type": "compressed_cluster",
@@ -188,26 +188,26 @@ class AutonomousCompressionEngine:
             "centroid_embedding": centroid.tolist(),
             "member_hashes": [m.hash for m in memories]
         }
-        
+
         return compressed
 
 class TFIDFKeywordExtractor:
     """Simple TF-IDF based keyword extraction."""
-    
+
     def extract(self, text, top_k=10):
         # Simple word frequency for demonstration
         # In practice, use sklearn's TfidfVectorizer
         words = text.lower().split()
         word_freq = Counter(words)
-        
+
         # Filter common words (simple stopword removal)
         stopwords = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at'}
         keywords = [
-            (word, count) 
+            (word, count)
             for word, count in word_freq.most_common(top_k * 2)
             if word not in stopwords and len(word) > 3
         ]
-        
+
         return keywords[:top_k]
 ```
 
@@ -222,11 +222,11 @@ class AutonomousMemoryConsolidator:
     Fully autonomous memory consolidation system.
     Runs without any external AI dependencies.
     """
-    
+
     def __init__(self, storage, config):
         self.storage = storage
         self.config = config
-        
+
         # Initialize autonomous components
         self.decay_calculator = AutonomousDecayCalculator(
             config['retention_periods']
@@ -234,13 +234,13 @@ class AutonomousMemoryConsolidator:
         self.association_engine = AutonomousAssociationEngine()
         self.compression_engine = AutonomousCompressionEngine()
         self.pruning_engine = AutonomousPruningEngine(config['forgetting'])
-        
+
         # Setup scheduling
         self.scheduler = BackgroundScheduler()
         self._setup_schedules()
-        
+
         logging.info("Autonomous Memory Consolidator initialized")
-    
+
     def _setup_schedules(self):
         """Configure autonomous scheduling."""
         # Daily consolidation at 3 AM
@@ -251,7 +251,7 @@ class AutonomousMemoryConsolidator:
             minute=0,
             id="daily_consolidation"
         )
-        
+
         # Weekly consolidation on Mondays at 4 AM
         self.scheduler.add_job(
             func=self.run_weekly_consolidation,
@@ -261,7 +261,7 @@ class AutonomousMemoryConsolidator:
             minute=0,
             id="weekly_consolidation"
         )
-        
+
         # Monthly consolidation on 1st at 5 AM
         self.scheduler.add_job(
             func=self.run_monthly_consolidation,
@@ -271,65 +271,65 @@ class AutonomousMemoryConsolidator:
             minute=0,
             id="monthly_consolidation"
         )
-    
+
     def start(self):
         """Start the autonomous consolidation system."""
         self.scheduler.start()
         logging.info("Autonomous consolidation scheduler started")
-    
+
     async def run_daily_consolidation(self):
         """Daily consolidation - fully autonomous."""
         try:
             # Get recent memories
             memories = await self.storage.get_recent_memories(days=1)
-            
+
             # Update relevance scores (pure math)
             for memory in memories:
                 memory.relevance_score = self.decay_calculator.calculate_relevance(memory)
                 await self.storage.update_relevance_score(memory.hash, memory.relevance_score)
-            
+
             # Find associations (vector math)
             associations = self.association_engine.find_associations(memories)
             for assoc in associations:
                 await self.storage.store_association(assoc)
-            
+
             logging.info(
                 f"Daily consolidation complete: "
                 f"{len(memories)} memories processed, "
                 f"{len(associations)} associations found"
             )
-            
+
         except Exception as e:
             logging.error(f"Daily consolidation failed: {e}")
-    
+
     async def run_weekly_consolidation(self):
         """Weekly consolidation with clustering."""
         try:
             # Get week's memories
             memories = await self.storage.get_recent_memories(days=7)
-            
+
             # Cluster memories using embeddings
             clusters = self._cluster_memories(memories)
-            
+
             # Compress large clusters
             for cluster in clusters:
                 if len(cluster) >= self.config['compression']['min_cluster_size']:
                     compressed = self.compression_engine.compress_cluster(cluster)
                     await self.storage.store_compressed_memory(compressed)
-            
+
             logging.info(f"Weekly consolidation: {len(clusters)} clusters processed")
-            
+
         except Exception as e:
             logging.error(f"Weekly consolidation failed: {e}")
-    
+
     def _cluster_memories(self, memories, threshold=0.3):
         """Cluster memories using hierarchical clustering."""
         if len(memories) < 2:
             return [[m] for m in memories]
-        
+
         # Extract embeddings
         embeddings = np.array([m.embedding for m in memories])
-        
+
         # Hierarchical clustering
         clustering = AgglomerativeClustering(
             n_clusters=None,
@@ -337,14 +337,14 @@ class AutonomousMemoryConsolidator:
             linkage='average'
         )
         labels = clustering.fit_predict(embeddings)
-        
+
         # Group by cluster
         clusters = {}
         for idx, label in enumerate(labels):
             if label not in clusters:
                 clusters[label] = []
             clusters[label].append(memories[idx])
-        
+
         return list(clusters.values())
 ```
 
@@ -354,10 +354,10 @@ class AutonomousMemoryConsolidator:
 # autonomous_consolidation_config.yaml
 autonomous_mode:
   enabled: true
-  
+
   # No external AI endpoints needed!
   external_ai_required: false
-  
+
   # Retention periods (in days)
   retention_periods:
     critical: 365
@@ -365,27 +365,27 @@ autonomous_mode:
     standard: 30
     temporary: 7
     default: 30
-  
+
   # Association discovery
   associations:
     min_similarity: 0.3
     max_similarity: 0.7
     max_pairs_per_run: 100
     enabled: true
-  
+
   # Forgetting rules
   forgetting:
     relevance_threshold: 0.1
     access_threshold_days: 90
     archive_path: "./memory_archive"
     enabled: true
-  
+
   # Compression settings
   compression:
     min_cluster_size: 5
     clustering_threshold: 0.3
     enabled: true
-  
+
   # Scheduling (cron expressions)
   schedules:
     daily: "0 3 * * *"      # 3:00 AM daily

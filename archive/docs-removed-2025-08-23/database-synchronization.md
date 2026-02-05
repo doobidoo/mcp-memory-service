@@ -129,9 +129,9 @@ async def check():
     storage = SqliteVecMemoryStorage('/path/to/sqlite_vec.db')
     await storage.initialize()
     memories = await storage.get_all_memories()
-    
+
     print(f'Total memories: {len(memories)}')
-    
+
     # Count by source
     sources = {}
     for m in memories:
@@ -139,7 +139,7 @@ async def check():
             if tag.startswith('source:'):
                 source = tag.replace('source:', '')
                 sources[source] = sources.get(source, 0) + 1
-    
+
     for source, count in sources.items():
         print(f'  {source}: {count} memories')
 
@@ -180,12 +180,12 @@ dbs:
       - type: file
         path: /var/www/litestream/mcp-memory
         sync-interval: 10s
-      
+
       # Local backup
       - type: file
         path: /backup/litestream/mcp-memory
         sync-interval: 1m
-    
+
     # Performance settings
     checkpoint-interval: 30s
     wal-retention: 10m
@@ -222,11 +222,11 @@ On the central server, set up a web server to serve Litestream replicas:
 server {
     listen 80;
     server_name YOUR_CENTRAL_SERVER;
-    
+
     location /litestream/ {
         alias /var/www/litestream/;
         autoindex on;
-        
+
         # Allow cross-origin requests
         add_header Access-Control-Allow-Origin *;
     }
@@ -337,13 +337,13 @@ import logging
 
 async def check_sync_status():
     """Check synchronization status across all nodes."""
-    
+
     nodes = {
         "central": "https://central-server:8443/api/health",
         "windows": "https://windows-pc:8443/api/health",
         "macbook": "https://macbook.local:8443/api/health"
     }
-    
+
     async with aiohttp.ClientSession() as session:
         for name, url in nodes.items():
             try:
@@ -407,10 +407,10 @@ find /backup/mcp-memory/ -name "*.tar.gz" -mtime +30 -delete
    ```bash
    # Check network connectivity
    ping central-server
-   
+
    # Verify HTTP endpoint
    curl http://central-server/litestream/mcp-memory/
-   
+
    # Check Litestream logs
    litestream replicas
    ```
@@ -420,7 +420,7 @@ find /backup/mcp-memory/ -name "*.tar.gz" -mtime +30 -delete
    # Fix database permissions
    chmod 644 /path/to/sqlite_vec.db
    chown user:group /path/to/sqlite_vec.db
-   
+
    # Fix directory permissions
    chmod 755 /path/to/database/directory/
    ```
@@ -429,7 +429,7 @@ find /backup/mcp-memory/ -name "*.tar.gz" -mtime +30 -delete
    ```bash
    # Check for WAL mode conflicts
    sqlite3 /path/to/sqlite_vec.db "PRAGMA journal_mode;"
-   
+
    # Force checkpoint
    sqlite3 /path/to/sqlite_vec.db "PRAGMA wal_checkpoint(FULL);"
    ```

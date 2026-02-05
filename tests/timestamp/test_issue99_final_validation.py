@@ -5,9 +5,10 @@ This test creates memories that SHOULD be in yesterday's range
 and verifies they can be found by time-based searches.
 """
 
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 import asyncio
 import tempfile
@@ -15,9 +16,10 @@ import time
 from datetime import datetime, timedelta
 
 from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.utils.hashing import generate_content_hash
 from mcp_memory_service.utils.time_parser import extract_time_expression
-from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+
 
 class Issue99FinalValidationTest:
     """Final validation test for Issue #99 timezone fix."""
@@ -32,17 +34,14 @@ class Issue99FinalValidationTest:
         self.temp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.temp_db.close()
 
-        self.storage = SqliteVecMemoryStorage(
-            db_path=self.temp_db.name,
-            embedding_model="all-MiniLM-L6-v2"
-        )
+        self.storage = SqliteVecMemoryStorage(db_path=self.temp_db.name, embedding_model="all-MiniLM-L6-v2")
         await self.storage.initialize()
-        print(f"✅ Storage initialized")
+        print("✅ Storage initialized")
 
     async def cleanup(self):
         """Clean up test environment."""
         self.storage = None
-        if hasattr(self, 'temp_db') and os.path.exists(self.temp_db.name):
+        if hasattr(self, "temp_db") and os.path.exists(self.temp_db.name):
             os.unlink(self.temp_db.name)
 
     async def test_timezone_fix_validation(self):
@@ -65,18 +64,18 @@ class Issue99FinalValidationTest:
             {
                 "content": "Hook-style memory created yesterday morning",
                 "timestamp": yesterday_start.timestamp() + (2 * 60 * 60),  # 2 AM yesterday
-                "tags": ["claude-code-session", "yesterday-morning"]
+                "tags": ["claude-code-session", "yesterday-morning"],
             },
             {
                 "content": "Manual note from yesterday afternoon",
                 "timestamp": yesterday_middle.timestamp() + (3 * 60 * 60),  # 3 PM yesterday
-                "tags": ["manual-note", "yesterday-afternoon"]
+                "tags": ["manual-note", "yesterday-afternoon"],
             },
             {
                 "content": "Another hook memory from yesterday evening",
                 "timestamp": yesterday_end.timestamp() - (2 * 60 * 60),  # 9 PM yesterday
-                "tags": ["claude-code-session", "yesterday-evening"]
-            }
+                "tags": ["claude-code-session", "yesterday-evening"],
+            },
         ]
 
         # Store memories with specific yesterday timestamps
@@ -87,14 +86,14 @@ class Issue99FinalValidationTest:
                 tags=mem_data["tags"],
                 memory_type="test-memory",
                 created_at=mem_data["timestamp"],
-                created_at_iso=datetime.fromtimestamp(mem_data["timestamp"]).isoformat() + "Z"
+                created_at_iso=datetime.fromtimestamp(mem_data["timestamp"]).isoformat() + "Z",
             )
 
             success, message = await self.storage.store(memory)
             if success:
-                print(f"✅ Stored memory {i+1}: {datetime.fromtimestamp(mem_data['timestamp'])}")
+                print(f"✅ Stored memory {i + 1}: {datetime.fromtimestamp(mem_data['timestamp'])}")
             else:
-                print(f"❌ Failed to store memory {i+1}: {message}")
+                print(f"❌ Failed to store memory {i + 1}: {message}")
                 return False
 
         # Test yesterday search
@@ -121,7 +120,7 @@ class Issue99FinalValidationTest:
         expected_count = len(memories)
         success = found_count == expected_count
 
-        print(f"\n📊 Results:")
+        print("\n📊 Results:")
         print(f"  Expected memories: {expected_count}")
         print(f"  Found memories: {found_count}")
         print(f"  Success: {success}")
@@ -149,9 +148,9 @@ class Issue99FinalValidationTest:
             memory_type="session-summary",
             metadata={
                 "generated_by": "claude-code-session-end-hook",
-                "generated_at": datetime.fromtimestamp(today_morning).isoformat() + "Z"
+                "generated_at": datetime.fromtimestamp(today_morning).isoformat() + "Z",
             },
-            created_at=today_morning
+            created_at=today_morning,
         )
 
         manual_memory = Memory(
@@ -159,11 +158,8 @@ class Issue99FinalValidationTest:
             content_hash=generate_content_hash("Manual note added this morning about project status"),
             tags=["manual-note", "project-status", "morning-work"],
             memory_type="note",
-            metadata={
-                "created_by": "manual-storage",
-                "source": "user-input"
-            },
-            created_at=today_morning + 300  # 5 minutes later
+            metadata={"created_by": "manual-storage", "source": "user-input"},
+            created_at=today_morning + 300,  # 5 minutes later
         )
 
         # Store both memories
@@ -232,11 +228,13 @@ class Issue99FinalValidationTest:
         finally:
             await self.cleanup()
 
+
 async def main():
     """Main validation execution."""
     validator = Issue99FinalValidationTest()
     success = await validator.run_validation()
     return 0 if success else 1
+
 
 if __name__ == "__main__":
     exit_code = asyncio.run(main())

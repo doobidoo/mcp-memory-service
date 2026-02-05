@@ -7,13 +7,11 @@ Tests verify that the GitHub issue #79 has been properly resolved by ensuring:
 3. All storage backends support the new ordering
 """
 
-import pytest
-import asyncio
-import time
-import tempfile
-from datetime import datetime, timedelta
-from typing import List, Dict, Any
 import os
+import tempfile
+import time
+
+import pytest
 
 # Import project modules
 # Note: This assumes the project is installed in editable mode with `pip install -e .`
@@ -25,7 +23,7 @@ from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 class TestChronologicalOrdering:
     """Test chronological ordering functionality across all storage backends."""
 
-    async def create_test_memories(self, storage) -> List[Memory]:
+    async def create_test_memories(self, storage) -> list[Memory]:
         """Create test memories with different timestamps."""
         memories = []
         base_time = time.time() - 3600  # Start 1 hour ago
@@ -40,7 +38,7 @@ class TestChronologicalOrdering:
                 memory_type="test",
                 metadata={"index": i + 1},
                 created_at=timestamp,
-                updated_at=timestamp
+                updated_at=timestamp,
             )
             memories.append(memory)
 
@@ -57,7 +55,7 @@ class TestChronologicalOrdering:
             await storage.initialize()
 
             # Create test memories
-            original_memories = await self.create_test_memories(storage)
+            await self.create_test_memories(storage)
 
             # Get all memories
             retrieved_memories = await storage.get_all_memories()
@@ -196,7 +194,7 @@ class TestChronologicalOrdering:
                     memory_type="mixed",
                     metadata={"timestamp": timestamp},
                     created_at=timestamp,
-                    updated_at=timestamp
+                    updated_at=timestamp,
                 )
 
                 success, message = await storage.store(memory)
@@ -231,7 +229,7 @@ class TestAPIChronologicalIntegration:
 
     def test_memory_response_model(self):
         """Test that the response models include necessary fields for chronological ordering."""
-        from mcp_memory_service.web.api.memories import MemoryResponse, MemoryListResponse
+        from mcp_memory_service.web.api.memories import MemoryListResponse, MemoryResponse
 
         # Verify MemoryResponse has timestamp fields
         response_fields = MemoryResponse.__fields__.keys()
@@ -249,16 +247,17 @@ class TestAPIChronologicalIntegration:
         assert "has_more" in list_fields
 
     def test_storage_backend_type_compatibility(self):
-        """Test that the API endpoints use the correct base storage type."""
-        from mcp_memory_service.web.api.memories import list_memories
+        """Test that the API endpoints use the correct service type via dependency injection."""
         import inspect
+
+        from mcp_memory_service.web.api.memories import list_memories
 
         # Get the signature of the list_memories function
         sig = inspect.signature(list_memories)
-        storage_param = sig.parameters['storage']
+        service_param = sig.parameters["memory_service"]
 
-        # Check that it uses the base MemoryStorage type, not a specific implementation
-        assert 'MemoryStorage' in str(storage_param.annotation)
+        # Check that it uses MemoryService via dependency injection
+        assert "MemoryService" in str(service_param.annotation)
 
 
 if __name__ == "__main__":

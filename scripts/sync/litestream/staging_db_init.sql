@@ -29,7 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_staged_memories_staged_at ON staged_memories(stag
 CREATE INDEX IF NOT EXISTS idx_staged_memories_operation ON staged_memories(operation);
 
 -- Initialize sync status
-INSERT OR REPLACE INTO sync_status (key, value) VALUES 
+INSERT OR REPLACE INTO sync_status (key, value) VALUES
 ('last_remote_sync', ''),
 ('last_local_sync', ''),
 ('staging_version', '1.0'),
@@ -39,17 +39,17 @@ INSERT OR REPLACE INTO sync_status (key, value) VALUES
 CREATE TRIGGER IF NOT EXISTS update_staged_count_insert
 AFTER INSERT ON staged_memories
 BEGIN
-    UPDATE sync_status 
-    SET value = CAST((CAST(value AS INTEGER) + 1) AS TEXT), 
-        updated_at = CURRENT_TIMESTAMP 
+    UPDATE sync_status
+    SET value = CAST((CAST(value AS INTEGER) + 1) AS TEXT),
+        updated_at = CURRENT_TIMESTAMP
     WHERE key = 'total_staged_changes';
 END;
 
 CREATE TRIGGER IF NOT EXISTS update_staged_count_delete
 AFTER DELETE ON staged_memories
 BEGIN
-    UPDATE sync_status 
-    SET value = CAST((CAST(value AS INTEGER) - 1) AS TEXT), 
-        updated_at = CURRENT_TIMESTAMP 
+    UPDATE sync_status
+    SET value = CAST((CAST(value AS INTEGER) - 1) AS TEXT),
+        updated_at = CURRENT_TIMESTAMP
     WHERE key = 'total_staged_changes';
 END;

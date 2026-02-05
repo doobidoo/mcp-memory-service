@@ -405,7 +405,7 @@ services:
       - MCP_MEMORY_METRICS_PORT=9090
     ports:
       - "9090:9090"
-  
+
   prometheus:
     image: prom/prometheus
     ports:

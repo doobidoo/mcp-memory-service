@@ -22,35 +22,31 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Optional, Any
+from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
 from ..config import (
-    HTTP_PORT,
-    HTTP_HOST,
     CORS_ORIGINS,
-    DATABASE_PATH,
-    EMBEDDING_MODEL_NAME,
 )
-from .dependencies import set_storage, get_storage, create_storage_backend
+from .api.analytics import router as analytics_router
+from .api.events import router as events_router
 from .api.health import router as health_router
+from .api.manage import router as manage_router
+from .api.mcp import router as mcp_router
 from .api.memories import router as memories_router
 from .api.search import router as search_router
-from .api.events import router as events_router
-from .api.manage import router as manage_router
-from .api.analytics import router as analytics_router
-from .api.mcp import router as mcp_router
+from .dependencies import create_storage_backend, set_storage
 from .sse import sse_manager
 
 logger = logging.getLogger(__name__)
 
-# Global storage instance
-storage: Optional["MemoryStorage"] = None
+# Global storage instance (type hint uses string for forward reference)
+storage: Optional["MemoryStorage"] = None  # noqa: F821
 
 
 @asynccontextmanager
@@ -75,14 +71,11 @@ async def lifespan(app: FastAPI):
         set_storage(storage)  # Set the global storage instance
 
         # Pre-warm embedding model (eliminates cold start on first request)
-        if hasattr(storage, 'generate_embedding'):
+        if hasattr(storage, "generate_embedding"):
             logger.info("Pre-warming embedding model with dummy data...")
             try:
                 # Run in thread pool to avoid blocking async startup
-                await asyncio.to_thread(
-                    storage.generate_embedding,
-                    "warmup text to initialize model and trigger compilation"
-                )
+                await asyncio.to_thread(storage.generate_embedding, "warmup text to initialize model and trigger compilation")
                 logger.info("✓ Embedding model pre-warmed successfully")
             except Exception as e:
                 logger.warning(f"Model pre-warming failed (non-fatal): {e}")
@@ -107,22 +100,23 @@ async def lifespan(app: FastAPI):
     # Only close storage if we created it (standalone mode)
     # Shared storage is managed by unified_server
     from ..shared_storage import is_storage_initialized
+
     if storage and not is_storage_initialized():
         await storage.close()
 
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
-    
+
     app = FastAPI(
         title="MCP Memory Service",
         description="HTTP REST API and SSE interface for semantic memory storage",
         version=__version__,
         lifespan=lifespan,
         docs_url="/api/docs",
-        redoc_url="/api/redoc"
+        redoc_url="/api/redoc",
     )
-    
+
     # CORS middleware
     app.add_middleware(
         CORSMiddleware,
@@ -131,7 +125,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
     # Include API routers
     logger.info("Including API routers...")
     app.include_router(health_router, prefix="/api", tags=["health"])
@@ -154,14 +148,17 @@ def create_app() -> FastAPI:
     static_path = os.path.join(os.path.dirname(__file__), "static")
     if os.path.exists(static_path):
         app.mount("/static", StaticFiles(directory=static_path), name="static")
-    
+
     def get_api_overview_html():
         """Generate the API overview HTML template."""
-        return """
+        return (
+            """
         <!DOCTYPE html>
         <html lang="en">
         <head>
-            <title>MCP Memory Service v""" + __version__ + """</title>
+            <title>MCP Memory Service v"""
+            + __version__
+            + """</title>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
@@ -170,7 +167,7 @@ def create_app() -> FastAPI:
                     padding: 0;
                     box-sizing: border-box;
                 }
-                
+
                 :root {
                     --primary: #3b82f6;
                     --primary-dark: #2563eb;
@@ -185,7 +182,7 @@ def create_app() -> FastAPI:
                     --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
                     --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
                 }
-                
+
                 body {
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
                     background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
@@ -193,13 +190,13 @@ def create_app() -> FastAPI:
                     color: var(--dark);
                     line-height: 1.6;
                 }
-                
+
                 .container {
                     max-width: 1200px;
                     margin: 0 auto;
                     padding: 2rem;
                 }
-                
+
                 header {
                     text-align: center;
                     margin-bottom: 3rem;
@@ -208,14 +205,14 @@ def create_app() -> FastAPI:
                     border-radius: 1rem;
                     box-shadow: var(--shadow-lg);
                 }
-                
+
                 .logo {
                     display: inline-flex;
                     align-items: center;
                     gap: 1rem;
                     margin-bottom: 1rem;
                 }
-                
+
                 .logo-icon {
                     width: 60px;
                     height: 60px;
@@ -228,7 +225,7 @@ def create_app() -> FastAPI:
                     font-size: 2rem;
                     font-weight: bold;
                 }
-                
+
                 h1 {
                     font-size: 2.5rem;
                     font-weight: 800;
@@ -238,13 +235,13 @@ def create_app() -> FastAPI:
                     background-clip: text;
                     margin-bottom: 0.5rem;
                 }
-                
+
                 .subtitle {
                     color: var(--gray);
                     font-size: 1.25rem;
                     margin-bottom: 1rem;
                 }
-                
+
                 .version-badge {
                     display: inline-flex;
                     align-items: center;
@@ -256,14 +253,14 @@ def create_app() -> FastAPI:
                     font-size: 0.875rem;
                     font-weight: 600;
                 }
-                
+
                 .stats {
                     display: grid;
                     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
                     gap: 1rem;
                     margin-bottom: 3rem;
                 }
-                
+
                 .stat-card {
                     background: var(--white);
                     padding: 1.5rem;
@@ -272,33 +269,33 @@ def create_app() -> FastAPI:
                     text-align: center;
                     transition: transform 0.2s ease, box-shadow 0.2s ease;
                 }
-                
+
                 .stat-card:hover {
                     transform: translateY(-2px);
                     box-shadow: var(--shadow-lg);
                 }
-                
+
                 .stat-value {
                     font-size: 2rem;
                     font-weight: 700;
                     color: var(--primary);
                     margin-bottom: 0.25rem;
                 }
-                
+
                 .stat-label {
                     color: var(--gray);
                     font-size: 0.875rem;
                     text-transform: uppercase;
                     letter-spacing: 0.05em;
                 }
-                
+
                 .endpoint-grid {
                     display: grid;
                     grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
                     gap: 1.5rem;
                     margin-bottom: 3rem;
                 }
-                
+
                 .endpoint-card {
                     background: var(--white);
                     border-radius: 0.75rem;
@@ -306,18 +303,18 @@ def create_app() -> FastAPI:
                     overflow: hidden;
                     transition: transform 0.2s ease, box-shadow 0.2s ease;
                 }
-                
+
                 .endpoint-card:hover {
                     transform: translateY(-4px);
                     box-shadow: var(--shadow-lg);
                 }
-                
+
                 .endpoint-header {
                     padding: 1.5rem;
                     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
                     color: var(--white);
                 }
-                
+
                 .endpoint-header h3 {
                     font-size: 1.25rem;
                     margin-bottom: 0.5rem;
@@ -325,20 +322,20 @@ def create_app() -> FastAPI:
                     align-items: center;
                     gap: 0.5rem;
                 }
-                
+
                 .endpoint-icon {
                     font-size: 1.5rem;
                 }
-                
+
                 .endpoint-description {
                     opacity: 0.9;
                     font-size: 0.875rem;
                 }
-                
+
                 .endpoint-list {
                     padding: 1.5rem;
                 }
-                
+
                 .endpoint-item {
                     padding: 0.75rem;
                     border-radius: 0.5rem;
@@ -347,11 +344,11 @@ def create_app() -> FastAPI:
                     transition: background-color 0.2s ease;
                     cursor: pointer;
                 }
-                
+
                 .endpoint-item:hover {
                     background: #e2e8f0;
                 }
-                
+
                 .method {
                     display: inline-block;
                     padding: 0.125rem 0.5rem;
@@ -361,30 +358,30 @@ def create_app() -> FastAPI:
                     margin-right: 0.5rem;
                     text-transform: uppercase;
                 }
-                
+
                 .method-get { background: var(--success); color: var(--white); }
                 .method-post { background: var(--primary); color: var(--white); }
                 .method-delete { background: var(--danger); color: var(--white); }
-                
+
                 .endpoint-path {
                     font-family: 'Courier New', monospace;
                     font-size: 0.875rem;
                     color: var(--dark);
                 }
-                
+
                 .endpoint-desc {
                     font-size: 0.75rem;
                     color: var(--gray);
                     margin-top: 0.25rem;
                 }
-                
+
                 .action-buttons {
                     display: flex;
                     gap: 1rem;
                     justify-content: center;
                     margin-bottom: 3rem;
                 }
-                
+
                 .btn {
                     display: inline-flex;
                     align-items: center;
@@ -397,37 +394,37 @@ def create_app() -> FastAPI:
                     border: none;
                     cursor: pointer;
                 }
-                
+
                 .btn-primary {
                     background: var(--primary);
                     color: var(--white);
                 }
-                
+
                 .btn-primary:hover {
                     background: var(--primary-dark);
                     transform: translateY(-2px);
                     box-shadow: var(--shadow-lg);
                 }
-                
+
                 .btn-secondary {
                     background: var(--white);
                     color: var(--primary);
                     border: 2px solid var(--primary);
                 }
-                
+
                 .btn-secondary:hover {
                     background: var(--primary);
                     color: var(--white);
                     transform: translateY(-2px);
                     box-shadow: var(--shadow-lg);
                 }
-                
+
                 footer {
                     text-align: center;
                     padding: 2rem;
                     color: var(--gray);
                 }
-                
+
                 .tech-stack {
                     display: flex;
                     justify-content: center;
@@ -435,7 +432,7 @@ def create_app() -> FastAPI:
                     margin-top: 1rem;
                     flex-wrap: wrap;
                 }
-                
+
                 .tech-badge {
                     display: flex;
                     align-items: center;
@@ -492,11 +489,11 @@ def create_app() -> FastAPI:
                     border-radius: 50%;
                     animation: spin 0.6s linear infinite;
                 }
-                
+
                 @keyframes spin {
                     to { transform: rotate(360deg); }
                 }
-                
+
                 @media (max-width: 768px) {
                     .container { padding: 1rem; }
                     h1 { font-size: 2rem; }
@@ -543,7 +540,7 @@ def create_app() -> FastAPI:
                         </a>
                     </div>
                 </header>
-                
+
                 <div class="stats" id="stats">
                     <div class="stat-card">
                         <div class="stat-value"><span class="loading"></span></div>
@@ -562,7 +559,7 @@ def create_app() -> FastAPI:
                         <div class="stat-label">Response Time</div>
                     </div>
                 </div>
-                
+
                 <div class="action-buttons">
                     <a href="/api/docs" class="btn btn-primary">
                         <span>📚</span> Interactive API Docs
@@ -574,7 +571,7 @@ def create_app() -> FastAPI:
                         <span>🚀</span> GitHub Repository
                     </a>
                 </div>
-                
+
                 <div class="endpoint-grid">
                     <div class="endpoint-card">
                         <div class="endpoint-header">
@@ -604,7 +601,7 @@ def create_app() -> FastAPI:
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="endpoint-card">
                         <div class="endpoint-header">
                             <h3><span class="endpoint-icon">🔍</span> Search Operations</h3>
@@ -633,7 +630,7 @@ def create_app() -> FastAPI:
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="endpoint-card">
                         <div class="endpoint-header">
                             <h3><span class="endpoint-icon">📡</span> Real-time Events</h3>
@@ -657,7 +654,7 @@ def create_app() -> FastAPI:
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="endpoint-card">
                         <div class="endpoint-header">
                             <h3><span class="endpoint-icon">🏥</span> Health & Status</h3>
@@ -687,7 +684,7 @@ def create_app() -> FastAPI:
                         </div>
                     </div>
                 </div>
-                
+
                 <footer>
                     <p>Powered by cutting-edge technology</p>
                     <div class="tech-stack">
@@ -712,17 +709,17 @@ def create_app() -> FastAPI:
                     </p>
                 </footer>
             </div>
-            
+
             <script>
                 // Fetch and display live stats
                 async function updateStats() {
                     try {
                         const healthResponse = await fetch('/api/health');
                         const health = await healthResponse.json();
-                        
+
                         const detailedResponse = await fetch('/api/health/detailed');
                         const detailed = await detailedResponse.json();
-                        
+
                         const stats = document.getElementById('stats');
                         stats.innerHTML = `
                             <div class="stat-card">
@@ -746,10 +743,10 @@ def create_app() -> FastAPI:
                         console.error('Failed to fetch stats:', error);
                     }
                 }
-                
+
                 // Update stats on page load
                 updateStats();
-                
+
                 // Update stats every 30 seconds
                 setInterval(updateStats, 30000);
             </script>
@@ -825,6 +822,7 @@ def create_app() -> FastAPI:
         </body>
         </html>
         """
+        )
 
     @app.get("/api-overview", response_class=HTMLResponse)
     async def api_overview():
@@ -841,16 +839,16 @@ def create_app() -> FastAPI:
 
             if os.path.exists(dashboard_path):
                 # Read and serve the migrated dashboard
-                with open(dashboard_path, 'r', encoding='utf-8') as f:
+                with open(dashboard_path, encoding="utf-8") as f:
                     return f.read()
             else:
-                # Fallback to original template if dashboard not found
-                return html_template
+                # Fallback if dashboard not found
+                return "<html><body><h1>Dashboard not found</h1><p>Please check static/index.html</p></body></html>"
         except Exception as e:
-            # Error fallback to original template
+            # Error fallback
             logger.warning(f"Error loading migrated dashboard: {e}")
-            return html_template
-    
+            return f"<html><body><h1>Dashboard Error</h1><p>{e}</p></body></html>"
+
     return app
 
 

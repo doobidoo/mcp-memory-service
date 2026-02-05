@@ -31,8 +31,8 @@ Memory Maintenance Mode is a systematic approach to identifying, analyzing, and 
 
 **Maintenance Prompt Template:**
 ```
-Memory Maintenance Mode: Review untagged memories from the past, identify untagged or 
-poorly tagged ones, analyze content for themes (projects, technologies, activities, 
+Memory Maintenance Mode: Review untagged memories from the past, identify untagged or
+poorly tagged ones, analyze content for themes (projects, technologies, activities,
 status), and re-tag with standardized categories.
 ```
 
@@ -153,7 +153,7 @@ const monthlyDistribution = {};
 memories.forEach(memory => {
   const date = new Date(memory.timestamp);
   const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-  
+
   if (!monthlyDistribution[monthKey]) {
     monthlyDistribution[monthKey] = 0;
   }

@@ -24,47 +24,46 @@ import logging
 import os
 import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any
+
 import numpy as np
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-from src.mcp_memory_service.storage.qdrant_storage import QdrantStorage
 from src.mcp_memory_service.models.memory import Memory
+from src.mcp_memory_service.storage.qdrant_storage import QdrantStorage
+from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class MigrationCheckpoint:
     """Checkpoint state for resumable migration."""
+
     total_memories: int
     migrated_count: int
-    failed_hashes: List[str]
-    last_successful_hash: Optional[str]
+    failed_hashes: list[str]
+    last_successful_hash: str | None
     started_at: str
     last_updated_at: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'MigrationCheckpoint':
+    def from_dict(cls, data: dict[str, Any]) -> "MigrationCheckpoint":
         """Create from dictionary."""
         return cls(**data)
 
 
-def load_checkpoint(checkpoint_path: str) -> Optional[MigrationCheckpoint]:
+def load_checkpoint(checkpoint_path: str) -> MigrationCheckpoint | None:
     """
     Load checkpoint from file, return None if doesn't exist.
 
@@ -79,7 +78,7 @@ def load_checkpoint(checkpoint_path: str) -> Optional[MigrationCheckpoint]:
         return None
 
     try:
-        with open(path, 'r') as f:
+        with open(path) as f:
             data = json.load(f)
         logger.info(f"Loaded checkpoint: {data['migrated_count']}/{data['total_memories']} memories migrated")
         return MigrationCheckpoint.from_dict(data)
@@ -100,11 +99,11 @@ def save_checkpoint(checkpoint: MigrationCheckpoint, checkpoint_path: str) -> No
     temp_path = Path(f"{checkpoint_path}.tmp")
 
     # Update timestamp
-    checkpoint.last_updated_at = datetime.utcnow().isoformat() + 'Z'
+    checkpoint.last_updated_at = datetime.utcnow().isoformat() + "Z"
 
     try:
         # Write to temp file first
-        with open(temp_path, 'w') as f:
+        with open(temp_path, "w") as f:
             json.dump(checkpoint.to_dict(), f, indent=2)
 
         # Atomically rename temp file to actual checkpoint file
@@ -120,7 +119,7 @@ def save_checkpoint(checkpoint: MigrationCheckpoint, checkpoint_path: str) -> No
         raise
 
 
-def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
     """
     Calculate cosine similarity between two vectors.
 
@@ -137,10 +136,8 @@ def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
 
 
 async def validate_batch(
-    source_memories: List[Memory],
-    qdrant_storage: QdrantStorage,
-    batch_hashes: List[str]
-) -> Tuple[bool, str]:
+    source_memories: list[Memory], qdrant_storage: QdrantStorage, batch_hashes: list[str]
+) -> tuple[bool, str]:
     """
     Validate that batch was successfully written to Qdrant.
 
@@ -174,7 +171,7 @@ async def validate_batch(
         results = await qdrant_storage.retrieve(
             query=source_mem.content[:100],  # Use first 100 chars as query
             n_results=1,
-            min_similarity=0.99
+            min_similarity=0.99,
         )
 
         if not results:
@@ -188,25 +185,19 @@ async def validate_batch(
         if source_mem.embedding and result.memory.embedding:
             similarity = cosine_similarity(source_mem.embedding, result.memory.embedding)
             if similarity < 0.99:
-                validation_errors.append(
-                    f"Embedding mismatch for {source_mem.content_hash}: similarity={similarity:.3f}"
-                )
+                validation_errors.append(f"Embedding mismatch for {source_mem.content_hash}: similarity={similarity:.3f}")
 
         # Validate tags preserved
         source_tags = set(source_mem.tags)
         result_tags = set(result.memory.tags)
         if source_tags != result_tags:
-            validation_errors.append(
-                f"Tags mismatch for {source_mem.content_hash}: {source_tags} != {result_tags}"
-            )
+            validation_errors.append(f"Tags mismatch for {source_mem.content_hash}: {source_tags} != {result_tags}")
 
         # Validate timestamps (within 1 second tolerance due to conversion)
         if source_mem.created_at and result.memory.created_at:
             time_diff = abs(source_mem.created_at - result.memory.created_at)
             if time_diff > 1.0:  # 1 second tolerance
-                validation_errors.append(
-                    f"Timestamp mismatch for {source_mem.content_hash}: diff={time_diff:.3f}s"
-                )
+                validation_errors.append(f"Timestamp mismatch for {source_mem.content_hash}: diff={time_diff:.3f}s")
 
     if validation_errors:
         return False, "; ".join(validation_errors)
@@ -220,8 +211,8 @@ async def migrate_memories(
     checkpoint_path: str = "migration_checkpoint.json",
     batch_size: int = 100,
     dry_run: bool = False,
-    resume: bool = False
-) -> Dict[str, Any]:
+    resume: bool = False,
+) -> dict[str, Any]:
     """
     Migrate memories from SQLite-vec to Qdrant with checkpoint/resume capability.
 
@@ -265,8 +256,8 @@ async def migrate_memories(
             migrated_count=0,
             failed_hashes=[],
             last_successful_hash=None,
-            started_at=datetime.utcnow().isoformat() + 'Z',
-            last_updated_at=datetime.utcnow().isoformat() + 'Z'
+            started_at=datetime.utcnow().isoformat() + "Z",
+            last_updated_at=datetime.utcnow().isoformat() + "Z",
         )
 
     # Initialize storages
@@ -293,13 +284,13 @@ async def migrate_memories(
                 break
 
         if last_index >= 0:
-            all_memories = all_memories[last_index + 1:]
+            all_memories = all_memories[last_index + 1 :]
             logger.info(f"Skipping {last_index + 1} already migrated memories")
 
     # Migrate in batches
     batch_count = 0
     for i in range(0, len(all_memories), batch_size):
-        batch = all_memories[i:i + batch_size]
+        batch = all_memories[i : i + batch_size]
         batch_count += 1
 
         logger.info(f"Processing batch {batch_count} ({len(batch)} memories)...")
@@ -325,7 +316,7 @@ async def migrate_memories(
                 if not valid:
                     logger.warning(f"Batch validation failed: {error_msg}")
                 else:
-                    logger.debug(f"Batch validated successfully")
+                    logger.debug("Batch validated successfully")
 
             except Exception as e:
                 logger.error(f"Batch migration failed: {e}")
@@ -356,22 +347,19 @@ async def migrate_memories(
     duration = end_time - start_time
 
     report = {
-        'total_memories': checkpoint.total_memories,
-        'migrated_successfully': checkpoint.migrated_count,
-        'skipped_count': 0,  # We don't skip, we resume
-        'failed_migrations': [{'hash': h, 'error': 'Migration failed'} for h in checkpoint.failed_hashes],
-        'validation_results': {
-            'validated': not dry_run,
-            'failures': len(checkpoint.failed_hashes)
-        },
-        'duration_seconds': duration,
-        'checkpoint_path': checkpoint_path,
-        'dry_run': dry_run
+        "total_memories": checkpoint.total_memories,
+        "migrated_successfully": checkpoint.migrated_count,
+        "skipped_count": 0,  # We don't skip, we resume
+        "failed_migrations": [{"hash": h, "error": "Migration failed"} for h in checkpoint.failed_hashes],
+        "validation_results": {"validated": not dry_run, "failures": len(checkpoint.failed_hashes)},
+        "duration_seconds": duration,
+        "checkpoint_path": checkpoint_path,
+        "dry_run": dry_run,
     }
 
-    logger.info(f"\n{'='*60}")
+    logger.info(f"\n{'=' * 60}")
     logger.info("Migration Complete!")
-    logger.info(f"{'='*60}")
+    logger.info(f"{'=' * 60}")
     logger.info(f"Total memories: {report['total_memories']}")
     logger.info(f"Successfully migrated: {report['migrated_successfully']}")
     logger.info(f"Failed migrations: {len(report['failed_migrations'])}")
@@ -386,61 +374,38 @@ async def migrate_memories(
 def get_platform_storage_path() -> Path:
     """Get platform-specific storage path."""
     home = Path.home()
-    if sys.platform == 'darwin':  # macOS
-        return home / 'Library' / 'Application Support' / 'mcp-memory'
-    elif sys.platform == 'win32':  # Windows
-        local_app_data = os.getenv('LOCALAPPDATA', '')
+    if sys.platform == "darwin":  # macOS
+        return home / "Library" / "Application Support" / "mcp-memory"
+    elif sys.platform == "win32":  # Windows
+        local_app_data = os.getenv("LOCALAPPDATA", "")
         if local_app_data:
-            return Path(local_app_data) / 'mcp-memory'
-        return home / 'AppData' / 'Local' / 'mcp-memory'
+            return Path(local_app_data) / "mcp-memory"
+        return home / "AppData" / "Local" / "mcp-memory"
     else:  # Linux
-        return home / '.local' / 'share' / 'mcp-memory'
+        return home / ".local" / "share" / "mcp-memory"
 
 
 async def main():
     """Main entry point for migration script."""
-    parser = argparse.ArgumentParser(
-        description='Migrate memories from SQLite-vec to Qdrant with checkpoint/resume capability'
-    )
+    parser = argparse.ArgumentParser(description="Migrate memories from SQLite-vec to Qdrant with checkpoint/resume capability")
+    parser.add_argument("--dry-run", action="store_true", help="Validate migration without writing to Qdrant")
+    parser.add_argument("--resume", action="store_true", help="Resume migration from existing checkpoint")
     parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Validate migration without writing to Qdrant'
-    )
-    parser.add_argument(
-        '--resume',
-        action='store_true',
-        help='Resume migration from existing checkpoint'
-    )
-    parser.add_argument(
-        '--checkpoint',
+        "--checkpoint",
         type=str,
-        default='migration_checkpoint.json',
-        help='Path to checkpoint file (default: migration_checkpoint.json)'
+        default="migration_checkpoint.json",
+        help="Path to checkpoint file (default: migration_checkpoint.json)",
     )
-    parser.add_argument(
-        '--batch-size',
-        type=int,
-        default=100,
-        help='Number of memories to migrate per batch (default: 100)'
-    )
-    parser.add_argument(
-        '--sqlite-path',
-        type=str,
-        help='Path to SQLite database (auto-detected by default)'
-    )
-    parser.add_argument(
-        '--qdrant-path',
-        type=str,
-        help='Path to Qdrant storage (auto-detected by default)'
-    )
+    parser.add_argument("--batch-size", type=int, default=100, help="Number of memories to migrate per batch (default: 100)")
+    parser.add_argument("--sqlite-path", type=str, help="Path to SQLite database (auto-detected by default)")
+    parser.add_argument("--qdrant-path", type=str, help="Path to Qdrant storage (auto-detected by default)")
 
     args = parser.parse_args()
 
     # Determine storage paths
     base_path = get_platform_storage_path()
-    sqlite_path = args.sqlite_path or str(base_path / 'sqlite_vec.db')
-    qdrant_path = args.qdrant_path or str(base_path / 'qdrant')
+    sqlite_path = args.sqlite_path or str(base_path / "sqlite_vec.db")
+    qdrant_path = args.qdrant_path or str(base_path / "qdrant")
 
     logger.info(f"SQLite path: {sqlite_path}")
     logger.info(f"Qdrant path: {qdrant_path}")
@@ -455,14 +420,14 @@ async def main():
     sqlite_storage = SqliteVecMemoryStorage(storage_path=sqlite_path)
 
     # Get embedding model from environment or use default
-    embedding_model = os.getenv('MCP_EMBEDDING_MODEL', 'text-embedding-3-small')
+    embedding_model = os.getenv("MCP_EMBEDDING_MODEL", "text-embedding-3-small")
 
     qdrant_storage = QdrantStorage(
         storage_path=qdrant_path,
         embedding_model=embedding_model,
-        collection_name='memories',
+        collection_name="memories",
         quantization_enabled=False,
-        distance_metric='Cosine'
+        distance_metric="Cosine",
     )
 
     # Run migration
@@ -473,11 +438,11 @@ async def main():
             checkpoint_path=args.checkpoint,
             batch_size=args.batch_size,
             dry_run=args.dry_run,
-            resume=args.resume
+            resume=args.resume,
         )
 
         # Exit with error code if there were failures
-        if report['failed_migrations']:
+        if report["failed_migrations"]:
             sys.exit(1)
 
     except Exception as e:
@@ -485,5 +450,5 @@ async def main():
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())

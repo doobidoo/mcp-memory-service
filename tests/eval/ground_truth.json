@@ -1,0 +1,745 @@
+{
+  "description": "Ground truth test set for hybrid search evaluation",
+  "version": "1.0",
+  "created": "2026-01-26",
+  "notes": [
+    "Each test case has a query and expected memory hashes",
+    "Categories: tag_sensitive, semantic, mixed, edge_case",
+    "Minimum 50 test cases for statistical significance"
+  ],
+
+  "memories": [
+    {
+      "content_hash": "rathole_arch_001",
+      "content": "Rathole project architecture uses reverse proxy tunneling for secure connections",
+      "tags": ["rathole", "project", "architecture", "networking"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "rathole_config_002",
+      "content": "Rathole tunnel configuration with TOML files and service definitions",
+      "tags": ["rathole", "config", "toml"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "rathole_deploy_003",
+      "content": "Rathole deployment on Linux servers with systemd integration",
+      "tags": ["rathole", "deployment", "linux", "systemd"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "cachekit_arch_004",
+      "content": "Cachekit architecture uses decorator pattern for transparent caching",
+      "tags": ["cachekit", "architecture", "python", "decorators"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "cachekit_redis_005",
+      "content": "Cachekit Redis backend implementation with connection pooling",
+      "tags": ["cachekit", "redis", "backend"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "cachekit_encrypt_006",
+      "content": "Cachekit encryption module for secure cache storage",
+      "tags": ["cachekit", "encryption", "security"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "python_async_007",
+      "content": "Python async programming best practices with asyncio and await",
+      "tags": ["python", "async", "asyncio", "best-practices"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "python_typing_008",
+      "content": "Python type hints and mypy for static type checking",
+      "tags": ["python", "typing", "mypy"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "docker_compose_009",
+      "content": "Docker Compose configuration for multi-container applications",
+      "tags": ["docker", "compose", "containers"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "kubernetes_deploy_010",
+      "content": "Kubernetes deployment strategies and rolling updates",
+      "tags": ["kubernetes", "deployment", "k8s"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "mcp_memory_011",
+      "content": "MCP memory service semantic search implementation",
+      "tags": ["mcp", "memory", "semantic-search"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "mcp_tools_012",
+      "content": "MCP tools definition and FastMCP integration",
+      "tags": ["mcp", "tools", "fastmcp"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "qdrant_vector_013",
+      "content": "Qdrant vector database for high-performance similarity search",
+      "tags": ["qdrant", "vector-database", "similarity"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "sqlite_vec_014",
+      "content": "SQLite-vec extension for embedded vector search",
+      "tags": ["sqlite", "vector-search", "embedded"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "fastapi_routes_015",
+      "content": "FastAPI route definitions with dependency injection",
+      "tags": ["fastapi", "routes", "api"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "pydantic_settings_016",
+      "content": "Pydantic settings for configuration management",
+      "tags": ["pydantic", "settings", "config"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "oauth_jwt_017",
+      "content": "OAuth 2.0 JWT token authentication flow",
+      "tags": ["oauth", "jwt", "authentication"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "cors_security_018",
+      "content": "CORS configuration for cross-origin security",
+      "tags": ["cors", "security", "web"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "pytest_fixtures_019",
+      "content": "Pytest fixtures for test setup and teardown",
+      "tags": ["pytest", "testing", "fixtures"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "ruff_linting_020",
+      "content": "Ruff linter configuration for Python code quality",
+      "tags": ["ruff", "linting", "python"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "git_workflow_021",
+      "content": "Git branching workflow with feature branches",
+      "tags": ["git", "workflow", "branching"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "ci_github_022",
+      "content": "GitHub Actions CI/CD pipeline configuration",
+      "tags": ["github", "ci-cd", "actions"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "embedding_model_023",
+      "content": "E5 embedding model for semantic text representation",
+      "tags": ["embedding", "e5", "nlp"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "transformer_arch_024",
+      "content": "Transformer architecture and attention mechanisms",
+      "tags": ["transformer", "attention", "ml"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "hybrid_search_025",
+      "content": "Hybrid search combining vector and keyword matching",
+      "tags": ["hybrid-search", "rrf", "retrieval"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "recency_decay_026",
+      "content": "Recency decay formula for time-weighted search results",
+      "tags": ["recency", "decay", "scoring"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "toon_format_027",
+      "content": "TOON format for efficient token serialization",
+      "tags": ["toon", "format", "serialization"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "http_streaming_028",
+      "content": "HTTP streaming with Server-Sent Events",
+      "tags": ["http", "sse", "streaming"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "websocket_029",
+      "content": "WebSocket real-time communication protocol",
+      "tags": ["websocket", "realtime", "protocol"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "rest_api_030",
+      "content": "REST API design principles and best practices",
+      "tags": ["rest", "api", "design"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "graphql_schema_031",
+      "content": "GraphQL schema design with types and resolvers",
+      "tags": ["graphql", "schema", "api"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "database_migration_032",
+      "content": "Database migration with Alembic for schema changes",
+      "tags": ["database", "migration", "alembic"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "connection_pool_033",
+      "content": "Connection pooling for database performance",
+      "tags": ["database", "pooling", "performance"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "cache_invalidation_034",
+      "content": "Cache invalidation strategies and TTL management",
+      "tags": ["cache", "invalidation", "ttl"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "rate_limiting_035",
+      "content": "Rate limiting implementation with token bucket",
+      "tags": ["rate-limiting", "token-bucket", "api"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "logging_structured_036",
+      "content": "Structured logging with JSON format",
+      "tags": ["logging", "structured", "json"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "metrics_prometheus_037",
+      "content": "Prometheus metrics for application monitoring",
+      "tags": ["prometheus", "metrics", "monitoring"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "tracing_opentelemetry_038",
+      "content": "OpenTelemetry distributed tracing setup",
+      "tags": ["opentelemetry", "tracing", "observability"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "error_handling_039",
+      "content": "Error handling patterns with custom exceptions",
+      "tags": ["error-handling", "exceptions", "patterns"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "retry_logic_040",
+      "content": "Retry logic with exponential backoff using tenacity",
+      "tags": ["retry", "backoff", "tenacity"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "circuit_breaker_041",
+      "content": "Circuit breaker pattern for fault tolerance",
+      "tags": ["circuit-breaker", "resilience", "patterns"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "dependency_injection_042",
+      "content": "Dependency injection for testable code",
+      "tags": ["di", "testing", "design-patterns"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "factory_pattern_043",
+      "content": "Factory pattern for object creation",
+      "tags": ["factory", "design-patterns", "oop"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "singleton_pattern_044",
+      "content": "Singleton pattern for global state management",
+      "tags": ["singleton", "design-patterns", "state"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "observer_pattern_045",
+      "content": "Observer pattern for event-driven architecture",
+      "tags": ["observer", "events", "design-patterns"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "strategy_pattern_046",
+      "content": "Strategy pattern for interchangeable algorithms",
+      "tags": ["strategy", "algorithms", "design-patterns"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "command_pattern_047",
+      "content": "Command pattern for action encapsulation",
+      "tags": ["command", "actions", "design-patterns"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "decorator_pattern_048",
+      "content": "Decorator pattern for behavior extension",
+      "tags": ["decorator", "extension", "design-patterns"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "adapter_pattern_049",
+      "content": "Adapter pattern for interface compatibility",
+      "tags": ["adapter", "interfaces", "design-patterns"],
+      "memory_type": "note"
+    },
+    {
+      "content_hash": "facade_pattern_050",
+      "content": "Facade pattern for simplified interfaces",
+      "tags": ["facade", "simplification", "design-patterns"],
+      "memory_type": "note"
+    }
+  ],
+
+  "test_cases": [
+    {
+      "id": "tc_001",
+      "query": "rathole project codebase architecture",
+      "expected_hashes": ["rathole_arch_001"],
+      "expected_tags": ["rathole", "architecture"],
+      "category": "tag_sensitive",
+      "notes": "Original failure case - should find rathole not cachekit"
+    },
+    {
+      "id": "tc_002",
+      "query": "rathole configuration setup",
+      "expected_hashes": ["rathole_config_002"],
+      "expected_tags": ["rathole", "config"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_003",
+      "query": "rathole deployment linux",
+      "expected_hashes": ["rathole_deploy_003"],
+      "expected_tags": ["rathole", "deployment", "linux"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_004",
+      "query": "cachekit architecture decorator",
+      "expected_hashes": ["cachekit_arch_004"],
+      "expected_tags": ["cachekit", "architecture"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_005",
+      "query": "cachekit redis backend",
+      "expected_hashes": ["cachekit_redis_005"],
+      "expected_tags": ["cachekit", "redis"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_006",
+      "query": "project architecture patterns",
+      "expected_hashes": ["rathole_arch_001", "cachekit_arch_004"],
+      "expected_tags": ["architecture"],
+      "category": "semantic",
+      "notes": "Semantic query - multiple valid results"
+    },
+    {
+      "id": "tc_007",
+      "query": "python async programming",
+      "expected_hashes": ["python_async_007"],
+      "expected_tags": ["python", "async"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_008",
+      "query": "type checking static analysis",
+      "expected_hashes": ["python_typing_008"],
+      "expected_tags": ["python", "typing"],
+      "category": "semantic"
+    },
+    {
+      "id": "tc_009",
+      "query": "docker container orchestration",
+      "expected_hashes": ["docker_compose_009"],
+      "expected_tags": ["docker", "containers"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_010",
+      "query": "kubernetes deployment rollout",
+      "expected_hashes": ["kubernetes_deploy_010"],
+      "expected_tags": ["kubernetes", "deployment"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_011",
+      "query": "mcp memory semantic search implementation",
+      "expected_hashes": ["mcp_memory_011"],
+      "expected_tags": ["mcp", "memory", "semantic-search"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_012",
+      "query": "fastmcp tools integration",
+      "expected_hashes": ["mcp_tools_012"],
+      "expected_tags": ["mcp", "tools", "fastmcp"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_013",
+      "query": "vector database similarity search",
+      "expected_hashes": ["qdrant_vector_013", "sqlite_vec_014"],
+      "expected_tags": ["vector-database", "similarity"],
+      "category": "semantic"
+    },
+    {
+      "id": "tc_014",
+      "query": "qdrant high performance vectors",
+      "expected_hashes": ["qdrant_vector_013"],
+      "expected_tags": ["qdrant"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_015",
+      "query": "sqlite embedded vector search",
+      "expected_hashes": ["sqlite_vec_014"],
+      "expected_tags": ["sqlite", "vector-search"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_016",
+      "query": "fastapi route dependency",
+      "expected_hashes": ["fastapi_routes_015"],
+      "expected_tags": ["fastapi", "routes"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_017",
+      "query": "pydantic settings configuration",
+      "expected_hashes": ["pydantic_settings_016"],
+      "expected_tags": ["pydantic", "settings", "config"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_018",
+      "query": "authentication jwt oauth",
+      "expected_hashes": ["oauth_jwt_017"],
+      "expected_tags": ["oauth", "jwt", "authentication"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_019",
+      "query": "cors cross origin security",
+      "expected_hashes": ["cors_security_018"],
+      "expected_tags": ["cors", "security"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_020",
+      "query": "pytest testing fixtures",
+      "expected_hashes": ["pytest_fixtures_019"],
+      "expected_tags": ["pytest", "testing", "fixtures"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_021",
+      "query": "code quality linting python",
+      "expected_hashes": ["ruff_linting_020"],
+      "expected_tags": ["ruff", "linting", "python"],
+      "category": "mixed"
+    },
+    {
+      "id": "tc_022",
+      "query": "git branching workflow",
+      "expected_hashes": ["git_workflow_021"],
+      "expected_tags": ["git", "workflow", "branching"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_023",
+      "query": "github actions ci cd",
+      "expected_hashes": ["ci_github_022"],
+      "expected_tags": ["github", "ci-cd", "actions"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_024",
+      "query": "embedding model text",
+      "expected_hashes": ["embedding_model_023"],
+      "expected_tags": ["embedding"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_025",
+      "query": "transformer attention mechanism",
+      "expected_hashes": ["transformer_arch_024"],
+      "expected_tags": ["transformer", "attention"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_026",
+      "query": "hybrid search rrf retrieval",
+      "expected_hashes": ["hybrid_search_025"],
+      "expected_tags": ["hybrid-search", "rrf", "retrieval"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_027",
+      "query": "recency decay time scoring",
+      "expected_hashes": ["recency_decay_026"],
+      "expected_tags": ["recency", "decay", "scoring"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_028",
+      "query": "toon format serialization",
+      "expected_hashes": ["toon_format_027"],
+      "expected_tags": ["toon", "format", "serialization"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_029",
+      "query": "sse streaming http",
+      "expected_hashes": ["http_streaming_028"],
+      "expected_tags": ["http", "sse", "streaming"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_030",
+      "query": "websocket realtime communication",
+      "expected_hashes": ["websocket_029"],
+      "expected_tags": ["websocket", "realtime"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_031",
+      "query": "rest api best practices",
+      "expected_hashes": ["rest_api_030"],
+      "expected_tags": ["rest", "api"],
+      "category": "mixed"
+    },
+    {
+      "id": "tc_032",
+      "query": "graphql schema resolvers",
+      "expected_hashes": ["graphql_schema_031"],
+      "expected_tags": ["graphql", "schema"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_033",
+      "query": "database migration alembic",
+      "expected_hashes": ["database_migration_032"],
+      "expected_tags": ["database", "migration", "alembic"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_034",
+      "query": "database connection pooling",
+      "expected_hashes": ["connection_pool_033"],
+      "expected_tags": ["database", "pooling"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_035",
+      "query": "cache ttl invalidation",
+      "expected_hashes": ["cache_invalidation_034"],
+      "expected_tags": ["cache", "invalidation", "ttl"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_036",
+      "query": "rate limiting token bucket api",
+      "expected_hashes": ["rate_limiting_035"],
+      "expected_tags": ["rate-limiting", "token-bucket", "api"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_037",
+      "query": "structured logging json",
+      "expected_hashes": ["logging_structured_036"],
+      "expected_tags": ["logging", "structured", "json"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_038",
+      "query": "prometheus metrics monitoring",
+      "expected_hashes": ["metrics_prometheus_037"],
+      "expected_tags": ["prometheus", "metrics", "monitoring"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_039",
+      "query": "opentelemetry distributed tracing",
+      "expected_hashes": ["tracing_opentelemetry_038"],
+      "expected_tags": ["opentelemetry", "tracing"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_040",
+      "query": "error handling custom exceptions",
+      "expected_hashes": ["error_handling_039"],
+      "expected_tags": ["error-handling", "exceptions"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_041",
+      "query": "retry exponential backoff tenacity",
+      "expected_hashes": ["retry_logic_040"],
+      "expected_tags": ["retry", "backoff", "tenacity"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_042",
+      "query": "circuit breaker fault tolerance",
+      "expected_hashes": ["circuit_breaker_041"],
+      "expected_tags": ["circuit-breaker", "resilience"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_043",
+      "query": "dependency injection testable",
+      "expected_hashes": ["dependency_injection_042"],
+      "expected_tags": ["di", "testing"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_044",
+      "query": "factory pattern object creation",
+      "expected_hashes": ["factory_pattern_043"],
+      "expected_tags": ["factory", "design-patterns"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_045",
+      "query": "singleton global state",
+      "expected_hashes": ["singleton_pattern_044"],
+      "expected_tags": ["singleton"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_046",
+      "query": "observer event driven",
+      "expected_hashes": ["observer_pattern_045"],
+      "expected_tags": ["observer", "events"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_047",
+      "query": "strategy pattern algorithms",
+      "expected_hashes": ["strategy_pattern_046"],
+      "expected_tags": ["strategy", "algorithms"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_048",
+      "query": "command pattern actions",
+      "expected_hashes": ["command_pattern_047"],
+      "expected_tags": ["command", "actions"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_049",
+      "query": "decorator pattern behavior",
+      "expected_hashes": ["decorator_pattern_048"],
+      "expected_tags": ["decorator", "extension"],
+      "category": "mixed"
+    },
+    {
+      "id": "tc_050",
+      "query": "adapter pattern interface",
+      "expected_hashes": ["adapter_pattern_049"],
+      "expected_tags": ["adapter", "interfaces"],
+      "category": "tag_sensitive"
+    },
+    {
+      "id": "tc_051",
+      "query": "facade simplified interface",
+      "expected_hashes": ["facade_pattern_050"],
+      "expected_tags": ["facade"],
+      "category": "mixed"
+    },
+    {
+      "id": "tc_052",
+      "query": "network tunneling secure proxy",
+      "expected_hashes": ["rathole_arch_001"],
+      "expected_tags": [],
+      "category": "semantic",
+      "notes": "Pure semantic - no tag overlap"
+    },
+    {
+      "id": "tc_053",
+      "query": "caching performance optimization",
+      "expected_hashes": ["cachekit_arch_004", "cachekit_redis_005", "cache_invalidation_034"],
+      "expected_tags": ["cachekit", "cache"],
+      "category": "mixed"
+    },
+    {
+      "id": "tc_054",
+      "query": "design patterns software",
+      "expected_hashes": ["factory_pattern_043", "singleton_pattern_044", "observer_pattern_045", "strategy_pattern_046"],
+      "expected_tags": ["design-patterns"],
+      "category": "tag_sensitive",
+      "notes": "Should find multiple design pattern memories"
+    },
+    {
+      "id": "tc_055",
+      "query": "security authentication authorization",
+      "expected_hashes": ["oauth_jwt_017", "cors_security_018", "cachekit_encrypt_006"],
+      "expected_tags": ["security", "authentication"],
+      "category": "mixed"
+    },
+    {
+      "id": "tc_056",
+      "query": "",
+      "expected_hashes": [],
+      "expected_tags": [],
+      "category": "edge_case",
+      "notes": "Empty query should return empty or handle gracefully"
+    },
+    {
+      "id": "tc_057",
+      "query": "a",
+      "expected_hashes": [],
+      "expected_tags": [],
+      "category": "edge_case",
+      "notes": "Single character query - should be filtered as stop word or handled gracefully"
+    },
+    {
+      "id": "tc_058",
+      "query": "the and or but",
+      "expected_hashes": [],
+      "expected_tags": [],
+      "category": "edge_case",
+      "notes": "Query with only stop words - should fall back to vector search"
+    },
+    {
+      "id": "tc_059",
+      "query": "nonexistent-tag-xyz-12345",
+      "expected_hashes": [],
+      "expected_tags": [],
+      "category": "edge_case",
+      "notes": "Query with no matching tags in corpus - pure vector search"
+    },
+    {
+      "id": "tc_060",
+      "query": "rathole rathole rathole architecture",
+      "expected_hashes": ["rathole_arch_001"],
+      "expected_tags": ["rathole", "architecture"],
+      "category": "edge_case",
+      "notes": "Duplicate keywords in query - should dedupe and still match"
+    }
+  ]
+}

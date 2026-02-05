@@ -58,7 +58,7 @@ if [ $? -eq 0 ]; then
     echo "$(date): Successfully synced database from remote master"
     # Remove backup on success
     rm -f "$BACKUP_PATH"
-    
+
     # Show database info
     echo "$(date): Database size: $(du -h "$DB_PATH" | cut -f1)"
     echo "$(date): Database modified: $(stat -f "%Sm" "$DB_PATH")"

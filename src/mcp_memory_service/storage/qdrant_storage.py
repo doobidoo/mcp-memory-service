@@ -959,7 +959,7 @@ class QdrantStorage(MemoryStorage):
         except Exception as e:
             logger.error(f"search_by_tag failed: {e}")
             self._record_failure()
-            raise StorageError(f"Tag search failed: {e}")
+            raise StorageError(f"Tag search failed: {e}") from e
 
     async def get_memory_by_hash(self, content_hash: str) -> Memory | None:
         """
@@ -1274,7 +1274,7 @@ class QdrantStorage(MemoryStorage):
             while True:
                 scroll_result = await loop.run_in_executor(
                     None,
-                    lambda: self.client.scroll(
+                    lambda offset=offset: self.client.scroll(
                         collection_name=self.collection_name, limit=100, offset=offset, with_payload=True, with_vectors=False
                     ),
                 )
@@ -1295,7 +1295,7 @@ class QdrantStorage(MemoryStorage):
                 offset = next_offset
 
             self._record_success()
-            return sorted(list(all_tags))
+            return sorted(all_tags)
 
         except Exception as e:
             self._record_failure()
@@ -1585,7 +1585,7 @@ class QdrantStorage(MemoryStorage):
             while True:
                 scroll_result = await loop.run_in_executor(
                     None,
-                    lambda: self.client.scroll(
+                    lambda offset=offset: self.client.scroll(
                         collection_name=self.collection_name,
                         scroll_filter=time_filter,
                         limit=100,

@@ -11,12 +11,12 @@ per additional server instance and avoiding race conditions.
 
 import asyncio
 import logging
-from typing import Optional
 from threading import Lock
+from typing import Optional
 
+from .config import DATABASE_PATH, SQLITE_VEC_PATH
 from .storage.base import MemoryStorage
 from .storage.factory import create_storage_instance
-from .config import DATABASE_PATH, SQLITE_VEC_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -24,17 +24,17 @@ logger = logging.getLogger(__name__)
 class StorageManager:
     """Manages a singleton storage instance for shared access."""
 
-    _instance: Optional['StorageManager'] = None
+    _instance: Optional["StorageManager"] = None
     _lock: Lock = Lock()
 
     def __init__(self):
         """Initialize storage manager."""
-        self._storage: Optional[MemoryStorage] = None
+        self._storage: MemoryStorage | None = None
         self._initialization_lock: asyncio.Lock = asyncio.Lock()
         self._initialized: bool = False
 
     @classmethod
-    def get_instance(cls) -> 'StorageManager':
+    def get_instance(cls) -> "StorageManager":
         """Get singleton instance of StorageManager.
 
         Thread-safe singleton pattern ensures only one instance exists.

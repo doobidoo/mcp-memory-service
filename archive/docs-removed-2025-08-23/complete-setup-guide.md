@@ -4,7 +4,7 @@
 
 ### 🧠 **Consolidation System**
 - **Exponential Decay**: Memory aging with retention periods
-- **Creative Associations**: Auto-discovery of memory connections  
+- **Creative Associations**: Auto-discovery of memory connections
 - **Semantic Clustering**: DBSCAN algorithm grouping
 - **Memory Compression**: 500-char summaries with originals preserved
 - **Controlled Forgetting**: Relevance-based archival
@@ -65,7 +65,7 @@ sudo ufw allow 8000/tcp
 ### **Environment Variables**
 ```bash
 MCP_CONSOLIDATION_ENABLED=true
-MCP_MDNS_ENABLED=true  
+MCP_MDNS_ENABLED=true
 MCP_HTTPS_ENABLED=true
 MCP_MDNS_SERVICE_NAME="memory"
 MCP_HTTP_HOST=0.0.0.0
@@ -86,7 +86,7 @@ MCP_API_KEY=mcp-0b1ccbde2197a08dcb12d41af4044be6
 
 ### **Local Access**
 - **Dashboard**: https://localhost:443 or https://memory.local
-- **API Documentation**: https://memory.local/api/docs  
+- **API Documentation**: https://memory.local/api/docs
 - **Health Check**: https://memory.local/api/health
 - **SSE Events**: https://memory.local/api/events
 - **Connection Stats**: https://memory.local/api/events/stats
@@ -103,7 +103,7 @@ MCP_API_KEY=mcp-0b1ccbde2197a08dcb12d41af4044be6
 ```bash
 ./service_control.sh start     # Start service
 ./service_control.sh stop      # Stop service
-./service_control.sh restart   # Restart service  
+./service_control.sh restart   # Restart service
 ./service_control.sh status    # Show status
 ./service_control.sh logs      # View live logs
 ./service_control.sh health    # Test API health
@@ -128,7 +128,7 @@ sudo systemctl status mcp-memory
 # Should show: Active: active (running)
 ```
 
-### **2. API Health**  
+### **2. API Health**
 ```bash
 curl -k https://localhost:8000/api/health
 # Should return: {"status": "healthy", ...}
@@ -155,7 +155,7 @@ openssl s_client -connect localhost:8000 -servername localhost < /dev/null
 - `update_service.sh` - Configuration update script
 - `test_service.sh` - Debug testing script
 
-### **Setup Scripts**  
+### **Setup Scripts**
 - `setup_consolidation_mdns.sh` - Manual startup script
 - `COMPLETE_SETUP_GUIDE.md` - This comprehensive guide
 - `STARTUP_SETUP_GUIDE.md` - Original startup guide
@@ -183,7 +183,7 @@ openssl s_client -connect localhost:8000 -servername localhost < /dev/null
       "args": ["/path/to/examples/http-mcp-bridge.js"],
       "env": {
         "MCP_MEMORY_AUTO_DISCOVER": "true",
-        "MCP_MEMORY_PREFER_HTTPS": "true", 
+        "MCP_MEMORY_PREFER_HTTPS": "true",
         "MCP_MEMORY_API_KEY": "mcp-0b1ccbde2197a08dcb12d41af4044be6"
       }
     }
@@ -196,7 +196,7 @@ openssl s_client -connect localhost:8000 -servername localhost < /dev/null
 {
   "mcpServers": {
     "memory": {
-      "command": "node", 
+      "command": "node",
       "args": ["/path/to/examples/http-mcp-bridge.js"],
       "env": {
         "MCP_MEMORY_HTTP_ENDPOINT": "https://memory.local/api",
@@ -268,7 +268,7 @@ sudo systemctl restart mcp-memory
 When everything is working correctly, you should see:
 
 1. **Service Status**: `Active: active (running)`
-2. **API Response**: `{"status": "healthy"}` 
+2. **API Response**: `{"status": "healthy"}`
 3. **mDNS Discovery**: Service visible on multiple interfaces
 4. **HTTPS Access**: Dashboard accessible at https://localhost:8000
 5. **Auto-Startup**: Service starts automatically on boot

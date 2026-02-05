@@ -1,6 +1,6 @@
 # MCP Memory Service v4.0.0-beta.1 - Major Milestone Achievement
 
-**Date**: August 4, 2025  
+**Date**: August 4, 2025
 **Status**: 🚀 **Mission Accomplished**
 
 ## Project Evolution Complete
@@ -58,7 +58,7 @@ curl -X POST http://your-server-ip:8000/mcp \
 
 **Available Endpoints**:
 - 🔧 **MCP Protocol**: `http://your-server-ip:8000/mcp`
-- 📊 **Dashboard**: `http://your-server-ip:8000/`  
+- 📊 **Dashboard**: `http://your-server-ip:8000/`
 - 📚 **API Docs**: `http://your-server-ip:8000/api/docs`
 
 ## Next Steps

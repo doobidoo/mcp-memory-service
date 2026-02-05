@@ -25,7 +25,7 @@ This installs hooks that automatically:
 ## Components
 
 - **Core Hooks**: `session-start.js` (Hook v2.2), `session-end.js`, `memory-retrieval.js` - Smart memory management
-- **Utilities**: Project detection, quality-aware scoring, intelligent formatting, context shift detection  
+- **Utilities**: Project detection, quality-aware scoring, intelligent formatting, context shift detection
 - **Tests**: Comprehensive integration test suite (14 tests)
 
 ## Features
@@ -53,7 +53,7 @@ Three complementary ways to view session memory context:
 - **Professional UX**: Removed noisy wrapper tags and improved ANSI formatting
 - **Granular Control**: Fine-tune what information is displayed during hook execution
 
-### 🧠 **Previous Features (Project v6.7.0)**: Smart Memory Context  
+### 🧠 **Previous Features (Project v6.7.0)**: Smart Memory Context
 - **Quality Content Extraction**: Extracts actual decisions/insights from session summaries instead of "implementation..." fluff
 - **Duplicate Filtering**: Automatically removes repetitive session summaries
 - **Smart Timing**: Only injects memories when contextually appropriate (no more mid-session disruptions)
@@ -61,7 +61,7 @@ Three complementary ways to view session memory context:
 
 ### 🧠 **Core Features**
 - **Automatic Memory Injection**: Load relevant memories at session start with quality filtering
-- **Project Awareness**: Detect current project context and frameworks  
+- **Project Awareness**: Detect current project context and frameworks
 - **Memory Consolidation**: Store session outcomes and insights
 - **Intelligent Selection**: Quality-aware scoring that prioritizes meaningful content over just recency
 
@@ -137,7 +137,7 @@ Edit `~/.claude/hooks/config.json`:
 
 **Verbosity Levels**:
 - **Normal** (`verbose: true`, others `false`): Shows essential information only
-- **Detailed** (`showMemoryDetails: true`): Include memory scoring details  
+- **Detailed** (`showMemoryDetails: true`): Include memory scoring details
 - **Clean** (`cleanMode: true`): Minimal output, only success/error messages
 - **Silent** (`verbose: false`): Hook works silently in background
 

@@ -14,56 +14,51 @@
 
 """MCP Memory Service initialization."""
 
-# CRITICAL: Set offline mode BEFORE any other imports to prevent model downloads
+# CRITICAL: Set cache paths BEFORE any ML library imports to prevent model downloads
 import os
-import platform
 
-# Setup cache paths for HuggingFace models - this MUST be done before any ML library imports
-def setup_offline_mode():
-    """Setup cache paths for HuggingFace models without forcing offline mode."""
-    # Configure cache paths (but don't force offline - let sentence-transformers auto-detect cache)
-    username = os.environ.get('USERNAME', os.environ.get('USER', ''))
-    if platform.system() == "Windows" and username:
-        default_hf_home = f"C:\\Users\\{username}\\.cache\\huggingface"
-        default_transformers_cache = f"C:\\Users\\{username}\\.cache\\huggingface\\transformers"
-        default_sentence_transformers_home = f"C:\\Users\\{username}\\.cache\\torch\\sentence_transformers"
-    else:
-        default_hf_home = os.path.expanduser("~/.cache/huggingface")
-        default_transformers_cache = os.path.expanduser("~/.cache/huggingface/transformers")
-        default_sentence_transformers_home = os.path.expanduser("~/.cache/torch/sentence_transformers")
+from platformdirs import user_cache_dir
 
-    # Set cache paths if not already set
-    if 'HF_HOME' not in os.environ:
-        os.environ['HF_HOME'] = default_hf_home
-    if 'TRANSFORMERS_CACHE' not in os.environ:
-        os.environ['TRANSFORMERS_CACHE'] = default_transformers_cache
-    if 'SENTENCE_TRANSFORMERS_HOME' not in os.environ:
-        os.environ['SENTENCE_TRANSFORMERS_HOME'] = default_sentence_transformers_home
 
-    # Only force offline mode if explicitly requested (respects user/Docker env vars)
-    # sentence-transformers automatically uses cache if model exists - no need to force offline
+def setup_ml_cache_paths():
+    """
+    Setup cache paths for HuggingFace/PyTorch models using platformdirs.
 
-# Setup offline mode immediately when this module is imported
-setup_offline_mode()
+    Uses platform-appropriate cache locations:
+    - Linux: ~/.cache/huggingface (XDG_CACHE_HOME compliant)
+    - macOS: ~/Library/Caches/huggingface
+    - Windows: C:\\Users\\<user>\\AppData\\Local\\huggingface\\Cache
+
+    Environment variables take precedence if already set.
+    """
+    # HuggingFace cache (unified cache for transformers/datasets/hub)
+    # Note: TRANSFORMERS_CACHE is deprecated in favor of HF_HOME in transformers v5+
+    if "HF_HOME" not in os.environ:
+        os.environ["HF_HOME"] = user_cache_dir("huggingface", ensure_exists=True)
+
+    # Sentence-transformers cache (uses torch cache structure)
+    if "SENTENCE_TRANSFORMERS_HOME" not in os.environ:
+        os.environ["SENTENCE_TRANSFORMERS_HOME"] = os.path.join(
+            user_cache_dir("torch", ensure_exists=True), "sentence_transformers"
+        )
+
+
+# Setup cache paths immediately when this module is imported
+setup_ml_cache_paths()
 
 __version__ = "9.0.0"
 
-from .models import Memory, MemoryQueryResult
-from .storage import MemoryStorage
-from .utils import generate_content_hash
+from .models import Memory, MemoryQueryResult  # noqa: E402
+from .storage import MemoryStorage  # noqa: E402
+from .utils import generate_content_hash  # noqa: E402
 
 # Conditional imports
-__all__ = [
-    'Memory',
-    'MemoryQueryResult', 
-    'MemoryStorage',
-    'generate_content_hash'
-]
+__all__ = ["Memory", "MemoryQueryResult", "MemoryStorage", "generate_content_hash"]
 
 # Import storage backends conditionally
 try:
     from .storage import SqliteVecMemoryStorage
-    __all__.append('SqliteVecMemoryStorage')
+
+    __all__.append("SqliteVecMemoryStorage")
 except ImportError:
     SqliteVecMemoryStorage = None
-

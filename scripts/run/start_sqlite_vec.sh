@@ -32,7 +32,7 @@ import sqlite_vec
 import sentence_transformers
 import mcp
 print('   ✅ sqlite-vec available')
-print('   ✅ sentence-transformers available') 
+print('   ✅ sentence-transformers available')
 print('   ✅ mcp available')
 "
 
@@ -47,7 +47,7 @@ timeout 3 python -m src.mcp_memory_service.server 2>/dev/null || echo "✅ Serve
 echo ""
 echo "For Claude Code integration:"
 echo "   - The service will automatically use sqlite-vec"
-echo "   - Memory database: ~/.local/share/mcp-memory/sqlite_vec.db" 
+echo "   - Memory database: ~/.local/share/mcp-memory/sqlite_vec.db"
 echo "   - 75% less memory usage vs ChromaDB"
 echo ""
 echo "To test the setup:"

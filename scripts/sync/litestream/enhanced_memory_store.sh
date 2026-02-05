@@ -18,37 +18,37 @@ store_memory() {
     local tags="$2"
     local memory_type="${3:-note}"
     local project_name="$4"
-    
+
     if [ -z "$content" ]; then
         echo -e "${RED}Error: No content provided${NC}"
         return 1
     fi
-    
+
     # Generate content hash
     local content_hash=$(echo -n "$content" | shasum -a 256 | cut -d' ' -f1)
-    
+
     # Auto-detect project context
     if [ -z "$project_name" ]; then
         project_name=$(basename "$(pwd)")
     fi
-    
+
     # Auto-generate tags
     local auto_tags="source:$HOSTNAME,project:$project_name"
-    
+
     # Add git context if available
     if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         local git_branch=$(git branch --show-current 2>/dev/null || echo "unknown")
         auto_tags="$auto_tags,git:$git_branch"
     fi
-    
+
     # Combine with user tags
     if [ -n "$tags" ]; then
         auto_tags="$auto_tags,$tags"
     fi
-    
+
     # Convert comma-separated tags to JSON array
     local json_tags="[\"$(echo "$auto_tags" | sed 's/,/","/g')\"]"
-    
+
     # Prepare JSON payload
     local json_payload=$(cat << EOF
 {
@@ -65,22 +65,22 @@ store_memory() {
 }
 EOF
 )
-    
+
     echo "Storing memory: ${content:0:60}..."
-    
+
     # Try remote API first
     echo "Attempting remote storage..."
     local curl_cmd="curl -k -s -X POST --connect-timeout 10"
     curl_cmd="$curl_cmd -H 'Content-Type: application/json'"
     curl_cmd="$curl_cmd -H 'X-Client-Hostname: $HOSTNAME'"
-    
+
     if [ -n "$API_KEY" ]; then
         curl_cmd="$curl_cmd -H 'Authorization: Bearer $API_KEY'"
     fi
-    
+
     local response=$(eval "$curl_cmd -d '$json_payload' '$REMOTE_API'" 2>&1)
     local curl_exit_code=$?
-    
+
     if [ $curl_exit_code -eq 0 ]; then
         # Check if response indicates success
         if echo "$response" | grep -q '"success":\s*true\|"status":\s*"success"\|content_hash\|stored'; then
@@ -95,23 +95,23 @@ EOF
     else
         echo -e "${YELLOW}⚠ Remote API not reachable (exit code: $curl_exit_code)${NC}"
     fi
-    
+
     # Fallback to local staging
     echo "Falling back to local staging..."
-    
+
     # Initialize staging DB if needed
     if [ ! -f "$STAGING_DB" ]; then
         echo "Initializing staging database..."
         "$SCRIPT_DIR/init_staging_db.sh"
     fi
-    
+
     # Store in staging database
     local id=$(echo -n "$content$HOSTNAME$(date)" | shasum -a 256 | cut -d' ' -f1 | head -c 16)
-    
+
     # Escape single quotes for SQL
     local content_escaped=$(echo "$content" | sed "s/'/''/g")
     local metadata_escaped=$(echo "{\"project\":\"$project_name\",\"hostname\":\"$HOSTNAME\"}" | sed "s/'/''/g")
-    
+
     sqlite3 "$STAGING_DB" "
     INSERT OR REPLACE INTO staged_memories (
         id, content, content_hash, tags, metadata, memory_type,
@@ -128,17 +128,17 @@ EOF
         '$HOSTNAME'
     );
     " 2>/dev/null
-    
+
     if [ $? -eq 0 ]; then
         echo -e "${YELLOW}✓ Stored locally (staged for sync)${NC}"
         echo -e "${YELLOW}  Content hash: ${content_hash:0:16}...${NC}"
         echo -e "${YELLOW}  Tags applied: $auto_tags${NC}"
         echo -e "${YELLOW}  Run './sync/memory_sync.sh sync' to push to remote${NC}"
-        
+
         # Show current staging status
         local staged_count=$(sqlite3 "$STAGING_DB" "SELECT COUNT(*) FROM staged_memories WHERE conflict_status = 'none';" 2>/dev/null || echo "0")
         echo -e "${YELLOW}  Total staged changes: $staged_count${NC}"
-        
+
         return 0
     else
         echo -e "${RED}✗ Failed to store locally${NC}"

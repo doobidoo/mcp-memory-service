@@ -10,18 +10,17 @@ Tests cover:
 """
 
 import json
-import pytest
-import tempfile
 import os
-from typing import Any, Dict, List
+import tempfile
+from typing import Any
 
-from toon_format import decode, encode, estimate_savings
+import pytest
+from toon_format import decode
 
 from mcp_memory_service.formatters.toon import format_search_results_as_toon
 from mcp_memory_service.mcp_server import mcp
 from mcp_memory_service.services.memory_service import MemoryService
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-
 
 # =============================================================================
 # FIXTURES
@@ -29,7 +28,7 @@ from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
 
 @pytest.fixture
-def sample_memories() -> List[Dict[str, Any]]:
+def sample_memories() -> list[dict[str, Any]]:
     """Create sample memory records for testing."""
     return [
         {
@@ -63,7 +62,7 @@ def sample_memories() -> List[Dict[str, Any]]:
 
 
 @pytest.fixture
-def typical_dataset() -> List[Dict[str, Any]]:
+def typical_dataset() -> list[dict[str, Any]]:
     """Create typical dataset with 10 memories for token savings tests."""
     base_memory = {
         "content": "Example memory content for testing token efficiency",
@@ -99,7 +98,7 @@ async def initialized_storage(temp_db):
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
     yield storage
-    storage.close()
+    await storage.close()
 
 
 @pytest.fixture
@@ -134,9 +133,7 @@ def test_toon_encode_decode_roundtrip(sample_memories):
 
     # Verify decoded structure
     assert isinstance(decoded_memories, list), "Decoded TOON should be a list"
-    assert len(decoded_memories) == len(
-        sample_memories
-    ), "Decoded count should match original"
+    assert len(decoded_memories) == len(sample_memories), "Decoded count should match original"
 
     # Verify each memory field matches
     for original, decoded in zip(sample_memories, decoded_memories):
@@ -145,12 +142,8 @@ def test_toon_encode_decode_roundtrip(sample_memories):
         assert decoded["metadata"] == original["metadata"], "Metadata should match"
         assert decoded["created_at"] == original["created_at"], "created_at should match"
         assert decoded["updated_at"] == original["updated_at"], "updated_at should match"
-        assert (
-            decoded["content_hash"] == original["content_hash"]
-        ), "content_hash should match"
-        assert (
-            decoded["similarity_score"] == original["similarity_score"]
-        ), "similarity_score should match"
+        assert decoded["content_hash"] == original["content_hash"], "content_hash should match"
+        assert decoded["similarity_score"] == original["similarity_score"], "similarity_score should match"
 
 
 def test_toon_encode_decode_roundtrip_empty():
@@ -189,15 +182,10 @@ def test_toon_token_savings_typical(typical_dataset):
     assert toon_bytes < json_bytes, "TOON should be smaller than JSON"
 
     # Verify at least 10% savings (conservative for typical data)
-    assert (
-        savings_percentage >= 10
-    ), f"TOON should save ≥10% bytes vs JSON (actual: {savings_percentage:.1f}%)"
+    assert savings_percentage >= 10, f"TOON should save ≥10% bytes vs JSON (actual: {savings_percentage:.1f}%)"
 
     # Log actual savings for visibility
-    print(
-        f"\nTOON savings: {savings_percentage:.1f}% "
-        f"(TOON: {toon_bytes} bytes, JSON: {json_bytes} bytes)"
-    )
+    print(f"\nTOON savings: {savings_percentage:.1f}% (TOON: {toon_bytes} bytes, JSON: {json_bytes} bytes)")
 
 
 # =============================================================================
@@ -224,10 +212,7 @@ async def test_mcp_resource_toon_documentation_available():
 
     # Check if task 5 was completed (resource registration)
     if "toon://format/documentation" not in resource_uris:
-        pytest.skip(
-            "Task 5 incomplete: toon://format/documentation resource not registered. "
-            f"Found resources: {resource_uris}"
-        )
+        pytest.skip(f"Task 5 incomplete: toon://format/documentation resource not registered. Found resources: {resource_uris}")
 
     # Verify we can read the resource
     toon_resource = await mcp.get_resource("toon://format/documentation")
@@ -256,14 +241,10 @@ async def test_tools_return_valid_toon(memory_service):
     )
 
     # Test retrieve_memory
-    retrieve_result = await memory_service.retrieve_memories(
-        query="integration test", page=1, page_size=10
-    )
+    retrieve_result = await memory_service.retrieve_memories(query="integration test", page=1, page_size=10)
 
     # Format retrieve results as TOON (simulating tool behavior)
-    toon_output, media_type = format_search_results_as_toon(
-        retrieve_result.get("memories", [])
-    )
+    toon_output, media_type = format_search_results_as_toon(retrieve_result.get("memories", []))
 
     # Verify output is string
     assert isinstance(toon_output, str), "retrieve_memory should return string"
@@ -275,13 +256,9 @@ async def test_tools_return_valid_toon(memory_service):
         assert isinstance(decoded, list), "Decoded TOON should be list"
 
     # Test search_by_tag
-    search_result = await memory_service.search_by_tag(
-        tags=["integration"], match_all=False, page=1, page_size=10
-    )
+    search_result = await memory_service.search_by_tag(tags=["integration"], match_all=False, page=1, page_size=10)
 
-    toon_output, media_type = format_search_results_as_toon(
-        search_result.get("memories", [])
-    )
+    toon_output, media_type = format_search_results_as_toon(search_result.get("memories", []))
 
     assert isinstance(toon_output, str), "search_by_tag should return string"
     assert media_type == "text/plain"
@@ -293,9 +270,7 @@ async def test_tools_return_valid_toon(memory_service):
     # Test list_memories
     list_result = await memory_service.list_memories(page=1, page_size=10)
 
-    toon_output, media_type = format_search_results_as_toon(
-        list_result.get("memories", [])
-    )
+    toon_output, media_type = format_search_results_as_toon(list_result.get("memories", []))
 
     assert isinstance(toon_output, str), "list_memories should return string"
     assert media_type == "text/plain"
@@ -327,9 +302,7 @@ async def test_tools_reference_toon_documentation_resource():
     # Verify expected tools exist
     tools_to_check = ["retrieve_memory", "search_by_tag", "list_memories"]
     for tool_name in tools_to_check:
-        assert (
-            tool_name in tool_names
-        ), f"Tool {tool_name} should be registered. Found: {tool_names}"
+        assert tool_name in tool_names, f"Tool {tool_name} should be registered. Found: {tool_names}"
 
     # Verify tool descriptions mention TOON documentation
     for tool_name in tools_to_check:
@@ -339,8 +312,7 @@ async def test_tools_reference_toon_documentation_resource():
         # Check if description mentions TOON resource or TOON format
         description = tool.description or ""
         assert (
-            "toon://format/documentation" in description
-            or "TOON" in description.upper()
+            "toon://format/documentation" in description or "TOON" in description.upper()
         ), f"Tool {tool_name} should reference TOON format in description"
 
 
@@ -368,7 +340,7 @@ async def test_fastmcp_instance_configured():
 
     # Verify tools are registered
     tools_dict = await mcp.get_tools()
-    resources_dict = await mcp.get_resources()
+    await mcp.get_resources()
 
     assert len(tools_dict) > 0, "FastMCP should have tools registered"
 

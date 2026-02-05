@@ -17,10 +17,11 @@
 Direct runner for MCP Memory Service.
 This script directly imports and runs the memory server without going through the installation process.
 """
+
+import importlib.machinery
+import importlib.util
 import os
 import sys
-import importlib.util
-import importlib.machinery
 import traceback
 
 # Disable sitecustomize.py and other import hooks to prevent recursion issues
@@ -45,35 +46,40 @@ if "MCP_MEMORY_CHROMA_PATH" in os.environ:
 if "MCP_MEMORY_BACKUPS_PATH" in os.environ:
     print(f"Using backups path: {os.environ['MCP_MEMORY_BACKUPS_PATH']}", file=sys.stderr, flush=True)
 
+
 def print_info(text):
     """Print formatted info text."""
     print(f"[INFO] {text}", file=sys.stderr, flush=True)
+
 
 def print_error(text):
     """Print formatted error text."""
     print(f"[ERROR] {text}", file=sys.stderr, flush=True)
 
+
 def print_success(text):
     """Print formatted success text."""
     print(f"[SUCCESS] {text}", file=sys.stderr, flush=True)
+
 
 def print_warning(text):
     """Print formatted warning text."""
     print(f"[WARNING] {text}", file=sys.stderr, flush=True)
 
+
 def run_memory_server():
     """Run the MCP Memory Service directly."""
     print_info("Starting MCP Memory Service")
-    
+
     # Save original sys.path and meta_path
     original_sys_path = sys.path.copy()
     original_meta_path = sys.meta_path
-    
+
     # Temporarily disable import hooks
-    sys.meta_path = [finder for finder in sys.meta_path
-                    if not hasattr(finder, 'find_spec') or
-                    not hasattr(finder, 'blocked_packages')]
-    
+    sys.meta_path = [
+        finder for finder in sys.meta_path if not hasattr(finder, "find_spec") or not hasattr(finder, "blocked_packages")
+    ]
+
     try:
         # Get the directory of this script
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -85,7 +91,7 @@ def run_memory_server():
         if os.path.exists(src_dir):
             print_info(f"Adding {src_dir} to sys.path (prioritized for development)")
             # Remove any existing mcp_memory_service from sys.modules to avoid conflicts
-            modules_to_remove = [key for key in sys.modules.keys() if key.startswith('mcp_memory_service')]
+            modules_to_remove = [key for key in sys.modules.keys() if key.startswith("mcp_memory_service")]
             for module in modules_to_remove:
                 print_info(f"Removing conflicting module: {module}")
                 del sys.modules[module]
@@ -96,48 +102,48 @@ def run_memory_server():
             sys.path.insert(0, src_dir)
         else:
             # Add site-packages to sys.path only if src doesn't exist
-            site_packages = os.path.join(sys.prefix, 'Lib', 'site-packages')
+            site_packages = os.path.join(sys.prefix, "Lib", "site-packages")
             if site_packages not in sys.path:
                 sys.path.insert(0, site_packages)
-        
+
         # Try direct import from src directory
         server_path = os.path.join(src_dir, "mcp_memory_service", "server.py")
         if os.path.exists(server_path):
             print_info(f"Found server module at {server_path}")
-            
+
             # Use importlib to load the module directly from the file
             module_name = "mcp_memory_service.server"
             spec = importlib.util.spec_from_file_location(module_name, server_path)
             if spec is None:
                 print_error(f"Could not create spec from file: {server_path}")
                 sys.exit(1)
-                
+
             server = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = server  # Add to sys.modules to avoid import issues
             spec.loader.exec_module(server)
-            
+
             print_success("Successfully imported mcp_memory_service.server from file")
         else:
             # Try to import using importlib
             print_info("Attempting to import mcp_memory_service.server using importlib")
-            
+
             # First try to find the module in site-packages
-            server_spec = importlib.machinery.PathFinder.find_spec('mcp_memory_service.server', [site_packages])
-            
+            server_spec = importlib.machinery.PathFinder.find_spec("mcp_memory_service.server", [site_packages])
+
             # If not found, try to find it in src directory
             if server_spec is None and os.path.exists(src_dir):
-                server_spec = importlib.machinery.PathFinder.find_spec('mcp_memory_service.server', [src_dir])
-            
+                server_spec = importlib.machinery.PathFinder.find_spec("mcp_memory_service.server", [src_dir])
+
             if server_spec is None:
                 print_error("Could not find mcp_memory_service.server module spec")
                 sys.exit(1)
-            
+
             # Load the server module
             server = importlib.util.module_from_spec(server_spec)
             server_spec.loader.exec_module(server)
-            
+
             print_success("Successfully imported mcp_memory_service.server")
-        
+
         # Run the memory server with error handling
         try:
             print_info("Calling mcp_memory_service.server.main()")
@@ -158,6 +164,7 @@ def run_memory_server():
         # Restore original sys.path and meta_path
         sys.path = original_sys_path
         sys.meta_path = original_meta_path
+
 
 if __name__ == "__main__":
     try:

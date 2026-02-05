@@ -144,7 +144,7 @@ dbs:
         path: /backup/sqlite_vec.db
         sync-interval: 1s
         retention: 72h
-        
+
       - name: "remote-backup"
         url: "http://backup-server:8080/replica"
         sync-interval: 10s
@@ -289,7 +289,7 @@ journalctl --user -u mcp-memory-sync -f
 # Install service
 ./scripts/memory_sync.sh install-service
 
-# Service control  
+# Service control
 launchctl load ~/Library/LaunchAgents/com.mcp.memory.sync.plist
 launchctl start com.mcp.memory.sync
 launchctl list | grep mcp.memory
@@ -398,7 +398,7 @@ grep "sync completed" ~/.mcp_memory_staging/sync.log | tail -10
    ```bash
    # Preferred method
    ./scripts/enhanced_memory_store.sh "Important insight"
-   
+
    # Instead of direct MCP operations
    ```
 
@@ -422,7 +422,7 @@ grep "sync completed" ~/.mcp_memory_staging/sync.log | tail -10
    # Enable API access
    export MCP_HTTP_ENABLED=true
    export MCP_API_KEY="$(openssl rand -base64 32)"
-   
+
    # Start server
    python scripts/run_http_server.py
    ```
@@ -437,7 +437,7 @@ grep "sync completed" ~/.mcp_memory_staging/sync.log | tail -10
    ```bash
    # Health check endpoint
    curl -f https://server:8443/api/health
-   
+
    # Monitor sync performance
    ./scripts/memory_sync.sh metrics
    ```

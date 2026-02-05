@@ -12,10 +12,12 @@ from pathlib import Path
 src_path = Path(__file__).parent.parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
+
 def print_separator(title):
     print("\n" + "=" * 60)
     print(f" {title}")
     print("=" * 60)
+
 
 def print_status(status, message):
     """Print status with simple text indicators."""
@@ -28,6 +30,7 @@ def print_status(status, message):
     else:
         print(f"[INFO] {message}")
 
+
 def check_env_file():
     """Check if .env file exists and what it contains."""
     print_separator("ENVIRONMENT FILE CHECK")
@@ -38,13 +41,13 @@ def check_env_file():
     if env_file.exists():
         print_status("success", f".env file found at: {env_file}")
         print("\n.env file contents:")
-        with open(env_file, 'r') as f:
+        with open(env_file) as f:
             lines = f.readlines()
             for i, line in enumerate(lines, 1):
                 # Mask sensitive values
-                if 'TOKEN' in line or 'PASSWORD' in line or 'SECRET' in line:
-                    if '=' in line:
-                        key, _ = line.split('=', 1)
+                if "TOKEN" in line or "PASSWORD" in line or "SECRET" in line:
+                    if "=" in line:
+                        key, _ = line.split("=", 1)
                         print(f"  {i:2d}: {key}=***MASKED***")
                     else:
                         print(f"  {i:2d}: {line.rstrip()}")
@@ -55,6 +58,7 @@ def check_env_file():
         return False
     return True
 
+
 def check_environment_variables():
     """Check current environment variables."""
     print_separator("ENVIRONMENT VARIABLES CHECK")
@@ -62,6 +66,7 @@ def check_environment_variables():
     # Check if dotenv is available and load .env file
     try:
         from dotenv import load_dotenv
+
         project_root = Path(__file__).parent.parent.parent
         env_file = project_root / ".env"
         if env_file.exists():
@@ -73,36 +78,36 @@ def check_environment_variables():
         print_status("warning", "dotenv not available, skipping .env file loading")
 
     # Core configuration
-    storage_backend = os.getenv('MCP_MEMORY_STORAGE_BACKEND', 'NOT SET')
-    print(f"\nCore Configuration:")
+    storage_backend = os.getenv("MCP_MEMORY_STORAGE_BACKEND", "NOT SET")
+    print("\nCore Configuration:")
     print(f"  MCP_MEMORY_STORAGE_BACKEND: {storage_backend}")
 
     # Cloudflare variables
     cloudflare_vars = {
-        'CLOUDFLARE_API_TOKEN': 'REQUIRED',
-        'CLOUDFLARE_ACCOUNT_ID': 'REQUIRED',
-        'CLOUDFLARE_VECTORIZE_INDEX': 'REQUIRED',
-        'CLOUDFLARE_D1_DATABASE_ID': 'REQUIRED',
-        'CLOUDFLARE_R2_BUCKET': 'OPTIONAL',
-        'CLOUDFLARE_EMBEDDING_MODEL': 'OPTIONAL',
-        'CLOUDFLARE_LARGE_CONTENT_THRESHOLD': 'OPTIONAL',
-        'CLOUDFLARE_MAX_RETRIES': 'OPTIONAL',
-        'CLOUDFLARE_BASE_DELAY': 'OPTIONAL'
+        "CLOUDFLARE_API_TOKEN": "REQUIRED",
+        "CLOUDFLARE_ACCOUNT_ID": "REQUIRED",
+        "CLOUDFLARE_VECTORIZE_INDEX": "REQUIRED",
+        "CLOUDFLARE_D1_DATABASE_ID": "REQUIRED",
+        "CLOUDFLARE_R2_BUCKET": "OPTIONAL",
+        "CLOUDFLARE_EMBEDDING_MODEL": "OPTIONAL",
+        "CLOUDFLARE_LARGE_CONTENT_THRESHOLD": "OPTIONAL",
+        "CLOUDFLARE_MAX_RETRIES": "OPTIONAL",
+        "CLOUDFLARE_BASE_DELAY": "OPTIONAL",
     }
 
-    print(f"\nCloudflare Configuration:")
+    print("\nCloudflare Configuration:")
     missing_required = []
     for var, requirement in cloudflare_vars.items():
         value = os.getenv(var)
         if value:
-            if 'TOKEN' in var:
+            if "TOKEN" in var:
                 display_value = f"{value[:8]}***MASKED***"
             else:
                 display_value = value
             print_status("success", f"{var}: {display_value} ({requirement})")
         else:
             display_value = "NOT SET"
-            if requirement == 'REQUIRED':
+            if requirement == "REQUIRED":
                 print_status("error", f"{var}: {display_value} ({requirement})")
                 missing_required.append(var)
             else:
@@ -115,6 +120,7 @@ def check_environment_variables():
         print_status("success", "All required Cloudflare variables are set")
         return True
 
+
 def test_config_import():
     """Test importing the configuration module."""
     print_separator("CONFIGURATION MODULE TEST")
@@ -122,11 +128,11 @@ def test_config_import():
     try:
         print("Attempting to import config module...")
         from mcp_memory_service.config import (
-            STORAGE_BACKEND,
-            CLOUDFLARE_API_TOKEN,
             CLOUDFLARE_ACCOUNT_ID,
+            CLOUDFLARE_API_TOKEN,
+            CLOUDFLARE_D1_DATABASE_ID,
             CLOUDFLARE_VECTORIZE_INDEX,
-            CLOUDFLARE_D1_DATABASE_ID
+            STORAGE_BACKEND,
         )
 
         print_status("success", "Config import successful")
@@ -146,27 +152,29 @@ def test_config_import():
         print_status("error", f"Config import failed with error: {e}")
         return None
 
+
 def test_storage_creation():
     """Test creating the storage backend."""
     print_separator("STORAGE BACKEND CREATION TEST")
 
     try:
         from mcp_memory_service.config import STORAGE_BACKEND
+
         print(f"Attempting to create {STORAGE_BACKEND} storage...")
 
-        if STORAGE_BACKEND == 'cloudflare':
-            from mcp_memory_service.storage.cloudflare import CloudflareStorage
+        if STORAGE_BACKEND == "cloudflare":
             from mcp_memory_service.config import (
-                CLOUDFLARE_API_TOKEN,
                 CLOUDFLARE_ACCOUNT_ID,
-                CLOUDFLARE_VECTORIZE_INDEX,
+                CLOUDFLARE_API_TOKEN,
+                CLOUDFLARE_BASE_DELAY,
                 CLOUDFLARE_D1_DATABASE_ID,
-                CLOUDFLARE_R2_BUCKET,
                 CLOUDFLARE_EMBEDDING_MODEL,
                 CLOUDFLARE_LARGE_CONTENT_THRESHOLD,
                 CLOUDFLARE_MAX_RETRIES,
-                CLOUDFLARE_BASE_DELAY
+                CLOUDFLARE_R2_BUCKET,
+                CLOUDFLARE_VECTORIZE_INDEX,
             )
+            from mcp_memory_service.storage.cloudflare import CloudflareStorage
 
             storage = CloudflareStorage(
                 api_token=CLOUDFLARE_API_TOKEN,
@@ -177,15 +185,16 @@ def test_storage_creation():
                 embedding_model=CLOUDFLARE_EMBEDDING_MODEL,
                 large_content_threshold=CLOUDFLARE_LARGE_CONTENT_THRESHOLD,
                 max_retries=CLOUDFLARE_MAX_RETRIES,
-                base_delay=CLOUDFLARE_BASE_DELAY
+                base_delay=CLOUDFLARE_BASE_DELAY,
             )
             print_status("success", "CloudflareStorage instance created successfully")
             print(f"  Storage class: {storage.__class__.__name__}")
             return storage
 
-        elif STORAGE_BACKEND == 'sqlite_vec':
-            from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+        elif STORAGE_BACKEND == "sqlite_vec":
             from mcp_memory_service.config import SQLITE_VEC_PATH
+            from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+
             storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH)
             print_status("success", "SqliteVecMemoryStorage instance created successfully")
             print(f"  Storage class: {storage.__class__.__name__}")
@@ -199,9 +208,11 @@ def test_storage_creation():
     except Exception as e:
         print_status("error", f"Storage creation failed: {e}")
         import traceback
-        print(f"Full traceback:")
+
+        print("Full traceback:")
         traceback.print_exc()
         return None
+
 
 def _verify_token_endpoint(endpoint_url, endpoint_type, api_token, requests):
     """
@@ -218,11 +229,7 @@ def _verify_token_endpoint(endpoint_url, endpoint_type, api_token, requests):
     """
     print(f"\nTesting {endpoint_type} token verification...")
     try:
-        response = requests.get(
-            endpoint_url,
-            headers={"Authorization": f"Bearer {api_token}"},
-            timeout=10
-        )
+        response = requests.get(endpoint_url, headers={"Authorization": f"Bearer {api_token}"}, timeout=10)
 
         if response.status_code == 200:
             data = response.json()
@@ -253,8 +260,8 @@ def test_cloudflare_token():
     """Test Cloudflare API token with both endpoints to help identify token type."""
     print_separator("CLOUDFLARE TOKEN VERIFICATION")
 
-    api_token = os.getenv('CLOUDFLARE_API_TOKEN')
-    account_id = os.getenv('CLOUDFLARE_ACCOUNT_ID')
+    api_token = os.getenv("CLOUDFLARE_API_TOKEN")
+    account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
 
     if not api_token:
         print_status("error", "CLOUDFLARE_API_TOKEN not set, skipping token verification")
@@ -288,15 +295,16 @@ def test_cloudflare_token():
     print("\nTOKEN VERIFICATION GUIDANCE:")
     if account_id:
         print("✅ For account-scoped tokens (recommended), use:")
-        print(f"   curl \"https://api.cloudflare.com/client/v4/accounts/{account_id}/tokens/verify\" \\")
-        print(f"        -H \"Authorization: Bearer YOUR_TOKEN\"")
+        print(f'   curl "https://api.cloudflare.com/client/v4/accounts/{account_id}/tokens/verify" \\')
+        print('        -H "Authorization: Bearer YOUR_TOKEN"')
     print("✅ For global tokens (legacy), use:")
-    print("   curl \"https://api.cloudflare.com/client/v4/user/tokens/verify\" \\")
-    print("        -H \"Authorization: Bearer YOUR_TOKEN\"")
+    print('   curl "https://api.cloudflare.com/client/v4/user/tokens/verify" \\')
+    print('        -H "Authorization: Bearer YOUR_TOKEN"')
     print("❌ Common mistake: Using wrong endpoint for token type")
     print("📖 See docs/troubleshooting/cloudflare-authentication.md for details")
 
     return token_verified
+
 
 def main():
     """Run all diagnostic tests."""
@@ -324,13 +332,13 @@ def main():
     # Final summary
     print_separator("DIAGNOSTIC SUMMARY")
 
-    if configured_backend == 'cloudflare' and cloudflare_ready and token_valid and storage:
+    if configured_backend == "cloudflare" and cloudflare_ready and token_valid and storage:
         print_status("success", "Cloudflare backend should be working correctly")
         print(f"   Configuration loaded: {configured_backend}")
         print(f"   Required variables set: {cloudflare_ready}")
         print(f"   Token verification: {'PASSED' if token_valid else 'NOT TESTED'}")
         print(f"   Storage instance created: {storage.__class__.__name__}")
-    elif configured_backend == 'sqlite_vec' and storage:
+    elif configured_backend == "sqlite_vec" and storage:
         print_status("success", "SQLite-vec backend is working")
         print(f"   Configuration loaded: {configured_backend}")
         print(f"   Storage instance created: {storage.__class__.__name__}")
@@ -354,6 +362,7 @@ def main():
             print("   5. Fix environment variable loading issues")
         if configured_backend and not storage:
             print("   6. Check Cloudflare credentials and connectivity")
+
 
 if __name__ == "__main__":
     main()

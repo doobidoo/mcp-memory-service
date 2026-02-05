@@ -1,0 +1,14 @@
+{
+  "filePath": ".spec-workflow/specs/hybrid-search/requirements.md",
+  "currentVersion": 1,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-25T00:02:01.883Z",
+      "trigger": "initial",
+      "approvalId": "approval_1769299321876_0cwgds9y9",
+      "approvalTitle": "Hybrid Search Requirements"
+    }
+  ]
+}

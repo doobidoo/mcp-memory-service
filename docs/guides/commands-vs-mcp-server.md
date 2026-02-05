@@ -5,16 +5,16 @@ This guide helps you choose the best integration method for your workflow and ne
 ## TL;DR - Quick Decision
 
 ### Choose **Commands** if you want:
-✅ **Immediate setup** (2 minutes to working)  
-✅ **Simple usage** (`claude /memory-store "content"`)  
-✅ **No configuration** (zero MCP server setup)  
-✅ **Context awareness** (automatic project detection)  
+✅ **Immediate setup** (2 minutes to working)
+✅ **Simple usage** (`claude /memory-store "content"`)
+✅ **No configuration** (zero MCP server setup)
+✅ **Context awareness** (automatic project detection)
 
 ### Choose **MCP Server** if you want:
-✅ **Deep integration** with Claude Code's MCP system  
-✅ **Multi-server workflows** (alongside other MCP servers)  
-✅ **Maximum flexibility** and configuration control  
-✅ **Traditional MCP tool** interactions  
+✅ **Deep integration** with Claude Code's MCP system
+✅ **Multi-server workflows** (alongside other MCP servers)
+✅ **Maximum flexibility** and configuration control
+✅ **Traditional MCP tool** interactions
 
 ---
 

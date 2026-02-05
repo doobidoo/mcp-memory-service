@@ -13,8 +13,8 @@ Updates memory metadata while preserving the original memory content, embeddings
 **Signature:**
 ```python
 async def update_memory_metadata(
-    content_hash: str, 
-    updates: Dict[str, Any], 
+    content_hash: str,
+    updates: Dict[str, Any],
     preserve_timestamps: bool = True
 ) -> Tuple[bool, str]
 ```
@@ -56,7 +56,7 @@ Any other fields not in the protected list can be updated directly:
 
 These fields cannot be modified through this API:
 - `content` - Memory content is immutable
-- `content_hash` - Content hash is immutable  
+- `content_hash` - Content hash is immutable
 - `embedding` - Embeddings are preserved automatically
 - `created_at` / `created_at_iso` - Preserved unless `preserve_timestamps=false`
 - Internal timestamp fields (`timestamp`, `timestamp_float`, `timestamp_str`)
@@ -293,7 +293,7 @@ The API is exposed via the MCP protocol:
 ### Planned Improvements
 
 1. **Batch Updates** - Update multiple memories in single operation
-2. **Conditional Updates** - Update only if conditions are met  
+2. **Conditional Updates** - Update only if conditions are met
 3. **Metadata Validation** - Schema validation for metadata fields
 4. **Update History** - Track metadata change history
 5. **Selective Updates** - Update only specific metadata fields

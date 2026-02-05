@@ -307,19 +307,19 @@ Apply tags from 3-6 categories for comprehensive organization:
   "tags": [
     // Project/Repository (1-2 tags)
     "mcp-memory-service", "backend",
-    
+
     // Technology (1-3 tags)
     "python", "chromadb",
-    
+
     // Activity (1-2 tags)
     "debugging", "troubleshooting",
-    
+
     // Content Type (1 tag)
     "troubleshooting-guide",
-    
+
     // Status (1 tag)
     "resolved",
-    
+
     // Context (0-2 tags)
     "june-2025", "production"
   ]

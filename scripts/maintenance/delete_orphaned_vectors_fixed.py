@@ -13,22 +13,24 @@ from pathlib import Path
 
 async def main():
     # Set OAuth to false to avoid validation issues
-    os.environ['MCP_OAUTH_ENABLED'] = 'false'
+    os.environ["MCP_OAUTH_ENABLED"] = "false"
 
     # Import after setting environment
-    from mcp_memory_service.storage.cloudflare import CloudflareStorage
     from mcp_memory_service.config import (
-        CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID,
-        CLOUDFLARE_VECTORIZE_INDEX, CLOUDFLARE_D1_DATABASE_ID,
-        EMBEDDING_MODEL_NAME
+        CLOUDFLARE_ACCOUNT_ID,
+        CLOUDFLARE_API_TOKEN,
+        CLOUDFLARE_D1_DATABASE_ID,
+        CLOUDFLARE_VECTORIZE_INDEX,
+        EMBEDDING_MODEL_NAME,
     )
+    from mcp_memory_service.storage.cloudflare import CloudflareStorage
 
     # Read vector IDs from the completed hash file
     hash_file = Path.home() / "cloudflare_d1_cleanup_completed.txt"
 
     if not hash_file.exists():
         print(f"❌ Error: Completed hash file not found: {hash_file}")
-        print(f"   The D1 cleanup must be run first")
+        print("   The D1 cleanup must be run first")
         sys.exit(1)
 
     print(f"📄 Reading vector IDs from: {hash_file}")
@@ -37,11 +39,11 @@ async def main():
         vector_ids = [line.strip() for line in f if line.strip()]
 
     if not vector_ids:
-        print(f"✅ No vector IDs to delete (file is empty)")
+        print("✅ No vector IDs to delete (file is empty)")
         sys.exit(0)
 
     print(f"📋 Found {len(vector_ids)} orphaned vectors to delete")
-    print(f"🔗 Connecting to Cloudflare...\n")
+    print("🔗 Connecting to Cloudflare...\n")
 
     # Initialize Cloudflare storage
     cloudflare = CloudflareStorage(
@@ -49,12 +51,12 @@ async def main():
         account_id=CLOUDFLARE_ACCOUNT_ID,
         vectorize_index=CLOUDFLARE_VECTORIZE_INDEX,
         d1_database_id=CLOUDFLARE_D1_DATABASE_ID,
-        embedding_model=EMBEDDING_MODEL_NAME
+        embedding_model=EMBEDDING_MODEL_NAME,
     )
 
     await cloudflare.initialize()
 
-    print(f"✅ Connected to Cloudflare")
+    print("✅ Connected to Cloudflare")
     print(f"🗑️  Deleting {len(vector_ids)} vectors using correct /delete_by_ids endpoint...\n")
 
     deleted = 0
@@ -65,7 +67,7 @@ async def main():
     total_batches = (len(vector_ids) + batch_size - 1) // batch_size
 
     for batch_num, i in enumerate(range(0, len(vector_ids), batch_size), 1):
-        batch = vector_ids[i:i+batch_size]
+        batch = vector_ids[i : i + batch_size]
 
         try:
             # Use the public API method for better encapsulation
@@ -84,21 +86,21 @@ async def main():
             print(f"Batch {batch_num}/{total_batches}: ✗ Exception - {str(e)[:100]}")
 
     # Final summary
-    print(f"\n{'='*60}")
-    print(f"📊 Vector Cleanup Summary")
-    print(f"{'='*60}")
+    print(f"\n{'=' * 60}")
+    print("📊 Vector Cleanup Summary")
+    print(f"{'=' * 60}")
     print(f"✅ Successfully deleted: {deleted}/{len(vector_ids)}")
     print(f"✗  Failed: {len(failed)}/{len(vector_ids)}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     if deleted > 0:
-        print(f"🎉 Vector cleanup complete!")
+        print("🎉 Vector cleanup complete!")
         print(f"📋 {deleted} orphaned vectors removed from Vectorize")
-        print(f"⏱️  Note: Deletions are asynchronous and may take a few seconds to propagate\n")
+        print("⏱️  Note: Deletions are asynchronous and may take a few seconds to propagate\n")
 
     if failed:
         print(f"⚠️  {len(failed)} vectors failed to delete")
-        print(f"   You may need to retry these manually\n")
+        print("   You may need to retry these manually\n")
 
     return 0 if len(failed) == 0 else 1
 

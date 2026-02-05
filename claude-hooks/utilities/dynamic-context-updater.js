@@ -39,11 +39,11 @@ class DynamicContextUpdater {
      */
     async initialize(sessionContext = {}) {
         console.log('[Dynamic Context] Initializing dynamic context updater...');
-        
+
         this.sessionContext = sessionContext;
         this.updateCount = 0;
         this.loadedMemoryHashes.clear();
-        
+
         if (this.options.enableCrossSessionContext) {
             this.sessionTracker = getSessionTracker();
             await this.sessionTracker.initialize();
@@ -116,7 +116,7 @@ class DynamicContextUpdater {
 
         // Generate memory queries based on conversation changes
         const queries = this.generateMemoryQueries(currentAnalysis, changes);
-        
+
         if (queries.length === 0) {
             this.lastAnalysis = currentAnalysis;
             return { processed: false, reason: 'no_actionable_queries' };
@@ -124,7 +124,7 @@ class DynamicContextUpdater {
 
         // Retrieve memories from memory service
         const memories = await this.retrieveRelevantMemories(queries, memoryServiceConfig);
-        
+
         if (memories.length === 0) {
             this.lastAnalysis = currentAnalysis;
             return { processed: false, reason: 'no_relevant_memories' };
@@ -132,7 +132,7 @@ class DynamicContextUpdater {
 
         // Score memories with conversation context
         const scoredMemories = this.scoreMemoriesWithContext(memories, currentAnalysis);
-        
+
         // Select top memories for injection
         const selectedMemories = scoredMemories
             .filter(memory => memory.relevanceScore > 0.3)
@@ -194,7 +194,7 @@ class DynamicContextUpdater {
      */
     shouldProcessUpdate() {
         const now = Date.now();
-        
+
         // Check cooldown period
         if (now - this.lastUpdateTime < this.options.updateCooldownMs) {
             return false;
@@ -260,7 +260,7 @@ class DynamicContextUpdater {
      */
     async retrieveRelevantMemories(queries, memoryServiceConfig) {
         const allMemories = [];
-        
+
         // Import the query function from topic-change hook
         const { queryMemoryService } = require('../core/topic-change');
 
@@ -296,7 +296,7 @@ class DynamicContextUpdater {
      */
     async queryMemoryService(endpoint, apiKey, query, options = {}) {
         const https = require('https');
-        
+
         return new Promise((resolve, reject) => {
             const { limit = 3, excludeHashes = [] } = options;
 
@@ -338,10 +338,10 @@ class DynamicContextUpdater {
                         }
 
                         const memories = this.parseMemoryResults(response.result);
-                        const filteredMemories = memories.filter(memory => 
+                        const filteredMemories = memories.filter(memory =>
                             !excludeHashes.includes(memory.content_hash)
                         );
-                        
+
                         resolve(filteredMemories);
                     } catch (parseError) {
                         console.error('[Dynamic Context] Failed to parse memory response:', parseError.message);
@@ -428,15 +428,15 @@ class DynamicContextUpdater {
         // Add relevant memories
         updateMessage += '**Relevant context**:\n';
         memories.slice(0, 3).forEach((memory, index) => {
-            const content = memory.content.length > 100 ? 
-                memory.content.substring(0, 100) + '...' : 
+            const content = memory.content.length > 100 ?
+                memory.content.substring(0, 100) + '...' :
                 memory.content;
-            
-            const relevanceIndicator = memory.relevanceScore > 0.7 ? '🔥' : 
+
+            const relevanceIndicator = memory.relevanceScore > 0.7 ? '🔥' :
                                      memory.relevanceScore > 0.5 ? '⭐' : '💡';
-            
+
             updateMessage += `${relevanceIndicator} ${content}\n`;
-            
+
             if (memory.tags && memory.tags.length > 0) {
                 updateMessage += `   *${memory.tags.slice(0, 3).join(', ')}*\n`;
             }
@@ -482,13 +482,13 @@ class DynamicContextUpdater {
      */
     reset() {
         console.log('[Dynamic Context] Resetting dynamic context updater');
-        
+
         this.lastUpdateTime = 0;
         this.updateCount = 0;
         this.conversationBuffer = '';
         this.lastAnalysis = null;
         this.loadedMemoryHashes.clear();
-        
+
         if (this.debounceTimer) {
             clearTimeout(this.debounceTimer);
             this.debounceTimer = null;

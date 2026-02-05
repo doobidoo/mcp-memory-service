@@ -9,28 +9,26 @@ These tests use actual storage backends (not mocks) to verify:
 Run with: uv run pytest tests/integration/test_storage_integration.py -v
 """
 
+import importlib.util
 import os
-import pytest
 import shutil
 import tempfile
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+
+import pytest
 
 # Force CPU mode for tests
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.services.memory_service import MemoryService
 from mcp_memory_service.utils.hashing import generate_content_hash
-
 
 # =============================================================================
 # SQLite-Vec Integration Tests
 # =============================================================================
 
-try:
-    import sqlite_vec
-    SQLITE_VEC_AVAILABLE = True
-except ImportError:
-    SQLITE_VEC_AVAILABLE = False
+SQLITE_VEC_AVAILABLE = importlib.util.find_spec("sqlite_vec") is not None
 
 if SQLITE_VEC_AVAILABLE:
     from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
@@ -50,7 +48,7 @@ async def sqlite_storage() -> AsyncGenerator["SqliteVecMemoryStorage", None]:
 
     yield storage
 
-    storage.close()
+    await storage.close()
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -63,10 +61,7 @@ class TestSqliteVecIntegration:
         """Test that stored content can be retrieved via semantic search."""
         content = "The quick brown fox jumps over the lazy dog"
         memory = Memory(
-            content=content,
-            content_hash=generate_content_hash(content),
-            tags=["test", "animal"],
-            memory_type="note"
+            content=content, content_hash=generate_content_hash(content), tags=["test", "animal"], memory_type="note"
         )
 
         # Store
@@ -92,12 +87,7 @@ class TestSqliteVecIntegration:
         ]
 
         for content, tags in memories:
-            memory = Memory(
-                content=content,
-                content_hash=generate_content_hash(content),
-                tags=tags,
-                memory_type="note"
-            )
+            memory = Memory(content=content, content_hash=generate_content_hash(content), tags=tags, memory_type="note")
             await sqlite_storage.store(memory)
 
         # Search for programming-related content
@@ -107,18 +97,14 @@ class TestSqliteVecIntegration:
 
         # Programming content should rank higher than animal content
         top_contents = [r.memory.content for r in results[:2]]
-        assert any("programming" in c.lower() or "machine learning" in c.lower()
-                   for c in top_contents), f"Expected programming content in top results, got: {top_contents}"
+        assert any(
+            "programming" in c.lower() or "machine learning" in c.lower() for c in top_contents
+        ), f"Expected programming content in top results, got: {top_contents}"
 
     @pytest.mark.asyncio
     async def test_edge_case_empty_string(self, sqlite_storage):
         """Test handling of empty string content."""
-        memory = Memory(
-            content="",
-            content_hash=generate_content_hash(""),
-            tags=["empty"],
-            memory_type="note"
-        )
+        memory = Memory(content="", content_hash=generate_content_hash(""), tags=["empty"], memory_type="note")
 
         # Should fail or handle gracefully
         success, message = await sqlite_storage.store(memory)
@@ -129,10 +115,7 @@ class TestSqliteVecIntegration:
         """Test handling of unicode content including emojis."""
         content = "Python is great! Here are some emojis: rocket ship and fire"
         memory = Memory(
-            content=content,
-            content_hash=generate_content_hash(content),
-            tags=["unicode", "emoji"],
-            memory_type="note"
+            content=content, content_hash=generate_content_hash(content), tags=["unicode", "emoji"], memory_type="note"
         )
 
         success, message = await sqlite_storage.store(memory)
@@ -148,12 +131,7 @@ class TestSqliteVecIntegration:
         """Test handling of very long content."""
         # Create content that's 10KB
         content = "This is a test sentence. " * 500  # ~13KB
-        memory = Memory(
-            content=content,
-            content_hash=generate_content_hash(content),
-            tags=["large"],
-            memory_type="note"
-        )
+        memory = Memory(content=content, content_hash=generate_content_hash(content), tags=["large"], memory_type="note")
 
         success, message = await sqlite_storage.store(memory)
         assert success, f"Store failed: {message}"
@@ -165,12 +143,7 @@ class TestSqliteVecIntegration:
     async def test_edge_case_special_characters(self, sqlite_storage):
         """Test handling of special characters in content."""
         content = r"Special chars: <script>alert('XSS')</script> && || ; DROP TABLE; \n\t"
-        memory = Memory(
-            content=content,
-            content_hash=generate_content_hash(content),
-            tags=["special"],
-            memory_type="note"
-        )
+        memory = Memory(content=content, content_hash=generate_content_hash(content), tags=["special"], memory_type="note")
 
         success, message = await sqlite_storage.store(memory)
         assert success, f"Store failed: {message}"
@@ -191,12 +164,7 @@ class TestSqliteVecIntegration:
         ]
 
         for content, tags in memories_data:
-            memory = Memory(
-                content=content,
-                content_hash=generate_content_hash(content),
-                tags=tags,
-                memory_type="note"
-            )
+            memory = Memory(content=content, content_hash=generate_content_hash(content), tags=tags, memory_type="note")
             await sqlite_storage.store(memory)
 
         # Search by tag
@@ -211,12 +179,7 @@ class TestSqliteVecIntegration:
     async def test_delete_and_verify_gone(self, sqlite_storage):
         """Test that deleted content is truly gone."""
         content = "This memory will be deleted"
-        memory = Memory(
-            content=content,
-            content_hash=generate_content_hash(content),
-            tags=["delete-test"],
-            memory_type="note"
-        )
+        memory = Memory(content=content, content_hash=generate_content_hash(content), tags=["delete-test"], memory_type="note")
 
         # Store
         await sqlite_storage.store(memory)
@@ -245,6 +208,7 @@ class TestSqliteVecIntegration:
 
 try:
     from qdrant_client import QdrantClient
+
     QDRANT_AVAILABLE = True
 except ImportError:
     QDRANT_AVAILABLE = False
@@ -274,10 +238,7 @@ async def qdrant_storage() -> AsyncGenerator["QdrantStorage", None]:
     temp_dir = tempfile.mkdtemp()
 
     storage = QdrantStorage(
-        embedding_model="all-MiniLM-L6-v2",
-        collection_name="test_integration",
-        storage_path=temp_dir,
-        quantization_enabled=False
+        embedding_model="all-MiniLM-L6-v2", collection_name="test_integration", storage_path=temp_dir, quantization_enabled=False
     )
     await storage.initialize()
 
@@ -296,10 +257,7 @@ class TestQdrantIntegration:
         """Test that stored content can be retrieved via semantic search."""
         content = "The quick brown fox jumps over the lazy dog"
         memory = Memory(
-            content=content,
-            content_hash=generate_content_hash(content),
-            tags=["test", "animal"],
-            memory_type="note"
+            content=content, content_hash=generate_content_hash(content), tags=["test", "animal"], memory_type="note"
         )
 
         # Store
@@ -325,12 +283,7 @@ class TestQdrantIntegration:
         ]
 
         for content, tags in memories:
-            memory = Memory(
-                content=content,
-                content_hash=generate_content_hash(content),
-                tags=tags,
-                memory_type="note"
-            )
+            memory = Memory(content=content, content_hash=generate_content_hash(content), tags=tags, memory_type="note")
             await qdrant_storage.store(memory)
 
         # Search for programming-related content
@@ -340,19 +293,15 @@ class TestQdrantIntegration:
 
         # Programming content should rank higher than animal content
         top_contents = [r.memory.content for r in results[:2]]
-        assert any("programming" in c.lower() or "machine learning" in c.lower()
-                   for c in top_contents), f"Expected programming content in top results, got: {top_contents}"
+        assert any(
+            "programming" in c.lower() or "machine learning" in c.lower() for c in top_contents
+        ), f"Expected programming content in top results, got: {top_contents}"
 
     @pytest.mark.asyncio
     async def test_edge_case_unicode_content(self, qdrant_storage):
         """Test handling of unicode content."""
         content = "Python programming with international text: Bonjour, Guten Tag, Hello"
-        memory = Memory(
-            content=content,
-            content_hash=generate_content_hash(content),
-            tags=["unicode"],
-            memory_type="note"
-        )
+        memory = Memory(content=content, content_hash=generate_content_hash(content), tags=["unicode"], memory_type="note")
 
         success, message = await qdrant_storage.store(memory)
         assert success, f"Store failed: {message}"
@@ -371,12 +320,7 @@ class TestQdrantIntegration:
         ]
 
         for content, tags in memories_data:
-            memory = Memory(
-                content=content,
-                content_hash=generate_content_hash(content),
-                tags=tags,
-                memory_type="note"
-            )
+            memory = Memory(content=content, content_hash=generate_content_hash(content), tags=tags, memory_type="note")
             await qdrant_storage.store(memory)
 
         work_results = await qdrant_storage.search_by_tag(tags=["work"])
@@ -388,12 +332,7 @@ class TestQdrantIntegration:
         # This tests real circuit breaker behavior, not mocks
         # Store something first to verify connection works
         content = "Test content for circuit breaker recovery"
-        memory = Memory(
-            content=content,
-            content_hash=generate_content_hash(content),
-            tags=["test"],
-            memory_type="note"
-        )
+        memory = Memory(content=content, content_hash=generate_content_hash(content), tags=["test"], memory_type="note")
 
         success, _ = await qdrant_storage.store(memory)
         assert success, "Initial store should succeed"
@@ -406,8 +345,6 @@ class TestQdrantIntegration:
 # =============================================================================
 # MemoryService Integration Tests
 # =============================================================================
-
-from mcp_memory_service.services.memory_service import MemoryService
 
 
 @pytest.fixture
@@ -427,20 +364,14 @@ class TestMemoryServiceIntegration:
 
         # Store a memory
         result = await service.store_memory(
-            content="Integration test: Python programming tutorial",
-            tags=["python", "tutorial"],
-            memory_type="note"
+            content="Integration test: Python programming tutorial", tags=["python", "tutorial"], memory_type="note"
         )
 
         assert result["success"], f"Store failed: {result.get('error')}"
         stored_hash = result["memory"]["content_hash"]
 
         # Retrieve via semantic search
-        retrieve_result = await service.retrieve_memories(
-            query="learning python programming",
-            page=1,
-            page_size=10
-        )
+        retrieve_result = await service.retrieve_memories(query="learning python programming", page=1, page_size=10)
 
         assert "memories" in retrieve_result
         assert len(retrieve_result["memories"]) > 0
@@ -456,14 +387,10 @@ class TestMemoryServiceIntegration:
 
         # Store memories with different tags
         await service.store_memory(
-            content="Meeting notes for project alpha",
-            tags=["meeting", "project-alpha"],
-            memory_type="note"
+            content="Meeting notes for project alpha", tags=["meeting", "project-alpha"], memory_type="note"
         )
         await service.store_memory(
-            content="Personal notes about weekend plans",
-            tags=["personal", "weekend"],
-            memory_type="note"
+            content="Personal notes about weekend plans", tags=["personal", "weekend"], memory_type="note"
         )
 
         # Search by tag
@@ -479,9 +406,7 @@ class TestMemoryServiceIntegration:
 
         # Store
         store_result = await service.store_memory(
-            content="This memory will be deleted in the test",
-            tags=["delete-test"],
-            memory_type="note"
+            content="This memory will be deleted in the test", tags=["delete-test"], memory_type="note"
         )
         content_hash = store_result["memory"]["content_hash"]
 
@@ -508,11 +433,7 @@ class TestMemoryServiceIntegration:
         initial_count = health1.get("total_memories", 0)
 
         # Store a memory
-        await service.store_memory(
-            content="Health check test memory",
-            tags=["health-test"],
-            memory_type="note"
-        )
+        await service.store_memory(content="Health check test memory", tags=["health-test"], memory_type="note")
 
         # Check health after storing
         health2 = await service.check_database_health()
@@ -527,9 +448,7 @@ class TestMemoryServiceIntegration:
         # Store 5 memories
         for i in range(5):
             await service.store_memory(
-                content=f"Pagination test memory number {i}",
-                tags=["pagination-test"],
-                memory_type="note"
+                content=f"Pagination test memory number {i}", tags=["pagination-test"], memory_type="note"
             )
 
         # Get page 1 with size 2

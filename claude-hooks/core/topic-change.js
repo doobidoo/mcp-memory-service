@@ -90,15 +90,15 @@ async function queryMemoryService(endpoint, apiKey, query, options = {}) {
 
         const req = https.request(requestOptions, (res) => {
             let data = '';
-            
+
             res.on('data', (chunk) => {
                 data += chunk;
             });
-            
+
             res.on('end', () => {
                 try {
                     const response = JSON.parse(data);
-                    
+
                     if (response.error) {
                         console.error('[Topic Change Hook] Memory service error:', response.error);
                         resolve([]);
@@ -107,15 +107,15 @@ async function queryMemoryService(endpoint, apiKey, query, options = {}) {
 
                     // Parse memory results from response
                     const memories = parseMemoryResults(response.result);
-                    
+
                     // Filter out already loaded memories
-                    const filteredMemories = memories.filter(memory => 
+                    const filteredMemories = memories.filter(memory =>
                         !excludeHashes.includes(memory.content_hash)
                     );
-                    
+
                     console.log(`[Topic Change Hook] Retrieved ${filteredMemories.length} new memories for topic query`);
                     resolve(filteredMemories);
-                    
+
                 } catch (parseError) {
                     console.error('[Topic Change Hook] Failed to parse memory response:', parseError.message);
                     resolve([]);
@@ -146,7 +146,7 @@ function parseMemoryResults(result) {
     try {
         if (result && result.content && result.content[0] && result.content[0].text) {
             const text = result.content[0].text;
-            
+
             // Try to extract results array from the response text
             const resultsMatch = text.match(/'results':\s*(\[[\s\S]*?\])/);
             if (resultsMatch) {
@@ -213,24 +213,24 @@ function formatContextUpdate(memories, analysis, changes) {
     }
 
     let updateMessage = '\n🧠 **Dynamic Memory Context Update**\n\n';
-    
+
     // Explain why context is being updated
     if (changes.newTopics.length > 0) {
         updateMessage += `**New topics detected:** ${changes.newTopics.map(t => t.name).join(', ')}\n\n`;
     }
-    
+
     if (changes.changedIntents) {
         updateMessage += `**Conversation focus shifted:** ${analysis.intent.name}\n\n`;
     }
 
     // Add relevant memories
     updateMessage += '**Additional relevant context:**\n';
-    
+
     memories.slice(0, 3).forEach((memory, index) => {
-        const content = memory.content.length > 120 ? 
-            memory.content.substring(0, 120) + '...' : 
+        const content = memory.content.length > 120 ?
+            memory.content.substring(0, 120) + '...' :
             memory.content;
-        
+
         updateMessage += `${index + 1}. ${content}\n`;
         if (memory.tags && memory.tags.length > 0) {
             updateMessage += `   *Tags: ${memory.tags.slice(0, 3).join(', ')}*\n`;
@@ -252,7 +252,7 @@ async function onTopicChange(context) {
 
     try {
         const config = await loadConfig();
-        
+
         // Check if topic change hook is enabled
         if (!config.hooks?.topicChange?.enabled) {
             console.log('[Topic Change Hook] Hook is disabled, skipping');
@@ -287,7 +287,7 @@ async function onTopicChange(context) {
 
         // Generate search queries for new topics
         const queries = generateTopicQueries(currentAnalysis, changes);
-        
+
         if (queries.length === 0) {
             console.log('[Topic Change Hook] No actionable queries generated');
             conversationState.previousAnalysis = currentAnalysis;
@@ -306,12 +306,12 @@ async function onTopicChange(context) {
                     excludeHashes: Array.from(conversationState.loadedMemoryHashes)
                 }
             );
-            
+
             // Add query context to memories
             memories.forEach(memory => {
                 memory.queryContext = queryObj;
             });
-            
+
             allMemories.push(...memories);
         }
 
@@ -346,12 +346,12 @@ async function onTopicChange(context) {
 
         // Format context update
         const contextUpdate = formatContextUpdate(selectedMemories, currentAnalysis, changes);
-        
+
         if (contextUpdate) {
             // In a real implementation, this would inject the context into the conversation
             console.log('[Topic Change Hook] Context update generated:');
             console.log(contextUpdate);
-            
+
             // For now, we'll simulate the context injection
             if (context.onContextUpdate && typeof context.onContextUpdate === 'function') {
                 context.onContextUpdate(contextUpdate);
@@ -375,7 +375,7 @@ async function onTopicChange(context) {
  */
 function initializeTopicTracking(sessionContext) {
     console.log('[Topic Change Hook] Initializing topic tracking for new session');
-    
+
     conversationState = {
         previousAnalysis: null,
         loadedMemoryHashes: new Set(),

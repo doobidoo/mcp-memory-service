@@ -381,7 +381,7 @@ claude /memory-store --tags "performance,results,final" \
 claude /memory-store --tags "performance,techniques,reference" --type "reference" \
   "Optimization techniques applied: Redis caching, query optimization, connection pooling, response compression"
 
-# Performance trend analysis  
+# Performance trend analysis
 claude /memory-recall "what performance improvements did we achieve this quarter?"
 ```
 

@@ -1,7 +1,7 @@
 # HTTP/SSE + SQLite-vec Implementation Plan
 
-**Date**: 2025-07-25  
-**Status**: Extracted from previous planning session  
+**Date**: 2025-07-25
+**Status**: Extracted from previous planning session
 **Context**: Issue #57 - Add HTTP/SSE interface to MCP Memory Service
 
 ## Executive Summary

@@ -13,7 +13,7 @@ When you start the MCP Memory Service for the first time, you'll see several war
 WARNING:mcp_memory_service.storage.sqlite_vec:Failed to load from cache: No snapshots directory
 ```
 
-**What it means:** 
+**What it means:**
 - The service is checking for previously downloaded embedding models
 - On first run, no cache exists yet, so this warning appears
 - The service will automatically download the model
@@ -220,7 +220,7 @@ sudo chown -R $USER:$USER ~/.mcp_memory_service/
 **Solution:**
 1. Check logs: `uv run memory server --debug`
 2. Verify installation: `python scripts/verify_environment.py`
-3. Restart with clean state: 
+3. Restart with clean state:
    ```bash
    rm -rf ~/.mcp_memory_service
    uv run memory server

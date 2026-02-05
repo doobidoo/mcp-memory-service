@@ -16,7 +16,7 @@ The new dashboard includes:
 ## Access URLs
 
 - Dashboard: http://localhost:8000
-- mDNS: http://mcp-memory-service.local:8000  
+- mDNS: http://mcp-memory-service.local:8000
 - API Docs: http://localhost:8000/api/docs
 - ReDoc: http://localhost:8000/api/redoc
 

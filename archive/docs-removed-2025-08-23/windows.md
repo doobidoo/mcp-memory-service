@@ -275,7 +275,7 @@ New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name
 
 #### 2. Visual Studio Build Tools Missing
 
-**Symptom**: 
+**Symptom**:
 ```
 Microsoft Visual C++ 14.0 is required
 ```

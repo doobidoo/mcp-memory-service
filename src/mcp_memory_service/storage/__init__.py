@@ -22,7 +22,7 @@ Provides:
 - QdrantStorage: Qdrant backend (production)
 """
 
-from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from ..models.memory import Memory, MemoryQueryResult
 
@@ -40,7 +40,7 @@ class BaseStorage(Protocol):
         """Initialize the storage backend."""
         ...
 
-    async def store(self, memory: Memory) -> Tuple[bool, str]:
+    async def store(self, memory: Memory) -> tuple[bool, str]:
         """Store a memory. Returns (success, message)."""
         ...
 
@@ -48,49 +48,41 @@ class BaseStorage(Protocol):
         self,
         query: str,
         n_results: int = 5,
-        tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None,
-        offset: int = 0
-    ) -> List[MemoryQueryResult]:
+        tags: list[str] | None = None,
+        memory_type: str | None = None,
+        min_similarity: float | None = None,
+        offset: int = 0,
+    ) -> list[MemoryQueryResult]:
         """Retrieve memories by semantic search."""
         ...
 
     async def search_by_tag(
         self,
-        tags: List[str],
+        tags: list[str],
         limit: int = 10,
         offset: int = 0,
         match_all: bool = False,
-        start_timestamp: Optional[float] = None,
-        end_timestamp: Optional[float] = None
-    ) -> List[Memory]:
+        start_timestamp: float | None = None,
+        end_timestamp: float | None = None,
+    ) -> list[Memory]:
         """Search memories by tags."""
         ...
 
     async def get_all_memories(
-        self,
-        limit: Optional[int] = None,
-        offset: int = 0,
-        memory_type: Optional[str] = None,
-        tags: Optional[List[str]] = None
-    ) -> List[Memory]:
+        self, limit: int | None = None, offset: int = 0, memory_type: str | None = None, tags: list[str] | None = None
+    ) -> list[Memory]:
         """List all memories with optional filters."""
         ...
 
-    async def delete(self, content_hash: str) -> Tuple[bool, str]:
+    async def delete(self, content_hash: str) -> tuple[bool, str]:
         """Delete a memory by hash."""
         ...
 
-    async def count_all_memories(
-        self,
-        memory_type: Optional[str] = None,
-        tags: Optional[List[str]] = None
-    ) -> int:
+    async def count_all_memories(self, memory_type: str | None = None, tags: list[str] | None = None) -> int:
         """Count total memories."""
         ...
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         """Get storage health and statistics."""
         ...
 
@@ -100,27 +92,29 @@ class BaseStorage(Protocol):
 
 
 # Export ABC for backward compatibility
-from .base import MemoryStorage
+from .base import MemoryStorage  # noqa: E402
 
 # Export factory function
-from .factory import create_storage_instance, get_storage_backend_class
+from .factory import create_storage_instance, get_storage_backend_class  # noqa: E402
 
 __all__ = [
-    'BaseStorage',
-    'MemoryStorage',
-    'create_storage_instance',
-    'get_storage_backend_class',
+    "BaseStorage",
+    "MemoryStorage",
+    "create_storage_instance",
+    "get_storage_backend_class",
 ]
 
 # Conditional imports for backends
 try:
     from .sqlite_vec import SqliteVecMemoryStorage
-    __all__.append('SqliteVecMemoryStorage')
+
+    __all__.append("SqliteVecMemoryStorage")
 except ImportError:
     SqliteVecMemoryStorage = None
 
 try:
     from .qdrant_storage import QdrantStorage
-    __all__.append('QdrantStorage')
+
+    __all__.append("QdrantStorage")
 except ImportError:
     QdrantStorage = None

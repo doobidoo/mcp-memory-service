@@ -47,8 +47,8 @@ raise RuntimeError(f"ChromaMemoryStorage initialization failed: {str(e)}") from 
 ```python
 def is_initialized(self) -> bool:
     """Check if the storage is properly initialized."""
-    return (self.collection is not None and 
-            self.embedding_function is not None and 
+    return (self.collection is not None and
+            self.embedding_function is not None and
             self.client is not None)
 ```
 
@@ -139,7 +139,7 @@ if hasattr(self.storage, 'is_initialized') and not self.storage.is_initialized()
 ```json
 {
   "validation": {
-    "status": "unhealthy", 
+    "status": "unhealthy",
     "message": "Storage initialization failed: [detailed error]"
   },
   "statistics": {
@@ -167,7 +167,7 @@ if hasattr(self.storage, 'is_initialized') and not self.storage.is_initialized()
 
 **Features**:
 - Tests storage initialization with error handling
-- Validates health check functionality  
+- Validates health check functionality
 - Provides detailed status reporting
 - Automatic cleanup of test databases
 
@@ -198,7 +198,7 @@ The fixes provide much better error information:
 
 All health check issues have been addressed with:
 - ✅ Robust null checking in all database utilities
-- ✅ Enhanced initialization verification  
+- ✅ Enhanced initialization verification
 - ✅ Better error propagation and handling
 - ✅ Detailed status reporting for debugging
 - ✅ Comprehensive test script for validation

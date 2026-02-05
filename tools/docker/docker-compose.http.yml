@@ -23,28 +23,28 @@ services:
     environment:
       # Mode selection
       - MCP_MODE=http
-      
+
       # Storage configuration
       - MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
       - MCP_MEMORY_SQLITE_PATH=/app/data/sqlite_vec.db
       - MCP_MEMORY_BACKUPS_PATH=/app/data/backups
-      
+
       # HTTP configuration
       - MCP_HTTP_PORT=8000
       - MCP_HTTP_HOST=0.0.0.0
       - MCP_API_KEY=${MCP_API_KEY:-your-secure-api-key-here}
-      
+
       # Optional: HTTPS configuration
       # - MCP_HTTPS_ENABLED=true
       # - MCP_HTTPS_PORT=8443
       # - MCP_SSL_CERT_FILE=/app/certs/cert.pem
       # - MCP_SSL_KEY_FILE=/app/certs/key.pem
-      
+
       # Performance tuning
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - MAX_RESULTS_PER_QUERY=10
       - SIMILARITY_THRESHOLD=0.7
-      
+
       # Python configuration
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app/src
@@ -52,19 +52,19 @@ services:
       # Offline mode (uncomment if models are pre-cached and network is restricted)
       # - HF_HUB_OFFLINE=1
       # - TRANSFORMERS_OFFLINE=1
-    
+
     # Use the unified entrypoint
     entrypoint: ["/usr/local/bin/docker-entrypoint-unified.sh"]
-    
+
     restart: unless-stopped
-    
+
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    
+
     # Resource limits (optional, adjust as needed)
     deploy:
       resources:

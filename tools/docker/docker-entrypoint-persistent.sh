@@ -54,9 +54,9 @@ while true; do
         echo "[ERROR] Server process exited unexpectedly"
         exit 1
     fi
-    
+
     # Send a keep-alive message every 30 seconds
     echo "" >&3
-    
+
     sleep 30
 done

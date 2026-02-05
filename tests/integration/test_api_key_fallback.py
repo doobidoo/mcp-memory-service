@@ -13,7 +13,7 @@ from pathlib import Path
 import httpx
 
 # Add src to path for standalone execution
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 
 async def test_api_key_fallback(base_url: str = "http://localhost:8000", api_key: str = None) -> bool:
@@ -40,7 +40,7 @@ async def test_api_key_fallback(base_url: str = "http://localhost:8000", api_key
             response = await client.get(f"{base_url}/api/memories", headers=headers)
 
             if response.status_code == 200:
-                print(f"   ✅ API key authentication working")
+                print("   ✅ API key authentication working")
             else:
                 print(f"   ❌ API key authentication failed: {response.status_code}")
                 return False
@@ -51,13 +51,13 @@ async def test_api_key_fallback(base_url: str = "http://localhost:8000", api_key
             memory_data = {
                 "content": "Test memory for API key authentication",
                 "tags": ["test", "api-key"],
-                "memory_type": "test"
+                "memory_type": "test",
             }
 
             response = await client.post(f"{base_url}/api/memories", json=memory_data, headers=headers)
 
             if response.status_code == 200:
-                print(f"   ✅ API key write operation working")
+                print("   ✅ API key write operation working")
                 # Store content hash for cleanup
                 memory_hash = response.json().get("content_hash")
             else:
@@ -71,7 +71,7 @@ async def test_api_key_fallback(base_url: str = "http://localhost:8000", api_key
             response = await client.get(f"{base_url}/api/memories", headers=invalid_headers)
 
             if response.status_code == 401:
-                print(f"   ✅ Invalid API key correctly rejected")
+                print("   ✅ Invalid API key correctly rejected")
             else:
                 print(f"   ⚠️  Invalid API key test inconclusive: {response.status_code}")
 
@@ -80,7 +80,7 @@ async def test_api_key_fallback(base_url: str = "http://localhost:8000", api_key
                 print("\n4. Cleaning up test memory...")
                 response = await client.delete(f"{base_url}/api/memories/{memory_hash}", headers=headers)
                 if response.status_code == 200:
-                    print(f"   ✅ Test memory cleaned up successfully")
+                    print("   ✅ Test memory cleaned up successfully")
                 else:
                     print(f"   ⚠️  Cleanup failed: {response.status_code}")
 
@@ -107,7 +107,8 @@ async def main():
         api_key = sys.argv[2]
     else:
         import os
-        api_key = os.getenv('MCP_API_KEY')
+
+        api_key = os.getenv("MCP_API_KEY")
 
     print("API Key Authentication Fallback Test")
     print("===================================")

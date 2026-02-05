@@ -25,10 +25,10 @@ Tests cover:
 
 import pytest
 from src.mcp_memory_service.utils.content_splitter import (
-    split_content,
+    _find_best_split_point,
     estimate_chunks_needed,
+    split_content,
     validate_chunk_lengths,
-    _find_best_split_point
 )
 
 
@@ -64,7 +64,7 @@ class TestContentSplitter:
         assert len(chunks) >= 2
         # Each chunk should end cleanly (no mid-paragraph cuts)
         for chunk in chunks[:-1]:  # Check all but last chunk
-            assert chunk.strip().endswith('.') or '\n\n' in chunk
+            assert chunk.strip().endswith(".") or "\n\n" in chunk
 
     def test_split_preserves_sentences(self):
         """Test that sentence boundaries are preferred when paragraphs don't fit."""
@@ -74,7 +74,7 @@ class TestContentSplitter:
         # Should split at sentence boundaries
         assert len(chunks) >= 2
         # Most chunks should end with period
-        period_endings = sum(1 for chunk in chunks if chunk.strip().endswith('.'))
+        period_endings = sum(1 for chunk in chunks if chunk.strip().endswith("."))
         assert period_endings >= len(chunks) - 1
 
     def test_split_preserves_words(self):
@@ -102,7 +102,7 @@ class TestContentSplitter:
         for i in range(len(chunks) - 1):
             # The next chunk should contain some content from the end of current chunk
             current_end = chunks[i][-20:]
-            assert any(word in chunks[i+1] for word in current_end.split()[:3])
+            assert any(word in chunks[i + 1] for word in current_end.split()[:3])
 
     def test_estimate_chunks_needed(self):
         """Test chunk estimation function."""
@@ -135,7 +135,7 @@ class TestContentSplitter:
         split_point = _find_best_split_point(text, max_length=25)
 
         # Should split at first paragraph break
-        assert text[split_point-2:split_point] == '\n\n'
+        assert text[split_point - 2 : split_point] == "\n\n"
 
     def test_find_best_split_point_sentence(self):
         """Test that sentence boundaries are used when no paragraph breaks."""
@@ -143,7 +143,7 @@ class TestContentSplitter:
         split_point = _find_best_split_point(text, max_length=30)
 
         # Should split at sentence boundary - text before split should end with period
-        assert text[:split_point].rstrip().endswith('.')
+        assert text[:split_point].rstrip().endswith(".")
 
     def test_split_empty_content(self):
         """Test handling of empty content."""
@@ -176,9 +176,9 @@ def function_three():
         # Each chunk should contain complete functions ideally
         for chunk in chunks:
             # Count function definitions
-            if 'def ' in chunk:
+            if "def " in chunk:
                 # If it has a def, it should have a return (complete function)
-                assert 'return' in chunk or chunk == chunks[-1]
+                assert "return" in chunk or chunk == chunks[-1]
 
 
 class TestBackendLimits:
@@ -190,9 +190,10 @@ class TestBackendLimits:
 
     def test_sqlitevec_supports_chunking(self):
         """Test that SQLite-vec backend supports chunking."""
-        from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-        import tempfile
         import os
+        import tempfile
+
+        from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
@@ -211,10 +212,10 @@ class TestConfigurationConstants:
     def test_config_constants_exist(self):
         """Test that remaining content limit constants are defined."""
         from src.mcp_memory_service.config import (
-            SQLITEVEC_MAX_CONTENT_LENGTH,
-            ENABLE_AUTO_SPLIT,
+            CONTENT_PRESERVE_BOUNDARIES,
             CONTENT_SPLIT_OVERLAP,
-            CONTENT_PRESERVE_BOUNDARIES
+            ENABLE_AUTO_SPLIT,
+            SQLITEVEC_MAX_CONTENT_LENGTH,
         )
 
         assert SQLITEVEC_MAX_CONTENT_LENGTH is None  # Unlimited

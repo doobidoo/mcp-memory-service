@@ -30,9 +30,8 @@ import asyncio
 import logging
 import signal
 import sys
-from typing import List, Optional
 
-from .shared_storage import get_shared_storage, close_shared_storage
+from .shared_storage import close_shared_storage, get_shared_storage
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +53,8 @@ class UnifiedServer:
         self.mcp_transport = os.getenv("MCP_TRANSPORT_MODE", "")
         self.mcp_enabled = self.mcp_transport in ("stdio", "http", "streamable-http")
 
-        self.shutdown_event: Optional[asyncio.Event] = None
-        self.tasks: List[asyncio.Task] = []
+        self.shutdown_event: asyncio.Event | None = None
+        self.tasks: list[asyncio.Task] = []
 
     def validate_configuration(self) -> None:
         """Validate server configuration and fail fast if invalid.
@@ -64,9 +63,7 @@ class UnifiedServer:
             ValueError: If no interfaces are enabled or configuration is invalid.
         """
         if not self.http_enabled and not self.mcp_enabled:
-            raise ValueError(
-                "No interface enabled. Set MCP_HTTP_ENABLED=true or MCP_TRANSPORT_MODE=stdio|http"
-            )
+            raise ValueError("No interface enabled. Set MCP_HTTP_ENABLED=true or MCP_TRANSPORT_MODE=stdio|http")
 
         logger.info("Configuration validated successfully")
         if self.http_enabled:
@@ -107,6 +104,7 @@ class UnifiedServer:
         """
         try:
             import os
+
             from mcp_memory_service.mcp_server import mcp
 
             # Get port and host from environment
@@ -120,12 +118,7 @@ class UnifiedServer:
 
             # FastMCP v2.0 async API
             if transport == "http":
-                await mcp.run_async(
-                    transport="http",
-                    host=host,
-                    port=port,
-                    uvicorn_config={"ws": "none"}
-                )
+                await mcp.run_async(transport="http", host=host, port=port, uvicorn_config={"ws": "none"})
             else:
                 await mcp.run_async(transport="stdio")
         except Exception as e:

@@ -82,4 +82,3 @@ This document summarizes the Memory Service architecture, components, data flow,
 - Custom pragmas via `MCP_MEMORY_SQLITE_PRAGMAS`.
 - Embedding model is cached and loaded once; ONNX path available when enabled.
 - Average query time tracking, async operations, and optional consolidation scheduler.
-

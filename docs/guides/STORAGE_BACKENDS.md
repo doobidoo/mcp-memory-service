@@ -236,19 +236,19 @@ def recommend_backend(system_info, hardware_info):
     # Legacy hardware gets SQLite-vec
     if is_legacy_mac(system_info):
         return "sqlite_vec"
-    
+
     # Low-memory systems get SQLite-vec
     if hardware_info.memory_gb < 4:
         return "sqlite_vec"
-    
+
     # ChromaDB installation problems on macOS Intel
     if system_info.is_macos_intel_problematic:
         return "sqlite_vec"
-    
+
     # Modern hardware with GPU gets ChromaDB
     if hardware_info.has_gpu and hardware_info.memory_gb >= 8:
         return "chromadb"
-    
+
     # Default to ChromaDB for feature completeness
     return "chromadb"
 ```

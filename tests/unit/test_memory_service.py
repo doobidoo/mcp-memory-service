@@ -14,19 +14,18 @@ NOTE: Tests that only verify mocks were called have been removed.
 We test BEHAVIOR, not implementation details.
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
-from typing import List
 
-from mcp_memory_service.services.memory_service import MemoryService
 from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.services.memory_service import MemoryService
 from mcp_memory_service.storage.base import MemoryStorage
-
 
 # =============================================================================
 # Test Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def mock_storage():
@@ -36,10 +35,7 @@ def mock_storage():
     storage.supports_chunking = True
     storage.store.return_value = (True, "Success")
     storage.delete.return_value = (True, "Deleted")
-    storage.get_stats.return_value = {
-        "backend": "mock",
-        "total_memories": 0
-    }
+    storage.get_stats.return_value = {"backend": "mock", "total_memories": 0}
     return storage
 
 
@@ -59,7 +55,7 @@ def sample_memory():
         memory_type="note",
         metadata={"source": "test"},
         created_at=1698765432.0,
-        updated_at=1698765432.0
+        updated_at=1698765432.0,
     )
 
 
@@ -68,13 +64,13 @@ def sample_memories():
     """Create a list of sample memories."""
     return [
         Memory(
-            content=f"Test memory {i+1}",
-            content_hash=f"hash_{i+1}",
-            tags=[f"tag{i+1}", "test"],
+            content=f"Test memory {i + 1}",
+            content_hash=f"hash_{i + 1}",
+            tags=[f"tag{i + 1}", "test"],
             memory_type="note",
-            metadata={"index": i+1},
+            metadata={"index": i + 1},
             created_at=1698765432.0 + i * 100,
-            updated_at=1698765432.0 + i * 100
+            updated_at=1698765432.0 + i * 100,
         )
         for i in range(5)
     ]
@@ -84,6 +80,7 @@ def sample_memories():
 # Pagination Logic Tests
 # These test the CALCULATION logic, not mock interactions
 # =============================================================================
+
 
 class TestPaginationLogic:
     """Test pagination metadata calculations."""
@@ -144,6 +141,7 @@ class TestPaginationLogic:
 # Input Normalization Tests
 # =============================================================================
 
+
 class TestInputNormalization:
     """Test input validation and normalization."""
 
@@ -174,11 +172,7 @@ class TestInputNormalization:
         """Test hostname creates source: prefixed tag."""
         mock_storage.store.return_value = (True, "Success")
 
-        await memory_service.store_memory(
-            content="Test",
-            tags=["existing"],
-            client_hostname="my-machine"
-        )
+        await memory_service.store_memory(content="Test", tags=["existing"], client_hostname="my-machine")
 
         stored_memory = mock_storage.store.call_args.args[0]
         assert "source:my-machine" in stored_memory.tags
@@ -189,11 +183,7 @@ class TestInputNormalization:
         """Test hostname tag isn't added if already present."""
         mock_storage.store.return_value = (True, "Success")
 
-        await memory_service.store_memory(
-            content="Test",
-            tags=["source:my-machine"],
-            client_hostname="my-machine"
-        )
+        await memory_service.store_memory(content="Test", tags=["source:my-machine"], client_hostname="my-machine")
 
         stored_memory = mock_storage.store.call_args.args[0]
         source_tags = [t for t in stored_memory.tags if t.startswith("source:")]
@@ -203,6 +193,7 @@ class TestInputNormalization:
 # =============================================================================
 # Error Handling Tests
 # =============================================================================
+
 
 class TestErrorHandling:
     """Test error handling and recovery."""
@@ -283,6 +274,7 @@ class TestErrorHandling:
 # Response Formatting Tests
 # =============================================================================
 
+
 class TestResponseFormatting:
     """Test response data transformation."""
 
@@ -291,9 +283,15 @@ class TestResponseFormatting:
         formatted = memory_service._format_memory_response(sample_memory)
 
         required_fields = [
-            "content", "content_hash", "tags", "memory_type",
-            "metadata", "created_at", "updated_at",
-            "created_at_iso", "updated_at_iso"
+            "content",
+            "content_hash",
+            "tags",
+            "memory_type",
+            "metadata",
+            "created_at",
+            "updated_at",
+            "created_at_iso",
+            "updated_at_iso",
         ]
 
         for field in required_fields:
@@ -319,6 +317,7 @@ class TestResponseFormatting:
 # =============================================================================
 # Offset Calculation Tests
 # =============================================================================
+
 
 class TestOffsetCalculation:
     """Test pagination offset calculations."""
@@ -362,6 +361,7 @@ class TestOffsetCalculation:
 # Match Type Tests
 # =============================================================================
 
+
 class TestMatchTypeReporting:
     """Test match type is reported correctly in tag search."""
 
@@ -389,6 +389,7 @@ class TestMatchTypeReporting:
 # =============================================================================
 # Found/Not Found Response Tests
 # =============================================================================
+
 
 class TestFoundNotFoundResponses:
     """Test found/not found response structures."""
@@ -437,16 +438,14 @@ class TestFoundNotFoundResponses:
 # Health Check Response Tests
 # =============================================================================
 
+
 class TestHealthCheckResponses:
     """Test health check response structure."""
 
     @pytest.mark.asyncio
     async def test_healthy_response_includes_stats(self, memory_service, mock_storage):
         """Test healthy response includes storage stats."""
-        mock_storage.get_stats.return_value = {
-            "backend": "test",
-            "total_memories": 42
-        }
+        mock_storage.get_stats.return_value = {"backend": "test", "total_memories": 42}
 
         result = await memory_service.check_database_health()
 

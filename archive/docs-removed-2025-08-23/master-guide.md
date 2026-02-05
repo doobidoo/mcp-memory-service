@@ -1,7 +1,7 @@
 # MCP Memory Service - Installation Guide
 
-**Version**: 0.2.2+  
-**Last Updated**: 2025-07-26  
+**Version**: 0.2.2+
+**Last Updated**: 2025-07-26
 **Supports**: ChromaDB + SQLite-vec backends, HTTP/SSE API
 
 ## Prerequisites
@@ -125,7 +125,7 @@ python install.py [OPTIONS]
 # Force SQLite-vec backend
 python install.py --storage-backend sqlite_vec
 
-# Force ChromaDB backend  
+# Force ChromaDB backend
 python install.py --storage-backend chromadb
 
 # Auto-detection with fallback

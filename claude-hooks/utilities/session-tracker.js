@@ -32,12 +32,12 @@ class SessionTracker {
      */
     async initialize() {
         console.log('[Session Tracker] Initializing session tracking system...');
-        
+
         try {
             await this.loadTrackingData();
             this.cleanupExpiredSessions();
             this.loaded = true;
-            
+
             console.log(`[Session Tracker] Loaded ${this.sessions.size} sessions, ${this.conversationThreads.size} threads`);
         } catch (error) {
             console.error('[Session Tracker] Failed to initialize:', error.message);
@@ -75,7 +75,7 @@ class SessionTracker {
         await this.linkToConversationThread(session, context);
 
         this.sessions.set(sessionId, session);
-        
+
         // Track by project
         const projectName = context.projectContext?.name;
         if (projectName) {
@@ -86,7 +86,7 @@ class SessionTracker {
         }
 
         console.log(`[Session Tracker] Started session ${sessionId} for project: ${projectName || 'unknown'}`);
-        
+
         await this.saveTrackingData();
         return session;
     }
@@ -113,7 +113,7 @@ class SessionTracker {
         }
 
         console.log(`[Session Tracker] Ended session ${sessionId} with outcome: ${outcome.type || 'unknown'}`);
-        
+
         await this.saveTrackingData();
         return session;
     }
@@ -124,13 +124,13 @@ class SessionTracker {
     async linkToConversationThread(session, context) {
         // Try to find related sessions based on project and recent activity
         const relatedSessions = await this.findRelatedSessions(session, context);
-        
+
         if (relatedSessions.length > 0) {
             // Link to existing thread
             const parentSession = relatedSessions[0];
             session.threadId = parentSession.threadId;
             session.parentSessionId = parentSession.id;
-            
+
             // Update parent session
             if (this.sessions.has(parentSession.id)) {
                 this.sessions.get(parentSession.id).childSessionIds.push(session.id);
@@ -338,7 +338,7 @@ class SessionTracker {
      */
     findRecurringTopics(sessions) {
         const topicCounts = new Map();
-        
+
         sessions.forEach(session => {
             (session.finalTopics || []).forEach(topic => {
                 topicCounts.set(topic, (topicCounts.get(topic) || 0) + 1);
@@ -357,7 +357,7 @@ class SessionTracker {
      */
     analyzeProgressionPatterns(sessions) {
         const patterns = [];
-        
+
         // Look for planning -> implementation -> testing patterns
         const outcomePairs = [];
         for (let i = 0; i < sessions.length - 1; i++) {
@@ -375,7 +375,7 @@ class SessionTracker {
      */
     findUncompletedTasks(sessions) {
         const tasks = [];
-        
+
         sessions.forEach(session => {
             if (session.outcome?.type === 'planning' || session.outcome?.type === 'partial') {
                 tasks.push({
@@ -394,7 +394,7 @@ class SessionTracker {
      */
     getActiveThreadsForProject(projectName) {
         const threads = [];
-        
+
         this.conversationThreads.forEach((thread, threadId) => {
             if (thread.projectContext?.name === projectName && thread.status === 'active') {
                 threads.push({

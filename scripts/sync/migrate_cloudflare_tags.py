@@ -17,15 +17,12 @@ import json
 import logging
 import os
 import sys
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import httpx
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -34,10 +31,10 @@ class CloudflareMigrator:
 
     def __init__(self):
         """Initialize with Cloudflare credentials from environment."""
-        self.api_token = os.environ.get('CLOUDFLARE_API_TOKEN')
-        self.account_id = os.environ.get('CLOUDFLARE_ACCOUNT_ID')
-        self.d1_database_id = os.environ.get('CLOUDFLARE_D1_DATABASE_ID')
-        self.vectorize_index = os.environ.get('CLOUDFLARE_VECTORIZE_INDEX', 'mcp-memory-index')
+        self.api_token = os.environ.get("CLOUDFLARE_API_TOKEN")
+        self.account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+        self.d1_database_id = os.environ.get("CLOUDFLARE_D1_DATABASE_ID")
+        self.vectorize_index = os.environ.get("CLOUDFLARE_VECTORIZE_INDEX", "mcp-memory-index")
 
         if not all([self.api_token, self.account_id, self.d1_database_id]):
             raise RuntimeError(
@@ -48,18 +45,16 @@ class CloudflareMigrator:
             )
 
         self.d1_url = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/d1/database/{self.d1_database_id}"
-        self.vectorize_url = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/vectorize/v2/indexes/{self.vectorize_index}"
+        self.vectorize_url = (
+            f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/vectorize/v2/indexes/{self.vectorize_index}"
+        )
 
-        self.client: Optional[httpx.AsyncClient] = None
+        self.client: httpx.AsyncClient | None = None
 
     async def __aenter__(self):
         """Async context manager entry."""
         self.client = httpx.AsyncClient(
-            headers={
-                "Authorization": f"Bearer {self.api_token}",
-                "Content-Type": "application/json"
-            },
-            timeout=30.0
+            headers={"Authorization": f"Bearer {self.api_token}", "Content-Type": "application/json"}, timeout=30.0
         )
         return self
 
@@ -78,13 +73,13 @@ class CloudflareMigrator:
                 return response
             except httpx.HTTPError as e:
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     logger.warning(f"Request failed (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {wait_time}s...")
                     await asyncio.sleep(wait_time)
                 else:
                     raise
 
-    async def get_all_memories_from_d1(self) -> List[Dict[str, Any]]:
+    async def get_all_memories_from_d1(self) -> list[dict[str, Any]]:
         """Fetch all memories from D1 database."""
         logger.info("Fetching all memories from D1...")
 
@@ -102,7 +97,7 @@ class CloudflareMigrator:
 
         return rows
 
-    async def get_vector_by_id(self, vector_id: str) -> Optional[Dict[str, Any]]:
+    async def get_vector_by_id(self, vector_id: str) -> dict[str, Any] | None:
         """Fetch a single vector from Vectorize by ID."""
         try:
             response = await self._retry_request("GET", f"{self.vectorize_url}/getByIds", params={"ids": vector_id})
@@ -130,7 +125,7 @@ class CloudflareMigrator:
         logger.warning(f"Unexpected tags type: {type(tags_value)} = {tags_value}")
         return False
 
-    def convert_tags(self, tags_value: Any) -> List[str]:
+    def convert_tags(self, tags_value: Any) -> list[str]:
         """Convert tags from string to array format."""
         if tags_value is None or tags_value == "":
             return []
@@ -142,22 +137,14 @@ class CloudflareMigrator:
         return []
 
     async def update_vector_metadata(
-        self,
-        vector_id: str,
-        embedding: List[float],
-        metadata: Dict[str, Any],
-        dry_run: bool = False
+        self, vector_id: str, embedding: list[float], metadata: dict[str, Any], dry_run: bool = False
     ) -> bool:
         """Update vector metadata via upsert operation."""
         if dry_run:
             logger.info(f"  DRY RUN - Would update vector {vector_id} with metadata: {metadata}")
             return True
 
-        vector_data = {
-            "id": vector_id,
-            "values": embedding,
-            "metadata": metadata
-        }
+        vector_data = {"id": vector_id, "values": embedding, "metadata": metadata}
 
         # Convert to NDJSON format
         ndjson_content = json.dumps(vector_data) + "\n"
@@ -167,10 +154,7 @@ class CloudflareMigrator:
                 "POST",
                 f"{self.vectorize_url}/insert",
                 content=ndjson_content,
-                headers={
-                    "Authorization": f"Bearer {self.api_token}",
-                    "Content-Type": "application/x-ndjson"
-                }
+                headers={"Authorization": f"Bearer {self.api_token}", "Content-Type": "application/x-ndjson"},
             )
             response.raise_for_status()
             result = response.json()
@@ -186,7 +170,7 @@ class CloudflareMigrator:
             logger.error(f"Error updating vector {vector_id}: {e}")
             return False
 
-    async def migrate(self, dry_run: bool = False) -> Dict[str, int]:
+    async def migrate(self, dry_run: bool = False) -> dict[str, int]:
         """
         Run the migration.
 
@@ -199,13 +183,7 @@ class CloudflareMigrator:
         # Fetch all memories from D1
         memories = await self.get_all_memories_from_d1()
 
-        stats = {
-            "total": len(memories),
-            "needs_migration": 0,
-            "migrated": 0,
-            "failed": 0,
-            "skipped": 0
-        }
+        stats = {"total": len(memories), "needs_migration": 0, "migrated": 0, "failed": 0, "skipped": 0}
 
         # Process each memory
         for i, memory in enumerate(memories, 1):
@@ -253,12 +231,7 @@ class CloudflareMigrator:
             embedding = vector.get("values", [])
 
             # Update vector
-            success = await self.update_vector_metadata(
-                content_hash,
-                embedding,
-                updated_metadata,
-                dry_run=dry_run
-            )
+            success = await self.update_vector_metadata(content_hash, embedding, updated_metadata, dry_run=dry_run)
 
             if success:
                 stats["migrated"] += 1
@@ -299,10 +272,10 @@ async def main():
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description='Migrate Cloudflare Vectorize tags to array format')
-    parser.add_argument('--dry-run', action='store_true', help='Preview changes without applying')
-    parser.add_argument('--verify', action='store_true', help='Verify migration (sample check)')
-    parser.add_argument('--sample-size', type=int, default=5, help='Number of vectors to sample during verification')
+    parser = argparse.ArgumentParser(description="Migrate Cloudflare Vectorize tags to array format")
+    parser.add_argument("--dry-run", action="store_true", help="Preview changes without applying")
+    parser.add_argument("--verify", action="store_true", help="Verify migration (sample check)")
+    parser.add_argument("--sample-size", type=int, default=5, help="Number of vectors to sample during verification")
     args = parser.parse_args()
 
     try:
@@ -321,14 +294,14 @@ async def main():
             stats = await migrator.migrate(dry_run=args.dry_run)
 
             # Print summary
-            logger.info("\n" + "="*60)
+            logger.info("\n" + "=" * 60)
             logger.info("Migration Summary:")
             logger.info(f"  Total memories: {stats['total']}")
             logger.info(f"  Needed migration: {stats['needs_migration']}")
             logger.info(f"  Successfully migrated: {stats['migrated']}")
             logger.info(f"  Failed: {stats['failed']}")
             logger.info(f"  Skipped: {stats['skipped']}")
-            logger.info("="*60)
+            logger.info("=" * 60)
 
             if not args.dry_run and stats["migrated"] > 0:
                 logger.info("\nRun with --verify to confirm migration:")
@@ -339,9 +312,10 @@ async def main():
     except Exception as e:
         logger.error(f"Migration failed: {e}")
         import traceback
+
         logger.error(traceback.format_exc())
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(asyncio.run(main()))

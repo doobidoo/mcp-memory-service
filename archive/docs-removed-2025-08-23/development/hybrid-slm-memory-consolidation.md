@@ -40,9 +40,9 @@ def generate_summary_with_llama(cluster_data):
     Keywords: {', '.join(cluster_data['keywords'])}
     Time span: {cluster_data['time_span']}
     Number of memories: {cluster_data['count']}
-    
+
     Provide a concise, insightful summary:"""
-    
+
     response = ollama.generate(model='llama3.2:1b', prompt=prompt)
     return response['response']
 ```
@@ -65,19 +65,19 @@ def generate_summary_with_llama(cluster_data):
 class MistralEnhancedConsolidator:
     def __init__(self):
         self.model = "mistral:7b-instruct-q4_K_M"
-    
+
     async def create_consolidation_narrative(self, clusters, associations):
         """Create a narrative summary of the consolidation results."""
         prompt = f"""Based on memory consolidation analysis:
-        
+
         Found {len(clusters)} memory clusters and {len(associations)} creative connections.
-        
+
         Key themes: {self.extract_themes(clusters)}
         Surprising connections: {self.format_associations(associations[:3])}
-        
-        Write a brief narrative summary highlighting the most important insights 
+
+        Write a brief narrative summary highlighting the most important insights
         and patterns discovered during this consolidation cycle."""
-        
+
         response = await ollama.generate(
             model=self.model,
             prompt=prompt,
@@ -116,33 +116,33 @@ class ProcessingMode(Enum):
 class HybridMemoryConsolidator:
     """
     Combines autonomous processing with selective SLM enhancement.
-    
+
     The system always runs autonomous processing first, then selectively
     enhances results with SLM-generated insights where valuable.
     """
-    
+
     def __init__(self, storage, config):
         # Core autonomous system (always available)
         self.autonomous = AutonomousMemoryConsolidator(storage, config)
-        
+
         # SLM configuration (optional enhancement)
         self.mode = ProcessingMode(config.get('processing_mode', 'autonomous'))
         self.slm_model = config.get('slm_model', 'llama3.2:1b')
         self.slm_available = self._check_slm_availability()
-        
+
         # Enhancement thresholds
         self.min_cluster_size = config.get('slm_min_cluster_size', 5)
         self.min_importance = config.get('slm_min_importance', 0.7)
         self.enhancement_horizons = config.get(
-            'slm_time_horizons', 
+            'slm_time_horizons',
             ['weekly', 'monthly', 'quarterly', 'yearly']
         )
-    
+
     def _check_slm_availability(self) -> bool:
         """Check if SLM is available for enhancement."""
         if self.mode == ProcessingMode.AUTONOMOUS_ONLY:
             return False
-            
+
         try:
             import ollama
             # Check if model is available
@@ -150,58 +150,58 @@ class HybridMemoryConsolidator:
             return any(m['name'].startswith(self.slm_model) for m in models['models'])
         except:
             return False
-    
+
     async def consolidate(self, time_horizon: str) -> Dict:
         """
         Run consolidation with optional SLM enhancement.
-        
+
         Always performs autonomous processing first, then selectively
         enhances based on configuration and context.
         """
         # Step 1: Always run autonomous processing
         auto_results = await self.autonomous.consolidate(time_horizon)
-        
+
         # Step 2: Determine if SLM enhancement should be applied
         if not self._should_enhance(time_horizon, auto_results):
             return auto_results
-        
+
         # Step 3: Selective SLM enhancement
         enhanced_results = await self._enhance_with_slm(
-            auto_results, 
+            auto_results,
             time_horizon
         )
-        
+
         return enhanced_results
-    
+
     def _should_enhance(self, time_horizon: str, results: Dict) -> bool:
         """Determine if SLM enhancement would add value."""
         # Check if SLM is available
         if not self.slm_available:
             return False
-        
+
         # Check if time horizon warrants enhancement
         if time_horizon not in self.enhancement_horizons:
             return False
-        
+
         # Check if results are significant enough
         significant_clusters = sum(
             1 for cluster in results.get('clusters', [])
             if len(cluster) >= self.min_cluster_size
         )
-        
+
         return significant_clusters > 0
-    
+
     async def _enhance_with_slm(self, auto_results: Dict, time_horizon: str) -> Dict:
         """Selectively enhance autonomous results with SLM insights."""
         enhanced = auto_results.copy()
-        
+
         # Enhance cluster summaries
         if 'clusters' in enhanced:
             enhanced['narrative_summaries'] = []
             for i, cluster in enumerate(enhanced['clusters']):
                 if len(cluster) >= self.min_cluster_size:
                     narrative = await self._generate_cluster_narrative(
-                        cluster, 
+                        cluster,
                         auto_results.get('compressed_summaries', [])[i]
                     )
                     enhanced['narrative_summaries'].append({
@@ -209,91 +209,91 @@ class HybridMemoryConsolidator:
                         'narrative': narrative,
                         'memory_count': len(cluster)
                     })
-        
+
         # Enhance creative associations
         if 'associations' in enhanced and len(enhanced['associations']) > 0:
             insights = await self._generate_association_insights(
                 enhanced['associations'][:5]  # Top 5 associations
             )
             enhanced['association_insights'] = insights
-        
+
         # Generate consolidation overview
         enhanced['consolidation_narrative'] = await self._generate_overview(
-            enhanced, 
+            enhanced,
             time_horizon
         )
-        
+
         enhanced['processing_mode'] = 'hybrid'
         enhanced['slm_model'] = self.slm_model
-        
+
         return enhanced
-    
+
     async def _generate_cluster_narrative(
-        self, 
-        cluster: List, 
+        self,
+        cluster: List,
         compressed_summary: Dict
     ) -> str:
         """Generate natural language narrative for a memory cluster."""
         prompt = f"""Based on this memory cluster analysis:
-        
+
         Keywords: {', '.join(compressed_summary['keywords'][:10])}
         Time span: {compressed_summary['temporal_range']['start']} to {compressed_summary['temporal_range']['end']}
         Common tags: {', '.join(compressed_summary['common_tags'][:5])}
         Number of memories: {len(cluster)}
-        
-        Create a brief, insightful summary that captures the essence of these 
+
+        Create a brief, insightful summary that captures the essence of these
         related memories and any patterns or themes you notice:"""
-        
+
         response = await self._call_slm(prompt, max_tokens=150)
         return response
-    
+
     async def _generate_association_insights(
-        self, 
+        self,
         associations: List[Dict]
     ) -> List[Dict]:
         """Generate insights about creative associations discovered."""
         insights = []
-        
+
         for assoc in associations:
-            prompt = f"""Two memories were found to have an interesting connection 
+            prompt = f"""Two memories were found to have an interesting connection
             (similarity: {assoc['similarity']:.2f}).
-            
+
             Memory 1: {assoc['memory_1_preview'][:100]}...
             Memory 2: {assoc['memory_2_preview'][:100]}...
-            
+
             What insight or pattern might this connection reveal?
             Be concise and focus on the non-obvious relationship:"""
-            
+
             insight = await self._call_slm(prompt, max_tokens=80)
             insights.append({
                 'association_id': assoc['id'],
                 'insight': insight,
                 'similarity': assoc['similarity']
             })
-        
+
         return insights
-    
+
     async def _generate_overview(
-        self, 
-        results: Dict, 
+        self,
+        results: Dict,
         time_horizon: str
     ) -> str:
         """Generate a narrative overview of the consolidation cycle."""
         prompt = f"""Memory consolidation {time_horizon} summary:
-        
+
         - Processed {results.get('total_memories', 0)} memories
         - Found {len(results.get('clusters', []))} memory clusters
         - Discovered {len(results.get('associations', []))} creative connections
         - Archived {results.get('archived_count', 0)} low-relevance memories
-        
+
         Key themes: {self._extract_top_themes(results)}
-        
-        Write a brief executive summary of this consolidation cycle, 
+
+        Write a brief executive summary of this consolidation cycle,
         highlighting the most important patterns and any surprising discoveries:"""
-        
+
         response = await self._call_slm(prompt, max_tokens=200)
         return response
-    
+
     async def _call_slm(self, prompt: str, max_tokens: int = 100) -> str:
         """Call the SLM with error handling."""
         try:
@@ -311,18 +311,18 @@ class HybridMemoryConsolidator:
         except Exception as e:
             # Fallback to autonomous summary
             return f"[SLM unavailable: {str(e)}]"
-    
+
     def _extract_top_themes(self, results: Dict) -> str:
         """Extract top themes from results."""
         all_keywords = []
         for summary in results.get('compressed_summaries', []):
             all_keywords.extend(summary.get('keywords', []))
-        
+
         # Count frequency
         from collections import Counter
         theme_counts = Counter(all_keywords)
         top_themes = [theme for theme, _ in theme_counts.most_common(5)]
-        
+
         return ', '.join(top_themes) if top_themes else 'various topics'
 ```
 
@@ -332,16 +332,16 @@ class HybridMemoryConsolidator:
 class SmartEnhancementStrategy:
     """
     Intelligently decide when and how to use SLM enhancement.
-    
+
     Principles:
     1. Autonomous processing is always the foundation
     2. SLM enhancement only when it adds significant value
     3. Resource usage scales with importance
     """
-    
+
     def __init__(self, config):
         self.config = config
-        
+
         # Enhancement criteria
         self.criteria = {
             'min_cluster_size': 5,
@@ -352,25 +352,25 @@ class SmartEnhancementStrategy:
             'daily_enhancement': False,  # Too frequent
             'require_user_request': False
         }
-    
+
     def should_enhance_cluster(self, cluster_info: Dict) -> bool:
         """Decide if a cluster warrants SLM enhancement."""
         # Size check
         if cluster_info['size'] < self.criteria['min_cluster_size']:
             return False
-        
+
         # Importance check
         avg_importance = np.mean([m.importance_score for m in cluster_info['memories']])
         if avg_importance < self.criteria['min_importance_score']:
             return False
-        
+
         # Complexity check (high variance suggests interesting cluster)
         embedding_variance = np.var([m.embedding for m in cluster_info['memories']], axis=0).mean()
         if embedding_variance < 0.1:  # Too homogeneous
             return False
-        
+
         return True
-    
+
     def select_model_for_task(self, task_type: str, resource_limit: str) -> str:
         """Select appropriate model based on task and resources."""
         model_selection = {
@@ -390,7 +390,7 @@ class SmartEnhancementStrategy:
                 'high': 'qwen2.5:7b-instruct'
             }
         }
-        
+
         return model_selection.get(task_type, {}).get(resource_limit, 'llama3.2:1b')
 ```
 

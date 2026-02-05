@@ -19,7 +19,7 @@ export async function onSessionStart(context) {
     timeRange: 'last-2-weeks',
     limit: 8
   });
-  
+
   if (relevantMemories.length > 0) {
     await injectSystemMessage(`
       Recent project context from memory:
@@ -48,7 +48,7 @@ class ProjectAwareMemoryRetrieval:
             f"tech:{project_context.language}",
             "decisions", "architecture", "bugs-fixed"
         ])
-        
+
         # Apply relevance scoring
         scored_memories = self.score_by_relevance(memories, project_context)
         return scored_memories[:10]
@@ -77,7 +77,7 @@ export async function onTopicChange(context, newTopics) {
     excludeAlreadyLoaded: context.loadedMemoryHashes,
     limit: 5
   });
-  
+
   if (additionalMemories.length > 0) {
     await updateContext(`
       Additional relevant context:
@@ -115,7 +115,7 @@ export async function onTopicChange(context, newTopics) {
 export async function onSessionEnd(context) {
   const sessionSummary = await analyzeSession(context.conversation);
   const autoTags = await generateTags(sessionSummary);
-  
+
   await storeMemory({
     content: sessionSummary,
     tags: [...autoTags, 'session-outcome', context.project.name],
@@ -173,11 +173,11 @@ export async function onSessionEnd(context) {
 @app.post("/claude-code/session-context")
 async def get_session_context(project: ProjectContext):
     """Get relevant memories for Claude Code session initialization."""
-    
-@app.post("/claude-code/dynamic-context")  
+
+@app.post("/claude-code/dynamic-context")
 async def get_dynamic_context(topics: List[str], exclude: List[str]):
     """Get additional context based on evolving conversation topics."""
-    
+
 @app.post("/claude-code/consolidate-session")
 async def consolidate_session(session_data: SessionData):
     """Store and organize session outcomes with intelligent tagging."""
@@ -190,7 +190,7 @@ async def consolidate_session(session_data: SessionData):
 - ✅ <2 second session startup time with memory loading
 - ✅ 90%+ relevant memory selection accuracy
 
-### Phase 2 Targets  
+### Phase 2 Targets
 - ✅ Real-time context updates based on conversation flow
 - ✅ 95%+ conversation continuity across sessions
 - ✅ Intelligent topic detection and memory matching
@@ -221,7 +221,7 @@ async def consolidate_session(session_data: SessionData):
 
 ### Technical Risks
 - **Performance Impact**: Implement lazy loading and caching strategies
-- **Context Overload**: Smart filtering and relevance-based selection  
+- **Context Overload**: Smart filtering and relevance-based selection
 - **Memory Service Availability**: Graceful degradation without memory service
 
 ### User Experience Risks

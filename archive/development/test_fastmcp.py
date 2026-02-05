@@ -2,33 +2,27 @@
 """Simple test of FastMCP server structure for memory service."""
 
 import sys
-import os
-from pathlib import Path
 
 # Add src to path
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 from mcp.server.fastmcp import FastMCP
 
 # Create a simple FastMCP server for testing
 mcp = FastMCP("Test Memory Service")
 
+
 @mcp.tool()
 def test_store_memory(content: str, tags: list[str] = None) -> dict:
     """Test memory storage function."""
-    return {
-        "success": True,
-        "message": f"Stored: {content}",
-        "tags": tags or []
-    }
+    return {"success": True, "message": f"Stored: {content}", "tags": tags or []}
 
-@mcp.tool() 
+
+@mcp.tool()
 def test_health() -> dict:
     """Test health check."""
-    return {
-        "status": "healthy",
-        "version": "4.0.0-alpha.1"
-    }
+    return {"status": "healthy", "version": "4.0.0-alpha.1"}
+
 
 if __name__ == "__main__":
     print("FastMCP Memory Service Test")

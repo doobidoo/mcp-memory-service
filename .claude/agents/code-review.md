@@ -191,7 +191,7 @@ Good implementation with minor issues. Address warnings before merging.
 **Respect Existing Choices:**
 - Don't impose external "best practices"
 - Follow what the project already does
-- Flag inconsistencies, dont impose correctness 
+- Flag inconsistencies, dont impose correctness
 - Let the team decide on style preferences
 
 **Be Specific:**

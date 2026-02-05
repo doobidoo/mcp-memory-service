@@ -17,12 +17,13 @@
 Claude command wrapper for memory sync operations.
 Provides convenient commands for managing dual memory backends.
 """
-import sys
-import asyncio
+
 import subprocess
+import sys
 from pathlib import Path
 
 SYNC_SCRIPT = Path(__file__).parent / "sync_memory_backends.py"
+
 
 def run_sync_command(args):
     """Run the sync script with given arguments."""
@@ -36,29 +37,35 @@ def run_sync_command(args):
 
     return result.returncode
 
+
 def memory_sync_status():
     """Show memory sync status."""
-    return run_sync_command(['--status'])
+    return run_sync_command(["--status"])
+
 
 def memory_sync_backup():
     """Backup Cloudflare memories to SQLite-vec."""
     print("Backing up Cloudflare memories to SQLite-vec...")
-    return run_sync_command(['--direction', 'cf-to-sqlite'])
+    return run_sync_command(["--direction", "cf-to-sqlite"])
+
 
 def memory_sync_restore():
     """Restore SQLite-vec memories to Cloudflare."""
     print("Restoring SQLite-vec memories to Cloudflare...")
-    return run_sync_command(['--direction', 'sqlite-to-cf'])
+    return run_sync_command(["--direction", "sqlite-to-cf"])
+
 
 def memory_sync_bidirectional():
     """Perform bidirectional sync."""
     print("Performing bidirectional sync...")
-    return run_sync_command(['--direction', 'bidirectional'])
+    return run_sync_command(["--direction", "bidirectional"])
+
 
 def memory_sync_dry_run():
     """Show what would be synced without making changes."""
     print("Dry run - showing what would be synced:")
-    return run_sync_command(['--dry-run'])
+    return run_sync_command(["--dry-run"])
+
 
 def show_usage():
     """Show usage information."""
@@ -69,6 +76,7 @@ def show_usage():
     print("  restore     - Restore SQLite-vec → Cloudflare")
     print("  sync        - Bidirectional sync")
     print("  dry-run     - Show what would be synced")
+
 
 if __name__ == "__main__":
     # Dictionary-based command dispatch for better scalability

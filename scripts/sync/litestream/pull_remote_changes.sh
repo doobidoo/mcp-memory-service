@@ -68,10 +68,10 @@ fi
 if [ "$STAGED_COUNT" -gt 0 ]; then
     echo "$(date): WARNING: $STAGED_COUNT staged changes detected"
     echo "$(date): Checking for potential conflicts..."
-    
+
     # Create a list of content hashes in staging
     sqlite3 "$STAGING_DB" "SELECT content_hash FROM staged_memories;" > "$TEMP_DIR/staged_hashes.txt"
-    
+
     # Check if any of these hashes exist in the remote database
     # Note: This requires knowledge of the remote database schema
     # For now, we'll just warn about the existence of staged changes
@@ -89,23 +89,23 @@ cp "$TEMP_DIR/remote_database.db" "$DB_PATH"
 
 if [ $? -eq 0 ]; then
     echo "$(date): Successfully pulled database from remote master"
-    
+
     # Update staging database with sync timestamp
     if [ -f "$STAGING_DB" ]; then
         sqlite3 "$STAGING_DB" "
-        UPDATE sync_status 
-        SET value = datetime('now'), updated_at = CURRENT_TIMESTAMP 
+        UPDATE sync_status
+        SET value = datetime('now'), updated_at = CURRENT_TIMESTAMP
         WHERE key = 'last_remote_sync';
         "
     fi
-    
+
     # Remove backup on success
     rm -f "$BACKUP_PATH"
-    
+
     # Show database info
     echo "$(date): Database size: $(du -h "$DB_PATH" | cut -f1)"
     echo "$(date): Database modified: $(stat -f "%Sm" "$DB_PATH")"
-    
+
     if [ "$STAGED_COUNT" -gt 0 ]; then
         echo "$(date): NOTE: You have $STAGED_COUNT staged changes to apply"
         echo "$(date): Run ./apply_local_changes.sh to merge them"

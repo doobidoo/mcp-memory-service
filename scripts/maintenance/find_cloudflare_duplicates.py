@@ -2,33 +2,35 @@
 """Find all near-duplicate memories in Cloudflare D1 database."""
 
 import asyncio
-import os
-import sys
-from pathlib import Path
-from collections import defaultdict
 import hashlib
+import os
 import re
+import sys
+from collections import defaultdict
+from pathlib import Path
 
 
 async def main():
     # Set OAuth to false to avoid validation issues
-    os.environ['MCP_OAUTH_ENABLED'] = 'false'
+    os.environ["MCP_OAUTH_ENABLED"] = "false"
 
     # Import after setting environment
-    from mcp_memory_service.storage.cloudflare import CloudflareStorage
     from mcp_memory_service.config import (
-        CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID,
-        CLOUDFLARE_VECTORIZE_INDEX, CLOUDFLARE_D1_DATABASE_ID,
-        EMBEDDING_MODEL_NAME
+        CLOUDFLARE_ACCOUNT_ID,
+        CLOUDFLARE_API_TOKEN,
+        CLOUDFLARE_D1_DATABASE_ID,
+        CLOUDFLARE_VECTORIZE_INDEX,
+        EMBEDDING_MODEL_NAME,
     )
+    from mcp_memory_service.storage.cloudflare import CloudflareStorage
 
     def normalize_content(content):
         """Normalize content by removing timestamps and session-specific data."""
         # Remove common timestamp patterns
         normalized = content
-        normalized = re.sub(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z', 'TIMESTAMP', normalized)
-        normalized = re.sub(r'\*\*Date\*\*: \d{2,4}[./]\d{2}[./]\d{2,4}', '**Date**: DATE', normalized)
-        normalized = re.sub(r'Timestamp: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', 'Timestamp: TIMESTAMP', normalized)
+        normalized = re.sub(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", "TIMESTAMP", normalized)
+        normalized = re.sub(r"\*\*Date\*\*: \d{2,4}[./]\d{2}[./]\d{2,4}", "**Date**: DATE", normalized)
+        normalized = re.sub(r"Timestamp: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", "Timestamp: TIMESTAMP", normalized)
         return normalized.strip()
 
     def content_hash(content):
@@ -44,7 +46,7 @@ async def main():
         account_id=CLOUDFLARE_ACCOUNT_ID,
         vectorize_index=CLOUDFLARE_VECTORIZE_INDEX,
         d1_database_id=CLOUDFLARE_D1_DATABASE_ID,
-        embedding_model=EMBEDDING_MODEL_NAME
+        embedding_model=EMBEDDING_MODEL_NAME,
     )
 
     await cloudflare.initialize()
@@ -66,24 +68,28 @@ async def main():
     # Convert Memory objects to the expected format for the rest of the script
     memories = []
     for memory in all_memories:
-        memories.append({
-            'content_hash': memory.content_hash,
-            'content': memory.content,
-            'tags': ','.join(memory.tags),  # Convert list to comma-separated string
-            'created_at': memory.created_at
-        })
+        memories.append(
+            {
+                "content_hash": memory.content_hash,
+                "content": memory.content,
+                "tags": ",".join(memory.tags),  # Convert list to comma-separated string
+                "created_at": memory.created_at,
+            }
+        )
     print(f"Total memories in Cloudflare: {len(memories)}\n")
 
     # Group by normalized content
     content_groups = defaultdict(list)
     for mem in memories:
-        norm_hash = content_hash(mem['content'])
-        content_groups[norm_hash].append({
-            'hash': mem['content_hash'],
-            'content': mem['content'][:200],  # First 200 chars
-            'tags': mem['tags'][:80] if mem['tags'] else '',
-            'created_at': mem['created_at']
-        })
+        norm_hash = content_hash(mem["content"])
+        content_groups[norm_hash].append(
+            {
+                "hash": mem["content_hash"],
+                "content": mem["content"][:200],  # First 200 chars
+                "tags": mem["tags"][:80] if mem["tags"] else "",
+                "created_at": mem["created_at"],
+            }
+        )
 
     # Find duplicates (groups with >1 memory)
     duplicates = {k: v for k, v in content_groups.items() if len(v) > 1}
@@ -103,14 +109,14 @@ async def main():
         print(f"   Content preview: {group[0]['content'][:100]}...")
         print(f"   Tags: {group[0]['tags'][:80]}...")
         print(f"   Hashes to keep: {group[0]['hash'][:16]}... (newest)")
-        print(f"   Hashes to delete: {count-1} older duplicates")
+        print(f"   Hashes to delete: {count - 1} older duplicates")
 
         if i >= 10:  # Show only first 10 groups
             remaining = len(duplicates) - 10
             print(f"\n... and {remaining} more duplicate groups")
             break
 
-    print(f"\n📊 Summary:")
+    print("\n📊 Summary:")
     print(f"   Total duplicate groups: {len(duplicates)}")
     print(f"   Total memories to delete: {total_duplicate_count}")
     print(f"   Total memories after cleanup: {len(memories) - total_duplicate_count}")
@@ -118,22 +124,22 @@ async def main():
     # Ask if user wants to save hashes for deletion
     save_hashes = input("\n💾 Save duplicate hashes for deletion? (y/n): ").strip().lower()
 
-    if save_hashes == 'y':
+    if save_hashes == "y":
         hash_file = Path.home() / "cloudflare_duplicates.txt"
 
         # Collect hashes to delete (keep newest, delete older)
         hashes_to_delete = []
         for group in duplicates.values():
             for memory in group[1:]:  # Keep first (newest), delete rest
-                hashes_to_delete.append(memory['hash'])
+                hashes_to_delete.append(memory["hash"])
 
-        with open(hash_file, 'w') as f:
+        with open(hash_file, "w") as f:
             for content_hash in hashes_to_delete:
                 f.write(f"{content_hash}\n")
 
         print(f"\n✅ Saved {len(hashes_to_delete)} hashes to {hash_file}")
-        print(f"📋 Next step: Delete from Cloudflare")
-        print(f"   Update delete_cloudflare_duplicates.py to read from cloudflare_duplicates.txt")
+        print("📋 Next step: Delete from Cloudflare")
+        print("   Update delete_cloudflare_duplicates.py to read from cloudflare_duplicates.txt")
 
     return 0
 

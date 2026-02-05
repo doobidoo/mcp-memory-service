@@ -13,17 +13,16 @@ This unified script validates all configuration aspects:
 Consolidates functionality from validate_config.py and validate_configuration.py
 """
 
+import json
+import logging
 import os
 import sys
-import json
-import re
-import logging
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
+
 
 class ComprehensiveConfigValidator:
     """Unified configuration validator for all MCP Memory Service configurations."""
@@ -31,34 +30,31 @@ class ComprehensiveConfigValidator:
     def __init__(self):
         """Initialize validator with all configuration paths and requirements."""
         self.project_root = Path(__file__).parent.parent.parent
-        self.env_file = self.project_root / '.env'
+        self.env_file = self.project_root / ".env"
 
         # Platform-specific Claude Desktop config paths
-        if os.name == 'nt':  # Windows
-            self.claude_desktop_config_file = Path.home() / 'AppData' / 'Roaming' / 'Claude' / 'claude_desktop_config.json'
+        if os.name == "nt":  # Windows
+            self.claude_desktop_config_file = Path.home() / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json"
         else:  # macOS/Linux
-            self.claude_desktop_config_file = Path.home() / '.config' / 'claude' / 'claude_desktop_config.json'
+            self.claude_desktop_config_file = Path.home() / ".config" / "claude" / "claude_desktop_config.json"
 
         # Claude Code global config (different from Claude Desktop)
-        self.claude_code_config_file = Path.home() / '.claude.json'
+        self.claude_code_config_file = Path.home() / ".claude.json"
 
         # Local project MCP config (should usually not exist for memory service)
-        self.local_mcp_config_file = self.project_root / '.mcp.json'
+        self.local_mcp_config_file = self.project_root / ".mcp.json"
 
         # Required environment variables for Cloudflare backend
         self.required_vars = [
-            'MCP_MEMORY_STORAGE_BACKEND',
-            'CLOUDFLARE_API_TOKEN',
-            'CLOUDFLARE_ACCOUNT_ID',
-            'CLOUDFLARE_D1_DATABASE_ID',
-            'CLOUDFLARE_VECTORIZE_INDEX'
+            "MCP_MEMORY_STORAGE_BACKEND",
+            "CLOUDFLARE_API_TOKEN",
+            "CLOUDFLARE_ACCOUNT_ID",
+            "CLOUDFLARE_D1_DATABASE_ID",
+            "CLOUDFLARE_VECTORIZE_INDEX",
         ]
 
         # Optional but commonly used variables
-        self.optional_vars = [
-            'MCP_MEMORY_BACKUPS_PATH',
-            'MCP_MEMORY_SQLITE_PATH'
-        ]
+        self.optional_vars = ["MCP_MEMORY_BACKUPS_PATH", "MCP_MEMORY_SQLITE_PATH"]
 
         # Results tracking
         self.issues = []
@@ -66,17 +62,17 @@ class ComprehensiveConfigValidator:
         self.warning_count = 0
         self.success_count = 0
 
-    def load_json_safe(self, file_path: Path) -> Optional[Dict]:
+    def load_json_safe(self, file_path: Path) -> dict | None:
         """Load JSON file safely, return None if not found or invalid."""
         try:
             if file_path.exists():
-                with open(file_path, 'r', encoding='utf-8') as f:
+                with open(file_path, encoding="utf-8") as f:
                     return json.load(f)
         except (json.JSONDecodeError, FileNotFoundError, PermissionError) as e:
             self.add_warning(f"Could not load {file_path}: {e}")
         return None
 
-    def load_env_file(self) -> Dict[str, str]:
+    def load_env_file(self) -> dict[str, str]:
         """Load environment variables from .env file."""
         env_vars = {}
 
@@ -85,11 +81,11 @@ class ComprehensiveConfigValidator:
             return env_vars
 
         try:
-            with open(self.env_file, 'r', encoding='utf-8') as f:
-                for line_num, line in enumerate(f, 1):
+            with open(self.env_file, encoding="utf-8") as f:
+                for _line_num, line in enumerate(f, 1):
                     line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
+                    if line and not line.startswith("#") and "=" in line:
+                        key, value = line.split("=", 1)
                         env_vars[key.strip()] = value.strip()
         except Exception as e:
             self.add_error(f"Failed to load .env file: {e}")
@@ -111,7 +107,7 @@ class ComprehensiveConfigValidator:
         self.issues.append(f"SUCCESS: {message}")
         self.success_count += 1
 
-    def validate_env_file(self) -> Dict[str, str]:
+    def validate_env_file(self) -> dict[str, str]:
         """Validate .env file configuration."""
         env_vars = self.load_env_file()
 
@@ -127,8 +123,8 @@ class ComprehensiveConfigValidator:
             self.add_success("All required variables present in .env file")
 
         # Check backend setting
-        backend = env_vars.get('MCP_MEMORY_STORAGE_BACKEND', '').lower()
-        if backend == 'cloudflare':
+        backend = env_vars.get("MCP_MEMORY_STORAGE_BACKEND", "").lower()
+        if backend == "cloudflare":
             self.add_success(".env file configured for Cloudflare backend")
         elif backend:
             self.add_warning(f".env file configured for '{backend}' backend (not Cloudflare)")
@@ -137,7 +133,7 @@ class ComprehensiveConfigValidator:
 
         return env_vars
 
-    def validate_claude_desktop_config(self) -> Optional[Dict[str, str]]:
+    def validate_claude_desktop_config(self) -> dict[str, str] | None:
         """Validate Claude Desktop configuration."""
         config = self.load_json_safe(self.claude_desktop_config_file)
 
@@ -146,8 +142,8 @@ class ComprehensiveConfigValidator:
             return None
 
         # Extract memory server configuration
-        mcp_servers = config.get('mcpServers', {})
-        memory_server = mcp_servers.get('memory', {})
+        mcp_servers = config.get("mcpServers", {})
+        memory_server = mcp_servers.get("memory", {})
 
         if not memory_server:
             self.add_error("Memory server not found in Claude Desktop configuration")
@@ -156,7 +152,7 @@ class ComprehensiveConfigValidator:
         self.add_success("Memory server found in Claude Desktop configuration")
 
         # Get environment variables from memory server config
-        memory_env = memory_server.get('env', {})
+        memory_env = memory_server.get("env", {})
 
         # Check required variables
         missing_vars = []
@@ -181,18 +177,18 @@ class ComprehensiveConfigValidator:
 
         # Check for memory server configurations in projects
         memory_configs = []
-        projects = config.get('projects', {})
+        projects = config.get("projects", {})
 
         for project_path, project_config in projects.items():
-            mcp_servers = project_config.get('mcpServers', {})
-            if 'memory' in mcp_servers:
-                memory_config = mcp_servers['memory']
-                backend = memory_config.get('env', {}).get('MCP_MEMORY_STORAGE_BACKEND', 'unknown')
+            mcp_servers = project_config.get("mcpServers", {})
+            if "memory" in mcp_servers:
+                memory_config = mcp_servers["memory"]
+                backend = memory_config.get("env", {}).get("MCP_MEMORY_STORAGE_BACKEND", "unknown")
                 memory_configs.append((project_path, backend))
 
         if memory_configs:
-            cloudflare_configs = [cfg for cfg in memory_configs if cfg[1] == 'cloudflare']
-            non_cloudflare_configs = [cfg for cfg in memory_configs if cfg[1] != 'cloudflare']
+            cloudflare_configs = [cfg for cfg in memory_configs if cfg[1] == "cloudflare"]
+            non_cloudflare_configs = [cfg for cfg in memory_configs if cfg[1] != "cloudflare"]
 
             if cloudflare_configs:
                 self.add_success(f"Found {len(cloudflare_configs)} Cloudflare memory configurations in Claude Code")
@@ -206,14 +202,14 @@ class ComprehensiveConfigValidator:
         """Check for conflicting local .mcp.json files."""
         if self.local_mcp_config_file.exists():
             config = self.load_json_safe(self.local_mcp_config_file)
-            if config and 'memory' in config.get('mcpServers', {}):
+            if config and "memory" in config.get("mcpServers", {}):
                 self.add_error("Local .mcp.json contains memory server configuration (conflicts with global config)")
             else:
                 self.add_success("Local .mcp.json exists but does not conflict with memory configuration")
         else:
             self.add_success("No local .mcp.json found (using global configuration)")
 
-    def compare_configurations(self, env_config: Dict[str, str], claude_desktop_config: Optional[Dict[str, str]]):
+    def compare_configurations(self, env_config: dict[str, str], claude_desktop_config: dict[str, str] | None):
         """Compare configurations between .env and Claude Desktop config."""
         if not claude_desktop_config:
             self.add_error("Cannot compare configurations - Claude Desktop config not available")
@@ -222,8 +218,8 @@ class ComprehensiveConfigValidator:
         # Compare each required variable
         differences = []
         for var in self.required_vars:
-            env_value = env_config.get(var, '<MISSING>')
-            claude_value = str(claude_desktop_config.get(var, '<MISSING>'))
+            env_value = env_config.get(var, "<MISSING>")
+            claude_value = str(claude_desktop_config.get(var, "<MISSING>"))
 
             if env_value != claude_value:
                 differences.append((var, env_value, claude_value))
@@ -235,9 +231,9 @@ class ComprehensiveConfigValidator:
         else:
             self.add_success("All configurations match between .env and Claude Desktop config")
 
-    def validate_api_token_format(self, token: str) -> Tuple[bool, str]:
+    def validate_api_token_format(self, token: str) -> tuple[bool, str]:
         """Validate API token format and detect known invalid tokens."""
-        if not token or token == '<MISSING>':
+        if not token or token == "<MISSING>":
             return False, "Token is missing"
 
         if len(token) < 20:
@@ -248,19 +244,19 @@ class ComprehensiveConfigValidator:
 
         # Check for known placeholder/invalid tokens
         invalid_tokens = [
-            'your_token_here',
-            'replace_with_token',
-            'mkdXbb-iplcHNBRQ5tfqV3Sh_7eALYBpO4e3Di1m'  # Known invalid token
+            "your_token_here",
+            "replace_with_token",
+            "mkdXbb-iplcHNBRQ5tfqV3Sh_7eALYBpO4e3Di1m",  # Known invalid token
         ]
         if token in invalid_tokens:
             return False, "Token appears to be a placeholder or known invalid token"
 
         return True, "Token format appears valid"
 
-    def validate_api_tokens(self, env_config: Dict[str, str], claude_desktop_config: Optional[Dict[str, str]]):
+    def validate_api_tokens(self, env_config: dict[str, str], claude_desktop_config: dict[str, str] | None):
         """Validate API tokens in both configurations."""
         # Check .env token
-        env_token = env_config.get('CLOUDFLARE_API_TOKEN', '')
+        env_token = env_config.get("CLOUDFLARE_API_TOKEN", "")
         is_valid, message = self.validate_api_token_format(env_token)
 
         if is_valid:
@@ -270,7 +266,7 @@ class ComprehensiveConfigValidator:
 
         # Check Claude Desktop token
         if claude_desktop_config:
-            claude_token = str(claude_desktop_config.get('CLOUDFLARE_API_TOKEN', ''))
+            claude_token = str(claude_desktop_config.get("CLOUDFLARE_API_TOKEN", ""))
             is_valid, message = self.validate_api_token_format(claude_token)
 
             if is_valid:
@@ -281,12 +277,11 @@ class ComprehensiveConfigValidator:
     def check_environment_conflicts(self):
         """Check for conflicting environment configurations."""
         # Check for conflicting .env files
-        env_files = list(self.project_root.glob('.env*'))
+        env_files = list(self.project_root.glob(".env*"))
 
         # Exclude legitimate backup files
         conflicting_files = [
-            f for f in env_files
-            if f.name.endswith('.sqlite') and not f.name.endswith('.backup') and f.name != '.env.sqlite'
+            f for f in env_files if f.name.endswith(".sqlite") and not f.name.endswith(".backup") and f.name != ".env.sqlite"
         ]
 
         if conflicting_files:
@@ -343,7 +338,7 @@ class ComprehensiveConfigValidator:
         """Print results for the current section."""
         # Print only new issues since last call
         current_total = len(self.issues)
-        if hasattr(self, '_last_printed_index'):
+        if hasattr(self, "_last_printed_index"):
             start_index = self._last_printed_index
         else:
             start_index = 0
@@ -373,17 +368,19 @@ class ComprehensiveConfigValidator:
             print(f"   SUCCESS: {self.success_count} checks passed")
             print("\nPlease fix the critical errors above before using the memory service.")
 
-        print(f"\nConfiguration files checked:")
+        print("\nConfiguration files checked:")
         print(f"   • .env file: {self.env_file}")
         print(f"   • Claude Desktop config: {self.claude_desktop_config_file}")
         print(f"   • Claude Code config: {self.claude_code_config_file}")
         print(f"   • Local MCP config: {self.local_mcp_config_file}")
+
 
 def main():
     """Main validation function."""
     validator = ComprehensiveConfigValidator()
     success = validator.run_comprehensive_validation()
     return 0 if success else 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

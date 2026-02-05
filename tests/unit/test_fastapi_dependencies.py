@@ -9,12 +9,11 @@ Added to prevent production bugs like v8.12.0 where:
 was evaluated at import time when _storage was None.
 """
 
+import os
+import tempfile
+
 import pytest
 import pytest_asyncio
-import asyncio
-import tempfile
-import os
-from unittest.mock import MagicMock
 
 
 @pytest_asyncio.fixture
@@ -29,7 +28,7 @@ async def temp_storage():
         await storage.initialize()
         set_storage(storage)
         yield storage
-        storage.close()
+        await storage.close()
 
 
 @pytest.mark.asyncio
@@ -69,28 +68,29 @@ def test_get_storage_uses_depends_not_default_param():
     was evaluated at import time.
     """
     import inspect
+
     from mcp_memory_service.web.dependencies import get_memory_service
-    from fastapi.params import Depends
 
     # Get function signature
     sig = inspect.signature(get_memory_service)
 
     # Check if storage parameter exists
-    if 'storage' in sig.parameters:
-        storage_param = sig.parameters['storage']
+    if "storage" in sig.parameters:
+        storage_param = sig.parameters["storage"]
 
         # If it has a default, it should be Depends(...), not a function call
         if storage_param.default != inspect.Parameter.empty:
             # Default should be a Depends instance, not the result of get_storage()
             # Check the type name since Depends is not a simple type
-            assert type(storage_param.default).__name__ == 'Depends', \
-                "storage parameter should use Depends(get_storage), not get_storage()"
+            assert (
+                type(storage_param.default).__name__ == "Depends"
+            ), "storage parameter should use Depends(get_storage), not get_storage()"
 
 
 @pytest.mark.asyncio
 async def test_dependency_chain_storage_to_service(temp_storage):
     """Test that the dependency chain from storage → service works."""
-    from mcp_memory_service.web.dependencies import get_storage, get_memory_service
+    from mcp_memory_service.web.dependencies import get_memory_service, get_storage
 
     # Get storage
     storage = get_storage()
@@ -101,7 +101,7 @@ async def test_dependency_chain_storage_to_service(temp_storage):
     assert service is not None
 
     # Service should have a storage reference
-    assert hasattr(service, 'storage')
+    assert hasattr(service, "storage")
 
 
 @pytest.mark.asyncio
@@ -133,8 +133,8 @@ def test_dependencies_module_has_required_functions():
     from mcp_memory_service.web import dependencies
 
     # Core dependency functions
-    assert hasattr(dependencies, 'get_storage')
-    assert hasattr(dependencies, 'get_memory_service')
+    assert hasattr(dependencies, "get_storage")
+    assert hasattr(dependencies, "get_memory_service")
 
     # Should be callable
     assert callable(dependencies.get_storage)
@@ -149,10 +149,10 @@ async def test_storage_dependency_is_initialized(temp_storage):
     storage = get_storage()
 
     # Check it has expected methods (from base class)
-    assert hasattr(storage, 'store')
-    assert hasattr(storage, 'get_all_memories')
-    assert hasattr(storage, 'get_stats')
-    assert hasattr(storage, 'delete')
+    assert hasattr(storage, "store")
+    assert hasattr(storage, "get_all_memories")
+    assert hasattr(storage, "get_stats")
+    assert hasattr(storage, "delete")
 
 
 @pytest.mark.asyncio
@@ -168,7 +168,7 @@ async def test_async_dependencies_work(temp_storage):
     # get_stats is async and was the source of issue #191
     stats = await storage.get_stats()
     assert isinstance(stats, dict)
-    assert 'total_memories' in stats
+    assert "total_memories" in stats
 
 
 def test_dependency_injection_doesnt_fail_on_import():
@@ -178,11 +178,10 @@ def test_dependency_injection_doesnt_fail_on_import():
     """
     try:
         # This should not raise
-        import mcp_memory_service.web.dependencies
-        import mcp_memory_service.web.app
 
         # App should be created successfully
         from mcp_memory_service.web.app import app
+
         assert app is not None
     except Exception as e:
         pytest.fail(f"Import-time error in dependencies: {e}")
@@ -196,13 +195,13 @@ def test_memory_service_has_required_methods():
 
     # Core methods from MemoryService class
     required_methods = [
-        'store_memory',
-        'retrieve_memories',
-        'delete_memory',
-        'list_memories',  # Not get_all_memories
-        'search_by_tag',
-        'get_memory_by_hash',
-        'check_database_health',
+        "store_memory",
+        "retrieve_memories",
+        "delete_memory",
+        "list_memories",  # Not get_all_memories
+        "search_by_tag",
+        "get_memory_by_hash",
+        "check_database_health",
     ]
 
     for method in required_methods:

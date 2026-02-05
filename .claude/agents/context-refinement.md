@@ -36,17 +36,17 @@ You've been called at the end of a work session to check if any new context was 
 
 4. **Update Format** (ONLY if needed)
    Append to the existing Context Manifest:
-   
+
    ```markdown
    ### Discovered During Implementation
    [Date: YYYY-MM-DD / Session marker]
-   
+
    [NARRATIVE explanation of what was discovered]
-   
+
    During implementation, we discovered that [what was found]. This wasn't documented in the original context because [reason]. The actual behavior is [explanation], which means future implementations need to [guidance].
-   
+
    [Additional discoveries in narrative form...]
-   
+
    #### Updated Technical Details
    - [Any new signatures, endpoints, or patterns discovered]
    - [Updated understanding of data flows]

@@ -16,9 +16,10 @@
 Main CLI entry point for MCP Memory Service.
 """
 
-import click
-import sys
 import os
+import sys
+
+import click
 
 from .. import __version__
 
@@ -29,29 +30,35 @@ from .. import __version__
 def cli(ctx):
     """
     MCP Memory Service - A semantic memory service using the Model Context Protocol.
-    
+
     Provides document ingestion, memory management, and MCP server functionality.
     """
     ctx.ensure_object(dict)
-    
+
     # Backward compatibility: if no subcommand provided, default to server
     if ctx.invoked_subcommand is None:
         import warnings
+
         warnings.warn(
             "Running 'memory' without a subcommand is deprecated. "
             "Please use 'memory server' explicitly. "
             "This backward compatibility will be removed in a future version.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         # Default to server command with default options for backward compatibility
         ctx.invoke(server, debug=False, storage_backend=None)
 
 
 @cli.command()
-@click.option('--debug', is_flag=True, help='Enable debug logging')
-@click.option('--storage-backend', '-s', default=None,
-              type=click.Choice(['sqlite_vec', 'sqlite-vec', 'qdrant']), help='Storage backend to use (defaults to environment or sqlite_vec)')
+@click.option("--debug", is_flag=True, help="Enable debug logging")
+@click.option(
+    "--storage-backend",
+    "-s",
+    default=None,
+    type=click.Choice(["sqlite_vec", "sqlite-vec", "qdrant"]),
+    help="Storage backend to use (defaults to environment or sqlite_vec)",
+)
 def server(debug, storage_backend):
     """
     Start the MCP Memory Service server.
@@ -61,14 +68,15 @@ def server(debug, storage_backend):
     """
     # Set environment variables if explicitly provided
     if storage_backend is not None:
-        os.environ['MCP_MEMORY_STORAGE_BACKEND'] = storage_backend
-    
+        os.environ["MCP_MEMORY_STORAGE_BACKEND"] = storage_backend
+
     # Import and run the unified server
     from ..unified_server import main as server_main
 
     # Set debug flag
     if debug:
         import logging
+
         logging.basicConfig(level=logging.DEBUG)
 
     # Start the server
@@ -76,89 +84,85 @@ def server(debug, storage_backend):
 
 
 @cli.command()
-@click.option('--storage-backend', '-s', default='sqlite_vec',
-              type=click.Choice(['sqlite_vec', 'sqlite-vec', 'qdrant']), help='Storage backend to use')
-def status():
+@click.option(
+    "--storage-backend",
+    "-s",
+    default="sqlite_vec",
+    type=click.Choice(["sqlite_vec", "sqlite-vec", "qdrant"]),
+    help="Storage backend to use",
+)
+def status(storage_backend: str):
     """
     Show memory service status and statistics.
     """
     import asyncio
-    
+
     async def show_status():
         try:
             from .utils import get_storage
-            
+
             storage = await get_storage(storage_backend)
-            stats = await storage.get_stats() if hasattr(storage, 'get_stats') else {}
-            
+            stats = await storage.get_stats() if hasattr(storage, "get_stats") else {}
+
             click.echo("📊 MCP Memory Service Status\n")
             click.echo(f"   Version: {__version__}")
             click.echo(f"   Backend: {storage.__class__.__name__}")
-            
+
             if stats:
                 click.echo(f"   Memories: {stats.get('total_memories', 'Unknown')}")
                 click.echo(f"   Database size: {stats.get('database_size_mb', 'Unknown')} MB")
                 click.echo(f"   Unique tags: {stats.get('unique_tags', 'Unknown')}")
-            
+
             click.echo("\n✅ Service is healthy")
-            
+
             await storage.close()
-            
+
         except Exception as e:
             click.echo(f"❌ Error connecting to storage: {str(e)}", err=True)
             sys.exit(1)
-    
+
     asyncio.run(show_status())
-
-
 
 
 def memory_server_main():
     """
     Compatibility entry point for memory-server command.
-    
+
     This function provides backward compatibility for the old memory-server
-    entry point by parsing argparse-style arguments and routing them to 
+    entry point by parsing argparse-style arguments and routing them to
     the Click-based CLI.
     """
     import argparse
     import warnings
-    
+
     # Issue deprecation warning
     warnings.warn(
         "The 'memory-server' command is deprecated. Please use 'memory server' instead. "
         "This compatibility wrapper will be removed in a future version.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
-    
+
     # Parse arguments using the same structure as the old argparse CLI
     parser = argparse.ArgumentParser(
         description="MCP Memory Service - A semantic memory service using the Model Context Protocol"
     )
     parser.add_argument(
-        "--version",
-        action="version", 
-        version=f"MCP Memory Service {__version__}",
-        help="Show version information"
+        "--version", action="version", version=f"MCP Memory Service {__version__}", help="Show version information"
     )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug logging"
-    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
     # Convert to Click CLI arguments and call server command
-    click_args = ['server']
+    click_args = ["server"]
     if args.debug:
-        click_args.append('--debug')
-    
+        click_args.append("--debug")
+
     # Call the Click CLI with the converted arguments
     try:
         # Temporarily replace sys.argv to pass arguments to Click
         original_argv = sys.argv
-        sys.argv = ['memory'] + click_args
+        sys.argv = ["memory"] + click_args
         cli()
     finally:
         sys.argv = original_argv
@@ -176,5 +180,5 @@ def main():
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

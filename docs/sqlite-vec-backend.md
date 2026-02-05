@@ -212,7 +212,7 @@ SQLite-vec supports advanced multi-client access through **two complementary app
 
 The backend automatically enables WAL mode with these default settings:
 - **WAL Mode**: Enables multiple readers + single writer
-- **Busy Timeout**: 5 seconds (prevents immediate lock errors)  
+- **Busy Timeout**: 5 seconds (prevents immediate lock errors)
 - **Synchronous**: NORMAL (balanced performance/safety)
 
 #### Phase 2: HTTP Server Auto-Detection (Advanced)
@@ -312,7 +312,7 @@ export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
 {
   "mcpServers": {
     "memory": {
-      "command": "uv", 
+      "command": "uv",
       "args": ["--directory", "/path/to/mcp-memory-service", "run", "memory"],
       "env": {
         "MCP_MEMORY_STORAGE_BACKEND": "sqlite_vec",
@@ -351,15 +351,15 @@ from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 async def optimize():
     storage = SqliteVecMemoryStorage('path/to/db')
     await storage.initialize()
-    
+
     # Clean up duplicates
     count, msg = await storage.cleanup_duplicates()
     print(f'Cleaned up {count} duplicates')
-    
+
     # Vacuum database
     storage.conn.execute('VACUUM')
     print('Database vacuumed')
-    
+
     storage.close()
 
 asyncio.run(optimize())
@@ -530,13 +530,13 @@ from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 async def health_check():
     storage = SqliteVecMemoryStorage('path/to/db')
     await storage.initialize()
-    
+
     stats = storage.get_stats()
     print(f"Backend: {stats['backend']}")
     print(f"Total memories: {stats['total_memories']}")
     print(f"Database size: {stats['database_size_mb']} MB")
     print(f"Embedding model: {stats['embedding_model']}")
-    
+
     storage.close()
 
 asyncio.run(health_check())
@@ -598,7 +598,7 @@ asyncio.run(health_check())
    ```bash
    # Manual server control
    python scripts/run_http_server.py  # Start manually
-   
+
    # Check server health
    curl http://localhost:8000/health
    ```

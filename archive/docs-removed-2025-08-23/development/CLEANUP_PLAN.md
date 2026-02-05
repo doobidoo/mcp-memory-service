@@ -103,18 +103,18 @@
    mkdir -p tests/integration tests/unit tests/performance
    mkdir -p docs/guides docs/implementation docs/api docs/examples
    mkdir -p archive/2025-06-24
-   
+
    # Move test files
    git mv test_chromadb.py tests/unit/test_chroma.py
    git mv test_health_check_fixes.py tests/integration/test_storage.py
    git mv test_issue_5_fix.py tests/unit/test_tags.py
    git mv test_performance_optimizations.py tests/performance/test_caching.py
-   
+
    # Move documentation
    git mv HEALTH_CHECK_FIXES_SUMMARY.md docs/implementation/health_checks.md
    git mv PERFORMANCE_OPTIMIZATION_SUMMARY.md docs/implementation/performance.md
    git mv CLAUDE.md docs/guides/claude_integration.md
-   
+
    # Archive backup files
    git mv backup_performance_optimization archive/2025-06-24/
    ```

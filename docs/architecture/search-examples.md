@@ -92,7 +92,7 @@ curl -X POST "https://localhost:8443/api/search/advanced" \
             "type": "problem"
           },
           {
-            "date": "2024-01-15T14:00:00Z", 
+            "date": "2024-01-15T14:00:00Z",
             "event": "Solution decided and approved",
             "type": "solution"
           },
@@ -227,7 +227,7 @@ Content-Type: application/json
             },
             {
               "content": "TASK: Implement rate limiting middleware in Express.js API server. Use redis for distributed rate limit storage. Due: 2024-01-20",
-              "relationship": "implementation_task", 
+              "relationship": "implementation_task",
               "memory_type": "task",
               "status": "completed"
             }
@@ -270,7 +270,7 @@ Content-Type: application/json
         "description": "Search strategy to use"
       },
       "consolidate_related": {
-        "type": "boolean", 
+        "type": "boolean",
         "default": true,
         "description": "Automatically group related memories and provide context"
       },
@@ -290,7 +290,7 @@ Content-Type: application/json
             "description": "Filter by memory types: task, decision, note, reference"
           },
           "tags": {
-            "type": "array", 
+            "type": "array",
             "items": {"type": "string"},
             "description": "Filter by specific tags"
           },
@@ -353,7 +353,7 @@ Content-Type: application/json
    - API gateway implementation with Kong
    - Service discovery with Consul
 
-2. **Data Management** (4 memories)  
+2. **Data Management** (4 memories)
    - Database per service pattern
    - Event sourcing for audit trails
    - Data consistency strategies
@@ -373,7 +373,7 @@ The search found strong relationships between the architecture decisions and the
   "name": "consolidate_project_memories",
   "description": "Automatically gather and organize all memories related to a specific project",
   "inputSchema": {
-    "type": "object", 
+    "type": "object",
     "properties": {
       "project_identifier": {
         "type": "string",
@@ -399,7 +399,7 @@ The search found strong relationships between the architecture decisions and the
 **Usage Example:**
 ```json
 {
-  "tool": "consolidate_project_memories", 
+  "tool": "consolidate_project_memories",
   "arguments": {
     "project_identifier": "mobile app redesign",
     "consolidation_depth": "comprehensive",
@@ -426,14 +426,14 @@ The search found strong relationships between the architecture decisions and the
       "memories": 3
     },
     {
-      "date": "2023-11-15", 
+      "date": "2023-11-15",
       "event": "UX wireframes and user research completed",
       "type": "deliverable",
       "memories": 8
     },
     {
       "date": "2023-12-01",
-      "event": "Technical architecture decisions finalized", 
+      "event": "Technical architecture decisions finalized",
       "type": "decision",
       "memories": 5
     }
@@ -448,7 +448,7 @@ The search found strong relationships between the architecture decisions and the
   "outstanding_issues": [
     {
       "content": "ISSUE: Performance concerns with large image galleries in React Native. Need optimization strategy.",
-      "priority": "high", 
+      "priority": "high",
       "status": "open",
       "assigned_to": "Mobile Dev Team"
     }
@@ -487,7 +487,7 @@ module.exports = {
   name: "enhanced-memory-search",
   description: "Automatically use hybrid search for memory queries",
   trigger: "before_memory_search",
-  
+
   async execute(context) {
     // Automatically enhance memory searches with hybrid mode
     if (context.tool === "retrieve_memory") {

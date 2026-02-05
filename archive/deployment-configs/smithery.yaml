@@ -18,13 +18,13 @@ startCommand:
   commandFunction:
     # A function that produces the CLI command to start the MCP on stdio.
     |-
-    (config) => ({ 
-      command: 'python', 
-      args: ['-m', 'mcp_memory_service.server'], 
-      env: { 
-        MCP_MEMORY_CHROMA_PATH: config.chromaDbPath, 
+    (config) => ({
+      command: 'python',
+      args: ['-m', 'mcp_memory_service.server'],
+      env: {
+        MCP_MEMORY_CHROMA_PATH: config.chromaDbPath,
         MCP_MEMORY_BACKUPS_PATH: config.backupsPath,
         PYTHONUNBUFFERED: '1',
         PYTORCH_ENABLE_MPS_FALLBACK: '1'
-      } 
+      }
     })

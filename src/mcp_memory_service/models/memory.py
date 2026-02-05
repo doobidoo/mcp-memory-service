@@ -13,39 +13,42 @@
 # limitations under the License.
 
 """Memory-related data models."""
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
-import time
+
 import logging
-import calendar
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any
 
 # Try to import dateutil, but fall back to standard datetime parsing if not available
 try:
     from dateutil import parser as dateutil_parser
+
     DATEUTIL_AVAILABLE = True
 except ImportError:
     DATEUTIL_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class Memory:
     """Represents a single memory entry."""
+
     content: str
     content_hash: str
-    tags: List[str] = field(default_factory=list)
-    memory_type: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    embedding: Optional[List[float]] = None
-    
+    tags: list[str] = field(default_factory=list)
+    memory_type: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    embedding: list[float] | None = None
+
     # Timestamp fields with flexible input formats
     # Store as float and ISO8601 string for maximum compatibility
-    created_at: Optional[float] = None
-    created_at_iso: Optional[str] = None
-    updated_at: Optional[float] = None
-    updated_at_iso: Optional[str] = None
-    
+    created_at: float | None = None
+    created_at_iso: str | None = None
+    updated_at: float | None = None
+    updated_at_iso: str | None = None
+
     # Legacy timestamp field (maintain for backward compatibility)
     timestamp: datetime = field(default_factory=datetime.now)
 
@@ -56,7 +59,7 @@ class Memory:
             created_at=self.created_at,
             created_at_iso=self.created_at_iso,
             updated_at=self.updated_at,
-            updated_at_iso=self.updated_at_iso
+            updated_at_iso=self.updated_at_iso,
         )
 
     def _sync_timestamps(self, created_at=None, created_at_iso=None, updated_at=None, updated_at_iso=None):
@@ -66,7 +69,7 @@ class Memory:
         Always uses UTC time.
         """
         now = time.time()
-        
+
         def iso_to_float(iso_str: str) -> float:
             """Convert ISO string to float timestamp, ensuring UTC interpretation."""
             if DATEUTIL_AVAILABLE:
@@ -77,13 +80,14 @@ class Memory:
                 # Fallback to basic ISO parsing with explicit UTC handling
                 try:
                     # Handle common ISO formats
-                    if iso_str.endswith('Z'):
+                    if iso_str.endswith("Z"):
                         # UTC timezone indicated by 'Z'
                         dt = datetime.fromisoformat(iso_str[:-1])
                         # Treat as UTC and convert to timestamp
                         import calendar
+
                         return calendar.timegm(dt.timetuple()) + dt.microsecond / 1000000.0
-                    elif '+' in iso_str or iso_str.count('-') > 2:
+                    elif "+" in iso_str or iso_str.count("-") > 2:
                         # Has timezone info, use fromisoformat in Python 3.7+
                         dt = datetime.fromisoformat(iso_str)
                         return dt.timestamp()
@@ -91,7 +95,7 @@ class Memory:
                         # No timezone info, assume UTC
                         dt = datetime.fromisoformat(iso_str)
                         return calendar.timegm(dt.timetuple()) + dt.microsecond / 1000000.0
-                except (ValueError, TypeError) as e:
+                except (ValueError, TypeError):
                     # Last resort: try strptime and treat as UTC
                     try:
                         dt = datetime.strptime(iso_str[:19], "%Y-%m-%dT%H:%M:%S")
@@ -103,7 +107,7 @@ class Memory:
 
         def float_to_iso(ts: float) -> str:
             """Convert float timestamp to ISO string."""
-            return datetime.fromtimestamp(ts, timezone.utc).isoformat().replace('+00:00', 'Z')
+            return datetime.fromtimestamp(ts, timezone.utc).isoformat().replace("+00:00", "Z")
 
         # Handle created_at
         if created_at is not None and created_at_iso is not None:
@@ -182,7 +186,7 @@ class Memory:
         else:
             self.updated_at = now
             self.updated_at_iso = float_to_iso(now)
-        
+
         # Update legacy timestamp field for backward compatibility
         self.timestamp = datetime.fromtimestamp(self.created_at, timezone.utc)
 
@@ -190,18 +194,18 @@ class Memory:
         """Update the updated_at timestamps to the current time."""
         now = time.time()
         self.updated_at = now
-        self.updated_at_iso = datetime.fromtimestamp(now, timezone.utc).isoformat().replace('+00:00', 'Z')
+        self.updated_at_iso = datetime.fromtimestamp(now, timezone.utc).isoformat().replace("+00:00", "Z")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert memory to dictionary format for storage."""
         # Ensure timestamps are synchronized
         self._sync_timestamps(
             created_at=self.created_at,
             created_at_iso=self.created_at_iso,
             updated_at=self.updated_at,
-            updated_at_iso=self.updated_at_iso
+            updated_at_iso=self.updated_at_iso,
         )
-        
+
         return {
             "content": self.content,
             "content_hash": self.content_hash,
@@ -216,41 +220,51 @@ class Memory:
             "created_at_iso": self.created_at_iso,
             "updated_at": self.updated_at,
             "updated_at_iso": self.updated_at_iso,
-            **self.metadata
+            **self.metadata,
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], embedding: Optional[List[float]] = None) -> 'Memory':
+    def from_dict(cls, data: dict[str, Any], embedding: list[float] | None = None) -> "Memory":
         """Create a Memory instance from dictionary data."""
         tags = data.get("tags_str", "").split(",") if data.get("tags_str") else []
-        
+
         # Extract timestamps with different priorities
         # First check new timestamp fields (created_at/updated_at)
         created_at = data.get("created_at")
         created_at_iso = data.get("created_at_iso")
         updated_at = data.get("updated_at")
         updated_at_iso = data.get("updated_at_iso")
-        
+
         # If new fields are missing, try to get from legacy timestamp fields
         if created_at is None and created_at_iso is None:
             if "timestamp_float" in data:
                 created_at = float(data["timestamp_float"])
             elif "timestamp" in data:
                 created_at = float(data["timestamp"])
-            
+
             if "timestamp_str" in data and created_at_iso is None:
                 created_at_iso = data["timestamp_str"]
-        
+
         # Create metadata dictionary without special fields
         metadata = {
-            k: v for k, v in data.items() 
-            if k not in [
-                "content", "content_hash", "tags_str", "type",
-                "timestamp", "timestamp_float", "timestamp_str",
-                "created_at", "created_at_iso", "updated_at", "updated_at_iso"
+            k: v
+            for k, v in data.items()
+            if k
+            not in [
+                "content",
+                "content_hash",
+                "tags_str",
+                "type",
+                "timestamp",
+                "timestamp_float",
+                "timestamp_str",
+                "created_at",
+                "created_at_iso",
+                "updated_at",
+                "updated_at_iso",
             ]
         }
-        
+
         # Create memory instance with synchronized timestamps
         return cls(
             content=data["content"],
@@ -262,26 +276,28 @@ class Memory:
             created_at=created_at,
             created_at_iso=created_at_iso,
             updated_at=updated_at,
-            updated_at_iso=updated_at_iso
+            updated_at_iso=updated_at_iso,
         )
+
 
 @dataclass
 class MemoryQueryResult:
     """Represents a memory query result with relevance score and debug information."""
+
     memory: Memory
     relevance_score: float
-    debug_info: Dict[str, Any] = field(default_factory=dict)
-    
+    debug_info: dict[str, Any] = field(default_factory=dict)
+
     @property
     def similarity_score(self) -> float:
         """Alias for relevance_score for backward compatibility."""
         return self.relevance_score
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "memory": self.memory.to_dict(),
             "relevance_score": self.relevance_score,
             "similarity_score": self.relevance_score,
-            "debug_info": self.debug_info
+            "debug_info": self.debug_info,
         }

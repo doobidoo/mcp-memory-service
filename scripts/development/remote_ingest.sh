@@ -123,23 +123,23 @@ for item in "${FILES[@]}"; do
         print_error "File or directory not found: $item"
         continue
     fi
-    
+
     # Get absolute path
     ITEM_PATH=$(realpath "$item")
     ITEM_NAME=$(basename "$item")
-    
+
     print_info "Processing: $ITEM_NAME"
-    
+
     if [ -f "$item" ]; then
         # Single file ingestion
         print_info "Uploading file to remote server..."
-        
+
         # Create temp directory on remote
         REMOTE_TEMP=$(ssh ${REMOTE_USER}@${REMOTE_HOST} "mktemp -d")
-        
+
         # Upload file
         scp -q "$ITEM_PATH" ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_TEMP}/
-        
+
         # Run ingestion on remote
         print_info "Running remote ingestion..."
         ssh ${REMOTE_USER}@${REMOTE_HOST} "cd \"${REMOTE_PATH}\" && \
@@ -148,22 +148,22 @@ for item in "${FILES[@]}"; do
             --tags '${TAGS}' \
             --chunk-size ${CHUNK_SIZE} \
             --verbose 2>&1 | grep -E '✅|📄|💾|⚡|⏱️'"
-        
+
         # Cleanup
         ssh ${REMOTE_USER}@${REMOTE_HOST} "rm -rf ${REMOTE_TEMP}"
-        
+
         print_success "Completed ingestion of $ITEM_NAME"
-        
+
     elif [ -d "$item" ]; then
         # Directory ingestion
         print_info "Uploading directory to remote server..."
-        
+
         # Create temp directory on remote
         REMOTE_TEMP=$(ssh ${REMOTE_USER}@${REMOTE_HOST} "mktemp -d")
-        
+
         # Upload directory
         scp -rq "$ITEM_PATH" ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_TEMP}/
-        
+
         # Run ingestion on remote
         print_info "Running remote directory ingestion..."
         ssh ${REMOTE_USER}@${REMOTE_HOST} "cd \"${REMOTE_PATH}\" && \
@@ -174,10 +174,10 @@ for item in "${FILES[@]}"; do
             ${RECURSIVE} \
             ${EXTENSIONS} \
             --verbose 2>&1 | grep -E '✅|📁|📄|💾|⚡|⏱️|❌'"
-        
+
         # Cleanup
         ssh ${REMOTE_USER}@${REMOTE_HOST} "rm -rf ${REMOTE_TEMP}"
-        
+
         print_success "Completed ingestion of directory $ITEM_NAME"
     fi
 done

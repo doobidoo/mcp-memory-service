@@ -80,4 +80,3 @@ Delete by hash:
 tool: delete_memory
 args: { "content_hash": "<hash>" }
 ```
-

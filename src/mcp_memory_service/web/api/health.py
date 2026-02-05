@@ -16,19 +16,19 @@
 Health check endpoints for the HTTP interface.
 """
 
-import time
 import platform
-import psutil
+import time
 from datetime import datetime, timezone
-from typing import Dict, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+import psutil
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from ...storage.base import MemoryStorage
-from ..dependencies import get_storage
 from ... import __version__
 from ...config import OAUTH_ENABLED
+from ...storage.base import MemoryStorage
+from ..dependencies import get_storage
 from ..write_queue import write_queue
 
 # Try importing QdrantStorage for type checking
@@ -39,7 +39,7 @@ except ImportError:
 
 # OAuth authentication imports (conditional)
 if OAUTH_ENABLED or TYPE_CHECKING:
-    from ..oauth.middleware import require_read_access, AuthenticationResult
+    from ..oauth.middleware import AuthenticationResult, require_read_access
 else:
     # Provide type stubs when OAuth is disabled
     AuthenticationResult = None
@@ -50,23 +50,25 @@ router = APIRouter()
 
 class HealthResponse(BaseModel):
     """Basic health check response."""
+
     status: str
     version: str
     timestamp: str
     uptime_seconds: float
-    write_queue: Dict[str, Any] = None
+    write_queue: dict[str, Any] = None
 
 
 class DetailedHealthResponse(BaseModel):
     """Detailed health check response."""
+
     status: str
     version: str
     timestamp: str
     uptime_seconds: float
-    storage: Dict[str, Any]
-    system: Dict[str, Any]
-    performance: Dict[str, Any]
-    statistics: Dict[str, Any] = None
+    storage: dict[str, Any]
+    system: dict[str, Any]
+    performance: dict[str, Any]
+    statistics: dict[str, Any] = None
 
 
 # Track startup time for uptime calculation
@@ -80,9 +82,9 @@ async def health_check(storage: MemoryStorage = Depends(get_storage)):
 
     Returns 200 OK if healthy, 503 Service Unavailable if unhealthy.
     """
-    from fastapi import Response
-    from fastapi.responses import JSONResponse
     import logging
+
+    from fastapi.responses import JSONResponse
 
     logger = logging.getLogger(__name__)
 
@@ -96,11 +98,11 @@ async def health_check(storage: MemoryStorage = Depends(get_storage)):
 
             # Check circuit breaker status
             circuit_status = "closed"
-            if hasattr(storage, '_circuit_open_until') and storage._circuit_open_until:
+            if hasattr(storage, "_circuit_open_until") and storage._circuit_open_until:
                 circuit_status = f"open_until_{storage._circuit_open_until.isoformat()}"
 
             # Get failure count
-            failure_count = getattr(storage, '_failure_count', 0)
+            failure_count = getattr(storage, "_failure_count", 0)
 
             # If circuit breaker is open, service is unhealthy
             if circuit_status != "closed":
@@ -115,8 +117,8 @@ async def health_check(storage: MemoryStorage = Depends(get_storage)):
                         "backend": "qdrant",
                         "circuit_breaker": circuit_status,
                         "failure_count": failure_count,
-                        "error": "Qdrant circuit breaker is open - service unavailable"
-                    }
+                        "error": "Qdrant circuit breaker is open - service unavailable",
+                    },
                 )
 
             # Healthy response with Qdrant details
@@ -129,7 +131,7 @@ async def health_check(storage: MemoryStorage = Depends(get_storage)):
                 "backend": "qdrant",
                 "circuit_breaker": circuit_status,
                 "failure_count": failure_count,
-                "qdrant_collections": [col.name for col in collections_response.collections]
+                "qdrant_collections": [col.name for col in collections_response.collections],
             }
 
         except Exception as e:
@@ -143,8 +145,8 @@ async def health_check(storage: MemoryStorage = Depends(get_storage)):
                     "uptime_seconds": time.time() - _startup_time,
                     "backend": "qdrant",
                     "error": str(e),
-                    "message": "Qdrant is unavailable - service cannot function. Check logs and fix configuration."
-                }
+                    "message": "Qdrant is unavailable - service cannot function. Check logs and fix configuration.",
+                },
             )
 
     # Non-Qdrant backends: standard response
@@ -153,21 +155,21 @@ async def health_check(storage: MemoryStorage = Depends(get_storage)):
         version=__version__,
         timestamp=datetime.now(timezone.utc).isoformat(),
         uptime_seconds=time.time() - _startup_time,
-        write_queue=write_queue.get_stats()
+        write_queue=write_queue.get_stats(),
     )
 
 
 @router.get("/health/detailed", response_model=DetailedHealthResponse)
 async def detailed_health_check(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None,
 ):
     """Detailed health check with system and storage information."""
-    
+
     # Get system information
     memory_info = psutil.virtual_memory()
-    disk_info = psutil.disk_usage('/')
-    
+    disk_info = psutil.disk_usage("/")
+
     system_info = {
         "platform": platform.system(),
         "platform_version": platform.version(),
@@ -178,13 +180,13 @@ async def detailed_health_check(
         "memory_percent": memory_info.percent,
         "disk_total_gb": round(disk_info.total / (1024**3), 2),
         "disk_free_gb": round(disk_info.free / (1024**3), 2),
-        "disk_percent": round((disk_info.used / disk_info.total) * 100, 2)
+        "disk_percent": round((disk_info.used / disk_info.total) * 100, 2),
     }
-    
+
     # Get storage information (support all storage backends)
     try:
         # Get statistics from storage using universal get_stats() method
-        if hasattr(storage, 'get_stats') and callable(getattr(storage, 'get_stats')):
+        if hasattr(storage, "get_stats") and callable(storage.get_stats):
             # All storage backends now have async get_stats()
             stats = await storage.get_stats()
         else:
@@ -202,29 +204,27 @@ async def detailed_health_check(
             else:
                 backend_type = backend_name
 
-            storage_info = {
-                "backend": backend_type,
-                "status": "connected",
-                "accessible": True
-            }
+            storage_info = {"backend": backend_type, "status": "connected", "accessible": True}
 
             # Add backend-specific information if available
-            if hasattr(storage, 'db_path'):
+            if hasattr(storage, "db_path"):
                 storage_info["database_path"] = storage.db_path
-            if hasattr(storage, 'embedding_model_name'):
+            if hasattr(storage, "embedding_model_name"):
                 storage_info["embedding_model"] = storage.embedding_model_name
 
             # Add sync status for hybrid backend
-            if backend_type == "hybrid" and hasattr(storage, 'get_sync_status'):
+            if backend_type == "hybrid" and hasattr(storage, "get_sync_status"):
                 try:
                     sync_status = await storage.get_sync_status()
                     storage_info["sync_status"] = {
-                        "is_running": sync_status.get('is_running', False),
-                        "last_sync_time": sync_status.get('last_sync_time', 0),
-                        "pending_operations": sync_status.get('pending_operations', 0),
-                        "operations_processed": sync_status.get('operations_processed', 0),
-                        "operations_failed": sync_status.get('operations_failed', 0),
-                        "time_since_last_sync": time.time() - sync_status.get('last_sync_time', 0) if sync_status.get('last_sync_time', 0) > 0 else 0
+                        "is_running": sync_status.get("is_running", False),
+                        "last_sync_time": sync_status.get("last_sync_time", 0),
+                        "pending_operations": sync_status.get("pending_operations", 0),
+                        "operations_processed": sync_status.get("operations_processed", 0),
+                        "operations_failed": sync_status.get("operations_failed", 0),
+                        "time_since_last_sync": time.time() - sync_status.get("last_sync_time", 0)
+                        if sync_status.get("last_sync_time", 0) > 0
+                        else 0,
                     }
                 except Exception as sync_err:
                     storage_info["sync_status"] = {"error": str(sync_err)}
@@ -236,31 +236,31 @@ async def detailed_health_check(
                 "backend": storage.__class__.__name__,
                 "status": "error",
                 "accessible": False,
-                "error": stats["error"]
+                "error": stats["error"],
             }
 
     except Exception as e:
         storage_info = {
-            "backend": storage.__class__.__name__ if hasattr(storage, '__class__') else "unknown",
+            "backend": storage.__class__.__name__ if hasattr(storage, "__class__") else "unknown",
             "status": "error",
-            "error": str(e)
+            "error": str(e),
         }
-    
+
     # Performance metrics (basic for now)
     performance_info = {
         "uptime_seconds": time.time() - _startup_time,
-        "uptime_formatted": format_uptime(time.time() - _startup_time)
+        "uptime_formatted": format_uptime(time.time() - _startup_time),
     }
-    
+
     # Extract statistics for separate field if available
     statistics = {
         "total_memories": storage_info.get("total_memories", 0),
         "unique_tags": storage_info.get("unique_tags", 0),
         "memories_this_week": storage_info.get("memories_this_week", 0),
         "database_size_mb": storage_info.get("database_size_mb", 0),
-        "backend": storage_info.get("backend", "sqlite-vec")
+        "backend": storage_info.get("backend", "sqlite-vec"),
     }
-    
+
     return DetailedHealthResponse(
         status="healthy",
         version=__version__,
@@ -269,34 +269,25 @@ async def detailed_health_check(
         storage=storage_info,
         system=system_info,
         performance=performance_info,
-        statistics=statistics
+        statistics=statistics,
     )
 
 
 @router.get("/health/sync-status")
 async def sync_status(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None,
 ):
     """Get current initial sync status for hybrid storage."""
 
     # Check if this is a hybrid storage that supports sync status
-    if hasattr(storage, 'get_initial_sync_status'):
+    if hasattr(storage, "get_initial_sync_status"):
         sync_status = storage.get_initial_sync_status()
-        return {
-            "sync_supported": True,
-            "status": sync_status
-        }
+        return {"sync_supported": True, "status": sync_status}
     else:
         return {
             "sync_supported": False,
-            "status": {
-                "in_progress": False,
-                "total": 0,
-                "completed": 0,
-                "finished": True,
-                "progress_percentage": 100
-            }
+            "status": {"in_progress": False, "total": 0, "completed": 0, "finished": True, "progress_percentage": 100},
         }
 
 
@@ -305,8 +296,8 @@ def format_uptime(seconds: float) -> str:
     if seconds < 60:
         return f"{seconds:.1f} seconds"
     elif seconds < 3600:
-        return f"{seconds/60:.1f} minutes"
+        return f"{seconds / 60:.1f} minutes"
     elif seconds < 86400:
-        return f"{seconds/3600:.1f} hours"
+        return f"{seconds / 3600:.1f} hours"
     else:
-        return f"{seconds/86400:.1f} days"
+        return f"{seconds / 86400:.1f} days"

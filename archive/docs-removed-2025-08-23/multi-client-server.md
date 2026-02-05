@@ -808,7 +808,7 @@ The **Centralized HTTP/SSE Server** approach is the recommended solution for mul
 
 - **Reliable concurrency** without file locking issues
 - **Real-time synchronization** across all clients
-- **Cloud deployment flexibility** 
+- **Cloud deployment flexibility**
 - **Professional scalability** for team environments
 
 For local networks with trusted users, **Shared File Access** can work with careful coordination, but the HTTP server approach is more robust and future-proof.

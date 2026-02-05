@@ -9,7 +9,9 @@ These tests verify that the relational tag storage correctly handles:
 - OR vs AND logic
 - Edge cases
 """
+
 import pytest
+
 from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.utils.hashing import generate_content_hash
@@ -30,33 +32,21 @@ class TestTagFilteringCorrectness:
         await storage.initialize()
 
         # Store memories with similar but distinct tags
-        await storage.store(Memory(
-            content="Content 1",
-            content_hash=generate_content_hash("Content 1"),
-            tags=["test"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(content="Content 1", content_hash=generate_content_hash("Content 1"), tags=["test"], memory_type="note")
+        )
 
-        await storage.store(Memory(
-            content="Content 2",
-            content_hash=generate_content_hash("Content 2"),
-            tags=["testing"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(content="Content 2", content_hash=generate_content_hash("Content 2"), tags=["testing"], memory_type="note")
+        )
 
-        await storage.store(Memory(
-            content="Content 3",
-            content_hash=generate_content_hash("Content 3"),
-            tags=["test123"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(content="Content 3", content_hash=generate_content_hash("Content 3"), tags=["test123"], memory_type="note")
+        )
 
-        await storage.store(Memory(
-            content="Content 4",
-            content_hash=generate_content_hash("Content 4"),
-            tags=["my-test"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(content="Content 4", content_hash=generate_content_hash("Content 4"), tags=["my-test"], memory_type="note")
+        )
 
         # Search for exact "test" tag
         results = await storage.search_by_tag(["test"])
@@ -86,12 +76,9 @@ class TestTagFilteringCorrectness:
         ]
 
         for tags, content in special_tags_cases:
-            await storage.store(Memory(
-                content=content,
-                content_hash=generate_content_hash(content),
-                tags=tags,
-                memory_type="note"
-            ))
+            await storage.store(
+                Memory(content=content, content_hash=generate_content_hash(content), tags=tags, memory_type="note")
+            )
 
         # Search for each special tag
         results = await storage.search_by_tag(["python-3.11"])
@@ -115,20 +102,14 @@ class TestTagFilteringCorrectness:
         await storage.initialize()
 
         # Store memory with empty tags
-        await storage.store(Memory(
-            content="Untagged content",
-            content_hash=generate_content_hash("Untagged"),
-            tags=[],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(content="Untagged content", content_hash=generate_content_hash("Untagged"), tags=[], memory_type="note")
+        )
 
         # Store memory with tags
-        await storage.store(Memory(
-            content="Tagged content",
-            content_hash=generate_content_hash("Tagged"),
-            tags=["python"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(content="Tagged content", content_hash=generate_content_hash("Tagged"), tags=["python"], memory_type="note")
+        )
 
         # Search for python tag
         results = await storage.search_by_tag(["python"])
@@ -147,26 +128,32 @@ class TestTagFilteringCorrectness:
         storage = SqliteVecMemoryStorage(str(temp_db_path / "test.db"))
         await storage.initialize()
 
-        await storage.store(Memory(
-            content="Python tutorial",
-            content_hash=generate_content_hash("Python"),
-            tags=["python", "programming"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(
+                content="Python tutorial",
+                content_hash=generate_content_hash("Python"),
+                tags=["python", "programming"],
+                memory_type="note",
+            )
+        )
 
-        await storage.store(Memory(
-            content="Java tutorial",
-            content_hash=generate_content_hash("Java"),
-            tags=["java", "programming"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(
+                content="Java tutorial",
+                content_hash=generate_content_hash("Java"),
+                tags=["java", "programming"],
+                memory_type="note",
+            )
+        )
 
-        await storage.store(Memory(
-            content="Rust tutorial",
-            content_hash=generate_content_hash("Rust"),
-            tags=["rust", "programming"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(
+                content="Rust tutorial",
+                content_hash=generate_content_hash("Rust"),
+                tags=["rust", "programming"],
+                memory_type="note",
+            )
+        )
 
         # Search with OR logic (default)
         results = await storage.search_by_tag(["python", "java"])
@@ -189,26 +176,32 @@ class TestTagFilteringCorrectness:
         storage = SqliteVecMemoryStorage(str(temp_db_path / "test.db"))
         await storage.initialize()
 
-        await storage.store(Memory(
-            content="Basic Python",
-            content_hash=generate_content_hash("Basic Python"),
-            tags=["python", "beginner"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(
+                content="Basic Python",
+                content_hash=generate_content_hash("Basic Python"),
+                tags=["python", "beginner"],
+                memory_type="note",
+            )
+        )
 
-        await storage.store(Memory(
-            content="Advanced Python",
-            content_hash=generate_content_hash("Advanced Python"),
-            tags=["python", "advanced"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(
+                content="Advanced Python",
+                content_hash=generate_content_hash("Advanced Python"),
+                tags=["python", "advanced"],
+                memory_type="note",
+            )
+        )
 
-        await storage.store(Memory(
-            content="Advanced Java",
-            content_hash=generate_content_hash("Advanced Java"),
-            tags=["java", "advanced"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(
+                content="Advanced Java",
+                content_hash=generate_content_hash("Advanced Java"),
+                tags=["java", "advanced"],
+                memory_type="note",
+            )
+        )
 
         # Search with AND logic
         results = await storage.search_by_tags(["python", "advanced"], operation="AND")
@@ -228,19 +221,17 @@ class TestTagFilteringCorrectness:
         storage = SqliteVecMemoryStorage(str(temp_db_path / "test.db"))
         await storage.initialize()
 
-        await storage.store(Memory(
-            content="Lowercase python",
-            content_hash=generate_content_hash("Lowercase"),
-            tags=["python"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(
+                content="Lowercase python", content_hash=generate_content_hash("Lowercase"), tags=["python"], memory_type="note"
+            )
+        )
 
-        await storage.store(Memory(
-            content="Uppercase Python",
-            content_hash=generate_content_hash("Uppercase"),
-            tags=["Python"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(
+                content="Uppercase Python", content_hash=generate_content_hash("Uppercase"), tags=["Python"], memory_type="note"
+            )
+        )
 
         # Search for lowercase
         results = await storage.search_by_tag(["python"])
@@ -264,19 +255,23 @@ class TestTagFilteringCorrectness:
 
         # Note: In practice, tags are usually normalized by the application layer
         # but the storage layer should preserve what it's given
-        await storage.store(Memory(
-            content="With spaces",
-            content_hash=generate_content_hash("With spaces"),
-            tags=["tag with spaces"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(
+                content="With spaces",
+                content_hash=generate_content_hash("With spaces"),
+                tags=["tag with spaces"],
+                memory_type="note",
+            )
+        )
 
-        await storage.store(Memory(
-            content="Without spaces",
-            content_hash=generate_content_hash("Without spaces"),
-            tags=["tagwithoutspaces"],
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(
+                content="Without spaces",
+                content_hash=generate_content_hash("Without spaces"),
+                tags=["tagwithoutspaces"],
+                memory_type="note",
+            )
+        )
 
         # Search for tag with spaces
         results = await storage.search_by_tag(["tag with spaces"])
@@ -300,12 +295,9 @@ class TestTagFilteringCorrectness:
         ]
 
         for tags, content in unicode_cases:
-            await storage.store(Memory(
-                content=content,
-                content_hash=generate_content_hash(content),
-                tags=tags,
-                memory_type="note"
-            ))
+            await storage.store(
+                Memory(content=content, content_hash=generate_content_hash(content), tags=tags, memory_type="note")
+            )
 
         # Search for each unicode tag
         results = await storage.search_by_tag(["日本語"])
@@ -332,12 +324,14 @@ class TestTagFilteringCorrectness:
 
         many_tags = [f"tag{i}" for i in range(50)]
 
-        await storage.store(Memory(
-            content="Heavily tagged",
-            content_hash=generate_content_hash("Heavily tagged"),
-            tags=many_tags,
-            memory_type="note"
-        ))
+        await storage.store(
+            Memory(
+                content="Heavily tagged",
+                content_hash=generate_content_hash("Heavily tagged"),
+                tags=many_tags,
+                memory_type="note",
+            )
+        )
 
         # Search for first tag
         results = await storage.search_by_tag(["tag0"])

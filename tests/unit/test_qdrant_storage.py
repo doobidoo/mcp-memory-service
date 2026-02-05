@@ -25,42 +25,37 @@ For integration tests with real Qdrant behavior, see:
 tests/integration/test_storage_integration.py
 """
 
-import pytest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
+
+import pytest
+from src.mcp_memory_service.models.memory import Memory
 
 # Import the module under test
-from src.mcp_memory_service.storage.qdrant_storage import QdrantStorage, StorageError, is_retryable_error
-from src.mcp_memory_service.models.memory import Memory
+from src.mcp_memory_service.storage.qdrant_storage import QdrantStorage, is_retryable_error
 from src.mcp_memory_service.utils.hashing import generate_content_hash
-
 
 # =============================================================================
 # Circuit Breaker Unit Tests
 # These test the circuit breaker STATE MACHINE, not Qdrant interactions
 # =============================================================================
 
+
 class TestCircuitBreakerLogic:
     """Test circuit breaker state transitions without touching Qdrant."""
 
     def test_circuit_starts_closed(self):
         """Verify circuit breaker starts in closed state."""
-        with patch('src.mcp_memory_service.storage.qdrant_storage.QdrantClient'):
-            storage = QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2",
-                storage_path="/tmp/test"
-            )
+        with patch("src.mcp_memory_service.storage.qdrant_storage.QdrantClient"):
+            storage = QdrantStorage(embedding_model="all-MiniLM-L6-v2", storage_path="/tmp/test")
 
         assert storage._failure_count == 0
         assert storage._circuit_open_until is None
 
     def test_circuit_opens_after_threshold_failures(self):
         """Verify circuit opens after N consecutive failures."""
-        with patch('src.mcp_memory_service.storage.qdrant_storage.QdrantClient'):
-            storage = QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2",
-                storage_path="/tmp/test"
-            )
+        with patch("src.mcp_memory_service.storage.qdrant_storage.QdrantClient"):
+            storage = QdrantStorage(embedding_model="all-MiniLM-L6-v2", storage_path="/tmp/test")
 
         # Simulate reaching threshold
         storage._failure_count = storage._failure_threshold
@@ -73,11 +68,8 @@ class TestCircuitBreakerLogic:
 
     def test_circuit_timeout_calculation(self):
         """Verify circuit timeout is calculated correctly."""
-        with patch('src.mcp_memory_service.storage.qdrant_storage.QdrantClient'):
-            storage = QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2",
-                storage_path="/tmp/test"
-            )
+        with patch("src.mcp_memory_service.storage.qdrant_storage.QdrantClient"):
+            storage = QdrantStorage(embedding_model="all-MiniLM-L6-v2", storage_path="/tmp/test")
 
         # Open circuit
         now = datetime.now()
@@ -89,11 +81,8 @@ class TestCircuitBreakerLogic:
 
     def test_circuit_closes_after_timeout_expires(self):
         """Verify circuit can close after timeout expires."""
-        with patch('src.mcp_memory_service.storage.qdrant_storage.QdrantClient'):
-            storage = QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2",
-                storage_path="/tmp/test"
-            )
+        with patch("src.mcp_memory_service.storage.qdrant_storage.QdrantClient"):
+            storage = QdrantStorage(embedding_model="all-MiniLM-L6-v2", storage_path="/tmp/test")
 
         # Set circuit to have expired
         storage._circuit_open_until = datetime.now() - timedelta(seconds=1)
@@ -106,11 +95,8 @@ class TestCircuitBreakerLogic:
 
     def test_failure_count_resets_on_success(self):
         """Verify failure count resets to zero after success."""
-        with patch('src.mcp_memory_service.storage.qdrant_storage.QdrantClient'):
-            storage = QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2",
-                storage_path="/tmp/test"
-            )
+        with patch("src.mcp_memory_service.storage.qdrant_storage.QdrantClient"):
+            storage = QdrantStorage(embedding_model="all-MiniLM-L6-v2", storage_path="/tmp/test")
 
         # Simulate some failures
         storage._failure_count = 3
@@ -128,16 +114,14 @@ class TestCircuitBreakerLogic:
 # These test input validation logic
 # =============================================================================
 
+
 class TestDimensionValidation:
     """Test embedding dimension validation logic."""
 
     def test_detects_vector_size_for_minilm(self):
         """Verify correct dimension detection for all-MiniLM-L6-v2."""
-        with patch('src.mcp_memory_service.storage.qdrant_storage.QdrantClient'):
-            storage = QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2",
-                storage_path="/tmp/test"
-            )
+        with patch("src.mcp_memory_service.storage.qdrant_storage.QdrantClient"):
+            QdrantStorage(embedding_model="all-MiniLM-L6-v2", storage_path="/tmp/test")
 
         # MiniLM should be 384 dimensions
         # This is set during initialize(), but we can check the model map
@@ -158,11 +142,8 @@ class TestDimensionValidation:
     @pytest.mark.asyncio
     async def test_dimension_mismatch_raises_clear_error(self):
         """Verify dimension mismatch produces helpful error message."""
-        with patch('src.mcp_memory_service.storage.qdrant_storage.QdrantClient'):
-            storage = QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2",
-                storage_path="/tmp/test"
-            )
+        with patch("src.mcp_memory_service.storage.qdrant_storage.QdrantClient"):
+            storage = QdrantStorage(embedding_model="all-MiniLM-L6-v2", storage_path="/tmp/test")
             storage._initialized = True
             storage._vector_size = 384
             storage.client = MagicMock()
@@ -172,7 +153,7 @@ class TestDimensionValidation:
             content="Test content",
             content_hash=generate_content_hash("Test content"),
             embedding=[0.1] * 768,  # Wrong! Should be 384
-            tags=["test"]
+            tags=["test"],
         )
 
         with pytest.raises(ValueError) as exc_info:
@@ -188,47 +169,36 @@ class TestDimensionValidation:
 # Configuration Unit Tests
 # =============================================================================
 
+
 class TestQdrantConfiguration:
     """Test configuration validation."""
 
     def test_rejects_both_url_and_storage_path(self):
         """Verify cannot specify both embedded and server mode."""
         with pytest.raises(ValueError) as exc_info:
-            QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2",
-                url="http://localhost:6333",
-                storage_path="/tmp/test"
-            )
+            QdrantStorage(embedding_model="all-MiniLM-L6-v2", url="http://localhost:6333", storage_path="/tmp/test")
 
         assert "both" in str(exc_info.value).lower()
 
     def test_rejects_neither_url_nor_storage_path(self):
         """Verify must specify at least one mode."""
         with pytest.raises(ValueError) as exc_info:
-            QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2"
-            )
+            QdrantStorage(embedding_model="all-MiniLM-L6-v2")
 
         assert "must specify" in str(exc_info.value).lower()
 
     def test_accepts_url_only_for_server_mode(self):
         """Verify server mode is configured correctly."""
-        with patch('src.mcp_memory_service.storage.qdrant_storage.QdrantClient'):
-            storage = QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2",
-                url="http://localhost:6333"
-            )
+        with patch("src.mcp_memory_service.storage.qdrant_storage.QdrantClient"):
+            storage = QdrantStorage(embedding_model="all-MiniLM-L6-v2", url="http://localhost:6333")
 
         assert storage.url == "http://localhost:6333"
         assert storage.storage_path is None
 
     def test_accepts_storage_path_for_embedded_mode(self):
         """Verify embedded mode is configured correctly."""
-        with patch('src.mcp_memory_service.storage.qdrant_storage.QdrantClient'):
-            storage = QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2",
-                storage_path="/tmp/test"
-            )
+        with patch("src.mcp_memory_service.storage.qdrant_storage.QdrantClient"):
+            storage = QdrantStorage(embedding_model="all-MiniLM-L6-v2", storage_path="/tmp/test")
 
         assert storage.storage_path == "/tmp/test"
         assert storage.url is None
@@ -238,6 +208,7 @@ class TestQdrantConfiguration:
 # Retry Logic Unit Tests
 # =============================================================================
 
+
 class TestRetryLogic:
     """Test the retry decision logic."""
 
@@ -245,6 +216,7 @@ class TestRetryLogic:
         """Verify 5xx server errors trigger retry."""
         try:
             from qdrant_client.http import exceptions as qdrant_exceptions
+
             # Create a mock error with status_code attribute
             error = MagicMock(spec=qdrant_exceptions.UnexpectedResponse)
             error.status_code = 503
@@ -258,6 +230,7 @@ class TestRetryLogic:
         """Verify 4xx client errors do not trigger retry."""
         try:
             from qdrant_client.http import exceptions as qdrant_exceptions
+
             # Create a mock error with status_code attribute
             error = MagicMock(spec=qdrant_exceptions.UnexpectedResponse)
             error.status_code = 400
@@ -276,26 +249,21 @@ class TestRetryLogic:
 # Properties Unit Tests
 # =============================================================================
 
+
 class TestQdrantProperties:
     """Test storage property values."""
 
     def test_max_content_length_is_none(self):
         """Verify Qdrant has no content length limit."""
-        with patch('src.mcp_memory_service.storage.qdrant_storage.QdrantClient'):
-            storage = QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2",
-                storage_path="/tmp/test"
-            )
+        with patch("src.mcp_memory_service.storage.qdrant_storage.QdrantClient"):
+            storage = QdrantStorage(embedding_model="all-MiniLM-L6-v2", storage_path="/tmp/test")
 
         assert storage.max_content_length is None
 
     def test_supports_chunking_is_true(self):
         """Verify Qdrant supports chunking."""
-        with patch('src.mcp_memory_service.storage.qdrant_storage.QdrantClient'):
-            storage = QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2",
-                storage_path="/tmp/test"
-            )
+        with patch("src.mcp_memory_service.storage.qdrant_storage.QdrantClient"):
+            storage = QdrantStorage(embedding_model="all-MiniLM-L6-v2", storage_path="/tmp/test")
 
         assert storage.supports_chunking is True
 
@@ -304,16 +272,14 @@ class TestQdrantProperties:
 # Hash to UUID Conversion Tests
 # =============================================================================
 
+
 class TestHashToUuidConversion:
     """Test content hash to Qdrant UUID conversion."""
 
     def test_hash_to_uuid_is_deterministic(self):
         """Verify same hash always produces same UUID."""
-        with patch('src.mcp_memory_service.storage.qdrant_storage.QdrantClient'):
-            storage = QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2",
-                storage_path="/tmp/test"
-            )
+        with patch("src.mcp_memory_service.storage.qdrant_storage.QdrantClient"):
+            storage = QdrantStorage(embedding_model="all-MiniLM-L6-v2", storage_path="/tmp/test")
 
         # Use a valid SHA256 hash (64 hex chars) - _hash_to_uuid takes first 32 for UUID
         test_hash = "abc123def456abc123def456abc123def456abc123def456abc123def456abcd"
@@ -324,11 +290,8 @@ class TestHashToUuidConversion:
 
     def test_different_hashes_produce_different_uuids(self):
         """Verify different hashes produce different UUIDs."""
-        with patch('src.mcp_memory_service.storage.qdrant_storage.QdrantClient'):
-            storage = QdrantStorage(
-                embedding_model="all-MiniLM-L6-v2",
-                storage_path="/tmp/test"
-            )
+        with patch("src.mcp_memory_service.storage.qdrant_storage.QdrantClient"):
+            storage = QdrantStorage(embedding_model="all-MiniLM-L6-v2", storage_path="/tmp/test")
 
         # Use valid 64-char hex strings (SHA256 format)
         hash1 = "1111111111111111111111111111111111111111111111111111111111111111"

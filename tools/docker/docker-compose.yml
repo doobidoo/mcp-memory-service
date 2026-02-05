@@ -9,11 +9,11 @@ services:
     build:
       context: ../..
       dockerfile: tools/docker/Dockerfile
-    
+
     # Required for MCP protocol communication
     stdin_open: true
     tty: true
-    
+
     volumes:
       # Single data directory for all storage
       - ./data:/app/data
@@ -21,21 +21,21 @@ services:
       # Model cache (prevents re-downloading models on each restart)
       # Uncomment the following line to persist Hugging Face models
       # - ${HOME}/.cache/huggingface:/root/.cache/huggingface
-    
+
     environment:
       # Mode selection
       - MCP_MODE=mcp
-      
+
       # Storage configuration
       - MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
       - MCP_MEMORY_SQLITE_PATH=/app/data/sqlite_vec.db
       - MCP_MEMORY_BACKUPS_PATH=/app/data/backups
-      
+
       # Performance tuning
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - MAX_RESULTS_PER_QUERY=10
       - SIMILARITY_THRESHOLD=0.7
-      
+
       # Python configuration
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app/src
@@ -43,8 +43,8 @@ services:
       # Offline mode (uncomment if models are pre-cached and network is restricted)
       # - HF_HUB_OFFLINE=1
       # - TRANSFORMERS_OFFLINE=1
-    
+
     # Use the unified entrypoint
     entrypoint: ["/usr/local/bin/docker-entrypoint-unified.sh"]
-    
+
     restart: unless-stopped

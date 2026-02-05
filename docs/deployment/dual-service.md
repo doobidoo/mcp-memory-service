@@ -31,7 +31,7 @@ This deployment provides both **FastMCP Protocol** and **HTTP Dashboard** servic
 # Install FastMCP service
 sudo cp /tmp/fastmcp-server-with-mdns.service /etc/systemd/system/mcp-memory.service
 
-# Install HTTP Dashboard service  
+# Install HTTP Dashboard service
 sudo cp /tmp/mcp-http-dashboard.service /etc/systemd/system/mcp-http-dashboard.service
 
 # Enable and start services
@@ -69,7 +69,7 @@ sudo journalctl -u mcp-http-dashboard -f  # Dashboard logs
 # Start services
 sudo systemctl start mcp-memory mcp-http-dashboard
 
-# Stop services  
+# Stop services
 sudo systemctl stop mcp-memory mcp-http-dashboard
 
 # Restart services
@@ -166,9 +166,9 @@ curl -X POST http://[SERVER_IP]:8080/api/search \
 
 ## Benefits
 
-✅ **No Node.js SSL Issues** - Pure Python implementation  
-✅ **Dual Protocol Support** - Both MCP and HTTP available  
-✅ **Network Discovery** - mDNS advertising for easy access  
-✅ **Production Ready** - systemd managed services  
-✅ **Backward Compatible** - HTTP API preserved for existing tools  
+✅ **No Node.js SSL Issues** - Pure Python implementation
+✅ **Dual Protocol Support** - Both MCP and HTTP available
+✅ **Network Discovery** - mDNS advertising for easy access
+✅ **Production Ready** - systemd managed services
+✅ **Backward Compatible** - HTTP API preserved for existing tools
 ✅ **Claude Code Ready** - Native MCP protocol support

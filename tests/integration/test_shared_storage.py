@@ -7,14 +7,14 @@ preventing duplicate model loading and initialization issues.
 """
 
 import asyncio
-import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, patch
 
+import pytest
 from src.mcp_memory_service.shared_storage import (
     StorageManager,
-    get_shared_storage,
     close_shared_storage,
-    is_storage_initialized
+    get_shared_storage,
+    is_storage_initialized,
 )
 
 
@@ -35,7 +35,7 @@ class TestSharedStorage:
         # Reset the singleton for testing
         StorageManager._instance = None
 
-        with patch('src.mcp_memory_service.shared_storage.create_storage_instance') as mock_create:
+        with patch("src.mcp_memory_service.shared_storage.create_storage_instance") as mock_create:
             mock_storage = AsyncMock()
             mock_storage.close = AsyncMock()
             mock_create.return_value = mock_storage
@@ -62,7 +62,7 @@ class TestSharedStorage:
 
         assert not is_storage_initialized(), "Storage should not be initialized initially"
 
-        with patch('src.mcp_memory_service.shared_storage.create_storage_instance') as mock_create:
+        with patch("src.mcp_memory_service.shared_storage.create_storage_instance") as mock_create:
             mock_storage = AsyncMock()
             mock_storage.close = AsyncMock()
             mock_create.return_value = mock_storage
@@ -92,7 +92,7 @@ class TestSharedStorage:
             mock_storage.close = AsyncMock()
             return mock_storage
 
-        with patch('src.mcp_memory_service.shared_storage.create_storage_instance', mock_create_storage):
+        with patch("src.mcp_memory_service.shared_storage.create_storage_instance", mock_create_storage):
             # Launch many concurrent initialization attempts
             tasks = [get_shared_storage() for _ in range(20)]
             results = await asyncio.gather(*tasks)
@@ -114,7 +114,7 @@ class TestSharedStorage:
         # Reset the singleton for testing
         StorageManager._instance = None
 
-        with patch('src.mcp_memory_service.shared_storage.create_storage_instance') as mock_create:
+        with patch("src.mcp_memory_service.shared_storage.create_storage_instance") as mock_create:
             mock_storage = AsyncMock()
             mock_storage.close = AsyncMock()
             mock_create.return_value = mock_storage
@@ -136,7 +136,7 @@ class TestSharedStorage:
         # Reset the singleton for testing
         StorageManager._instance = None
 
-        with patch('src.mcp_memory_service.shared_storage.create_storage_instance') as mock_create:
+        with patch("src.mcp_memory_service.shared_storage.create_storage_instance") as mock_create:
             # First storage instance
             mock_storage1 = AsyncMock()
             mock_storage1.close = AsyncMock()
@@ -173,13 +173,13 @@ async def test_unified_server_shared_storage():
     # Reset singleton for testing
     StorageManager._instance = None
 
-    with patch('src.mcp_memory_service.shared_storage.create_storage_instance') as mock_create:
+    with patch("src.mcp_memory_service.shared_storage.create_storage_instance") as mock_create:
         mock_storage = AsyncMock()
         mock_storage.close = AsyncMock()
         mock_create.return_value = mock_storage
 
-        with patch.object(UnifiedServer, 'run_http_server', new_callable=AsyncMock) as mock_http:
-            with patch.object(UnifiedServer, 'run_mcp_server', new_callable=AsyncMock) as mock_mcp:
+        with patch.object(UnifiedServer, "run_http_server", new_callable=AsyncMock) as mock_http:
+            with patch.object(UnifiedServer, "run_mcp_server", new_callable=AsyncMock) as mock_mcp:
                 # Make servers complete quickly for test
                 mock_http.return_value = None
                 mock_mcp.return_value = None

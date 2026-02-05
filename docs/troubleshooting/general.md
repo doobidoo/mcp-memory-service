@@ -16,7 +16,7 @@ WARNING:mcp_memory_service.storage.sqlite_vec:Failed to load from cache: No snap
 - **Action:** None required - Model will download automatically
 - **Duration:** Appears only on first run
 
-#### "TRANSFORMERS_CACHE deprecated" Warning  
+#### "TRANSFORMERS_CACHE deprecated" Warning
 ```
 WARNING: Using TRANSFORMERS_CACHE is deprecated
 ```
@@ -66,10 +66,10 @@ For detailed information, see the [First-Time Setup Guide](../first-time-setup.m
    ```bash
    # Force source build
    pip install --no-binary :all: sqlite-vec
-   
+
    # Install from GitHub
    pip install git+https://github.com/asg017/sqlite-vec.git#subdirectory=python
-   
+
    # Alternative: pysqlite3-binary
    pip install pysqlite3-binary
    ```
@@ -95,7 +95,7 @@ For detailed information, see the [First-Time Setup Guide](../first-time-setup.m
    brew install python
    hash -r  # Refresh shell command cache
    python3 --version  # Verify Homebrew version
-   
+
    # Reinstall MCP Memory Service
    python3 install.py
    ```
@@ -104,13 +104,13 @@ For detailed information, see the [First-Time Setup Guide](../first-time-setup.m
    ```bash
    # Install pyenv
    brew install pyenv
-   
+
    # Install Python with extension support
    PYTHON_CONFIGURE_OPTS="--enable-loadable-sqlite-extensions" \
    LDFLAGS="-L$(brew --prefix sqlite)/lib" \
    CPPFLAGS="-I$(brew --prefix sqlite)/include" \
    pyenv install 3.12.0
-   
+
    pyenv local 3.12.0
    python install.py
    ```

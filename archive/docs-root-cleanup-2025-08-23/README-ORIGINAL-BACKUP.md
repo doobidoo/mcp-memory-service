@@ -83,15 +83,15 @@ Choose your preferred installation method to get started in under 5 minutes:
 docker pull doobidoo/mcp-memory-service:latest
 docker run -d -p 8000:8000 -v $(pwd)/data:/app/data doobidoo/mcp-memory-service:latest
 ```
-✅ **Perfect for**: Testing, production deployment, isolation  
+✅ **Perfect for**: Testing, production deployment, isolation
 ➡️ [Complete Docker Setup](#docker-installation)
 
-### Option 2: Smithery (Simplest - 1 minute)  
+### Option 2: Smithery (Simplest - 1 minute)
 ```bash
 # Auto-install for Claude Desktop
 npx -y @smithery/cli install @doobidoo/mcp-memory-service --client claude
 ```
-✅ **Perfect for**: Claude Desktop users, zero configuration  
+✅ **Perfect for**: Claude Desktop users, zero configuration
 ➡️ [Smithery Details](#installing-via-smithery)
 
 ### Option 3: Python Installer (Most Flexible - 5 minutes)
@@ -100,7 +100,7 @@ npx -y @smithery/cli install @doobidoo/mcp-memory-service --client claude
 git clone https://github.com/doobidoo/mcp-memory-service.git
 cd mcp-memory-service && python install.py
 ```
-✅ **Perfect for**: Developers, customization, multi-client setup  
+✅ **Perfect for**: Developers, customization, multi-client setup
 ➡️ [Full Installation Guide](#-intelligent-installer-recommended)
 
 ---
@@ -119,26 +119,26 @@ cd claude-hooks && ./install.sh
 
 # Every Claude Code session now starts with relevant context:
 # 🧠 Relevant Memory Context
-# 
+#
 # ## Recent Insights (Last 7 days)
 # - Database Performance Issue - Resolved SQLite-vec optimization (yesterday)
 # - Authentication Flow - Implemented JWT validation (3 days ago)
-# 
-# ## Key Decisions  
+#
+# ## Key Decisions
 # - Architecture Decision - Chose React over Vue (1 week ago)
 # - Database Choice - Selected PostgreSQL for production (2 weeks ago)
 ```
 
 ### 🎯 Features
 
-🤖 **Zero Cognitive Load**: Memory context appears automatically without user intervention  
-🧠 **Intelligent Selection**: Advanced scoring algorithm chooses only relevant memories  
-⚡ **Lightning Fast**: Memory injection adds <2 seconds to session startup  
-📊 **Multi-Language Support**: Detects JavaScript, Python, Rust, Go, Java, C++ projects  
-🏗️ **Context-Aware**: Understands your project structure, git repo, and technology stack  
-📝 **Beautiful Formatting**: Categorized, markdown-rich memory presentation  
-🔄 **Session Learning**: Automatically stores session outcomes for future reference  
-✅ **100% Test Coverage**: Comprehensive testing with complete integration validation  
+🤖 **Zero Cognitive Load**: Memory context appears automatically without user intervention
+🧠 **Intelligent Selection**: Advanced scoring algorithm chooses only relevant memories
+⚡ **Lightning Fast**: Memory injection adds <2 seconds to session startup
+📊 **Multi-Language Support**: Detects JavaScript, Python, Rust, Go, Java, C++ projects
+🏗️ **Context-Aware**: Understands your project structure, git repo, and technology stack
+📝 **Beautiful Formatting**: Categorized, markdown-rich memory presentation
+🔄 **Session Learning**: Automatically stores session outcomes for future reference
+✅ **100% Test Coverage**: Comprehensive testing with complete integration validation
 
 ### 🚀 Installation
 
@@ -166,7 +166,7 @@ npm test  # 10 tests, all passing
 const relevanceScore = (
   timeDecayScore * 0.4 +         // Recent memories preferred
   tagRelevanceScore * 0.3 +      // Project-specific tags
-  contentSimilarityScore * 0.2 + // Semantic matching  
+  contentSimilarityScore * 0.2 + // Semantic matching
   memoryTypeBonusScore * 0.1     // Decision/insight bonus
 );
 ```
@@ -190,10 +190,10 @@ claude /memory-search --tags "architecture,database"
 claude /memory-health
 ```
 
-✨ **5 conversational commands** following CCPlugins pattern  
-🚀 **Zero MCP server configuration** required  
-🧠 **Context-aware operations** with automatic project detection  
-🎨 **Professional interface** with comprehensive guidance  
+✨ **5 conversational commands** following CCPlugins pattern
+🚀 **Zero MCP server configuration** required
+🧠 **Context-aware operations** with automatic project detection
+🎨 **Professional interface** with comprehensive guidance
 
 ➡️ [**Quick Start Guide**](docs/guides/claude-code-quickstart.md) | [**Full Integration Guide**](docs/guides/claude-code-integration.md)
 
@@ -236,7 +236,7 @@ curl -X POST http://your-server:8000/mcp \
 curl -X POST http://your-server:8000/mcp \
   -H "Content-Type: application/json" \
   -d '{
-    "jsonrpc": "2.0", 
+    "jsonrpc": "2.0",
     "id": 1,
     "method": "tools/call",
     "params": {
@@ -251,7 +251,7 @@ curl -X POST http://your-server:8000/mcp \
 
 **Key Benefits:**
 - ✅ **Cross-Device Access**: Connect from any device running Claude Code
-- ✅ **Native MCP Protocol**: Standard JSON-RPC 2.0 implementation  
+- ✅ **Native MCP Protocol**: Standard JSON-RPC 2.0 implementation
 - ✅ **No Bridge Required**: Direct HTTP/HTTPS connection
 - ✅ **Production Ready**: Proven deployment at scale
 
@@ -265,13 +265,13 @@ Transform your memory service into a distributed system with seamless synchroniz
 
 ### ✨ Key Features
 
-🌐 **Remote-First Architecture**: Direct API communication with local staging fallback  
-⚡ **Real-Time Replication**: Litestream integration for live SQLite synchronization  
-🔄 **Git-like Workflow**: Stage → Pull → Apply → Push with automatic conflict resolution  
-🏠 **Offline Capability**: Local staging database for offline development  
-🔍 **Content Hash Detection**: Intelligent deduplication and conflict prevention  
-📡 **Cross-Platform Service**: Works on Linux, macOS, and Windows servers  
-🎯 **Zero Configuration**: Automatic service discovery via mDNS/hostname resolution  
+🌐 **Remote-First Architecture**: Direct API communication with local staging fallback
+⚡ **Real-Time Replication**: Litestream integration for live SQLite synchronization
+🔄 **Git-like Workflow**: Stage → Pull → Apply → Push with automatic conflict resolution
+🏠 **Offline Capability**: Local staging database for offline development
+🔍 **Content Hash Detection**: Intelligent deduplication and conflict prevention
+📡 **Cross-Platform Service**: Works on Linux, macOS, and Windows servers
+🎯 **Zero Configuration**: Automatic service discovery via mDNS/hostname resolution
 
 ### 🚀 Quick Setup
 
@@ -383,7 +383,7 @@ launchctl load ~/Library/LaunchAgents/com.mcp.memory.sync.plist    # macOS
 
 **Benefits:**
 - ✅ **Automatic startup** on boot/login
-- ✅ **Background synchronization** every 15 minutes  
+- ✅ **Background synchronization** every 15 minutes
 - ✅ **Service health monitoring** with restart on failure
 - ✅ **Cross-platform compatibility** (systemd, LaunchAgent, Windows Service)
 
@@ -415,7 +415,7 @@ launchctl load ~/Library/LaunchAgents/com.mcp.memory.sync.plist    # macOS
 
 **Core Benefits:**
 - 🔄 **Cross-Client Memory Sharing**: Use memories across all your AI tools
-- 🚀 **Universal Setup**: Single installation works everywhere  
+- 🚀 **Universal Setup**: Single installation works everywhere
 - 🔌 **Standard Protocol**: Full MCP compliance ensures compatibility
 - 🌐 **Remote Access**: HTTP/HTTPS support for distributed teams
 
@@ -569,7 +569,7 @@ python install.py --skip-claude-commands-prompt
 
 ### 📊 Storage Backend Selection
 
-**SQLite-vec (default)**: 10x faster startup, zero dependencies, recommended for all users  
+**SQLite-vec (default)**: 10x faster startup, zero dependencies, recommended for all users
 **ChromaDB (deprecated)**: Legacy support only, will be removed in v6.0.0
 
 ➡️ **[Detailed Storage Backend Comparison](#storage-backends)**
@@ -841,10 +841,10 @@ python scripts/run_http_server.py
 
 **Direct SQLite on cloud storage DOES NOT WORK** for multi-client access:
 
-❌ **File locking conflicts** - Cloud sync breaks SQLite's locking mechanism  
-❌ **Data corruption** - Incomplete syncs can corrupt the database  
-❌ **Sync conflicts** - Multiple clients create "conflicted copy" files  
-❌ **Performance issues** - Full database re-upload on every change  
+❌ **File locking conflicts** - Cloud sync breaks SQLite's locking mechanism
+❌ **Data corruption** - Incomplete syncs can corrupt the database
+❌ **Sync conflicts** - Multiple clients create "conflicted copy" files
+❌ **Performance issues** - Full database re-upload on every change
 
 **✅ Solution**: Use centralized HTTP server deployment instead!
 
@@ -861,7 +861,7 @@ python install.py  # Automatically detects and configures all MCP clients
 
 **Key Benefits:**
 - ✅ **Automatic Coordination**: Intelligent detection of optimal access mode
-- ✅ **Universal Setup**: Works with any MCP-compatible application  
+- ✅ **Universal Setup**: Works with any MCP-compatible application
 - ✅ **Shared Memory**: All clients access the same memory database
 - ✅ **No Lock Conflicts**: WAL mode prevents database locking issues
 - ✅ **IDE-Agnostic**: Switch between development tools while maintaining context
@@ -963,7 +963,7 @@ The SQLite-vec backend now works with or without PyTorch installed:
 - **With PyTorch**: Full functionality including embedding generation
 - **Without PyTorch**: Basic functionality using pre-computed embeddings and ONNX runtime
 - **With Homebrew PyTorch**: Integration with macOS Homebrew PyTorch installation
-  
+
 To install optional machine learning dependencies:
 
 ```bash
@@ -984,7 +984,7 @@ wrangler d1 create mcp-memory-db
 # Configure environment variables
 export MCP_MEMORY_STORAGE_BACKEND=cloudflare
 export CLOUDFLARE_API_TOKEN="your-api-token"
-export CLOUDFLARE_ACCOUNT_ID="your-account-id" 
+export CLOUDFLARE_ACCOUNT_ID="your-account-id"
 export CLOUDFLARE_VECTORIZE_INDEX="mcp-memory-index"
 export CLOUDFLARE_D1_DATABASE_ID="your-d1-database-id"
 
@@ -1041,7 +1041,7 @@ The memory service provides the following operations through the MCP server:
 
 1. `store_memory` - Store new information with optional tags
 2. `retrieve_memory` - Perform semantic search for relevant memories
-3. `recall_memory` - Retrieve memories using natural language time expressions 
+3. `recall_memory` - Retrieve memories using natural language time expressions
 4. `search_by_tag` - Find memories using specific tags
 5. `exact_match_retrieve` - Find memories with exact content match
 6. `debug_retrieve` - Retrieve memories with similarity scores
@@ -1077,7 +1077,7 @@ delete_by_tag("temporary")
 delete_by_tag(["temporary", "outdated", "test"])  // OR logic
 
 // Explicit methods for clarity
-delete_by_tags(["tag1", "tag2"])                  // OR logic  
+delete_by_tags(["tag1", "tag2"])                  // OR logic
 delete_by_all_tags(["urgent", "important"])       // AND logic
 ```
 
@@ -1133,7 +1133,7 @@ export MCP_CONSOLIDATION_ARCHIVE_PATH=/path/to/archive
 
 # Retention periods (days)
 export MCP_RETENTION_CRITICAL=365  # Critical memories
-export MCP_RETENTION_REFERENCE=180 # Reference materials  
+export MCP_RETENTION_REFERENCE=180 # Reference materials
 export MCP_RETENTION_STANDARD=30   # Standard memories
 export MCP_RETENTION_TEMPORARY=7   # Temporary memories
 
@@ -1235,7 +1235,7 @@ python scripts/test_installation.py
 
 ### What's the difference between SQLite-vec and ChromaDB backends?
 
-**SQLite-vec (recommended)**: 10x faster startup, zero network dependencies, 75% less memory usage, single-file database  
+**SQLite-vec (recommended)**: 10x faster startup, zero network dependencies, 75% less memory usage, single-file database
 **ChromaDB (deprecated)**: Legacy support only, requires network access for models, will be removed in v6.0.0
 
 ➡️ **[Detailed Backend Comparison](#storage-backends)**
@@ -1264,7 +1264,7 @@ It detects MPS support, configures fallbacks, and selects compatible PyTorch ver
 
 ### How much memory and storage does the service use?
 
-**SQLite-vec**: ~50MB RAM for 1K memories, single database file  
+**SQLite-vec**: ~50MB RAM for 1K memories, single database file
 **ChromaDB**: ~200MB RAM for 1K memories, multiple files
 
 Storage scales linearly: ~1MB per 1000 memories with SQLite-vec.
@@ -1281,7 +1281,7 @@ See the [Installation Guide](docs/installation/master-guide.md) and [Troubleshoo
 
 - **Windows PyTorch errors**: Use `python scripts/install_windows.py`
 - **macOS Intel dependency conflicts**: Use `python install.py --force-compatible-deps`
-- **Recursion errors**: Run `python scripts/fix_sitecustomize.py` 
+- **Recursion errors**: Run `python scripts/fix_sitecustomize.py`
 - **Environment verification**: Run `python scripts/verify_environment_enhanced.py`
 - **Memory issues**: Set `MCP_MEMORY_BATCH_SIZE=4` and try a smaller model
 - **Apple Silicon**: Ensure Python 3.10+ built for ARM64, set `PYTORCH_ENABLE_MPS_FALLBACK=1`

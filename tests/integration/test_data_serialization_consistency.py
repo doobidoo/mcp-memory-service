@@ -5,20 +5,21 @@ This focuses on how Memory objects are serialized/deserialized in different cont
 without requiring the full MCP server stack.
 """
 
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 import asyncio
 import json
 import tempfile
-from typing import Dict, List, Any
-from datetime import datetime
 import time
+from datetime import datetime
 
 from mcp_memory_service.models.memory import Memory
-from mcp_memory_service.utils.hashing import generate_content_hash
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+from mcp_memory_service.utils.hashing import generate_content_hash
+
 
 class DataSerializationTest:
     """Test suite examining memory data serialization consistency."""
@@ -34,17 +35,14 @@ class DataSerializationTest:
         self.temp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.temp_db.close()
 
-        self.storage = SqliteVecMemoryStorage(
-            db_path=self.temp_db.name,
-            embedding_model="all-MiniLM-L6-v2"
-        )
+        self.storage = SqliteVecMemoryStorage(db_path=self.temp_db.name, embedding_model="all-MiniLM-L6-v2")
         await self.storage.initialize()
         print(f"✅ Storage initialized: {self.temp_db.name}")
 
     async def cleanup(self):
         """Clean up test environment."""
         self.storage = None
-        if hasattr(self, 'temp_db') and os.path.exists(self.temp_db.name):
+        if hasattr(self, "temp_db") and os.path.exists(self.temp_db.name):
             os.unlink(self.temp_db.name)
             print("✅ Test database cleaned up")
 
@@ -62,16 +60,12 @@ class DataSerializationTest:
                     "topics": ["testing", "storage", "consistency"],
                     "decisions_count": 3,
                     "insights_count": 5,
-                    "confidence": 0.92
+                    "confidence": 0.92,
                 },
-                "project_context": {
-                    "name": "mcp-memory-service",
-                    "language": "python",
-                    "frameworks": ["fastapi", "chromadb"]
-                },
+                "project_context": {"name": "mcp-memory-service", "language": "python", "frameworks": ["fastapi", "chromadb"]},
                 "generated_by": "claude-code-session-end-hook",
-                "generated_at": "2025-09-14T04:42:15.123Z"
-            }
+                "generated_at": "2025-09-14T04:42:15.123Z",
+            },
         )
 
         print(f"🔧 Created hook-style memory with {len(memory.tags)} tags and rich metadata")
@@ -86,10 +80,7 @@ class DataSerializationTest:
             content_hash=generate_content_hash(content),
             tags=["issue-99", "analysis", "findings", "manual-note"],
             memory_type="note",
-            metadata={
-                "source": "user-input",
-                "created_by": "manual-storage"
-            }
+            metadata={"source": "user-input", "created_by": "manual-storage"},
         )
 
         print(f"📝 Created manual-style memory with {len(memory.tags)} tags and minimal metadata")
@@ -121,7 +112,7 @@ class DataSerializationTest:
             "tags_match": hook_memory.tags == hook_restored.tags,
             "metadata_match": hook_memory.metadata == hook_restored.metadata,
             "created_at_preserved": abs((hook_memory.created_at or 0) - (hook_restored.created_at or 0)) < 0.001,
-            "created_at_iso_preserved": hook_memory.created_at_iso == hook_restored.created_at_iso
+            "created_at_iso_preserved": hook_memory.created_at_iso == hook_restored.created_at_iso,
         }
 
         manual_consistency = {
@@ -129,15 +120,15 @@ class DataSerializationTest:
             "tags_match": manual_memory.tags == manual_restored.tags,
             "metadata_match": manual_memory.metadata == manual_restored.metadata,
             "created_at_preserved": abs((manual_memory.created_at or 0) - (manual_restored.created_at or 0)) < 0.001,
-            "created_at_iso_preserved": manual_memory.created_at_iso == manual_restored.created_at_iso
+            "created_at_iso_preserved": manual_memory.created_at_iso == manual_restored.created_at_iso,
         }
 
-        print(f"\n📋 Hook memory serialization consistency:")
+        print("\n📋 Hook memory serialization consistency:")
         for key, value in hook_consistency.items():
             status = "✅" if value else "❌"
             print(f"  {status} {key}: {value}")
 
-        print(f"\n📋 Manual memory serialization consistency:")
+        print("\n📋 Manual memory serialization consistency:")
         for key, value in manual_consistency.items():
             status = "✅" if value else "❌"
             print(f"  {status} {key}: {value}")
@@ -146,7 +137,7 @@ class DataSerializationTest:
             "hook_consistency": hook_consistency,
             "manual_consistency": manual_consistency,
             "hook_dict": hook_dict,
-            "manual_dict": manual_dict
+            "manual_dict": manual_dict,
         }
 
     async def test_storage_backend_handling(self):
@@ -173,7 +164,7 @@ class DataSerializationTest:
             "hook_stored_successfully": hook_store_result[0],
             "manual_stored_successfully": manual_store_result[0],
             "hook_retrieved_count": len(hook_retrieved),
-            "manual_retrieved_count": len(manual_retrieved)
+            "manual_retrieved_count": len(manual_retrieved),
         }
 
         if hook_retrieved:
@@ -181,14 +172,11 @@ class DataSerializationTest:
             storage_analysis["hook_retrieval_analysis"] = {
                 "content_preserved": retrieved_hook.content == hook_memory.content,
                 "tags_preserved": retrieved_hook.tags == hook_memory.tags,
-                "timestamp_preserved": (
-                    retrieved_hook.created_at is not None and
-                    retrieved_hook.created_at_iso is not None
-                ),
-                "metadata_preserved": bool(retrieved_hook.metadata)
+                "timestamp_preserved": (retrieved_hook.created_at is not None and retrieved_hook.created_at_iso is not None),
+                "metadata_preserved": bool(retrieved_hook.metadata),
             }
 
-            print(f"\n📥 Retrieved hook memory analysis:")
+            print("\n📥 Retrieved hook memory analysis:")
             for key, value in storage_analysis["hook_retrieval_analysis"].items():
                 status = "✅" if value else "❌"
                 print(f"  {status} {key}: {value}")
@@ -198,14 +186,11 @@ class DataSerializationTest:
             storage_analysis["manual_retrieval_analysis"] = {
                 "content_preserved": retrieved_manual.content == manual_memory.content,
                 "tags_preserved": retrieved_manual.tags == manual_memory.tags,
-                "timestamp_preserved": (
-                    retrieved_manual.created_at is not None and
-                    retrieved_manual.created_at_iso is not None
-                ),
-                "metadata_preserved": bool(retrieved_manual.metadata)
+                "timestamp_preserved": (retrieved_manual.created_at is not None and retrieved_manual.created_at_iso is not None),
+                "metadata_preserved": bool(retrieved_manual.metadata),
             }
 
-            print(f"\n📥 Retrieved manual memory analysis:")
+            print("\n📥 Retrieved manual memory analysis:")
             for key, value in storage_analysis["manual_retrieval_analysis"].items():
                 status = "✅" if value else "❌"
                 print(f"  {status} {key}: {value}")
@@ -227,7 +212,7 @@ class DataSerializationTest:
             tags=["timestamp-test", "precision"],
             memory_type="test",
             created_at=precise_timestamp,
-            created_at_iso=precise_iso
+            created_at_iso=precise_iso,
         )
 
         print(f"🕐 Original timestamp (float): {precise_timestamp}")
@@ -235,7 +220,9 @@ class DataSerializationTest:
 
         # Test serialization
         memory_dict = memory.to_dict()
-        print(f"🔄 Serialized timestamp fields: {json.dumps({k:v for k,v in memory_dict.items() if 'timestamp' in k or 'created_at' in k}, indent=2)}")
+        print(
+            f"🔄 Serialized timestamp fields: {json.dumps({k: v for k, v in memory_dict.items() if 'timestamp' in k or 'created_at' in k}, indent=2)}"
+        )
 
         # Test deserialization
         restored_memory = Memory.from_dict(memory_dict)
@@ -250,20 +237,22 @@ class DataSerializationTest:
             "serialization_preserves_precision": abs(precise_timestamp - (restored_memory.created_at or 0)) < 0.001,
             "iso_format_preserved": precise_iso == restored_memory.created_at_iso,
             "storage_successful": store_result[0],
-            "retrieval_successful": len(retrieved_results) > 0
+            "retrieval_successful": len(retrieved_results) > 0,
         }
 
         if retrieved_results:
             stored_memory = retrieved_results[0].memory
-            precision_analysis.update({
-                "storage_preserves_float_precision": abs(precise_timestamp - (stored_memory.created_at or 0)) < 0.001,
-                "storage_preserves_iso_format": precise_iso == stored_memory.created_at_iso
-            })
+            precision_analysis.update(
+                {
+                    "storage_preserves_float_precision": abs(precise_timestamp - (stored_memory.created_at or 0)) < 0.001,
+                    "storage_preserves_iso_format": precise_iso == stored_memory.created_at_iso,
+                }
+            )
 
             print(f"💾 Storage preserved timestamp (float): {stored_memory.created_at}")
             print(f"💾 Storage preserved timestamp (ISO): {stored_memory.created_at_iso}")
 
-        print(f"\n📊 Precision analysis:")
+        print("\n📊 Precision analysis:")
         for key, value in precision_analysis.items():
             status = "✅" if value else "❌"
             print(f"  {status} {key}: {value}")
@@ -305,10 +294,10 @@ class DataSerializationTest:
 
             # Storage backend handling
             storage_ok = (
-                storage_test.get("hook_stored_successfully", False) and
-                storage_test.get("manual_stored_successfully", False) and
-                storage_test.get("hook_retrieved_count", 0) > 0 and
-                storage_test.get("manual_retrieved_count", 0) > 0
+                storage_test.get("hook_stored_successfully", False)
+                and storage_test.get("manual_stored_successfully", False)
+                and storage_test.get("hook_retrieved_count", 0) > 0
+                and storage_test.get("manual_retrieved_count", 0) > 0
             )
 
             if storage_ok:
@@ -318,9 +307,8 @@ class DataSerializationTest:
                 print("❌ FAIL: Storage backend handling inconsistencies")
 
             # Timestamp precision
-            precision_ok = (
-                precision_test.get("serialization_preserves_precision", False) and
-                precision_test.get("storage_preserves_float_precision", False)
+            precision_ok = precision_test.get("serialization_preserves_precision", False) and precision_test.get(
+                "storage_preserves_float_precision", False
             )
 
             if precision_ok:
@@ -353,11 +341,13 @@ class DataSerializationTest:
         finally:
             await self.cleanup()
 
+
 async def main():
     """Main test execution."""
     test_suite = DataSerializationTest()
     success = await test_suite.run_all_tests()
     return 0 if success else 1
+
 
 if __name__ == "__main__":
     exit_code = asyncio.run(main())

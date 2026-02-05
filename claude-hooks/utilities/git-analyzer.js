@@ -17,29 +17,29 @@ async function getRecentCommits(workingDir, options = {}) {
             maxCommits = 20,
             includeMerges = false
         } = options;
-        
+
         // Build git log command
         let gitCommand = `git log --pretty=format:"%H|%aI|%s|%an" --max-count=${maxCommits}`;
-        
+
         if (!includeMerges) {
             gitCommand += ' --no-merges';
         }
-        
+
         // Add time filter
         const sinceDate = new Date();
         sinceDate.setDate(sinceDate.getDate() - days);
         gitCommand += ` --since="${sinceDate.toISOString()}"`;
-        
-        const output = execSync(gitCommand, { 
-            cwd: path.resolve(workingDir), 
+
+        const output = execSync(gitCommand, {
+            cwd: path.resolve(workingDir),
             encoding: 'utf8',
             timeout: 10000
         });
-        
+
         if (!output.trim()) {
             return [];
         }
-        
+
         const commits = output.trim().split('\n').map(line => {
             const [hash, date, message, author] = line.split('|');
             return {
@@ -51,7 +51,7 @@ async function getRecentCommits(workingDir, options = {}) {
                 daysSinceCommit: Math.floor((new Date() - new Date(date)) / (1000 * 60 * 60 * 24))
             };
         });
-        
+
         // Get file changes for recent commits (last 5 commits for performance)
         const recentCommits = commits.slice(0, Math.min(5, commits.length));
         for (const commit of recentCommits) {
@@ -66,9 +66,9 @@ async function getRecentCommits(workingDir, options = {}) {
                 commit.files = [];
             }
         }
-        
+
         return commits;
-        
+
     } catch (error) {
         // Silently fail for non-git directories
         return [];
@@ -81,7 +81,7 @@ async function getRecentCommits(workingDir, options = {}) {
 async function parseChangelog(workingDir) {
     try {
         const changelogPath = path.join(workingDir, 'CHANGELOG.md');
-        
+
         try {
             await fs.access(changelogPath);
         } catch {
@@ -98,16 +98,16 @@ async function parseChangelog(workingDir) {
             }
             if (!found) return null;
         }
-        
+
         const content = await fs.readFile(changelogPath, 'utf8');
-        
+
         // Parse changelog entries (assuming standard markdown format)
         const entries = [];
         const lines = content.split('\n');
         let currentVersion = null;
         let currentDate = null;
         let currentChanges = [];
-        
+
         for (const line of lines) {
             // Match version headers: ## [1.0.0] - 2024-08-25 or ## v1.0.0
             const versionMatch = line.match(/^##\s*\[?v?([^\]]+)\]?\s*-?\s*(.*)$/);
@@ -121,13 +121,13 @@ async function parseChangelog(workingDir) {
                         raw: currentChanges.join('\n')
                     });
                 }
-                
+
                 currentVersion = versionMatch[1];
                 currentDate = versionMatch[2] || null;
                 currentChanges = [];
                 continue;
             }
-            
+
             // Collect changes under current version
             if (currentVersion && line.trim()) {
                 // Skip section headers like "### Added", "### Fixed"
@@ -136,7 +136,7 @@ async function parseChangelog(workingDir) {
                 }
             }
         }
-        
+
         // Don't forget the last entry
         if (currentVersion && currentChanges.length > 0) {
             entries.push({
@@ -146,11 +146,11 @@ async function parseChangelog(workingDir) {
                 raw: currentChanges.join('\n')
             });
         }
-        
+
         // Return only recent entries (last 3 versions or entries from last 30 days)
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - 30);
-        
+
         const recentEntries = entries.slice(0, 3).filter(entry => {
             if (!entry.date) return true; // Include entries without dates
             try {
@@ -160,9 +160,9 @@ async function parseChangelog(workingDir) {
                 return true; // Include entries with unparseable dates
             }
         });
-        
+
         return recentEntries.length > 0 ? recentEntries : null;
-        
+
     } catch (error) {
         // Silently fail if changelog not found or not readable
         return null;
@@ -176,17 +176,17 @@ function extractDevelopmentKeywords(commits = [], changelogEntries = null) {
     const keywords = new Set();
     const themes = new Set();
     const filePatterns = new Set();
-    
+
     // Extract from commit messages
     commits.forEach(commit => {
         const message = commit.message.toLowerCase();
-        
+
         // Extract action keywords (feat, fix, refactor, etc.)
         const actionMatch = message.match(/^(feat|fix|refactor|docs|test|chore|improve|add|update|enhance)([:(]|\s)/);
         if (actionMatch) {
             keywords.add(actionMatch[1]);
         }
-        
+
         // Extract key technical terms (avoid very common words)
         // Expanded to capture more development-specific keywords
         const technicalTerms = message.match(/\b(hook|memory|context|retrieval|phase|query|storage|backend|session|git|recent|scoring|config|timestamp|parsing|sort|sorting|date|age|dashboard|analytics|footer|layout|async|sync|bugfix|release|version|embedding|consolidation|stats|display|grid|css|api|endpoint|server|http|mcp|client|protocol)\b/g);
@@ -199,7 +199,7 @@ function extractDevelopmentKeywords(commits = [], changelogEntries = null) {
         if (versionMatch) {
             versionMatch.forEach(version => keywords.add(version));
         }
-        
+
         // Extract file-based themes
         if (commit.files) {
             commit.files.forEach(file => {
@@ -207,7 +207,7 @@ function extractDevelopmentKeywords(commits = [], changelogEntries = null) {
                 if (basename.length > 2) {
                     filePatterns.add(basename);
                 }
-                
+
                 // Extract directory themes
                 const dir = path.dirname(file);
                 if (dir !== '.' && dir !== '/' && !dir.startsWith('.')) {
@@ -216,12 +216,12 @@ function extractDevelopmentKeywords(commits = [], changelogEntries = null) {
             });
         }
     });
-    
+
     // Extract from changelog entries
     if (changelogEntries) {
         changelogEntries.forEach(entry => {
             const text = entry.raw.toLowerCase();
-            
+
             // Extract technical keywords (expanded for better coverage)
             const changelogTerms = text.match(/\b(added|fixed|improved|enhanced|updated|removed|deprecated|breaking|feature|bug|performance|security|bugfix|release|dashboard|hooks|timestamp|parsing|sorting|analytics|footer|async|sync|embedding|consolidation|memory|retrieval|scoring)\b/g);
             if (changelogTerms) {
@@ -233,7 +233,7 @@ function extractDevelopmentKeywords(commits = [], changelogEntries = null) {
             if (changelogVersions) {
                 changelogVersions.forEach(version => keywords.add(version));
             }
-            
+
             // Extract version-specific themes
             if (entry.version) {
                 themes.add(`v${entry.version}`);
@@ -241,7 +241,7 @@ function extractDevelopmentKeywords(commits = [], changelogEntries = null) {
             }
         });
     }
-    
+
     return {
         keywords: Array.from(keywords).slice(0, 20), // Increased from 15 to capture more relevant terms
         themes: Array.from(themes).slice(0, 12),     // Increased from 10
@@ -257,7 +257,7 @@ function buildGitContextQuery(projectContext, gitContext, userMessage = '') {
     try {
         const queries = [];
         const baseProject = projectContext.name || 'project';
-        
+
         // Query 1: Recent development focus
         if (gitContext.keywords.length > 0) {
             const devKeywords = gitContext.keywords.slice(0, 8).join(' ');
@@ -269,7 +269,7 @@ function buildGitContextQuery(projectContext, gitContext, userMessage = '') {
                 source: 'git-commits'
             });
         }
-        
+
         // Query 2: File-based context
         if (gitContext.filePatterns.length > 0) {
             const fileContext = gitContext.filePatterns.slice(0, 5).join(' ');
@@ -281,19 +281,19 @@ function buildGitContextQuery(projectContext, gitContext, userMessage = '') {
                 source: 'git-files'
             });
         }
-        
+
         // Query 3: Version/theme context
         if (gitContext.themes.length > 0) {
             const themeContext = gitContext.themes.slice(0, 5).join(' ');
             const themeQuery = `${baseProject} ${themeContext} features decisions`;
             queries.push({
-                type: 'theme-context', 
+                type: 'theme-context',
                 semanticQuery: userMessage ? `${themeQuery} ${userMessage}` : themeQuery,
                 weight: 0.6,
                 source: 'git-themes'
             });
         }
-        
+
         // Query 4: Commit message context (most recent)
         if (gitContext.recentCommitMessages.length > 0) {
             const recentMessage = gitContext.recentCommitMessages[0];
@@ -305,9 +305,9 @@ function buildGitContextQuery(projectContext, gitContext, userMessage = '') {
                 source: 'recent-commit'
             });
         }
-        
+
         return queries;
-        
+
     } catch (error) {
         // Return empty queries on error
         return [];
@@ -324,26 +324,26 @@ function getCurrentGitInfo(workingDir) {
             encoding: 'utf8',
             timeout: 3000
         }).trim();
-        
+
         const lastCommit = execSync('git log -1 --pretty=format:"%h %s"', {
             cwd: path.resolve(workingDir),
             encoding: 'utf8',
             timeout: 3000
         }).trim();
-        
+
         const hasChanges = execSync('git status --porcelain', {
             cwd: path.resolve(workingDir),
             encoding: 'utf8',
             timeout: 3000
         }).trim().length > 0;
-        
+
         return {
             branch,
             lastCommit,
             hasUncommittedChanges: hasChanges,
             isGitRepo: true
         };
-        
+
     } catch (error) {
         return {
             branch: null,
@@ -365,25 +365,25 @@ async function analyzeGitContext(workingDir, options = {}) {
             includeChangelog = true,
             verbose = false
         } = options;
-        
+
         // Get basic git info
         const gitInfo = getCurrentGitInfo(workingDir);
         if (!gitInfo.isGitRepo) {
             return null;
         }
-        
+
         // Get recent commits
         const commits = await getRecentCommits(workingDir, {
             days: commitLookback,
             maxCommits
         });
-        
+
         // Parse changelog if enabled
         const changelogEntries = includeChangelog ? await parseChangelog(workingDir) : null;
-        
+
         // Extract development context
         const developmentKeywords = extractDevelopmentKeywords(commits, changelogEntries);
-        
+
         const context = {
             gitInfo,
             commits: commits.slice(0, 10), // Limit for performance
@@ -397,14 +397,14 @@ async function analyzeGitContext(workingDir, options = {}) {
                 developmentIntensity: commits.length > 5 ? 'high' : commits.length > 2 ? 'medium' : 'low'
             }
         };
-        
+
         if (verbose) {
             console.log(`[Git Analyzer] Analyzed ${commits.length} commits, ${changelogEntries?.length || 0} changelog entries`);
             console.log(`[Git Analyzer] Keywords: ${developmentKeywords.keywords.join(', ')}`);
         }
-        
+
         return context;
-        
+
     } catch (error) {
         if (options.verbose) {
             console.warn(`[Git Analyzer] Error analyzing context: ${error.message}`);
@@ -433,21 +433,21 @@ if (require.main === module) {
                 console.log(`Development keywords: ${context.developmentKeywords.keywords.join(', ')}`);
                 console.log(`File patterns: ${context.developmentKeywords.filePatterns.join(', ')}`);
                 console.log(`Themes: ${context.developmentKeywords.themes.join(', ')}`);
-                
+
                 if (context.changelogEntries) {
                     console.log(`Changelog entries: ${context.changelogEntries.length}`);
                     context.changelogEntries.forEach(entry => {
                         console.log(`  - ${entry.version} (${entry.changes.length} changes)`);
                     });
                 }
-                
+
                 // Test query building
                 const queries = buildGitContextQuery({ name: 'test-project' }, context.developmentKeywords);
                 console.log(`\nGenerated ${queries.length} git-aware queries:`);
                 queries.forEach((query, idx) => {
                     console.log(`  ${idx + 1}. [${query.type}] ${query.semanticQuery}`);
                 });
-                
+
             } else {
                 console.log('No git context available');
             }

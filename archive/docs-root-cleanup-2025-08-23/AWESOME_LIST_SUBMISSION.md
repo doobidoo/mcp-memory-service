@@ -61,7 +61,7 @@ A production-ready Model Context Protocol server that provides intelligent seman
 - [MCP Memory Service](https://github.com/doobidoo/mcp-memory-service) - Universal memory service with semantic search, autonomous consolidation, and 13+ client support. Features production deployment, multi-client coordination, and dream-inspired memory organization.
 ```
 
-#### Awesome Claude  
+#### Awesome Claude
 ```markdown
 - [MCP Memory Service](https://github.com/doobidoo/mcp-memory-service) - Intelligent semantic memory service for Claude Desktop with multi-client support, autonomous consolidation, and optional conversational commands. Production-ready with Docker and service deployment.
 ```
@@ -80,7 +80,7 @@ A production-ready Model Context Protocol server that provides intelligent seman
 
 1. **Submit to Awesome Lists** (in order of priority):
    - Awesome MCP (if exists)
-   - Awesome Claude 
+   - Awesome Claude
    - Awesome AI Tools
    - Awesome Developer Tools
    - Awesome FastAPI
@@ -88,7 +88,7 @@ A production-ready Model Context Protocol server that provides intelligent seman
 
 2. **Platform Submissions**:
    - Submit to Smithery (already done)
-   - Submit to MseeP (already done)  
+   - Submit to MseeP (already done)
    - Consider submission to Product Hunt
    - Submit to relevant Reddit communities (r/MachineLearning, r/Python, r/programming)
 
@@ -99,9 +99,9 @@ A production-ready Model Context Protocol server that provides intelligent seman
 
 ### SEO-Optimized Tags for GitHub Topics
 ```
-model-context-protocol, mcp-server, claude-desktop, semantic-memory, 
-vector-database, ai-memory, sqlite-vec, fastapi, multi-client, 
-cross-platform, docker, semantic-search, memory-consolidation, 
-ai-productivity, vs-code, cursor, continue, developer-tools, 
+model-context-protocol, mcp-server, claude-desktop, semantic-memory,
+vector-database, ai-memory, sqlite-vec, fastapi, multi-client,
+cross-platform, docker, semantic-search, memory-consolidation,
+ai-productivity, vs-code, cursor, continue, developer-tools,
 production-ready, autonomous-memory
 ```

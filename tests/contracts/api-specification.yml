@@ -9,7 +9,7 @@ info:
   description: |
     API contract for MCP Memory Service - defines actual response formats
     and status codes that clients can expect.
-    
+
     CRITICAL NOTES:
     - Server returns HTTP 200 for both success and failure cases
     - Use the 'success' field in response body to determine actual result
@@ -79,7 +79,7 @@ paths:
       summary: Store a memory
       description: |
         Store a new memory in the service.
-        
+
         CRITICAL: Always returns HTTP 200, regardless of success/failure!
         Check the 'success' field in response body to determine actual result.
       requestBody:
@@ -304,17 +304,17 @@ x-contract-tests:
       expected:
         status: 200
         body_contains: ["success"]
-        
+
     - name: "Health check uses /api/health path"
       description: "Health endpoint is /api/health not /health"
-      endpoint: "GET /health"  
+      endpoint: "GET /health"
       expected:
         status: 200
-        
+
     - name: "URL construction preserves /api base path"
       description: "Bridge must not replace /api when constructing URLs"
       test: "URL construction"
-      
+
     - name: "Duplicate detection returns success=false"
       description: "Duplicates return 200 with success=false, not error status"
       endpoint: "POST /memories"

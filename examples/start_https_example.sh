@@ -18,7 +18,7 @@ export MCP_HTTPS_ENABLED=true
 export MCP_HTTPS_PORT=8443
 
 # SSL Certificate paths - UPDATE THESE PATHS TO YOUR CERTIFICATES
-# 
+#
 # For mkcert certificates (recommended for development):
 # 1. Install mkcert: https://github.com/FiloSottile/mkcert#installation
 # 2. Create local CA: mkcert -install

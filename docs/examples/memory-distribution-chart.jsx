@@ -3,17 +3,17 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 
 /**
  * Memory Distribution Chart Component
- * 
+ *
  * A comprehensive visualization component for displaying monthly memory storage
  * distribution with insights, statistics, and interactive features.
- * 
+ *
  * Features:
  * - Responsive bar chart with monthly distribution
  * - Custom tooltips with percentages
  * - Statistics cards for key metrics
  * - Automatic insights generation
  * - Professional styling and layout
- * 
+ *
  * Usage:
  * 1. Install dependencies: npm install recharts
  * 2. Import and use: <MemoryDistributionChart data={yourData} />
@@ -36,10 +36,10 @@ const MemoryDistributionChart = ({ data = null, title = "Memory Storage Distribu
   const totalMemories = monthlyData.reduce((sum, item) => sum + item.count, 0);
 
   // Calculate statistics
-  const peakMonth = monthlyData.reduce((max, item) => 
+  const peakMonth = monthlyData.reduce((max, item) =>
     item.count > max.count ? item : max, monthlyData[0]);
   const averagePerMonth = (totalMemories / monthlyData.length).toFixed(1);
-  
+
   // Find most recent month with data
   const recentMonth = monthlyData[monthlyData.length - 1];
 
@@ -48,7 +48,7 @@ const MemoryDistributionChart = ({ data = null, title = "Memory Storage Distribu
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       const percentage = ((data.count / totalMemories) * 100).toFixed(1);
-      
+
       return (
         <div className="bg-white p-3 border border-gray-300 rounded-lg shadow-lg">
           <p className="font-semibold text-gray-800">{label}</p>
@@ -77,24 +77,24 @@ const MemoryDistributionChart = ({ data = null, title = "Memory Storage Distribu
   // Generate insights based on data patterns
   const generateInsights = () => {
     const insights = [];
-    
+
     // Peak activity insight
     const peakPercentage = ((peakMonth.count / totalMemories) * 100).toFixed(1);
     insights.push(`Peak activity in ${peakMonth.month} (${peakPercentage}% of total memories)`);
-    
+
     // Recent activity insight
     const recentPercentage = ((recentMonth.count / totalMemories) * 100).toFixed(1);
     if (recentMonth.count > averagePerMonth) {
       insights.push(`High recent activity: ${recentMonth.month} above average`);
     }
-    
+
     // Growth pattern insight
     const firstMonth = monthlyData[0];
     const lastMonth = monthlyData[monthlyData.length - 1];
     if (lastMonth.count > firstMonth.count * 0.8) {
       insights.push(`Sustained activity: Recent months maintain high productivity`);
     }
-    
+
     return insights;
   };
 
@@ -125,27 +125,27 @@ const MemoryDistributionChart = ({ data = null, title = "Memory Storage Distribu
             }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis 
-              dataKey="month" 
+            <XAxis
+              dataKey="month"
               tick={{ fontSize: 12 }}
               tickLine={{ stroke: '#d1d5db' }}
               axisLine={{ stroke: '#d1d5db' }}
             />
-            <YAxis 
+            <YAxis
               tick={{ fontSize: 12 }}
               tickLine={{ stroke: '#d1d5db' }}
               axisLine={{ stroke: '#d1d5db' }}
-              label={{ 
-                value: 'Number of Memories', 
-                angle: -90, 
+              label={{
+                value: 'Number of Memories',
+                angle: -90,
                 position: 'insideLeft',
                 style: { textAnchor: 'middle', fontSize: '12px', fill: '#6b7280' }
               }}
             />
             <Tooltip content={<CustomTooltip />} />
             <Legend />
-            <Bar 
-              dataKey="count" 
+            <Bar
+              dataKey="count"
               name="Memories Stored"
               fill="#3b82f6"
               radius={[4, 4, 0, 0]}
@@ -164,7 +164,7 @@ const MemoryDistributionChart = ({ data = null, title = "Memory Storage Distribu
             {peakMonth.count} memories ({((peakMonth.count / totalMemories) * 100).toFixed(1)}%)
           </p>
         </div>
-        
+
         <div className="bg-green-50 p-4 rounded-lg">
           <h3 className="font-semibold text-green-800 mb-2">Recent Activity</h3>
           <p className="text-lg font-bold text-green-600">{recentMonth.month}</p>
@@ -172,7 +172,7 @@ const MemoryDistributionChart = ({ data = null, title = "Memory Storage Distribu
             {recentMonth.count} memories ({((recentMonth.count / totalMemories) * 100).toFixed(1)}%)
           </p>
         </div>
-        
+
         <div className="bg-amber-50 p-4 rounded-lg">
           <h3 className="font-semibold text-amber-800 mb-2">Average/Month</h3>
           <p className="text-lg font-bold text-amber-600">{averagePerMonth}</p>
@@ -191,11 +191,11 @@ const MemoryDistributionChart = ({ data = null, title = "Memory Storage Distribu
             </div>
           ))}
         </div>
-        
+
         <div className="mt-4 pt-4 border-t border-gray-200">
           <p className="text-xs text-gray-500">
-            <strong>Analysis Pattern:</strong> This distribution shows typical software development 
-            lifecycle phases - high initial activity (project setup), consolidation periods, 
+            <strong>Analysis Pattern:</strong> This distribution shows typical software development
+            lifecycle phases - high initial activity (project setup), consolidation periods,
             and renewed intensive development phases.
           </p>
         </div>
@@ -208,10 +208,10 @@ export default MemoryDistributionChart;
 
 /**
  * Usage Examples:
- * 
+ *
  * 1. Basic Usage (with sample data):
  * <MemoryDistributionChart />
- * 
+ *
  * 2. With Custom Data:
  * const myData = [
  *   { month: "Jan 2025", count: 25, monthKey: "2025-01" },
@@ -219,41 +219,41 @@ export default MemoryDistributionChart;
  *   // ... more data
  * ];
  * <MemoryDistributionChart data={myData} title="My Project Analysis" />
- * 
+ *
  * 3. Integration with MCP Memory Service:
- * 
+ *
  * async function loadMemoryData() {
  *   const memories = await recall_memory({
  *     "query": "memories from this year",
  *     "n_results": 500
  *   });
- *   
+ *
  *   // Process memories into chart format
  *   const processedData = processMemoriesForChart(memories);
  *   return processedData;
  * }
- * 
+ *
  * function processMemoriesForChart(memories) {
  *   const monthlyDistribution = {};
- *   
+ *
  *   memories.forEach(memory => {
  *     const date = new Date(memory.timestamp);
  *     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
- *     
+ *
  *     if (!monthlyDistribution[monthKey]) {
  *       monthlyDistribution[monthKey] = 0;
  *     }
  *     monthlyDistribution[monthKey]++;
  *   });
- *   
+ *
  *   return Object.entries(monthlyDistribution)
  *     .sort(([a], [b]) => a.localeCompare(b))
  *     .map(([month, count]) => {
  *       const [year, monthNum] = month.split('-');
- *       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+ *       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
  *                          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
  *       const monthName = monthNames[parseInt(monthNum) - 1];
- *       
+ *
  *       return {
  *         month: `${monthName} ${year}`,
  *         count: count,
@@ -261,9 +261,9 @@ export default MemoryDistributionChart;
  *       };
  *     });
  * }
- * 
+ *
  * Dependencies:
  * npm install recharts
- * 
+ *
  * For Tailwind CSS styling, ensure you have Tailwind configured in your project.
  */

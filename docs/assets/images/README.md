@@ -14,7 +14,7 @@ The modern dashboard includes:
 - **Modern Design**: Gradient backgrounds with professional card layout
 - **Live Statistics**: Real-time server metrics including:
   - Total memories count
-  - Embedding model information  
+  - Embedding model information
   - Server health status
   - Response time metrics
 - **Interactive Endpoints**: Organized API documentation with hover effects
@@ -25,7 +25,7 @@ The modern dashboard includes:
 ## Access URLs
 
 - **Dashboard**: http://localhost:8000
-- **mDNS**: http://mcp-memory-service.local:8000  
+- **mDNS**: http://mcp-memory-service.local:8000
 - **API Docs**: http://localhost:8000/api/docs
 - **ReDoc**: http://localhost:8000/api/redoc
 
@@ -42,6 +42,6 @@ To capture the dashboard for documentation:
 ## File Naming Convention
 
 - `dashboard-v{version}.png` - Main dashboard screenshots
-- `api-docs-v{version}.png` - API documentation screenshots  
+- `api-docs-v{version}.png` - API documentation screenshots
 - `mobile-v{version}.png` - Mobile responsive views
 - `feature-{name}-v{version}.png` - Specific feature screenshots

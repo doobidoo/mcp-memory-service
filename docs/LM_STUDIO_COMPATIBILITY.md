@@ -35,7 +35,7 @@ The MCP Memory Service now includes an automatic compatibility patch that handle
    - Logs the cancellation reason (including timeouts)
    - Converts to harmless notifications that don't cause validation errors
    - Continues operation normally
-3. **Platform Optimizations**: 
+3. **Platform Optimizations**:
    - **Windows**: Extended timeouts (30s vs 15s) due to security software interference
    - **Cross-platform**: Enhanced signal handling for graceful shutdowns
 

@@ -72,7 +72,7 @@ function analyzeConversation(conversationText, options = {}) {
  */
 function extractTopicsFromText(text, minConfidence = 0.3) {
     const topics = [];
-    
+
     // Technical topic patterns
     const topicPatterns = [
         // Development activities
@@ -82,7 +82,7 @@ function extractTopicsFromText(text, minConfidence = 0.3) {
         { pattern: /\b(test|testing|unit test|integration|spec)\b/gi, topic: 'testing', weight: 0.7 },
         { pattern: /\b(deploy|deployment|release|production|staging)\b/gi, topic: 'deployment', weight: 0.6 },
         { pattern: /\b(refactor|refactoring|cleanup|optimize|performance)\b/gi, topic: 'refactoring', weight: 0.7 },
-        
+
         // Technologies
         { pattern: /\b(database|db|sql|query|schema|migration|sqlite|postgres|mysql|performance)\b/gi, topic: 'database', weight: 0.9 },
         { pattern: /\b(api|endpoint|rest|graphql|request|response)\b/gi, topic: 'api', weight: 0.7 },
@@ -90,7 +90,7 @@ function extractTopicsFromText(text, minConfidence = 0.3) {
         { pattern: /\b(backend|server|service|microservice|lambda)\b/gi, topic: 'backend', weight: 0.7 },
         { pattern: /\b(security|auth|authentication|authorization|jwt|oauth)\b/gi, topic: 'security', weight: 0.8 },
         { pattern: /\b(docker|container|kubernetes|deployment|ci\/cd)\b/gi, topic: 'devops', weight: 0.6 },
-        
+
         // Concepts
         { pattern: /\b(memory|storage|cache|persistence|state)\b/gi, topic: 'memory-management', weight: 0.7 },
         { pattern: /\b(hook|plugin|extension|integration)\b/gi, topic: 'integration', weight: 0.6 },
@@ -99,7 +99,7 @@ function extractTopicsFromText(text, minConfidence = 0.3) {
 
     // Score topics based on pattern matches
     const topicScores = new Map();
-    
+
     topicPatterns.forEach(({ pattern, topic, weight }) => {
         const matches = text.match(pattern) || [];
         if (matches.length > 0) {
@@ -130,23 +130,23 @@ function extractTopicsFromText(text, minConfidence = 0.3) {
  */
 function extractEntitiesFromText(text) {
     const entities = [];
-    
+
     const entityPatterns = [
         // Languages
         { pattern: /\b(javascript|js|typescript|ts|python|java|c\+\+|rust|go|php|ruby)\b/gi, type: 'language' },
-        
+
         // Frameworks
         { pattern: /\b(react|vue|angular|next\.js|express|fastapi|django|flask|spring)\b/gi, type: 'framework' },
-        
+
         // Databases
         { pattern: /\b(postgresql|postgres|mysql|mongodb|sqlite|redis|elasticsearch)\b/gi, type: 'database' },
-        
+
         // Tools
         { pattern: /\b(docker|kubernetes|git|github|gitlab|jenkins|webpack|vite)\b/gi, type: 'tool' },
-        
+
         // Cloud/Services
         { pattern: /\b(aws|azure|gcp|vercel|netlify|heroku)\b/gi, type: 'cloud' },
-        
+
         // Specific to our project
         { pattern: /\b(claude|mcp|memory-service|sqlite-vec|chroma)\b/gi, type: 'project' }
     ];
@@ -298,7 +298,7 @@ function detectTopicChanges(previousAnalysis, currentAnalysis) {
 
     // Detect new topics
     const previousTopicNames = new Set(previousAnalysis.topics.map(t => t.name));
-    changes.newTopics = currentAnalysis.topics.filter(topic => 
+    changes.newTopics = currentAnalysis.topics.filter(topic =>
         !previousTopicNames.has(topic.name) && topic.confidence > 0.4
     );
 

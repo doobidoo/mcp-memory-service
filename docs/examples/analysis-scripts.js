@@ -1,10 +1,10 @@
 /**
  * Memory Analysis Scripts
- * 
+ *
  * A collection of JavaScript functions for analyzing and extracting insights
  * from MCP Memory Service data. These scripts demonstrate practical approaches
  * to memory data analysis, pattern recognition, and visualization preparation.
- * 
+ *
  * Usage: Import individual functions or use as reference for building
  * custom analysis pipelines.
  */
@@ -28,7 +28,7 @@ function analyzeTemporalDistribution(memories) {
 
   memories.forEach(memory => {
     const date = new Date(memory.timestamp);
-    
+
     // Monthly distribution
     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
     if (!distribution.monthly[monthKey]) {
@@ -80,7 +80,7 @@ function getWeekNumber(date) {
  */
 function prepareTemporalChartData(distribution, period = 'monthly') {
   const data = distribution[period];
-  
+
   const chartData = Object.entries(data)
     .map(([key, memories]) => ({
       period: formatPeriodLabel(key, period),
@@ -106,17 +106,17 @@ function formatPeriodLabel(key, period) {
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       return `${monthNames[parseInt(month) - 1]} ${year}`;
-    
+
     case 'weekly':
       return key; // Already formatted as YYYY-WXX
-    
+
     case 'daily':
       return key; // Day names are already formatted
-    
+
     case 'hourly':
       const hour = parseInt(key);
       return `${hour}:00`;
-    
+
     default:
       return key;
   }
@@ -138,11 +138,11 @@ function analyzeTagUsage(memories) {
 
   memories.forEach(memory => {
     const tags = memory.tags || [];
-    
+
     // Tag frequency analysis
     tags.forEach(tag => {
       tagFrequency[tag] = (tagFrequency[tag] || 0) + 1;
-      
+
       // Categorize tags
       const category = categorizeTag(tag);
       if (!categoryDistribution[category]) {
@@ -225,8 +225,8 @@ function analyzeTagConsistency(memories) {
 
     Object.entries(contentPatterns).forEach(([expectedTag, pattern]) => {
       if (pattern.test(content)) {
-        const hasRelatedTag = tags.some(tag => 
-          tag.includes(expectedTag) || 
+        const hasRelatedTag = tags.some(tag =>
+          tag.includes(expectedTag) ||
           expectedTag.includes(tag.split('-')[0])
         );
 
@@ -244,7 +244,7 @@ function analyzeTagConsistency(memories) {
 
     // Check for overly generic tags
     const genericTags = ['test', 'memory', 'note', 'temp', 'example'];
-    const hasGenericOnly = tags.length > 0 && 
+    const hasGenericOnly = tags.length > 0 &&
       tags.every(tag => genericTags.includes(tag));
 
     if (hasGenericOnly) {
@@ -331,8 +331,8 @@ function extractKeywords(content) {
     .toLowerCase()
     .replace(/[^\w\s-]/g, ' ') // Remove punctuation except hyphens
     .split(/\s+/)
-    .filter(word => 
-      word.length > 2 && 
+    .filter(word =>
+      word.length > 2 &&
       !stopWords.has(word) &&
       !word.match(/^\d+$/) // Exclude pure numbers
     );
@@ -448,7 +448,7 @@ function assessTaggingQuality(memories) {
 
     if (tags.length > 0) {
       taggedCount++;
-      
+
       // Well-tagged: has 3+ tags from different categories
       if (tags.length >= 3) {
         const categories = new Set(tags.map(tag => categorizeTag(tag)));
@@ -556,7 +556,7 @@ function assessOrganizationQuality(memories) {
   const distributionBalance = minUsage / maxUsage;
 
   let score = 0;
-  
+
   // Category diversity
   if (categories.length >= 5) score += 30;
   else if (categories.length >= 3) score += 20;
@@ -740,39 +740,39 @@ function prepareVisualizationData(memories) {
       analysisDate: new Date().toISOString(),
       dataVersion: '1.0'
     },
-    
+
     // Chart data for different visualizations
     charts: {
       temporalDistribution: prepareTemporalChartData(temporal, 'monthly'),
       weeklyPattern: prepareTemporalChartData(temporal, 'weekly'),
       dailyPattern: prepareTemporalChartData(temporal, 'daily'),
       hourlyPattern: prepareTemporalChartData(temporal, 'hourly'),
-      
+
       tagFrequency: tags.frequency.slice(0, 20).map(([tag, count]) => ({
         tag,
         count,
         category: categorizeTag(tag)
       })),
-      
+
       tagCombinations: tags.combinations.slice(0, 10).map(([combo, count]) => ({
         combination: combo,
         count,
         tags: combo.split(' + ')
       })),
-      
+
       contentTypes: Object.entries(content.contentTypes).map(([type, count]) => ({
         type,
         count,
         percentage: Math.round((count / memories.length) * 100)
       })),
-      
+
       contentLengths: Object.entries(content.lengthDistribution).map(([category, count]) => ({
         category,
         count,
         percentage: Math.round((count / memories.length) * 100)
       }))
     },
-    
+
     // Summary statistics
     statistics: {
       temporal: {
@@ -780,21 +780,21 @@ function prepareVisualizationData(memories) {
         mostActiveDay: findPeakPeriod(temporal.daily),
         mostActiveHour: findPeakPeriod(temporal.hourly)
       },
-      
+
       tags: {
         totalUniqueTags: tags.totalTags,
         averageTagsPerMemory: Math.round(tags.averageTagsPerMemory * 10) / 10,
         mostUsedTag: tags.frequency[0],
         categoryDistribution: Object.keys(tags.categories).length
       },
-      
+
       content: {
         averageLength: Math.round(content.averageLength),
         mostCommonType: Object.entries(content.contentTypes)
           .sort(([,a], [,b]) => b - a)[0],
         keywordCount: Object.keys(content.wordFrequency).length
       },
-      
+
       quality: {
         overallScore: quality.overallScore,
         taggedPercentage: quality.metrics.tagging.taggedPercentage,
@@ -802,7 +802,7 @@ function prepareVisualizationData(memories) {
         recommendationCount: quality.recommendations.length
       }
     },
-    
+
     // Raw analysis data for advanced processing
     rawData: {
       temporal,
@@ -822,7 +822,7 @@ function findPeakPeriod(distribution) {
   const entries = Object.entries(distribution);
   if (entries.length === 0) return null;
 
-  const peak = entries.reduce((max, [period, memories]) => 
+  const peak = entries.reduce((max, [period, memories]) =>
     memories.length > max.count ? { period, count: memories.length } : max,
     { period: null, count: 0 }
   );
@@ -844,13 +844,13 @@ function exportAnalysisData(analysisData, format = 'json') {
   switch (format) {
     case 'json':
       return JSON.stringify(analysisData, null, 2);
-    
+
     case 'csv':
       return exportToCSV(analysisData);
-    
+
     case 'summary':
       return generateSummaryReport(analysisData);
-    
+
     default:
       throw new Error(`Unsupported export format: ${format}`);
   }
@@ -925,7 +925,7 @@ CONTENT INSIGHTS:
 - Unique Keywords: ${stats.content.keywordCount}
 
 QUALITY RECOMMENDATIONS:
-${quality.recommendations.slice(0, 3).map(rec => 
+${quality.recommendations.slice(0, 3).map(rec =>
   `- ${rec.priority.toUpperCase()}: ${rec.action}`
 ).join('\n')}
 
@@ -944,20 +944,20 @@ For detailed analysis, use the full JSON export or visualization tools.
  */
 async function runCompleteAnalysis(memories) {
   console.log('Starting comprehensive memory analysis...');
-  
+
   const startTime = Date.now();
-  
+
   try {
     // Run all analysis functions
     const results = prepareVisualizationData(memories);
-    
+
     const endTime = Date.now();
     const duration = endTime - startTime;
-    
+
     console.log(`Analysis complete in ${duration}ms`);
     console.log(`Analyzed ${memories.length} memories`);
     console.log(`Overall quality score: ${results.statistics.quality.overallScore}/100`);
-    
+
     return {
       ...results,
       meta: {
@@ -966,7 +966,7 @@ async function runCompleteAnalysis(memories) {
         version: '1.0'
       }
     };
-    
+
   } catch (error) {
     console.error('Analysis failed:', error);
     throw error;
@@ -979,28 +979,28 @@ if (typeof module !== 'undefined' && module.exports) {
     // Temporal analysis
     analyzeTemporalDistribution,
     prepareTemporalChartData,
-    
+
     // Tag analysis
     analyzeTagUsage,
     analyzeTagConsistency,
     categorizeTag,
-    
+
     // Content analysis
     analyzeContentPatterns,
     detectContentType,
     extractKeywords,
-    
+
     // Quality analysis
     assessMemoryQuality,
     generateQualityRecommendations,
-    
+
     // Visualization
     prepareVisualizationData,
-    
+
     // Export utilities
     exportAnalysisData,
     generateSummaryReport,
-    
+
     // Main pipeline
     runCompleteAnalysis
   };
@@ -1008,21 +1008,21 @@ if (typeof module !== 'undefined' && module.exports) {
 
 /**
  * Usage Examples:
- * 
+ *
  * // Basic usage with MCP Memory Service data
  * const memories = await retrieve_memory({ query: "all memories", n_results: 500 });
  * const analysis = await runCompleteAnalysis(memories);
- * 
+ *
  * // Specific analyses
  * const temporalData = analyzeTemporalDistribution(memories);
  * const tagAnalysis = analyzeTagUsage(memories);
  * const qualityReport = assessMemoryQuality(memories);
- * 
+ *
  * // Export results
  * const jsonExport = exportAnalysisData(analysis, 'json');
  * const csvExport = exportAnalysisData(analysis, 'csv');
  * const summary = exportAnalysisData(analysis, 'summary');
- * 
+ *
  * // Prepare data for React charts
  * const chartData = prepareVisualizationData(memories);
  * // Use chartData.charts.temporalDistribution with the React component

@@ -7,31 +7,31 @@
   ],
   "mcpServers": {
     "memory": {
-      "command": "python", 
+      "command": "python",
       "args": [
         "C:/REPOSITORIES/mcp-memory-service/scripts/memory_offline.py"
       ],
       "env": {
         "PYTHONPATH": "C://REPOSITORIES//mcp-memory-service",
         "_comment_backend_choice": "Choose one of the backend configurations below",
-        
+
         "_comment_sqlite_vec": "=== SQLite-vec Backend (Recommended for single-file storage) ===",
         "MCP_MEMORY_STORAGE_BACKEND": "sqlite_vec",
         "MCP_MEMORY_SQLITE_PATH": "C:\\Users\\YOUR_USERNAME\\AppData\\Local\\mcp-memory\\memory_migrated.db",
         "MCP_MEMORY_BACKUPS_PATH": "C:\\Users\\YOUR_USERNAME\\AppData\\Local\\mcp-memory\\backups",
-        
+
         "_comment_chroma_alternative": "=== Alternative: ChromaDB Backend (comment out SQLite-vec above and uncomment below) ===",
         "_MCP_MEMORY_STORAGE_BACKEND": "chroma",
         "_MCP_MEMORY_CHROMA_PATH": "C:\\Users\\YOUR_USERNAME\\AppData\\Local\\mcp-memory\\chroma_db",
         "_MCP_MEMORY_BACKUPS_PATH": "C:\\Users\\YOUR_USERNAME\\AppData\\Local\\mcp-memory\\backups",
-        
+
         "_comment_offline": "=== Offline Mode Configuration (prevents PyTorch downloads) ===",
         "HF_HOME": "C:\\Users\\YOUR_USERNAME\\.cache\\huggingface",
         "TRANSFORMERS_CACHE": "C:\\Users\\YOUR_USERNAME\\.cache\\huggingface\\transformers",
         "SENTENCE_TRANSFORMERS_HOME": "C:\\Users\\YOUR_USERNAME\\.cache\\torch\\sentence_transformers",
         "HF_HUB_OFFLINE": "1",
         "TRANSFORMERS_OFFLINE": "1",
-        
+
         "_comment_performance": "=== Performance Settings ===",
         "PYTORCH_ENABLE_MPS_FALLBACK": "1",
         "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:128"

@@ -1,7 +1,7 @@
 services:
   # Qdrant vector database server
   qdrant:
-    image: qdrant/qdrant:latest
+    image: docker.io/qdrant/qdrant:latest
     container_name: mcp-memory-qdrant
     ports:
       - "6333:6333"  # HTTP API

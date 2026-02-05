@@ -5,8 +5,8 @@ This guide addresses the specific challenges of running MCP Memory Service on In
 ## Hardware Profiles
 
 ### Legacy Intel Macs (2013-2017)
-**Target Hardware**: 2015 MacBook Pro, older Intel Macs without dedicated GPU  
-**Optimization**: Maximum compatibility, minimal resource usage  
+**Target Hardware**: 2015 MacBook Pro, older Intel Macs without dedicated GPU
+**Optimization**: Maximum compatibility, minimal resource usage
 **Recommended Backend**: SQLite-vec with ONNX runtime
 
 **Typical specs this applies to:**
@@ -16,8 +16,8 @@ This guide addresses the specific challenges of running MCP Memory Service on In
 - iMac (21.5-inch/27-inch, 2013-2017) with integrated graphics
 
 ### Modern Intel Macs (2018+)
-**Target Hardware**: 2018+ Intel Macs with better GPU support  
-**Optimization**: Balanced performance and compatibility  
+**Target Hardware**: 2018+ Intel Macs with better GPU support
+**Optimization**: Balanced performance and compatibility
 **Recommended Backend**: ChromaDB with CPU optimization
 
 ## Why Special Setup is Needed
@@ -251,7 +251,7 @@ export MCP_MEMORY_MODEL_CACHE_SIZE=3
 
 #### 1. NumPy Compatibility Errors
 
-**Symptom**: 
+**Symptom**:
 ```
 AttributeError: module 'numpy' has no attribute 'float'
 ```

@@ -27,7 +27,7 @@ claude /memory-health --export-report
 
 I'll perform comprehensive health checks using your MCP Memory Service at `https://memory.local:8443/`:
 
-1. **Service Detection**: 
+1. **Service Detection**:
    - Connect to configured HTTPS endpoint
    - Check health endpoint at `/api/health/detailed`
    - Verify HTTPS connectivity with `-k` flag for self-signed certificates
@@ -94,7 +94,7 @@ I'll perform comprehensive health checks using your MCP Memory Service at `https
 ## Arguments:
 
 - `$ARGUMENTS` - Optional specific health check focus
-- `--detailed` - Show comprehensive diagnostics and statistics  
+- `--detailed` - Show comprehensive diagnostics and statistics
 - `--test-operations` - Perform functional tests of store/retrieve operations
 - `--check-backups` - Verify backup system health and recent backups
 - `--performance-test` - Run performance benchmarks

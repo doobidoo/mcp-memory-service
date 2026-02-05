@@ -2,8 +2,8 @@
 
 ## Architecture Decision Record
 
-**Date**: 2025-08-03  
-**Branch**: `feature/fastapi-mcp-native-v4`  
+**Date**: 2025-08-03
+**Branch**: `feature/fastapi-mcp-native-v4`
 **Version**: 4.0.0-alpha.1
 
 ### Decision: Migrate from Node.js Bridge to Native FastAPI MCP Server
@@ -14,7 +14,7 @@
 
 ### Technical Findings
 
-1. **Node.js SSL Issues**: 
+1. **Node.js SSL Issues**:
    - Node.js HTTPS client fails SSL handshake with self-signed certificates
    - Issue persists despite custom HTTPS agents and disabled certificate validation
    - Workaround: Slash commands using curl work, but direct MCP tools fail
@@ -37,7 +37,7 @@
 
 #### ✅ Migration Completed (Commit: c0a0a45)
 - [x] Dual-service architecture deployed successfully
-- [x] FastMCP server (port 8000) + HTTP dashboard (port 8080) 
+- [x] FastMCP server (port 8000) + HTTP dashboard (port 8080)
 - [x] SSL issues completely resolved
 - [x] Production deployment to memory.local verified
 - [x] Standard MCP client compatibility confirmed
@@ -59,7 +59,7 @@
 
 **Decision**: Exclude 8 dashboard-specific tools from FastAPI MCP server.
 
-**Rationale**: 
+**Rationale**:
 - HTTP dashboard at https://github.com/doobidoo/mcp-memory-dashboard provides superior web interface
 - MCP server should focus on Claude Code integration, not duplicate dashboard functionality
 - Clear separation of concerns: MCP for Claude Code, HTTP for administration
@@ -84,7 +84,7 @@
 
 - [x] ~~All MCP tools function correctly with Claude Code~~ **Standard MCP clients work; Claude Code has SSE compatibility issue**
 - [x] SSL/HTTPS connectivity works without workarounds
-- [x] Performance equals or exceeds Node.js bridge  
+- [x] Performance equals or exceeds Node.js bridge
 - [x] Remote access works from multiple clients
 - [x] Easy deployment without local bridge requirements
 
@@ -92,8 +92,8 @@
 
 **Status**: ✅ **MIGRATION SUCCESSFUL**
 
-**Date Completed**: August 3, 2025  
-**Final Commit**: c0a0a45  
+**Date Completed**: August 3, 2025
+**Final Commit**: c0a0a45
 **Deployment Status**: Production-ready dual-service architecture
 
 The FastAPI MCP migration has successfully achieved its primary objectives:

@@ -47,7 +47,7 @@
 ### Common Issues
 
 - For Windows installation issues, use `scripts/install_windows.py`
-- Apple Silicon requires Python 3.10+ built for ARM64  
+- Apple Silicon requires Python 3.10+ built for ARM64
 - CUDA issues: verify with `torch.cuda.is_available()`
 - For MCP protocol issues, check `server.py` for required methods
 
@@ -111,7 +111,7 @@ When troubleshooting complex MCP issues, consider this collaborative approach be
 1. **Developer identifies the symptom** (e.g., "memory server shows as failed")
 2. **Claude Code conducts comprehensive diagnosis:**
    - Tests current functionality with MCP tools
-   - Examines server logs and error messages  
+   - Examines server logs and error messages
    - Checks configuration files and git history
    - Identifies root causes through systematic analysis
 
@@ -137,7 +137,7 @@ When troubleshooting complex MCP issues, consider this collaborative approach be
 Developer: "MCP memory server is failing"
 ↓
 Claude Code: Creates todo list, tests current state, identifies missing module
-↓  
+↓
 Developer: "Let's fix it but keep the working parts"
 ↓
 Claude Code: Backs up configs, fixes incrementally, tests each component

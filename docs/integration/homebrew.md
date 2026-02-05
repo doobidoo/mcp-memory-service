@@ -151,11 +151,11 @@ model = SentenceTransformer('{model_name}')
 embeddings = model.encode({texts!r})
 print(embeddings.tolist())
 """
-    
+
     result = subprocess.run([
         sys.executable, '-c', script
     ], capture_output=True, text=True, env=homebrew_env)
-    
+
     return json.loads(result.stdout)
 ```
 
@@ -187,7 +187,7 @@ def detect_homebrew_pytorch():
         '/opt/homebrew/lib/python3.11/site-packages',
         '/usr/local/lib/python3.11/site-packages'
     ]
-    
+
     for path in homebrew_paths:
         torch_path = os.path.join(path, 'torch')
         if os.path.exists(torch_path):
@@ -271,7 +271,7 @@ source venv/bin/activate
 python -c "
 import subprocess
 import sys
-result = subprocess.run([sys.executable, '-c', 'import torch; print(torch.__version__)'], 
+result = subprocess.run([sys.executable, '-c', 'import torch; print(torch.__version__)'],
                        capture_output=True, text=True)
 print(f'stdout: {result.stdout}')
 print(f'stderr: {result.stderr}')

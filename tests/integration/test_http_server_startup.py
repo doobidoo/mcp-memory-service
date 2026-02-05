@@ -38,18 +38,20 @@ def test_server_modules_importable():
     """
     # Core dependencies module
     import mcp_memory_service.web.dependencies
-    assert hasattr(mcp_memory_service.web.dependencies, 'get_storage')
-    assert hasattr(mcp_memory_service.web.dependencies, 'get_memory_service')
+
+    assert hasattr(mcp_memory_service.web.dependencies, "get_storage")
+    assert hasattr(mcp_memory_service.web.dependencies, "get_memory_service")
 
     # API endpoint modules
-    import mcp_memory_service.web.api.memories
-    import mcp_memory_service.web.api.search
     import mcp_memory_service.web.api.health
     import mcp_memory_service.web.api.manage
+    import mcp_memory_service.web.api.memories
+    import mcp_memory_service.web.api.search
 
     # Main app module
     import mcp_memory_service.web.app
-    assert hasattr(mcp_memory_service.web.app, 'app')
+
+    assert hasattr(mcp_memory_service.web.app, "app")
 
 
 def test_all_api_routes_registered():
@@ -109,10 +111,7 @@ def test_cors_middleware_configured():
     client = TestClient(app)
 
     # Test CORS with actual GET request (OPTIONS may not be supported on all endpoints)
-    response = client.get(
-        "/api/health",
-        headers={"Origin": "http://localhost:3000"}
-    )
+    response = client.get("/api/health", headers={"Origin": "http://localhost:3000"})
 
     # Should have CORS headers (FastAPI's CORSMiddleware adds these)
     assert response.status_code == 200
@@ -156,7 +155,7 @@ def test_server_handles_invalid_json():
     response = client.post(
         "/api/memories",
         data="{'this': 'is not valid json}",  # Missing quote on 'json'
-        headers={"Content-Type": "application/json"}
+        headers={"Content-Type": "application/json"},
     )
 
     # Should return 400 or 422, not 500

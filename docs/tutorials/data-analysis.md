@@ -11,7 +11,7 @@ The MCP Memory Service can be used not just for storage and retrieval, but as a 
 ### 1. Temporal Analysis
 Understanding when and how your knowledge base grows over time.
 
-### 2. Content Analysis  
+### 2. Content Analysis
 Analyzing what types of information are stored and how they're organized.
 
 ### 3. Usage Pattern Analysis
@@ -36,7 +36,7 @@ const januaryMemories = await recall_memory({
 });
 
 const juneMemories = await recall_memory({
-  "query": "memories from june 2025", 
+  "query": "memories from june 2025",
   "n_results": 50
 });
 
@@ -70,23 +70,23 @@ console.log(`Weekly growth rate: ${weeklyGrowth.toFixed(1)}%`);
 // Process temporal data for visualization
 function analyzeMemoryDistribution(memories) {
   const monthlyDistribution = {};
-  
+
   memories.forEach(memory => {
     // Extract date from timestamp
     const date = new Date(memory.timestamp);
     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    
+
     if (!monthlyDistribution[monthKey]) {
       monthlyDistribution[monthKey] = {
         count: 0,
         memories: []
       };
     }
-    
+
     monthlyDistribution[monthKey].count++;
     monthlyDistribution[monthKey].memories.push(memory);
   });
-  
+
   return monthlyDistribution;
 }
 
@@ -96,10 +96,10 @@ function prepareChartData(distribution) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([month, data]) => {
       const [year, monthNum] = month.split('-');
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const monthName = monthNames[parseInt(monthNum) - 1];
-      
+
       return {
         month: `${monthName} ${year}`,
         count: data.count,
@@ -117,7 +117,7 @@ async function analyzeProjectLifecycle(projectTag) {
   const projectMemories = await search_by_tag({
     "tags": [projectTag]
   });
-  
+
   // Group by status tags
   const phases = {
     planning: [],
@@ -126,10 +126,10 @@ async function analyzeProjectLifecycle(projectTag) {
     deployment: [],
     maintenance: []
   };
-  
+
   projectMemories.forEach(memory => {
     const tags = memory.tags || [];
-    
+
     if (tags.includes('planning') || tags.includes('design')) {
       phases.planning.push(memory);
     } else if (tags.includes('development') || tags.includes('implementation')) {
@@ -142,7 +142,7 @@ async function analyzeProjectLifecycle(projectTag) {
       phases.maintenance.push(memory);
     }
   });
-  
+
   return phases;
 }
 
@@ -169,21 +169,21 @@ async function analyzeTagFrequency() {
     "query": "all memories",
     "n_results": 500
   });
-  
+
   const tagFrequency = {};
-  
+
   allMemories.forEach(memory => {
     const tags = memory.tags || [];
     tags.forEach(tag => {
       tagFrequency[tag] = (tagFrequency[tag] || 0) + 1;
     });
   });
-  
+
   // Sort by frequency
   const sortedTags = Object.entries(tagFrequency)
     .sort(([,a], [,b]) => b - a)
     .slice(0, 20); // Top 20 tags
-  
+
   return sortedTags;
 }
 
@@ -199,10 +199,10 @@ topTags.forEach(([tag, count]) => {
 ```javascript
 function analyzeTagRelationships(memories) {
   const cooccurrence = {};
-  
+
   memories.forEach(memory => {
     const tags = memory.tags || [];
-    
+
     // For each pair of tags in the memory
     for (let i = 0; i < tags.length; i++) {
       for (let j = i + 1; j < tags.length; j++) {
@@ -211,7 +211,7 @@ function analyzeTagRelationships(memories) {
       }
     }
   });
-  
+
   // Find most common tag combinations
   return Object.entries(cooccurrence)
     .sort(([,a], [,b]) => b - a)
@@ -240,7 +240,7 @@ function categorizeTagsByType(tags) {
     temporal: [],
     other: []
   };
-  
+
   // Define patterns for each category
   const patterns = {
     projects: /^(mcp-memory-service|memory-dashboard|github-integration)/,
@@ -250,10 +250,10 @@ function categorizeTagsByType(tags) {
     content: /^(concept|architecture|tutorial|reference|example)/,
     temporal: /^(january|february|march|april|may|june|q1|q2|2025)/
   };
-  
+
   tags.forEach(([tag, count]) => {
     let categorized = false;
-    
+
     for (const [category, pattern] of Object.entries(patterns)) {
       if (pattern.test(tag)) {
         categories[category].push([tag, count]);
@@ -261,12 +261,12 @@ function categorizeTagsByType(tags) {
         break;
       }
     }
-    
+
     if (!categorized) {
       categories.other.push([tag, count]);
     }
   });
-  
+
   return categories;
 }
 
@@ -290,13 +290,13 @@ async function findUntaggedMemories() {
     "query": "test simple basic example memory",
     "n_results": 50
   });
-  
+
   const untagged = candidates.filter(memory => {
     const tags = memory.tags || [];
-    return tags.length === 0 || 
+    return tags.length === 0 ||
            (tags.length === 1 && ['test', 'memory', 'note'].includes(tags[0]));
   });
-  
+
   return {
     total: candidates.length,
     untagged: untagged.length,
@@ -315,11 +315,11 @@ console.log(`Tagging quality: ${(100 - qualityReport.percentage).toFixed(1)}% pr
 function analyzeTagConsistency(memories) {
   const patterns = {};
   const inconsistencies = [];
-  
+
   memories.forEach(memory => {
     const content = memory.content;
     const tags = memory.tags || [];
-    
+
     // Look for common content patterns
     if (content.includes('issue') || content.includes('bug')) {
       const hasIssueTag = tags.some(tag => tag.includes('issue') || tag.includes('bug'));
@@ -331,7 +331,7 @@ function analyzeTagConsistency(memories) {
         });
       }
     }
-    
+
     if (content.includes('test') || content.includes('TEST')) {
       const hasTestTag = tags.includes('test') || tags.includes('testing');
       if (!hasTestTag) {
@@ -343,7 +343,7 @@ function analyzeTagConsistency(memories) {
       }
     }
   });
-  
+
   return {
     totalMemories: memories.length,
     inconsistencies: inconsistencies.length,
@@ -362,17 +362,17 @@ function analyzeTagConsistency(memories) {
 function prepareDistributionData(memories) {
   const distribution = analyzeMemoryDistribution(memories);
   const chartData = prepareChartData(distribution);
-  
+
   // Add additional metrics
   const total = chartData.reduce((sum, item) => sum + item.count, 0);
   const average = total / chartData.length;
-  
+
   // Identify peaks and valleys
-  const peak = chartData.reduce((max, item) => 
+  const peak = chartData.reduce((max, item) =>
     item.count > max.count ? item : max, chartData[0]);
-  const valley = chartData.reduce((min, item) => 
+  const valley = chartData.reduce((min, item) =>
     item.count < min.count ? item : min, chartData[0]);
-  
+
   return {
     chartData,
     metrics: {
@@ -387,10 +387,10 @@ function prepareDistributionData(memories) {
 
 function calculateGrowthRate(chartData) {
   if (chartData.length < 2) return 0;
-  
+
   const first = chartData[0].count;
   const last = chartData[chartData.length - 1].count;
-  
+
   return ((last - first) / first) * 100;
 }
 ```
@@ -401,20 +401,20 @@ function calculateGrowthRate(chartData) {
 ```javascript
 function generateActivityHeatmap(memories) {
   const heatmapData = {};
-  
+
   memories.forEach(memory => {
     const date = new Date(memory.timestamp);
     const dayOfWeek = date.getDay(); // 0 = Sunday
     const hour = date.getHours();
-    
+
     const key = `${dayOfWeek}-${hour}`;
     heatmapData[key] = (heatmapData[key] || 0) + 1;
   });
-  
+
   // Convert to matrix format for visualization
   const matrix = [];
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  
+
   for (let day = 0; day < 7; day++) {
     const dayData = [];
     for (let hour = 0; hour < 24; hour++) {
@@ -427,7 +427,7 @@ function generateActivityHeatmap(memories) {
     }
     matrix.push(dayData);
   }
-  
+
   return matrix;
 }
 ```
@@ -444,13 +444,13 @@ async function findRelatedMemories(targetMemory, threshold = 0.7) {
     "query": targetMemory.content.substring(0, 200),
     "n_results": 20
   });
-  
+
   // Filter by relevance score (if available)
-  const highlyRelated = related.filter(memory => 
+  const highlyRelated = related.filter(memory =>
     memory.relevanceScore > threshold &&
     memory.content_hash !== targetMemory.content_hash
   );
-  
+
   return highlyRelated;
 }
 
@@ -458,7 +458,7 @@ async function findRelatedMemories(targetMemory, threshold = 0.7) {
 async function buildKnowledgeGraph(memories) {
   const nodes = [];
   const edges = [];
-  
+
   for (const memory of memories.slice(0, 50)) { // Limit for performance
     nodes.push({
       id: memory.content_hash,
@@ -466,9 +466,9 @@ async function buildKnowledgeGraph(memories) {
       tags: memory.tags || [],
       group: memory.tags?.[0] || 'untagged'
     });
-    
+
     const related = await findRelatedMemories(memory, 0.8);
-    
+
     related.forEach(relatedMemory => {
       edges.push({
         from: memory.content_hash,
@@ -477,7 +477,7 @@ async function buildKnowledgeGraph(memories) {
       });
     });
   }
-  
+
   return { nodes, edges };
 }
 ```
@@ -489,27 +489,27 @@ async function buildKnowledgeGraph(memories) {
 function analyzeTrends(memories, timeWindow = 30) {
   const now = new Date();
   const cutoff = new Date(now - timeWindow * 24 * 60 * 60 * 1000);
-  
-  const recentMemories = memories.filter(memory => 
+
+  const recentMemories = memories.filter(memory =>
     new Date(memory.timestamp) > cutoff
   );
-  
-  const historicalMemories = memories.filter(memory => 
+
+  const historicalMemories = memories.filter(memory =>
     new Date(memory.timestamp) <= cutoff
   );
-  
+
   // Analyze tag frequency changes
   const recentTags = getTagFrequency(recentMemories);
   const historicalTags = getTagFrequency(historicalMemories);
-  
+
   const trends = [];
-  
+
   Object.entries(recentTags).forEach(([tag, recentCount]) => {
     const historicalCount = historicalTags[tag] || 0;
     const change = recentCount - historicalCount;
-    const changePercent = historicalCount > 0 ? 
+    const changePercent = historicalCount > 0 ?
       (change / historicalCount) * 100 : 100;
-    
+
     if (Math.abs(changePercent) > 50) { // Significant change
       trends.push({
         tag,
@@ -520,7 +520,7 @@ function analyzeTrends(memories, timeWindow = 30) {
       });
     }
   });
-  
+
   return trends.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
 }
 
@@ -543,29 +543,29 @@ function getTagFrequency(memories) {
 async function runDailyAnalytics() {
   console.log('🔍 Daily Memory Analytics Report');
   console.log('================================');
-  
+
   // 1. Recent activity
   const todayMemories = await recall_memory({
     "query": "memories from today",
     "n_results": 50
   });
   console.log(`📊 Memories added today: ${todayMemories.length}`);
-  
+
   // 2. Tag quality check
   const qualityReport = await findUntaggedMemories();
   console.log(`🏷️  Tagging quality: ${(100 - qualityReport.percentage).toFixed(1)}%`);
-  
+
   // 3. Most active projects
   const topTags = await analyzeTagFrequency();
-  const topProjects = topTags.filter(([tag]) => 
+  const topProjects = topTags.filter(([tag]) =>
     tag.includes('project') || tag.includes('service')
   ).slice(0, 3);
   console.log('🚀 Most active projects:', topProjects);
-  
+
   // 4. Database health
   const health = await check_database_health();
   console.log(`💾 Database health: ${health.status}`);
-  
+
   console.log('\n✅ Daily analytics complete');
 }
 ```
@@ -578,22 +578,22 @@ async function generateWeeklyReport() {
     "query": "memories from last week",
     "n_results": 100
   });
-  
+
   const report = {
     summary: {
       totalMemories: weekMemories.length,
       date: new Date().toISOString().split('T')[0]
     },
-    
+
     topCategories: analyzeTagFrequency(weekMemories),
-    
+
     qualityMetrics: await findUntaggedMemories(),
-    
+
     trends: analyzeTrends(weekMemories, 7),
-    
+
     recommendations: generateRecommendations(weekMemories)
   };
-  
+
   // Store report as memory
   await store_memory({
     "content": `Weekly Analytics Report - ${report.summary.date}: ${JSON.stringify(report, null, 2)}`,
@@ -602,13 +602,13 @@ async function generateWeeklyReport() {
       "type": "analytics-report"
     }
   });
-  
+
   return report;
 }
 
 function generateRecommendations(memories) {
   const recommendations = [];
-  
+
   // Tag consistency recommendations
   const untagged = memories.filter(m => (m.tags || []).length === 0);
   if (untagged.length > 0) {
@@ -618,10 +618,10 @@ function generateRecommendations(memories) {
       message: `${untagged.length} memories need tagging`
     });
   }
-  
+
   // Content organization recommendations
-  const testMemories = memories.filter(m => 
-    m.content.toLowerCase().includes('test') && 
+  const testMemories = memories.filter(m =>
+    m.content.toLowerCase().includes('test') &&
     !(m.tags || []).includes('test')
   );
   if (testMemories.length > 0) {
@@ -631,7 +631,7 @@ function generateRecommendations(memories) {
       message: `${testMemories.length} test memories need proper categorization`
     });
   }
-  
+
   return recommendations;
 }
 ```
@@ -651,10 +651,10 @@ const MemoryAnalytics = {
       quality: await this.assessQuality(),
       trends: await this.identifyTrends()
     };
-    
+
     return results;
   },
-  
+
   async generateVisualizationData() {
     const memories = await this.getAllMemories();
     return prepareDistributionData(memories);
@@ -667,7 +667,7 @@ const MemoryAnalytics = {
 // Run analytics and store results
 async function scheduledAnalysis() {
   const results = await MemoryAnalytics.runFullAnalysis();
-  
+
   await store_memory({
     "content": `Automated Analytics Report: ${JSON.stringify(results, null, 2)}`,
     "metadata": {
@@ -695,11 +695,11 @@ function exportToCSV(memories) {
     (memory.tags || []).join(';'),
     memory.type || 'unknown'
   ]);
-  
+
   const csv = [headers, ...rows]
     .map(row => row.map(field => `"${field}"`).join(','))
     .join('\n');
-  
+
   return csv;
 }
 ```
@@ -713,13 +713,13 @@ function exportForVisualization(memories) {
       exported: new Date().toISOString(),
       schema_version: '1.0'
     },
-    
+
     temporal_data: prepareDistributionData(memories),
-    
+
     tag_analysis: analyzeTagFrequency(memories),
-    
+
     relationships: buildKnowledgeGraph(memories),
-    
+
     quality_metrics: assessQuality(memories)
   };
 }

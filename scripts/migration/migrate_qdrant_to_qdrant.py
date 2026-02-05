@@ -21,14 +21,12 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import sys
-import time
-import shutil
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any
+
 import numpy as np
 
 # Add src to path for imports
@@ -38,21 +36,19 @@ sys.path.insert(0, str(project_root))
 
 # Try different import paths
 try:
-    from src.mcp_memory_service.storage.qdrant_storage import QdrantStorage
     from src.mcp_memory_service.models.memory import Memory
+    from src.mcp_memory_service.storage.qdrant_storage import QdrantStorage
 except ImportError:
     try:
-        from mcp_memory_service.storage.qdrant_storage import QdrantStorage
         from mcp_memory_service.models.memory import Memory
+        from mcp_memory_service.storage.qdrant_storage import QdrantStorage
     except ImportError:
         # For running in Docker container
         sys.path.insert(0, "/app")
-        from src.mcp_memory_service.storage.qdrant_storage import QdrantStorage
         from src.mcp_memory_service.models.memory import Memory
+        from src.mcp_memory_service.storage.qdrant_storage import QdrantStorage
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -62,33 +58,31 @@ class MigrationCheckpoint:
 
     total_memories: int
     migrated_count: int
-    failed_hashes: List[str]
-    last_successful_hash: Optional[str]
+    failed_hashes: list[str]
+    last_successful_hash: str | None
     started_at: str
     last_updated_at: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MigrationCheckpoint":
+    def from_dict(cls, data: dict[str, Any]) -> "MigrationCheckpoint":
         """Create from dictionary."""
         return cls(**data)
 
 
-def load_checkpoint(checkpoint_path: str) -> Optional[MigrationCheckpoint]:
+def load_checkpoint(checkpoint_path: str) -> MigrationCheckpoint | None:
     """Load checkpoint from file, return None if doesn't exist."""
     path = Path(checkpoint_path)
     if not path.exists():
         return None
 
     try:
-        with open(path, "r") as f:
+        with open(path) as f:
             data = json.load(f)
-        logger.info(
-            f"Loaded checkpoint: {data['migrated_count']}/{data['total_memories']} memories migrated"
-        )
+        logger.info(f"Loaded checkpoint: {data['migrated_count']}/{data['total_memories']} memories migrated")
         return MigrationCheckpoint.from_dict(data)
     except (json.JSONDecodeError, KeyError) as e:
         logger.error(f"Failed to load checkpoint: {e}")
@@ -111,9 +105,7 @@ def save_checkpoint(checkpoint: MigrationCheckpoint, checkpoint_path: str) -> No
         # Atomically rename temp file to actual checkpoint file
         temp_path.replace(path)
 
-        logger.debug(
-            f"Checkpoint saved: {checkpoint.migrated_count}/{checkpoint.total_memories} memories"
-        )
+        logger.debug(f"Checkpoint saved: {checkpoint.migrated_count}/{checkpoint.total_memories} memories")
     except Exception as e:
         logger.error(f"Failed to save checkpoint: {e}")
         # Clean up temp file if it exists
@@ -122,7 +114,7 @@ def save_checkpoint(checkpoint: MigrationCheckpoint, checkpoint_path: str) -> No
         raise
 
 
-def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
     """Calculate cosine similarity between two vectors."""
     a = np.array(vec1)
     b = np.array(vec2)
@@ -130,10 +122,10 @@ def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
 
 
 async def validate_batch(
-    source_memories: List[Memory],
+    source_memories: list[Memory],
     target_storage: QdrantStorage,
-    batch_hashes: List[str],
-) -> Tuple[bool, str]:
+    batch_hashes: list[str],
+) -> tuple[bool, str]:
     """
     Validate that batch was successfully written to target Qdrant.
 
@@ -154,9 +146,9 @@ async def validate_batch(
 async def migrate_batch(
     source_storage: QdrantStorage,
     target_storage: QdrantStorage,
-    memories: List[Memory],
+    memories: list[Memory],
     dry_run: bool = False,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """Migrate a batch of memories from source to target."""
     if dry_run:
         logger.info(f"DRY RUN: Would migrate {len(memories)} memories")
@@ -176,7 +168,7 @@ async def migrate_batch(
         return False, error_msg
 
 
-async def get_all_memories(storage: QdrantStorage) -> List[Memory]:
+async def get_all_memories(storage: QdrantStorage) -> list[Memory]:
     """Retrieve all memories from storage."""
     memories = []
     limit = 1000  # Batch size for retrieval
@@ -202,26 +194,18 @@ async def get_all_memories(storage: QdrantStorage) -> List[Memory]:
 
 
 async def main():
-    parser = argparse.ArgumentParser(
-        description="Migrate memories between Qdrant storages"
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Validate without writing"
-    )
+    parser = argparse.ArgumentParser(description="Migrate memories between Qdrant storages")
+    parser.add_argument("--dry-run", action="store_true", help="Validate without writing")
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint")
     parser.add_argument(
         "--checkpoint",
         default="qdrant_migration_checkpoint.json",
         help="Checkpoint file path",
     )
-    parser.add_argument(
-        "--batch-size", type=int, default=100, help="Batch size for migration"
-    )
+    parser.add_argument("--batch-size", type=int, default=100, help="Batch size for migration")
     parser.add_argument("--source-path", help="Source Qdrant storage path")
     parser.add_argument("--target-path", help="Target Qdrant storage path")
-    parser.add_argument(
-        "--embedding-model", default="intfloat/e5-small", help="Embedding model name"
-    )
+    parser.add_argument("--embedding-model", default="intfloat/e5-small", help="Embedding model name")
 
     args = parser.parse_args()
 
@@ -298,9 +282,7 @@ async def main():
             )
             logger.info("Starting fresh migration")
         else:
-            logger.info(
-                f"Resuming migration: {checkpoint.migrated_count}/{checkpoint.total_memories}"
-            )
+            logger.info(f"Resuming migration: {checkpoint.migrated_count}/{checkpoint.total_memories}")
 
         # Process memories in batches
         batch_size = args.batch_size
@@ -311,14 +293,10 @@ async def main():
             batch_memories = all_memories[i:batch_end]
             batch_hashes = [mem.content_hash for mem in batch_memories]
 
-            logger.info(
-                f"Processing batch {i // batch_size + 1}: memories {i + 1}-{batch_end}"
-            )
+            logger.info(f"Processing batch {i // batch_size + 1}: memories {i + 1}-{batch_end}")
 
             # Migrate batch
-            success, error_msg = await migrate_batch(
-                source_storage, target_storage, batch_memories, args.dry_run
-            )
+            success, error_msg = await migrate_batch(source_storage, target_storage, batch_memories, args.dry_run)
 
             if not success:
                 checkpoint.failed_hashes.extend(batch_hashes)
@@ -328,9 +306,7 @@ async def main():
 
             # Validate batch (only if not dry run)
             if not args.dry_run:
-                validation_success, validation_error = await validate_batch(
-                    batch_memories, target_storage, batch_hashes
-                )
+                validation_success, validation_error = await validate_batch(batch_memories, target_storage, batch_hashes)
 
                 if not validation_success:
                     logger.error(f"Batch validation failed: {validation_error}")

@@ -23,7 +23,7 @@ You are part of a sessions-based task management system. A new task has just bee
 ### Step 2: Research Everything (SPARE NO TOKENS)
 Hunt down:
 - Every feature/service/module that will be touched
-- Every component that communicates with those components  
+- Every component that communicates with those components
 - Configuration files and environment variables
 - Database models and data access patterns
 - Caching systems and data structures (Redis, Memcached, in-memory, etc.)
@@ -58,7 +58,7 @@ Write VERBOSE, COMPREHENSIVE paragraphs explaining:
 
 **For New Features - What Needs to Connect:**
 - Which existing systems will be impacted
-- How current flows need modification  
+- How current flows need modification
 - Where your new code will hook in
 - What patterns you must follow
 - What assumptions might break
@@ -126,7 +126,7 @@ The current caching pattern assumes [assumption] but our new feature requires [r
 - State management: Redux, Context API, MobX, Vuex, Zustand, server state
 - Design patterns: MVC, MVVM, repository pattern, dependency injection, factory pattern
 
-### Data Access Patterns  
+### Data Access Patterns
 - Database patterns: ORM usage (SQLAlchemy, Prisma, TypeORM), raw SQL, stored procedures
 - Caching strategies: Redis patterns, cache keys, TTLs, invalidation strategies, distributed caching
 - File system organization: where files live, naming conventions, directory structure

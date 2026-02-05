@@ -17,16 +17,16 @@ FastAPI dependencies for the HTTP interface.
 """
 
 import logging
-from typing import Optional
-from fastapi import HTTPException, Depends
 
-from ..storage.base import MemoryStorage
+from fastapi import Depends, HTTPException
+
 from ..services.memory_service import MemoryService
+from ..storage.base import MemoryStorage
 
 logger = logging.getLogger(__name__)
 
 # Global storage instance
-_storage: Optional[MemoryStorage] = None
+_storage: MemoryStorage | None = None
 
 
 def set_storage(storage: MemoryStorage) -> None:
@@ -45,8 +45,6 @@ def get_storage() -> MemoryStorage:
 def get_memory_service(storage: MemoryStorage = Depends(get_storage)) -> MemoryService:
     """Get a MemoryService instance with the configured storage backend."""
     return MemoryService(storage)
-
-
 
 
 async def create_storage_backend() -> MemoryStorage:

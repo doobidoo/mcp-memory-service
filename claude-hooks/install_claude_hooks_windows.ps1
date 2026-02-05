@@ -14,18 +14,18 @@ $ErrorActionPreference = "Stop"
 function Get-ClaudeHooksDirectory {
     # Primary location: User profile (updated to match actual Claude Code directory structure)
     $primaryPath = "$env:USERPROFILE\.claude\hooks"
-    
+
     # Alternative locations to check
     $alternativePaths = @(
         "$env:APPDATA\.claude\hooks",
         "$env:LOCALAPPDATA\.claude\hooks"
     )
-    
+
     # If primary path already exists, use it
     if (Test-Path $primaryPath) {
         return $primaryPath
     }
-    
+
     # Check if Claude Code is installed and can tell us the hooks directory
     try {
         $claudeHelp = claude --help 2>$null
@@ -38,14 +38,14 @@ function Get-ClaudeHooksDirectory {
     } catch {
         # Claude CLI not available or failed
     }
-    
+
     # Check alternative locations
     foreach ($altPath in $alternativePaths) {
         if (Test-Path $altPath) {
             return $altPath
         }
     }
-    
+
     # Default to primary path (will be created if needed)
     return $primaryPath
 }
@@ -65,7 +65,7 @@ function Write-Warn { Write-Host "[WARN]" -ForegroundColor Yellow -NoNewline; Wr
 function Write-Error { Write-Host "[ERROR]" -ForegroundColor Red -NoNewline; Write-Host " $args" }
 
 Write-Info "Script location: $SCRIPT_DIR"
-Write-Info "Repository root: $REPO_ROOT" 
+Write-Info "Repository root: $REPO_ROOT"
 Write-Info "Source hooks directory: $SOURCE_DIR"
 Write-Info "Target hooks directory: $CLAUDE_HOOKS_DIR"
 
@@ -113,7 +113,7 @@ function Test-ClaudeCode {
 # Validate source directory exists
 function Test-SourceDirectory {
     Write-Info "Validating source directory..."
-    
+
     if (-not (Test-Path $SOURCE_DIR)) {
         Write-Error "Source hooks directory not found: $SOURCE_DIR"
         Write-Error "Please ensure you are running this script from the mcp-memory-service repository"
@@ -127,7 +127,7 @@ function Test-SourceDirectory {
         Write-Error "      config.json"
         exit 1
     }
-    
+
     # Check for required subdirectories
     $requiredDirs = @("core", "utilities", "tests")
     foreach ($dir in $requiredDirs) {
@@ -138,7 +138,7 @@ function Test-SourceDirectory {
             exit 1
         }
     }
-    
+
     Write-Info "Source directory validation passed"
 }
 
@@ -162,7 +162,7 @@ function New-HooksDirectory {
     } else {
         Write-Info "Claude Code hooks directory exists: $CLAUDE_HOOKS_DIR"
     }
-    
+
     # Test write access
     $testFile = Join-Path $CLAUDE_HOOKS_DIR "write-test.tmp"
     try {
@@ -179,13 +179,13 @@ function New-HooksDirectory {
 # Backup existing hooks if they exist
 function Backup-ExistingHooks {
     $hasExisting = $false
-    
-    if ((Test-Path "$CLAUDE_HOOKS_DIR\core") -or 
+
+    if ((Test-Path "$CLAUDE_HOOKS_DIR\core") -or
         (Test-Path "$CLAUDE_HOOKS_DIR\utilities") -or
         (Test-Path "$CLAUDE_HOOKS_DIR\config.json")) {
         $hasExisting = $true
     }
-    
+
     if ($hasExisting) {
         Write-Info "Backing up existing hooks to: $BACKUP_DIR"
         New-Item -ItemType Directory -Path $BACKUP_DIR -Force | Out-Null
@@ -197,24 +197,24 @@ function Backup-ExistingHooks {
 # Install hook files
 function Install-Hooks {
     Write-Info "Installing memory awareness hooks..."
-    
+
     # Create necessary directories
     New-Item -ItemType Directory -Path "$CLAUDE_HOOKS_DIR\core" -Force | Out-Null
     New-Item -ItemType Directory -Path "$CLAUDE_HOOKS_DIR\utilities" -Force | Out-Null
     New-Item -ItemType Directory -Path "$CLAUDE_HOOKS_DIR\tests" -Force | Out-Null
-    
+
     # Copy core hooks
     Copy-Item -Path "$SOURCE_DIR\core\*" -Destination "$CLAUDE_HOOKS_DIR\core\" -Recurse -Force
     Write-Info "Installed core hooks (session-start, session-end, topic-change)"
-    
+
     # Copy utilities
     Copy-Item -Path "$SOURCE_DIR\utilities\*" -Destination "$CLAUDE_HOOKS_DIR\utilities\" -Recurse -Force
     Write-Info "Installed utility modules"
-    
+
     # Copy tests
     Copy-Item -Path "$SOURCE_DIR\tests\*" -Destination "$CLAUDE_HOOKS_DIR\tests\" -Recurse -Force
     Write-Info "Installed test suite"
-    
+
     # Copy documentation and configuration
     Copy-Item -Path "$SOURCE_DIR\README.md" -Destination "$CLAUDE_HOOKS_DIR\" -Force
     Copy-Item -Path "$SOURCE_DIR\config.template.json" -Destination "$CLAUDE_HOOKS_DIR\" -Force
@@ -224,7 +224,7 @@ function Install-Hooks {
 # Install or update configuration
 function Install-Config {
     $configFile = "$CLAUDE_HOOKS_DIR\config.json"
-    
+
     if (-not (Test-Path $configFile)) {
         # First installation - use default config
         Copy-Item -Path "$SOURCE_DIR\config.json" -Destination $configFile -Force
@@ -239,7 +239,7 @@ function Install-Config {
 # Test installation
 function Test-Installation {
     Write-Info "Testing installation..."
-    
+
     # Check if required files exist
     $requiredFiles = @(
         "core\session-start.js",
@@ -250,14 +250,14 @@ function Test-Installation {
         "config.json",
         "README.md"
     )
-    
+
     $missingFiles = @()
     foreach ($file in $requiredFiles) {
         if (-not (Test-Path "$CLAUDE_HOOKS_DIR\$file")) {
             $missingFiles += $file
         }
     }
-    
+
     if ($missingFiles.Count -gt 0) {
         Write-Error "Installation incomplete - missing files:"
         foreach ($file in $missingFiles) {
@@ -265,7 +265,7 @@ function Test-Installation {
         }
         return $false
     }
-    
+
     # Test Node.js availability
     $nodeVersion = node --version 2>$null
     if (-not $nodeVersion) {
@@ -274,7 +274,7 @@ function Test-Installation {
     } else {
         Write-Info "Node.js available: $nodeVersion"
     }
-    
+
     # Run integration test
     if (Test-Path "$CLAUDE_HOOKS_DIR\tests\integration-test.js") {
         Write-Info "Running integration tests..."
@@ -291,7 +291,7 @@ function Test-Installation {
             Pop-Location
         }
     }
-    
+
     return $true
 }
 
@@ -320,7 +320,7 @@ function Show-PostInstallInstructions {
         Write-Host "   Backup Directory: $BACKUP_DIR"
     }
     Write-Host ""
-    
+
     # Try to read and display current configuration
     $configPath = Join-Path $CLAUDE_HOOKS_DIR "config.json"
     if (Test-Path $configPath) {

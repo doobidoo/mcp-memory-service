@@ -101,4 +101,3 @@ uv run pytest -q
 ```
 
 See also: `docs/mastery/testing-guide.md` and `docs/sqlite-vec-backend.md`.
-

@@ -9,7 +9,7 @@ description = "Universal MCP memory service with semantic search, multi-client s
 readme = "README.md"
 requires-python = ">=3.10"
 keywords = [
-    "mcp", "model-context-protocol", "claude-desktop", "semantic-memory", 
+    "mcp", "model-context-protocol", "claude-desktop", "semantic-memory",
     "vector-database", "ai-assistant", "sqlite-vec", "multi-client",
     "semantic-search", "memory-consolidation", "ai-productivity", "vs-code",
     "cursor", "continue", "fastapi", "developer-tools", "cross-platform"
@@ -58,6 +58,7 @@ dependencies = [
     "optimum[onnxruntime]>=1.16.0", # ONNX backend for 1.5-3x speedup on ARM64
     "onnxruntime>=1.17.0", # Explicit ONNX Runtime for ARM64 optimization
     "toon-format>=0.9.0b1",
+    "platformdirs>=4.0.0",
 ]
 
 [project.optional-dependencies]

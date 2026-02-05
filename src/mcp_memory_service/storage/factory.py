@@ -20,14 +20,13 @@ Supported backends: Qdrant (production), SQLite-vec (development).
 """
 
 import logging
-from typing import Type
 
 from .base import MemoryStorage
 
 logger = logging.getLogger(__name__)
 
 
-def get_storage_backend_class() -> Type[MemoryStorage]:
+def get_storage_backend_class() -> type[MemoryStorage]:
     """
     Get storage backend class based on configuration.
 
@@ -40,10 +39,12 @@ def get_storage_backend_class() -> Type[MemoryStorage]:
 
     if backend in ("sqlite-vec", "sqlite_vec"):
         from .sqlite_vec import SqliteVecMemoryStorage
+
         return SqliteVecMemoryStorage
 
     elif backend == "qdrant":
         from .qdrant_storage import QdrantStorage
+
         return QdrantStorage
 
     else:
@@ -68,15 +69,12 @@ async def create_storage_instance(sqlite_path: str) -> MemoryStorage:
     """
     from ..config import EMBEDDING_MODEL_NAME, settings
 
-    logger.info(f"Creating storage backend instance...")
+    logger.info("Creating storage backend instance...")
 
     StorageClass = get_storage_backend_class()
 
     if StorageClass.__name__ == "SqliteVecMemoryStorage":
-        storage = StorageClass(
-            db_path=sqlite_path,
-            embedding_model=EMBEDDING_MODEL_NAME
-        )
+        storage = StorageClass(db_path=sqlite_path, embedding_model=EMBEDDING_MODEL_NAME)
         logger.info(f"Initialized SQLite-vec storage at {sqlite_path}")
 
     elif StorageClass.__name__ == "QdrantStorage":
@@ -88,7 +86,7 @@ async def create_storage_instance(sqlite_path: str) -> MemoryStorage:
                 embedding_model=EMBEDDING_MODEL_NAME,
                 collection_name=settings.qdrant.COLLECTION_NAME,
                 quantization_enabled=settings.qdrant.quantization_enabled,
-                distance_metric=settings.qdrant.DISTANCE_METRIC
+                distance_metric=settings.qdrant.DISTANCE_METRIC,
             )
             logger.info(f"Initialized Qdrant storage in server mode: {settings.qdrant.url}")
         else:
@@ -98,7 +96,7 @@ async def create_storage_instance(sqlite_path: str) -> MemoryStorage:
                 embedding_model=EMBEDDING_MODEL_NAME,
                 collection_name=settings.qdrant.COLLECTION_NAME,
                 quantization_enabled=settings.qdrant.quantization_enabled,
-                distance_metric=settings.qdrant.DISTANCE_METRIC
+                distance_metric=settings.qdrant.DISTANCE_METRIC,
             )
             logger.info(f"Initialized Qdrant storage in embedded mode: {settings.qdrant.storage_path}")
 

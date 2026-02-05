@@ -103,4 +103,3 @@ TLS:
   - HNSW space/ef/M values tuned for balanced accuracy and speed; migration messaging warns of deprecation and recommends moving to SQLite-vec.
 - Cloudflare:
   - Ensure required variables are set or the process exits with a clear error and checklist.
-

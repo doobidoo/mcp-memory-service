@@ -10,7 +10,7 @@ This roadmap is a reset after the fork. In no particular order, here are some id
 3. Add TOON to minimise token usage
 4. ....
 5. Profit.
-   
+
 ---
 
 ## 📞 Get Involved

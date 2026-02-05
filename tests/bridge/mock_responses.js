@@ -1,6 +1,6 @@
 /**
  * Mock Server Responses for Testing
- * 
+ *
  * These responses match the ACTUAL behavior of the MCP Memory Service API,
  * not what we might assume or hope it returns.
  */
@@ -30,7 +30,7 @@ const mockResponses = {
             }
         }
     },
-    
+
     // Memory storage responses - CRITICAL: Server returns 200, not 201!
     memories: {
         createSuccess: {
@@ -82,7 +82,7 @@ const mockResponses = {
             }
         }
     },
-    
+
     // Memory retrieval/search responses
     search: {
         withResults: {
@@ -121,7 +121,7 @@ const mockResponses = {
             }
         }
     },
-    
+
     // Tag search responses
     tagSearch: {
         withResults: {
@@ -145,7 +145,7 @@ const mockResponses = {
             }
         }
     },
-    
+
     // Delete memory responses
     deleteMemory: {
         success: {
@@ -162,7 +162,7 @@ const mockResponses = {
             }
         }
     },
-    
+
     // Edge cases and error conditions
     edgeCases: {
         // When the /api path is missing (404 because endpoint wrong)
@@ -203,7 +203,7 @@ function createMockResponse(mockData) {
     if (mockData.error) {
         throw mockData.error;
     }
-    
+
     return {
         statusCode: mockData.status,
         headers: {
@@ -211,8 +211,8 @@ function createMockResponse(mockData) {
         },
         on: (event, callback) => {
             if (event === 'data') {
-                const data = mockData.raw ? 
-                    mockData.body : 
+                const data = mockData.raw ?
+                    mockData.body :
                     JSON.stringify(mockData.body);
                 callback(Buffer.from(data));
             } else if (event === 'end') {

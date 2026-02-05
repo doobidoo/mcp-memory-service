@@ -57,15 +57,15 @@ function analyzeConversation(conversationData) {
             sessionLength: 0,
             confidence: 0
         };
-        
+
         if (!conversationData || !conversationData.messages) {
             return analysis;
         }
-        
+
         const messages = conversationData.messages;
         const conversationText = messages.map(msg => msg.content || '').join('\n').toLowerCase();
         analysis.sessionLength = conversationText.length;
-        
+
         // Extract topics (simple keyword matching)
         const topicKeywords = {
             'implementation': /implement|implementing|implementation|build|building|create|creating/g,
@@ -79,20 +79,20 @@ function analyzeConversation(conversationData) {
             'api': /api|endpoint|rest|graphql|service|interface/g,
             'ui': /ui|interface|frontend|component|styling|css|html/g
         };
-        
+
         Object.entries(topicKeywords).forEach(([topic, regex]) => {
             if (conversationText.match(regex)) {
                 analysis.topics.push(topic);
             }
         });
-        
+
         // Extract decisions (look for decision language)
         const decisionPatterns = [
             /decided to|decision to|chose to|choosing|will use|going with/g,
             /better to|prefer|recommend|should use|opt for/g,
             /concluded that|determined that|agreed to/g
         ];
-        
+
         messages.forEach(msg => {
             const content = (msg.content || '').toLowerCase();
             decisionPatterns.forEach(pattern => {
@@ -108,14 +108,14 @@ function analyzeConversation(conversationData) {
                 }
             });
         });
-        
+
         // Extract insights (look for learning language)
         const insightPatterns = [
             /learned that|discovered|realized|found out|turns out/g,
             /insight|understanding|conclusion|takeaway|lesson/g,
             /important to note|key finding|observation/g
         ];
-        
+
         messages.forEach(msg => {
             const content = (msg.content || '').toLowerCase();
             insightPatterns.forEach(pattern => {
@@ -129,14 +129,14 @@ function analyzeConversation(conversationData) {
                 }
             });
         });
-        
+
         // Extract code changes (look for technical implementations)
         const codePatterns = [
             /added|created|implemented|built|wrote/g,
             /modified|updated|changed|refactored|improved/g,
             /fixed|resolved|corrected|patched/g
         ];
-        
+
         messages.forEach(msg => {
             const content = msg.content || '';
             if (content.includes('```') || /\.(js|py|rs|go|java|cpp|c|ts|jsx|tsx)/.test(content)) {
@@ -154,14 +154,14 @@ function analyzeConversation(conversationData) {
                 });
             }
         });
-        
+
         // Extract next steps (look for future language)
         const nextStepsPatterns = [
             /next|todo|need to|should|will|plan to|going to/g,
             /follow up|continue|proceed|implement next|work on/g,
             /remaining|still need|outstanding|future/g
         ];
-        
+
         messages.forEach(msg => {
             const content = (msg.content || '').toLowerCase();
             nextStepsPatterns.forEach(pattern => {
@@ -175,23 +175,23 @@ function analyzeConversation(conversationData) {
                 }
             });
         });
-        
+
         // Calculate confidence based on extracted information
-        const totalExtracted = analysis.topics.length + analysis.decisions.length + 
-                              analysis.insights.length + analysis.codeChanges.length + 
+        const totalExtracted = analysis.topics.length + analysis.decisions.length +
+                              analysis.insights.length + analysis.codeChanges.length +
                               analysis.nextSteps.length;
-        
+
         analysis.confidence = Math.min(1.0, totalExtracted / 10); // Max confidence at 10+ items
-        
+
         // Limit arrays to prevent overwhelming output
         analysis.topics = analysis.topics.slice(0, 5);
         analysis.decisions = analysis.decisions.slice(0, 3);
         analysis.insights = analysis.insights.slice(0, 3);
         analysis.codeChanges = analysis.codeChanges.slice(0, 4);
         analysis.nextSteps = analysis.nextSteps.slice(0, 4);
-        
+
         return analysis;
-        
+
     } catch (error) {
         console.error('[Memory Hook] Error analyzing conversation:', error.message);
         return {
@@ -298,41 +298,41 @@ function storeSessionMemory(endpoint, apiKey, content, projectContext, analysis)
 async function onSessionEnd(context) {
     try {
         console.log('[Memory Hook] Session ending - consolidating outcomes...');
-        
+
         // Load configuration
         const config = await loadConfig();
-        
+
         if (!config.memoryService.enableSessionConsolidation) {
             console.log('[Memory Hook] Session consolidation disabled in config');
             return;
         }
-        
+
         // Check if session is meaningful enough to store
         if (context.conversation && context.conversation.messages) {
             const totalLength = context.conversation.messages
                 .map(msg => (msg.content || '').length)
                 .reduce((sum, len) => sum + len, 0);
-                
+
             if (totalLength < config.sessionAnalysis.minSessionLength) {
                 console.log('[Memory Hook] Session too short for consolidation');
                 return;
             }
         }
-        
+
         // Detect project context
         const projectContext = await detectProjectContext(context.workingDirectory || process.cwd());
         console.log(`[Memory Hook] Consolidating session for project: ${projectContext.name}`);
-        
+
         // Analyze conversation
         const analysis = analyzeConversation(context.conversation);
-        
+
         if (analysis.confidence < 0.1) {
             console.log('[Memory Hook] Session analysis confidence too low, skipping consolidation');
             return;
         }
-        
+
         console.log(`[Memory Hook] Session analysis: ${analysis.topics.length} topics, ${analysis.decisions.length} decisions, confidence: ${(analysis.confidence * 100).toFixed(1)}%`);
-        
+
         // Format session consolidation
         const consolidation = formatSessionConsolidation(analysis, projectContext);
 
@@ -348,7 +348,7 @@ async function onSessionEnd(context) {
             projectContext,
             analysis
         );
-        
+
         if (result.success || result.content_hash) {
             console.log(`[Memory Hook] Session consolidation stored successfully`);
             if (result.content_hash) {
@@ -357,7 +357,7 @@ async function onSessionEnd(context) {
         } else {
             console.warn('[Memory Hook] Failed to store session consolidation:', result.error || 'Unknown error');
         }
-        
+
     } catch (error) {
         console.error('[Memory Hook] Error in session end:', error.message);
         // Fail gracefully - don't prevent session from ending
@@ -394,7 +394,7 @@ if (require.main === module) {
                 content: 'I\'ll help you create a memory awareness system. We decided to use hooks for session management and implement automatic context injection.'
             },
             {
-                role: 'user', 
+                role: 'user',
                 content: 'Great! I learned that we need project detection and memory scoring algorithms.'
             },
             {
@@ -403,13 +403,13 @@ if (require.main === module) {
             }
         ]
     };
-    
+
     const mockContext = {
         workingDirectory: process.cwd(),
         sessionId: 'test-session',
         conversation: mockConversation
     };
-    
+
     onSessionEnd(mockContext)
         .then(() => console.log('Session end hook test completed'))
         .catch(error => console.error('Session end hook test failed:', error));

@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 /**
  * HTTP-to-MCP Bridge for MCP Memory Service
- * 
+ *
  * This bridge allows MCP clients (like Claude Desktop) to connect to a remote
  * MCP Memory Service HTTP server instead of running a local instance.
- * 
+ *
  * Features:
  * - Automatic service discovery via mDNS (Bonjour/Zeroconf)
  * - Manual endpoint configuration fallback
  * - HTTPS support with self-signed certificate handling
  * - API key authentication
- * 
+ *
  * Usage in Claude Desktop config:
- * 
+ *
  * Option 1: Auto-discovery (recommended for local networks)
  * {
  *   "mcpServers": {
@@ -27,7 +27,7 @@
  *     }
  *   }
  * }
- * 
+ *
  * Option 2: Manual configuration
  * {
  *   "mcpServers": {
@@ -57,7 +57,7 @@ class MDNSDiscovery {
     constructor() {
         this.services = new Map();
     }
-    
+
     /**
      * Discover MCP Memory Services using mDNS
      */
@@ -65,10 +65,10 @@ class MDNSDiscovery {
         return new Promise((resolve) => {
             const socket = dgram.createSocket('udp4');
             const services = [];
-            
+
             // mDNS query for _mcp-memory._tcp.local
             const query = this.createMDNSQuery('_mcp-memory._tcp.local');
-            
+
             socket.on('message', (msg, rinfo) => {
                 try {
                     const service = this.parseMDNSResponse(msg, rinfo);
@@ -79,19 +79,19 @@ class MDNSDiscovery {
                     // Ignore parsing errors
                 }
             });
-            
+
             socket.bind(() => {
                 socket.addMembership('224.0.0.251');
                 socket.send(query, 5353, '224.0.0.251');
             });
-            
+
             setTimeout(() => {
                 socket.close();
                 resolve(services);
             }, timeout);
         });
     }
-    
+
     createMDNSQuery(serviceName) {
         // Simplified mDNS query creation
         // This is a basic implementation - in production, use a proper mDNS library
@@ -102,11 +102,11 @@ class MDNSDiscovery {
         header.writeUInt16BE(0, 6); // Answer RRs
         header.writeUInt16BE(0, 8); // Authority RRs
         header.writeUInt16BE(0, 10); // Additional RRs
-        
+
         // Question section (simplified)
         const nameLabels = serviceName.split('.');
         let nameBuffer = Buffer.alloc(0);
-        
+
         for (const label of nameLabels) {
             if (label) {
                 const labelBuffer = Buffer.alloc(1 + label.length);
@@ -115,15 +115,15 @@ class MDNSDiscovery {
                 nameBuffer = Buffer.concat([nameBuffer, labelBuffer]);
             }
         }
-        
+
         const endBuffer = Buffer.alloc(5);
         endBuffer.writeUInt8(0, 0); // End of name
         endBuffer.writeUInt16BE(12, 1); // Type PTR
         endBuffer.writeUInt16BE(1, 3); // Class IN
-        
+
         return Buffer.concat([header, nameBuffer, endBuffer]);
     }
-    
+
     parseMDNSResponse(msg, rinfo) {
         // Simplified mDNS response parsing
         // This is a basic implementation - in production, use a proper mDNS library
@@ -134,7 +134,7 @@ class MDNSDiscovery {
                 // Try common ports for the service
                 const possiblePorts = [8000, 8080, 443, 80];
                 const host = rinfo.address;
-                
+
                 for (const port of possiblePorts) {
                     return {
                         name: 'MCP Memory Service',
@@ -172,12 +172,12 @@ class HTTPMCPBridge {
             console.error(`Using manual endpoint: ${this.endpoint}`);
             return true;
         }
-        
+
         if (this.autoDiscover) {
             console.error('Attempting to discover MCP Memory Service via mDNS...');
             try {
                 const services = await this.discovery.discoverServices();
-                
+
                 if (services.length > 0) {
                     // Sort services by preference (HTTPS first if preferred)
                     services.sort((a, b) => {
@@ -186,36 +186,36 @@ class HTTPMCPBridge {
                         }
                         return a.port - b.port; // Prefer standard ports
                     });
-                    
+
                     const service = services[0];
                     const protocol = service.https ? 'https' : 'http';
                     this.discoveredEndpoint = `${protocol}://${service.host}:${service.port}/api`;
                     this.endpoint = this.discoveredEndpoint;
-                    
+
                     console.error(`Discovered service: ${this.endpoint}`);
-                    
+
                     // Test the discovered endpoint
                     const healthy = await this.testEndpoint(this.endpoint);
                     if (!healthy) {
                         console.error('Discovered endpoint failed health check, trying alternatives...');
-                        
+
                         // Try other discovered services
                         for (let i = 1; i < services.length; i++) {
                             const altService = services[i];
                             const altProtocol = altService.https ? 'https' : 'http';
                             const altEndpoint = `${altProtocol}://${altService.host}:${altService.port}/api`;
-                            
+
                             if (await this.testEndpoint(altEndpoint)) {
                                 this.endpoint = altEndpoint;
                                 console.error(`Using alternative endpoint: ${this.endpoint}`);
                                 return true;
                             }
                         }
-                        
+
                         console.error('No healthy services found');
                         return false;
                     }
-                    
+
                     return true;
                 } else {
                     console.error('No MCP Memory Services discovered');
@@ -226,13 +226,13 @@ class HTTPMCPBridge {
                 return false;
             }
         }
-        
+
         // Default fallback
         this.endpoint = 'http://localhost:8000/api';
         console.error(`Using default endpoint: ${this.endpoint}`);
         return true;
     }
-    
+
     /**
      * Test if an endpoint is healthy
      */
@@ -251,21 +251,21 @@ class HTTPMCPBridge {
      */
     async makeRequest(path, method = 'GET', data = null, maxRetries = 3) {
         let lastError;
-        
+
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 console.error(`Attempt ${attempt}/${maxRetries} for ${method} ${path}`);
                 const result = await this.makeRequestInternal(path, method, data);
-                
+
                 if (attempt > 1) {
                     console.error(`Request succeeded on attempt ${attempt}`);
                 }
-                
+
                 return result;
             } catch (error) {
                 lastError = error;
                 console.error(`Attempt ${attempt} failed: ${error.message}`);
-                
+
                 if (attempt < maxRetries) {
                     const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Exponential backoff, max 5s
                     console.error(`Retrying in ${delay}ms...`);
@@ -275,7 +275,7 @@ class HTTPMCPBridge {
                 }
             }
         }
-        
+
         throw lastError;
     }
 
@@ -285,19 +285,19 @@ class HTTPMCPBridge {
     async makeRequestInternal(path, method = 'GET', data = null, timeout = 10000) {
         const startTime = Date.now();
         const requestId = Math.random().toString(36).substr(2, 9);
-        
+
         console.error(`[${requestId}] Starting ${method} request to ${path}`);
-        
+
         return new Promise((resolve, reject) => {
             // Use URL constructor's built-in path resolution to avoid duplicate base paths
             // Ensure endpoint has trailing slash for proper relative path resolution
             const baseUrl = this.endpoint.endsWith('/') ? this.endpoint : this.endpoint + '/';
             const url = new URL(path, baseUrl);
             const protocol = url.protocol === 'https:' ? https : http;
-            
+
             console.error(`[${requestId}] Full URL: ${url.toString()}`);
             console.error(`[${requestId}] Using protocol: ${url.protocol}`);
-            
+
             const options = {
                 hostname: url.hostname,
                 port: url.port || (url.protocol === 'https:' ? 443 : 80),
@@ -342,19 +342,19 @@ class HTTPMCPBridge {
                 console.error(`[${requestId}] Response received after ${responseStartTime - startTime}ms`);
                 console.error(`[${requestId}] Status code: ${res.statusCode}`);
                 console.error(`[${requestId}] Response headers:`, JSON.stringify(res.headers, null, 2));
-                
+
                 let responseData = '';
-                
+
                 res.on('data', (chunk) => {
                     responseData += chunk;
                     console.error(`[${requestId}] Received ${chunk.length} bytes`);
                 });
-                
+
                 res.on('end', () => {
                     const endTime = Date.now();
                     console.error(`[${requestId}] Response completed after ${endTime - startTime}ms total`);
                     console.error(`[${requestId}] Response body: ${responseData}`);
-                    
+
                     try {
                         const result = JSON.parse(responseData);
                         resolve({ statusCode: res.statusCode, data: result });
@@ -380,13 +380,13 @@ class HTTPMCPBridge {
             });
 
             console.error(`[${requestId}] Sending request...`);
-            
+
             if (data) {
                 const postData = JSON.stringify(data);
                 console.error(`[${requestId}] Writing request body: ${postData}`);
                 req.write(postData);
             }
-            
+
             req.end();
             console.error(`[${requestId}] Request sent, waiting for response...`);
         });
@@ -560,8 +560,8 @@ class HTTPMCPBridge {
                                     type: "object",
                                     properties: {
                                         content: { type: "string", description: "The content to store" },
-                                        metadata: { 
-                                            type: "object", 
+                                        metadata: {
+                                            type: "object",
                                             properties: {
                                                 tags: { type: "array", items: { type: "string" } },
                                                 type: { type: "string" }
@@ -575,7 +575,7 @@ class HTTPMCPBridge {
                                 name: "retrieve_memory",
                                 description: "Retrieve memories based on a query",
                                 inputSchema: {
-                                    type: "object", 
+                                    type: "object",
                                     properties: {
                                         query: { type: "string", description: "Search query" },
                                         n_results: { type: "integer", description: "Number of results to return" }
@@ -589,7 +589,7 @@ class HTTPMCPBridge {
                                 inputSchema: {
                                     type: "object",
                                     properties: {
-                                        tags: { 
+                                        tags: {
                                             oneOf: [
                                                 { type: "string" },
                                                 { type: "array", items: { type: "string" } }
@@ -624,9 +624,9 @@ class HTTPMCPBridge {
                 case 'tools/call':
                     const toolName = params.name;
                     const toolParams = params.arguments || {};
-                    
+
                     console.error(`Processing tool call: ${toolName} with params:`, JSON.stringify(toolParams));
-                    
+
                     let toolResult;
                     switch (toolName) {
                         case 'store_memory':
@@ -647,9 +647,9 @@ class HTTPMCPBridge {
                         default:
                             throw new Error(`Unknown tool: ${toolName}`);
                     }
-                    
+
                     console.error(`Tool result:`, JSON.stringify(toolResult));
-                    
+
                     return {
                         jsonrpc: "2.0",
                         id: id,
@@ -703,19 +703,19 @@ class HTTPMCPBridge {
      */
     async start() {
         console.error(`MCP HTTP Bridge starting...`);
-        
+
         // Initialize the bridge (discovery or manual config)
         const initialized = await this.initialize();
         if (!initialized) {
             console.error('Failed to initialize bridge - no endpoint available');
             process.exit(1);
         }
-        
+
         console.error(`Endpoint: ${this.endpoint}`);
         console.error(`API Key: ${this.apiKey ? '[SET]' : '[NOT SET]'}`);
         console.error(`Auto-discovery: ${this.autoDiscover ? 'ENABLED' : 'DISABLED'}`);
         console.error(`Prefer HTTPS: ${this.preferHttps ? 'YES' : 'NO'}`);
-        
+
         if (this.discoveredEndpoint) {
             console.error(`Service discovered automatically via mDNS`);
         }
@@ -724,13 +724,13 @@ class HTTPMCPBridge {
 
         process.stdin.on('data', async (chunk) => {
             buffer += chunk.toString();
-            
+
             // Process complete JSON-RPC messages
             let newlineIndex;
             while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
                 const line = buffer.slice(0, newlineIndex).trim();
                 buffer = buffer.slice(newlineIndex + 1);
-                
+
                 if (line) {
                     try {
                         const request = JSON.parse(line);

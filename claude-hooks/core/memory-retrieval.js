@@ -74,7 +74,7 @@ async function queryMemoryService(endpoint, apiKey, query) {
                     const response = JSON.parse(data);
                     if (response.result && response.result.content) {
                         let textData = response.result.content[0].text;
-                        
+
                         try {
                             // Convert Python dict format to JSON format safely
                             textData = textData
@@ -82,7 +82,7 @@ async function queryMemoryService(endpoint, apiKey, query) {
                                 .replace(/True/g, 'true')
                                 .replace(/False/g, 'false')
                                 .replace(/None/g, 'null');
-                            
+
                             const memories = JSON.parse(textData);
                             resolve(memories.results || memories.memories || []);
                         } catch (conversionError) {
@@ -115,17 +115,17 @@ async function queryMemoryService(endpoint, apiKey, query) {
 async function retrieveMemories(context) {
     try {
         console.log('[Memory Retrieval] On-demand memory retrieval requested...');
-        
+
         // Load configuration
         const config = await loadConfig();
-        
+
         // Detect project context
         const projectContext = await detectProjectContext(context.workingDirectory || process.cwd());
         console.log(`[Memory Retrieval] Project context: ${projectContext.name} (${projectContext.language})`);
-        
+
         // Parse user query if provided
         const userQuery = context.query || context.message || '';
-        
+
         // Build memory query
         const memoryQuery = {
             tags: [
@@ -135,29 +135,29 @@ async function retrieveMemories(context) {
                 'architecture',
                 'recent-insights'
             ].filter(Boolean),
-            semanticQuery: userQuery.length > 0 ? 
-                `${projectContext.name} ${userQuery}` : 
+            semanticQuery: userQuery.length > 0 ?
+                `${projectContext.name} ${userQuery}` :
                 `${projectContext.name} project context decisions architecture`,
             limit: config.memoryService.maxMemoriesPerSession || 5,
             timeFilter: 'last-month'
         };
-        
+
         // Query memory service
         const memories = await queryMemoryService(
             config.memoryService.endpoint,
             config.memoryService.apiKey,
             memoryQuery
         );
-        
+
         if (memories.length > 0) {
             console.log(`[Memory Retrieval] Found ${memories.length} relevant memories`);
-            
+
             // Score memories for relevance
             const scoredMemories = scoreMemoryRelevance(memories, projectContext);
-            
+
             // Take top scored memories
             const topMemories = scoredMemories.slice(0, config.memoryService.maxMemoriesPerSession || 5);
-            
+
             // Format memories for display
             const contextMessage = formatMemoriesForContext(topMemories, projectContext, {
                 includeScore: true, // Show scores for manual retrieval
@@ -165,7 +165,7 @@ async function retrieveMemories(context) {
                 maxMemories: config.memoryService.maxMemoriesPerSession || 5,
                 includeTimestamp: true
             });
-            
+
             // Output formatted context
             if (context.displayResult) {
                 await context.displayResult(contextMessage);
@@ -176,23 +176,23 @@ async function retrieveMemories(context) {
                 console.log(contextMessage);
                 console.log('=== END CONTEXT ===\n');
             }
-            
+
             return {
                 success: true,
                 memoriesFound: memories.length,
                 memoriesShown: topMemories.length,
                 context: contextMessage
             };
-            
+
         } else {
             const message = `## 📋 Memory Retrieval\n\nNo relevant memories found for query: "${userQuery || 'project context'}"\n\nTry a different search term or check if your memory service is running.`;
-            
+
             if (context.displayResult) {
                 await context.displayResult(message);
             } else {
                 console.log(message);
             }
-            
+
             return {
                 success: false,
                 memoriesFound: 0,
@@ -200,15 +200,15 @@ async function retrieveMemories(context) {
                 context: message
             };
         }
-        
+
     } catch (error) {
         console.error('[Memory Retrieval] Error retrieving memories:', error.message);
         const errorMessage = `## ❌ Memory Retrieval Error\n\n${error.message}\n\nCheck your memory service configuration and connection.`;
-        
+
         if (context.displayResult) {
             await context.displayResult(errorMessage);
         }
-        
+
         return {
             success: false,
             error: error.message
@@ -244,7 +244,7 @@ if (require.main === module) {
             console.log('=== END MOCK DISPLAY ===');
         }
     };
-    
+
     retrieveMemories(mockContext)
         .then(result => console.log('Retrieval test completed:', result))
         .catch(error => console.error('Retrieval test failed:', error));

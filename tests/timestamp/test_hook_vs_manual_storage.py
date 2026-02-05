@@ -5,22 +5,21 @@ This test validates timestamp handling, tag consistency, and discoverability
 between different memory creation methods.
 """
 
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 import asyncio
-import time
-import json
 import tempfile
-import httpx
-from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
+import time
+from datetime import datetime
 
 from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.utils.hashing import generate_content_hash
 from mcp_memory_service.utils.time_parser import extract_time_expression
-from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+
 
 class HookVsManualStorageTest:
     """Test suite comparing hook-generated and manual memory storage."""
@@ -39,10 +38,7 @@ class HookVsManualStorageTest:
             self.temp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
             self.temp_db.close()
 
-            self.storage = SqliteVecMemoryStorage(
-                db_path=self.temp_db.name,
-                embedding_model="all-MiniLM-L6-v2"
-            )
+            self.storage = SqliteVecMemoryStorage(db_path=self.temp_db.name, embedding_model="all-MiniLM-L6-v2")
             await self.storage.initialize()
             print(f"✅ SQLite-Vec storage initialized: {self.temp_db.name}")
 
@@ -51,20 +47,20 @@ class HookVsManualStorageTest:
         # Note: SqliteVecMemoryStorage doesn't have a close() method
         self.storage = None
 
-        if hasattr(self, 'temp_db') and os.path.exists(self.temp_db.name):
+        if hasattr(self, "temp_db") and os.path.exists(self.temp_db.name):
             os.unlink(self.temp_db.name)
             print("✅ Test database cleaned up")
 
-    def create_hook_style_memory(self, content: str, project_context: Dict) -> Memory:
+    def create_hook_style_memory(self, content: str, project_context: dict) -> Memory:
         """Create a memory as hooks would create it (with auto-generated tags)."""
 
         # Simulate hook behavior - generate tags like session-end.js does
         hook_tags = [
-            'claude-code-session',
-            'session-consolidation',
-            project_context.get('name', 'unknown-project'),
+            "claude-code-session",
+            "session-consolidation",
+            project_context.get("name", "unknown-project"),
             f"language:{project_context.get('language', 'unknown')}",
-            *project_context.get('frameworks', [])[:2],  # Top 2 frameworks
+            *project_context.get("frameworks", [])[:2],  # Top 2 frameworks
         ]
 
         # Filter out None/empty tags
@@ -74,23 +70,18 @@ class HookVsManualStorageTest:
             content=content,
             content_hash=generate_content_hash(content),
             tags=hook_tags,
-            memory_type='session-summary',
+            memory_type="session-summary",
             metadata={
-                'session_analysis': {
-                    'topics': ['test-topic'],
-                    'decisions_count': 1,
-                    'insights_count': 1,
-                    'confidence': 0.85
-                },
-                'project_context': project_context,
-                'generated_by': 'claude-code-session-end-hook',
-                'generated_at': datetime.now().isoformat()
-            }
+                "session_analysis": {"topics": ["test-topic"], "decisions_count": 1, "insights_count": 1, "confidence": 0.85},
+                "project_context": project_context,
+                "generated_by": "claude-code-session-end-hook",
+                "generated_at": datetime.now().isoformat(),
+            },
         )
 
         return memory
 
-    def create_manual_memory(self, content: str, user_tags: List[str] = None) -> Memory:
+    def create_manual_memory(self, content: str, user_tags: list[str] = None) -> Memory:
         """Create a memory as manual /memory-store would create it."""
 
         # Manual memories typically have user-provided tags, not auto-generated ones
@@ -100,11 +91,8 @@ class HookVsManualStorageTest:
             content=content,
             content_hash=generate_content_hash(content),
             tags=manual_tags,
-            memory_type='note',
-            metadata={
-                'created_by': 'manual-storage',
-                'source': 'user-input'
-            }
+            memory_type="note",
+            metadata={"created_by": "manual-storage", "source": "user-input"},
         )
 
         return memory
@@ -115,25 +103,17 @@ class HookVsManualStorageTest:
         print("-" * 50)
 
         # Create memories with slight time differences
-        base_time = time.time()
+        time.time()
 
-        project_context = {
-            'name': 'mcp-memory-service',
-            'language': 'python',
-            'frameworks': ['fastapi', 'chromadb']
-        }
+        project_context = {"name": "mcp-memory-service", "language": "python", "frameworks": ["fastapi", "chromadb"]}
 
         # Hook-style memory
-        hook_memory = self.create_hook_style_memory(
-            "Implemented timestamp standardization for Issue #99",
-            project_context
-        )
+        hook_memory = self.create_hook_style_memory("Implemented timestamp standardization for Issue #99", project_context)
 
         # Manual memory created shortly after
         time.sleep(0.1)  # Small delay to test precision
         manual_memory = self.create_manual_memory(
-            "Fixed timestamp precision issue in memory storage",
-            ['timestamp-fix', 'issue-99', 'debugging']
+            "Fixed timestamp precision issue in memory storage", ["timestamp-fix", "issue-99", "debugging"]
         )
 
         # Store both memories
@@ -142,23 +122,21 @@ class HookVsManualStorageTest:
 
         self.test_memories_created.extend([hook_memory.content_hash, manual_memory.content_hash])
 
-        print(f"Hook memory timestamps:")
+        print("Hook memory timestamps:")
         print(f"  created_at: {hook_memory.created_at}")
         print(f"  created_at_iso: {hook_memory.created_at_iso}")
         print(f"  Type check: {type(hook_memory.created_at)} / {type(hook_memory.created_at_iso)}")
 
-        print(f"\nManual memory timestamps:")
+        print("\nManual memory timestamps:")
         print(f"  created_at: {manual_memory.created_at}")
         print(f"  created_at_iso: {manual_memory.created_at_iso}")
         print(f"  Type check: {type(manual_memory.created_at)} / {type(manual_memory.created_at_iso)}")
 
         # Check if both have proper timestamps
-        hook_has_timestamps = (hook_memory.created_at is not None and
-                              hook_memory.created_at_iso is not None)
-        manual_has_timestamps = (manual_memory.created_at is not None and
-                               manual_memory.created_at_iso is not None)
+        hook_has_timestamps = hook_memory.created_at is not None and hook_memory.created_at_iso is not None
+        manual_has_timestamps = manual_memory.created_at is not None and manual_memory.created_at_iso is not None
 
-        print(f"\nTimestamp validation:")
+        print("\nTimestamp validation:")
         print(f"  Hook memory has complete timestamps: {hook_has_timestamps}")
         print(f"  Manual memory has complete timestamps: {manual_has_timestamps}")
 
@@ -168,10 +146,10 @@ class HookVsManualStorageTest:
             print("❌ Timestamp inconsistency detected!")
 
         return {
-            'hook_has_timestamps': hook_has_timestamps,
-            'manual_has_timestamps': manual_has_timestamps,
-            'hook_memory': hook_memory,
-            'manual_memory': manual_memory
+            "hook_has_timestamps": hook_has_timestamps,
+            "manual_has_timestamps": manual_has_timestamps,
+            "hook_memory": hook_memory,
+            "manual_memory": manual_memory,
         }
 
     async def test_tag_consistency(self):
@@ -179,22 +157,14 @@ class HookVsManualStorageTest:
         print("\n🧪 Test 2: Tag Consistency Analysis")
         print("-" * 50)
 
-        project_context = {
-            'name': 'test-project',
-            'language': 'typescript',
-            'frameworks': ['react', 'node']
-        }
+        project_context = {"name": "test-project", "language": "typescript", "frameworks": ["react", "node"]}
 
         # Create hook memory
-        hook_memory = self.create_hook_style_memory(
-            "Testing tag consistency between storage methods",
-            project_context
-        )
+        hook_memory = self.create_hook_style_memory("Testing tag consistency between storage methods", project_context)
 
         # Create manual memory with content-appropriate tags
         manual_memory = self.create_manual_memory(
-            "Testing tag consistency between storage methods",
-            ['testing', 'tag-consistency', 'storage-methods', 'validation']
+            "Testing tag consistency between storage methods", ["testing", "tag-consistency", "storage-methods", "validation"]
         )
 
         await self.storage.store(hook_memory)
@@ -206,10 +176,10 @@ class HookVsManualStorageTest:
         print(f"Manual memory tags: {manual_memory.tags}")
 
         # Analyze tag patterns
-        hook_has_auto_tags = any('claude-code' in tag for tag in hook_memory.tags)
-        manual_has_content_tags = len(manual_memory.tags) > 0 and not any('auto-generated' in tag for tag in manual_memory.tags)
+        hook_has_auto_tags = any("claude-code" in tag for tag in hook_memory.tags)
+        manual_has_content_tags = len(manual_memory.tags) > 0 and not any("auto-generated" in tag for tag in manual_memory.tags)
 
-        print(f"\nTag analysis:")
+        print("\nTag analysis:")
         print(f"  Hook memory has auto-generated tags: {hook_has_auto_tags}")
         print(f"  Manual memory has content-relevant tags: {manual_has_content_tags}")
         print(f"  Hook tag count: {len(hook_memory.tags)}")
@@ -221,10 +191,10 @@ class HookVsManualStorageTest:
             print("❌ Tag pattern issues detected")
 
         return {
-            'hook_tags': hook_memory.tags,
-            'manual_tags': manual_memory.tags,
-            'hook_has_auto_tags': hook_has_auto_tags,
-            'manual_has_content_tags': manual_has_content_tags
+            "hook_tags": hook_memory.tags,
+            "manual_tags": manual_memory.tags,
+            "hook_has_auto_tags": hook_has_auto_tags,
+            "manual_has_content_tags": manual_has_content_tags,
         }
 
     async def test_time_based_search_consistency(self):
@@ -238,16 +208,14 @@ class HookVsManualStorageTest:
 
         # Create hook memory with specific timestamp
         hook_memory = self.create_hook_style_memory(
-            "Hook memory created yesterday for search testing",
-            {'name': 'search-test', 'language': 'python', 'frameworks': []}
+            "Hook memory created yesterday for search testing", {"name": "search-test", "language": "python", "frameworks": []}
         )
         hook_memory.created_at = yesterday_time
         hook_memory.created_at_iso = datetime.fromtimestamp(yesterday_time).isoformat() + "Z"
 
         # Create manual memory with specific timestamp
         manual_memory = self.create_manual_memory(
-            "Manual memory created yesterday for search testing",
-            ['search-test', 'yesterday', 'discoverability']
+            "Manual memory created yesterday for search testing", ["search-test", "yesterday", "discoverability"]
         )
         manual_memory.created_at = yesterday_time + 100  # Slightly later
         manual_memory.created_at_iso = datetime.fromtimestamp(yesterday_time + 100).isoformat() + "Z"
@@ -270,19 +238,19 @@ class HookVsManualStorageTest:
             hook_in_range = start_ts <= hook_memory.created_at <= end_ts
             manual_in_range = start_ts <= manual_memory.created_at <= end_ts
 
-            print(f"\nTime range analysis:")
+            print("\nTime range analysis:")
             print(f"  Hook memory in range: {hook_in_range}")
             print(f"  Manual memory in range: {manual_in_range}")
 
             if hook_in_range and manual_in_range:
                 print("✅ Both memory types would be discoverable in time-based searches")
-                return {'discoverability_consistent': True}
+                return {"discoverability_consistent": True}
             else:
                 print("❌ Time-based search discoverability inconsistent")
-                return {'discoverability_consistent': False}
+                return {"discoverability_consistent": False}
         else:
             print("⚠️  Could not parse time expression for testing")
-            return {'discoverability_consistent': None}
+            return {"discoverability_consistent": None}
 
     async def test_metadata_structure_comparison(self):
         """Test 4: Compare metadata structure between hook and manual memories."""
@@ -292,12 +260,11 @@ class HookVsManualStorageTest:
         # Create memories with different metadata patterns
         hook_memory = self.create_hook_style_memory(
             "Testing metadata structure consistency",
-            {'name': 'metadata-test', 'language': 'javascript', 'frameworks': ['express']}
+            {"name": "metadata-test", "language": "javascript", "frameworks": ["express"]},
         )
 
         manual_memory = self.create_manual_memory(
-            "Testing metadata structure consistency",
-            ['metadata-test', 'structure-analysis']
+            "Testing metadata structure consistency", ["metadata-test", "structure-analysis"]
         )
 
         await self.storage.store(hook_memory)
@@ -313,19 +280,19 @@ class HookVsManualStorageTest:
         print(f"Manual memory metadata keys: {sorted(manual_metadata_keys)}")
 
         # Check for required fields
-        hook_has_timestamps = hasattr(hook_memory, 'created_at_iso') and hook_memory.created_at_iso is not None
-        manual_has_timestamps = hasattr(manual_memory, 'created_at_iso') and manual_memory.created_at_iso is not None
+        hook_has_timestamps = hasattr(hook_memory, "created_at_iso") and hook_memory.created_at_iso is not None
+        manual_has_timestamps = hasattr(manual_memory, "created_at_iso") and manual_memory.created_at_iso is not None
 
-        print(f"\nMetadata analysis:")
+        print("\nMetadata analysis:")
         print(f"  Hook memory has ISO timestamp: {hook_has_timestamps}")
         print(f"  Manual memory has ISO timestamp: {manual_has_timestamps}")
         print(f"  Hook metadata structure: {bool(hook_memory.metadata)}")
         print(f"  Manual metadata structure: {bool(manual_memory.metadata)}")
 
         return {
-            'hook_metadata_keys': hook_metadata_keys,
-            'manual_metadata_keys': manual_metadata_keys,
-            'metadata_consistency': hook_has_timestamps and manual_has_timestamps
+            "hook_metadata_keys": hook_metadata_keys,
+            "manual_metadata_keys": manual_metadata_keys,
+            "metadata_consistency": hook_has_timestamps and manual_has_timestamps,
         }
 
     async def run_all_tests(self):
@@ -352,27 +319,27 @@ class HookVsManualStorageTest:
             tests_passed = 0
             total_tests = 4
 
-            if timestamp_results.get('hook_has_timestamps') and timestamp_results.get('manual_has_timestamps'):
+            if timestamp_results.get("hook_has_timestamps") and timestamp_results.get("manual_has_timestamps"):
                 print("✅ PASS: Timestamp Consistency")
                 tests_passed += 1
             else:
                 print("❌ FAIL: Timestamp Consistency")
 
-            if tag_results.get('hook_has_auto_tags') and tag_results.get('manual_has_content_tags'):
+            if tag_results.get("hook_has_auto_tags") and tag_results.get("manual_has_content_tags"):
                 print("✅ PASS: Tag Pattern Appropriateness")
                 tests_passed += 1
             else:
                 print("❌ FAIL: Tag Pattern Issues")
 
-            if search_results.get('discoverability_consistent'):
+            if search_results.get("discoverability_consistent"):
                 print("✅ PASS: Time-Based Search Discoverability")
                 tests_passed += 1
-            elif search_results.get('discoverability_consistent') is False:
+            elif search_results.get("discoverability_consistent") is False:
                 print("❌ FAIL: Time-Based Search Discoverability")
             else:
                 print("⚠️  SKIP: Time-Based Search Test (parsing issue)")
 
-            if metadata_results.get('metadata_consistency'):
+            if metadata_results.get("metadata_consistency"):
                 print("✅ PASS: Metadata Structure Consistency")
                 tests_passed += 1
             else:
@@ -390,11 +357,13 @@ class HookVsManualStorageTest:
         finally:
             await self.cleanup()
 
+
 async def main():
     """Main test execution."""
     test_suite = HookVsManualStorageTest("sqlite_vec")
     success = await test_suite.run_all_tests()
     return 0 if success else 1
+
 
 if __name__ == "__main__":
     exit_code = asyncio.run(main())

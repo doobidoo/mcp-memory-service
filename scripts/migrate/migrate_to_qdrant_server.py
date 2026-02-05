@@ -13,19 +13,16 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import (
-    VectorParams, Distance, PointStruct,
-    ScrollRequest, ScrollResult
-)
+from qdrant_client.models import Distance, PointStruct, VectorParams
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def export_from_embedded(embedded_path: str, collection_name: str = "memories") -> List[Dict[str, Any]]:
+def export_from_embedded(embedded_path: str, collection_name: str = "memories") -> list[dict[str, Any]]:
     """Export all memories from embedded Qdrant."""
     logger.info(f"Connecting to embedded Qdrant at {embedded_path}")
 
@@ -53,11 +50,7 @@ def export_from_embedded(embedded_path: str, collection_name: str = "memories") 
     while True:
         # Scroll through points
         result = client.scroll(
-            collection_name=collection_name,
-            limit=batch_size,
-            offset=offset,
-            with_payload=True,
-            with_vectors=True
+            collection_name=collection_name, limit=batch_size, offset=offset, with_payload=True, with_vectors=True
         )
 
         points, next_offset = result
@@ -67,11 +60,7 @@ def export_from_embedded(embedded_path: str, collection_name: str = "memories") 
 
         # Convert points to serializable format
         for point in points:
-            point_data = {
-                "id": point.id,
-                "vector": point.vector,
-                "payload": point.payload
-            }
+            point_data = {"id": point.id, "vector": point.vector, "payload": point.payload}
             all_points.append(point_data)
 
         logger.info(f"Exported {len(all_points)} points so far...")
@@ -90,10 +79,10 @@ def export_from_embedded(embedded_path: str, collection_name: str = "memories") 
 
 def import_to_server(
     server_url: str,
-    points: List[Dict[str, Any]],
+    points: list[dict[str, Any]],
     collection_name: str = "memories",
     vector_size: int = 384,
-    recreate: bool = True
+    recreate: bool = True,
 ) -> bool:
     """Import memories to Qdrant server."""
     logger.info(f"Connecting to Qdrant server at {server_url}")
@@ -119,11 +108,7 @@ def import_to_server(
         # Create new collection with same parameters
         logger.info(f"Creating collection '{collection_name}' with vector size {vector_size}")
         client.create_collection(
-            collection_name=collection_name,
-            vectors_config=VectorParams(
-                size=vector_size,
-                distance=Distance.COSINE
-            )
+            collection_name=collection_name, vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE)
         )
     else:
         # Verify collection exists and matches
@@ -133,8 +118,9 @@ def import_to_server(
 
         collection_info = client.get_collection(collection_name)
         if collection_info.config.params.vectors.size != vector_size:
-            logger.error(f"Vector size mismatch: server has {collection_info.config.params.vectors.size}, "
-                        f"data has {vector_size}")
+            logger.error(
+                f"Vector size mismatch: server has {collection_info.config.params.vectors.size}, data has {vector_size}"
+            )
             return False
 
     # Import points in batches
@@ -142,24 +128,17 @@ def import_to_server(
     total_imported = 0
 
     for i in range(0, len(points), batch_size):
-        batch = points[i:i + batch_size]
+        batch = points[i : i + batch_size]
 
         # Convert to PointStruct objects
         point_structs = []
         for point_data in batch:
-            point_struct = PointStruct(
-                id=point_data["id"],
-                vector=point_data["vector"],
-                payload=point_data["payload"]
-            )
+            point_struct = PointStruct(id=point_data["id"], vector=point_data["vector"], payload=point_data["payload"])
             point_structs.append(point_struct)
 
         # Upload batch
         try:
-            client.upsert(
-                collection_name=collection_name,
-                points=point_structs
-            )
+            client.upsert(collection_name=collection_name, points=point_structs)
             total_imported += len(point_structs)
             logger.info(f"Imported {total_imported}/{len(points)} points")
         except Exception as e:
@@ -185,16 +164,15 @@ def main():
 
     # For running from host, use Docker volumes path
     import os
+
     if not os.path.exists(EMBEDDED_PATH):
         # Try Docker volume inspect to find actual path
         logger.info("Embedded path not found, trying to locate Docker volume...")
         import subprocess
+
         try:
             result = subprocess.run(
-                ["docker", "volume", "inspect", "mcp-memory-service_mcp-memory-data"],
-                capture_output=True,
-                text=True,
-                check=True
+                ["docker", "volume", "inspect", "mcp-memory-service_mcp-memory-data"], capture_output=True, text=True, check=True
             )
             volume_info = json.loads(result.stdout)
             if volume_info:
@@ -235,7 +213,7 @@ def main():
         points=points,
         collection_name=COLLECTION_NAME,
         vector_size=vector_size,
-        recreate=True  # Recreate collection for clean migration
+        recreate=True,  # Recreate collection for clean migration
     )
 
     if success:

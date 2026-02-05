@@ -8,8 +8,9 @@ Current Status: EXPECTED TO FAIL
 - Storage backends don't yet accept filter parameters
 - Once implemented, these tests should pass
 """
+
 import pytest
-from datetime import datetime
+
 from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.utils.hashing import generate_content_hash
@@ -27,24 +28,15 @@ class TestSqliteVecFiltering:
         # Store memories with different tags
         content1 = "Python programming guide"
         mem1 = Memory(
-            content=content1,
-            content_hash=generate_content_hash(content1),
-            tags=["python", "coding"],
-            memory_type="note"
+            content=content1, content_hash=generate_content_hash(content1), tags=["python", "coding"], memory_type="note"
         )
         content2 = "Python debugging tips"
         mem2 = Memory(
-            content=content2,
-            content_hash=generate_content_hash(content2),
-            tags=["python", "debug"],
-            memory_type="note"
+            content=content2, content_hash=generate_content_hash(content2), tags=["python", "debug"], memory_type="note"
         )
         content3 = "Java coding standards"
         mem3 = Memory(
-            content=content3,
-            content_hash=generate_content_hash(content3),
-            tags=["java", "coding"],
-            memory_type="note"
+            content=content3, content_hash=generate_content_hash(content3), tags=["java", "coding"], memory_type="note"
         )
 
         await storage.store(mem1)
@@ -68,11 +60,17 @@ class TestSqliteVecFiltering:
 
         # Store memories with different types
         content_note1 = "Note 1"
-        await storage.store(Memory(content=content_note1, content_hash=generate_content_hash(content_note1), tags=[], memory_type="note"))
+        await storage.store(
+            Memory(content=content_note1, content_hash=generate_content_hash(content_note1), tags=[], memory_type="note")
+        )
         content_rem1 = "Reminder 1"
-        await storage.store(Memory(content=content_rem1, content_hash=generate_content_hash(content_rem1), tags=[], memory_type="reminder"))
+        await storage.store(
+            Memory(content=content_rem1, content_hash=generate_content_hash(content_rem1), tags=[], memory_type="reminder")
+        )
         content_note2 = "Note 2"
-        await storage.store(Memory(content=content_note2, content_hash=generate_content_hash(content_note2), tags=[], memory_type="note"))
+        await storage.store(
+            Memory(content=content_note2, content_hash=generate_content_hash(content_note2), tags=[], memory_type="note")
+        )
 
         # EXPECTED TO FAIL: retrieve() doesn't accept memory_type parameter yet
         results = await storage.retrieve("1", n_results=10, memory_type="note")
@@ -90,21 +88,18 @@ class TestSqliteVecFiltering:
         # Store 10 memories with various combinations
         for i in range(10):
             content = f"Memory {i}"
-            await storage.store(Memory(
-                content=content,
-                content_hash=generate_content_hash(content),
-                tags=["tag1"] if i < 5 else ["tag2"],
-                memory_type="note" if i % 2 == 0 else "reminder"
-            ))
+            await storage.store(
+                Memory(
+                    content=content,
+                    content_hash=generate_content_hash(content),
+                    tags=["tag1"] if i < 5 else ["tag2"],
+                    memory_type="note" if i % 2 == 0 else "reminder",
+                )
+            )
 
         # Filter for tag1 + note type (should get 3 memories: 0, 2, 4)
         # EXPECTED TO FAIL: retrieve() doesn't accept filter parameters yet
-        results = await storage.retrieve(
-            query="Memory",
-            n_results=10,
-            tags=["tag1"],
-            memory_type="note"
-        )
+        results = await storage.retrieve(query="Memory", n_results=10, tags=["tag1"], memory_type="note")
 
         assert len(results) == 3, "Should return only tag1 + note memories"
         for result in results:
@@ -126,11 +121,7 @@ class TestSqliteVecFiltering:
         await storage.store(Memory(content=content_unrelated, content_hash=generate_content_hash(content_unrelated), tags=[]))
 
         # EXPECTED TO FAIL: retrieve() doesn't accept min_similarity parameter yet
-        results = await storage.retrieve(
-            query="Python programming",
-            n_results=10,
-            min_similarity=0.7
-        )
+        results = await storage.retrieve(query="Python programming", n_results=10, min_similarity=0.7)
 
         # Should only return highly similar results
         assert len(results) >= 1, "Should return at least one high-similarity result"
@@ -146,20 +137,18 @@ class TestSqliteVecFiltering:
         # Store 100 memories - only 10 match filter
         for i in range(100):
             content = f"Test memory {i}"
-            await storage.store(Memory(
-                content=content,
-                content_hash=generate_content_hash(content),
-                tags=["target"] if i < 10 else ["other"],
-                memory_type="note"
-            ))
+            await storage.store(
+                Memory(
+                    content=content,
+                    content_hash=generate_content_hash(content),
+                    tags=["target"] if i < 10 else ["other"],
+                    memory_type="note",
+                )
+            )
 
         # Request 100 results with filter for "target" tag
         # EXPECTED TO FAIL: retrieve() doesn't accept tags parameter yet
-        results = await storage.retrieve(
-            query="Test",
-            n_results=100,
-            tags=["target"]
-        )
+        results = await storage.retrieve(query="Test", n_results=100, tags=["target"])
 
         # Should return exactly 10 memories (all that match filter)
         # If filtering was post-hoc in Python, would return up to 100 and filter down

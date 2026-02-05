@@ -19,20 +19,20 @@ Provides usage statistics, trends, and performance metrics for the memory system
 """
 
 import logging
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
-from datetime import datetime, timedelta, timezone
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, HTTPException, Depends, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
-from ...storage.base import MemoryStorage
 from ...config import OAUTH_ENABLED
+from ...storage.base import MemoryStorage
 from ..dependencies import get_storage
 
 # OAuth authentication imports (conditional)
 if OAUTH_ENABLED or TYPE_CHECKING:
-    from ..oauth.middleware import require_read_access, AuthenticationResult
+    from ..oauth.middleware import AuthenticationResult, require_read_access
 else:
     # Provide type stubs when OAuth is disabled
     AuthenticationResult = None
@@ -45,17 +45,19 @@ logger = logging.getLogger(__name__)
 # Response Models
 class AnalyticsOverview(BaseModel):
     """Overview statistics for the memory system."""
+
     total_memories: int
     memories_this_week: int
     memories_this_month: int
     unique_tags: int
-    database_size_mb: Optional[float]
-    uptime_seconds: Optional[float]
+    database_size_mb: float | None
+    uptime_seconds: float | None
     backend_type: str
 
 
 class MemoryGrowthPoint(BaseModel):
     """Data point for memory growth over time."""
+
     date: str  # YYYY-MM-DD format
     count: int
     cumulative: int
@@ -63,27 +65,31 @@ class MemoryGrowthPoint(BaseModel):
 
 class MemoryGrowthData(BaseModel):
     """Memory growth data over time."""
-    data_points: List[MemoryGrowthPoint]
+
+    data_points: list[MemoryGrowthPoint]
     period: str  # "week", "month", "quarter", "year"
 
 
 class TagUsageStats(BaseModel):
     """Usage statistics for a specific tag."""
+
     tag: str
     count: int
     percentage: float
-    growth_rate: Optional[float]  # Growth rate compared to previous period
+    growth_rate: float | None  # Growth rate compared to previous period
 
 
 class TagUsageData(BaseModel):
     """Tag usage analytics."""
-    tags: List[TagUsageStats]
+
+    tags: list[TagUsageStats]
     total_memories: int
     period: str
 
 
 class MemoryTypeDistribution(BaseModel):
     """Distribution of memories by type."""
+
     memory_type: str
     count: int
     percentage: float
@@ -91,28 +97,32 @@ class MemoryTypeDistribution(BaseModel):
 
 class MemoryTypeData(BaseModel):
     """Memory type distribution data."""
-    types: List[MemoryTypeDistribution]
+
+    types: list[MemoryTypeDistribution]
     total_memories: int
 
 
 class SearchAnalytics(BaseModel):
     """Search usage analytics."""
+
     total_searches: int = 0
-    avg_response_time: Optional[float] = None
-    popular_tags: List[Dict[str, Any]] = []
-    search_types: Dict[str, int] = {}
+    avg_response_time: float | None = None
+    popular_tags: list[dict[str, Any]] = []
+    search_types: dict[str, int] = {}
 
 
 class PerformanceMetrics(BaseModel):
     """System performance metrics."""
-    avg_response_time: Optional[float] = None
-    memory_usage_mb: Optional[float] = None
-    storage_latency: Optional[float] = None
-    error_rate: Optional[float] = None
+
+    avg_response_time: float | None = None
+    memory_usage_mb: float | None = None
+    storage_latency: float | None = None
+    error_rate: float | None = None
 
 
 class ActivityHeatmapData(BaseModel):
     """Activity heatmap data for calendar view."""
+
     date: str  # YYYY-MM-DD format
     count: int
     level: int  # 0-4 activity level for color coding
@@ -120,29 +130,33 @@ class ActivityHeatmapData(BaseModel):
 
 class ActivityHeatmapResponse(BaseModel):
     """Response containing activity heatmap data."""
-    data: List[ActivityHeatmapData]
+
+    data: list[ActivityHeatmapData]
     total_days: int
     max_count: int
 
 
 class TopTagsReport(BaseModel):
     """Enhanced top tags report with trends and co-occurrence."""
+
     tag: str
     count: int
     percentage: float
-    growth_rate: Optional[float]
+    growth_rate: float | None
     trending: bool  # Is usage increasing
-    co_occurring_tags: List[Dict[str, Any]]  # Tags that appear with this tag
+    co_occurring_tags: list[dict[str, Any]]  # Tags that appear with this tag
 
 
 class TopTagsResponse(BaseModel):
     """Response for top tags report."""
-    tags: List[TopTagsReport]
+
+    tags: list[TopTagsReport]
     period: str
 
 
 class ActivityBreakdown(BaseModel):
     """Activity breakdown by time period."""
+
     period: str  # hour, day, week, month
     count: int
     label: str  # e.g., "Monday", "10 AM", etc.
@@ -150,8 +164,9 @@ class ActivityBreakdown(BaseModel):
 
 class ActivityReport(BaseModel):
     """Comprehensive activity report."""
-    breakdown: List[ActivityBreakdown]
-    peak_times: List[str]
+
+    breakdown: list[ActivityBreakdown]
+    peak_times: list[str]
     active_days: int
     total_days: int
     current_streak: int
@@ -160,17 +175,18 @@ class ActivityReport(BaseModel):
 
 class StorageStats(BaseModel):
     """Storage statistics and largest memories."""
+
     total_size_mb: float
     average_memory_size: float
-    largest_memories: List[Dict[str, Any]]
-    growth_trend: List[Dict[str, Any]]  # Size over time
+    largest_memories: list[dict[str, Any]]
+    growth_trend: list[dict[str, Any]]  # Size over time
     storage_efficiency: float  # Percentage of efficient storage
 
 
 @router.get("/overview", response_model=AnalyticsOverview, tags=["analytics"])
 async def get_analytics_overview(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None,
 ):
     """
     Get overview analytics for the memory system.
@@ -179,7 +195,7 @@ async def get_analytics_overview(
     """
     try:
         # Get detailed health data which contains most stats
-        if hasattr(storage, 'get_stats'):
+        if hasattr(storage, "get_stats"):
             try:
                 stats = await storage.get_stats()
                 logger.info(f"Storage stats: {stats}")  # Debug logging
@@ -213,19 +229,19 @@ async def get_analytics_overview(
             unique_tags=stats.get("unique_tags", 0),
             database_size_mb=stats.get("primary_stats", {}).get("database_size_mb") or stats.get("database_size_mb"),
             uptime_seconds=None,  # Would need to be calculated from health endpoint
-            backend_type=stats.get("storage_backend", "unknown")
+            backend_type=stats.get("storage_backend", "unknown"),
         )
 
     except Exception as e:
         logger.error(f"Failed to get analytics overview: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get analytics overview: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get analytics overview: {str(e)}") from e
 
 
 @router.get("/memory-growth", response_model=MemoryGrowthData, tags=["analytics"])
 async def get_memory_growth(
     period: str = Query("month", description="Time period: week, month, quarter, year"),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None,
 ):
     """
     Get memory growth data over time.
@@ -276,11 +292,7 @@ async def get_memory_growth(
                 count = date_counts.get(current_date, 0)
                 cumulative += count
 
-                data_points.append(MemoryGrowthPoint(
-                    date=current_date.isoformat(),
-                    count=count,
-                    cumulative=cumulative
-                ))
+                data_points.append(MemoryGrowthPoint(date=current_date.isoformat(), count=count, cumulative=cumulative))
 
                 current_date += timedelta(days=interval_days)
 
@@ -289,16 +301,13 @@ async def get_memory_growth(
             # Return empty data if calculation fails
             data_points = []
 
-        return MemoryGrowthData(
-            data_points=data_points,
-            period=period
-        )
+        return MemoryGrowthData(data_points=data_points, period=period)
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to get memory growth data: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get memory growth data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get memory growth data: {str(e)}") from e
 
 
 @router.get("/tag-usage", response_model=TagUsageData, tags=["analytics"])
@@ -306,7 +315,7 @@ async def get_tag_usage_analytics(
     period: str = Query("all", description="Time period: week, month, all"),
     limit: int = Query(20, description="Maximum number of tags to return"),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None,
 ):
     """
     Get tag usage analytics.
@@ -315,13 +324,13 @@ async def get_tag_usage_analytics(
     """
     try:
         # Get all tags with counts
-        if hasattr(storage, 'get_all_tags_with_counts'):
+        if hasattr(storage, "get_all_tags_with_counts"):
             tag_data = await storage.get_all_tags_with_counts()
         else:
             raise HTTPException(status_code=501, detail="Tag analytics not supported by storage backend")
 
         # Get total memories for accurate percentage calculation
-        if hasattr(storage, 'get_stats'):
+        if hasattr(storage, "get_stats"):
             try:
                 stats = await storage.get_stats()
                 total_memories = stats.get("total_memories", 0)
@@ -346,30 +355,28 @@ async def get_tag_usage_analytics(
         for tag_item in tag_data:
             percentage = (tag_item["count"] / total_memories * 100) if total_memories > 0 else 0
 
-            tags.append(TagUsageStats(
-                tag=tag_item["tag"],
-                count=tag_item["count"],
-                percentage=round(percentage, 1),
-                growth_rate=None  # Would need historical data to calculate
-            ))
+            tags.append(
+                TagUsageStats(
+                    tag=tag_item["tag"],
+                    count=tag_item["count"],
+                    percentage=round(percentage, 1),
+                    growth_rate=None,  # Would need historical data to calculate
+                )
+            )
 
-        return TagUsageData(
-            tags=tags,
-            total_memories=total_memories,
-            period=period
-        )
+        return TagUsageData(tags=tags, total_memories=total_memories, period=period)
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to get tag usage analytics: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get tag usage analytics: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get tag usage analytics: {str(e)}") from e
 
 
 @router.get("/memory-types", response_model=MemoryTypeData, tags=["analytics"])
 async def get_memory_type_distribution(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None,
 ):
     """
     Get distribution of memories by type.
@@ -394,29 +401,20 @@ async def get_memory_type_distribution(
         types = []
         for mem_type, count in type_counts.items():
             percentage = (count / total_memories * 100) if total_memories > 0 else 0
-            types.append(MemoryTypeDistribution(
-                memory_type=mem_type,
-                count=count,
-                percentage=round(percentage, 1)
-            ))
+            types.append(MemoryTypeDistribution(memory_type=mem_type, count=count, percentage=round(percentage, 1)))
 
         # Sort by count
         types.sort(key=lambda x: x.count, reverse=True)
 
-        return MemoryTypeData(
-            types=types,
-            total_memories=total_memories
-        )
+        return MemoryTypeData(types=types, total_memories=total_memories)
 
     except Exception as e:
         logger.error(f"Failed to get memory type distribution: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get memory type distribution: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get memory type distribution: {str(e)}") from e
 
 
 @router.get("/search-analytics", response_model=SearchAnalytics, tags=["analytics"])
-async def get_search_analytics(
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
-):
+async def get_search_analytics(user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None):
     """
     Get search usage analytics.
 
@@ -425,18 +423,13 @@ async def get_search_analytics(
     """
     # Placeholder implementation
     # In a real system, this would analyze search logs
-    return SearchAnalytics(
-        total_searches=0,
-        avg_response_time=None,
-        popular_tags=[],
-        search_types={}
-    )
+    return SearchAnalytics(total_searches=0, avg_response_time=None, popular_tags=[], search_types={})
 
 
 @router.get("/performance", response_model=PerformanceMetrics, tags=["analytics"])
 async def get_performance_metrics(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None,
 ):
     """
     Get system performance metrics.
@@ -445,19 +438,14 @@ async def get_performance_metrics(
     """
     # Placeholder implementation
     # In a real system, this would collect actual performance metrics
-    return PerformanceMetrics(
-        avg_response_time=None,
-        memory_usage_mb=None,
-        storage_latency=None,
-        error_rate=None
-    )
+    return PerformanceMetrics(avg_response_time=None, memory_usage_mb=None, storage_latency=None, error_rate=None)
 
 
 @router.get("/activity-heatmap", response_model=ActivityHeatmapResponse, tags=["analytics"])
 async def get_activity_heatmap(
     days: int = Query(365, description="Number of days to include in heatmap"),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None,
 ):
     """
     Get activity heatmap data for calendar view.
@@ -472,6 +460,7 @@ async def get_activity_heatmap(
 
         # Group by date
         from collections import defaultdict
+
         date_counts = defaultdict(int)
 
         end_date = datetime.now(timezone.utc).date()
@@ -507,23 +496,15 @@ async def get_activity_heatmap(
             else:
                 level = 4
 
-            heatmap_data.append(ActivityHeatmapData(
-                date=current_date.isoformat(),
-                count=count,
-                level=level
-            ))
+            heatmap_data.append(ActivityHeatmapData(date=current_date.isoformat(), count=count, level=level))
 
             current_date += timedelta(days=1)
 
-        return ActivityHeatmapResponse(
-            data=heatmap_data,
-            total_days=total_days,
-            max_count=max_count
-        )
+        return ActivityHeatmapResponse(data=heatmap_data, total_days=total_days, max_count=max_count)
 
     except Exception as e:
         logger.error(f"Failed to get activity heatmap: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get activity heatmap: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get activity heatmap: {str(e)}") from e
 
 
 @router.get("/top-tags", response_model=TopTagsResponse, tags=["analytics"])
@@ -531,7 +512,7 @@ async def get_top_tags_report(
     period: str = Query("30d", description="Time period: 7d, 30d, 90d, all"),
     limit: int = Query(20, description="Maximum number of tags to return"),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None,
 ):
     """
     Get enhanced top tags report with trends and co-occurrence patterns.
@@ -550,13 +531,13 @@ async def get_top_tags_report(
             days = None
 
         # Get tag usage data
-        if hasattr(storage, 'get_all_tags_with_counts'):
+        if hasattr(storage, "get_all_tags_with_counts"):
             tag_data = await storage.get_all_tags_with_counts()
         else:
             raise HTTPException(status_code=501, detail="Tag analytics not supported by storage backend")
 
         # Get total memories
-        if hasattr(storage, 'get_stats'):
+        if hasattr(storage, "get_stats"):
             stats = await storage.get_stats()
             total_memories = stats.get("total_memories", 0)
         else:
@@ -567,7 +548,7 @@ async def get_top_tags_report(
 
         # Filter by time period if needed
         if days is not None:
-            cutoff_ts = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
+            (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
             # TODO: CRITICAL - Period filtering not implemented
             # This endpoint accepts a 'period' parameter (7d, 30d, 90d) but returns all-time data
             # This is misleading for API consumers who expect filtered results
@@ -588,35 +569,34 @@ async def get_top_tags_report(
             # Real implementation would query the storage for tag co-occurrence
             co_occurring = [
                 {"tag": "related-tag-1", "count": 5, "strength": 0.8},
-                {"tag": "related-tag-2", "count": 3, "strength": 0.6}
+                {"tag": "related-tag-2", "count": 3, "strength": 0.6},
             ]
 
-            enhanced_tags.append(TopTagsReport(
-                tag=tag_item["tag"],
-                count=tag_item["count"],
-                percentage=round(percentage, 1),
-                growth_rate=None,  # Would need historical data
-                trending=False,    # Would need trend analysis
-                co_occurring_tags=co_occurring
-            ))
+            enhanced_tags.append(
+                TopTagsReport(
+                    tag=tag_item["tag"],
+                    count=tag_item["count"],
+                    percentage=round(percentage, 1),
+                    growth_rate=None,  # Would need historical data
+                    trending=False,  # Would need trend analysis
+                    co_occurring_tags=co_occurring,
+                )
+            )
 
-        return TopTagsResponse(
-            tags=enhanced_tags,
-            period=period
-        )
+        return TopTagsResponse(tags=enhanced_tags, period=period)
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to get top tags report: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get top tags report: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get top tags report: {str(e)}") from e
 
 
 @router.get("/activity-breakdown", response_model=ActivityReport, tags=["analytics"])
 async def get_activity_breakdown(
     granularity: str = Query("daily", description="Time granularity: hourly, daily, weekly"),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None,
 ):
     """
     Get activity breakdown and patterns.
@@ -646,11 +626,7 @@ async def get_activity_breakdown(
             for hour in range(24):
                 count = hour_counts.get(hour, 0)
                 label = f"{hour:02d}:00"
-                breakdown.append(ActivityBreakdown(
-                    period="hourly",
-                    count=count,
-                    label=label
-                ))
+                breakdown.append(ActivityBreakdown(period="hourly", count=count, label=label))
 
         elif granularity == "daily":
             day_counts = defaultdict(int)
@@ -665,11 +641,7 @@ async def get_activity_breakdown(
 
             for i, day_name in enumerate(day_names):
                 count = day_counts.get(i, 0)
-                breakdown.append(ActivityBreakdown(
-                    period="daily",
-                    count=count,
-                    label=day_name
-                ))
+                breakdown.append(ActivityBreakdown(period="daily", count=count, label=day_name))
 
         else:  # weekly
             week_counts = defaultdict(int)
@@ -687,11 +659,7 @@ async def get_activity_breakdown(
             for i in range(12):
                 week_num = (current_week - 11 + i) % 53
                 count = week_counts.get(week_num, 0)
-                breakdown.append(ActivityBreakdown(
-                    period="weekly",
-                    count=count,
-                    label=f"Week {week_num}"
-                ))
+                breakdown.append(ActivityBreakdown(period="weekly", count=count, label=f"Week {week_num}"))
 
         # Calculate streaks
         activity_dates = sorted(set(activity_dates))
@@ -715,7 +683,7 @@ async def get_activity_breakdown(
             longest_streak = 1  # At least 1 if there's any activity
 
             for i in range(1, len(activity_dates)):
-                if activity_dates[i] == activity_dates[i-1] + timedelta(days=1):
+                if activity_dates[i] == activity_dates[i - 1] + timedelta(days=1):
                     temp_streak += 1
                     longest_streak = max(longest_streak, temp_streak)
                 else:
@@ -734,18 +702,18 @@ async def get_activity_breakdown(
             active_days=len(active_days),
             total_days=total_days,
             current_streak=current_streak,
-            longest_streak=max(longest_streak, current_streak)
+            longest_streak=max(longest_streak, current_streak),
         )
 
     except Exception as e:
         logger.error(f"Failed to get activity breakdown: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get activity breakdown: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get activity breakdown: {str(e)}") from e
 
 
 @router.get("/storage-stats", response_model=StorageStats, tags=["analytics"])
 async def get_storage_stats(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None,
 ):
     """
     Get storage statistics and largest memories.
@@ -754,7 +722,7 @@ async def get_storage_stats(
     """
     try:
         # Get basic stats
-        if hasattr(storage, 'get_stats'):
+        if hasattr(storage, "get_stats"):
             stats = await storage.get_stats()
         else:
             stats = {}
@@ -775,18 +743,24 @@ async def get_storage_stats(
         largest_memories_objs = await storage.get_largest_memories(n=10)
         largest_memories = []
         for memory in largest_memories_objs:
-            largest_memories.append({
-                "hash": memory.content_hash,
-                "size": len(memory.content or ""),
-                "created_at": memory.created_at,
-                "tags": memory.tags or [],
-                "content_preview": (memory.content or "")[:100] + "..." if len(memory.content or "") > 100 else memory.content or ""
-            })
+            largest_memories.append(
+                {
+                    "hash": memory.content_hash,
+                    "size": len(memory.content or ""),
+                    "created_at": memory.created_at,
+                    "tags": memory.tags or [],
+                    "content_preview": (memory.content or "")[:100] + "..."
+                    if len(memory.content or "") > 100
+                    else memory.content or "",
+                }
+            )
 
         # Placeholder growth trend (would need historical data)
         growth_trend = [
-            {"date": (datetime.now(timezone.utc) - timedelta(days=i)).date().isoformat(),
-             "size_mb": total_size_mb * (0.9 + i * 0.01)}  # Simulated growth
+            {
+                "date": (datetime.now(timezone.utc) - timedelta(days=i)).date().isoformat(),
+                "size_mb": total_size_mb * (0.9 + i * 0.01),
+            }  # Simulated growth
             for i in range(30, 0, -1)
         ]
 
@@ -798,9 +772,9 @@ async def get_storage_stats(
             average_memory_size=round(average_memory_size, 2),
             largest_memories=largest_memories,
             growth_trend=growth_trend,
-            storage_efficiency=storage_efficiency
+            storage_efficiency=storage_efficiency,
         )
 
     except Exception as e:
         logger.error(f"Failed to get storage stats: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get storage stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get storage stats: {str(e)}") from e

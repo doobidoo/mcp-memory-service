@@ -6,31 +6,40 @@ between mcp_server.py and server.py. It provides a single source of truth for
 all memory operations, eliminating the DRY violation and ensuring consistent behavior.
 """
 
+import asyncio
 import logging
-from typing import Dict, List, Optional, Any, Union, Tuple, TypedDict
+import time
 from datetime import datetime
+from typing import Any, TypedDict
 
 from ..config import (
-    INCLUDE_HOSTNAME,
     CONTENT_PRESERVE_BOUNDARIES,
     CONTENT_SPLIT_OVERLAP,
-    ENABLE_AUTO_SPLIT
+    ENABLE_AUTO_SPLIT,
+    settings,
 )
-from ..storage.base import MemoryStorage
 from ..models.memory import Memory
+from ..storage.base import MemoryStorage
 from ..utils.content_splitter import split_content
 from ..utils.hashing import generate_content_hash
+from ..utils.hybrid_search import (
+    apply_recency_decay,
+    combine_results_rrf,
+    extract_query_keywords,
+    get_adaptive_alpha,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class MemoryResult(TypedDict):
     """Type definition for memory operation results."""
+
     content: str
     content_hash: str
-    tags: List[str]
-    memory_type: Optional[str]
-    metadata: Optional[Dict[str, Any]]
+    tags: list[str]
+    memory_type: str | None
+    metadata: dict[str, Any] | None
     created_at: str
     updated_at: str
     created_at_iso: str
@@ -46,15 +55,71 @@ class MemoryService:
     code duplication and potential inconsistencies.
     """
 
+    # Tag cache TTL in seconds
+    _TAG_CACHE_TTL = 60
+
     def __init__(self, storage: MemoryStorage):
         self.storage = storage
+        self._tag_cache: tuple[float, set[str]] | None = None
 
-    def _build_pagination_metadata(
+    async def _get_cached_tags(self) -> set[str]:
+        """Get all tags with 60-second TTL caching for performance."""
+        now = time.time()
+        if self._tag_cache is not None:
+            cache_time, cached_tags = self._tag_cache
+            if now - cache_time < self._TAG_CACHE_TTL:
+                return cached_tags
+
+        # Cache miss - fetch from storage
+        all_tags = await self.storage.get_all_tags()
+        self._tag_cache = (now, set(all_tags))
+        return self._tag_cache[1]
+
+    async def _retrieve_vector_only(
         self,
-        total: int,
+        query: str,
         page: int,
-        page_size: int
-    ) -> Dict[str, Any]:
+        page_size: int,
+        tags: list[str] | None,
+        memory_type: str | None,
+        min_similarity: float | None,
+    ) -> dict[str, Any]:
+        """Fallback to pure vector search (original behavior)."""
+        offset = (page - 1) * page_size
+
+        # Use a reasonable limit for count to avoid sqlite-vec k limit (4096)
+        try:
+            total = await self.storage.count_semantic_search(
+                query=query, tags=tags, memory_type=memory_type, min_similarity=min_similarity
+            )
+        except Exception:
+            # Fallback: estimate based on page_size if count fails
+            total = page_size * 10  # Reasonable estimate
+
+        memories = await self.storage.retrieve(
+            query=query,
+            n_results=page_size,
+            tags=tags,
+            memory_type=memory_type,
+            min_similarity=min_similarity,
+            offset=offset,
+        )
+        results = []
+        for item in memories:
+            if hasattr(item, "memory"):
+                memory_dict = self._format_memory_response(item.memory)
+                memory_dict["similarity_score"] = item.similarity_score
+                results.append(memory_dict)
+            else:
+                results.append(self._format_memory_response(item))
+        return {
+            "memories": results,
+            "query": query,
+            "hybrid_enabled": False,
+            **self._build_pagination_metadata(total, page, page_size),
+        }
+
+    def _build_pagination_metadata(self, total: int, page: int, page_size: int) -> dict[str, Any]:
         """
         Build consistent pagination metadata for all endpoints.
 
@@ -73,16 +138,12 @@ class MemoryService:
             "page": page,
             "page_size": page_size,
             "has_more": (page * page_size) < total,
-            "total_pages": (total + page_size - 1) // page_size if page_size > 0 else 1
+            "total_pages": (total + page_size - 1) // page_size if page_size > 0 else 1,
         }
 
     async def list_memories(
-        self,
-        page: int = 1,
-        page_size: int = 10,
-        tag: Optional[str] = None,
-        memory_type: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, page: int = 1, page_size: int = 10, tag: str | None = None, memory_type: str | None = None
+    ) -> dict[str, Any]:
         """
         List memories with pagination and optional filtering.
 
@@ -105,27 +166,18 @@ class MemoryService:
             # Use database-level filtering for optimal performance
             tags_list = [tag] if tag else None
             memories = await self.storage.get_all_memories(
-                limit=page_size,
-                offset=offset,
-                memory_type=memory_type,
-                tags=tags_list
+                limit=page_size, offset=offset, memory_type=memory_type, tags=tags_list
             )
 
             # Get accurate total count for pagination
-            total = await self.storage.count_all_memories(
-                memory_type=memory_type,
-                tags=tags_list
-            )
+            total = await self.storage.count_all_memories(memory_type=memory_type, tags=tags_list)
 
             # Format results for API response
             results = []
             for memory in memories:
                 results.append(self._format_memory_response(memory))
 
-            return {
-                "memories": results,
-                **self._build_pagination_metadata(total, page, page_size)
-            }
+            return {"memories": results, **self._build_pagination_metadata(total, page, page_size)}
 
         except Exception as e:
             logger.exception(f"Unexpected error listing memories: {e}")
@@ -134,17 +186,17 @@ class MemoryService:
                 "error": f"Failed to list memories: {str(e)}",
                 "memories": [],
                 "page": page,
-                "page_size": page_size
+                "page_size": page_size,
             }
 
     async def store_memory(
         self,
         content: str,
-        tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        client_hostname: Optional[str] = None
-    ) -> Dict[str, Any]:
+        tags: list[str] | None = None,
+        memory_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        client_hostname: str | None = None,
+    ) -> dict[str, Any]:
         """
         Store a new memory with validation and content processing.
 
@@ -181,7 +233,7 @@ class MemoryService:
                     content,
                     max_length=max_length,
                     preserve_boundaries=CONTENT_PRESERVE_BOUNDARIES,
-                    overlap=CONTENT_SPLIT_OVERLAP
+                    overlap=CONTENT_SPLIT_OVERLAP,
                 )
                 stored_memories = []
 
@@ -193,85 +245,65 @@ class MemoryService:
                     chunk_metadata["original_hash"] = content_hash
 
                     memory = Memory(
-                        content=chunk,
-                        content_hash=chunk_hash,
-                        tags=final_tags,
-                        memory_type=memory_type,
-                        metadata=chunk_metadata
+                        content=chunk, content_hash=chunk_hash, tags=final_tags, memory_type=memory_type, metadata=chunk_metadata
                     )
 
                     success, message = await self.storage.store(memory)
                     if success:
                         stored_memories.append(self._format_memory_response(memory))
 
-                return {
-                    "success": True,
-                    "memories": stored_memories,
-                    "total_chunks": len(chunks),
-                    "original_hash": content_hash
-                }
+                return {"success": True, "memories": stored_memories, "total_chunks": len(chunks), "original_hash": content_hash}
             else:
                 # Store as single memory
                 memory = Memory(
-                    content=content,
-                    content_hash=content_hash,
-                    tags=final_tags,
-                    memory_type=memory_type,
-                    metadata=final_metadata
+                    content=content, content_hash=content_hash, tags=final_tags, memory_type=memory_type, metadata=final_metadata
                 )
 
                 success, message = await self.storage.store(memory)
 
                 if success:
-                    return {
-                        "success": True,
-                        "memory": self._format_memory_response(memory)
-                    }
+                    return {"success": True, "memory": self._format_memory_response(memory)}
                 else:
-                    return {
-                        "success": False,
-                        "error": message
-                    }
+                    return {"success": False, "error": message}
 
         except ValueError as e:
             # Handle validation errors specifically
             logger.warning(f"Validation error storing memory: {e}")
-            return {
-                "success": False,
-                "error": f"Invalid memory data: {str(e)}"
-            }
+            return {"success": False, "error": f"Invalid memory data: {str(e)}"}
         except ConnectionError as e:
             # Handle storage connectivity issues
             logger.error(f"Storage connection error: {e}")
-            return {
-                "success": False,
-                "error": f"Storage connection failed: {str(e)}"
-            }
+            return {"success": False, "error": f"Storage connection failed: {str(e)}"}
         except Exception as e:
             # Handle unexpected errors
             logger.exception(f"Unexpected error storing memory: {e}")
-            return {
-                "success": False,
-                "error": f"Failed to store memory: {str(e)}"
-            }
+            return {"success": False, "error": f"Failed to store memory: {str(e)}"}
 
     async def retrieve_memories(
         self,
         query: str,
         page: int = 1,
         page_size: int = 10,
-        tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None,
-        min_similarity: Optional[float] = None
-    ) -> Dict[str, Any]:
+        tags: list[str] | None = None,
+        memory_type: str | None = None,
+        min_similarity: float | None = None,
+    ) -> dict[str, Any]:
         """
-        Retrieve memories by semantic search with optional filtering and pagination.
+        Retrieve memories using hybrid search (semantic + tag matching).
+
+        Combines vector similarity with automatic tag extraction for improved retrieval.
+        When query terms match existing tags, those memories receive a score boost.
+        This solves the "rathole problem" where project-specific queries return
+        semantically similar but categorically unrelated results.
+
+        Hybrid search is enabled by default. To opt-out to pure vector search:
+        - Set environment variable MCP_MEMORY_HYBRID_ALPHA=1.0
 
         Args:
-            query: Search query string
+            query: Search query string (tags extracted automatically)
             page: Page number (1-indexed)
             page_size: Number of results per page
-            tags: Optional tag filtering
+            tags: Optional explicit tag filtering (bypasses hybrid, uses vector only)
             memory_type: Optional memory type filtering
             min_similarity: Optional minimum similarity threshold (0.0 to 1.0)
 
@@ -279,62 +311,94 @@ class MemoryService:
             Dictionary with search results and pagination metadata
         """
         try:
-            # Calculate offset for pagination
+            config = settings.hybrid_search
+
+            # If tags explicitly provided (even empty list), skip hybrid and use pure vector search
+            # Distinguishes "no tags" (None) from "explicit empty tags" ([])
+            if tags is not None:
+                return await self._retrieve_vector_only(query, page, page_size, tags, memory_type, min_similarity)
+
+            # Get cached tags for keyword extraction
+            existing_tags = await self._get_cached_tags()
+
+            # Extract potential tag keywords from query
+            keywords = extract_query_keywords(query, existing_tags)
+
+            # If no keywords match existing tags, fall back to vector-only
+            if not keywords:
+                return await self._retrieve_vector_only(query, page, page_size, None, memory_type, min_similarity)
+
+            # Determine alpha (explicit > env > adaptive)
+            corpus_size = await self.storage.count()
+            alpha = get_adaptive_alpha(corpus_size, len(keywords), config)
+
+            # If alpha is 1.0, pure vector search (opt-out)
+            if alpha >= 1.0:
+                return await self._retrieve_vector_only(query, page, page_size, None, memory_type, min_similarity)
+
+            # Fetch larger result set for RRF combination
+            # Must cover offset + page_size to support pagination beyond page 1
             offset = (page - 1) * page_size
+            fetch_size = min(max(page_size * 3, offset + page_size), 100)
 
-            # Get total count for pagination (expensive but accurate as per user requirement)
-            total = await self.storage.count_semantic_search(
+            # Parallel fetch: vector results + tag-matching memories
+            vector_task = self.storage.retrieve(
                 query=query,
-                tags=tags,
-                memory_type=memory_type,
-                min_similarity=min_similarity
-            )
-
-            # Pass filters directly to storage backend for database-level filtering
-            memories = await self.storage.retrieve(
-                query=query,
-                n_results=page_size,
-                tags=tags,
+                n_results=fetch_size,
+                tags=None,
                 memory_type=memory_type,
                 min_similarity=min_similarity,
-                offset=offset
+                offset=0,
+            )
+            tag_task = self.storage.search_by_tags(
+                tags=keywords,
+                match_all=False,  # ANY tag matches
+                limit=fetch_size,
             )
 
+            vector_results, tag_matches = await asyncio.gather(vector_task, tag_task)
+
+            # Combine using RRF
+            combined = combine_results_rrf(vector_results, tag_matches, alpha)
+
+            # Apply recency decay
+            if config.recency_decay > 0:
+                combined = apply_recency_decay(combined, config.recency_decay)
+
+            # Apply pagination to combined results (offset calculated above for fetch_size)
+            total = len(combined)
+            paginated = combined[offset : offset + page_size]
+
+            # Format results
             results = []
-            for item in memories:
-                # Handle both Memory and MemoryQueryResult objects
-                if hasattr(item, 'memory'):
-                    # MemoryQueryResult - unwrap and add similarity score
-                    memory_dict = self._format_memory_response(item.memory)
-                    memory_dict['similarity_score'] = item.similarity_score
-                    results.append(memory_dict)
-                else:
-                    # Plain Memory object
-                    results.append(self._format_memory_response(item))
+            for memory, score, debug_info in paginated:
+                memory_dict = self._format_memory_response(memory)
+                memory_dict["similarity_score"] = score
+                memory_dict["hybrid_debug"] = debug_info
+                results.append(memory_dict)
 
             return {
                 "memories": results,
                 "query": query,
-                **self._build_pagination_metadata(total, page, page_size)
+                "hybrid_enabled": True,
+                "alpha_used": alpha,
+                "keywords_extracted": keywords,
+                **self._build_pagination_metadata(total, page, page_size),
             }
 
         except Exception as e:
             logger.error(f"Error retrieving memories: {e}")
-            return {
-                "memories": [],
-                "query": query,
-                "error": f"Failed to retrieve memories: {str(e)}"
-            }
+            return {"memories": [], "query": query, "error": f"Failed to retrieve memories: {str(e)}"}
 
     async def search_by_tag(
         self,
-        tags: Union[str, List[str]],
+        tags: str | list[str],
         match_all: bool = False,
         page: int = 1,
         page_size: int = 10,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None
-    ) -> Dict[str, Union[List[MemoryResult], str, bool, int]]:
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> dict[str, list[MemoryResult] | str | bool | int]:
         """
         Search memories by tags with flexible matching options, pagination, and optional date filtering.
 
@@ -359,6 +423,7 @@ class MemoryService:
 
             # Convert date strings to timestamps if provided
             from datetime import datetime
+
             start_timestamp = None
             end_timestamp = None
 
@@ -372,10 +437,7 @@ class MemoryService:
 
             # Get total count for pagination
             total = await self.storage.count_tag_search(
-                tags=tags,
-                match_all=match_all,
-                start_timestamp=start_timestamp,
-                end_timestamp=end_timestamp
+                tags=tags, match_all=match_all, start_timestamp=start_timestamp, end_timestamp=end_timestamp
             )
 
             # Search using database-level filtering
@@ -385,14 +447,14 @@ class MemoryService:
                 offset=offset,
                 match_all=match_all,
                 start_timestamp=start_timestamp,
-                end_timestamp=end_timestamp
+                end_timestamp=end_timestamp,
             )
 
             # Format results
             results = []
             for item in memories:
                 # Handle both Memory and MemoryQueryResult objects
-                if hasattr(item, 'memory'):
+                if hasattr(item, "memory"):
                     results.append(self._format_memory_response(item.memory))
                 else:
                     results.append(self._format_memory_response(item))
@@ -404,7 +466,7 @@ class MemoryService:
                 "memories": results,
                 "tags": tags,
                 "match_type": match_type,
-                **self._build_pagination_metadata(total, page, page_size)
+                **self._build_pagination_metadata(total, page, page_size),
             }
 
         except Exception as e:
@@ -412,10 +474,10 @@ class MemoryService:
             return {
                 "memories": [],
                 "tags": tags if isinstance(tags, list) else [tags],
-                "error": f"Failed to search by tags: {str(e)}"
+                "error": f"Failed to search by tags: {str(e)}",
             }
 
-    async def get_memory_by_hash(self, content_hash: str) -> Dict[str, Any]:
+    async def get_memory_by_hash(self, content_hash: str) -> dict[str, Any]:
         """
         Retrieve a specific memory by its content hash.
 
@@ -430,25 +492,15 @@ class MemoryService:
             memory = await self.storage.get_memory_by_hash(content_hash)
 
             if memory:
-                return {
-                    "memory": self._format_memory_response(memory),
-                    "found": True
-                }
+                return {"memory": self._format_memory_response(memory), "found": True}
             else:
-                return {
-                    "found": False,
-                    "content_hash": content_hash
-                }
+                return {"found": False, "content_hash": content_hash}
 
         except Exception as e:
             logger.error(f"Error getting memory by hash: {e}")
-            return {
-                "found": False,
-                "content_hash": content_hash,
-                "error": f"Failed to get memory: {str(e)}"
-            }
+            return {"found": False, "content_hash": content_hash, "error": f"Failed to get memory: {str(e)}"}
 
-    async def delete_memory(self, content_hash: str) -> Dict[str, Any]:
+    async def delete_memory(self, content_hash: str) -> dict[str, Any]:
         """
         Delete a memory by its content hash.
 
@@ -461,26 +513,15 @@ class MemoryService:
         try:
             success, message = await self.storage.delete(content_hash)
             if success:
-                return {
-                    "success": True,
-                    "content_hash": content_hash
-                }
+                return {"success": True, "content_hash": content_hash}
             else:
-                return {
-                    "success": False,
-                    "content_hash": content_hash,
-                    "error": message
-                }
+                return {"success": False, "content_hash": content_hash, "error": message}
 
         except Exception as e:
             logger.error(f"Error deleting memory: {e}")
-            return {
-                "success": False,
-                "content_hash": content_hash,
-                "error": f"Failed to delete memory: {str(e)}"
-            }
+            return {"success": False, "content_hash": content_hash, "error": f"Failed to delete memory: {str(e)}"}
 
-    async def check_database_health(self) -> Dict[str, Any]:
+    async def check_database_health(self) -> dict[str, Any]:
         """
         Perform a health check on the memory storage system.
 
@@ -494,15 +535,12 @@ class MemoryService:
                 "storage_type": stats.get("backend", "unknown"),
                 "total_memories": stats.get("total_memories", 0),
                 "last_updated": datetime.now().isoformat(),
-                **stats
+                **stats,
             }
 
         except Exception as e:
             logger.error(f"Health check failed: {e}")
-            return {
-                "healthy": False,
-                "error": f"Health check failed: {str(e)}"
-            }
+            return {"healthy": False, "error": f"Health check failed: {str(e)}"}
 
     def _format_memory_response(self, memory: Memory) -> MemoryResult:
         """
@@ -523,5 +561,5 @@ class MemoryService:
             "created_at": memory.created_at,
             "updated_at": memory.updated_at,
             "created_at_iso": memory.created_at_iso,
-            "updated_at_iso": memory.updated_at_iso
+            "updated_at_iso": memory.updated_at_iso,
         }

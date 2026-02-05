@@ -11,7 +11,7 @@ const sessionStartHook = require('../../claude-hooks/core/session-start.js');
 
 async function testEnhancedHook() {
     console.log('🧪 Testing Enhanced Session Start Hook\n');
-    
+
     // Mock context for testing
     const mockContext = {
         workingDirectory: process.cwd(),
@@ -26,15 +26,15 @@ async function testEnhancedHook() {
             return true;
         }
     };
-    
+
     console.log(`📂 Testing in directory: ${mockContext.workingDirectory}`);
     console.log(`🔍 Test query: "${mockContext.userMessage}"`);
     console.log(`⚙️  Trigger: ${mockContext.trigger}\n`);
-    
+
     try {
         // Execute the enhanced hook
         await sessionStartHook.handler(mockContext);
-        
+
         console.log('\n✅ Hook execution completed successfully!');
         console.log('\n📊 Expected improvements:');
         console.log('   • Multi-phase memory retrieval (recent + important + fallback)');
@@ -42,7 +42,7 @@ async function testEnhancedHook() {
         console.log('   • Better semantic queries with git context');
         console.log('   • Improved categorization with "Recent Work" section');
         console.log('   • Configurable memory ratios and time windows');
-        
+
     } catch (error) {
         console.error('❌ Hook execution failed:', error.message);
         console.error('Stack trace:', error.stack);

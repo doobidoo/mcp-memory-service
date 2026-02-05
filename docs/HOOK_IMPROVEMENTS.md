@@ -20,7 +20,7 @@ Enhanced the session start hook to prioritize recent memories and provide better
 - Improved categorization: Recent → Decisions → Architecture → Insights → Features → Context
 - Visual indicators for recency in CLI output
 
-### 4. Enhanced Semantic Queries  
+### 4. Enhanced Semantic Queries
 - Git context integration (branch, recent commits)
 - Framework and language context in queries
 - User message context when available
@@ -57,7 +57,7 @@ Enhanced the session start hook to prioritize recent memories and provide better
 - Basic categorization
 - Truncated output
 
-### After  
+### After
 - Multi-phase approach prioritizing recent memories
 - Smart time-based retrieval
 - Git and framework-aware queries
@@ -79,7 +79,7 @@ The improvements are **backward compatible** - existing installations will autom
 ## Files Modified
 
 1. `claude-hooks/core/session-start.js` - Multi-phase retrieval logic
-2. `claude-hooks/utilities/context-formatter.js` - Enhanced display and categorization  
+2. `claude-hooks/utilities/context-formatter.js` - Enhanced display and categorization
 3. `claude-hooks/config.json` - New configuration options
 4. `test-hook.js` - Test script for validation
 

@@ -75,7 +75,7 @@ For IDEs with native HTTP MCP support:
       },
       "tools": [
         "store_memory",
-        "retrieve_memory", 
+        "retrieve_memory",
         "search_by_tag",
         "delete_memory",
         "check_database_health"
@@ -102,7 +102,7 @@ class MCPMemoryClient:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
-    
+
     async def request(self, method, params=None):
         payload = {
             "jsonrpc": "2.0",
@@ -110,7 +110,7 @@ class MCPMemoryClient:
             "method": method,
             "params": params or {}
         }
-        
+
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 self.endpoint,
@@ -118,7 +118,7 @@ class MCPMemoryClient:
                 headers=self.headers
             ) as response:
                 return await response.json()
-    
+
     async def store_memory(self, content, tags=None, memory_type=None):
         params = {
             "name": "store_memory",
@@ -129,10 +129,10 @@ class MCPMemoryClient:
             }
         }
         return await self.request("tools/call", params)
-    
+
     async def retrieve_memory(self, query, limit=10):
         params = {
-            "name": "retrieve_memory", 
+            "name": "retrieve_memory",
             "arguments": {
                 "query": query,
                 "limit": limit

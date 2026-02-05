@@ -353,7 +353,7 @@ ERROR: Missing required environment variables for Cloudflare backend: CLOUDFLARE
 ERROR: Unauthorized - Invalid API token
 ```
 
-**Solution**: 
+**Solution**:
 - Verify all required environment variables are set
 - Check API token has correct permissions (Vectorize:Edit, D1:Edit, Workers AI:Read)
 - Ensure token is not expired
@@ -366,7 +366,7 @@ ValueError: Vectorize index 'mcp-memory-index' not found
 ValueError: D1 database not found
 ```
 
-**Solution**: 
+**Solution**:
 - Create the Vectorize index or verify the index name is correct
 - Check that resources were created in the correct account
 - Confirm resource IDs/names match exactly
@@ -379,7 +379,7 @@ ValueError: Failed to store vector data
 HTTP 400: Invalid vector data format
 ```
 
-**Solution**: 
+**Solution**:
 - Check vector dimensions (must be 768)
 - Verify NDJSON format for vector data
 - Ensure metadata values are properly serialized
@@ -392,7 +392,7 @@ ValueError: Failed to initialize D1 schema
 HTTP 403: Insufficient permissions
 ```
 
-**Solution**: 
+**Solution**:
 - Verify D1 database ID and API token permissions
 - Ensure database exists and is accessible
 - Check API token has D1:Edit permissions
@@ -404,7 +404,7 @@ Rate limited after 3 retries
 HTTP 429: Too Many Requests
 ```
 
-**Solution**: 
+**Solution**:
 - Increase `CLOUDFLARE_MAX_RETRIES` or `CLOUDFLARE_BASE_DELAY` for more conservative retry behavior
 - Implement exponential backoff (already included)
 - Monitor API usage through Cloudflare dashboard

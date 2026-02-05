@@ -90,7 +90,7 @@ curl -H "Accept: text/event-stream, application/json" \
 - [ ] Consider server-side compatibility layer
 - [ ] Expand client compatibility testing
 
-### Medium Term 
+### Medium Term
 - [ ] Custom SSE implementation for Claude Code compatibility
 - [ ] Alternative transport protocols (WebSocket, HTTP long-polling)
 - [ ] Client library development

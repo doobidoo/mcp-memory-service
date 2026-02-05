@@ -1,0 +1,14 @@
+{
+  "filePath": ".spec-workflow/specs/hybrid-search/design.md",
+  "currentVersion": 1,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-25T00:31:22.677Z",
+      "trigger": "initial",
+      "approvalId": "approval_1769301082674_npwdro8xt",
+      "approvalTitle": "Hybrid Search Design Document"
+    }
+  ]
+}

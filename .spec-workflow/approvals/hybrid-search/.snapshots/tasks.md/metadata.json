@@ -1,0 +1,14 @@
+{
+  "filePath": ".spec-workflow/specs/hybrid-search/tasks.md",
+  "currentVersion": 1,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-25T00:48:30.764Z",
+      "trigger": "initial",
+      "approvalId": "approval_1769302110761_x8nww4aqn",
+      "approvalTitle": "Hybrid Search Tasks Document"
+    }
+  ]
+}

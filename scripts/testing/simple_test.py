@@ -1,9 +1,9 @@
-#\!/usr/bin/env python3
+# \!/usr/bin/env python3
 """
 Simple test to use Homebrew Python's sentence-transformers
 """
+
 import os
-import sys
 import subprocess
 
 # Set environment variables for testing
@@ -13,19 +13,14 @@ os.environ["MCP_MEMORY_BACKUPS_PATH"] = os.path.expanduser("~/Library/Applicatio
 os.environ["MCP_MEMORY_USE_ONNX"] = "1"
 
 # Get the Homebrew Python path
-result = subprocess.run(
-    ['brew', '--prefix', 'pytorch'],
-    capture_output=True,
-    text=True,
-    check=True
-)
+result = subprocess.run(["brew", "--prefix", "pytorch"], capture_output=True, text=True, check=True)
 pytorch_prefix = result.stdout.strip()
 homebrew_python_path = f"{pytorch_prefix}/libexec/bin/python3"
 
 print(f"Using Homebrew Python: {homebrew_python_path}")
 
 # Run a simple test with the Homebrew Python
-test_script = """
+test_script = r"""
 import torch
 import sentence_transformers
 import sys
@@ -46,11 +41,7 @@ print("Test successful\!")
 """
 
 # Run the test with Homebrew Python
-result = subprocess.run(
-    [homebrew_python_path, "-c", test_script],
-    capture_output=True,
-    text=True
-)
+result = subprocess.run([homebrew_python_path, "-c", test_script], capture_output=True, text=True)
 
 print("=== STDOUT ===")
 print(result.stdout)

@@ -13,33 +13,33 @@
 # limitations under the License.
 
 """Utilities for database validation and health checks."""
-from typing import Dict, Any, Tuple
+
+import importlib
 import logging
 import os
-import json
-from datetime import datetime
-import importlib
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
-async def validate_database(storage) -> Tuple[bool, str]:
+
+async def validate_database(storage) -> tuple[bool, str]:
     """Validate database health and configuration."""
     try:
         # Check if storage is properly initialized
         if storage is None:
             return False, "Storage is not initialized"
-        
+
         # Special case for direct access without checking for attribute 'collection'
         # This fixes compatibility issues with SQLite-vec and other storage backends
         storage_type = storage.__class__.__name__
-        
+
         # First, use the 'is_initialized' method if available (preferred)
-        if hasattr(storage, 'is_initialized') and callable(storage.is_initialized):
+        if hasattr(storage, "is_initialized") and callable(storage.is_initialized):
             try:
                 init_status = storage.is_initialized()
                 if not init_status:
                     # Get detailed status for debugging
-                    if hasattr(storage, 'get_initialization_status') and callable(storage.get_initialization_status):
+                    if hasattr(storage, "get_initialization_status") and callable(storage.get_initialization_status):
                         status = storage.get_initialization_status()
                         return False, f"Storage not fully initialized: {status}"
                     else:
@@ -47,12 +47,12 @@ async def validate_database(storage) -> Tuple[bool, str]:
             except Exception as init_error:
                 logger.warning(f"Error checking initialization status: {init_error}")
                 # Continue with alternative checks
-        
+
         # SQLite-vec backend validation
         if storage_type == "SqliteVecMemoryStorage":
-            if not hasattr(storage, 'conn') or storage.conn is None:
+            if not hasattr(storage, "conn") or storage.conn is None:
                 return False, "SQLite database connection is not initialized"
-            
+
             # Check for database health
             try:
                 # Make sure the tables exist
@@ -62,23 +62,23 @@ async def validate_database(storage) -> Tuple[bool, str]:
                         return False, "SQLite database is missing required tables"
                 except Exception as table_error:
                     return False, f"Failed to check for tables: {str(table_error)}"
-                
+
                 # Try a simple query to verify database connection
-                cursor = storage.conn.execute('SELECT COUNT(*) FROM memories')
+                cursor = storage.conn.execute("SELECT COUNT(*) FROM memories")
                 memory_count = cursor.fetchone()[0]
                 logger.info(f"SQLite-vec database contains {memory_count} memories")
-                
+
                 # Test if embedding generation works (if model is available)
-                if hasattr(storage, 'embedding_model') and storage.embedding_model:
+                if hasattr(storage, "embedding_model") and storage.embedding_model:
                     test_text = "Database validation test"
                     embedding = storage._generate_embedding(test_text)
                     if not embedding or len(embedding) != storage.embedding_dimension:
                         logger.warning("Embedding generation may not be working properly")
                 else:
                     logger.warning("No embedding model available, some functionality may be limited")
-                
+
                 return True, "SQLite-vec database validation successful"
-                
+
             except Exception as e:
                 return False, f"SQLite database access error: {str(e)}"
 
@@ -86,7 +86,7 @@ async def validate_database(storage) -> Tuple[bool, str]:
         elif storage_type == "CloudflareStorage":
             try:
                 # Check if storage is properly initialized
-                if not hasattr(storage, 'client') or storage.client is None:
+                if not hasattr(storage, "client") or storage.client is None:
                     return False, "Cloudflare storage client is not initialized"
 
                 # Check basic connectivity by getting stats
@@ -110,28 +110,26 @@ async def validate_database(storage) -> Tuple[bool, str]:
 
         else:
             return False, f"Unknown storage type: {storage_type}"
-            
+
     except Exception as e:
         logger.error(f"Database validation failed: {str(e)}")
         return False, f"Database validation failed: {str(e)}"
 
-async def get_database_stats(storage) -> Dict[str, Any]:
+
+async def get_database_stats(storage) -> dict[str, Any]:
     """Get detailed database statistics with proper error handling."""
     try:
         # Check if storage is properly initialized
         if storage is None:
-            return {
-                "status": "error",
-                "error": "Storage is not initialized"
-            }
-        
+            return {"status": "error", "error": "Storage is not initialized"}
+
         # Determine storage type
         storage_type = storage.__class__.__name__
-        
+
         # SQLite-vec backend stats
         if storage_type == "SqliteVecMemoryStorage":
             # Use the storage's own stats method if available
-            if hasattr(storage, 'get_stats') and callable(storage.get_stats):
+            if hasattr(storage, "get_stats") and callable(storage.get_stats):
                 try:
                     stats = storage.get_stats()
                     stats["status"] = "healthy"
@@ -139,45 +137,42 @@ async def get_database_stats(storage) -> Dict[str, Any]:
                 except Exception as stats_error:
                     logger.warning(f"Error calling get_stats method: {stats_error}")
                     # Fall back to our implementation
-            
+
             # Otherwise, gather basic stats
-            if not hasattr(storage, 'conn') or storage.conn is None:
-                return {
-                    "status": "error",
-                    "error": "SQLite database connection is not initialized"
-                }
-            
+            if not hasattr(storage, "conn") or storage.conn is None:
+                return {"status": "error", "error": "SQLite database connection is not initialized"}
+
             try:
                 # Check if tables exist
                 cursor = storage.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
                 tables = [row[0] for row in cursor.fetchall()]
-                
+
                 # Count memories if the table exists
                 memory_count = 0
-                if 'memories' in tables:
-                    cursor = storage.conn.execute('SELECT COUNT(*) FROM memories')
+                if "memories" in tables:
+                    cursor = storage.conn.execute("SELECT COUNT(*) FROM memories")
                     memory_count = cursor.fetchone()[0]
-                
+
                 # Get unique tags if the table exists
                 unique_tags = 0
-                if 'memories' in tables:
+                if "memories" in tables:
                     cursor = storage.conn.execute('SELECT COUNT(DISTINCT tags) FROM memories WHERE tags != ""')
                     unique_tags = cursor.fetchone()[0]
-                
+
                 # Get database file size
-                db_path = storage.db_path if hasattr(storage, 'db_path') else "unknown"
+                db_path = storage.db_path if hasattr(storage, "db_path") else "unknown"
                 file_size = os.path.getsize(db_path) if isinstance(db_path, str) and os.path.exists(db_path) else 0
-                
+
                 # Get embedding model info
                 embedding_model = "unknown"
                 embedding_dimension = 0
-                
-                if hasattr(storage, 'embedding_model_name'):
+
+                if hasattr(storage, "embedding_model_name"):
                     embedding_model = storage.embedding_model_name
-                
-                if hasattr(storage, 'embedding_dimension'):
+
+                if hasattr(storage, "embedding_dimension"):
                     embedding_dimension = storage.embedding_dimension
-                
+
                 # Gather tables information
                 tables_info = {}
                 for table in tables:
@@ -187,7 +182,7 @@ async def get_database_stats(storage) -> Dict[str, Any]:
                         tables_info[table] = {"count": count}
                     except Exception:
                         tables_info[table] = {"count": "unknown"}
-                
+
                 return {
                     "backend": "sqlite-vec",
                     "status": "healthy",
@@ -198,14 +193,11 @@ async def get_database_stats(storage) -> Dict[str, Any]:
                     "embedding_model": embedding_model,
                     "embedding_dimension": embedding_dimension,
                     "tables": tables,
-                    "tables_info": tables_info
+                    "tables_info": tables_info,
                 }
             except Exception as e:
-                return {
-                    "status": "error",
-                    "error": f"Error getting SQLite-vec stats: {str(e)}"
-                }
-        
+                return {"status": "error", "error": f"Error getting SQLite-vec stats: {str(e)}"}
+
         # Cloudflare storage stats
         elif storage_type == "CloudflareStorage":
             try:
@@ -218,59 +210,50 @@ async def get_database_stats(storage) -> Dict[str, Any]:
                     "d1_database_id": storage.d1_database_id,
                     "r2_bucket": storage.r2_bucket,
                     "embedding_model": storage.embedding_model,
-                    "large_content_threshold": storage.large_content_threshold
+                    "large_content_threshold": storage.large_content_threshold,
                 }
 
-                return {
-                    **storage_stats,
-                    "cloudflare": cloudflare_info,
-                    "backend": "cloudflare",
-                    "status": "healthy"
-                }
+                return {**storage_stats, "cloudflare": cloudflare_info, "backend": "cloudflare", "status": "healthy"}
 
             except Exception as stats_error:
                 return {
                     "status": "error",
                     "error": f"Error getting Cloudflare stats: {str(stats_error)}",
-                    "backend": "cloudflare"
+                    "backend": "cloudflare",
                 }
 
         else:
-            return {
-                "status": "error",
-                "error": f"Unknown storage type: {storage_type}"
-            }
-            
+            return {"status": "error", "error": f"Unknown storage type: {storage_type}"}
+
     except Exception as e:
         logger.error(f"Error getting database stats: {str(e)}")
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}
 
-async def repair_database(storage) -> Tuple[bool, str]:
+
+async def repair_database(storage) -> tuple[bool, str]:
     """Attempt to repair database issues."""
     try:
         # Determine storage type
         storage_type = storage.__class__.__name__
-        
+
         # SQLite-vec backend repair
         if storage_type == "SqliteVecMemoryStorage":
             # For SQLite, we'll try to check and recreate the tables if needed
-            if not hasattr(storage, 'conn') or storage.conn is None:
+            if not hasattr(storage, "conn") or storage.conn is None:
                 # Try to reconnect
                 try:
-                    storage.conn = storage.conn or __import__('sqlite3').connect(storage.db_path)
-                    
+                    storage.conn = storage.conn or __import__("sqlite3").connect(storage.db_path)
+
                     # Try to reload the extension
-                    if importlib.util.find_spec('sqlite_vec'):
+                    if importlib.util.find_spec("sqlite_vec"):
                         import sqlite_vec
+
                         storage.conn.enable_load_extension(True)
                         sqlite_vec.load(storage.conn)
                         storage.conn.enable_load_extension(False)
-                    
+
                     # Recreate tables if needed
-                    storage.conn.execute('''
+                    storage.conn.execute("""
                         CREATE TABLE IF NOT EXISTS memories (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             content_hash TEXT UNIQUE NOT NULL,
@@ -283,27 +266,27 @@ async def repair_database(storage) -> Tuple[bool, str]:
                             created_at_iso TEXT,
                             updated_at_iso TEXT
                         )
-                    ''')
-                    
+                    """)
+
                     # Create virtual table for vector embeddings
-                    embedding_dimension = getattr(storage, 'embedding_dimension', 384)
-                    storage.conn.execute(f'''
+                    embedding_dimension = getattr(storage, "embedding_dimension", 384)
+                    storage.conn.execute(f"""
                         CREATE VIRTUAL TABLE IF NOT EXISTS memory_embeddings USING vec0(
                             content_embedding FLOAT[{embedding_dimension}]
                         )
-                    ''')
-                    
+                    """)
+
                     # Create indexes for better performance
-                    storage.conn.execute('CREATE INDEX IF NOT EXISTS idx_content_hash ON memories(content_hash)')
-                    storage.conn.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at)')
-                    storage.conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_type ON memories(memory_type)')
-                    
+                    storage.conn.execute("CREATE INDEX IF NOT EXISTS idx_content_hash ON memories(content_hash)")
+                    storage.conn.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at)")
+                    storage.conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_type ON memories(memory_type)")
+
                     storage.conn.commit()
                     return True, "SQLite-vec database repaired"
-                    
+
                 except Exception as e:
                     return False, f"SQLite-vec repair failed: {str(e)}"
-        
+
         # Cloudflare storage repair
         elif storage_type == "CloudflareStorage":
             # For Cloudflare storage, we can't repair infrastructure (Vectorize, D1, R2)
@@ -329,7 +312,7 @@ async def repair_database(storage) -> Tuple[bool, str]:
 
         else:
             return False, f"Unknown storage type: {storage_type}, cannot repair"
-                
+
     except Exception as e:
         logger.error(f"Error repairing database: {str(e)}")
         return False, f"Error repairing database: {str(e)}"

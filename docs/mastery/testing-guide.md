@@ -93,4 +93,3 @@ Use any MCP client (Claude Desktop/Code) and exercise tools: store, retrieve, se
 - Set `LOG_LEVEL=INFO` for more verbosity.
 - For Claude Desktop: stdout is suppressed to preserve JSON; inspect stderr/warnings. LM Studio prints diagnostics to stdout.
 - Common sqlite-vec errors print actionable remediation (see Troubleshooting).
-

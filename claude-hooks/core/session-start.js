@@ -102,7 +102,7 @@ function parseHealthDataToStorageInfo(healthData) {
         const storage = healthData.storage || healthData || {};
         const system = healthData.system || {};
         const statistics = healthData.statistics || healthData.stats || {};
-        
+
         // Determine icon based on backend
         let icon = '💾';
         switch (storage.backend?.toLowerCase()) {
@@ -118,21 +118,21 @@ function parseHealthDataToStorageInfo(healthData) {
                 icon = '☁️';
                 break;
         }
-        
+
         // Build description with status
         const backendName = storage.backend ? storage.backend.replace('_', '-') : 'Unknown';
-        const statusText = storage.status === 'connected' ? 'Connected' : 
-                          storage.status === 'disconnected' ? 'Disconnected' : 
+        const statusText = storage.status === 'connected' ? 'Connected' :
+                          storage.status === 'disconnected' ? 'Disconnected' :
                           storage.status || 'Unknown';
-        
+
         const description = `${backendName} (${statusText})`;
-        
+
         // Build location info
         let location = storage.database_path || storage.location || 'Unknown location';
         if (location.length > 50) {
             location = '...' + location.substring(location.length - 47);
         }
-        
+
         // Determine type (local/remote/cloud)
         let type = 'unknown';
         if (storage.backend === 'cloudflare') {
@@ -144,7 +144,7 @@ function parseHealthDataToStorageInfo(healthData) {
         } else {
             type = 'local';
         }
-        
+
         return {
             backend: storage.backend || 'unknown',
             type: type,
@@ -163,7 +163,7 @@ function parseHealthDataToStorageInfo(healthData) {
                 accessible: storage.accessible
             }
         };
-        
+
     } catch (error) {
         return getUnknownStorageInfo();
     }
@@ -191,11 +191,11 @@ function detectStorageBackendFallback(config) {
         // Check environment variable first
         const envBackend = process.env.MCP_MEMORY_STORAGE_BACKEND?.toLowerCase();
         const endpoint = config.memoryService?.http?.endpoint || 'http://127.0.0.1:8889';
-        
+
         // Parse endpoint to determine if local or remote
         const url = new URL(endpoint);
         const isLocal = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname.endsWith('.local');
-        
+
         let storageInfo = {
             backend: 'unknown',
             type: 'unknown',
@@ -204,7 +204,7 @@ function detectStorageBackendFallback(config) {
             icon: '💾',
             health: { status: 'unknown', totalMemories: 0 }
         };
-        
+
         if (envBackend) {
             switch (envBackend) {
                 case 'sqlite_vec':
@@ -217,12 +217,12 @@ function detectStorageBackendFallback(config) {
                         health: { status: 'unknown', totalMemories: 0 }
                     };
                     break;
-                    
+
                 case 'chromadb':
                 case 'chroma':
                     const chromaHost = process.env.MCP_MEMORY_CHROMADB_HOST;
                     const chromaPath = process.env.MCP_MEMORY_CHROMA_PATH;
-                    
+
                     if (chromaHost) {
                         // Remote ChromaDB
                         const chromaPort = process.env.MCP_MEMORY_CHROMADB_PORT || '8000';
@@ -248,7 +248,7 @@ function detectStorageBackendFallback(config) {
                         };
                     }
                     break;
-                    
+
                 case 'cloudflare':
                     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
                     storageInfo = {
@@ -283,9 +283,9 @@ function detectStorageBackendFallback(config) {
                 };
             }
         }
-        
+
         return storageInfo;
-        
+
     } catch (error) {
         return {
             backend: 'unknown',
@@ -377,7 +377,7 @@ async function executeSessionStart(context) {
         if (verbose && !cleanMode) {
             console.log(`${CONSOLE_COLORS.CYAN}🧠 Memory Hook${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Initializing session awareness...`);
         }
-        
+
         // Check if this is triggered by a compacting event and skip if configured to do so
         if (context.trigger === 'compacting' || context.event === 'memory-compacted') {
             if (!config.memoryService.injectAfterCompacting) {
@@ -386,24 +386,24 @@ async function executeSessionStart(context) {
             }
             console.log(`${CONSOLE_COLORS.GREEN}▶️  Memory Hook${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Proceeding with injection after compacting`);
         }
-        
+
         // For non-session-start events, use smart timing to decide if refresh is needed
         if (context.trigger !== 'session-start' && context.trigger !== 'start') {
             const currentContext = extractCurrentContext(context.conversationState || {}, context.workingDirectory);
             const previousContext = context.previousContext || context.conversationState?.previousContext;
-            
+
             if (previousContext) {
                 const shiftDetection = detectContextShift(currentContext, previousContext);
-                
+
                 if (!shiftDetection.shouldRefresh) {
                     console.log(`${CONSOLE_COLORS.GRAY}⏸️  Memory Hook${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.GRAY}No context shift detected, skipping${CONSOLE_COLORS.RESET}`);
                     return;
                 }
-                
+
                 console.log(`${CONSOLE_COLORS.BLUE}🔄 Memory Hook${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Context shift: ${shiftDetection.description}`);
             }
         }
-        
+
         // Detect project context
         const projectContext = await detectProjectContext(context.workingDirectory || process.cwd());
         if (verbose && showProjectDetails && !cleanMode) {
@@ -411,7 +411,7 @@ async function executeSessionStart(context) {
             const typeDisplay = projectContext.language !== 'Unknown' ? ` ${CONSOLE_COLORS.GRAY}(${projectContext.language})${CONSOLE_COLORS.RESET}` : '';
             console.log(`${CONSOLE_COLORS.BLUE}📂 Project Detector${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Analyzing ${projectDisplay}${typeDisplay}`);
         }
-        
+
         // Initialize memory client and detect storage backend
         const showStorageSource = config.memoryService?.showStorageSource !== false; // Default to true
         const sourceDisplayMode = config.memoryService?.sourceDisplayMode || 'brief';
@@ -431,7 +431,7 @@ async function executeSessionStart(context) {
                 }
 
                 const healthResult = await queryMemoryHealth(memoryClient);
-                
+
                     if (healthResult.success) {
                         storageInfo = parseHealthDataToStorageInfo(healthResult.data);
 
@@ -499,23 +499,23 @@ async function executeSessionStart(context) {
         const gitAnalysisEnabled = config.gitAnalysis?.enabled !== false; // Default to true
         const showGitAnalysis = config.output?.showGitAnalysis !== false; // Default to true
         let gitContext = null;
-        
+
         if (gitAnalysisEnabled) {
             if (verbose && showGitAnalysis && !cleanMode) {
                 console.log(`${CONSOLE_COLORS.CYAN}📊 Git Analysis${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Analyzing repository context...`);
             }
-            
+
             gitContext = await analyzeGitContext(context.workingDirectory || process.cwd(), {
                 commitLookback: config.gitAnalysis?.commitLookback || 14,
                 maxCommits: config.gitAnalysis?.maxCommits || 20,
                 includeChangelog: config.gitAnalysis?.includeChangelog !== false,
                 verbose: showGitAnalysis && showMemoryDetails && !cleanMode
             });
-            
+
             if (gitContext && verbose && showGitAnalysis && !cleanMode) {
                 const { commits, changelogEntries, repositoryActivity, developmentKeywords } = gitContext;
                 console.log(`${CONSOLE_COLORS.CYAN}📊 Git Context${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${commits.length} commits, ${changelogEntries?.length || 0} changelog entries`);
-                
+
                 if (showMemoryDetails) {
                     const topKeywords = developmentKeywords.keywords.slice(0, 5).join(', ');
                     if (topKeywords) {
@@ -524,7 +524,7 @@ async function executeSessionStart(context) {
                 }
             }
         }
-        
+
         // Initialize memory client for memory queries if not already connected
         if (!memoryClient) {
             try {
@@ -561,27 +561,27 @@ async function executeSessionStart(context) {
         const enableConversationContext = config.memoryScoring?.enableConversationContext || false;
         const minRelevanceScore = config.memoryScoring?.minRelevanceScore || 0.3;
         const showPhaseDetails = config.output?.showPhaseDetails !== false; // Default to true
-        
+
         if (recentFirstMode) {
             // Phase 0: Git Context Phase (NEW - highest priority for repository-aware memories)
             if (gitContext && gitContext.developmentKeywords.keywords.length > 0) {
                 const maxGitMemories = config.gitAnalysis?.maxGitMemories || 3;
                 const gitQueries = buildGitContextQuery(projectContext, gitContext.developmentKeywords, context.userMessage);
-                
+
                 if (verbose && showPhaseDetails && !cleanMode && gitQueries.length > 0) {
                     console.log(`${CONSOLE_COLORS.GREEN}⚡ Phase 0${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Git-aware memory search (${maxGitMemories} slots, ${gitQueries.length} queries)`);
                 }
-                
+
                 // Execute git-context queries
                 for (const gitQuery of gitQueries.slice(0, 2)) { // Limit to top 2 queries for performance
                     if (allMemories.length >= maxGitMemories) break;
-                    
+
                     const gitMemories = await queryMemoryService(memoryClient, {
                         semanticQuery: gitQuery.semanticQuery,
                         limit: Math.min(maxGitMemories - allMemories.length, 3),
                         timeFilter: 'last-2-weeks' // Focus on recent memories for git context
                     });
-                    
+
                     if (gitMemories && gitMemories.length > 0) {
                         // Mark these memories as git-context derived for scoring
                         const markedMemories = gitMemories.map(mem => ({
@@ -590,32 +590,32 @@ async function executeSessionStart(context) {
                             _gitContextSource: gitQuery.source,
                             _gitContextWeight: config.gitAnalysis?.gitContextWeight || 1.2
                         }));
-                        
+
                         // Avoid duplicates from previous git queries
-                        const newGitMemories = markedMemories.filter(newMem => 
-                            !allMemories.some(existing => 
-                                existing.content && newMem.content && 
+                        const newGitMemories = markedMemories.filter(newMem =>
+                            !allMemories.some(existing =>
+                                existing.content && newMem.content &&
                                 existing.content.substring(0, 100) === newMem.content.substring(0, 100)
                             )
                         );
-                        
+
                         allMemories.push(...newGitMemories);
-                        
+
                         if (verbose && showMemoryDetails && !cleanMode && newGitMemories.length > 0) {
                             console.log(`${CONSOLE_COLORS.GREEN}  📋 Git Query${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} [${gitQuery.type}] found ${newGitMemories.length} memories`);
                         }
                     }
                 }
             }
-            
+
             // Phase 1: Recent memories - high priority
             const remainingSlotsAfterGit = Math.max(0, maxMemories - allMemories.length);
             if (remainingSlotsAfterGit > 0) {
                 // Build enhanced semantic query with git context
-                let recentSemanticQuery = context.userMessage ? 
+                let recentSemanticQuery = context.userMessage ?
                     `recent ${projectContext.name} ${context.userMessage}` :
                     `recent ${projectContext.name} development decisions insights`;
-                
+
                 // Add git context if available
                 if (projectContext.git?.branch) {
                     recentSemanticQuery += ` ${projectContext.git.branch}`;
@@ -623,7 +623,7 @@ async function executeSessionStart(context) {
                 if (projectContext.git?.lastCommit) {
                     recentSemanticQuery += ` latest changes commit`;
                 }
-                
+
                 // Add development keywords from git analysis
                 if (gitContext && gitContext.developmentKeywords.keywords.length > 0) {
                     const topKeywords = gitContext.developmentKeywords.keywords.slice(0, 3).join(' ');
@@ -634,27 +634,27 @@ async function executeSessionStart(context) {
                     limit: Math.max(Math.floor(remainingSlotsAfterGit * recentRatio), 2), // Adjusted for remaining slots
                     timeFilter: recentTimeWindow
                 };
-                
+
                 if (verbose && showMemoryDetails && showPhaseDetails && !cleanMode) {
                     console.log(`${CONSOLE_COLORS.BLUE}🕒 Phase 1${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Searching recent memories (${recentTimeWindow}, ${recentQuery.limit} slots)`);
                 }
-                
+
                 const recentMemories = await queryMemoryService(memoryClient, recentQuery);
-                
+
                 // Filter out duplicates from git context phase
                 if (recentMemories && recentMemories.length > 0) {
-                    const newRecentMemories = recentMemories.filter(newMem => 
-                        !allMemories.some(existing => 
-                            existing.content && newMem.content && 
+                    const newRecentMemories = recentMemories.filter(newMem =>
+                        !allMemories.some(existing =>
+                            existing.content && newMem.content &&
                             existing.content.substring(0, 100) === newMem.content.substring(0, 100)
                         )
                     );
-                    
+
                     allMemories.push(...newRecentMemories);
                 }
             }
-            
-            // Phase 2: Important tagged memories - fill remaining slots  
+
+            // Phase 2: Important tagged memories - fill remaining slots
             const remainingSlots = maxMemories - allMemories.length;
             if (remainingSlots > 0) {
                 // Build enhanced query for important memories
@@ -665,36 +665,36 @@ async function executeSessionStart(context) {
                 if (projectContext.frameworks?.length > 0) {
                     importantSemanticQuery += ` ${projectContext.frameworks.join(' ')}`;
                 }
-                
+
                 const importantQuery = {
                     tags: [
                         projectContext.name,
                         'key-decisions',
-                        'architecture', 
+                        'architecture',
                         'claude-code-reference'
                     ].filter(Boolean),
                     semanticQuery: importantSemanticQuery,
                     limit: remainingSlots,
                     timeFilter: 'last-2-weeks'
                 };
-                
+
                 if (verbose && showMemoryDetails && showPhaseDetails && !cleanMode) {
                     console.log(`${CONSOLE_COLORS.BLUE}🎯 Phase 2${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Searching important tagged memories (${remainingSlots} slots)`);
                 }
-                
+
                 const importantMemories = await queryMemoryService(memoryClient, importantQuery);
-                
-                // Avoid duplicates by checking content similarity  
-                const newMemories = (importantMemories || []).filter(newMem => 
-                    !allMemories.some(existing => 
-                        existing.content && newMem.content && 
+
+                // Avoid duplicates by checking content similarity
+                const newMemories = (importantMemories || []).filter(newMem =>
+                    !allMemories.some(existing =>
+                        existing.content && newMem.content &&
                         existing.content.substring(0, 100) === newMem.content.substring(0, 100)
                     )
                 );
-                
+
                 allMemories.push(...newMemories);
             }
-            
+
             // Phase 3: Fallback to general project context if still need more
             const stillRemaining = maxMemories - allMemories.length;
             if (stillRemaining > 0 && allMemories.length < 3) {
@@ -703,24 +703,24 @@ async function executeSessionStart(context) {
                     limit: stillRemaining,
                     timeFilter: fallbackTimeWindow
                 };
-                
+
                 if (verbose && showMemoryDetails && showPhaseDetails && !cleanMode) {
                     console.log(`${CONSOLE_COLORS.BLUE}🔄 Phase 3${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Fallback general context (${stillRemaining} slots, ${fallbackTimeWindow})`);
                 }
-                
+
                 const fallbackMemories = await queryMemoryService(memoryClient, fallbackQuery);
-                
-                const newFallbackMemories = (fallbackMemories || []).filter(newMem => 
-                    !allMemories.some(existing => 
-                        existing.content && newMem.content && 
+
+                const newFallbackMemories = (fallbackMemories || []).filter(newMem =>
+                    !allMemories.some(existing =>
+                        existing.content && newMem.content &&
                         existing.content.substring(0, 100) === newMem.content.substring(0, 100)
                     )
                 );
-                
+
                 allMemories.push(...newFallbackMemories);
             }
         } else {
-            // Legacy single-phase approach 
+            // Legacy single-phase approach
             const memoryQuery = {
                 tags: [
                     projectContext.name,
@@ -730,18 +730,18 @@ async function executeSessionStart(context) {
                     'recent-insights',
                     'claude-code-reference'
                 ].filter(Boolean),
-                semanticQuery: context.userMessage ? 
+                semanticQuery: context.userMessage ?
                     `${projectContext.name} ${context.userMessage}` :
                     `${projectContext.name} project context decisions architecture`,
                 limit: maxMemories,
                 timeFilter: 'last-2-weeks'
             };
-            
+
             const legacyMemories = await queryMemoryService(memoryClient, memoryQuery);
-            
+
             allMemories.push(...(legacyMemories || []));
         }
-        
+
         // Skip memory retrieval if no memory client available
         if (!memoryClient) {
             if (verbose && !cleanMode) {
@@ -755,7 +755,7 @@ async function executeSessionStart(context) {
 
         // Use the collected memories from all phases
         const memories = allMemories.slice(0, maxMemories);
-        
+
         if (memories.length > 0) {
             // Analyze memory recency for better reporting
             const now = new Date();
@@ -765,12 +765,12 @@ async function executeSessionStart(context) {
                 const daysDiff = (now - memDate) / (1000 * 60 * 60 * 24);
                 return daysDiff <= 7; // Within last week
             }).length;
-            
+
             if (verbose && !cleanMode) {
                 const recentText = recentCount > 0 ? ` ${CONSOLE_COLORS.GREEN}(${recentCount} recent)${CONSOLE_COLORS.RESET}` : '';
                 console.log(`${CONSOLE_COLORS.GREEN}📚 Memory Search${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Found ${CONSOLE_COLORS.BRIGHT}${memories.length}${CONSOLE_COLORS.RESET} relevant memories${recentText}`);
             }
-            
+
             // Analyze memory age distribution for adaptive weight adjustment
             const ageAnalysis = analyzeMemoryAgeDistribution(memories, { verbose: showMemoryDetails && !cleanMode });
 
@@ -892,9 +892,9 @@ async function executeSessionStart(context) {
                 }).join(', ');
                 console.log(`${CONSOLE_COLORS.CYAN}🎯 Scoring${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} Top relevance: ${CONSOLE_COLORS.YELLOW}${memoryInfo}${CONSOLE_COLORS.RESET}`);
             }
-            
+
             // Determine refresh strategy based on context
-            const strategy = context.trigger && context.previousContext ? 
+            const strategy = context.trigger && context.previousContext ?
                 determineRefreshStrategy(detectContextShift(
                     extractCurrentContext(context.conversationState || {}, context.workingDirectory),
                     context.previousContext
@@ -903,7 +903,7 @@ async function executeSessionStart(context) {
                     includeScore: false,
                     message: '🧠 Loading relevant memory context...'
                 };
-            
+
             // Sort by creation date if configured (after relevance filtering)
             const sortByDate = config.memoryService?.sortByCreationDate !== false; // Default true
             if (sortByDate) {
@@ -930,7 +930,7 @@ async function executeSessionStart(context) {
             // Take top scored memories based on strategy
             const maxMemories = Math.min(strategy.maxMemories || config.memoryService.maxMemoriesPerSession, scoredMemories.length);
             const topMemories = scoredMemories.slice(0, maxMemories);
-            
+
             // Show actual memory processing info (moved from deduplication)
             if (verbose && showMemoryDetails && !cleanMode) {
                 const totalCollected = allMemories.length;
@@ -940,7 +940,7 @@ async function executeSessionStart(context) {
                 }
                 console.log(`${CONSOLE_COLORS.CYAN}🔄 Processing${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${actualUsed} memories selected`);
             }
-            
+
             // Format memories for context injection with strategy-based options
             const contextMessage = formatMemoriesForContext(topMemories, projectContext, {
                 includeScore: strategy.includeScore || false,
@@ -952,7 +952,7 @@ async function executeSessionStart(context) {
                 maxContentLengthCategorized: config.contextFormatting?.maxContentLengthCategorized || 350,
                 storageInfo: showStorageSource ? (storageInfo || detectStorageBackend(config)) : null
             });
-            
+
             // Inject context into session
             if (context.injectSystemMessage) {
                 await context.injectSystemMessage(contextMessage);
@@ -1107,7 +1107,7 @@ if (require.main === module) {
             const lines = message.split('\n');
             const maxLength = Math.min(80, Math.max(25, ...lines.map(l => l.length)));
             const border = '─'.repeat(maxLength - 2);
-            
+
             console.log(`\n${CONSOLE_COLORS.CYAN}╭─${border}─╮${CONSOLE_COLORS.RESET}`);
             console.log(`${CONSOLE_COLORS.CYAN}│${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.BRIGHT}🧠 Injected Memory Context${CONSOLE_COLORS.RESET}${' '.repeat(maxLength - 27)} ${CONSOLE_COLORS.CYAN}│${CONSOLE_COLORS.RESET}`);
             console.log(`${CONSOLE_COLORS.CYAN}╰─${border}─╯${CONSOLE_COLORS.RESET}`);
@@ -1115,7 +1115,7 @@ if (require.main === module) {
             console.log(`${CONSOLE_COLORS.CYAN}╰─${border}─╯${CONSOLE_COLORS.RESET}`);
         }
     };
-    
+
     onSessionStart(mockContext)
         .then(() => {
             // Test completed quietly

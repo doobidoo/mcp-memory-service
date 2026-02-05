@@ -8,18 +8,21 @@ Tests cover:
 - Header sanitization (injection prevention)
 """
 
-import pytest
 import signal
-from unittest.mock import Mock, patch
-from typing import Any, Dict, List
+from typing import Any
+from unittest.mock import patch
+
+import pytest
 
 from mcp_memory_service.formatters.toon import (
+    TimeoutError as ToonTimeoutError,
+)
+from mcp_memory_service.formatters.toon import (
+    _get_nested_depth,
     format_search_results_as_toon,
-    validate_memory_for_encoding,
     sanitize_header_value,
     timeout_context,
-    TimeoutError as ToonTimeoutError,
-    _get_nested_depth,
+    validate_memory_for_encoding,
 )
 
 
@@ -120,7 +123,7 @@ class TestFormatSearchResultsEmpty:
 
     def test_empty_list_returns_message(self):
         """Test that empty list returns user-friendly message."""
-        memories: List[Dict[str, Any]] = []
+        memories: list[dict[str, Any]] = []
 
         result, media_type = format_search_results_as_toon(memories)
 
@@ -161,7 +164,7 @@ class TestFormatSearchResultsTimeout:
 
     def test_timeout_context_manager_sets_alarm(self):
         """Test that timeout_context properly sets and clears alarm."""
-        with patch("signal.alarm") as mock_alarm, patch("signal.signal") as mock_signal:
+        with patch("signal.alarm") as mock_alarm, patch("signal.signal"):
             with timeout_context(5):
                 pass
 
@@ -297,7 +300,7 @@ class TestValidateMemoryDepthLimit:
     def test_nested_metadata_at_limit_passes(self):
         """Test that metadata at 500 levels passes validation."""
         # Build nested dict at exactly 500 levels
-        metadata: Dict[str, Any] = {"value": "deep"}
+        metadata: dict[str, Any] = {"value": "deep"}
         for _ in range(498):  # 498 + 1 (initial) + 1 (value) = 500
             metadata = {"nested": metadata}
 
@@ -316,7 +319,7 @@ class TestValidateMemoryDepthLimit:
     def test_nested_metadata_over_limit_fails(self):
         """Test that metadata over 500 levels raises ValueError."""
         # Build nested dict over 500 levels
-        metadata: Dict[str, Any] = {"value": "too deep"}
+        metadata: dict[str, Any] = {"value": "too deep"}
         for _ in range(501):  # Definitely over 500
             metadata = {"nested": metadata}
 
@@ -369,7 +372,7 @@ class TestValidateMemoryDepthLimit:
     def test_get_nested_depth_early_termination(self):
         """Test _get_nested_depth terminates early at max_depth."""
         # Build structure deeper than max_depth
-        deep: Dict[str, Any] = {"value": "end"}
+        deep: dict[str, Any] = {"value": "end"}
         for _ in range(600):
             deep = {"next": deep}
 
@@ -462,7 +465,7 @@ class TestCombinedValidation:
     def test_large_content_and_deep_metadata_both_fail(self):
         """Test that both size and depth violations are caught."""
         # Build deep metadata
-        metadata: Dict[str, Any] = {"value": "deep"}
+        metadata: dict[str, Any] = {"value": "deep"}
         for _ in range(501):
             metadata = {"nested": metadata}
 
@@ -482,7 +485,7 @@ class TestCombinedValidation:
     def test_valid_content_with_deep_metadata_fails_on_depth(self):
         """Test that valid content with deep metadata fails on depth check."""
         # Build deep metadata
-        metadata: Dict[str, Any] = {"value": "deep"}
+        metadata: dict[str, Any] = {"value": "deep"}
         for _ in range(501):
             metadata = {"nested": metadata}
 
@@ -577,7 +580,7 @@ class TestEdgeCases:
         """Test memory with special characters in content."""
         memories = [
             {
-                "content": 'Special chars: \n\r\t"\'<>&',
+                "content": "Special chars: \n\r\t\"'<>&",
                 "tags": [],
                 "metadata": {},
                 "created_at": "2025-11-19T00:00:00Z",
@@ -651,7 +654,7 @@ class TestPaginationMetadata:
 
     def test_pagination_with_empty_results(self):
         """Test pagination header with empty results."""
-        memories: List[Dict[str, Any]] = []
+        memories: list[dict[str, Any]] = []
         pagination = {
             "page": 1,
             "total": 0,

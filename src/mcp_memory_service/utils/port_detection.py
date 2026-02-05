@@ -16,11 +16,12 @@
 Port detection utilities for multi-client HTTP server coordination.
 """
 
-import socket
 import asyncio
-import aiohttp
 import logging
-from typing import Optional, Tuple
+import socket
+
+import aiohttp
+
 from ..config import HTTP_PORT
 
 logger = logging.getLogger(__name__)
@@ -29,11 +30,11 @@ logger = logging.getLogger(__name__)
 async def is_port_in_use(host: str = "localhost", port: int = HTTP_PORT) -> bool:
     """
     Check if a port is in use by attempting to create a socket connection.
-    
+
     Args:
         host: Host to check (default: localhost)
         port: Port to check
-        
+
     Returns:
         True if port is in use, False otherwise
     """
@@ -48,14 +49,14 @@ async def is_port_in_use(host: str = "localhost", port: int = HTTP_PORT) -> bool
         return False
 
 
-async def is_mcp_memory_server_running(host: str = "localhost", port: int = HTTP_PORT) -> Tuple[bool, Optional[str]]:
+async def is_mcp_memory_server_running(host: str = "localhost", port: int = HTTP_PORT) -> tuple[bool, str | None]:
     """
     Check if an MCP Memory Service HTTP server is running on the specified port.
-    
+
     Args:
         host: Host to check
         port: Port to check
-        
+
     Returns:
         Tuple of (is_running, server_info)
         - is_running: True if MCP Memory Service is detected
@@ -69,10 +70,9 @@ async def is_mcp_memory_server_running(host: str = "localhost", port: int = HTTP
             async with session.get(health_url) as response:
                 if response.status == 200:
                     data = await response.json()
-                    
+
                     # Check if this is our MCP Memory Service
-                    if (data.get("service") == "mcp-memory-service" or 
-                        "memory" in data.get("service", "").lower()):
+                    if data.get("service") == "mcp-memory-service" or "memory" in data.get("service", "").lower():
                         server_info = f"{data.get('service', 'unknown')} v{data.get('version', 'unknown')}"
                         logger.info(f"Detected MCP Memory Service at {host}:{port} - {server_info}")
                         return True, server_info
@@ -82,7 +82,7 @@ async def is_mcp_memory_server_running(host: str = "localhost", port: int = HTTP
                 else:
                     logger.debug(f"HTTP server at {host}:{port} returned status {response.status}")
                     return False, None
-                    
+
     except aiohttp.ClientError as e:
         logger.debug(f"HTTP client error checking {host}:{port}: {e}")
         return False, None
@@ -94,14 +94,14 @@ async def is_mcp_memory_server_running(host: str = "localhost", port: int = HTTP
         return False, None
 
 
-async def find_available_port(start_port: int = HTTP_PORT, max_attempts: int = 10) -> Optional[int]:
+async def find_available_port(start_port: int = HTTP_PORT, max_attempts: int = 10) -> int | None:
     """
     Find an available port starting from start_port.
-    
+
     Args:
         start_port: Port to start checking from
         max_attempts: Maximum number of ports to check
-        
+
     Returns:
         Available port number or None if none found
     """
@@ -109,7 +109,7 @@ async def find_available_port(start_port: int = HTTP_PORT, max_attempts: int = 1
         if not await is_port_in_use(port=port):
             logger.debug(f"Found available port: {port}")
             return port
-    
+
     logger.warning(f"No available ports found in range {start_port}-{start_port + max_attempts}")
     return None
 
@@ -117,7 +117,7 @@ async def find_available_port(start_port: int = HTTP_PORT, max_attempts: int = 1
 async def detect_server_coordination_mode(host: str = "localhost", port: int = HTTP_PORT) -> str:
     """
     Detect the best coordination mode for multi-client access.
-    
+
     Returns:
         - "http_client": HTTP server is running, use client mode
         - "http_server": No server running, start HTTP server
@@ -125,14 +125,14 @@ async def detect_server_coordination_mode(host: str = "localhost", port: int = H
     """
     # Check if MCP Memory Service HTTP server is already running
     is_running, server_info = await is_mcp_memory_server_running(host, port)
-    
+
     if is_running:
         logger.info(f"MCP Memory Service HTTP server detected: {server_info}")
         return "http_client"
-    
+
     # Check if port is available for starting our own server
     port_available = not await is_port_in_use(host, port)
-    
+
     if port_available:
         logger.info(f"Port {port} available, can start HTTP server")
         return "http_server"
@@ -143,34 +143,34 @@ async def detect_server_coordination_mode(host: str = "localhost", port: int = H
 
 class ServerCoordinator:
     """Helper class for managing server coordination state."""
-    
+
     def __init__(self, host: str = "localhost", port: int = HTTP_PORT):
         self.host = host
         self.port = port
         self.mode = None
         self.server_info = None
-    
+
     async def detect_mode(self) -> str:
         """Detect and cache the coordination mode."""
         self.mode = await detect_server_coordination_mode(self.host, self.port)
-        
+
         if self.mode == "http_client":
             _, self.server_info = await is_mcp_memory_server_running(self.host, self.port)
-        
+
         return self.mode
-    
-    def get_mode(self) -> Optional[str]:
+
+    def get_mode(self) -> str | None:
         """Get the cached coordination mode."""
         return self.mode
-    
+
     def is_http_client_mode(self) -> bool:
         """Check if we should use HTTP client mode."""
         return self.mode == "http_client"
-    
+
     def is_http_server_mode(self) -> bool:
         """Check if we should start HTTP server mode."""
         return self.mode == "http_server"
-    
+
     def is_direct_mode(self) -> bool:
         """Check if we should use direct access mode."""
         return self.mode == "direct"

@@ -2,7 +2,7 @@
 
 ## ✅ Files Created:
 - `mcp-memory.service` - Systemd service configuration
-- `install_service.sh` - Installation script  
+- `install_service.sh` - Installation script
 - `service_control.sh` - Service management script
 - `STARTUP_SETUP_GUIDE.md` - This guide
 
@@ -34,7 +34,7 @@ sudo journalctl -u mcp-memory -f
 ### Using the control script:
 ```bash
 ./service_control.sh start     # Start service
-./service_control.sh stop      # Stop service  
+./service_control.sh stop      # Stop service
 ./service_control.sh restart   # Restart service
 ./service_control.sh status    # Show status
 ./service_control.sh logs      # View live logs

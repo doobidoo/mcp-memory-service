@@ -15,18 +15,19 @@
 
 """Simple test for memory CRUD operations."""
 
-import requests
-import json
 import time
+
+import requests
 
 BASE_URL = "http://localhost:8000"
 
+
 def test_memory_crud():
     """Test the complete CRUD workflow for memories."""
-    
+
     print("Testing Memory CRUD Operations")
     print("=" * 40)
-    
+
     # Test 1: Health check
     print("\n[1] Health check...")
     try:
@@ -39,24 +40,21 @@ def test_memory_crud():
     except Exception as e:
         print(f"[FAIL] Cannot connect: {e}")
         return
-    
+
     # Test 2: Store memory
     print("\n[2] Storing memory...")
     test_memory = {
         "content": "Test memory for API verification",
         "tags": ["test", "api"],
         "memory_type": "test",
-        "metadata": {"timestamp": time.time()}
+        "metadata": {"timestamp": time.time()},
     }
-    
+
     try:
         resp = requests.post(
-            f"{BASE_URL}/api/memories",
-            json=test_memory,
-            headers={"Content-Type": "application/json"},
-            timeout=10
+            f"{BASE_URL}/api/memories", json=test_memory, headers={"Content-Type": "application/json"}, timeout=10
         )
-        
+
         if resp.status_code == 200:
             result = resp.json()
             if result["success"]:
@@ -72,7 +70,7 @@ def test_memory_crud():
     except Exception as e:
         print(f"[FAIL] Storage error: {e}")
         return
-    
+
     # Test 3: List memories
     print("\n[3] Listing memories...")
     try:
@@ -85,7 +83,7 @@ def test_memory_crud():
             print(f"[FAIL] Listing failed: {resp.status_code}")
     except Exception as e:
         print(f"[FAIL] Listing error: {e}")
-    
+
     # Test 4: Delete memory
     print("\n[4] Deleting memory...")
     try:
@@ -100,9 +98,10 @@ def test_memory_crud():
             print(f"[FAIL] Deletion failed: {resp.status_code}")
     except Exception as e:
         print(f"[FAIL] Deletion error: {e}")
-    
+
     print("\n" + "=" * 40)
     print("CRUD testing completed!")
+
 
 if __name__ == "__main__":
     test_memory_crud()

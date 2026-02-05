@@ -1,9 +1,13 @@
-# MCP Memory Service - CPU-optimized container
-# Supports: linux/amd64
+# MCP Memory Service - Multi-platform container
+# Supports: linux/amd64, linux/arm64
+# Build args:
+#   CUDA_ENABLED=false (default) - CPU-only build (~1.5GB)
+#   CUDA_ENABLED=true            - CUDA-enabled build (~5GB)
 
 FROM python:3.12-slim AS builder
 
 ARG EMBEDDING_MODEL=intfloat/e5-small-v2
+ARG CUDA_ENABLED=false
 
 WORKDIR /app
 
@@ -18,16 +22,25 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # Dependencies first (cache layer)
 COPY pyproject.toml uv.lock README.md ./
 
-# Install CPU-only PyTorch first, then rest of deps
+# Install dependencies, then force correct PyTorch variant
+# CPU-only torch is ~200MB vs CUDA torch ~900MB
 RUN uv venv && \
-    uv pip install --no-cache-dir \
-    torch --index-url https://download.pytorch.org/whl/cpu && \
-    uv sync --frozen --no-dev --no-install-project
+    uv sync --frozen --no-dev --no-install-project && \
+    if [ "$CUDA_ENABLED" = "false" ]; then \
+        echo "Installing CPU-only PyTorch..." && \
+        uv pip install --reinstall torch --index-url https://download.pytorch.org/whl/cpu; \
+    else \
+        echo "Using CUDA-enabled PyTorch from lockfile"; \
+    fi
 
 # Source code
 COPY src/ ./src/
 COPY scripts/ ./scripts/
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev && \
+    if [ "$CUDA_ENABLED" = "false" ]; then \
+        echo "Reinstalling CPU-only PyTorch after project sync..." && \
+        uv pip install --reinstall torch --index-url https://download.pytorch.org/whl/cpu; \
+    fi
 
 # Pre-download embedding model
 RUN echo "Downloading ${EMBEDDING_MODEL}..." && \

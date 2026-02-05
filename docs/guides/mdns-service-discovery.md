@@ -289,7 +289,7 @@ from mcp_memory_service.discovery import DiscoveryClient
 async def monitor_services():
     client = DiscoveryClient()
     services = await client.find_services_with_health()
-    
+
     for service, health in services:
         print(f"Service: {service.name} at {service.url}")
         print(f"Health: {'✅' if health.healthy else '❌'}")

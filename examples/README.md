@@ -9,7 +9,7 @@ This directory contains example configurations, scripts, and setup utilities for
 - Template configuration files for different deployment scenarios
 - MCP server configuration samples
 
-### `/setup/` - Setup Scripts and Utilities  
+### `/setup/` - Setup Scripts and Utilities
 - Multi-client setup scripts
 - Automated configuration tools
 - Installation helpers

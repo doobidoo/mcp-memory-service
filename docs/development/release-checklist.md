@@ -11,7 +11,7 @@ This checklist ensures that critical bugs like the HTTP-MCP bridge issues are ca
   - [ ] Health check works through MCP bridge
   - [ ] Health check works with Claude Desktop
 
-- [ ] **Memory Storage Operations**  
+- [ ] **Memory Storage Operations**
   - [ ] Store memory returns HTTP 200 with `success: true`
   - [ ] Duplicate detection returns HTTP 200 with `success: false`
   - [ ] Invalid requests return appropriate error codes
@@ -27,7 +27,7 @@ This checklist ensures that critical bugs like the HTTP-MCP bridge issues are ca
   - [ ] Bridge accepts HTTP 200 responses (not just 201)
   - [ ] Bridge checks `success` field for actual result
   - [ ] Bridge handles both success and failure in 200 responses
-  
+
 - [ ] **URL Construction**
   - [ ] Bridge preserves `/api` base path in URLs
   - [ ] `new URL()` calls don't replace existing paths
@@ -72,7 +72,7 @@ This checklist ensures that critical bugs like the HTTP-MCP bridge issues are ca
 - [ ] All edge cases are covered
 - [ ] Error conditions are tested
 
-### ✅ Integration Tests  
+### ✅ Integration Tests
 - [ ] Bridge-server integration tests pass
 - [ ] Contract tests validate API behavior
 - [ ] End-to-end MCP protocol tests pass
@@ -90,7 +90,7 @@ This checklist ensures that critical bugs like the HTTP-MCP bridge issues are ca
 1. **Claude Desktop User**:
    - [ ] Install and configure Claude Desktop with MCP Memory Service
    - [ ] Store a memory using Claude Desktop
-   - [ ] Retrieve memories using Claude Desktop  
+   - [ ] Retrieve memories using Claude Desktop
    - [ ] Verify health check shows healthy status
    - [ ] Confirm no "unhealthy" warnings appear
 
@@ -107,7 +107,7 @@ This checklist ensures that critical bugs like the HTTP-MCP bridge issues are ca
 
 ### ✅ Platform Testing
 - [ ] **Windows**: Bridge works with Windows Claude Desktop
-- [ ] **macOS**: Bridge works with macOS Claude Desktop  
+- [ ] **macOS**: Bridge works with macOS Claude Desktop
 - [ ] **Linux**: Bridge works with Linux installations
 
 ## Code Quality Checks

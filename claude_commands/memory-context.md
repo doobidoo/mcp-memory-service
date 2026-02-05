@@ -35,7 +35,7 @@ claude /memory-context --include-files --include-commits
 I'll automatically analyze our current session and project state, then store it to your MCP Memory Service at `https://memory.local:8443/`:
 
 1. **Conversation Analysis**: Extract key topics, decisions, and insights from our current chat
-2. **Project State Capture**: 
+2. **Project State Capture**:
    - Current working directory and git status
    - Recent commits and file changes
    - Branch information and repository state

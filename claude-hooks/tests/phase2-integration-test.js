@@ -17,7 +17,7 @@ const { DynamicContextUpdater } = require('../utilities/dynamic-context-updater'
 function createMockMemory(content, tags = [], createdDaysAgo = 0) {
     const created = new Date();
     created.setDate(created.getDate() - createdDaysAgo);
-    
+
     return {
         content: content,
         content_hash: `hash-${Math.random().toString(36).substr(2, 9)}`,
@@ -84,7 +84,7 @@ class Phase2TestSuite {
         await this.runTest('Enhanced Memory Scoring - Conversation Context', this.testConversationContextScoring);
         await this.runTest('Enhanced Memory Scoring - Weight Adjustment', this.testWeightAdjustment);
 
-        // Session Tracking Tests  
+        // Session Tracking Tests
         await this.runTest('Session Tracking - Session Creation', this.testSessionCreation);
         await this.runTest('Session Tracking - Conversation Threading', this.testConversationThreading);
         await this.runTest('Session Tracking - Cross-session Context', this.testCrossSessionContext);
@@ -109,7 +109,7 @@ class Phase2TestSuite {
         `;
 
         const analysis = analyzeConversation(conversationText);
-        
+
         const topicNames = analysis.topics.map(t => t.name);
         const hasDbTopic = topicNames.includes('database');
         const hasDebuggingTopic = topicNames.includes('debugging');
@@ -131,7 +131,7 @@ class Phase2TestSuite {
         `;
 
         const analysis = analyzeConversation(conversationText);
-        
+
         const entityNames = analysis.entities.map(e => e.name);
         const hasJS = entityNames.includes('javascript');
         const hasReact = entityNames.includes('react');
@@ -139,7 +139,7 @@ class Phase2TestSuite {
         const hasFastAPI = entityNames.includes('fastapi');
 
         if (!hasJS) return 'JavaScript entity not detected';
-        if (!hasReact) return 'React entity not detected'; 
+        if (!hasReact) return 'React entity not detected';
         if (!hasPython) return 'Python entity not detected';
 
         console.log(`  Detected ${analysis.entities.length} entities: ${entityNames.join(', ')}`);
@@ -153,7 +153,7 @@ class Phase2TestSuite {
         `;
 
         const analysis = analyzeConversation(conversationText);
-        
+
         if (!analysis.intent) return 'Intent not detected';
         if (analysis.intent.name !== 'problem-solving') {
             return `Expected 'problem-solving' intent, got '${analysis.intent.name}'`;
@@ -169,19 +169,19 @@ class Phase2TestSuite {
     async testCodeContextDetection() {
         const conversationText = `
         Here's the function that's causing issues:
-        
+
         \`\`\`javascript
         function validateToken(token) {
             return jwt.verify(token, secret);
         }
         \`\`\`
-        
+
         The error message is: "TokenExpiredError: jwt expired"
         Can you help me fix this in auth.js?
         `;
 
         const analysis = analyzeConversation(conversationText);
-        
+
         if (!analysis.codeContext) return 'Code context not detected';
         if (!analysis.codeContext.isCodeRelated) return 'Code relationship not detected';
         if (!analysis.codeContext.hasCodeBlocks) return 'Code blocks not detected';
@@ -326,7 +326,7 @@ class Phase2TestSuite {
         if (!session2.threadId) return 'Thread ID not created for second session';
 
         // Sessions should be linked if they're related
-        const areLinked = session1.threadId === session2.threadId || 
+        const areLinked = session1.threadId === session2.threadId ||
                          session2.parentSessionId === session1.id;
 
         console.log(`  Threading: session1=${session1.threadId}, session2=${session2.threadId}, linked=${areLinked}`);
@@ -481,14 +481,14 @@ class Phase2TestSuite {
 
         for (let i = 0; i < conversations.length; i++) {
             const analysis = analyzeConversation(conversations[i]);
-            
+
             if (lastAnalysis) {
                 const changes = detectTopicChanges(lastAnalysis, analysis);
                 if (changes.hasTopicShift && changes.significanceScore > 0.15) {
                     significantChanges++;
                 }
             }
-            
+
             lastAnalysis = analysis;
         }
 
@@ -523,7 +523,7 @@ class Phase2TestSuite {
 
         console.log('\n📋 Phase 2 Features Tested:');
         console.log('  ✅ Conversation Analysis & Topic Detection');
-        console.log('  ✅ Dynamic Context Updates & Memory Loading');  
+        console.log('  ✅ Dynamic Context Updates & Memory Loading');
         console.log('  ✅ Enhanced Memory Scoring with Conversation Context');
         console.log('  ✅ Session Tracking & Cross-Session Intelligence');
         console.log('  ✅ Rate Limiting & Update Management');

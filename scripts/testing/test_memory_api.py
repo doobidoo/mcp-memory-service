@@ -20,20 +20,20 @@ This script tests the basic memory operations to ensure they work correctly.
 """
 
 import asyncio
-import aiohttp
-import json
 import time
-from typing import Dict, Any
+
+import aiohttp
 
 BASE_URL = "http://localhost:8000"
 
+
 async def test_memory_crud():
     """Test the complete CRUD workflow for memories."""
-    
+
     async with aiohttp.ClientSession() as session:
         print("Testing Memory CRUD Operations")
         print("=" * 50)
-        
+
         # Test 1: Health check
         print("\n[1] Testing health check...")
         try:
@@ -48,27 +48,25 @@ async def test_memory_crud():
             print(f"[FAIL] Cannot connect to server: {e}")
             print("NOTE: Make sure the server is running with: python scripts/run_http_server.py")
             return
-        
+
         # Test 2: Store a memory
         print("\n[2] Testing memory storage...")
         test_memory = {
             "content": "This is a test memory for CRUD operations",
             "tags": ["test", "crud", "api"],
             "memory_type": "test",
-            "metadata": {"test_run": time.time(), "importance": "high"}
+            "metadata": {"test_run": time.time(), "importance": "high"},
         }
-        
+
         try:
             async with session.post(
-                f"{BASE_URL}/api/memories",
-                json=test_memory,
-                headers={"Content-Type": "application/json"}
+                f"{BASE_URL}/api/memories", json=test_memory, headers={"Content-Type": "application/json"}
             ) as resp:
                 if resp.status == 200:
                     result = await resp.json()
                     if result["success"]:
                         content_hash = result["content_hash"]
-                        print(f"[PASS] Memory stored successfully")
+                        print("[PASS] Memory stored successfully")
                         print(f"   Content hash: {content_hash[:16]}...")
                         print(f"   Message: {result['message']}")
                     else:
@@ -82,7 +80,7 @@ async def test_memory_crud():
         except Exception as e:
             print(f"[FAIL] Memory storage error: {e}")
             return
-        
+
         # Test 3: List memories
         print("\n[3] Testing memory listing...")
         try:
@@ -93,7 +91,7 @@ async def test_memory_crud():
                     print(f"✅ Retrieved {len(memories)} memories")
                     print(f"   Total memories: {result['total']}")
                     print(f"   Page: {result['page']}, Has more: {result['has_more']}")
-                    
+
                     if memories:
                         print(f"   First memory preview: {memories[0]['content'][:50]}...")
                 else:
@@ -102,26 +100,26 @@ async def test_memory_crud():
                     print(f"   Error: {error}")
         except Exception as e:
             print(f"❌ Memory listing error: {e}")
-        
+
         # Test 4: Get specific memory
         print("\n4️⃣  Testing specific memory retrieval...")
         try:
             async with session.get(f"{BASE_URL}/api/memories/{content_hash}") as resp:
                 if resp.status == 200:
                     memory = await resp.json()
-                    print(f"✅ Retrieved specific memory")
+                    print("✅ Retrieved specific memory")
                     print(f"   Content: {memory['content'][:50]}...")
                     print(f"   Tags: {memory['tags']}")
                     print(f"   Type: {memory['memory_type']}")
                 elif resp.status == 404:
-                    print(f"⚠️  Memory not found (this might be expected if get-by-hash isn't implemented)")
+                    print("⚠️  Memory not found (this might be expected if get-by-hash isn't implemented)")
                 else:
                     print(f"❌ Memory retrieval failed: {resp.status}")
                     error = await resp.text()
                     print(f"   Error: {error}")
         except Exception as e:
             print(f"❌ Memory retrieval error: {e}")
-        
+
         # Test 5: Filter by tag
         print("\n5️⃣  Testing tag filtering...")
         try:
@@ -137,7 +135,7 @@ async def test_memory_crud():
                     print(f"❌ Tag filtering failed: {resp.status}")
         except Exception as e:
             print(f"❌ Tag filtering error: {e}")
-        
+
         # Test 6: Delete memory
         print("\n6️⃣  Testing memory deletion...")
         try:
@@ -145,7 +143,7 @@ async def test_memory_crud():
                 if resp.status == 200:
                     result = await resp.json()
                     if result["success"]:
-                        print(f"✅ Memory deleted successfully")
+                        print("✅ Memory deleted successfully")
                         print(f"   Message: {result['message']}")
                     else:
                         print(f"❌ Memory deletion failed: {result['message']}")
@@ -155,20 +153,20 @@ async def test_memory_crud():
                     print(f"   Error: {error}")
         except Exception as e:
             print(f"❌ Memory deletion error: {e}")
-        
+
         # Test 7: Verify deletion
         print("\n7️⃣  Verifying memory deletion...")
         try:
             async with session.get(f"{BASE_URL}/api/memories/{content_hash}") as resp:
                 if resp.status == 404:
-                    print(f"✅ Memory successfully deleted (404 as expected)")
+                    print("✅ Memory successfully deleted (404 as expected)")
                 elif resp.status == 200:
-                    print(f"⚠️  Memory still exists after deletion")
+                    print("⚠️  Memory still exists after deletion")
                 else:
                     print(f"❓ Unexpected response: {resp.status}")
         except Exception as e:
             print(f"❌ Deletion verification error: {e}")
-        
+
         print("\n" + "=" * 50)
         print("🎉 Memory CRUD testing completed!")
 
