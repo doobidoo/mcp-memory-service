@@ -62,6 +62,7 @@ except ImportError:
 
 from ..config import QdrantSettings
 from ..models.memory import Memory, MemoryQueryResult
+from ..utils.system_detection import get_torch_device
 from .base import MemoryStorage
 
 logger = logging.getLogger(__name__)
@@ -518,8 +519,9 @@ class QdrantStorage(MemoryStorage):
                     # Double-check after acquiring lock (another thread may have loaded it)
                     if not hasattr(self, "_embedding_model_instance"):
                         logger.info(f"Loading embedding model: {self.embedding_model}")
-                        self._embedding_model_instance = SentenceTransformer(self.embedding_model)
-                        logger.info(f"Loaded model: {self.embedding_model}")
+                        device = get_torch_device()
+                        self._embedding_model_instance = SentenceTransformer(self.embedding_model, device=device)
+                        logger.info(f"Loaded model: {self.embedding_model} on device: {device}")
 
             # Generate embedding (outside lock - model is thread-safe for inference)
             embeddings = self._embedding_model_instance.encode(text, convert_to_tensor=False)
@@ -573,7 +575,7 @@ class QdrantStorage(MemoryStorage):
         """
         if ts is None:
             return 0.0
-        if isinstance(ts, (int, float)):
+        if isinstance(ts, int | float):
             return float(ts)
         if isinstance(ts, str):
             if DATEUTIL_AVAILABLE:

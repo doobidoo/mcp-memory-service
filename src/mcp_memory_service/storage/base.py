@@ -334,6 +334,42 @@ class MemoryStorage(ABC):
         """
         return []
 
+    async def count(self) -> int:
+        """
+        Get total count of all memories in storage.
+
+        Convenience method that delegates to count_all_memories() with no filters.
+        Required by hybrid search in MemoryService.retrieve_memories().
+
+        Returns:
+            Total number of memories in storage
+        """
+        return await self.count_all_memories()
+
+    async def search_by_tags(
+        self,
+        tags: list[str],
+        match_all: bool = False,
+        limit: int = 10,
+        offset: int = 0,
+    ) -> list[Memory]:
+        """
+        Search memories by tags (plural alias).
+
+        Delegates to search_by_tag() which is the abstract method all backends implement.
+        Required by hybrid search in MemoryService.retrieve_memories().
+
+        Args:
+            tags: List of tags to search for
+            match_all: If True, memory must have ALL tags; if False, ANY tag (default: False)
+            limit: Maximum number of results to return (default: 10)
+            offset: Number of results to skip for pagination (default: 0)
+
+        Returns:
+            List of Memory objects
+        """
+        return await self.search_by_tag(tags=tags, match_all=match_all, limit=limit, offset=offset)
+
     async def count_all_memories(self, memory_type: str | None = None, tags: list[str] | None = None) -> int:
         """
         Get total count of memories in storage.

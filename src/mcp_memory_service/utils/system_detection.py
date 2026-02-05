@@ -307,6 +307,23 @@ def get_torch_device() -> str:
         import torch
 
         if system_info.accelerator == AcceleratorType.CUDA and torch.cuda.is_available():
+            # Check GPU compute capability vs PyTorch minimum
+            try:
+                capability = torch.cuda.get_device_capability(0)
+                cap_version = capability[0] * 10 + capability[1]  # e.g., 6.1 -> 61
+                # PyTorch 2.x typically requires sm_70 (Volta) minimum for CUDA support
+                min_cap = 70
+                if cap_version < min_cap:
+                    gpu_name = torch.cuda.get_device_name(0)
+                    logger.warning(
+                        f"GPU detected ({gpu_name}, compute capability {capability[0]}.{capability[1]}) "
+                        f"is below PyTorch's minimum supported capability (sm_{min_cap//10}.{min_cap%10}). "
+                        f"Forcing CPU mode to avoid runtime errors."
+                    )
+                    return "cpu"
+            except Exception as cap_err:
+                logger.debug(f"Failed to check GPU compute capability: {cap_err}")
+
             return "cuda"
         elif (
             system_info.accelerator == AcceleratorType.MPS
