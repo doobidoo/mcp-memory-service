@@ -19,6 +19,7 @@ Provides Bearer token validation with fallback to API key authentication.
 """
 
 import logging
+import secrets
 from typing import Optional, Dict, Any
 from fastapi import HTTPException, status, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -271,8 +272,8 @@ def authenticate_api_key(api_key: str) -> AuthenticationResult:
             error="api_key_not_configured"
         )
 
-    # Validate API key
-    if api_key == API_KEY:
+    # Validate API key using constant-time comparison to prevent timing attacks
+    if secrets.compare_digest(api_key.encode(), API_KEY.encode()):
         logger.debug("API key authentication successful")
         return AuthenticationResult(
             authenticated=True,
