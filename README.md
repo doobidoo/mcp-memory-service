@@ -699,6 +699,9 @@ pip install mcp-memory-service-lite
 
 ### 📄 **Document Ingestion** (v8.6.0+)
 ```bash
+# For local development/single-user: Enable anonymous access
+export MCP_ALLOW_ANONYMOUS_ACCESS=true
+
 # Start HTTP dashboard server (separate from MCP server)
 memory server --http
 
@@ -715,6 +718,8 @@ curl -X POST http://127.0.0.1:8000/api/search \
   -H "Content-Type: application/json" \
   -d '{"query": "authentication flow", "limit": 10}'
 ```
+
+> **⚠️ Authentication Required**: The HTTP dashboard requires authentication by default. For local development, set `MCP_ALLOW_ANONYMOUS_ACCESS=true`. For production, use API key authentication (`MCP_API_KEY`) or OAuth. See [Configuration](#-configuration) for details.
 
 ### 🔗 **Team Collaboration with OAuth** (v7.0.0+)
 ```bash
@@ -808,8 +813,15 @@ export CLOUDFLARE_VECTORIZE_INDEX="mcp-memory-index"
 export MCP_HTTP_ENABLED=true
 export MCP_HTTP_PORT=8000
 
-# Security
+# Security (choose one authentication method)
+# Option 1: API Key authentication (recommended for production)
 export MCP_API_KEY="your-secure-key"
+
+# Option 2: Anonymous access (local development only)
+# export MCP_ALLOW_ANONYMOUS_ACCESS=true
+
+# Option 3: OAuth team collaboration
+# export MCP_OAUTH_ENABLED=true
 ```
 
 **SQLite-vec Only (Local):**
