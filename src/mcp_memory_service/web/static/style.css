@@ -5151,3 +5151,108 @@ body.dark-mode .quality-tier-low,
         height: 16px;
     }
 }
+
+/* Authentication Modal Styles */
+#authModal .modal-content {
+    max-width: 600px;
+}
+
+.auth-options {
+    display: grid;
+    gap: var(--space-6);
+    margin: var(--space-6) 0;
+}
+
+.auth-option {
+    padding: var(--space-6);
+    border: 1px solid var(--neutral-200);
+    border-radius: var(--radius-lg);
+    background: var(--neutral-50);
+}
+
+.auth-option h4 {
+    margin: 0 0 var(--space-4) 0;
+    color: var(--neutral-900);
+    font-size: 1.125rem;
+    font-weight: 600;
+}
+
+.auth-option p {
+    margin: 0 0 var(--space-4) 0;
+    color: var(--neutral-600);
+}
+
+.auth-option input {
+    width: 100%;
+    padding: var(--space-3);
+    margin: var(--space-4) 0;
+    border: 1px solid var(--neutral-300);
+    border-radius: var(--radius-md);
+    font-size: 1rem;
+    transition: border-color 0.2s;
+}
+
+.auth-option input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.auth-option button {
+    width: 100%;
+}
+
+.auth-footer {
+    margin-top: var(--space-6);
+    padding-top: var(--space-6);
+    border-top: 1px solid var(--neutral-200);
+    font-size: 0.875rem;
+    color: var(--neutral-600);
+}
+
+.auth-footer code {
+    background: var(--neutral-100);
+    padding: 0.125rem 0.375rem;
+    border-radius: var(--radius-sm);
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+    color: var(--primary);
+}
+
+/* Dark mode authentication modal */
+body.dark-mode #authModal .modal-content {
+    background: var(--neutral-800);
+}
+
+body.dark-mode .auth-option {
+    background: var(--neutral-900);
+    border-color: var(--neutral-700);
+}
+
+body.dark-mode .auth-option h4 {
+    color: var(--neutral-100);
+}
+
+body.dark-mode .auth-option p {
+    color: var(--neutral-400);
+}
+
+body.dark-mode .auth-option input {
+    background: var(--neutral-800);
+    border-color: var(--neutral-600);
+    color: var(--neutral-100);
+}
+
+body.dark-mode .auth-option input:focus {
+    border-color: var(--primary);
+}
+
+body.dark-mode .auth-footer {
+    border-top-color: var(--neutral-700);
+    color: var(--neutral-400);
+}
+
+body.dark-mode .auth-footer code {
+    background: var(--neutral-700);
+    color: var(--primary);
+}

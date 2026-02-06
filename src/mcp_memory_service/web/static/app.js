@@ -76,6 +76,15 @@ class MemoryDashboard {
         this.liveSearchEnabled = true;
         this.debounceTimer = null;
 
+        // Authentication state
+        this.authState = {
+            isAuthenticated: false,
+            authMethod: null, // 'api_key', 'oauth', 'anonymous', or null
+            apiKey: localStorage.getItem('mcp_api_key') || null,
+            oauthToken: localStorage.getItem('mcp_oauth_token') || null,
+            requiresAuth: false
+        };
+
         // Settings with defaults
         this.settings = {
             theme: 'light',
@@ -106,7 +115,22 @@ class MemoryDashboard {
         this.loadSettings();
         this.applyTheme();
         this.setupEventListeners();
+        this.setupAuthListeners();
         this.setupSSE();
+
+        // Check for secure context
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+            console.warn('⚠️ Insecure connection detected. Credentials should be transmitted over HTTPS.');
+            this.showToast('Warning: Connection not secure. Please use HTTPS in production.', 'warning');
+        }
+
+        // Detect authentication requirement before loading data
+        const needsAuth = await this.detectAuthRequirement();
+        if (needsAuth && !this.authState.apiKey && !this.authState.oauthToken) {
+            this.showAuthModal();
+            return; // Don't load data until authenticated
+        }
+
         await this.loadVersion();
         await this.loadDashboardData();
         this.updateConnectionStatus('connected');
@@ -114,6 +138,27 @@ class MemoryDashboard {
         // Initialize sync status monitoring for hybrid mode
         await this.checkSyncStatus();
         this.startSyncStatusMonitoring();
+    }
+
+    /**
+     * Detect if authentication is required
+     */
+    async detectAuthRequirement() {
+        try {
+            const response = await fetch(`${this.apiBase}/health`);
+            if (response.status === 401) {
+                this.authState.requiresAuth = true;
+                return true;
+            } else if (response.ok) {
+                this.authState.requiresAuth = false;
+                this.authState.isAuthenticated = true;
+                this.authState.authMethod = 'anonymous';
+                return false;
+            }
+        } catch (error) {
+            console.error('Failed to detect auth requirement:', error);
+            return false;
+        }
     }
 
     /**
@@ -3252,11 +3297,24 @@ class MemoryDashboard {
             }
         };
 
+        // Add authentication headers
+        if (this.authState.apiKey) {
+            options.headers['X-API-Key'] = this.authState.apiKey;
+        } else if (this.authState.oauthToken) {
+            options.headers['Authorization'] = `Bearer ${this.authState.oauthToken}`;
+        }
+
         if (data) {
             options.body = JSON.stringify(data);
         }
 
         const response = await fetch(`${this.apiBase}${endpoint}`, options);
+
+        // Handle 401 responses
+        if (response.status === 401) {
+            this.handleAuthFailure();
+            throw new Error('Authentication required');
+        }
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
@@ -3264,6 +3322,98 @@ class MemoryDashboard {
         }
 
         return await response.json();
+    }
+
+    /**
+     * Handle authentication failure (401 response)
+     */
+    handleAuthFailure() {
+        // Clear invalid credentials
+        this.authState.isAuthenticated = false;
+        localStorage.removeItem('mcp_api_key');
+        localStorage.removeItem('mcp_oauth_token');
+
+        // Show authentication modal
+        this.showAuthModal();
+    }
+
+    /**
+     * Show authentication modal
+     */
+    showAuthModal() {
+        const modal = document.getElementById('authModal');
+        if (modal) {
+            this.openModal(modal);
+        }
+    }
+
+    /**
+     * Authenticate with API key
+     */
+    async authenticateWithApiKey(apiKey) {
+        // Store API key
+        this.authState.apiKey = apiKey;
+        localStorage.setItem('mcp_api_key', apiKey);
+
+        // Test authentication
+        try {
+            await this.apiCall('/health');
+            this.authState.isAuthenticated = true;
+            this.authState.authMethod = 'api_key';
+
+            // Close modal and refresh data
+            const modal = document.getElementById('authModal');
+            if (modal) {
+                this.closeModal(modal);
+            }
+
+            // Reload dashboard data
+            this.loadDashboardData();
+            this.showToast('Authentication successful', 'success');
+
+            return true;
+        } catch (error) {
+            // Authentication failed
+            this.showToast('Authentication failed. Please check your API key.', 'error');
+            this.authState.apiKey = null;
+            localStorage.removeItem('mcp_api_key');
+            return false;
+        }
+    }
+
+    /**
+     * Setup authentication event listeners
+     */
+    setupAuthListeners() {
+        const apiKeyBtn = document.getElementById('authWithApiKey');
+        const apiKeyInput = document.getElementById('apiKeyInput');
+
+        if (apiKeyBtn && apiKeyInput) {
+            apiKeyBtn.addEventListener('click', async () => {
+                const apiKey = apiKeyInput.value.trim();
+                if (apiKey) {
+                    await this.authenticateWithApiKey(apiKey);
+                }
+            });
+
+            // Allow Enter key to submit
+            apiKeyInput.addEventListener('keypress', async (e) => {
+                if (e.key === 'Enter') {
+                    const apiKey = apiKeyInput.value.trim();
+                    if (apiKey) {
+                        await this.authenticateWithApiKey(apiKey);
+                    }
+                }
+            });
+        }
+
+        const oauthBtn = document.getElementById('authWithOAuth');
+        if (oauthBtn) {
+            oauthBtn.addEventListener('click', () => {
+                // Redirect to OAuth authorization endpoint
+                window.location.href = '/oauth/authorize';
+            });
+        }
     }
 
     /**

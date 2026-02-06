@@ -1433,6 +1433,36 @@
         </div>
     </div>
 
+    <!-- Authentication Modal -->
+    <div id="authModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔐 Authentication Required</h3>
+            </div>
+            <div class="modal-body">
+                <p>The dashboard requires authentication to access memory operations.</p>
+
+                <div class="auth-options">
+                    <div class="auth-option">
+                        <h4>API Key</h4>
+                        <input type="password" id="apiKeyInput" placeholder="Enter your API key" autocomplete="off" spellcheck="false" />
+                        <button id="authWithApiKey" class="btn btn-primary">Authenticate</button>
+                    </div>
+
+                    <div class="auth-option">
+                        <h4>OAuth</h4>
+                        <p>Use OAuth for team collaboration.</p>
+                        <button id="authWithOAuth" class="btn btn-secondary">Login with OAuth</button>
+                    </div>
+                </div>
+
+                <div class="auth-footer">
+                    <p><strong>For local development:</strong> Set <code>MCP_ALLOW_ANONYMOUS_ACCESS=true</code> in your environment.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/app.js?v=8.62.14-I18N-FIX"></script>
     <link rel="stylesheet" href="/static/style.css?v=8.27.2-TOAST-AND-ICON">
 </body>
