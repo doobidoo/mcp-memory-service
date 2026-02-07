@@ -1730,7 +1730,7 @@ class MemoryDashboard {
             if (summaryEl) {
                 let html = `<strong>${totalCount}</strong> backup${totalCount !== 1 ? 's' : ''} &middot; <strong>${totalSizeMB} MB</strong> total`;
                 if (backupDir) {
-                    html += `<br><span style="font-size: var(--text-xs); opacity: 0.7;">${this.escapeHtml(backupDir)}</span>`;
+                    html += `<br><span class="backup-directory-path">${this.escapeHtml(backupDir)}</span>`;
                 }
                 summaryEl.innerHTML = html;
             }
