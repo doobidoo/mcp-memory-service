@@ -3472,13 +3472,16 @@ class MemoryDashboard {
 
             if (data.update_available) {
                 if (statusEl) {
-                    statusEl.innerHTML = `<span style="color: var(--success, #10b981); font-weight: 600;">Yes - ${data.commits_behind} commit(s) available</span>`;
+                    statusEl.textContent = `Yes - ${data.commits_behind} commit(s) available`;
+                    statusEl.style.color = 'var(--success, #10b981)';
+                    statusEl.style.fontWeight = '600';
                 }
                 if (updateBtn) { updateBtn.style.display = 'inline-flex'; }
                 this.showToast(`${data.commits_behind} update(s) available!`, 'info');
             } else {
                 if (statusEl) {
-                    statusEl.innerHTML = '<span style="color: var(--text-secondary);">Up to date</span>';
+                    statusEl.textContent = 'Up to date';
+                    statusEl.style.color = 'var(--text-secondary)';
                 }
                 if (updateBtn) { updateBtn.style.display = 'none'; }
                 this.showToast('Already up to date.', 'success');
