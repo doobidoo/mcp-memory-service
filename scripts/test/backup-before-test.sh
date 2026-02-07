@@ -76,7 +76,7 @@ echo "💾 Creating backup..."
 
 # Create backup using sqlite3 .backup for atomic, consistent copy
 # (safe even if database is actively in use with WAL journal)
-sqlite3 -- "$PROD_DB" ".backup '$BACKUP_FILE'"
+sqlite3 -- "$PROD_DB" ".backup \"$BACKUP_FILE\""
 
 # Verify backup
 if [ ! -f "$BACKUP_FILE" ]; then
