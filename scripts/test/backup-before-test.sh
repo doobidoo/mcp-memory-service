@@ -125,7 +125,7 @@ pkill -f "mcp_memory_service" || true
 sleep 2
 
 # Restore using sqlite3 for atomic operation
-sqlite3 -- "$BACKUP_FILE" ".backup '$PROD_DB'"
+sqlite3 -- "$BACKUP_FILE" ".backup \"$PROD_DB\""
 
 # Remove WAL files
 rm -f -- "${PROD_DB}-shm" "${PROD_DB}-wal"
