@@ -13,6 +13,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [10.7.1] - 2026-02-07
 
 ### Fixed
+- **Test Script Security Hardening** (Issue #419, PR #427): Fixed 5 security issues in test backup scripts
+  - **Command Injection (HIGH)**: Replaced unquoted heredoc with quoted `<< 'EOF'` + `printf '%q'` for safe path escaping
+  - **Argument Injection**: Added `--` separators to `sqlite3` and `rm` commands
+  - **Database Corruption Risk**: Replaced `cp` with `sqlite3 .backup` for atomic, WAL-safe backups
+  - **Overly Broad pkill**: Narrowed pattern from `"memory server"` to `"mcp_memory_service"`
+  - **Cross-Platform Documentation**: Added platform-specific path table (macOS/Linux/Windows) to README
+  - **Test Fix**: Added auth dependency overrides to quality HTTP endpoint tests
 - **Dashboard Authentication for API Calls** (Commit 5bf4834): Added authentication headers to all Dashboard API endpoints
   - **Frontend Fixes**: Replaced 19 direct `fetch()` calls with `this.apiCall()` for proper auth header handling
   - **Affected Tabs**: Manage, Analytics, Quality tabs now properly authenticate
