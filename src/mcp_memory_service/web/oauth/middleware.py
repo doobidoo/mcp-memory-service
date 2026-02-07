@@ -359,6 +359,15 @@ async def get_current_user(
                 logger.debug("Authenticated via api_key query parameter")
                 return api_key_result
 
+    # Try OAuth token as query parameter (EventSource API doesn't support headers)
+    if OAUTH_ENABLED:
+        oauth_token_param = request.query_params.get("token")
+        if oauth_token_param:
+            auth_result = await authenticate_bearer_token(oauth_token_param)
+            if auth_result.authenticated:
+                logger.debug("Authenticated via token query parameter (SSE workaround)")
+                return auth_result
+
     # Allow anonymous access only if explicitly enabled
     if ALLOW_ANONYMOUS_ACCESS:
         logger.debug("Anonymous access explicitly enabled, granting read-only access")
