@@ -179,21 +179,20 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.7.0** (February 7, 2026)
+## 🆕 Latest Release: **v10.7.1** (February 7, 2026)
 
-**Backup UI Enhancements: Complete Backup Management Interface**
+**Dashboard Authentication Fix: Complete API Authentication Coverage**
 
 **What's New:**
-- 💾 **View Backups Modal** (PR #375): Interactive backup history with detailed information
-  - View all backups with filename, size, date, and age in a clean modal interface
-  - Backup directory path displayed in summary for easy file access
-  - Enhanced API with backup_directory field for better integration
-- 🔧 **Dashboard Fixes**: Improved form controls, event binding, and toast notifications
-  - Fixed backup buttons to prevent form submission issues
-  - Reliable event handlers using inline onclick for settings modal
-  - Toast notifications now properly appear over modals
+- 🔐 **Dashboard API Authentication** (Commit 5bf4834): Fixed authentication for all Dashboard API endpoints
+  - Replaced 19 direct `fetch()` calls with authenticated `apiCall()` method
+  - Fixed Manage, Analytics, and Quality tabs that were bypassing auth layer (causing 401 errors)
+  - Added auth middleware to consolidation API (3 endpoints) and quality API (5 endpoints)
+  - Fixed `/api-overview` page authentication for detailed health checks
+  - All Dashboard features now work correctly with API key authentication enabled
 
 **Previous Releases**:
+- **v10.7.0** - Backup UI Enhancements (View Backups modal, backup directory display, enhanced API)
 - **v10.6.1** - Dashboard SSE Authentication Fix (EventSource API compatibility with query params)
 - **v10.6.0** - Server Management Dashboard: Complete server administration from Dashboard Settings
 - **v10.5.1** - Test Environment Safety: 4 critical scripts to prevent production database testing

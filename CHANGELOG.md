@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.7.1] - 2026-02-07
+
+### Fixed
+- **Dashboard Authentication for API Calls** (Commit 5bf4834): Added authentication headers to all Dashboard API endpoints
+  - **Frontend Fixes**: Replaced 19 direct `fetch()` calls with `this.apiCall()` for proper auth header handling
+  - **Affected Tabs**: Manage, Analytics, Quality tabs now properly authenticate
+  - **FormData Uploads**: Added auth headers to 2 document upload fetch calls
+  - **API Middleware**: Added auth middleware to consolidation API (3 endpoints: trigger, status, recommendations)
+  - **API Middleware**: Added auth middleware to quality API (5 endpoints: rate, evaluate, get, distribution, trends)
+  - **API Overview Page**: Fixed `/api-overview` page to pass auth headers to `/api/health/detailed` fetch calls
+  - **Root Cause**: Direct fetch() calls bypassed the apiCall() auth layer, causing 401 errors when API key authentication was enabled
+  - **Files Changed**: 5 files modified (app.js, index.html, consolidation.py, quality.py, app.py)
+  - **Impact**: All Dashboard features now work correctly with API key authentication enabled
+
 ## [10.7.0] - 2026-02-07
 
 ### Added
