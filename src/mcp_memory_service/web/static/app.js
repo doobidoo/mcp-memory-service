@@ -625,7 +625,14 @@ class MemoryDashboard {
      */
     setupSSE() {
         try {
-            this.eventSource = new EventSource(`${this.apiBase}/events`);
+            // Build SSE URL with query parameter auth (EventSource API doesn't support custom headers)
+            let sseUrl = `${this.apiBase}/events`;
+            if (this.authState.apiKey) {
+                sseUrl += `?api_key=${encodeURIComponent(this.authState.apiKey)}`;
+            } else if (this.authState.oauthToken) {
+                sseUrl += `?token=${encodeURIComponent(this.authState.oauthToken)}`;
+            }
+            this.eventSource = new EventSource(sseUrl);
 
             this.eventSource.onopen = () => {
                 this.updateConnectionStatus('connected');
