@@ -13,7 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [10.7.1] - 2026-02-07
 
 ### Fixed
-- **Test Script Security Hardening** (Issue #419, PR #427): Fixed 5 security issues in test backup scripts
+- **Test Script Security Hardening** (Issue #419, PR #427): Hardened test backup scripts with several security and robustness fixes:
   - **Command Injection (HIGH)**: Replaced unquoted heredoc with quoted `<< 'EOF'` + `printf '%q'` for safe path escaping
   - **Argument Injection**: Added `--` separators to `sqlite3` and `rm` commands
   - **Database Corruption Risk**: Replaced `cp` with `sqlite3 .backup` for atomic, WAL-safe backups
