@@ -179,19 +179,15 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.7.1** (February 7, 2026)
+## 🆕 Latest Release: **v10.7.2** (February 7, 2026)
 
-**Dashboard Authentication Fix: Complete API Authentication Coverage**
+**Server Management Button Fix**
 
 **What's New:**
-- 🔐 **Dashboard API Authentication** (Commit 5bf4834): Fixed authentication for all Dashboard API endpoints
-  - Replaced 19 direct `fetch()` calls with authenticated `apiCall()` method
-  - Fixed Manage, Analytics, and Quality tabs that were bypassing auth layer (causing 401 errors)
-  - Added auth middleware to consolidation API (3 endpoints) and quality API (5 endpoints)
-  - Fixed `/api-overview` page authentication for detailed health checks
-  - All Dashboard features now work correctly with API key authentication enabled
+- 🔧 **Server Management Buttons** (PR #429): Fixed Settings modal buttons (Check for Updates, Update & Restart, Restart Server) causing page reload instead of executing their actions. Root cause: missing `type="button"` on buttons inside a `<form>` element.
 
 **Previous Releases**:
+- **v10.7.1** - Dashboard API Authentication Fix (complete auth coverage for all endpoints)
 - **v10.7.0** - Backup UI Enhancements (View Backups modal, backup directory display, enhanced API)
 - **v10.6.1** - Dashboard SSE Authentication Fix (EventSource API compatibility with query params)
 - **v10.6.0** - Server Management Dashboard: Complete server administration from Dashboard Settings
