@@ -97,7 +97,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "🔄 Restore Command (if needed):"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "sqlite3 -- \"$BACKUP_FILE\" \".backup '$PROD_DB'\""
+echo "sqlite3 -- \"$BACKUP_FILE\" ".backup \"$PROD_DB\"""
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
