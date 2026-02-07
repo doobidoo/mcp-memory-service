@@ -1306,8 +1306,16 @@ class MemoryDashboard {
         formData.append('chunk_overlap', config.chunk_overlap.toString());
         formData.append('memory_type', config.memory_type);
 
+        const headers = {};
+        if (this.authState.apiKey) {
+            headers['X-API-Key'] = this.authState.apiKey;
+        } else if (this.authState.oauthToken) {
+            headers['Authorization'] = `Bearer ${this.authState.oauthToken}`;
+        }
+
         const response = await fetch(`${this.apiBase}/documents/upload`, {
             method: 'POST',
+            headers: headers,
             body: formData
         });
 
@@ -1357,8 +1365,16 @@ class MemoryDashboard {
         formData.append('chunk_overlap', config.chunk_overlap.toString());
         formData.append('memory_type', config.memory_type);
 
+        const headers = {};
+        if (this.authState.apiKey) {
+            headers['X-API-Key'] = this.authState.apiKey;
+        } else if (this.authState.oauthToken) {
+            headers['Authorization'] = `Bearer ${this.authState.oauthToken}`;
+        }
+
         const response = await fetch(`${this.apiBase}/documents/batch-upload`, {
             method: 'POST',
+            headers: headers,
             body: formData
         });
 
@@ -4196,10 +4212,7 @@ class MemoryDashboard {
      */
     async loadUntaggedCount() {
         try {
-            const response = await fetch(`${this.apiBase}/manage/untagged/count`);
-            if (!response.ok) return;
-
-            const data = await response.json();
+            const data = await this.apiCall('/manage/untagged/count');
             const count = data.count || 0;
             const countSpan = document.getElementById('untaggedCount');
             const card = document.getElementById('deleteUntaggedCard');
@@ -4220,10 +4233,7 @@ class MemoryDashboard {
      */
     async loadTagSelectOptions() {
         try {
-            const response = await fetch(`${this.apiBase}/manage/tags/stats`);
-            if (!response.ok) throw new Error('Failed to load tags');
-
-            const data = await response.json();
+            const data = await this.apiCall('/manage/tags/stats');
             const select = document.getElementById('deleteTagSelect');
             if (!select) return;
 
@@ -4253,10 +4263,7 @@ class MemoryDashboard {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/manage/tags/stats`);
-            if (!response.ok) throw new Error('Failed to load tag stats');
-
-            const data = await response.json();
+            const data = await this.apiCall('/manage/tags/stats');
             this.renderTagManagementTable(data);
         } catch (error) {
             console.error('Failed to load tag management stats:', error);
@@ -4330,23 +4337,10 @@ class MemoryDashboard {
 
         this.setLoading(true);
         try {
-            const response = await fetch(`${this.apiBase}/manage/bulk-delete`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            const result = await this.apiCall('/manage/bulk-delete', 'POST', {
                     tag: tag,
                     confirm_count: count
-                })
-            });
-
-            const result = await response.json();
-
-            // Check HTTP status first (handles HTTPException responses with 'detail')
-            if (!response.ok) {
-                const errorMsg = result.detail || result.message || 'Unknown error';
-                this.showToast(errorMsg, 'error');
-                return;
-            }
+                });
 
             if (result.success) {
                 this.showToast(result.message, 'success');
@@ -4373,17 +4367,7 @@ class MemoryDashboard {
 
         this.setLoading(true);
         try {
-            const response = await fetch(`${this.apiBase}/manage/cleanup-duplicates`, {
-                method: 'POST'
-            });
-
-            const result = await response.json();
-
-            if (!response.ok) {
-                const errorMsg = result.detail || result.message || 'Unknown error';
-                this.showToast(errorMsg, 'error');
-                return;
-            }
+            const result = await this.apiCall('/manage/cleanup-duplicates', 'POST');
 
             if (result.success) {
                 this.showToast(result.message, 'success');
@@ -4418,21 +4402,9 @@ class MemoryDashboard {
 
         this.setLoading(true);
         try {
-            const response = await fetch(`${this.apiBase}/manage/bulk-delete`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            const result = await this.apiCall('/manage/bulk-delete', 'POST', {
                     before_date: date
-                })
-            });
-
-            const result = await response.json();
-
-            if (!response.ok) {
-                const errorMsg = result.detail || result.message || 'Unknown error';
-                this.showToast(errorMsg, 'error');
-                return;
-            }
+                });
 
             if (result.success) {
                 this.showToast(result.message, 'success');
@@ -4468,17 +4440,7 @@ class MemoryDashboard {
 
         this.setLoading(true);
         try {
-            const response = await fetch(`${this.apiBase}/manage/delete-untagged?confirm_count=${count}`, {
-                method: 'POST'
-            });
-
-            const result = await response.json();
-
-            if (!response.ok) {
-                const errorMsg = result.detail || result.message || 'Unknown error';
-                this.showToast(errorMsg, 'error');
-                return;
-            }
+            const result = await this.apiCall(`/manage/delete-untagged?confirm_count=${count}`, 'POST');
 
             if (result.success) {
                 this.showToast(result.message, 'success');
@@ -4560,10 +4522,7 @@ class MemoryDashboard {
      */
     async loadAnalyticsOverview() {
         try {
-            const response = await fetch(`${this.apiBase}/analytics/overview`);
-            if (!response.ok) throw new Error('Failed to load overview');
-
-            const data = await response.json();
+            const data = await this.apiCall('/analytics/overview');
 
             // Update metric cards
             this.updateElementText('analyticsTotalMemories', data.total_memories || 0);
@@ -4586,10 +4545,7 @@ class MemoryDashboard {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/analytics/memory-growth?period=${period}`);
-            if (!response.ok) throw new Error('Failed to load growth data');
-
-            const data = await response.json();
+            const data = await this.apiCall(`/analytics/memory-growth?period=${period}`);
             this.renderMemoryGrowthChart(container, data);
         } catch (error) {
             console.error('Failed to load memory growth:', error);
@@ -4639,10 +4595,7 @@ class MemoryDashboard {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/analytics/tag-usage`);
-            if (!response.ok) throw new Error('Failed to load tag usage');
-
-            const data = await response.json();
+            const data = await this.apiCall('/analytics/tag-usage');
             this.renderTagUsageChart(container, data);
         } catch (error) {
             console.error('Failed to load tag usage:', error);
@@ -4699,10 +4652,7 @@ class MemoryDashboard {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/analytics/memory-types`);
-            if (!response.ok) throw new Error('Failed to load memory types');
-
-            const data = await response.json();
+            const data = await this.apiCall('/analytics/memory-types');
             this.renderMemoryTypesChart(container, data);
         } catch (error) {
             console.error('Failed to load memory types:', error);
@@ -4761,10 +4711,7 @@ class MemoryDashboard {
         if (!container) return;
 
     try {
-    const response = await fetch(`${this.apiBase}/analytics/top-tags?period=${period}`);
-            if (!response.ok) throw new Error('Failed to load top tags');
-
-    const data = await response.json();
+    const data = await this.apiCall(`/analytics/top-tags?period=${period}`);
         this.renderTopTagsReport(container, data);
     } catch (error) {
     console.error('Failed to load top tags:', error);
@@ -4813,10 +4760,7 @@ class MemoryDashboard {
         if (!container) return;
 
     try {
-    const response = await fetch(`${this.apiBase}/analytics/activity-breakdown?granularity=${granularity}`);
-    if (!response.ok) throw new Error('Failed to load activity breakdown');
-
-    const data = await response.json();
+    const data = await this.apiCall(`/analytics/activity-breakdown?granularity=${granularity}`);
     this.renderRecentActivityReport(container, data);
     } catch (error) {
     console.error('Failed to load recent activity:', error);
@@ -4882,10 +4826,7 @@ class MemoryDashboard {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/analytics/activity-heatmap?days=${period}`);
-            if (!response.ok) throw new Error('Failed to load heatmap data');
-
-            const data = await response.json();
+            const data = await this.apiCall(`/analytics/activity-heatmap?days=${period}`);
             this.renderActivityHeatmapChart(container, data);
         } catch (error) {
             console.error('Failed to load activity heatmap:', error);
@@ -4992,10 +4933,7 @@ class MemoryDashboard {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/analytics/storage-stats`);
-            if (!response.ok) throw new Error('Failed to load storage stats');
-
-            const data = await response.json();
+            const data = await this.apiCall('/analytics/storage-stats');
             this.renderStorageReport(container, data);
         } catch (error) {
             console.error('Failed to load storage report:', error);
@@ -5055,10 +4993,7 @@ class MemoryDashboard {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/analytics/relationship-types`);
-            if (!response.ok) throw new Error('Failed to load relationship types');
-
-            const data = await response.json();
+            const data = await this.apiCall('/analytics/relationship-types');
             this.renderRelationshipTypesChart(container, data);
         } catch (error) {
             console.error('Failed to load relationship types:', error);
@@ -5122,10 +5057,7 @@ class MemoryDashboard {
             const limit = document.getElementById('graphLimitSelect')?.value || 100;
             const minConnections = document.getElementById('graphMinConnectionsSelect')?.value || 1;
 
-            const response = await fetch(`${this.apiBase}/analytics/graph-visualization?limit=${limit}&min_connections=${minConnections}`);
-            if (!response.ok) throw new Error('Failed to load graph visualization');
-
-            const data = await response.json();
+            const data = await this.apiCall(`/analytics/graph-visualization?limit=${limit}&min_connections=${minConnections}`);
             this.renderGraphVisualization(container, data);
         } catch (error) {
             console.error('Failed to load graph visualization:', error);
@@ -5314,10 +5246,7 @@ class MemoryDashboard {
      */
     async loadQualityAnalytics() {
         try {
-            const response = await fetch(`${this.apiBase}/quality/distribution`);
-            if (!response.ok) throw new Error('Failed to load quality analytics');
-
-            const data = await response.json();
+            const data = await this.apiCall('/quality/distribution');
 
             // Update summary stats
             this.updateElementText('quality-total-memories', data.total_memories.toLocaleString());
@@ -5570,18 +5499,10 @@ class MemoryDashboard {
      */
     async rateMemory(contentHash, rating) {
         try {
-            const response = await fetch(`${this.apiBase}/quality/memories/${contentHash}/rate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            const result = await this.apiCall(`/quality/memories/${contentHash}/rate`, 'POST', {
                     rating: rating,
                     feedback: ''
-                })
-            });
-
-            if (!response.ok) throw new Error('Failed to rate memory');
-
-            const result = await response.json();
+                });
             this.showToast(`Rating saved! Quality score updated to ${result.new_quality_score.toFixed(2)}`, 'success');
 
             // Refresh memory display if viewing details

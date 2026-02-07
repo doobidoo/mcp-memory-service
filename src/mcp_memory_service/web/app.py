@@ -899,13 +899,23 @@ def create_app() -> FastAPI:
             </div>
             
             <script>
+                // Auth helper - reads API key from localStorage (shared with dashboard)
+                function getAuthHeaders() {
+                    const headers = { 'Content-Type': 'application/json' };
+                    const apiKey = localStorage.getItem('mcp_api_key');
+                    const oauthToken = localStorage.getItem('mcp_oauth_token');
+                    if (apiKey) headers['X-API-Key'] = apiKey;
+                    else if (oauthToken) headers['Authorization'] = 'Bearer ' + oauthToken;
+                    return headers;
+                }
+
                 // Fetch and display live stats
                 async function updateStats() {
                     try {
                         const healthResponse = await fetch('/api/health');
                         const health = await healthResponse.json();
-                        
-                        const detailedResponse = await fetch('/api/health/detailed');
+
+                        const detailedResponse = await fetch('/api/health/detailed', { headers: getAuthHeaders() });
                         const detailed = await detailedResponse.json();
                         
                         const stats = document.getElementById('stats');
@@ -954,7 +964,7 @@ def create_app() -> FastAPI:
                 async function loadDynamicInfo() {
                     try {
                         // Load detailed health information
-                        const response = await fetch('/api/health/detailed');
+                        const response = await fetch('/api/health/detailed', { headers: getAuthHeaders() });
                         if (!response.ok) {
                             throw new Error(`HTTP ${response.status}`);
                         }

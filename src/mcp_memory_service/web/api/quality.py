@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from ...models.memory import Memory
 from ...quality.scorer import QualityScorer
 from ..dependencies import get_storage
+from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -93,7 +94,8 @@ class EvaluateResponse(BaseModel):
 async def rate_memory(
     content_hash: str,
     request: RateMemoryRequest,
-    storage=Depends(get_storage)
+    storage=Depends(get_storage),
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Rate a memory's quality (manual override).
@@ -168,7 +170,8 @@ async def rate_memory(
 async def evaluate_memory_quality(
     content_hash: str,
     request: EvaluateRequest = None,
-    storage=Depends(get_storage)
+    storage=Depends(get_storage),
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Trigger AI-based quality evaluation for a memory.
@@ -263,7 +266,7 @@ async def evaluate_memory_quality(
 
 
 @router.get("/memories/{content_hash}", response_model=QualityMetricsResponse)
-async def get_memory_quality(content_hash: str, storage=Depends(get_storage)):
+async def get_memory_quality(content_hash: str, storage=Depends(get_storage), user: AuthenticationResult = Depends(require_read_access)):
     """
     Get quality metrics for a specific memory.
 
@@ -311,7 +314,8 @@ async def get_memory_quality(content_hash: str, storage=Depends(get_storage)):
 async def get_quality_distribution(
     min_quality: float = 0.0,
     max_quality: float = 1.0,
-    storage=Depends(get_storage)
+    storage=Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get quality score distribution statistics.
@@ -437,7 +441,7 @@ async def get_quality_distribution(
 
 
 @router.get("/trends")
-async def get_quality_trends(days: int = 30, storage=Depends(get_storage)):
+async def get_quality_trends(days: int = 30, storage=Depends(get_storage), user: AuthenticationResult = Depends(require_read_access)):
     """
     Get quality score trends over time.
 
