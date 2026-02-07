@@ -1074,13 +1074,8 @@ class MemoryDashboard {
         // Sync buttons event listeners are attached in checkSyncStatus()
         // after buttons are confirmed to be accessible in the DOM
 
-        // Backup now button
-        const backupNowButton = document.getElementById('backupNowButton');
-        if (backupNowButton) {
-            backupNowButton.addEventListener('click', () => {
-                this.createBackup();
-            });
-        }
+        // Backup buttons use inline onclick handlers in HTML
+        // (setupEventListeners runs before settings modal DOM is interactive)
 
         // Document search button
         const docSearchBtn = document.getElementById('docSearchBtn');
@@ -1692,6 +1687,81 @@ class MemoryDashboard {
             this.showToast(this.t('toast.backupFailed', 'Failed to create backup'), 'error');
         } finally {
             if (backupButton) backupButton.disabled = false;
+        }
+    }
+
+    /**
+     * Open the View Backups modal and load backup list
+     */
+    async openViewBackupsModal() {
+        const modal = document.getElementById('viewBackupsModal');
+        if (!modal) return;
+
+        // Show loading state
+        const listEl = document.getElementById('backupsList');
+        const summaryEl = document.getElementById('backupsSummary');
+        if (listEl) listEl.innerHTML = '<p class="loading-text">Loading backups...</p>';
+        if (summaryEl) summaryEl.innerHTML = '';
+
+        this.openModal(modal);
+        await this.loadBackupsList();
+    }
+
+    /**
+     * Load and render the backup list from the API
+     */
+    async loadBackupsList() {
+        const listEl = document.getElementById('backupsList');
+        const summaryEl = document.getElementById('backupsSummary');
+        if (!listEl) return;
+
+        try {
+            const [data, status] = await Promise.all([
+                this.apiCall('/backup/list'),
+                this.apiCall('/backup/status').catch(() => null)
+            ]);
+            const backups = data.backups || [];
+            const totalCount = data.total_count || backups.length;
+            const totalSizeBytes = data.total_size_bytes || 0;
+            const totalSizeMB = (totalSizeBytes / 1024 / 1024).toFixed(2);
+            const backupDir = status?.backup_directory || '';
+
+            // Render summary
+            if (summaryEl) {
+                let html = `<strong>${totalCount}</strong> backup${totalCount !== 1 ? 's' : ''} &middot; <strong>${totalSizeMB} MB</strong> total`;
+                if (backupDir) {
+                    html += `<br><span style="font-size: var(--text-xs); opacity: 0.7;">${this.escapeHtml(backupDir)}</span>`;
+                }
+                summaryEl.innerHTML = html;
+            }
+
+            // Render backup list
+            if (backups.length === 0) {
+                listEl.innerHTML = '<p class="loading-text">No backups found. Create one using "Create Backup Now".</p>';
+                return;
+            }
+
+            listEl.innerHTML = backups.map(backup => {
+                const sizeMB = (backup.size_bytes / 1024 / 1024).toFixed(2);
+                const createdDate = backup.created_at ? new Date(backup.created_at).toLocaleString() : 'Unknown';
+                const ageDays = backup.age_days != null ? backup.age_days : '?';
+                const ageLabel = ageDays === 1 ? '1 day ago' : `${ageDays} days ago`;
+
+                return `
+                    <div class="backup-item">
+                        <div class="backup-filename">${this.escapeHtml(backup.filename)}</div>
+                        <div class="backup-meta">
+                            <span>${sizeMB} MB</span>
+                            <span>${this.escapeHtml(createdDate)}</span>
+                            <span>${ageLabel}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+        } catch (error) {
+            console.error('Error loading backups list:', error);
+            listEl.innerHTML = '<p class="loading-text" style="color: var(--error);">Failed to load backups.</p>';
         }
     }
 

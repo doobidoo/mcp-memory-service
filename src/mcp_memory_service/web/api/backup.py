@@ -44,6 +44,7 @@ class BackupStatusResponse(BaseModel):
     time_since_last_seconds: Optional[float]
     next_backup_at: Optional[str]
     scheduler_running: bool
+    backup_directory: Optional[str] = None
 
 
 class BackupCreateResponse(BaseModel):
@@ -95,7 +96,8 @@ async def get_backup_status(
             last_backup_time=status.get('last_backup_time'),
             time_since_last_seconds=status.get('time_since_last_seconds'),
             next_backup_at=status.get('next_backup_at'),
-            scheduler_running=status.get('scheduler_running', False)
+            scheduler_running=status.get('scheduler_running', False),
+            backup_directory=status.get('backups_dir'),
         )
 
     except Exception as e:

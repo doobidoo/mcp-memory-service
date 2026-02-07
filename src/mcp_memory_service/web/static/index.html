@@ -1381,8 +1381,8 @@
                                 <span class="info-value" id="settingsNextBackup">-</span>
                             </div>
                             <div class="backup-actions">
-                                <button id="backupNowButton" class="btn btn-sm btn-primary" data-i18n="modal.settings.backupNow">Create Backup Now</button>
-                                <button id="viewBackupsButton" class="btn btn-sm btn-secondary" data-i18n="modal.settings.viewBackups">View Backups</button>
+                                <button type="button" id="backupNowButton" class="btn btn-sm btn-primary" data-i18n="modal.settings.backupNow" onclick="if(window.app) window.app.createBackup()">Create Backup Now</button>
+                                <button type="button" id="viewBackupsButton" class="btn btn-sm btn-secondary" data-i18n="modal.settings.viewBackups" onclick="if(window.app) window.app.openViewBackupsModal()">View Backups</button>
                             </div>
                         </div>
 
@@ -1417,6 +1417,25 @@
                 <div class="modal-footer">
                     <button class="btn btn-secondary" id="cancelSettingsBtn" data-i18n="modal.settings.cancel">Cancel</button>
                     <button class="btn btn-primary" id="saveSettingsBtn" data-i18n="modal.settings.save">Save Settings</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- View Backups Modal -->
+        <div id="viewBackupsModal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Backup History</h3>
+                    <button class="modal-close" aria-label="Close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div id="backupsSummary" class="backup-summary"></div>
+                    <div id="backupsList" class="backups-list">
+                        <p class="loading-text">Loading backups...</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="if(window.app) window.app.closeModal(document.getElementById('viewBackupsModal'))">Close</button>
                 </div>
             </div>
         </div>
@@ -1501,7 +1520,7 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=8.62.14-I18N-FIX"></script>
-    <link rel="stylesheet" href="/static/style.css?v=8.27.2-TOAST-AND-ICON">
+    <script src="/static/app.js?v=10.6.2-backup-ui-4"></script>
+    <link rel="stylesheet" href="/static/style.css?v=10.6.2-backup-ui">
 </body>
 </html>

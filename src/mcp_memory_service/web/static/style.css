@@ -1401,6 +1401,7 @@ body.dark-mode .lang-option.active {
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+    pointer-events: none;
 }
 
 .toast {
@@ -1411,6 +1412,7 @@ body.dark-mode .lang-option.active {
     box-shadow: var(--shadow-lg);
     min-width: 300px;
     animation: slideIn 0.3s ease-out;
+    pointer-events: auto;
 }
 
 .toast.success {
@@ -5352,4 +5354,78 @@ body.dark-mode .auth-footer code {
     border-radius: 10px;
     margin-left: 4px;
     vertical-align: super;
+}
+
+/* Backup List Modal Styles */
+.backup-summary {
+    padding: var(--space-3) var(--space-4);
+    background: var(--neutral-100);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-4);
+    font-size: var(--text-sm);
+    color: var(--neutral-700);
+}
+
+.backups-list {
+    max-height: 400px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.backup-item {
+    padding: var(--space-3) var(--space-4);
+    background: var(--neutral-50);
+    border: 1px solid var(--neutral-200);
+    border-radius: var(--radius-md);
+    transition: box-shadow var(--transition-fast);
+}
+
+.backup-item:hover {
+    box-shadow: var(--shadow-sm);
+}
+
+.backup-filename {
+    font-weight: 600;
+    font-size: var(--text-sm);
+    color: var(--neutral-900);
+    word-break: break-all;
+    margin-bottom: var(--space-1);
+}
+
+.backup-meta {
+    display: flex;
+    gap: var(--space-4);
+    font-size: var(--text-xs);
+    color: var(--neutral-500);
+}
+
+.loading-text {
+    text-align: center;
+    color: var(--neutral-500);
+    padding: var(--space-8) 0;
+}
+
+/* Dark mode backup list */
+body.dark-mode .backup-summary {
+    background: var(--neutral-200);
+    color: var(--neutral-900);
+}
+
+body.dark-mode .backup-item {
+    background: var(--neutral-100);
+    border-color: var(--neutral-200);
+}
+
+body.dark-mode .backup-item:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+body.dark-mode .backup-filename {
+    color: var(--neutral-900);
+}
+
+body.dark-mode .backup-meta {
+    color: var(--neutral-500);
 }
