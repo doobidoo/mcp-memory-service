@@ -8,6 +8,26 @@
 
 ---
 
+## Database Locations (Platform-Specific)
+
+The scripts auto-detect your database from these locations:
+
+| Platform | Default Path |
+|----------|-------------|
+| **macOS** | `~/Library/Application Support/mcp-memory/sqlite_vec.db` |
+| **Linux** | `~/.local/share/mcp-memory-service/sqlite_vec.db` |
+| **Windows** | `%LOCALAPPDATA%\mcp-memory\sqlite_vec.db` |
+| **Local** | `./data/sqlite_vec.db` or `./sqlite_vec.db` |
+
+If auto-detection fails, set `PROD_DB` manually:
+```bash
+export PROD_DB="/path/to/your/sqlite_vec.db"
+```
+
+Backups are stored in a `backups/` subdirectory next to the database.
+
+---
+
 ## Quick Start
 
 ### 1. Backup Production (MANDATORY before testing)
@@ -17,14 +37,14 @@
 ```
 
 **What it does:**
-- Finds production database automatically
-- Creates timestamped backup
+- Finds production database automatically (see paths above)
+- Creates timestamped atomic backup using `sqlite3 .backup`
 - Shows memory count and database size
 - Generates restore script for emergency use
 
 **Output:**
-- Backup: `~/Library/Application Support/mcp-memory/backups/manual_backup_YYYYMMDD_HHMMSS.db`
-- Restore script: `backups/restore_YYYYMMDD_HHMMSS.sh`
+- Backup: `<DB_DIR>/backups/manual_backup_YYYYMMDD_HHMMSS.db`
+- Restore script: `<DB_DIR>/backups/restore_YYYYMMDD_HHMMSS.sh`
 
 ---
 
@@ -97,29 +117,31 @@ memory server --http
 ### Option 1: Quick Restore Script
 
 ```bash
-# Run the auto-generated restore script
-~/Library/Application\ Support/mcp-memory/backups/restore_YYYYMMDD_HHMMSS.sh
+# Run the auto-generated restore script (path shown after backup)
+<DB_DIR>/backups/restore_YYYYMMDD_HHMMSS.sh
 ```
 
 ### Option 2: Manual Restore
 
 ```bash
 # 1. Stop server
-pkill -f "memory server"
+pkill -f "mcp_memory_service"
 
 # 2. Find backup
-ls -lht ~/Library/Application\ Support/mcp-memory/backups/
+ls -lht <DB_DIR>/backups/
 
-# 3. Restore (replace TIMESTAMP)
-cp ~/Library/Application\ Support/mcp-memory/backups/manual_backup_TIMESTAMP.db \
-   ~/Library/Application\ Support/mcp-memory/sqlite_vec.db
+# 3. Restore using sqlite3 for atomic operation (replace TIMESTAMP and paths)
+sqlite3 -- "<DB_DIR>/backups/manual_backup_TIMESTAMP.db" \
+   ".backup '<DB_DIR>/sqlite_vec.db'"
 
 # 4. Remove WAL files
-rm -f ~/Library/Application\ Support/mcp-memory/sqlite_vec.db-{shm,wal}
+rm -f -- "<DB_DIR>/sqlite_vec.db-shm" "<DB_DIR>/sqlite_vec.db-wal"
 
 # 5. Restart server
 memory server --http
 ```
+
+> **Note:** Replace `<DB_DIR>` with your platform-specific database directory (see table above).
 
 ---
 
@@ -152,7 +174,7 @@ memory server --http
 # - Authentication: test-key-12345
 
 # STEP 5: Stop test server
-pkill -f "memory server"
+pkill -f "mcp_memory_service"
 
 # STEP 6: Cleanup test environment
 ./scripts/test/cleanup-test-environment.sh
@@ -187,7 +209,7 @@ memory server --http
 
 Before running tests, verify:
 
-- [ ] Backup created: `ls ~/Library/Application\ Support/mcp-memory/backups/`
+- [ ] Backup created: `ls <DB_DIR>/backups/`
 - [ ] Test environment active: `echo $MCP_MEMORY_SQLITE_PATH` (should show test_data/)
 - [ ] Test port configured: `echo $MCP_HTTP_PORT` (should show 8001)
 - [ ] Server running on test port: `curl http://localhost:8001/api/health`
@@ -226,10 +248,10 @@ echo $MCP_HTTP_PORT  # Should be 8001
 **Solution:**
 ```bash
 # 1. Stop all servers immediately
-pkill -f "memory server"
+pkill -f "mcp_memory_service"
 
 # 2. Find most recent backup
-ls -lht ~/Library/Application\ Support/mcp-memory/backups/
+ls -lht <DB_DIR>/backups/
 
 # 3. Restore from backup (see Emergency Restore above)
 

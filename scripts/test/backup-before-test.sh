@@ -67,15 +67,16 @@ echo "📊 Database Size: $DB_SIZE"
 
 # Count memories (if sqlite3 available)
 if command -v sqlite3 &> /dev/null; then
-    MEMORY_COUNT=$(sqlite3 "$PROD_DB" "SELECT COUNT(*) FROM memories;" 2>/dev/null || echo "N/A")
+    MEMORY_COUNT=$(sqlite3 -- "$PROD_DB" "SELECT COUNT(*) FROM memories;" 2>/dev/null || echo "N/A")
     echo "📝 Total Memories: $MEMORY_COUNT"
 fi
 
 echo ""
 echo "💾 Creating backup..."
 
-# Create backup (copy with checksum verification)
-cp "$PROD_DB" "$BACKUP_FILE"
+# Create backup using sqlite3 .backup for atomic, consistent copy
+# (safe even if database is actively in use with WAL journal)
+sqlite3 -- "$PROD_DB" ".backup '$BACKUP_FILE'"
 
 # Verify backup
 if [ ! -f "$BACKUP_FILE" ]; then
@@ -96,19 +97,23 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "🔄 Restore Command (if needed):"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "cp \"$BACKUP_FILE\" \"$PROD_DB\""
+echo "sqlite3 -- \"$BACKUP_FILE\" \".backup '$PROD_DB'\""
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
 # Save restore command to file
+# Uses printf '%q' for safe shell-escaping of paths and quoted heredoc
+# to prevent command injection through malicious filenames
 RESTORE_SCRIPT="$BACKUP_DIR/restore_$TIMESTAMP.sh"
-cat > "$RESTORE_SCRIPT" << EOF
-#!/bin/bash
-# Restore from backup: $BACKUP_FILE
-# Created: $(date)
-
-set -e
+{
+    printf '#!/bin/bash\n'
+    printf '# Restore from backup\n'
+    printf '# Created: %s\n' "$(date)"
+    printf '\nset -e\n\n'
+    printf 'BACKUP_FILE=%q\n' "$BACKUP_FILE"
+    printf 'PROD_DB=%q\n' "$PROD_DB"
+    cat << 'EOF'
 
 echo "Restoring production database from backup..."
 echo "Backup: $BACKUP_FILE"
@@ -116,20 +121,21 @@ echo "Target: $PROD_DB"
 echo ""
 
 # Stop server if running
-pkill -f "memory server" || true
+pkill -f "mcp_memory_service" || true
 sleep 2
 
-# Restore
-cp "$BACKUP_FILE" "$PROD_DB"
+# Restore using sqlite3 for atomic operation
+sqlite3 -- "$BACKUP_FILE" ".backup '$PROD_DB'"
 
 # Remove WAL files
-rm -f "$PROD_DB-shm" "$PROD_DB-wal"
+rm -f -- "${PROD_DB}-shm" "${PROD_DB}-wal"
 
-echo "✅ Restore complete!"
+echo "Restore complete!"
 echo ""
 echo "Start server with:"
 echo "  memory server --http"
 EOF
+} > "$RESTORE_SCRIPT"
 
 chmod +x "$RESTORE_SCRIPT"
 
