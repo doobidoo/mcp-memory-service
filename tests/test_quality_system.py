@@ -618,6 +618,9 @@ class TestQualityAPILayer:
         import httpx
         from src.mcp_memory_service.web.app import app
         from src.mcp_memory_service.web.dependencies import get_storage
+        from src.mcp_memory_service.web.oauth.middleware import (
+            require_write_access, require_read_access, AuthenticationResult
+        )
         from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
         from src.mcp_memory_service.models.memory import Memory
         import tempfile
@@ -637,11 +640,18 @@ class TestQualityAPILayer:
             )
             await storage.store(test_memory)
 
-            # Override get_storage dependency to use test storage
+            # Override dependencies for test
             async def override_get_storage():
                 return storage
 
+            async def mock_auth():
+                return AuthenticationResult(
+                    authenticated=True, client_id="test", scope="read write", auth_method="test"
+                )
+
             app.dependency_overrides[get_storage] = override_get_storage
+            app.dependency_overrides[require_write_access] = mock_auth
+            app.dependency_overrides[require_read_access] = mock_auth
 
             try:
                 # Use async client for proper async/await support
@@ -666,6 +676,9 @@ class TestQualityAPILayer:
         import httpx
         from src.mcp_memory_service.web.app import app
         from src.mcp_memory_service.web.dependencies import get_storage
+        from src.mcp_memory_service.web.oauth.middleware import (
+            require_write_access, require_read_access, AuthenticationResult
+        )
         from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
         from src.mcp_memory_service.models.memory import Memory
         import tempfile
@@ -689,11 +702,18 @@ class TestQualityAPILayer:
             )
             await storage.store(test_memory)
 
-            # Override get_storage dependency to use test storage
+            # Override dependencies for test
             async def override_get_storage():
                 return storage
 
+            async def mock_auth():
+                return AuthenticationResult(
+                    authenticated=True, client_id="test", scope="read write", auth_method="test"
+                )
+
             app.dependency_overrides[get_storage] = override_get_storage
+            app.dependency_overrides[require_write_access] = mock_auth
+            app.dependency_overrides[require_read_access] = mock_auth
 
             try:
                 # Use async client for proper async/await support
@@ -716,6 +736,9 @@ class TestQualityAPILayer:
         import httpx
         from src.mcp_memory_service.web.app import app
         from src.mcp_memory_service.web.dependencies import get_storage
+        from src.mcp_memory_service.web.oauth.middleware import (
+            require_write_access, require_read_access, AuthenticationResult
+        )
         from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
         from src.mcp_memory_service.models.memory import Memory
         import tempfile
@@ -737,11 +760,18 @@ class TestQualityAPILayer:
                 )
                 await storage.store(memory)
 
-            # Override get_storage dependency to use test storage
+            # Override dependencies for test
             async def override_get_storage():
                 return storage
 
+            async def mock_auth():
+                return AuthenticationResult(
+                    authenticated=True, client_id="test", scope="read write", auth_method="test"
+                )
+
             app.dependency_overrides[get_storage] = override_get_storage
+            app.dependency_overrides[require_write_access] = mock_auth
+            app.dependency_overrides[require_read_access] = mock_auth
 
             try:
                 # Use async client for proper async/await support
