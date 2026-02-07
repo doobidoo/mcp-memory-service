@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.7.2] - 2026-02-07
+
+### Fixed
+- **Server Management buttons cause page reload** (PR #429): Added `type="button"` to Check for Updates, Update & Restart, and Restart Server buttons in Settings modal. Without explicit type, buttons inside `<form>` default to `type="submit"`, causing unintended form submission and page reload.
+
 ## [10.7.1] - 2026-02-07
 
 ### Fixed
