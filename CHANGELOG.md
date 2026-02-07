@@ -10,6 +10,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.7.0] - 2026-02-07
+
+### Added
+- **Backup UI Enhancements** (Issue #375, PR #375): Complete backup management interface with View Backups modal
+  - **View Backups Modal**: Interactive backup history showing filename, size, date, and age
+  - **Backup Directory Display**: Shows backup directory path in summary for easy file access
+  - **API Enhancement**: Added `backup_directory` field to BackupStatusResponse API
+  - **User Experience**: Cleaner, more informative backup management interface
+
+### Fixed
+- **Backup Form Controls**: Fixed backup buttons using `type="button"` to prevent unintended form submission
+- **Event Binding**: Switched to inline onclick handlers for reliable event binding in settings modal
+- **Toast Notifications**: Fixed toast pointer-events to ensure notifications appear over modals
+- **Cache Busting**: Updated cache-busters for static assets to ensure proper browser refresh
+
 ## [10.6.1] - 2026-02-07
 
 ### Fixed

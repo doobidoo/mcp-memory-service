@@ -179,18 +179,22 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.6.1** (February 7, 2026)
+## 🆕 Latest Release: **v10.7.0** (February 7, 2026)
 
-**Dashboard SSE Authentication Fix: EventSource API Compatibility**
+**Backup UI Enhancements: Complete Backup Management Interface**
 
 **What's New:**
-- 🔒 **SSE Authentication Fix** (PR #423): Fixed real-time Server-Sent Events authentication
-  - EventSource API now properly authenticates via query parameters (`api_key=`, `token=`)
-  - Added OAuth token query parameter support in auth middleware
-  - Security improvement: Added referrer policy to prevent API key leakage
-  - Dashboard now maintains real-time connection when authentication is enabled
+- 💾 **View Backups Modal** (PR #375): Interactive backup history with detailed information
+  - View all backups with filename, size, date, and age in a clean modal interface
+  - Backup directory path displayed in summary for easy file access
+  - Enhanced API with backup_directory field for better integration
+- 🔧 **Dashboard Fixes**: Improved form controls, event binding, and toast notifications
+  - Fixed backup buttons to prevent form submission issues
+  - Reliable event handlers using inline onclick for settings modal
+  - Toast notifications now properly appear over modals
 
 **Previous Releases**:
+- **v10.6.1** - Dashboard SSE Authentication Fix (EventSource API compatibility with query params)
 - **v10.6.0** - Server Management Dashboard: Complete server administration from Dashboard Settings
 - **v10.5.1** - Test Environment Safety: 4 critical scripts to prevent production database testing
 - **v10.5.0** - Dashboard Authentication UI: Graceful user experience (authentication modal, API key/OAuth flows)
