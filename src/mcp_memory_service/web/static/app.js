@@ -116,6 +116,7 @@ class MemoryDashboard {
         this.applyTheme();
         this.setupEventListeners();
         this.setupAuthListeners();
+        this.setupServerManagement();
         this.setupSSE();
 
         // Check for secure context
@@ -3414,6 +3415,187 @@ class MemoryDashboard {
                 window.location.href = '/oauth/authorize';
             });
         }
+    }
+
+    /**
+     * Setup server management event listeners
+     */
+    setupServerManagement() {
+        const checkBtn = document.getElementById('checkUpdatesBtn');
+        const updateBtn = document.getElementById('updateServerBtn');
+        const restartBtn = document.getElementById('restartServerBtn');
+
+        if (checkBtn) {
+            checkBtn.addEventListener('click', () => this.checkForUpdates());
+        }
+        if (updateBtn) {
+            updateBtn.addEventListener('click', () => this.updateAndRestart());
+        }
+        if (restartBtn) {
+            restartBtn.addEventListener('click', () => this.restartServer());
+        }
+
+        // Load server status when settings open
+        this.loadServerStatus();
+    }
+
+    /**
+     * Load server status information
+     */
+    async loadServerStatus() {
+        try {
+            const data = await this.apiCall('/server/status');
+            const pidEl = document.getElementById('settingsServerPid');
+            const platformEl = document.getElementById('settingsServerPlatform');
+            if (pidEl) pidEl.textContent = data.pid || '-';
+            if (platformEl) platformEl.textContent = `${data.platform || '-'} / Python ${data.python_version || '-'}`;
+        } catch (error) {
+            console.error('Failed to load server status:', error);
+        }
+    }
+
+    /**
+     * Check for available updates
+     */
+    async checkForUpdates() {
+        const statusEl = document.getElementById('settingsUpdateAvailable');
+        const updateBtn = document.getElementById('updateServerBtn');
+        const actionStatus = document.getElementById('serverActionStatus');
+        const actionText = document.getElementById('serverActionText');
+
+        if (actionStatus) { actionStatus.style.display = 'flex'; }
+        if (actionText) { actionText.textContent = 'Checking for updates...'; }
+
+        try {
+            const data = await this.apiCall('/server/version/check');
+            if (actionStatus) { actionStatus.style.display = 'none'; }
+
+            if (data.update_available) {
+                if (statusEl) {
+                    statusEl.innerHTML = `<span style="color: var(--success, #10b981); font-weight: 600;">Yes - ${data.commits_behind} commit(s) available</span>`;
+                }
+                if (updateBtn) { updateBtn.style.display = 'inline-flex'; }
+                this.showToast(`${data.commits_behind} update(s) available!`, 'info');
+            } else {
+                if (statusEl) {
+                    statusEl.innerHTML = '<span style="color: var(--text-secondary);">Up to date</span>';
+                }
+                if (updateBtn) { updateBtn.style.display = 'none'; }
+                this.showToast('Already up to date.', 'success');
+            }
+        } catch (error) {
+            if (actionStatus) { actionStatus.style.display = 'none'; }
+            if (statusEl) { statusEl.textContent = 'Check failed'; }
+            this.showToast('Failed to check for updates: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * Update and restart the server
+     */
+    async updateAndRestart() {
+        if (!confirm('This will pull the latest code, install dependencies, and restart the server. Continue?')) {
+            return;
+        }
+
+        const actionStatus = document.getElementById('serverActionStatus');
+        const actionText = document.getElementById('serverActionText');
+
+        if (actionStatus) { actionStatus.style.display = 'flex'; }
+        if (actionText) { actionText.textContent = 'Pulling updates and installing...'; }
+
+        try {
+            const data = await this.apiCall('/server/update', {
+                method: 'POST',
+                body: JSON.stringify({ confirm: true })
+            });
+
+            if (actionText) { actionText.textContent = 'Update complete. Server restarting...'; }
+            this.showRestartOverlay();
+        } catch (error) {
+            if (actionStatus) { actionStatus.style.display = 'none'; }
+            this.showToast('Update failed: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * Restart the server
+     */
+    async restartServer() {
+        if (!confirm('Are you sure you want to restart the server? This will temporarily disconnect all clients.')) {
+            return;
+        }
+
+        try {
+            await this.apiCall('/server/restart', {
+                method: 'POST',
+                body: JSON.stringify({ confirm: true })
+            });
+            this.showRestartOverlay();
+        } catch (error) {
+            // Server may have already started shutting down
+            if (error.message && error.message.includes('fetch')) {
+                this.showRestartOverlay();
+            } else {
+                this.showToast('Restart failed: ' + error.message, 'error');
+            }
+        }
+    }
+
+    /**
+     * Show restart overlay and poll for server recovery
+     */
+    showRestartOverlay() {
+        const overlay = document.getElementById('restartOverlay');
+        const countdownEl = document.getElementById('restartCountdown');
+        const statusEl = document.getElementById('restartStatus');
+
+        if (overlay) { overlay.style.display = 'flex'; }
+
+        let countdown = 5;
+        let attempts = 0;
+        const maxAttempts = 30;
+
+        const countdownInterval = setInterval(() => {
+            countdown--;
+            if (countdownEl) { countdownEl.textContent = countdown; }
+            if (countdown <= 0) {
+                clearInterval(countdownInterval);
+                this.pollServerHealth(statusEl, overlay, attempts, maxAttempts);
+            }
+        }, 1000);
+    }
+
+    /**
+     * Poll server health after restart
+     */
+    async pollServerHealth(statusEl, overlay, attempts, maxAttempts) {
+        if (attempts >= maxAttempts) {
+            if (statusEl) { statusEl.textContent = 'Server did not come back online. Please check manually.'; }
+            setTimeout(() => {
+                if (overlay) { overlay.style.display = 'none'; }
+            }, 5000);
+            return;
+        }
+
+        if (statusEl) { statusEl.textContent = `Attempt ${attempts + 1}/${maxAttempts} - Waiting for server...`; }
+
+        try {
+            const response = await fetch('/api/health');
+            if (response.ok) {
+                if (statusEl) { statusEl.textContent = 'Server is back online! Reloading...'; }
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1500);
+                return;
+            }
+        } catch (e) {
+            // Server not ready yet
+        }
+
+        setTimeout(() => {
+            this.pollServerHealth(statusEl, overlay, attempts + 1, maxAttempts);
+        }, 2000);
     }
 
     /**

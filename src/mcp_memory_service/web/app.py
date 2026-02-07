@@ -60,6 +60,7 @@ from .api.mcp import router as mcp_router
 from .api.consolidation import router as consolidation_router
 from .api.backup import router as backup_router
 from .api.quality import router as quality_router
+from .api.server import router as server_router
 from .sse import sse_manager
 
 logger = logging.getLogger(__name__)
@@ -312,6 +313,10 @@ def create_app() -> FastAPI:
     # Include consolidation router
     app.include_router(consolidation_router, tags=["consolidation"])
     logger.info(f"✓ Included consolidation router with {len(consolidation_router.routes)} routes")
+
+    # Include server management router
+    app.include_router(server_router, prefix="/api/server", tags=["server-management"])
+    logger.info(f"✓ Included server router with {len(server_router.routes)} routes")
 
     # Include MCP protocol router
     app.include_router(mcp_router, tags=["mcp-protocol"])

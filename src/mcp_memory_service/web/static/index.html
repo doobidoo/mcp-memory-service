@@ -1384,6 +1384,33 @@
                                 <button id="viewBackupsButton" class="btn btn-sm btn-secondary" data-i18n="modal.settings.viewBackups">View Backups</button>
                             </div>
                         </div>
+
+                        <hr class="settings-divider">
+
+                        <h4 class="settings-section-heading">Server Management</h4>
+                        <div class="server-management">
+                            <div class="info-row">
+                                <span class="info-label">Server PID:</span>
+                                <span class="info-value" id="settingsServerPid">-</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Platform:</span>
+                                <span class="info-value" id="settingsServerPlatform">-</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Update Available:</span>
+                                <span class="info-value" id="settingsUpdateAvailable">Checking...</span>
+                            </div>
+                            <div class="server-actions">
+                                <button id="checkUpdatesBtn" class="btn btn-sm btn-secondary">Check for Updates</button>
+                                <button id="updateServerBtn" class="btn btn-sm btn-primary" style="display:none;">Update &amp; Restart</button>
+                                <button id="restartServerBtn" class="btn btn-sm btn-warning">Restart Server</button>
+                            </div>
+                            <div id="serverActionStatus" class="server-action-status" style="display:none;">
+                                <div class="action-spinner"></div>
+                                <span id="serverActionText">Processing...</span>
+                            </div>
+                        </div>
                     </form>
                 </div>
                 <div class="modal-footer">
@@ -1397,6 +1424,16 @@
         <div id="loadingOverlay" class="loading-overlay">
             <div class="loading-spinner"></div>
             <p data-i18n="status.loading">Loading...</p>
+        </div>
+
+        <!-- Server Restart Overlay -->
+        <div id="restartOverlay" class="restart-overlay" style="display:none;">
+            <div class="restart-content">
+                <div class="restart-spinner"></div>
+                <h3>Server Restarting...</h3>
+                <p id="restartStatus">Waiting for server to come back online...</p>
+                <p class="restart-countdown">Reconnecting in <span id="restartCountdown">5</span>s</p>
+            </div>
         </div>
 
         <!-- Toast Notifications -->
