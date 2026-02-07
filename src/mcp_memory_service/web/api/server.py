@@ -103,29 +103,26 @@ class UpdateResponse(BaseModel):
 
 # Helper functions
 def _get_project_root() -> str:
-    """Get the project root directory with git repository validation."""
-    # Navigate up from web/api/server.py to project root
-    current_file = os.path.abspath(__file__)
-    # Go up: server.py -> api -> web -> mcp_memory_service -> src -> project_root
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file)))))
+    """Get the project root directory by searching for the .git folder."""
+    from pathlib import Path
 
-    # Validate it's actually a git repository
-    if not os.path.isdir(os.path.join(project_root, '.git')):
-        raise ValueError(f"Not a valid git repository: {project_root}")
-
-    return project_root
+    current_path = Path(__file__).resolve()
+    for parent in current_path.parents:
+        if (parent / ".git").is_dir():
+            return str(parent)
+    raise ValueError("Not a valid git repository: project root with .git folder not found.")
 
 
-def _run_git_command(args: List[str], timeout: int = GIT_TIMEOUT_SECONDS) -> Tuple[str, bool]:
+def _run_command(command: List[str], timeout: int, command_name: str) -> Tuple[str, bool]:
     """
-    Run a git command and return output.
+    Run a command and return output.
 
     Returns:
         Tuple of (output_string, success_boolean)
     """
     try:
         result = subprocess.run(
-            ['git'] + args,
+            command,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -133,33 +130,21 @@ def _run_git_command(args: List[str], timeout: int = GIT_TIMEOUT_SECONDS) -> Tup
         )
         return result.stdout.strip(), result.returncode == 0
     except FileNotFoundError:
-        return "Git command not found. Please install git.", False
+        return f"{command_name} command not found. Please install {command_name.lower()}.", False
     except subprocess.TimeoutExpired:
-        return f"Git command timed out after {timeout} seconds", False
+        return f"{command_name} command timed out after {timeout} seconds", False
     except Exception as e:
-        return f"Git command failed: {str(e)}", False
+        return f"{command_name} command failed: {str(e)}", False
+
+
+def _run_git_command(args: List[str], timeout: int = GIT_TIMEOUT_SECONDS) -> Tuple[str, bool]:
+    """Run a git command and return output."""
+    return _run_command(['git'] + args, timeout, "Git")
 
 
 def _run_pip_command(args: List[str], timeout: int = PIP_TIMEOUT_SECONDS) -> Tuple[str, bool]:
-    """
-    Run a pip command and return output.
-
-    Returns:
-        Tuple of (output_string, success_boolean)
-    """
-    try:
-        result = subprocess.run(
-            [sys.executable, '-m', 'pip'] + args,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=_get_project_root()
-        )
-        return result.stdout.strip(), result.returncode == 0
-    except subprocess.TimeoutExpired:
-        return f"Pip command timed out after {timeout} seconds", False
-    except Exception as e:
-        return f"Pip command failed: {str(e)}", False
+    """Run a pip command and return output."""
+    return _run_command([sys.executable, '-m', 'pip'] + args, timeout, "Pip")
 
 
 def _format_uptime(seconds: float) -> str:

@@ -3508,10 +3508,7 @@ class MemoryDashboard {
         if (actionText) { actionText.textContent = 'Pulling updates and installing...'; }
 
         try {
-            const data = await this.apiCall('/server/update', {
-                method: 'POST',
-                body: JSON.stringify({ confirm: true })
-            });
+            const data = await this.apiCall('/server/update', 'POST', { confirm: true });
 
             if (actionText) { actionText.textContent = 'Update complete. Server restarting...'; }
             this.showRestartOverlay();
@@ -3530,10 +3527,7 @@ class MemoryDashboard {
         }
 
         try {
-            await this.apiCall('/server/restart', {
-                method: 'POST',
-                body: JSON.stringify({ confirm: true })
-            });
+            await this.apiCall('/server/restart', 'POST', { confirm: true });
             this.showRestartOverlay();
         } catch (error) {
             // Server may have already started shutting down
