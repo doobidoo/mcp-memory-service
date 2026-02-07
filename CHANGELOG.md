@@ -10,6 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.6.0] - 2026-02-07
+
+### Added
+- **Server Management Dashboard** (PR #421): Complete server administration from Dashboard Settings
+  - **REST API**: 4 new endpoints at `/api/server/*` (admin-protected):
+    - `GET /api/server/status` - Real-time server status (version, uptime, platform info)
+    - `GET /api/server/version/check` - Git-based update detection (commits behind origin)
+    - `POST /api/server/update` - One-click git pull + pip install workflow
+    - `POST /api/server/restart` - Safe server restart with 3-second delay
+  - **Dashboard UI**: Server management section in Settings modal
+  - **Security**: Admin-only access, explicit confirmation required, full audit logging
+
 ## [10.5.1] - 2026-02-06
 
 ### Added

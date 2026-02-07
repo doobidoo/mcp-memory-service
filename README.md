@@ -179,24 +179,23 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.5.1** (February 6, 2026)
+## 🆕 Latest Release: **v10.6.0** (February 7, 2026)
 
-**Test Environment Safety: Prevent Production Data Loss**
+**Server Management Dashboard: Complete Server Administration**
 
 **What's New:**
-- 🛡️ **Test Environment Safety Scripts** (Issue #419, PR #418): 4 critical scripts (524 lines) to prevent production database testing
-  - Mandatory backup before testing with date-stamped archives
-  - Isolated test environment setup (port 8001, separate data directory)
-  - Safe test data cleanup with environment verification
-  - Comprehensive testing workflow documentation (250 lines)
-  - **CRITICAL**: Prevents data loss incidents from running tests against production databases
+- ⚙️ **Server Management Dashboard** (PR #421): Complete server administration from Dashboard Settings
+  - 4 new REST API endpoints (`/api/server/*`) for real-time status, update detection, git pull workflow, and safe restart
+  - Dashboard UI with server management section in Settings modal
+  - Admin-only access with explicit confirmation and full audit logging
+  - One-click server updates with automatic dependency installation
 
 **Previous Releases**:
+- **v10.5.1** - Test Environment Safety: 4 critical scripts to prevent production database testing
 - **v10.5.0** - Dashboard Authentication UI: Graceful user experience (authentication modal, API key/OAuth flows)
 - **v10.4.6** - Documentation Enhancement: HTTP dashboard authentication requirements clarified (authentication setup examples)
 - **v10.4.5** - Unified CLI Interface: `memory server --http` flag (easier UX, single command)
 - **v10.4.4** - CRITICAL Security Fix: Timing attack vulnerability in API key comparison (CWE-208) + API Key Auth without OAuth
-- **v10.4.3** - Windows Task Scheduler & Consolidation Stability (6 bugs fixed, logger NameError resolved)
 - **v10.4.2** - Docker Container Startup Fix (ModuleNotFoundError: aiosqlite)
 - **v10.4.1** - Bug Fix: Time Expression Parsing (natural language time expressions fixed)
 - **v10.4.0** - Memory Hook Quality Improvements (semantic deduplication, tag normalization, budget optimization)
