@@ -179,18 +179,19 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.6.0** (February 7, 2026)
+## 🆕 Latest Release: **v10.6.1** (February 7, 2026)
 
-**Server Management Dashboard: Complete Server Administration**
+**Dashboard SSE Authentication Fix: EventSource API Compatibility**
 
 **What's New:**
-- ⚙️ **Server Management Dashboard** (PR #421): Complete server administration from Dashboard Settings
-  - 4 new REST API endpoints (`/api/server/*`) for real-time status, update detection, git pull workflow, and safe restart
-  - Dashboard UI with server management section in Settings modal
-  - Admin-only access with explicit confirmation and full audit logging
-  - One-click server updates with automatic dependency installation
+- 🔒 **SSE Authentication Fix** (PR #423): Fixed real-time Server-Sent Events authentication
+  - EventSource API now properly authenticates via query parameters (`api_key=`, `token=`)
+  - Added OAuth token query parameter support in auth middleware
+  - Security improvement: Added referrer policy to prevent API key leakage
+  - Dashboard now maintains real-time connection when authentication is enabled
 
 **Previous Releases**:
+- **v10.6.0** - Server Management Dashboard: Complete server administration from Dashboard Settings
 - **v10.5.1** - Test Environment Safety: 4 critical scripts to prevent production database testing
 - **v10.5.0** - Dashboard Authentication UI: Graceful user experience (authentication modal, API key/OAuth flows)
 - **v10.4.6** - Documentation Enhancement: HTTP dashboard authentication requirements clarified (authentication setup examples)

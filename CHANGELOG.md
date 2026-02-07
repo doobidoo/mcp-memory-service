@@ -10,6 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.6.1] - 2026-02-07
+
+### Fixed
+- **Dashboard SSE Authentication** (Issue #420, PR #423): Fixed EventSource API authentication for Server-Sent Events
+  - **Root Cause**: Browser `EventSource` API does not support custom headers, causing 401 errors on `/api/events` endpoint
+  - **Solution**: Pass authentication credentials as URL query parameters (`api_key=` and `token=` for OAuth)
+  - **Implementation**: Used `URL` and `URLSearchParams` APIs for clean query parameter handling
+  - **OAuth Support**: Added `token` query parameter support in auth middleware for SSE connections
+  - **Security**: Added `<meta name="referrer" content="no-referrer">` to prevent API key leakage via HTTP Referer headers
+  - **Impact**: Dashboard now maintains real-time SSE connection when authentication is enabled
+
 ## [10.6.0] - 2026-02-07
 
 ### Added
