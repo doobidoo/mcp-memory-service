@@ -179,14 +179,24 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.7.2** (February 7, 2026)
+## 🆕 Latest Release: **v10.8.0** (February 8, 2026)
 
-**Server Management Button Fix**
+**Hybrid BM25 + Vector Search** 🎯
 
 **What's New:**
-- 🔧 **Server Management Buttons** (PR #429): Fixed Settings modal buttons (Check for Updates, Update & Restart, Restart Server) causing page reload instead of executing their actions. Root cause: missing `type="button"` on buttons inside a `<form>` element.
+- 🔍 **Hybrid Search** (Issue #175, PR #436): Combines BM25 keyword matching with vector similarity search
+  - Solves exact match problem: 60-70% → near-100% scoring for identical text
+  - Parallel execution: <15ms latency for BM25 + vector searches
+  - Configurable fusion: 30% keyword + 70% semantic (adjustable)
+  - Automatic FTS5 index synchronization via database triggers
+  - Backward compatible: `mode="semantic"` unchanged, `mode="hybrid"` opt-in
+  - 12 comprehensive tests (unit, integration, performance)
+  - Performance: <50ms average latency for 100 memories
+- 🐛 **search_memories() Format Fix**: Corrected pre-existing bug where response returned Memory objects instead of dictionaries with `similarity_score`
+- 🛡️ **Test Safety**: Tests force `sqlite_vec` backend to prevent accidental Cloudflare data deletion
 
 **Previous Releases**:
+- **v10.7.2** - Server Management Button Fix (Settings modal buttons causing page reload)
 - **v10.7.1** - Dashboard API Authentication Fix (complete auth coverage for all endpoints)
 - **v10.7.0** - Backup UI Enhancements (View Backups modal, backup directory display, enhanced API)
 - **v10.6.1** - Dashboard SSE Authentication Fix (EventSource API compatibility with query params)
@@ -593,10 +603,16 @@ These warnings disappear after the first successful run. The service is working 
 - **Multi-Auth Support** - OAuth + API keys + optional anonymous access
 
 ### 🧠 **Intelligent Memory Management**
-- **Semantic search** with vector embeddings
-- **Natural language time queries** ("yesterday", "last week")
-- **Tag-based organization** with smart categorization
-- **Memory consolidation** with dream-inspired algorithms
+- **Hybrid BM25 + Vector Search** 🆕 v10.8.0 - Best of both worlds for exact match + semantic search
+  - Solves exact match problem: 60-70% → near-100% scoring for identical text
+  - Parallel execution: BM25 keyword + vector similarity (<15ms latency)
+  - Configurable fusion: 30% keyword + 70% semantic (adjustable)
+  - Automatic FTS5 index sync via database triggers
+  - Backward compatible: `mode="semantic"` unchanged, `mode="hybrid"` opt-in
+- **Semantic search** with vector embeddings - Context-aware similarity matching
+- **Natural language time queries** - "yesterday", "last week", "3 days ago"
+- **Tag-based organization** - Smart categorization with hierarchical support
+- **Memory consolidation** - Dream-inspired algorithms for importance scoring
 - **Document-aware search** - Query across uploaded documents and manual memories
 
 ### 🧬 **Memory Type Ontology** 🆕 v9.0.0
@@ -738,8 +754,17 @@ claude mcp add --transport http memory-service http://your-server:8000/mcp
 # Store a memory
 uv run memory store "Fixed race condition in authentication by adding mutex locks"
 
-# Search for relevant memories
+# Search for relevant memories (hybrid search - default in v10.8.0+)
 uv run memory recall "authentication race condition"
+
+# Use hybrid search via HTTP API for exact match + semantic
+curl -X POST http://127.0.0.1:8000/api/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "OAuth 2.1 authentication",
+    "mode": "hybrid",
+    "limit": 10
+  }'
 
 # Search by tags
 uv run memory search --tags python debugging
@@ -831,6 +856,23 @@ export MCP_API_KEY="your-secure-key"
 export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
 export MCP_MEMORY_SQLITE_PRAGMAS="busy_timeout=15000,cache_size=20000"
 ```
+
+**Hybrid Search (v10.8.0+):**
+```bash
+# Enable hybrid BM25 + vector search (default: enabled)
+export MCP_HYBRID_SEARCH_ENABLED=true
+
+# Configure score fusion weights (must sum to ~1.0)
+export MCP_HYBRID_KEYWORD_WEIGHT=0.3    # BM25 keyword match weight
+export MCP_HYBRID_SEMANTIC_WEIGHT=0.7   # Vector similarity weight
+
+# Adjust weights based on your use case:
+# - More keyword-focused: 0.5 keyword / 0.5 semantic
+# - More semantic-focused: 0.2 keyword / 0.8 semantic
+# - Default balanced: 0.3 keyword / 0.7 semantic (recommended)
+```
+
+> **Note:** Hybrid search is only available with `sqlite_vec` and `hybrid` backends. It automatically combines BM25 keyword matching with vector similarity for better exact match scoring while maintaining semantic capabilities.
 
 ### Response Size Management 🆕 v9.0.0
 
