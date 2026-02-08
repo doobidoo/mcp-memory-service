@@ -8,8 +8,9 @@ Exports the model from transformers to ONNX format on first use.
 import json
 import logging
 import os
+import threading
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple
 import numpy as np
 
 # Setup offline mode before importing transformers
@@ -105,6 +106,7 @@ class ONNXRankerModel:
         self._preferred_providers = preferred_providers or self._detect_providers(device)
         self._model = None
         self._tokenizer = None
+        self._tokenizer_lock = threading.Lock()  # Protects tokenizer state mutations in batch ops
 
         # Check if ONNX model already exists (no transformers needed!)
         onnx_path = self.MODEL_PATH / self.ONNX_MODEL_FILE
@@ -232,6 +234,8 @@ class ONNXRankerModel:
                 model = AutoModelForSequenceClassification.from_pretrained(hf_model_name)
 
         model.eval()
+        logger.info("Casting model to float32 for ONNX export compatibility.")
+        model.float()  # Cast to float32 to prevent mixed fp16/fp32 ONNX export errors
 
         # Create dummy inputs based on model type
         if self.model_config['type'] == 'classifier':
@@ -294,6 +298,7 @@ class ONNXRankerModel:
             try:
                 from tokenizers import Tokenizer
                 self._tokenizer = Tokenizer.from_file(str(tokenizer_json_path))
+                self._tokenizer.enable_truncation(max_length=512)
                 self._use_fast_tokenizer = True
                 logger.info("Loaded tokenizer using tokenizers package (no transformers)")
             except ImportError:
@@ -332,7 +337,7 @@ class ONNXRankerModel:
             # Prepare input based on model type
             if self.model_config['type'] == 'classifier':
                 # DeBERTa: Evaluate memory content only (absolute quality)
-                text_input = memory_content[:512]
+                text_input = memory_content
 
                 if self._use_fast_tokenizer:
                     # Use tokenizers package
@@ -408,6 +413,162 @@ class ONNXRankerModel:
         except Exception as e:
             logger.error(f"Error scoring quality with {self.model_name}: {e}")
             return 0.5  # Return neutral score on error
+
+    # Minimum batch size to use batched ONNX inference on GPU.
+    # Below this threshold, sequential single-item GPU calls are faster
+    # because small batches incur padding + tensor transfer overhead
+    # without enough items to amortize it. Benchmarked on RTX 5050:
+    #   GPU sequential: 5.2ms/item, GPU batch@10: 15.3ms/item,
+    #   GPU batch@32: 0.7ms/item. Crossover is ~16 items.
+    MIN_GPU_BATCH_SIZE = int(os.environ.get("MCP_QUALITY_MIN_GPU_BATCH", "16"))
+
+    def score_quality_batch(
+        self, pairs: List[Tuple[str, str]], max_batch_size: int = 32
+    ) -> List[float]:
+        """
+        Score multiple (query, memory_content) pairs in batched inference calls.
+
+        Processes items in chunks of max_batch_size to cap memory usage.
+        On GPU with small batches (< MIN_GPU_BATCH_SIZE), dispatches to
+        sequential single-item calls which are faster due to lower overhead.
+        Falls back to sequential score_quality() on per-item error.
+
+        Args:
+            pairs: List of (query, memory_content) tuples
+            max_batch_size: Maximum items per ONNX inference call
+
+        Returns:
+            List of quality scores between 0.0 and 1.0
+        """
+        if not pairs:
+            return []
+
+        # On GPU, small batches are slower than sequential single-item calls
+        # due to padding + tensor transfer overhead exceeding parallelism gains.
+        is_gpu = self._model.get_providers()[0] in ('CUDAExecutionProvider', 'TensorrtExecutionProvider')
+        if is_gpu and len(pairs) < self.MIN_GPU_BATCH_SIZE:
+            logger.debug(
+                f"Batch size {len(pairs)} < GPU threshold {self.MIN_GPU_BATCH_SIZE}, "
+                f"using sequential GPU calls"
+            )
+            return [self.score_quality(q, c) for q, c in pairs]
+
+        all_scores: List[float] = []
+
+        # Process in chunks
+        for chunk_start in range(0, len(pairs), max_batch_size):
+            chunk = pairs[chunk_start:chunk_start + max_batch_size]
+            try:
+                chunk_scores = self._score_batch_chunk(chunk)
+                all_scores.extend(chunk_scores)
+            except Exception as e:
+                logger.warning(
+                    f"Batch chunk failed ({len(chunk)} items), falling back to sequential: {e}"
+                )
+                for query, content in chunk:
+                    all_scores.append(self.score_quality(query, content))
+
+        return all_scores
+
+    def _score_batch_chunk(self, pairs: List[Tuple[str, str]]) -> List[float]:
+        """Score a single chunk of pairs in one ONNX inference call."""
+        if self.model_config['type'] == 'classifier':
+            return self._score_classifier_batch(pairs)
+        elif self.model_config['type'] == 'cross-encoder':
+            return self._score_cross_encoder_batch(pairs)
+        else:
+            raise ValueError(f"Unsupported model type: {self.model_config['type']}")
+
+    def _score_classifier_batch(self, pairs: List[Tuple[str, str]]) -> List[float]:
+        """Batch score for classifier models (DeBERTa). Uses memory_content only."""
+        texts = [content for _, content in pairs]
+        texts = [t if t else " " for t in texts]  # Avoid empty strings
+
+        if self._use_fast_tokenizer:
+            encoded_list = self._tokenizer.encode_batch(texts)
+            max_len = max(len(enc.ids) for enc in encoded_list)
+            batch_size = len(texts)
+
+            input_ids = np.zeros((batch_size, max_len), dtype=np.int64)
+            attention_mask = np.zeros((batch_size, max_len), dtype=np.int64)
+
+            for i, enc in enumerate(encoded_list):
+                length = len(enc.ids)
+                input_ids[i, :length] = enc.ids
+                attention_mask[i, :length] = enc.attention_mask
+        else:
+            inputs = self._tokenizer(
+                texts, padding=True, truncation=True, max_length=512, return_tensors="np"
+            )
+            input_ids = inputs["input_ids"].astype(np.int64)
+            attention_mask = inputs["attention_mask"].astype(np.int64)
+
+        ort_inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
+        outputs = self._model.run(None, ort_inputs)
+        logits = outputs[0]  # Shape: (batch_size, num_classes)
+
+        # Vectorized softmax + weighted score
+        # DeBERTa: 3-class — [High=1.0, Medium=0.5, Low=0.0]
+        max_logits = np.max(logits, axis=1, keepdims=True)
+        exp_logits = np.exp(logits - max_logits)
+        probs = exp_logits / exp_logits.sum(axis=1, keepdims=True)
+        class_values = np.array([1.0, 0.5, 0.0])
+        scores = probs @ class_values
+        return np.clip(scores, 0.0, 1.0).tolist()
+
+    def _score_cross_encoder_batch(self, pairs: List[Tuple[str, str]]) -> List[float]:
+        """Batch score for cross-encoder models (MS-MARCO). Uses query+content pairs."""
+        if self._use_fast_tokenizer:
+            # Lock protects tokenizer state (no_padding/enable_padding) from
+            # concurrent callers (e.g., interleaved single-item score_quality).
+            with self._tokenizer_lock:
+                self._tokenizer.enable_truncation(max_length=512)
+                self._tokenizer.no_padding()
+
+                encoded_list = self._tokenizer.encode_batch(
+                    [(q if q else " ", c if c else " ") for q, c in pairs]
+                )
+
+                # Re-enable padding before releasing lock
+                self._tokenizer.enable_padding(length=512)
+
+            max_len = max(len(enc.ids) for enc in encoded_list)
+            batch_size = len(pairs)
+
+            input_ids = np.zeros((batch_size, max_len), dtype=np.int64)
+            attention_mask = np.zeros((batch_size, max_len), dtype=np.int64)
+            token_type_ids = np.zeros((batch_size, max_len), dtype=np.int64)
+
+            for i, enc in enumerate(encoded_list):
+                length = len(enc.ids)
+                input_ids[i, :length] = enc.ids
+                attention_mask[i, :length] = enc.attention_mask
+                token_type_ids[i, :length] = enc.type_ids
+        else:
+            queries = [q if q else " " for q, _ in pairs]
+            contents = [c if c else " " for _, c in pairs]
+            inputs = self._tokenizer(
+                queries, contents, padding=True, truncation=True, max_length=512, return_tensors="np"
+            )
+            input_ids = inputs["input_ids"].astype(np.int64)
+            attention_mask = inputs["attention_mask"].astype(np.int64)
+            token_type_ids = inputs["token_type_ids"].astype(np.int64)
+
+        ort_inputs = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "token_type_ids": token_type_ids,
+        }
+        outputs = self._model.run(None, ort_inputs)
+        logits = outputs[0]  # Shape: (batch_size, num_classes) or (batch_size,)
+
+        # Vectorized sigmoid
+        if len(logits.shape) > 1 and logits.shape[1] > 1:
+            raw = logits[:, 0]
+        else:
+            raw = logits.flatten()
+        scores = 1.0 / (1.0 + np.exp(-raw))
+        return np.clip(scores, 0.0, 1.0).tolist()
 
 
 def get_onnx_ranker_model(model_name: str = None, device: str = "auto") -> Optional[ONNXRankerModel]:

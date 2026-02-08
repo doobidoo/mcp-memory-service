@@ -8,7 +8,8 @@ are calculated in the background.
 
 import asyncio
 import logging
-from typing import Optional
+import os
+from typing import List, Optional
 from queue import Queue
 import threading
 
@@ -25,6 +26,7 @@ class AsyncQualityScorer:
 
     Scores memories asynchronously without blocking the main retrieval path.
     Uses an async queue to manage scoring tasks and a background worker coroutine.
+    Supports batched dequeue for efficient ONNX inference.
     """
 
     def __init__(self):
@@ -35,6 +37,9 @@ class AsyncQualityScorer:
         self.running = False
         self._worker_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
+
+        # Batch size from env var, default 32
+        self.batch_size = int(os.environ.get("MCP_QUALITY_BATCH_SIZE", "32"))
 
         # Statistics for monitoring
         self.stats = {
@@ -121,80 +126,103 @@ class AsyncQualityScorer:
 
     async def _worker(self):
         """
-        Background worker that processes scoring queue.
+        Background worker that processes scoring queue with batch dequeue.
 
-        Runs continuously while self.running is True.
-        Scores memories and optionally persists updates to storage.
+        Drains up to batch_size items from the queue, then scores them
+        in a single batched inference call for efficiency.
         """
-        logger.info("Background quality scoring worker started")
+        logger.info(f"Background quality scoring worker started (batch_size={self.batch_size})")
 
         while self.running:
             try:
-                # Wait for next item with timeout
+                # Wait for at least one item
+                batch: List[tuple] = []
                 try:
-                    memory, query, storage = await asyncio.wait_for(
-                        self.queue.get(),
-                        timeout=1.0
-                    )
+                    item = await asyncio.wait_for(self.queue.get(), timeout=1.0)
+                    batch.append(item)
                 except asyncio.TimeoutError:
-                    # No items in queue, continue loop
                     continue
 
-                # Score the memory
+                # Opportunistically drain more items with same query (no waiting).
+                # Items with different queries stay in the queue for the next batch.
+                batch_query = batch[0][1]
+                while len(batch) < self.batch_size:
+                    try:
+                        next_item = self.queue.get_nowait()
+                        if next_item[1] == batch_query:
+                            batch.append(next_item)
+                        else:
+                            # Different query — put it back and stop draining
+                            await self.queue.put(next_item)
+                            break
+                    except asyncio.QueueEmpty:
+                        break
+
+                # Score the batch
                 try:
-                    logger.debug(f"Scoring memory {memory.content_hash[:8]} in background")
+                    memories = [b[0] for b in batch]
+                    query = batch_query
+                    storages = [b[2] for b in batch]
 
-                    # Get AI score (may be None if disabled or fails)
-                    ai_score = await self.evaluator.evaluate_quality(query, memory)
+                    logger.debug(f"Batch scoring {len(batch)} memories in background")
 
-                    # Calculate composite quality score
-                    quality_score = await self.scorer.calculate_quality_score(
-                        memory, query, ai_score
-                    )
+                    # Get AI scores in batch
+                    ai_scores = await self.evaluator.evaluate_quality_batch(query, memories)
 
-                    # Update memory metadata (already done by scorer, but ensure it's set)
-                    memory.metadata['quality_score'] = quality_score
-                    # Provider is already set in memory.metadata by evaluate_quality()
-                    quality_provider = memory.metadata.get('quality_provider', 'unknown')
-
-                    # Persist to storage if provided
-                    if storage:
+                    # Calculate composite scores (still sequential — lightweight)
+                    for i, (memory, ai_score, storage) in enumerate(
+                        zip(memories, ai_scores, storages)
+                    ):
                         try:
-                            await storage.update_memory_metadata(
-                                content_hash=memory.content_hash,
-                                updates={
-                                    'quality_score': quality_score,
-                                    'quality_provider': quality_provider,
-                                    'ai_scores': memory.metadata.get('ai_scores', []),
-                                    'quality_components': memory.metadata.get('quality_components', {})
-                                },
-                                preserve_timestamps=True
+                            quality_score = await self.scorer.calculate_quality_score(
+                                memory, query, ai_score
                             )
-                            logger.debug(
-                                f"Persisted quality score {quality_score:.3f} for "
-                                f"memory {memory.content_hash[:8]}"
-                            )
+                            memory.metadata['quality_score'] = quality_score
+                            quality_provider = memory.metadata.get('quality_provider', 'unknown')
+
+                            if storage:
+                                try:
+                                    await storage.update_memory_metadata(
+                                        content_hash=memory.content_hash,
+                                        updates={
+                                            'quality_score': quality_score,
+                                            'quality_provider': quality_provider,
+                                            'ai_scores': memory.metadata.get('ai_scores', []),
+                                            'quality_components': memory.metadata.get('quality_components', {})
+                                        },
+                                        preserve_timestamps=True
+                                    )
+                                    logger.debug(
+                                        f"Persisted quality score {quality_score:.3f} for "
+                                        f"memory {memory.content_hash[:8]}"
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Failed to persist quality score: {e}")
+                                    self.stats["total_errors"] += 1
+
+                            self.stats["total_scored"] += 1
                         except Exception as e:
-                            logger.error(f"Failed to persist quality score: {e}")
+                            logger.error(
+                                f"Background scoring failed for memory "
+                                f"{memory.content_hash[:8]}: {e}"
+                            )
                             self.stats["total_errors"] += 1
 
-                    self.stats["total_scored"] += 1
-                    self.stats["queue_size"] = self.queue.qsize()
-
                 except Exception as e:
-                    logger.error(f"Background scoring failed for memory {memory.content_hash[:8]}: {e}")
-                    self.stats["total_errors"] += 1
+                    logger.error(f"Batch scoring failed: {e}")
+                    self.stats["total_errors"] += len(batch)
 
                 finally:
-                    # Mark task as done
-                    self.queue.task_done()
+                    # Mark all tasks as done
+                    for _ in batch:
+                        self.queue.task_done()
+                    self.stats["queue_size"] = self.queue.qsize()
 
             except asyncio.CancelledError:
                 logger.info("Background worker cancelled")
                 break
             except Exception as e:
                 logger.error(f"Unexpected error in background worker: {e}")
-                # Continue running despite errors
 
         logger.info("Background quality scoring worker stopped")
 

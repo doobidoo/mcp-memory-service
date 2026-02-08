@@ -14,6 +14,7 @@
 
 """Semantic compression engine for memory cluster summarization."""
 
+import asyncio
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple, Set
 from datetime import datetime
@@ -61,29 +62,32 @@ class SemanticCompressionEngine(ConsolidationBase):
         }
     
     async def process(self, clusters: List[MemoryCluster], memories: List[Memory], **kwargs) -> List[CompressionResult]:
-        """Compress memory clusters into condensed representations."""
+        """Compress memory clusters into condensed representations (parallel)."""
         if not clusters:
             return []
-        
+
         # Create memory hash lookup
         memory_lookup = {m.content_hash: m for m in memories}
-        
-        compression_results = []
+
+        # Build tasks for clusters that have matching memories
+        tasks = []
         for cluster in clusters:
-            # Get memories for this cluster
-            cluster_memories = []
-            for hash_val in cluster.memory_hashes:
-                if hash_val in memory_lookup:
-                    cluster_memories.append(memory_lookup[hash_val])
-            
-            if not cluster_memories:
-                continue
-            
-            # Compress the cluster
-            result = await self._compress_cluster(cluster, cluster_memories)
-            if result:
-                compression_results.append(result)
-        
+            cluster_memories = [
+                memory_lookup[h] for h in cluster.memory_hashes if h in memory_lookup
+            ]
+            if cluster_memories:
+                tasks.append(self._compress_cluster(cluster, cluster_memories))
+
+        # Run all cluster compressions concurrently
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        compression_results = []
+        for r in results:
+            if isinstance(r, Exception):
+                self.logger.warning(f"Cluster compression failed: {r}")
+            elif r is not None:
+                compression_results.append(r)
+
         self.logger.info(f"Compressed {len(compression_results)} clusters")
         return compression_results
     

@@ -270,7 +270,7 @@ class SqliteVecMemoryStorage(MemoryStorage):
             logger.error(f"JSON type error in {context}: {e}")
             return {}
 
-    async def _execute_with_retry(self, operation: Callable, max_retries: int = 3, initial_delay: float = 0.1):
+    async def _execute_with_retry(self, operation: Callable, max_retries: int = 5, initial_delay: float = 0.2):
         """
         Execute a database operation with exponential backoff retry logic.
         
@@ -1187,32 +1187,31 @@ SOLUTIONS:
             tags_str = ",".join(memory.tags) if memory.tags else ""
             metadata_str = json.dumps(memory.metadata) if memory.metadata else "{}"
             
-            # Insert into memories table (metadata) with retry logic
-            def insert_memory():
-                cursor = self.conn.execute('''
-                    INSERT INTO memories (
-                        content_hash, content, tags, memory_type,
-                        metadata, created_at, updated_at, created_at_iso, updated_at_iso
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    memory.content_hash,
-                    memory.content,
-                    tags_str,
-                    memory.memory_type,
-                    metadata_str,
-                    memory.created_at,
-                    memory.updated_at,
-                    memory.created_at_iso,
-                    memory.updated_at_iso
-                ))
-                return cursor.lastrowid
-            
-            memory_rowid = await self._execute_with_retry(insert_memory)
-            
-            # Insert into embeddings table with retry logic
-            def insert_embedding():
-                # Check if we can insert with specific rowid
+            # Insert memory + embedding atomically using SAVEPOINT.
+            # Both must succeed together — a memory without a matching
+            # embedding is unsearchable, and an embedding without a
+            # matching memory rowid breaks the JOIN.
+            def insert_memory_and_embedding():
+                self.conn.execute('SAVEPOINT store_memory')
                 try:
+                    cursor = self.conn.execute('''
+                        INSERT INTO memories (
+                            content_hash, content, tags, memory_type,
+                            metadata, created_at, updated_at, created_at_iso, updated_at_iso
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        memory.content_hash,
+                        memory.content,
+                        tags_str,
+                        memory.memory_type,
+                        metadata_str,
+                        memory.created_at,
+                        memory.updated_at,
+                        memory.created_at_iso,
+                        memory.updated_at_iso
+                    ))
+                    memory_rowid = cursor.lastrowid
+
                     self.conn.execute('''
                         INSERT INTO memory_embeddings (rowid, content_embedding)
                         VALUES (?, ?)
@@ -1220,17 +1219,13 @@ SOLUTIONS:
                         memory_rowid,
                         serialize_float32(embedding)
                     ))
-                except sqlite3.Error as e:
-                    # If rowid insert fails, try without specifying rowid
-                    logger.warning(f"Failed to insert with rowid {memory_rowid}: {e}. Trying without rowid.")
-                    self.conn.execute('''
-                        INSERT INTO memory_embeddings (content_embedding)
-                        VALUES (?)
-                    ''', (
-                        serialize_float32(embedding),
-                    ))
-            
-            await self._execute_with_retry(insert_embedding)
+                    self.conn.execute('RELEASE SAVEPOINT store_memory')
+                except Exception:
+                    self.conn.execute('ROLLBACK TO SAVEPOINT store_memory')
+                    self.conn.execute('RELEASE SAVEPOINT store_memory')
+                    raise
+
+            await self._execute_with_retry(insert_memory_and_embedding)
             
             # Commit with retry logic
             await self._execute_with_retry(self.conn.commit)
@@ -1243,7 +1238,114 @@ SOLUTIONS:
             logger.error(error_msg)
             logger.error(traceback.format_exc())
             return False, error_msg
-    
+
+    async def store_batch(self, memories: List[Memory]) -> List[Tuple[bool, str]]:
+        """
+        Store multiple memories in a single transaction with batched embedding generation.
+
+        Generates all embeddings in one batched call, then inserts all records
+        within a single SQLite transaction for atomicity and performance.
+
+        Args:
+            memories: List of Memory objects to store
+
+        Returns:
+            List of (success, message) tuples matching input order
+        """
+        if not memories:
+            return []
+
+        if not self.conn:
+            return [(False, "Database not initialized")] * len(memories)
+
+        # Batch-generate embeddings for all memories upfront
+        contents = [m.content for m in memories]
+        try:
+            if not self.embedding_model:
+                raise RuntimeError("No embedding model available")
+            raw_embeddings = self.embedding_model.encode(contents, convert_to_numpy=True)
+        except Exception as e:
+            error_msg = f"Batch embedding generation failed: {e}"
+            logger.error(error_msg)
+            return [(False, error_msg)] * len(memories)
+
+        # Insert memories inside a single transaction with per-item error handling.
+        # Dedup check and insert happen atomically within the transaction to
+        # avoid TOCTOU races with concurrent store() calls.
+        results: List[Tuple[bool, str]] = [None] * len(memories)
+
+        def batch_insert():
+            for j, memory in enumerate(memories):
+                # Dedup check inside transaction (same connection holds the lock).
+                # Read-only, so no savepoint needed here.
+                cursor = self.conn.execute(
+                    'SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
+                    (memory.content_hash,)
+                )
+                if cursor.fetchone():
+                    results[j] = (False, "Duplicate content detected (exact match)")
+                    continue
+
+                embedding = raw_embeddings[j]
+                if hasattr(embedding, "tolist"):
+                    embedding_list = embedding.tolist()
+                else:
+                    embedding_list = list(embedding)
+
+                tags_str = ",".join(memory.tags) if memory.tags else ""
+                metadata_str = json.dumps(memory.metadata) if memory.metadata else "{}"
+
+                # SAVEPOINT gives per-item atomicity: if the embedding INSERT
+                # fails, ROLLBACK TO undoes the memories INSERT too, preventing
+                # orphaned rows that would be unsearchable.
+                try:
+                    self.conn.execute('SAVEPOINT batch_item')
+
+                    cur = self.conn.execute('''
+                        INSERT INTO memories (
+                            content_hash, content, tags, memory_type,
+                            metadata, created_at, updated_at, created_at_iso, updated_at_iso
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        memory.content_hash, memory.content, tags_str,
+                        memory.memory_type, metadata_str,
+                        memory.created_at, memory.updated_at,
+                        memory.created_at_iso, memory.updated_at_iso
+                    ))
+                    rowid = cur.lastrowid
+
+                    self.conn.execute('''
+                        INSERT INTO memory_embeddings (rowid, content_embedding)
+                        VALUES (?, ?)
+                    ''', (rowid, serialize_float32(embedding_list)))
+
+                    self.conn.execute('RELEASE SAVEPOINT batch_item')
+                    results[j] = (True, "Memory stored successfully")
+                except sqlite3.IntegrityError:
+                    self.conn.execute('ROLLBACK TO SAVEPOINT batch_item')
+                    self.conn.execute('RELEASE SAVEPOINT batch_item')
+                    results[j] = (False, "Duplicate content detected (race condition)")
+                except sqlite3.Error as db_err:
+                    self.conn.execute('ROLLBACK TO SAVEPOINT batch_item')
+                    self.conn.execute('RELEASE SAVEPOINT batch_item')
+                    results[j] = (False, f"Insert failed: {db_err}")
+
+        try:
+            await self._execute_with_retry(batch_insert)
+            await self._execute_with_retry(self.conn.commit)
+
+            stored = sum(1 for r in results if r and r[0])
+            logger.info(f"Batch stored {stored}/{len(memories)} memories in single transaction")
+        except Exception as e:
+            error_msg = f"Batch transaction failed: {e}"
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
+            for j in range(len(memories)):
+                if results[j] is None:
+                    results[j] = (False, error_msg)
+
+        return [(r if r is not None else (False, "Skipped")) for r in results]
+
     async def retrieve(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
         """Retrieve memories using semantic search."""
         try:

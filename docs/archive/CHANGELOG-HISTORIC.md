@@ -1,3 +1,1250 @@
+## [9.3.1] - 2026-01-20
+
+### Fixed
+- **Fatal Python error during shutdown** (#368)
+  - Fixed "database is locked" crash when Claude Desktop sends shutdown signal (SIGTERM/SIGINT)
+  - Changed signal handler to use `os._exit(0)` instead of `sys.exit(0)` to avoid buffered I/O lock deadlock
+  - Prevents "Fatal Python error: _enter_buffered_busy: could not acquire lock" during interpreter shutdown
+  - Server now shuts down cleanly without "Server disconnected" errors in Claude Desktop
+  - Root cause: `sys.exit(0)` in signal handler tried to flush buffered stdio streams while locks were held
+  - Solution: Use `os._exit(0)` to bypass I/O cleanup after `_cleanup_on_shutdown()` completes
+  - Resolved issue #368
+
+## [9.3.0] - 2026-01-19
+
+### Added
+- **Relationship Inference Engine** (Commit 40db489)
+  - Intelligent association typing for knowledge graph relationships
+  - Multi-factor analysis: memory type combinations, content semantics, temporal patterns, contradictions
+  - Pattern-based classification: causes, fixes, contradicts, supports, follows, related
+  - Confidence scoring (0.0-1.0) with configurable minimum threshold (default: 0.6)
+  - **Implementation**:
+    - New module: `src/mcp_memory_service/consolidation/relationship_inference.py` (433 lines)
+    - `RelationshipInferenceEngine` class with async relationship type inference
+    - 4 analysis methods: type combination, content semantics, temporal, contradictions
+  - **Maintenance Scripts**:
+    - `scripts/maintenance/improve_memory_ontology.py` - Batch re-classify memory types and standardize tags
+    - `scripts/maintenance/update_graph_relationship_types.py` - Batch update existing graph relationships
+    - Enhanced `scripts/maintenance/cleanup_memories.py` with HTTP/HTTPS auto-detection
+  - **Benefits**:
+    - Rich knowledge graphs with meaningful relationship types beyond "related"
+    - Automatic relationship type inference during consolidation
+    - Retroactive classification of existing relationships
+
+### Fixed
+- **Invalid memory type 'knowledge' in Web UI** (#364)
+  - Removed invalid "knowledge" option from document upload form
+  - Added missing memory types to ontology: `document`, `note`, `reference`
+  - Fixed Knowledge Graph display issues for uploaded documents
+  - All 34 ontology tests passing
+  - No more validation warnings in server logs
+
+- **wandb dependency conflict causing embedding failures** (#311)
+  - Fixed incompatibility between wandb 0.15.2 and protobuf 5.x
+  - Set `WANDB_DISABLED=true` environment variable to prevent wandb loading
+  - Updated dependency constraint to `wandb>=0.18.0` in pyproject.toml
+  - Restored semantic search functionality with proper SentenceTransformer embeddings
+  - Fixed 3 failing tests related to embedding model initialization
+  - Added regression test to prevent future embedding model fallback issues
+
+## [9.2.1] - 2026-01-19
+
+### Fixed
+- **CRITICAL: Knowledge Graph table initialization bug** (#362)
+  - **Root Cause**: Migration files existed but were never executed during storage initialization
+  - **Impact**: All Knowledge Graph operations failed with "no such table: memory_graph" errors
+  - **Solution**: Created MigrationRunner utility to execute SQL migrations during SqliteVecMemoryStorage.initialize()
+  - **Migrations Applied**: Graph table migrations (008, 009, 010) now run automatically
+  - **Test Results**: Knowledge Graph tests improved from 14/51 to 44/51 passing (37 fixes)
+  - **Full Test Suite**: 910 tests passing, 0 regressions introduced
+  - **Idempotency**: Migration runner handles duplicate column errors gracefully (non-fatal warnings)
+  - **Technical Details**:
+    - New `MigrationRunner` class in `storage/migration_runner.py` (190 lines)
+    - Integrated into `SqliteVecMemoryStorage.initialize()` with 48 new lines
+    - 340 lines of comprehensive unit tests (10 test cases)
+    - Supports both sync and async migration execution
+    - Non-fatal error handling (logs warnings, doesn't crash)
+  - **Remaining Issues**: 7 Knowledge Graph test failures are pre-existing bugs (deprecated API usage, not related to this fix)
+
+### Technical Details
+- Migration runner executes migrations in both new database and existing database initialization paths
+- Skips already-applied migrations automatically (e.g., duplicate columns)
+- Ensures memory_graph table is always available for graph operations
+- No user action required - migrations run automatically on next storage initialization
+
+## [9.2.0] - 2026-01-18
+
+### Added
+- **Knowledge Graph Dashboard with D3.js v7.9.0** - Interactive force-directed graph visualization
+  - **Interactive Force-Directed Graph**: Zoom, pan, drag nodes to explore memory relationships
+  - **Relationship Type Distribution Chart**: Bar chart showing breakdown of 6 relationship types (Chart.js)
+  - **6 Typed Relationships**: causes, fixes, contradicts, supports, follows, related
+  - **2 New API Endpoints**:
+    - `/api/analytics/relationship-types` - Get distribution of relationship types
+    - `/api/analytics/graph-visualization` - Get graph data for visualization
+  - **Interactive Controls**:
+    - Zoom with mouse wheel or touch
+    - Pan by dragging background
+    - Drag nodes to explore connections
+    - Hover tooltips with memory details
+  - **Multi-Language Support**: Full UI localization for 7 languages (en, zh, de, es, fr, ja, ko)
+  - **154 New i18n Translation Keys**: 22 translation keys per language for graph UI
+  - **Dark Mode Integration**: Seamless theme switching with existing dashboard
+  - **Performance**: Successfully tested with 2,730 relationships
+
+### Changed
+- **Extended Storage Interface**: Added graph analytics methods
+  - `get_relationship_type_distribution()` - Query relationship type counts
+  - `get_graph_visualization_data()` - Fetch graph data optimized for D3.js rendering
+
+### Database
+- **Migration Required**: Added `relationship_type` column to `memory_graph` table
+  - **SQLite Migration**: `python scripts/migration/add_relationship_type_column.py`
+  - **Cloudflare D1**: Not required (graph is SQLite-only in current version)
+  - **Default Value**: All existing relationships set to 'related' type
+  - **Backward Compatible**: Migration is idempotent and safe to re-run
+
+### Documentation
+- **New Guide**: Complete Knowledge Graph Dashboard documentation in `docs/features/knowledge-graph-dashboard.md`
+- **Updated README**: Added Knowledge Graph Dashboard section with features and screenshots
+
+## [9.0.6] - 2026-01-18
+
+### Added
+- **OAuth Persistent Storage Backend** (#360): SQLite-based OAuth storage for multi-worker deployments
+  - New `MCP_OAUTH_STORAGE_BACKEND` environment variable (memory|sqlite)
+  - New `MCP_OAUTH_SQLITE_PATH` configuration for database location
+  - WAL mode enabled for multi-process safety
+  - Atomic one-time authorization code consumption (prevents replay attacks)
+  - Performance: <10ms token operations
+  - Backward compatible (defaults to memory backend)
+  - Comprehensive test suite (30 tests, parametrized across backends)
+  - Documentation: [docs/oauth-storage-backends.md](docs/oauth-storage-backends.md)
+
+### Fixed
+- **uvx HTTP Test Failures** (#361): Lazy initialization of asyncio.Lock in api/client.py
+  - Fixed module-level Lock creation that caused event loop context issues
+  - All HTTP endpoint tests now pass in uvx CI environment
+  - No impact on existing functionality
+
+### Technical Details
+- OAuth storage now supports pluggable backends via abstract base class
+- SQLite backend uses atomic UPDATE WHERE for race-safe code consumption
+- Factory pattern for backend selection (create_oauth_storage)
+- All backends tested with identical test suite (parametrized fixtures)
+
+## [9.0.5] - 2026-01-18
+
+🚨 **CRITICAL HOTFIX** - Fixes OAuth 2.1 token endpoint routing bug
+
+### Fixed
+- **CRITICAL: OAuth 2.1 token endpoint routing fixed** (Issue #358)
+  - **Root Cause**: `@router.post("/token")` decorator was on wrong function (`_handle_authorization_code_grant` instead of `token`)
+  - **Impact**: Token endpoint completely non-functional for all standard OAuth clients (Claude Desktop, MCPJam, etc.)
+  - **Symptoms**: HTTP 422 Unprocessable Entity errors when attempting to exchange authorization codes for access tokens
+  - **Incident**: OAuth clients could not complete authorization code flow - authorization succeeded but token exchange failed
+  - **Fix**: Moved `@router.post("/token")` decorator from internal helper function to correct public endpoint handler
+  - **Files Changed**:
+    - `src/mcp_memory_service/web/oauth/authorization.py:220` - Removed decorator from `_handle_authorization_code_grant`
+    - `src/mcp_memory_service/web/oauth/authorization.py:348` - Added decorator to `token` function
+  - **OAuth 2.1 Compliance**: Token endpoint now correctly implements RFC 6749 token exchange flow
+  - **Backward Compatibility**: Fixes broken functionality introduced in recent OAuth refactoring
+  - **Recommendation**: All users attempting to use OAuth authentication should upgrade to v9.0.5 immediately
+- **Script reliability improvements for update and server management**
+  - **Network error handling**: Added retry logic (up to 3 attempts) to `update_and_restart.sh` for transient DNS/network failures
+    - Network connectivity check before pip install (ping 8.8.8.8, 1.1.1.1)
+    - 2-second delay between retries, 5-second wait when network check fails
+    - Clear error messages with helpful suggestions on failure
+    - Fixes DNS errors: "nodename nor servname provided, or not known" (Errno 8)
+  - **Server startup timeout**: Increased HTTP server initialization timeout from 10s to 20s
+    - Hybrid storage + embedding model loading takes 12-15 seconds
+    - Previous 10s timeout caused false "failed to start" errors
+    - Updated `http_server_manager.sh` to allow adequate initialization time
+  - **User Impact**: More reliable updates on unstable networks, no more premature timeout failures
+  - **Files Changed**:
+    - `scripts/update_and_restart.sh:349-398` - Network retry logic
+    - `scripts/service/http_server_manager.sh:182-185` - Timeout increase
+  - **Testing**: Server restart verified successful (6-13s startup, well within 20s limit)
+
+## [9.0.4] - 2026-01-17
+
+🚨 **CRITICAL HOTFIX** - Fixes OAuth validation blocking server startup
+
+### Fixed
+- **CRITICAL: OAuth validation preventing server startup** (discovered in v9.0.3)
+  - **Root Cause**: `OAUTH_ENABLED` defaulted to `True`, causing OAuth validation to run on every import
+  - **Impact**: Server startup failed with `ValueError: Invalid OAuth configuration: JWT configuration error: No JWT signing key available`
+  - **Symptoms**: `update_and_restart.sh` fails during dependency installation, config.py import fails
+  - **Fix**: Changed `OAUTH_ENABLED` default from `True` to `False` (opt-in, not opt-out)
+  - **Fix**: Made OAuth validation non-fatal (logs errors but doesn't raise exception)
+  - **Files Changed**:
+    - `src/mcp_memory_service/config.py:690` - Changed default to `False`
+    - `src/mcp_memory_service/config.py:890-895` - Made validation non-fatal
+  - **Backward Compatibility**: No impact (OAuth was broken by default, now works correctly)
+  - **Recommendation**: All users on v9.0.3 should upgrade to v9.0.4 immediately
+
+## [9.0.3] - 2026-01-17
+
+🚨 **CRITICAL HOTFIX** - Fixes Cloudflare D1 schema migration bug causing container reboot loop
+
+### Fixed
+- **CRITICAL: Add automatic schema migration for Cloudflare D1 backend** (Issue #354)
+  - **Root Cause**: v8.72.0 added `tags` and `deleted_at` columns but Cloudflare backend had no migration logic
+  - **Impact**: Users upgrading from v8.69.0 → v8.72.0+ experienced container reboot loop due to missing columns
+  - **Symptoms**: `400 Bad Request` errors from D1 when trying to use missing columns
+  - **Fix**: Added `_migrate_d1_schema()` method with automatic column detection and migration
+  - **Fix**: Added retry logic with exponential backoff to handle D1 metadata sync issues
+  - **Fix**: Added clear error messages with manual SQL workaround if automated migration fails
+  - **Files Changed**:
+    - `src/mcp_memory_service/storage/cloudflare.py:290-495` - Added migration methods
+  - **Migration Process**:
+    1. Check existing schema using `PRAGMA table_info(memories)`
+    2. Add missing columns: `tags TEXT`, `deleted_at REAL DEFAULT NULL`
+    3. Create index: `idx_memories_deleted_at`
+    4. Verify columns are usable (handles D1 metadata sync issues)
+  - **Backward Compatibility**: Safe for all versions (idempotent, no data loss)
+  - **Manual Workaround** (if automated migration fails):
+    ```sql
+    ALTER TABLE memories ADD COLUMN tags TEXT;
+    ALTER TABLE memories ADD COLUMN deleted_at REAL DEFAULT NULL;
+    CREATE INDEX IF NOT EXISTS idx_memories_deleted_at ON memories(deleted_at);
+    ```
+  - **Recommendation**: All Cloudflare users on v8.72.0+ should upgrade to v9.0.3 immediately
+
+## [9.0.2] - 2026-01-17
+
+🚨 **CRITICAL HOTFIX** - Actually includes the code fix from v9.0.1
+
+### Fixed
+- **CRITICAL: Include actual code changes for mass deletion bug fix**
+  - **Issue**: v9.0.1 was tagged and released WITHOUT the actual code changes to `manage.py`
+  - **Root Cause**: Code changes were committed AFTER the v9.0.1 tag was created
+  - **Impact**: PyPI and Docker images for v9.0.1 do NOT contain the fix
+  - **This Release**: v9.0.2 includes the actual code changes from commit 9c5ed87
+  - **Files Fixed**:
+    - `src/mcp_memory_service/web/api/manage.py:254` - `confirm_count` now REQUIRED
+    - Added comprehensive security documentation and error messages
+  - **Recommendation**: All users should upgrade to v9.0.2 (not v9.0.1)
+
+## [9.0.1] - 2026-01-17
+
+⚠️ **WARNING**: This release was tagged incorrectly and does NOT include the actual code fix. Please upgrade to v9.0.2 instead.
+
+🚨 **CRITICAL HOTFIX** - Fixes accidental mass deletion bug in v9.0.0
+
+### Fixed
+- **CRITICAL: Fix accidental mass deletion via /delete-untagged endpoint** (Hotfix)
+  - **Root Cause**: `confirm_count` parameter was optional in `/api/manage/delete-untagged` endpoint
+  - **Impact**: If endpoint called without `confirm_count`, ALL untagged memories were deleted without confirmation
+  - **Incident**: On 2026-01-17 at 10:59:20, 6733 memories (87% of database) were accidentally soft-deleted
+  - **Fix**: Made `confirm_count` parameter REQUIRED (not optional)
+  - **Fix**: Enhanced safety check to always validate confirm_count matches actual count
+  - **Fix**: Improved error message to guide users to use GET /api/manage/count-untagged first
+  - **Security**: Added comprehensive documentation about the security implications
+  - **Recovery**: All affected memories can be restored by setting `deleted_at = NULL`
+  - **File**: `src/mcp_memory_service/web/api/manage.py:254`
+  - **Breaking Change**: API now requires `confirm_count` parameter (previously optional)
+  - **Recommendation**: All v9.0.0 users should upgrade immediately to v9.0.1
+
+## [9.0.0] - 2026-01-17
+
+⚠️ **MAJOR RELEASE** - Contains breaking changes. See Migration Guide in README.md.
+
+### Fixed
+- **Fix 33 API/HTTP test failures with package import error** (Issue #351, PR #352)
+  - Changed relative imports to absolute imports in `web/api/backup.py` for pytest compatibility
+  - Fixed `ModuleNotFoundError: 'mcp_memory_service' is not a package` during test collection
+  - Resolved pytest `--import-mode=prepend` confusion with triple-dot relative imports
+  - **Test Results**: 829/914 tests passing (up from 818), all API/HTTP integration tests pass
+  - **Impact**: Single-line fix, no API changes, no breaking changes
+
+- **Fix validation tests and legacy type migration** (PR #350)
+  - Fixed all 5 validation tests (editable install detection, version matching, runtime warnings)
+  - Fixed `check_dev_setup.py` to import `_version.py` directly instead of text parsing
+  - Fixed timestamp test import error (namespace collision in `models` import)
+  - Migrated 38 legacy memory types to new ontology (task→observation, note→observation, standard→observation)
+  - Pinned `numpy<2` for pandas compatibility (prevents binary incompatibility errors)
+  - Extracted offline mode setup to standalone `offline_mode.py` module (cleaner package structure)
+  - Restored core imports in `__init__.py` for pytest package recognition
+  - Updated consolidation retention periods for new ontology types
+  - **Test Results**: 818/851 tests passing (96%), all validation tests pass
+
+- **Fix bidirectional storage for asymmetric relationships** ⚠️ **BREAKING CHANGE** (Issue #348, PR #349)
+  - Asymmetric relationships (causes, fixes, supports, follows) now store only directed edges
+  - Symmetric relationships (related, contradicts) continue storing bidirectional edges
+  - Database migration (010) removes incorrect reverse edges from existing data
+  - Query infrastructure with `direction` parameter now works correctly with asymmetric storage
+  - SemanticReasoner methods (find_causes, find_fixes) validated with new storage model
+  - New `is_symmetric_relationship()` function in ontology.py for relationship classification
+  - Updated `store_association()` to conditionally store edges based on relationship symmetry
+  - Updated `find_connected()` direction="both" to use CASE expression for asymmetric edges
+  - **Breaking Change**: Code expecting bidirectional asymmetric edges needs `direction="both"` parameter
+
+### Added
+- **Phase 0 Ontology Foundation - Core Implementation** ⚠️ **BREAKING CHANGE** (PR #347)
+  - **Memory Type Ontology**: Formal classification system with 5 base types and 21 subtypes
+    - Base types: observation, decision, learning, error, pattern
+    - Hierarchical taxonomy with parent-child relationships
+    - Soft validation: defaults to 'observation' for invalid types (backward compatible)
+  - **Tag Taxonomy**: Structured namespace system with 6 predefined namespaces
+    - Namespaces: `sys:`, `q:`, `proj:`, `topic:`, `t:`, `user:`
+    - Backward compatible with legacy tags (no namespace)
+    - O(1) namespace validation via exposed `VALID_NAMESPACES` class attribute
+  - **Typed Relationships**: Semantic relationship system for knowledge graph
+    - 6 relationship types: causes, fixes, contradicts, supports, follows, related
+    - Database migration adds `relationship_type` column to memory_graph table
+    - `TypedAssociation` dataclass for explicit relationship semantics
+    - GraphStorage extended with relationship type filtering in queries
+  - **Lightweight Reasoning Engine**: Foundation for causal inference
+    - `SemanticReasoner` class with contradiction detection
+    - Causal chain analysis: `find_fixes()`, `find_causes()`
+    - Placeholder methods for future reasoning capabilities
+  - **Performance Optimizations**: Caching and validation improvements
+    - `get_all_types()`: 97.5x speedup via module-level caching
+    - `get_parent_type()`: 35.9x speedup via cached reverse lookup map
+    - Tag validation: 47.3% speedup (eliminated double parsing)
+  - **Security Improvements**: Template-based SQL query building
+  - **Testing**: 80 comprehensive tests with 100% backward compatibility
+  - **Breaking Change**: Legacy types (task, note, standard) deprecated, automatically migrated via soft-validation (defaults to 'observation')
+
+- **Response Size Limiter** (PR #344)
+  - Added `max_response_chars` parameter to 5 memory retrieval tools to prevent context window overflow
+  - Tools updated: `retrieve_memory`, `recall_memory`, `retrieve_with_quality_boost`, `search_by_tag`, `recall_by_timeframe`
+  - Environment variable: `MCP_MAX_RESPONSE_CHARS` (default: 0 = unlimited)
+  - Truncates at memory boundaries (never mid-content) to preserve data integrity
+  - Always returns at least one memory even if it exceeds the character limit
+  - Displays truncation warning with shown/total counts when limit is applied
+  - New utility module: `src/mcp_memory_service/server/utils/response_limiter.py` (260 lines)
+  - Comprehensive test coverage: 29 tests (415 lines) covering edge cases
+  - Recommended values: 30000-50000 characters for typical LLM context windows
+  - Backward compatible: existing code continues to work with unlimited responses
+
+## [8.76.0] - 2026-01-12
+
+### Added
+- **Official Lite Distribution Support** (PR #341)
+  - **New Package**: `mcp-memory-service-lite` - Official lightweight distribution for ONNX-only installations
+    - 90% installation size reduction: 7.7GB → 805MB
+    - Same nvidia-quality-classifier-deberta ONNX model, just lighter dependency chain
+    - Faster installation time: <2 minutes vs 10-15 minutes
+  - **Dual Package Publishing**: Automated CI/CD workflow (`publish-dual.yml`) publishes both packages to PyPI
+    - Full package: `mcp-memory-service` (includes transformers, torch, sentence-transformers)
+    - Lite package: `mcp-memory-service-lite` (ONNX-only, tokenizers-based embeddings)
+    - Both packages share the same codebase via pyproject-lite.toml
+  - **Conditional Dependency Loading**: Transformers becomes truly optional
+    - Quality scoring works with tokenizers-only (lite) or full transformers (full package)
+    - Graceful fallback: embedding service detects available packages and loads accordingly
+    - No runtime performance impact - same quality scoring performance
+  - **Implementation Details**:
+    - Created `pyproject-lite.toml` with minimal dependencies (no transformers/torch)
+    - Updated `onnx_ranker.py` to use tokenizers directly instead of transformers
+    - Fixed quality_provider metadata access bug in async_scorer.py
+    - 15 comprehensive integration tests (`tests/test_lightweight_onnx.py`, 487 lines)
+  - **Documentation**:
+    - Complete setup guide: `docs/LIGHTWEIGHT_ONNX_SETUP.md`
+    - Setup script: `scripts/setup-lightweight.sh`
+  - **Use Cases**:
+    - CI/CD pipelines (faster builds, lower disk usage)
+    - Resource-constrained environments (VPS, containers)
+    - Quick local development setup
+    - Users who only need quality scoring (not full ML features)
+- **Production Refactor Command**: Added `/refactor-function-prod` command for production-ready code refactoring
+  - Enhanced version of the refactor-function PoC with production features
+- **Refactoring Metrics Documentation**: Comprehensive Issue #340 refactoring documentation in `.metrics/`
+  - Baseline complexity measurements
+  - Complexity comparison showing 75.2% average reduction
+  - Tracking tables and completion reports
+
+### Fixed
+- **Multi-Protocol Port Detection and Cross-Platform Fallback** (`scripts/service/http_server_manager.sh`)
+  - **Problem**: Update script failed with port conflict on Linux systems without lsof installed
+  - **Root Causes**:
+    - Script used lsof exclusively for port detection, silently failed on systems without it (common on Arch/Manjaro)
+    - Health checks only tried HTTP protocol, failed when server used HTTPS
+    - Led to "server not running" false positive → attempted restart → port conflict error
+  - **Solution**:
+    - Implemented 4-level port detection fallback chain: lsof → ss → netstat → ps
+    - Health check now tries both HTTP and HTTPS protocols with automatic fallback
+    - Explicit error messages when all detection methods fail
+    - Cross-platform compatibility validated on Arch Linux with ss-only environment
+  - **Testing**: Manual testing on Arch Linux without lsof, confirmed fallback to ss works correctly
+  - **Impact**: Resolves installation failures on minimal Linux distributions, improves HTTPS deployment reliability
+- **MCP HTTP Transport**: Fix KeyError 'backend_info' in get_cache_stats tool (Issue #342, PR #343)
+  - **Problem**: `get_cache_stats` tool crashed with `KeyError: 'backend_info'` when called via HTTP transport
+  - **Root Cause**: Code tried to set `result["backend_info"]["embedding_model"]` without creating the dict first
+  - **Solution**: Create complete `backend_info` dict with all required fields (storage_backend, sqlite_path, embedding_model)
+  - **Impact**: HIGH severity (tool completely broken in HTTP transport), LOW risk fix
+  - **Testing**: Added regression test validating backend_info structure
+  - Thanks to @Sundeepg98 for reporting with clear reproduction steps!
+- **Hook Installer**: Auto-register PreToolUse hook in settings.json (Issue #335)
+  - **Problem**: `permission-request.js` was copied but never registered in `settings.json`, so the hook never executed
+  - **Solution**: Installer now auto-adds PreToolUse hook configuration for MCP permission management
+  - Added 7 new safe patterns: `store`, `remember`, `ingest`, `rate`, `proactive`, `context`, `summary`, `recommendations`
+  - Hook now correctly auto-approves additive operations (e.g., `store_memory`)
+- **Memory Hooks**: Fix cluster memory categorization showing incorrect dates
+  - **Problem**: Consolidated cluster memories (from consolidation system) showed "🕒 today" in "Recent Work" section because hook used `created_at` (when cluster was created) instead of `temporal_span` (time period the cluster represents)
+  - **Solution**: Added new "📦 Consolidated Memories" section with proper temporal span display (e.g., "📅 180d span")
+  - **Changes**: Updated `claude-hooks/utilities/context-formatter.js` to detect `compressed_cluster` memory type and display `metadata.temporal_span.span_days`
+  - **Impact**: Prevents confusion between recent development and historical memory summaries
+
+### Changed
+- **Hook Installer**: Refactored MCP configuration detection functions for improved maintainability (Issue #340)
+  - Reduced complexity by 45.5% across 3 core functions
+  - Extracted 6 well-structured helper functions (avg complexity 3.83)
+  - Fixed validation bug: Added 'detected' server type support (PR #339 follow-up)
+  - Improved code grade distribution: 58% A-grade functions (up from 53%)
+- **Memory Consolidation**: Improved cluster concept quality with intelligent deduplication
+  - **Problem**: Cluster summaries showed redundant concepts (e.g., "memories, Memories, MEMORY, memory") and noise (SQL keywords like "BETWEEN")
+  - **Solution**: Added case-insensitive deduplication and filtering of SQL keywords/meta-concepts
+  - **Changes**: Enhanced `_extract_key_concepts()` in `consolidation/compression.py` to deduplicate case variants and filter 10 SQL keywords + 6 meta-concepts
+  - **Impact**: Cluster summaries now show meaningful thematic concepts instead of technical noise
+
+## [8.75.1] - 2026-01-10
+
+### Fixed
+- **Hook Installer**: Support flexible MCP server naming conventions (PR #339)
+  - **Problem**: Installer required exact server name `memory`, causing installation failures for users with custom MCP configurations (e.g., `mcp-memory-service`, `memory-service`)
+  - **Solution**:
+    - Installer now detects servers matching patterns: `memory`, `mcp-memory`, `*memory*service*`, `*memory*server*`
+    - Backward compatible with existing `memory` server name
+    - Provides clear error messages when no matching server found
+    - Improved user experience for custom MCP configurations
+  - **Testing**: Manual testing with various server name configurations
+  - **Contributors**: Thanks to @timkjr for reporting and testing the fix!
+
+## [8.75.0] - 2026-01-09
+
+### Added
+- **Lightweight ONNX Quality Scoring without Transformers Dependency** (PR #337)
+  - **Problem**: transformers package adds 6.9GB of dependencies (torch, tensorflow, etc.), making installation bloated for users who only need quality scoring
+  - **Solution**: Use tokenizers package directly instead of transformers
+    - 90% disk space reduction: 7.7GB → 805MB total installation
+    - Same ONNX model (nvidia-quality-classifier-deberta), just lighter dependency chain
+    - Conditional dependency loading - only install what you use
+  - **Implementation**:
+    - Modified `src/mcp_memory_service/quality/onnx_ranker.py` to use tokenizers directly
+    - Added tokenizers as optional dependency in pyproject.toml
+    - Updated embedding service to handle both tokenizers and transformers (graceful fallback)
+    - Fixed quality_provider metadata access bug in async_scorer.py
+  - **Testing**: 15 comprehensive integration tests (`tests/test_lightweight_onnx.py`, 487 lines)
+  - **Documentation**:
+    - Complete setup guide: `docs/LIGHTWEIGHT_ONNX_SETUP.md`
+    - Setup script: `scripts/setup-lightweight.sh`
+  - **Benefits**:
+    - Faster installation (<2 min vs 10-15 min)
+    - Lower disk usage (805MB vs 7.7GB)
+    - Same quality scoring performance
+    - No runtime performance impact
+
+### Fixed
+- **Multi-Protocol and Cross-Platform Port Detection** (`scripts/service/http_server_manager.sh`)
+  - **Problem**: Update script failed with port conflict on Linux systems without lsof installed
+  - **Root Cause**:
+    - Script used lsof exclusively, silently failed on systems without it (common on Arch/Manjaro)
+    - Health checks only tried HTTP, failed when server used HTTPS
+    - Led to "server not running" false positive → port conflict
+  - **Solution**:
+    - Port detection fallback chain: lsof → ss → netstat → ps
+    - Health check supports both HTTP and HTTPS protocols with automatic fallback
+    - Tested on Arch Linux with ss-only environment
+  - **Fixes**: Issue #341
+
+## [8.74.0] - 2026-01-09
+
+### Added
+- **Cross-Platform Wrapper Scripts for Orphan Process Cleanup** (`scripts/run/`)
+  - **Python Wrapper** (`memory_wrapper_cleanup.py`): Universal cross-platform solution (recommended)
+  - **Bash Wrapper** (`memory_wrapper_cleanup.sh`): Native macOS/Linux implementation
+  - **PowerShell Wrapper** (`memory_wrapper_cleanup.ps1`): Native Windows implementation
+  - **Automatic Orphan Detection**: Identifies orphaned MCP memory processes when Claude Desktop/Code crashes
+    - Unix: Detects processes adopted by init/launchd (ppid == 1)
+    - Windows: Detects processes whose parent no longer exists
+  - **Database Lock Prevention**: Cleans up orphaned processes before starting new server instance
+  - **Safe Cleanup**: Only terminates actual orphans, preserves active sessions
+  - **Comprehensive Documentation** (`README_CLEANUP_WRAPPER.md`): Installation guide, troubleshooting, and technical details
+  - **Fixes**: SQLite "database is locked" errors when running multiple Claude instances after crashes
+
+## [8.73.0] - 2026-01-09
+
+### Added
+- **Universal Permission Request Hook v1.0** (`claude-hooks/core/permission-request.js`)
+  - **Automatic MCP Tool Permission Management**: Eliminates repetitive permission prompts for safe operations
+  - **Safe-by-Default Design**: Auto-approves read-only operations (get, list, retrieve, search, query, etc.)
+  - **Destructive Operation Protection**: Requires confirmation for write/delete operations (delete, update, execute, etc.)
+  - **Universal MCP Server Support**: Works across all MCP servers (memory, browser, context7, playwright, etc.)
+  - **Zero Configuration**: Works out of the box with sensible defaults
+  - **Extensible Pattern Matching**: Configure custom patterns via `claude-hooks/config.json`
+  - **Comprehensive Documentation**: Installation guide, configuration reference, and troubleshooting
+  - **Installer Integration**: Added to core hooks installation via `install_hooks.py`
+- **Sync Status Maintenance Script** (`scripts/maintenance/sync_status.py`)
+  - Compares local SQLite database with Cloudflare D1
+  - Shows memory counts (total, active, tombstones) for both databases
+  - Identifies sync discrepancies: local-only, D1-only, pending deletions
+  - Cross-platform support (Windows, macOS, Linux)
+  - Handles schema differences gracefully
+
+### Fixed
+- **Cloudflare D1 Schema Missing Columns** (`src/mcp_memory_service/storage/cloudflare.py`)
+  - **Problem**: D1 schema was missing `deleted_at` and `tags` columns, causing soft-delete operations to fail silently
+  - **Impact**: Tombstone-based sync between devices was broken - deleted memories on one device were not synced to others
+  - **Fix**: Added `deleted_at REAL DEFAULT NULL` and `tags TEXT` columns to D1 schema
+  - **Index**: Added `idx_memories_deleted_at` index for query performance
+
+## [8.72.0] - 2026-01-08
+
+### Added
+- **Graph Traversal MCP Tools** (PR #332)
+  - **Feature**: Three new MCP tools for querying memory association graph directly
+  - **Tools**:
+    - `find_connected_memories` - Multi-hop connection discovery (5ms, 30x faster than tag search)
+    - `find_shortest_path` - BFS pathfinding between two memories (15ms)
+    - `get_memory_subgraph` - Subgraph extraction for visualization (25ms)
+  - **Implementation**:
+    - New handler module: `src/mcp_memory_service/server/handlers/graph.py` (380 lines)
+    - Integration: `server_impl.py` tool registration and routing (134 lines)
+    - Graceful fallback if `memory_graph` table unavailable
+  - **Testing**: 10 comprehensive tests with 100% handler coverage (`tests/test_graph_traversal.py`, 328 lines, 58 assertions)
+  - **Validation**: `scripts/validation/validate_graph_tools.py` for MCP schema and query correctness
+  - **Quality Metrics**:
+    - Health Score: 85/100 (EXCELLENT)
+    - Complexity: Average 4.5 (Grade A)
+    - Security: 0 vulnerabilities
+  - **Benefits**:
+    - 30x performance improvement over tag-based connected memory search
+    - Enables Claude Code to traverse memory associations directly via MCP
+    - Supports exploration of knowledge relationships and context chains
+
+## [8.71.0] - 2026-01-06
+
+### Added
+- **Memory Management APIs and Graceful Shutdown** (PR #331)
+  - **Problem**: Orphaned MCP sessions consuming excessive memory (reported in Discussion #331)
+  - **Cache Cleanup Functions** (`src/mcp_memory_service/services/cache_manager.py`):
+    - `clear_all_caches()` - Clear storage and service caches
+    - `get_memory_usage()` - Get process memory statistics (RSS, VMS, available memory)
+    - `get_cache_stats()` - Get cache hit/miss statistics
+  - **Model Cache Cleanup** (`src/mcp_memory_service/storage/sqlite_vec.py`):
+    - `clear_model_caches()` - Clear embedding model caches
+    - `get_model_cache_stats()` - Get model cache statistics
+  - **Graceful Shutdown** (`src/mcp_memory_service/server/server_impl.py`):
+    - `_cleanup_on_shutdown()` - Cleanup function for signal handlers
+    - Updated `shutdown()` method with proper cache and connection cleanup
+    - Added `atexit` handler for normal process exit
+    - SIGTERM and SIGINT handlers now call cleanup before exit
+  - **Memory Management API Endpoints** (`src/mcp_memory_service/api/routes/health.py`):
+    - `GET /api/memory-stats` - Get detailed memory usage (process memory + cache stats + model cache stats)
+    - `POST /api/clear-caches` - Clear all caches manually (returns memory freed)
+  - **Documentation**:
+    - New file: `docs/troubleshooting/memory-management.md` - Comprehensive guide for monitoring and managing memory
+  - **Benefits**:
+    - Prevents memory leaks from orphaned sessions
+    - Enables proactive memory monitoring and cleanup
+    - Graceful resource release on server shutdown
+    - Production-ready memory management for long-running deployments
+
+## [8.70.0] - 2026-01-05
+
+### Added
+- **User Override Commands for Memory Hooks** (`~/.claude/hooks/utilities/user-override-detector.js`)
+  - **Feature**: New `#skip` and `#remember` commands give users manual control over automatic memory triggers
+  - **Implementation**:
+    - Shared detection module for consistent behavior across all hooks
+    - `#skip` - Bypasses memory retrieval in session-start hook
+    - `#remember` - Forces mid-conversation analysis (bypasses cooldown) or session-end consolidation (bypasses thresholds)
+    - Applied to: `session-start.js`, `mid-conversation.js`, `session-end.js`
+  - **Configuration**: New `applyTo` array in `config.json` defines which hooks are active
+  - **Documentation**: Updated `README.md` with "User Overrides" section and `README-AUTO-CAPTURE.md` with comprehensive supported hooks table
+  - **Use Cases**:
+    - Skip retrieval when starting fresh conversation (`#skip`)
+    - Force memory capture of important mid-session insights (`#remember`)
+    - Override 100-character threshold for critical session notes (`#remember`)
+
+### Added (from v8.69.1-dev)
+- **Automatic Test Memory Cleanup System** (`tests/conftest.py`, `tests/api/test_operations.py`)
+  - **Problem**: Test memories polluted production database (106+ orphaned test memories found)
+  - **Solution**: Tag-based cleanup system
+    - Reserved `__test__` tag for all test-created memories
+    - New `test_store` fixture auto-tags memories for cleanup
+    - `pytest_sessionfinish` hook automatically deletes tagged memories at end of test session
+    - New `delete_by_tag()` function in Code Execution API
+  - **Result**: 92 test memories automatically cleaned after test run
+  - **Migration**: Tests using `store()` should migrate to `test_store()` fixture
+
+### Fixed (from v8.69.1-dev)
+- **PowerShell Update Script Git Stderr Handling** (`update_and_restart.ps1`)
+  - **Problem**: Script failed with `NativeCommandError` during `git pull --rebase`
+  - **Root Cause**: Git writes informational messages to stderr even on success (e.g., "From github.com:..."), and `$ErrorActionPreference = "Stop"` treats any stderr as error
+  - **Solution**: Temporarily set `ErrorActionPreference = "Continue"` during git pull, then check `$LASTEXITCODE` for actual errors
+
+---
+
+**For older releases (v8.69.0 and earlier)**, see [docs/archive/CHANGELOG-HISTORIC.md](./docs/archive/CHANGELOG-HISTORIC.md).
+## [10.0.0] - 2026-01-23
+
+### Major Changes
+
+**MCP Tool Consolidation: 34 → 12 Tools (64% API Simplification)**
+
+The most significant API redesign in MCP Memory Service history - consolidating 34 tools into 12 unified tools for better usability, maintainability, and MCP best practices compliance. While technically maintaining 100% backwards compatibility, this represents a new generation of the API architecture warranting a major version bump.
+
+**Key Achievements:**
+- **64% Tool Reduction**: 34 tools → 12 tools with enhanced capabilities
+- **100% Backwards Compatibility**: All 33 deprecated tools continue working with deprecation warnings
+- **Zero Breaking Changes**: Existing integrations work unchanged until v11.0.0
+- **Enhanced Capabilities**: New unified tools offer combined functionality (e.g., filter by tags + time range)
+- **Comprehensive Testing**: 62 new tests added (100% pass rate, 968 total tests)
+- **Migration Guide**: Complete documentation in `docs/MIGRATION.md`
+
+### Tool Consolidation Details
+
+**Delete Operations (6 → 1):**
+- `delete_memory`, `delete_by_tag`, `delete_by_tags`, `delete_by_all_tags`, `delete_by_timeframe`, `delete_before_date`
+- **Unified as:** `memory_delete` with combined filters (tags + time range + dry_run mode)
+
+**Search Operations (6 → 1):**
+- `retrieve_memory`, `recall_memory`, `recall_by_timeframe`, `retrieve_with_quality_boost`, `exact_match_retrieve`, `debug_retrieve`
+- **Unified as:** `memory_search` with modes (semantic/exact/hybrid), quality boost, and time filtering
+
+**Consolidation Operations (7 → 1):**
+- `consolidate_memories`, `consolidation_status`, `consolidation_recommendations`, `scheduler_status`, `trigger_consolidation`, `pause_consolidation`, `resume_consolidation`
+- **Unified as:** `memory_consolidate` with action parameter (run/status/recommend/scheduler/pause/resume)
+
+**Ingestion Operations (2 → 1):**
+- `ingest_document`, `ingest_directory`
+- **Unified as:** `memory_ingest` with automatic directory detection
+
+**Quality Operations (3 → 1):**
+- `rate_memory`, `get_memory_quality`, `analyze_quality_distribution`
+- **Unified as:** `memory_quality` with action parameter (rate/get/analyze)
+
+**Graph Operations (3 → 1):**
+- `find_connected_memories`, `find_shortest_path`, `get_memory_subgraph`
+- **Unified as:** `memory_graph` with action parameter (connected/path/subgraph)
+
+**Simple Renames (5 tools):**
+- `store_memory` → `memory_store`
+- `check_database_health` → `memory_health`
+- `get_cache_stats` → `memory_stats`
+- `cleanup_duplicates` → `memory_cleanup`
+- `update_memory_metadata` → `memory_update`
+
+**New Tool:**
+- `memory_list` - Browse memories with pagination (replaces `search_by_tag` with enhanced features)
+
+### Deprecation Architecture
+
+**New Compatibility Layer:** `src/mcp_memory_service/server/compat.py` (318 lines)
+- Centralized `DEPRECATED_TOOLS` mapping with migration hints
+- Automatic warning emission for deprecated tool usage
+- Clean delegation to new unified handlers
+- Zero performance overhead for new tools
+
+**Deprecation Timeline:**
+- **v10.0+**: All old tools work with warnings (current release)
+- **v11.0**: Old tools removed (breaking change)
+
+### Technical Improvements
+
+**Code Quality:**
+- Reduced API surface area by 64%
+- Eliminated duplicate validation logic across 33 handlers
+- Improved maintainability with unified error handling
+- Better parameter naming consistency (e.g., `n_results` → `limit`, `content_hash` standardized)
+
+**Testing:**
+- 62 new comprehensive tests covering all tool migrations
+- 100% test pass rate maintained (968 total tests)
+- Validation of deprecation warnings and parameter transformations
+- Integration tests for unified handler flows
+
+**Documentation:**
+- Complete migration guide with side-by-side examples
+- Deprecation warnings with actionable migration hints
+- Updated MCP schema with new tool definitions
+- CLAUDE.md updated with new tool reference
+
+### Migration Guide
+
+**For Existing Users:**
+1. **No Action Required**: Old tool names continue working
+2. **Optional**: Update to new tool names to eliminate deprecation warnings
+3. **Follow Migration Guide**: `docs/MIGRATION.md` provides mapping for all tools
+4. **Timeline**: Update before v11.0.0 (removal date TBD)
+
+**Example Migration:**
+```python
+# Old (v9.x) - Still works in v10.0 with warning
+{"tool": "retrieve_memory", "query": "python", "n_results": 5}
+
+# New (v10.0+) - No warnings
+{"tool": "memory_search", "query": "python", "limit": 5, "mode": "semantic"}
+```
+
+**Enhanced Capabilities:**
+```python
+# Old (v9.x) - Required multiple tool calls
+delete_by_tags(tags=["temp"])  # First call
+delete_by_timeframe(start="2024-01-01")  # Second call
+
+# New (v10.0+) - Single unified call
+memory_delete(tags=["temp"], after="2024-01-01", tag_match="any")
+```
+
+### Related Issues
+
+- Closes #372 - MCP Tool Optimization
+- Related #374 - Follow-up performance optimizations
+
+### Contributors
+
+Special thanks to the community for feedback on API design and testing the deprecation layer during development.
+
+---
+
+## [9.3.1] - 2026-01-20
+
+### Fixed
+- **Fatal Python error during shutdown** (#368)
+  - Fixed "database is locked" crash when Claude Desktop sends shutdown signal (SIGTERM/SIGINT)
+  - Changed signal handler to use `os._exit(0)` instead of `sys.exit(0)` to avoid buffered I/O lock deadlock
+  - Prevents "Fatal Python error: _enter_buffered_busy: could not acquire lock" during interpreter shutdown
+  - Server now shuts down cleanly without "Server disconnected" errors in Claude Desktop
+  - Root cause: `sys.exit(0)` in signal handler tried to flush buffered stdio streams while locks were held
+  - Solution: Use `os._exit(0)` to bypass I/O cleanup after `_cleanup_on_shutdown()` completes
+  - Resolved issue #368
+
+## [9.3.0] - 2026-01-19
+
+### Added
+- **Relationship Inference Engine** (Commit 40db489)
+  - Intelligent association typing for knowledge graph relationships
+  - Multi-factor analysis: memory type combinations, content semantics, temporal patterns, contradictions
+  - Pattern-based classification: causes, fixes, contradicts, supports, follows, related
+  - Confidence scoring (0.0-1.0) with configurable minimum threshold (default: 0.6)
+  - **Implementation**:
+    - New module: `src/mcp_memory_service/consolidation/relationship_inference.py` (433 lines)
+    - `RelationshipInferenceEngine` class with async relationship type inference
+    - 4 analysis methods: type combination, content semantics, temporal, contradictions
+  - **Maintenance Scripts**:
+    - `scripts/maintenance/improve_memory_ontology.py` - Batch re-classify memory types and standardize tags
+    - `scripts/maintenance/update_graph_relationship_types.py` - Batch update existing graph relationships
+    - Enhanced `scripts/maintenance/cleanup_memories.py` with HTTP/HTTPS auto-detection
+  - **Benefits**:
+    - Rich knowledge graphs with meaningful relationship types beyond "related"
+    - Automatic relationship type inference during consolidation
+    - Retroactive classification of existing relationships
+
+### Fixed
+- **Invalid memory type 'knowledge' in Web UI** (#364)
+  - Removed invalid "knowledge" option from document upload form
+  - Added missing memory types to ontology: `document`, `note`, `reference`
+  - Fixed Knowledge Graph display issues for uploaded documents
+  - All 34 ontology tests passing
+  - No more validation warnings in server logs
+
+- **wandb dependency conflict causing embedding failures** (#311)
+  - Fixed incompatibility between wandb 0.15.2 and protobuf 5.x
+  - Set `WANDB_DISABLED=true` environment variable to prevent wandb loading
+  - Updated dependency constraint to `wandb>=0.18.0` in pyproject.toml
+  - Restored semantic search functionality with proper SentenceTransformer embeddings
+  - Fixed 3 failing tests related to embedding model initialization
+  - Added regression test to prevent future embedding model fallback issues
+
+## [9.2.1] - 2026-01-19
+
+### Fixed
+- **CRITICAL: Knowledge Graph table initialization bug** (#362)
+  - **Root Cause**: Migration files existed but were never executed during storage initialization
+  - **Impact**: All Knowledge Graph operations failed with "no such table: memory_graph" errors
+  - **Solution**: Created MigrationRunner utility to execute SQL migrations during SqliteVecMemoryStorage.initialize()
+  - **Migrations Applied**: Graph table migrations (008, 009, 010) now run automatically
+  - **Test Results**: Knowledge Graph tests improved from 14/51 to 44/51 passing (37 fixes)
+  - **Full Test Suite**: 910 tests passing, 0 regressions introduced
+  - **Idempotency**: Migration runner handles duplicate column errors gracefully (non-fatal warnings)
+  - **Technical Details**:
+    - New `MigrationRunner` class in `storage/migration_runner.py` (190 lines)
+    - Integrated into `SqliteVecMemoryStorage.initialize()` with 48 new lines
+    - 340 lines of comprehensive unit tests (10 test cases)
+    - Supports both sync and async migration execution
+    - Non-fatal error handling (logs warnings, doesn't crash)
+  - **Remaining Issues**: 7 Knowledge Graph test failures are pre-existing bugs (deprecated API usage, not related to this fix)
+
+### Technical Details
+- Migration runner executes migrations in both new database and existing database initialization paths
+- Skips already-applied migrations automatically (e.g., duplicate columns)
+- Ensures memory_graph table is always available for graph operations
+- No user action required - migrations run automatically on next storage initialization
+
+## [9.2.0] - 2026-01-18
+
+### Added
+- **Knowledge Graph Dashboard with D3.js v7.9.0** - Interactive force-directed graph visualization
+  - **Interactive Force-Directed Graph**: Zoom, pan, drag nodes to explore memory relationships
+  - **Relationship Type Distribution Chart**: Bar chart showing breakdown of 6 relationship types (Chart.js)
+  - **6 Typed Relationships**: causes, fixes, contradicts, supports, follows, related
+  - **2 New API Endpoints**:
+    - `/api/analytics/relationship-types` - Get distribution of relationship types
+    - `/api/analytics/graph-visualization` - Get graph data for visualization
+  - **Interactive Controls**:
+    - Zoom with mouse wheel or touch
+    - Pan by dragging background
+    - Drag nodes to explore connections
+    - Hover tooltips with memory details
+  - **Multi-Language Support**: Full UI localization for 7 languages (en, zh, de, es, fr, ja, ko)
+  - **154 New i18n Translation Keys**: 22 translation keys per language for graph UI
+  - **Dark Mode Integration**: Seamless theme switching with existing dashboard
+  - **Performance**: Successfully tested with 2,730 relationships
+
+### Changed
+- **Extended Storage Interface**: Added graph analytics methods
+  - `get_relationship_type_distribution()` - Query relationship type counts
+  - `get_graph_visualization_data()` - Fetch graph data optimized for D3.js rendering
+
+### Database
+- **Migration Required**: Added `relationship_type` column to `memory_graph` table
+  - **SQLite Migration**: `python scripts/migration/add_relationship_type_column.py`
+  - **Cloudflare D1**: Not required (graph is SQLite-only in current version)
+  - **Default Value**: All existing relationships set to 'related' type
+  - **Backward Compatible**: Migration is idempotent and safe to re-run
+
+### Documentation
+- **New Guide**: Complete Knowledge Graph Dashboard documentation in `docs/features/knowledge-graph-dashboard.md`
+- **Updated README**: Added Knowledge Graph Dashboard section with features and screenshots
+
+## [9.0.6] - 2026-01-18
+
+### Added
+- **OAuth Persistent Storage Backend** (#360): SQLite-based OAuth storage for multi-worker deployments
+  - New `MCP_OAUTH_STORAGE_BACKEND` environment variable (memory|sqlite)
+  - New `MCP_OAUTH_SQLITE_PATH` configuration for database location
+  - WAL mode enabled for multi-process safety
+  - Atomic one-time authorization code consumption (prevents replay attacks)
+  - Performance: <10ms token operations
+  - Backward compatible (defaults to memory backend)
+  - Comprehensive test suite (30 tests, parametrized across backends)
+  - Documentation: [docs/oauth-storage-backends.md](docs/oauth-storage-backends.md)
+
+### Fixed
+- **uvx HTTP Test Failures** (#361): Lazy initialization of asyncio.Lock in api/client.py
+  - Fixed module-level Lock creation that caused event loop context issues
+  - All HTTP endpoint tests now pass in uvx CI environment
+  - No impact on existing functionality
+
+### Technical Details
+- OAuth storage now supports pluggable backends via abstract base class
+- SQLite backend uses atomic UPDATE WHERE for race-safe code consumption
+- Factory pattern for backend selection (create_oauth_storage)
+- All backends tested with identical test suite (parametrized fixtures)
+
+## [9.0.5] - 2026-01-18
+
+🚨 **CRITICAL HOTFIX** - Fixes OAuth 2.1 token endpoint routing bug
+
+### Fixed
+- **CRITICAL: OAuth 2.1 token endpoint routing fixed** (Issue #358)
+  - **Root Cause**: `@router.post("/token")` decorator was on wrong function (`_handle_authorization_code_grant` instead of `token`)
+  - **Impact**: Token endpoint completely non-functional for all standard OAuth clients (Claude Desktop, MCPJam, etc.)
+  - **Symptoms**: HTTP 422 Unprocessable Entity errors when attempting to exchange authorization codes for access tokens
+  - **Incident**: OAuth clients could not complete authorization code flow - authorization succeeded but token exchange failed
+  - **Fix**: Moved `@router.post("/token")` decorator from internal helper function to correct public endpoint handler
+  - **Files Changed**:
+    - `src/mcp_memory_service/web/oauth/authorization.py:220` - Removed decorator from `_handle_authorization_code_grant`
+    - `src/mcp_memory_service/web/oauth/authorization.py:348` - Added decorator to `token` function
+  - **OAuth 2.1 Compliance**: Token endpoint now correctly implements RFC 6749 token exchange flow
+  - **Backward Compatibility**: Fixes broken functionality introduced in recent OAuth refactoring
+  - **Recommendation**: All users attempting to use OAuth authentication should upgrade to v9.0.5 immediately
+- **Script reliability improvements for update and server management**
+  - **Network error handling**: Added retry logic (up to 3 attempts) to `update_and_restart.sh` for transient DNS/network failures
+    - Network connectivity check before pip install (ping 8.8.8.8, 1.1.1.1)
+    - 2-second delay between retries, 5-second wait when network check fails
+    - Clear error messages with helpful suggestions on failure
+    - Fixes DNS errors: "nodename nor servname provided, or not known" (Errno 8)
+  - **Server startup timeout**: Increased HTTP server initialization timeout from 10s to 20s
+    - Hybrid storage + embedding model loading takes 12-15 seconds
+    - Previous 10s timeout caused false "failed to start" errors
+    - Updated `http_server_manager.sh` to allow adequate initialization time
+  - **User Impact**: More reliable updates on unstable networks, no more premature timeout failures
+  - **Files Changed**:
+    - `scripts/update_and_restart.sh:349-398` - Network retry logic
+    - `scripts/service/http_server_manager.sh:182-185` - Timeout increase
+  - **Testing**: Server restart verified successful (6-13s startup, well within 20s limit)
+
+## [9.0.4] - 2026-01-17
+
+🚨 **CRITICAL HOTFIX** - Fixes OAuth validation blocking server startup
+
+### Fixed
+- **CRITICAL: OAuth validation preventing server startup** (discovered in v9.0.3)
+  - **Root Cause**: `OAUTH_ENABLED` defaulted to `True`, causing OAuth validation to run on every import
+  - **Impact**: Server startup failed with `ValueError: Invalid OAuth configuration: JWT configuration error: No JWT signing key available`
+  - **Symptoms**: `update_and_restart.sh` fails during dependency installation, config.py import fails
+  - **Fix**: Changed `OAUTH_ENABLED` default from `True` to `False` (opt-in, not opt-out)
+  - **Fix**: Made OAuth validation non-fatal (logs errors but doesn't raise exception)
+  - **Files Changed**:
+    - `src/mcp_memory_service/config.py:690` - Changed default to `False`
+    - `src/mcp_memory_service/config.py:890-895` - Made validation non-fatal
+  - **Backward Compatibility**: No impact (OAuth was broken by default, now works correctly)
+  - **Recommendation**: All users on v9.0.3 should upgrade to v9.0.4 immediately
+
+## [9.0.3] - 2026-01-17
+
+🚨 **CRITICAL HOTFIX** - Fixes Cloudflare D1 schema migration bug causing container reboot loop
+
+### Fixed
+- **CRITICAL: Add automatic schema migration for Cloudflare D1 backend** (Issue #354)
+  - **Root Cause**: v8.72.0 added `tags` and `deleted_at` columns but Cloudflare backend had no migration logic
+  - **Impact**: Users upgrading from v8.69.0 → v8.72.0+ experienced container reboot loop due to missing columns
+  - **Symptoms**: `400 Bad Request` errors from D1 when trying to use missing columns
+  - **Fix**: Added `_migrate_d1_schema()` method with automatic column detection and migration
+  - **Fix**: Added retry logic with exponential backoff to handle D1 metadata sync issues
+  - **Fix**: Added clear error messages with manual SQL workaround if automated migration fails
+  - **Files Changed**:
+    - `src/mcp_memory_service/storage/cloudflare.py:290-495` - Added migration methods
+  - **Migration Process**:
+    1. Check existing schema using `PRAGMA table_info(memories)`
+    2. Add missing columns: `tags TEXT`, `deleted_at REAL DEFAULT NULL`
+    3. Create index: `idx_memories_deleted_at`
+    4. Verify columns are usable (handles D1 metadata sync issues)
+  - **Backward Compatibility**: Safe for all versions (idempotent, no data loss)
+  - **Manual Workaround** (if automated migration fails):
+    ```sql
+    ALTER TABLE memories ADD COLUMN tags TEXT;
+    ALTER TABLE memories ADD COLUMN deleted_at REAL DEFAULT NULL;
+    CREATE INDEX IF NOT EXISTS idx_memories_deleted_at ON memories(deleted_at);
+    ```
+  - **Recommendation**: All Cloudflare users on v8.72.0+ should upgrade to v9.0.3 immediately
+
+## [9.0.2] - 2026-01-17
+
+🚨 **CRITICAL HOTFIX** - Actually includes the code fix from v9.0.1
+
+### Fixed
+- **CRITICAL: Include actual code changes for mass deletion bug fix**
+  - **Issue**: v9.0.1 was tagged and released WITHOUT the actual code changes to `manage.py`
+  - **Root Cause**: Code changes were committed AFTER the v9.0.1 tag was created
+  - **Impact**: PyPI and Docker images for v9.0.1 do NOT contain the fix
+  - **This Release**: v9.0.2 includes the actual code changes from commit 9c5ed87
+  - **Files Fixed**:
+    - `src/mcp_memory_service/web/api/manage.py:254` - `confirm_count` now REQUIRED
+    - Added comprehensive security documentation and error messages
+  - **Recommendation**: All users should upgrade to v9.0.2 (not v9.0.1)
+
+## [9.0.1] - 2026-01-17
+
+⚠️ **WARNING**: This release was tagged incorrectly and does NOT include the actual code fix. Please upgrade to v9.0.2 instead.
+
+🚨 **CRITICAL HOTFIX** - Fixes accidental mass deletion bug in v9.0.0
+
+### Fixed
+- **CRITICAL: Fix accidental mass deletion via /delete-untagged endpoint** (Hotfix)
+  - **Root Cause**: `confirm_count` parameter was optional in `/api/manage/delete-untagged` endpoint
+  - **Impact**: If endpoint called without `confirm_count`, ALL untagged memories were deleted without confirmation
+  - **Incident**: On 2026-01-17 at 10:59:20, 6733 memories (87% of database) were accidentally soft-deleted
+  - **Fix**: Made `confirm_count` parameter REQUIRED (not optional)
+  - **Fix**: Enhanced safety check to always validate confirm_count matches actual count
+  - **Fix**: Improved error message to guide users to use GET /api/manage/count-untagged first
+  - **Security**: Added comprehensive documentation about the security implications
+  - **Recovery**: All affected memories can be restored by setting `deleted_at = NULL`
+  - **File**: `src/mcp_memory_service/web/api/manage.py:254`
+  - **Breaking Change**: API now requires `confirm_count` parameter (previously optional)
+  - **Recommendation**: All v9.0.0 users should upgrade immediately to v9.0.1
+
+## [9.0.0] - 2026-01-17
+
+⚠️ **MAJOR RELEASE** - Contains breaking changes. See Migration Guide in README.md.
+
+### Fixed
+- **Fix 33 API/HTTP test failures with package import error** (Issue #351, PR #352)
+  - Changed relative imports to absolute imports in `web/api/backup.py` for pytest compatibility
+  - Fixed `ModuleNotFoundError: 'mcp_memory_service' is not a package` during test collection
+  - Resolved pytest `--import-mode=prepend` confusion with triple-dot relative imports
+  - **Test Results**: 829/914 tests passing (up from 818), all API/HTTP integration tests pass
+  - **Impact**: Single-line fix, no API changes, no breaking changes
+
+- **Fix validation tests and legacy type migration** (PR #350)
+  - Fixed all 5 validation tests (editable install detection, version matching, runtime warnings)
+  - Fixed `check_dev_setup.py` to import `_version.py` directly instead of text parsing
+  - Fixed timestamp test import error (namespace collision in `models` import)
+  - Migrated 38 legacy memory types to new ontology (task→observation, note→observation, standard→observation)
+  - Pinned `numpy<2` for pandas compatibility (prevents binary incompatibility errors)
+  - Extracted offline mode setup to standalone `offline_mode.py` module (cleaner package structure)
+  - Restored core imports in `__init__.py` for pytest package recognition
+  - Updated consolidation retention periods for new ontology types
+  - **Test Results**: 818/851 tests passing (96%), all validation tests pass
+
+- **Fix bidirectional storage for asymmetric relationships** ⚠️ **BREAKING CHANGE** (Issue #348, PR #349)
+  - Asymmetric relationships (causes, fixes, supports, follows) now store only directed edges
+  - Symmetric relationships (related, contradicts) continue storing bidirectional edges
+  - Database migration (010) removes incorrect reverse edges from existing data
+  - Query infrastructure with `direction` parameter now works correctly with asymmetric storage
+  - SemanticReasoner methods (find_causes, find_fixes) validated with new storage model
+  - New `is_symmetric_relationship()` function in ontology.py for relationship classification
+  - Updated `store_association()` to conditionally store edges based on relationship symmetry
+  - Updated `find_connected()` direction="both" to use CASE expression for asymmetric edges
+  - **Breaking Change**: Code expecting bidirectional asymmetric edges needs `direction="both"` parameter
+
+### Added
+- **Phase 0 Ontology Foundation - Core Implementation** ⚠️ **BREAKING CHANGE** (PR #347)
+  - **Memory Type Ontology**: Formal classification system with 5 base types and 21 subtypes
+    - Base types: observation, decision, learning, error, pattern
+    - Hierarchical taxonomy with parent-child relationships
+    - Soft validation: defaults to 'observation' for invalid types (backward compatible)
+  - **Tag Taxonomy**: Structured namespace system with 6 predefined namespaces
+    - Namespaces: `sys:`, `q:`, `proj:`, `topic:`, `t:`, `user:`
+    - Backward compatible with legacy tags (no namespace)
+    - O(1) namespace validation via exposed `VALID_NAMESPACES` class attribute
+  - **Typed Relationships**: Semantic relationship system for knowledge graph
+    - 6 relationship types: causes, fixes, contradicts, supports, follows, related
+    - Database migration adds `relationship_type` column to memory_graph table
+    - `TypedAssociation` dataclass for explicit relationship semantics
+    - GraphStorage extended with relationship type filtering in queries
+  - **Lightweight Reasoning Engine**: Foundation for causal inference
+    - `SemanticReasoner` class with contradiction detection
+    - Causal chain analysis: `find_fixes()`, `find_causes()`
+    - Placeholder methods for future reasoning capabilities
+  - **Performance Optimizations**: Caching and validation improvements
+    - `get_all_types()`: 97.5x speedup via module-level caching
+    - `get_parent_type()`: 35.9x speedup via cached reverse lookup map
+    - Tag validation: 47.3% speedup (eliminated double parsing)
+  - **Security Improvements**: Template-based SQL query building
+  - **Testing**: 80 comprehensive tests with 100% backward compatibility
+  - **Breaking Change**: Legacy types (task, note, standard) deprecated, automatically migrated via soft-validation (defaults to 'observation')
+
+- **Response Size Limiter** (PR #344)
+  - Added `max_response_chars` parameter to 5 memory retrieval tools to prevent context window overflow
+  - Tools updated: `retrieve_memory`, `recall_memory`, `retrieve_with_quality_boost`, `search_by_tag`, `recall_by_timeframe`
+  - Environment variable: `MCP_MAX_RESPONSE_CHARS` (default: 0 = unlimited)
+  - Truncates at memory boundaries (never mid-content) to preserve data integrity
+  - Always returns at least one memory even if it exceeds the character limit
+  - Displays truncation warning with shown/total counts when limit is applied
+  - New utility module: `src/mcp_memory_service/server/utils/response_limiter.py` (260 lines)
+  - Comprehensive test coverage: 29 tests (415 lines) covering edge cases
+  - Recommended values: 30000-50000 characters for typical LLM context windows
+  - Backward compatible: existing code continues to work with unlimited responses
+
+## [8.76.0] - 2026-01-12
+
+### Added
+- **Official Lite Distribution Support** (PR #341)
+  - **New Package**: `mcp-memory-service-lite` - Official lightweight distribution for ONNX-only installations
+    - 90% installation size reduction: 7.7GB → 805MB
+    - Same nvidia-quality-classifier-deberta ONNX model, just lighter dependency chain
+    - Faster installation time: <2 minutes vs 10-15 minutes
+  - **Dual Package Publishing**: Automated CI/CD workflow (`publish-dual.yml`) publishes both packages to PyPI
+    - Full package: `mcp-memory-service` (includes transformers, torch, sentence-transformers)
+    - Lite package: `mcp-memory-service-lite` (ONNX-only, tokenizers-based embeddings)
+    - Both packages share the same codebase via pyproject-lite.toml
+  - **Conditional Dependency Loading**: Transformers becomes truly optional
+    - Quality scoring works with tokenizers-only (lite) or full transformers (full package)
+    - Graceful fallback: embedding service detects available packages and loads accordingly
+    - No runtime performance impact - same quality scoring performance
+  - **Implementation Details**:
+    - Created `pyproject-lite.toml` with minimal dependencies (no transformers/torch)
+    - Updated `onnx_ranker.py` to use tokenizers directly instead of transformers
+    - Fixed quality_provider metadata access bug in async_scorer.py
+    - 15 comprehensive integration tests (`tests/test_lightweight_onnx.py`, 487 lines)
+  - **Documentation**:
+    - Complete setup guide: `docs/LIGHTWEIGHT_ONNX_SETUP.md`
+    - Setup script: `scripts/setup-lightweight.sh`
+  - **Use Cases**:
+    - CI/CD pipelines (faster builds, lower disk usage)
+    - Resource-constrained environments (VPS, containers)
+    - Quick local development setup
+    - Users who only need quality scoring (not full ML features)
+- **Production Refactor Command**: Added `/refactor-function-prod` command for production-ready code refactoring
+  - Enhanced version of the refactor-function PoC with production features
+- **Refactoring Metrics Documentation**: Comprehensive Issue #340 refactoring documentation in `.metrics/`
+  - Baseline complexity measurements
+  - Complexity comparison showing 75.2% average reduction
+  - Tracking tables and completion reports
+
+### Fixed
+- **Multi-Protocol Port Detection and Cross-Platform Fallback** (`scripts/service/http_server_manager.sh`)
+  - **Problem**: Update script failed with port conflict on Linux systems without lsof installed
+  - **Root Causes**:
+    - Script used lsof exclusively for port detection, silently failed on systems without it (common on Arch/Manjaro)
+    - Health checks only tried HTTP protocol, failed when server used HTTPS
+    - Led to "server not running" false positive → attempted restart → port conflict error
+  - **Solution**:
+    - Implemented 4-level port detection fallback chain: lsof → ss → netstat → ps
+    - Health check now tries both HTTP and HTTPS protocols with automatic fallback
+    - Explicit error messages when all detection methods fail
+    - Cross-platform compatibility validated on Arch Linux with ss-only environment
+  - **Testing**: Manual testing on Arch Linux without lsof, confirmed fallback to ss works correctly
+  - **Impact**: Resolves installation failures on minimal Linux distributions, improves HTTPS deployment reliability
+- **MCP HTTP Transport**: Fix KeyError 'backend_info' in get_cache_stats tool (Issue #342, PR #343)
+  - **Problem**: `get_cache_stats` tool crashed with `KeyError: 'backend_info'` when called via HTTP transport
+  - **Root Cause**: Code tried to set `result["backend_info"]["embedding_model"]` without creating the dict first
+  - **Solution**: Create complete `backend_info` dict with all required fields (storage_backend, sqlite_path, embedding_model)
+  - **Impact**: HIGH severity (tool completely broken in HTTP transport), LOW risk fix
+  - **Testing**: Added regression test validating backend_info structure
+  - Thanks to @Sundeepg98 for reporting with clear reproduction steps!
+- **Hook Installer**: Auto-register PreToolUse hook in settings.json (Issue #335)
+  - **Problem**: `permission-request.js` was copied but never registered in `settings.json`, so the hook never executed
+  - **Solution**: Installer now auto-adds PreToolUse hook configuration for MCP permission management
+  - Added 7 new safe patterns: `store`, `remember`, `ingest`, `rate`, `proactive`, `context`, `summary`, `recommendations`
+  - Hook now correctly auto-approves additive operations (e.g., `store_memory`)
+- **Memory Hooks**: Fix cluster memory categorization showing incorrect dates
+  - **Problem**: Consolidated cluster memories (from consolidation system) showed "🕒 today" in "Recent Work" section because hook used `created_at` (when cluster was created) instead of `temporal_span` (time period the cluster represents)
+  - **Solution**: Added new "📦 Consolidated Memories" section with proper temporal span display (e.g., "📅 180d span")
+  - **Changes**: Updated `claude-hooks/utilities/context-formatter.js` to detect `compressed_cluster` memory type and display `metadata.temporal_span.span_days`
+  - **Impact**: Prevents confusion between recent development and historical memory summaries
+
+### Changed
+- **Hook Installer**: Refactored MCP configuration detection functions for improved maintainability (Issue #340)
+  - Reduced complexity by 45.5% across 3 core functions
+  - Extracted 6 well-structured helper functions (avg complexity 3.83)
+  - Fixed validation bug: Added 'detected' server type support (PR #339 follow-up)
+  - Improved code grade distribution: 58% A-grade functions (up from 53%)
+- **Memory Consolidation**: Improved cluster concept quality with intelligent deduplication
+  - **Problem**: Cluster summaries showed redundant concepts (e.g., "memories, Memories, MEMORY, memory") and noise (SQL keywords like "BETWEEN")
+  - **Solution**: Added case-insensitive deduplication and filtering of SQL keywords/meta-concepts
+  - **Changes**: Enhanced `_extract_key_concepts()` in `consolidation/compression.py` to deduplicate case variants and filter 10 SQL keywords + 6 meta-concepts
+  - **Impact**: Cluster summaries now show meaningful thematic concepts instead of technical noise
+
+## [8.75.1] - 2026-01-10
+
+### Fixed
+- **Hook Installer**: Support flexible MCP server naming conventions (PR #339)
+  - **Problem**: Installer required exact server name `memory`, causing installation failures for users with custom MCP configurations (e.g., `mcp-memory-service`, `memory-service`)
+  - **Solution**:
+    - Installer now detects servers matching patterns: `memory`, `mcp-memory`, `*memory*service*`, `*memory*server*`
+    - Backward compatible with existing `memory` server name
+    - Provides clear error messages when no matching server found
+    - Improved user experience for custom MCP configurations
+  - **Testing**: Manual testing with various server name configurations
+  - **Contributors**: Thanks to @timkjr for reporting and testing the fix!
+
+## [8.75.0] - 2026-01-09
+
+### Added
+- **Lightweight ONNX Quality Scoring without Transformers Dependency** (PR #337)
+  - **Problem**: transformers package adds 6.9GB of dependencies (torch, tensorflow, etc.), making installation bloated for users who only need quality scoring
+  - **Solution**: Use tokenizers package directly instead of transformers
+    - 90% disk space reduction: 7.7GB → 805MB total installation
+    - Same ONNX model (nvidia-quality-classifier-deberta), just lighter dependency chain
+    - Conditional dependency loading - only install what you use
+  - **Implementation**:
+    - Modified `src/mcp_memory_service/quality/onnx_ranker.py` to use tokenizers directly
+    - Added tokenizers as optional dependency in pyproject.toml
+    - Updated embedding service to handle both tokenizers and transformers (graceful fallback)
+    - Fixed quality_provider metadata access bug in async_scorer.py
+  - **Testing**: 15 comprehensive integration tests (`tests/test_lightweight_onnx.py`, 487 lines)
+  - **Documentation**:
+    - Complete setup guide: `docs/LIGHTWEIGHT_ONNX_SETUP.md`
+    - Setup script: `scripts/setup-lightweight.sh`
+  - **Benefits**:
+    - Faster installation (<2 min vs 10-15 min)
+    - Lower disk usage (805MB vs 7.7GB)
+    - Same quality scoring performance
+    - No runtime performance impact
+
+### Fixed
+- **Multi-Protocol and Cross-Platform Port Detection** (`scripts/service/http_server_manager.sh`)
+  - **Problem**: Update script failed with port conflict on Linux systems without lsof installed
+  - **Root Cause**:
+    - Script used lsof exclusively, silently failed on systems without it (common on Arch/Manjaro)
+    - Health checks only tried HTTP, failed when server used HTTPS
+    - Led to "server not running" false positive → port conflict
+  - **Solution**:
+    - Port detection fallback chain: lsof → ss → netstat → ps
+    - Health check supports both HTTP and HTTPS protocols with automatic fallback
+    - Tested on Arch Linux with ss-only environment
+  - **Fixes**: Issue #341
+
+## [8.74.0] - 2026-01-09
+
+### Added
+- **Cross-Platform Wrapper Scripts for Orphan Process Cleanup** (`scripts/run/`)
+  - **Python Wrapper** (`memory_wrapper_cleanup.py`): Universal cross-platform solution (recommended)
+  - **Bash Wrapper** (`memory_wrapper_cleanup.sh`): Native macOS/Linux implementation
+  - **PowerShell Wrapper** (`memory_wrapper_cleanup.ps1`): Native Windows implementation
+  - **Automatic Orphan Detection**: Identifies orphaned MCP memory processes when Claude Desktop/Code crashes
+    - Unix: Detects processes adopted by init/launchd (ppid == 1)
+    - Windows: Detects processes whose parent no longer exists
+  - **Database Lock Prevention**: Cleans up orphaned processes before starting new server instance
+  - **Safe Cleanup**: Only terminates actual orphans, preserves active sessions
+  - **Comprehensive Documentation** (`README_CLEANUP_WRAPPER.md`): Installation guide, troubleshooting, and technical details
+  - **Fixes**: SQLite "database is locked" errors when running multiple Claude instances after crashes
+
+## [8.73.0] - 2026-01-09
+
+### Added
+- **Universal Permission Request Hook v1.0** (`claude-hooks/core/permission-request.js`)
+  - **Automatic MCP Tool Permission Management**: Eliminates repetitive permission prompts for safe operations
+  - **Safe-by-Default Design**: Auto-approves read-only operations (get, list, retrieve, search, query, etc.)
+  - **Destructive Operation Protection**: Requires confirmation for write/delete operations (delete, update, execute, etc.)
+  - **Universal MCP Server Support**: Works across all MCP servers (memory, browser, context7, playwright, etc.)
+  - **Zero Configuration**: Works out of the box with sensible defaults
+  - **Extensible Pattern Matching**: Configure custom patterns via `claude-hooks/config.json`
+  - **Comprehensive Documentation**: Installation guide, configuration reference, and troubleshooting
+  - **Installer Integration**: Added to core hooks installation via `install_hooks.py`
+- **Sync Status Maintenance Script** (`scripts/maintenance/sync_status.py`)
+  - Compares local SQLite database with Cloudflare D1
+  - Shows memory counts (total, active, tombstones) for both databases
+  - Identifies sync discrepancies: local-only, D1-only, pending deletions
+  - Cross-platform support (Windows, macOS, Linux)
+  - Handles schema differences gracefully
+
+### Fixed
+- **Cloudflare D1 Schema Missing Columns** (`src/mcp_memory_service/storage/cloudflare.py`)
+  - **Problem**: D1 schema was missing `deleted_at` and `tags` columns, causing soft-delete operations to fail silently
+  - **Impact**: Tombstone-based sync between devices was broken - deleted memories on one device were not synced to others
+  - **Fix**: Added `deleted_at REAL DEFAULT NULL` and `tags TEXT` columns to D1 schema
+  - **Index**: Added `idx_memories_deleted_at` index for query performance
+
+## [8.72.0] - 2026-01-08
+
+### Added
+- **Graph Traversal MCP Tools** (PR #332)
+  - **Feature**: Three new MCP tools for querying memory association graph directly
+  - **Tools**:
+    - `find_connected_memories` - Multi-hop connection discovery (5ms, 30x faster than tag search)
+    - `find_shortest_path` - BFS pathfinding between two memories (15ms)
+    - `get_memory_subgraph` - Subgraph extraction for visualization (25ms)
+  - **Implementation**:
+    - New handler module: `src/mcp_memory_service/server/handlers/graph.py` (380 lines)
+    - Integration: `server_impl.py` tool registration and routing (134 lines)
+    - Graceful fallback if `memory_graph` table unavailable
+  - **Testing**: 10 comprehensive tests with 100% handler coverage (`tests/test_graph_traversal.py`, 328 lines, 58 assertions)
+  - **Validation**: `scripts/validation/validate_graph_tools.py` for MCP schema and query correctness
+  - **Quality Metrics**:
+    - Health Score: 85/100 (EXCELLENT)
+    - Complexity: Average 4.5 (Grade A)
+    - Security: 0 vulnerabilities
+  - **Benefits**:
+    - 30x performance improvement over tag-based connected memory search
+    - Enables Claude Code to traverse memory associations directly via MCP
+    - Supports exploration of knowledge relationships and context chains
+
+## [8.71.0] - 2026-01-06
+
+### Added
+- **Memory Management APIs and Graceful Shutdown** (PR #331)
+  - **Problem**: Orphaned MCP sessions consuming excessive memory (reported in Discussion #331)
+  - **Cache Cleanup Functions** (`src/mcp_memory_service/services/cache_manager.py`):
+    - `clear_all_caches()` - Clear storage and service caches
+    - `get_memory_usage()` - Get process memory statistics (RSS, VMS, available memory)
+    - `get_cache_stats()` - Get cache hit/miss statistics
+  - **Model Cache Cleanup** (`src/mcp_memory_service/storage/sqlite_vec.py`):
+    - `clear_model_caches()` - Clear embedding model caches
+    - `get_model_cache_stats()` - Get model cache statistics
+  - **Graceful Shutdown** (`src/mcp_memory_service/server/server_impl.py`):
+    - `_cleanup_on_shutdown()` - Cleanup function for signal handlers
+    - Updated `shutdown()` method with proper cache and connection cleanup
+    - Added `atexit` handler for normal process exit
+    - SIGTERM and SIGINT handlers now call cleanup before exit
+  - **Memory Management API Endpoints** (`src/mcp_memory_service/api/routes/health.py`):
+    - `GET /api/memory-stats` - Get detailed memory usage (process memory + cache stats + model cache stats)
+    - `POST /api/clear-caches` - Clear all caches manually (returns memory freed)
+  - **Documentation**:
+    - New file: `docs/troubleshooting/memory-management.md` - Comprehensive guide for monitoring and managing memory
+  - **Benefits**:
+    - Prevents memory leaks from orphaned sessions
+    - Enables proactive memory monitoring and cleanup
+    - Graceful resource release on server shutdown
+    - Production-ready memory management for long-running deployments
+
 # Historic Changelog
 
 **Historic releases for MCP Memory Service (v8.0.0 - v8.69.0 and v7.x)**

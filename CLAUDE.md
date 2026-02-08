@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop and 13+ AI applications. It uses vector embeddings for semantic search, supports multiple storage backends (SQLite-vec, Cloudflare, Hybrid), and includes advanced features like memory consolidation, quality scoring, and OAuth 2.1 team collaboration.
 
-**Current Version:** v10.7.2 - Server Management button fix in Settings modal (PR #429) - see [CHANGELOG.md](CHANGELOG.md) for details
+**Current Version:** v10.9.0 - Batched Inference Performance (4-16x GPU speedup, PRs #432, #435, #437) - see [CHANGELOG.md](CHANGELOG.md) for details
 
 > **🎯 v10.0.0 Milestone**: This major release represents a complete API consolidation - 34 tools unified into 12 with enhanced capabilities. All deprecated tools continue working with warnings until v11.0. See `docs/MIGRATION.md` for migration guide.
 
@@ -220,6 +220,16 @@ tests/
 - **`test_store`** - Auto-tags memories with `__test__` for cleanup
 - **`TEST_MEMORY_TAG = "__test__"`** - Reserved tag for automatic test cleanup
 
+### Test Safety (Critical - PR #438)
+**Triple Safety System** prevents production database deletion:
+1. **Forced Test Database Path**: `conftest.py` creates isolated temp directory with `mcp-test-` prefix at module import time
+2. **Pre-Test Verification**: `pytest_sessionstart` aborts test run if production path detected
+3. **Triple-Check Cleanup**: `pytest_sessionfinish` validates temp location + no production indicators + test markers present
+
+**Backend Isolation**: Tests automatically override `MCP_MEMORY_STORAGE_BACKEND` to `sqlite_vec` unless `MCP_TEST_ALLOW_CLOUD_BACKEND=true`
+
+**Incident History**: Feb 8, 2026 - Test cleanup deleted 8,663 production memories. Resolved via emergency backup recovery + comprehensive safeguards (PR #438).
+
 ### Test Markers (defined in `pytest.ini`)
 ```python
 @pytest.mark.unit         # Fast unit tests
@@ -346,7 +356,13 @@ export MCP_EXTERNAL_EMBEDDING_API_KEY=sk-xxx  # Optional
 2. Make changes
 3. `pytest` - Run tests
 4. `bash scripts/pr/pre_pr_check.sh` - Pre-PR validation (MANDATORY)
-5. Create PR - Use github-release-manager agent for releases
+5. Create PR - **IMPORTANT: Use `github-release-manager` agent for ALL version bumps and releases**
+
+**🚨 Release Protocol (MANDATORY)**:
+- **NEVER manually bump versions** - always use `github-release-manager` agent
+- Agent handles: version bump, CHANGELOG update, _version.py sync, PR creation, release notes
+- Ensures consistency across `pyproject.toml`, `_version.py`, CHANGELOG, and GitHub releases
+- Example: After merging feature PR, invoke github-release-manager agent to create release
 
 **Memory Tagging:** Always tag memories with `mcp-memory-service` as first tag (see `.claude/directives/memory-tagging.md`)
 
@@ -398,6 +414,7 @@ python scripts/validation/diagnose_backend_config.py          # Backend-specific
 ## Agent Integrations
 
 **Workflow automation:**
+- **changelog-archival** - Maintains lean CHANGELOG by archiving older versions
 - **github-release-manager** - Complete release workflow (version bump, CHANGELOG, PR creation)
 - **amp-bridge** - Fast refactoring with Amp CLI
 - **code-quality-guard** - Quality analysis before commits

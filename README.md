@@ -179,23 +179,24 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.8.0** (February 8, 2026)
+## 🆕 Latest Release: **v10.9.0** (February 8, 2026)
 
-**Hybrid BM25 + Vector Search** 🎯
+**Batched Inference Performance** 🚀
 
 **What's New:**
-- 🔍 **Hybrid Search** (Issue #175, PR #436): Combines BM25 keyword matching with vector similarity search
-  - Solves exact match problem: 60-70% → near-100% scoring for identical text
-  - Parallel execution: <15ms latency for BM25 + vector searches
-  - Configurable fusion: 30% keyword + 70% semantic (adjustable)
-  - Automatic FTS5 index synchronization via database triggers
-  - Backward compatible: `mode="semantic"` unchanged, `mode="hybrid"` opt-in
-  - 12 comprehensive tests (unit, integration, performance)
-  - Performance: <50ms average latency for 100 memories
-- 🐛 **search_memories() Format Fix**: Corrected pre-existing bug where response returned Memory objects instead of dictionaries with `similarity_score`
-- 🛡️ **Test Safety**: Tests force `sqlite_vec` backend to prevent accidental Cloudflare data deletion
+- ⚡ **4-16x GPU Performance** (PR #432): Batched ONNX and PyTorch inference for consolidation pipeline
+  - GPU: 4-16x speedup on RTX 5050 (0.7ms/item for batch=32 vs 5.2ms/item sequential)
+  - CPU: 2.3-2.5x speedup with batched inference
+  - Adaptive GPU dispatch: automatically falls back to sequential for small batches (<16 items)
+  - Configuration: `MCP_QUALITY_BATCH_SIZE=32` (default), `MCP_QUALITY_MIN_GPU_BATCH=16`
+  - 100% backward compatible: set `MCP_QUALITY_BATCH_SIZE=1` for instant rollback
+- 🔧 **Token Truncation Fix**: Proper tokenizer truncation (512 tokens ~2000 chars) instead of character-based [:512]
+- 🔗 **Embedding Orphan Prevention**: SAVEPOINT atomicity in `store()` and `store_batch()` ensures all memories searchable
+- 🎮 **ONNX Float32 GPU Fix**: Cast model to float32 before export for Ampere+ GPU compatibility (RTX 5050 validated)
+- 🔄 **Concurrent Write Stability**: Retry budget increased (3→5 retries, 0.1s→0.2s delay) for WAL mode
 
 **Previous Releases**:
+- **v10.8.0** - Hybrid BM25 + Vector Search (combines keyword matching with semantic search, solves exact match problem)
 - **v10.7.2** - Server Management Button Fix (Settings modal buttons causing page reload)
 - **v10.7.1** - Dashboard API Authentication Fix (complete auth coverage for all endpoints)
 - **v10.7.0** - Backup UI Enhancements (View Backups modal, backup directory display, enhanced API)
