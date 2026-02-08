@@ -1220,7 +1220,8 @@ SOLUTIONS:
 
         def batch_insert():
             for j, memory in enumerate(memories):
-                # Dedup check inside transaction (same connection holds the lock)
+                # Dedup check inside transaction (same connection holds the lock).
+                # Read-only, so no savepoint needed here.
                 cursor = self.conn.execute(
                     'SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
                     (memory.content_hash,)
@@ -1238,7 +1239,12 @@ SOLUTIONS:
                 tags_str = ",".join(memory.tags) if memory.tags else ""
                 metadata_str = json.dumps(memory.metadata) if memory.metadata else "{}"
 
+                # SAVEPOINT gives per-item atomicity: if the embedding INSERT
+                # fails, ROLLBACK TO undoes the memories INSERT too, preventing
+                # orphaned rows that would be unsearchable.
                 try:
+                    self.conn.execute('SAVEPOINT batch_item')
+
                     cur = self.conn.execute('''
                         INSERT INTO memories (
                             content_hash, content, tags, memory_type,
@@ -1252,26 +1258,20 @@ SOLUTIONS:
                     ))
                     rowid = cur.lastrowid
 
-                    try:
-                        self.conn.execute('''
-                            INSERT INTO memory_embeddings (rowid, content_embedding)
-                            VALUES (?, ?)
-                        ''', (rowid, serialize_float32(embedding_list)))
-                    except sqlite3.Error as emb_err:
-                        # Do NOT fall back to inserting without rowid — that would
-                        # break the memories.id ↔ memory_embeddings.rowid join,
-                        # orphaning the embedding and making the memory unsearchable.
-                        logger.error(
-                            f"Embedding insert failed for {memory.content_hash[:8]} "
-                            f"(rowid={rowid}): {emb_err}"
-                        )
-                        results[j] = (False, f"Embedding insert failed: {emb_err}")
-                        continue
+                    self.conn.execute('''
+                        INSERT INTO memory_embeddings (rowid, content_embedding)
+                        VALUES (?, ?)
+                    ''', (rowid, serialize_float32(embedding_list)))
 
+                    self.conn.execute('RELEASE SAVEPOINT batch_item')
                     results[j] = (True, "Memory stored successfully")
                 except sqlite3.IntegrityError:
+                    self.conn.execute('ROLLBACK TO SAVEPOINT batch_item')
+                    self.conn.execute('RELEASE SAVEPOINT batch_item')
                     results[j] = (False, "Duplicate content detected (race condition)")
                 except sqlite3.Error as db_err:
+                    self.conn.execute('ROLLBACK TO SAVEPOINT batch_item')
+                    self.conn.execute('RELEASE SAVEPOINT batch_item')
                     results[j] = (False, f"Insert failed: {db_err}")
 
         try:

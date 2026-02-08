@@ -294,6 +294,54 @@ class TestStoreBatchMocked:
         # Embedding model should have been called once with batch
         storage.embedding_model.encode.assert_called_once()
 
+    async def test_batch_embedding_failure_rolls_back_memory(self):
+        """If embedding INSERT fails, SAVEPOINT rollback prevents orphaned memories row."""
+        import sqlite3
+        from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+
+        storage = SqliteVecMemoryStorage.__new__(SqliteVecMemoryStorage)
+        storage.conn = MagicMock()
+        storage.embedding_model = MagicMock()
+        storage.enable_cache = False
+        storage.embedding_dimension = 384
+        storage.semantic_dedup_enabled = False
+
+        fake_embeddings = np.random.rand(1, 384).astype(np.float32)
+        storage.embedding_model.encode.return_value = fake_embeddings
+
+        async def mock_retry(fn, *args, **kwargs):
+            return fn()
+        storage._execute_with_retry = mock_retry
+        storage.conn.commit = MagicMock()
+
+        # Track which SQL statements are executed
+        executed_sql = []
+
+        def side_effect_execute(sql, *args, **kwargs):
+            executed_sql.append(sql.strip() if isinstance(sql, str) else str(sql))
+            # Fail the embedding INSERT
+            if 'memory_embeddings' in str(sql):
+                raise sqlite3.Error("simulated embedding failure")
+            result = MagicMock()
+            result.lastrowid = 1
+            result.fetchone.return_value = None
+            return result
+
+        storage.conn.execute = MagicMock(side_effect=side_effect_execute)
+
+        memories = [_make_memory("Will fail embedding")]
+        results = await storage.store_batch(memories)
+
+        assert len(results) == 1
+        assert results[0][0] is False
+        assert "Insert failed" in results[0][1]
+
+        # Verify SAVEPOINT was created and rolled back
+        sql_strs = " ".join(executed_sql)
+        assert "SAVEPOINT batch_item" in sql_strs
+        assert "ROLLBACK TO SAVEPOINT batch_item" in sql_strs
+        assert "RELEASE SAVEPOINT batch_item" in sql_strs
+
     async def test_batch_empty(self):
         """Empty batch returns empty results."""
         from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
