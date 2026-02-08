@@ -523,11 +523,9 @@ class ONNXRankerModel:
                 self._tokenizer.enable_truncation(max_length=512)
                 self._tokenizer.no_padding()
 
-                encoded_list = []
-                for query, content in pairs:
-                    q = query if query else " "
-                    c = content if content else " "
-                    encoded_list.append(self._tokenizer.encode(q, pair=c))
+                encoded_list = self._tokenizer.encode_batch(
+                    [(q if q else " ", c if c else " ") for q, c in pairs]
+                )
 
                 # Re-enable padding before releasing lock
                 self._tokenizer.enable_padding(length=512)
