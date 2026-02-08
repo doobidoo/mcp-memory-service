@@ -289,7 +289,7 @@ class SqliteVecMemoryStorage(MemoryStorage):
         
         for attempt in range(max_retries + 1):
             try:
-                return operation()
+                return await asyncio.to_thread(operation)
             except sqlite3.OperationalError as e:
                 last_exception = e
                 error_msg = str(e).lower()
