@@ -269,7 +269,7 @@ class SqliteVecMemoryStorage(MemoryStorage):
             logger.error(f"JSON type error in {context}: {e}")
             return {}
 
-    async def _execute_with_retry(self, operation: Callable, max_retries: int = 3, initial_delay: float = 0.1):
+    async def _execute_with_retry(self, operation: Callable, max_retries: int = 5, initial_delay: float = 0.2):
         """
         Execute a database operation with exponential backoff retry logic.
         
