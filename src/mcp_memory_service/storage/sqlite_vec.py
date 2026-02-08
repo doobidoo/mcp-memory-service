@@ -1258,10 +1258,15 @@ SOLUTIONS:
                             VALUES (?, ?)
                         ''', (rowid, serialize_float32(embedding_list)))
                     except sqlite3.Error as emb_err:
-                        logger.warning(f"Rowid insert failed for {memory.content_hash[:8]}: {emb_err}")
-                        self.conn.execute('''
-                            INSERT INTO memory_embeddings (content_embedding) VALUES (?)
-                        ''', (serialize_float32(embedding_list),))
+                        # Do NOT fall back to inserting without rowid — that would
+                        # break the memories.id ↔ memory_embeddings.rowid join,
+                        # orphaning the embedding and making the memory unsearchable.
+                        logger.error(
+                            f"Embedding insert failed for {memory.content_hash[:8]} "
+                            f"(rowid={rowid}): {emb_err}"
+                        )
+                        results[j] = (False, f"Embedding insert failed: {emb_err}")
+                        continue
 
                     results[j] = (True, "Memory stored successfully")
                 except sqlite3.IntegrityError:
