@@ -296,6 +296,7 @@ class ONNXRankerModel:
             try:
                 from tokenizers import Tokenizer
                 self._tokenizer = Tokenizer.from_file(str(tokenizer_json_path))
+                self._tokenizer.enable_truncation(max_length=512)
                 self._use_fast_tokenizer = True
                 logger.info("Loaded tokenizer using tokenizers package (no transformers)")
             except ImportError:
@@ -334,7 +335,7 @@ class ONNXRankerModel:
             # Prepare input based on model type
             if self.model_config['type'] == 'classifier':
                 # DeBERTa: Evaluate memory content only (absolute quality)
-                text_input = memory_content[:512]
+                text_input = memory_content
 
                 if self._use_fast_tokenizer:
                     # Use tokenizers package
@@ -458,7 +459,7 @@ class ONNXRankerModel:
 
     def _score_classifier_batch(self, pairs: List[Tuple[str, str]]) -> List[float]:
         """Batch score for classifier models (DeBERTa). Uses memory_content only."""
-        texts = [content[:512] for _, content in pairs]
+        texts = [content for _, content in pairs]
         texts = [t if t else " " for t in texts]  # Avoid empty strings
 
         if self._use_fast_tokenizer:
