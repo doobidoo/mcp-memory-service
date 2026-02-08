@@ -232,6 +232,7 @@ class ONNXRankerModel:
                 model = AutoModelForSequenceClassification.from_pretrained(hf_model_name)
 
         model.eval()
+        model.float()  # Cast to float32 to prevent mixed fp16/fp32 ONNX export errors
 
         # Create dummy inputs based on model type
         if self.model_config['type'] == 'classifier':
