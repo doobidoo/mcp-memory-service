@@ -691,17 +691,26 @@ class DreamInspiredConsolidator:
         )
 
     async def _handle_compression_results(self, compression_results) -> None:
-        """Handle storage of compressed memories and linking to originals."""
-        for result in compression_results:
-            # Store compressed memory
-            success, _ = await self.storage.store(result.compressed_memory)
-            if not success:
-                logger.warning(f"Failed to store compressed memory")
+        """Handle storage of compressed memories — batched for efficiency."""
+        if not compression_results:
+            return
 
-            # Update original memories with compression links
-            # This could involve adding metadata pointing to the compressed version
-            # Implementation depends on how the storage backend handles relationships
-            pass
+        compressed_memories = [r.compressed_memory for r in compression_results]
+
+        # Use store_batch if available, fall back to sequential store
+        if hasattr(self.storage, 'store_batch'):
+            results = await self.storage.store_batch(compressed_memories)
+        else:
+            results = []
+            for mem in compressed_memories:
+                results.append(await self.storage.store(mem))
+
+        for (success, msg), result in zip(results, compression_results):
+            if not success:
+                logger.warning(
+                    f"Failed to store compressed memory for cluster "
+                    f"{result.cluster_id}: {msg}"
+                )
 
     async def _apply_forgetting_results(self, forgetting_results) -> None:
         """Apply forgetting results to the storage backend."""

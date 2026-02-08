@@ -1182,7 +1182,109 @@ SOLUTIONS:
             logger.error(error_msg)
             logger.error(traceback.format_exc())
             return False, error_msg
-    
+
+    async def store_batch(self, memories: List[Memory]) -> List[Tuple[bool, str]]:
+        """
+        Store multiple memories in a single transaction with batched embedding generation.
+
+        Generates all embeddings in one batched call, then inserts all records
+        within a single SQLite transaction for atomicity and performance.
+
+        Args:
+            memories: List of Memory objects to store
+
+        Returns:
+            List of (success, message) tuples matching input order
+        """
+        if not memories:
+            return []
+
+        if not self.conn:
+            return [(False, "Database not initialized")] * len(memories)
+
+        # Batch-generate embeddings for all memories upfront
+        contents = [m.content for m in memories]
+        try:
+            if not self.embedding_model:
+                raise RuntimeError("No embedding model available")
+            raw_embeddings = self.embedding_model.encode(contents, convert_to_numpy=True)
+        except Exception as e:
+            error_msg = f"Batch embedding generation failed: {e}"
+            logger.error(error_msg)
+            return [(False, error_msg)] * len(memories)
+
+        # Insert memories inside a single transaction with per-item error handling.
+        # Dedup check and insert happen atomically within the transaction to
+        # avoid TOCTOU races with concurrent store() calls.
+        results: List[Tuple[bool, str]] = [None] * len(memories)
+
+        def batch_insert():
+            for j, memory in enumerate(memories):
+                # Dedup check inside transaction (same connection holds the lock)
+                cursor = self.conn.execute(
+                    'SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
+                    (memory.content_hash,)
+                )
+                if cursor.fetchone():
+                    results[j] = (False, "Duplicate content detected (exact match)")
+                    continue
+
+                embedding = raw_embeddings[j]
+                if hasattr(embedding, "tolist"):
+                    embedding_list = embedding.tolist()
+                else:
+                    embedding_list = list(embedding)
+
+                tags_str = ",".join(memory.tags) if memory.tags else ""
+                metadata_str = json.dumps(memory.metadata) if memory.metadata else "{}"
+
+                try:
+                    cur = self.conn.execute('''
+                        INSERT INTO memories (
+                            content_hash, content, tags, memory_type,
+                            metadata, created_at, updated_at, created_at_iso, updated_at_iso
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        memory.content_hash, memory.content, tags_str,
+                        memory.memory_type, metadata_str,
+                        memory.created_at, memory.updated_at,
+                        memory.created_at_iso, memory.updated_at_iso
+                    ))
+                    rowid = cur.lastrowid
+
+                    try:
+                        self.conn.execute('''
+                            INSERT INTO memory_embeddings (rowid, content_embedding)
+                            VALUES (?, ?)
+                        ''', (rowid, serialize_float32(embedding_list)))
+                    except sqlite3.Error as emb_err:
+                        logger.warning(f"Rowid insert failed for {memory.content_hash[:8]}: {emb_err}")
+                        self.conn.execute('''
+                            INSERT INTO memory_embeddings (content_embedding) VALUES (?)
+                        ''', (serialize_float32(embedding_list),))
+
+                    results[j] = (True, "Memory stored successfully")
+                except sqlite3.IntegrityError:
+                    results[j] = (False, "Duplicate content detected (race condition)")
+                except sqlite3.Error as db_err:
+                    results[j] = (False, f"Insert failed: {db_err}")
+
+        try:
+            await self._execute_with_retry(batch_insert)
+            await self._execute_with_retry(self.conn.commit)
+
+            stored = sum(1 for r in results if r and r[0])
+            logger.info(f"Batch stored {stored}/{len(memories)} memories in single transaction")
+        except Exception as e:
+            error_msg = f"Batch transaction failed: {e}"
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
+            for j in range(len(memories)):
+                if results[j] is None:
+                    results[j] = (False, error_msg)
+
+        return [(r if r is not None else (False, "Skipped")) for r in results]
+
     async def retrieve(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
         """Retrieve memories using semantic search."""
         try:
