@@ -234,7 +234,7 @@ class QualityEvaluator:
 
         # Fall back to sequential for non-ONNX tiers or on error
         logger.debug("Falling back to sequential evaluation for batch")
-        return [await self.evaluate_quality(query, m) for m in memories]
+        return await asyncio.gather(*(self.evaluate_quality(query, m) for m in memories))
 
     def _score_with_fallback_batch(
         self, query: str, memories: List[Memory]
