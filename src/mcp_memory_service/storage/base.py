@@ -1099,8 +1099,29 @@ class MemoryStorage(ABC):
                     # Determine fetch limit (over-fetch if quality boost enabled)
                     fetch_limit = limit * 3 if quality_boost > 0 and mode == "hybrid" else limit
 
-                    # Use quality-boosted retrieval if enabled
-                    if quality_boost > 0:
+                    # Choose search method based on mode and available features
+                    if mode == "hybrid" and hasattr(self, 'retrieve_hybrid'):
+                        # Use hybrid search (BM25 + Vector)
+                        from ..config import MCP_HYBRID_SEARCH_ENABLED
+                        if MCP_HYBRID_SEARCH_ENABLED:
+                            results = await self.retrieve_hybrid(
+                                query,
+                                n_results=fetch_limit
+                            )
+                        else:
+                            # Fall back to semantic if hybrid disabled in config
+                            logger.warning("Hybrid search requested but disabled in config, using semantic")
+                            if quality_boost > 0:
+                                results = await self.retrieve_with_quality_boost(
+                                    query,
+                                    n_results=fetch_limit,
+                                    quality_boost=True,
+                                    quality_weight=quality_boost
+                                )
+                            else:
+                                results = await self.retrieve(query, n_results=fetch_limit)
+                    elif quality_boost > 0:
+                        # Use quality-boosted retrieval
                         results = await self.retrieve_with_quality_boost(
                             query,
                             n_results=fetch_limit,
@@ -1108,6 +1129,7 @@ class MemoryStorage(ABC):
                             quality_weight=quality_boost
                         )
                     else:
+                        # Standard semantic search
                         results = await self.retrieve(query, n_results=fetch_limit)
 
                     pre_filter_count = len(results)
@@ -1170,7 +1192,14 @@ class MemoryStorage(ABC):
             results = results[:limit]
 
             # Extract memories from results
-            memories = [r.memory for r in results]
+            # Convert results to flat dictionary format with similarity_score
+            memories = []
+            for r in results:
+                mem_dict = r.memory.to_dict()
+                mem_dict["similarity_score"] = r.relevance_score
+                if r.debug_info:
+                    mem_dict["debug_info"] = r.debug_info
+                memories.append(mem_dict)
 
             # Build response
             response = {
