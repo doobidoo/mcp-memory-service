@@ -1192,7 +1192,14 @@ class MemoryStorage(ABC):
             results = results[:limit]
 
             # Extract memories from results
-            memories = [r.memory for r in results]
+            # Convert results to flat dictionary format with similarity_score
+            memories = []
+            for r in results:
+                mem_dict = r.memory.to_dict()
+                mem_dict["similarity_score"] = r.relevance_score
+                if r.debug_info:
+                    mem_dict["debug_info"] = r.debug_info
+                memories.append(mem_dict)
 
             # Build response
             response = {
