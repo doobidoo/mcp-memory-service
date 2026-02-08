@@ -1126,32 +1126,31 @@ SOLUTIONS:
             tags_str = ",".join(memory.tags) if memory.tags else ""
             metadata_str = json.dumps(memory.metadata) if memory.metadata else "{}"
             
-            # Insert into memories table (metadata) with retry logic
-            def insert_memory():
-                cursor = self.conn.execute('''
-                    INSERT INTO memories (
-                        content_hash, content, tags, memory_type,
-                        metadata, created_at, updated_at, created_at_iso, updated_at_iso
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    memory.content_hash,
-                    memory.content,
-                    tags_str,
-                    memory.memory_type,
-                    metadata_str,
-                    memory.created_at,
-                    memory.updated_at,
-                    memory.created_at_iso,
-                    memory.updated_at_iso
-                ))
-                return cursor.lastrowid
-            
-            memory_rowid = await self._execute_with_retry(insert_memory)
-            
-            # Insert into embeddings table with retry logic
-            def insert_embedding():
-                # Check if we can insert with specific rowid
+            # Insert memory + embedding atomically using SAVEPOINT.
+            # Both must succeed together — a memory without a matching
+            # embedding is unsearchable, and an embedding without a
+            # matching memory rowid breaks the JOIN.
+            def insert_memory_and_embedding():
+                self.conn.execute('SAVEPOINT store_memory')
                 try:
+                    cursor = self.conn.execute('''
+                        INSERT INTO memories (
+                            content_hash, content, tags, memory_type,
+                            metadata, created_at, updated_at, created_at_iso, updated_at_iso
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        memory.content_hash,
+                        memory.content,
+                        tags_str,
+                        memory.memory_type,
+                        metadata_str,
+                        memory.created_at,
+                        memory.updated_at,
+                        memory.created_at_iso,
+                        memory.updated_at_iso
+                    ))
+                    memory_rowid = cursor.lastrowid
+
                     self.conn.execute('''
                         INSERT INTO memory_embeddings (rowid, content_embedding)
                         VALUES (?, ?)
@@ -1159,17 +1158,13 @@ SOLUTIONS:
                         memory_rowid,
                         serialize_float32(embedding)
                     ))
-                except sqlite3.Error as e:
-                    # If rowid insert fails, try without specifying rowid
-                    logger.warning(f"Failed to insert with rowid {memory_rowid}: {e}. Trying without rowid.")
-                    self.conn.execute('''
-                        INSERT INTO memory_embeddings (content_embedding)
-                        VALUES (?)
-                    ''', (
-                        serialize_float32(embedding),
-                    ))
-            
-            await self._execute_with_retry(insert_embedding)
+                    self.conn.execute('RELEASE SAVEPOINT store_memory')
+                except Exception:
+                    self.conn.execute('ROLLBACK TO SAVEPOINT store_memory')
+                    self.conn.execute('RELEASE SAVEPOINT store_memory')
+                    raise
+
+            await self._execute_with_retry(insert_memory_and_embedding)
             
             # Commit with retry logic
             await self._execute_with_retry(self.conn.commit)
