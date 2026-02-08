@@ -30,6 +30,13 @@ if not _allow_cloud:
         print(f"[Test Safety] This prevents tests from modifying production Cloudflare data.")
         print(f"[Test Safety] To allow cloud backends: MCP_TEST_ALLOW_CLOUD_BACKEND=true pytest ...")
 
+# CRITICAL: Force test database path to prevent production database access
+# This ensures tests NEVER touch production databases even if they use the wrong fixtures
+_test_db_dir = tempfile.mkdtemp(prefix='mcp-test-db-')
+os.environ['MCP_MEMORY_SQLITE_PATH'] = os.path.join(_test_db_dir, 'test.db')
+print(f"\n[Test Safety] 🔒 Test database path: {os.environ['MCP_MEMORY_SQLITE_PATH']}")
+print(f"[Test Safety] Production databases are isolated and protected.")
+
 # Reserved tag for test memories - enables automatic cleanup
 TEST_MEMORY_TAG = "__test__"
 
@@ -85,38 +92,85 @@ def pytest_sessionfinish(session, exitstatus):
     """
     Cleanup all test memories at end of test session.
 
-    SAFETY: Only cleans test databases, never production.
-    Deletes all memories tagged with TEST_MEMORY_TAG.
+    SAFETY: Uses TRIPLE verification to prevent production database deletion.
+    Only cleans test databases, never production.
     """
     try:
-        from mcp_memory_service.api import delete_by_tag
-        from mcp_memory_service.config import DATABASE_PATH
+        from mcp_memory_service.config import SQLITE_VEC_PATH, STORAGE_BACKEND
         import tempfile
 
-        # SAFETY CHECK 1: Verify database path is in temp directory
-        db_path = str(DATABASE_PATH)
+        # Get database path based on backend
+        if STORAGE_BACKEND == 'hybrid':
+            # Hybrid uses SQLite-vec as primary
+            db_path = str(SQLITE_VEC_PATH) if SQLITE_VEC_PATH else None
+        elif STORAGE_BACKEND == 'sqlite_vec':
+            db_path = str(SQLITE_VEC_PATH) if SQLITE_VEC_PATH else None
+        else:
+            # Cloudflare or other backends - skip cleanup (no local DB)
+            print(f"\n[Test Cleanup] ℹ️  Backend '{STORAGE_BACKEND}' has no local database to clean")
+            return
+
+        if not db_path:
+            print(f"\n[Test Cleanup] ⚠️  No database path configured, skipping cleanup")
+            return
+
+        # === TRIPLE SAFETY CHECK SYSTEM ===
+
+        # SAFETY CHECK 1: Must be in temp directory
         temp_prefix = tempfile.gettempdir()
-
         if not db_path.startswith(temp_prefix):
-            # Check if it's a production path
-            production_indicators = [
-                "Library/Application Support/mcp-memory",
-                ".mcp-memory",
-                "mcp-memory-service/data"
-            ]
+            print(f"\n[Test Cleanup] 🛑 SAFETY ABORT: Database not in temp directory!")
+            print(f"[Test Cleanup] Database path: {db_path}")
+            print(f"[Test Cleanup] Expected prefix: {temp_prefix}")
+            print(f"[Test Cleanup] This indicates a configuration error - tests must use isolated databases.")
+            return
 
-            if any(indicator in db_path for indicator in production_indicators):
-                print(f"\n[Test Cleanup] ⚠️  SAFETY ABORT: Refusing to clean production database!")
+        # SAFETY CHECK 2: Must NOT contain production indicators
+        production_indicators = [
+            "Library/Application Support/mcp-memory",
+            ".mcp-memory",
+            "mcp-memory-service/data",
+            "/Users/",  # Any user home directory
+            "/home/",   # Linux home directories
+            "C:\\Users\\",  # Windows user directories
+        ]
+
+        for indicator in production_indicators:
+            if indicator in db_path:
+                print(f"\n[Test Cleanup] 🛑 SAFETY ABORT: Production path indicator detected!")
                 print(f"[Test Cleanup] Database path: {db_path}")
-                print(f"[Test Cleanup] Tests must use temp_db_path fixture for isolation.")
+                print(f"[Test Cleanup] Detected indicator: '{indicator}'")
+                print(f"[Test Cleanup] Tests MUST use temp_db_path fixture for isolation.")
                 return
 
-        # SAFETY CHECK 2: Log which database we're cleaning
-        print(f"\n[Test Cleanup] Cleaning test database: {db_path}")
+        # SAFETY CHECK 3: Must contain test-specific markers
+        test_markers = [
+            'mcp-test-',  # Our custom test prefix
+            'pytest-',    # pytest temp directories
+            '/tmp/',      # Unix temp
+            '/var/tmp/',  # Unix alternative temp
+            'Temp\\',     # Windows temp
+        ]
 
-        # Perform cleanup
-        # Use allow_production=True since we already validated path above
-        result = delete_by_tag([TEST_MEMORY_TAG], allow_production=True)
+        has_test_marker = any(marker in db_path for marker in test_markers)
+        if not has_test_marker:
+            print(f"\n[Test Cleanup] 🛑 SAFETY ABORT: No test marker found in database path!")
+            print(f"[Test Cleanup] Database path: {db_path}")
+            print(f"[Test Cleanup] Expected one of: {test_markers}")
+            return
+
+        # === ALL SAFETY CHECKS PASSED ===
+        print(f"\n[Test Cleanup] ✅ Safety checks passed")
+        print(f"[Test Cleanup] Database path: {db_path}")
+        print(f"[Test Cleanup] Cleaning test database...")
+
+        # Import delete function
+        from mcp_memory_service.api import delete_by_tag
+
+        # Perform cleanup - DO NOT use allow_production flag
+        # The delete_by_tag function has its own safety checks
+        # If our checks above passed, the delete_by_tag checks should also pass
+        result = delete_by_tag([TEST_MEMORY_TAG], allow_production=False)
         deleted = result.get('deleted', 0) if isinstance(result, dict) else 0
 
         if deleted > 0:
@@ -124,8 +178,84 @@ def pytest_sessionfinish(session, exitstatus):
         else:
             print(f"[Test Cleanup] ✅ No test memories to clean")
 
+    except ValueError as e:
+        # Safety check from delete_by_tag - this is GOOD, it means safety worked!
+        if "production database" in str(e).lower():
+            print(f"\n[Test Cleanup] ✅ Safety check prevented production deletion!")
+            print(f"[Test Cleanup] Error: {e}")
+            print(f"[Test Cleanup] This is the safety system working correctly.")
+        else:
+            print(f"\n[Test Cleanup] ❌ Unexpected ValueError: {e}")
     except Exception as e:
         # Make errors VISIBLE instead of silent
         print(f"\n[Test Cleanup] ❌ ERROR during cleanup: {e}")
         print(f"[Test Cleanup] This may indicate a configuration problem.")
         # Still don't fail the test session
+
+
+def pytest_sessionstart(session):
+    """
+    Verify test isolation before running any tests.
+
+    This hook runs BEFORE any tests execute to ensure proper configuration.
+    """
+    print("\n" + "="*80)
+    print("🔒 TEST ISOLATION VERIFICATION")
+    print("="*80)
+
+    try:
+        from mcp_memory_service.config import SQLITE_VEC_PATH, STORAGE_BACKEND
+        import tempfile
+
+        # Check backend
+        if STORAGE_BACKEND not in ['sqlite_vec', 'cloudflare']:
+            if not _allow_cloud:
+                print(f"⚠️  WARNING: Backend '{STORAGE_BACKEND}' may access production!")
+                print(f"⚠️  Tests should use 'sqlite_vec' backend for isolation.")
+                print(f"⚠️  Set MCP_TEST_ALLOW_CLOUD_BACKEND=true to explicitly allow this.")
+
+        # Check database path
+        if SQLITE_VEC_PATH:
+            db_path = str(SQLITE_VEC_PATH)
+            temp_prefix = tempfile.gettempdir()
+
+            # Verify it's in temp directory
+            if db_path.startswith(temp_prefix):
+                print(f"✅ Database in temp directory: {db_path}")
+            else:
+                print(f"❌ CRITICAL: Database NOT in temp directory!")
+                print(f"   Path: {db_path}")
+                print(f"   Expected prefix: {temp_prefix}")
+                print(f"   Tests may affect production data!")
+
+                # Check for production indicators
+                production_indicators = [
+                    "Library/Application Support/mcp-memory",
+                    ".mcp-memory",
+                    "mcp-memory-service/data"
+                ]
+
+                for indicator in production_indicators:
+                    if indicator in db_path:
+                        print(f"   🛑 PRODUCTION PATH DETECTED: '{indicator}'")
+                        print(f"   🛑 ABORTING TEST RUN FOR SAFETY")
+                        pytest.exit("Test configuration would affect production database", returncode=1)
+
+        print(f"✅ Storage backend: {STORAGE_BACKEND}")
+        print(f"✅ Cloud backends: {'ALLOWED' if _allow_cloud else 'BLOCKED'}")
+        print("="*80 + "\n")
+
+    except Exception as e:
+        print(f"❌ Error during isolation verification: {e}")
+        print("="*80 + "\n")
+
+
+# Cleanup temp test database directory at session end
+def pytest_unconfigure(config):
+    """Clean up global test database directory."""
+    try:
+        if os.path.exists(_test_db_dir):
+            shutil.rmtree(_test_db_dir, ignore_errors=True)
+            print(f"\n[Test Cleanup] 🗑️  Removed test database directory: {_test_db_dir}")
+    except Exception as e:
+        print(f"\n[Test Cleanup] ⚠️  Failed to remove test database directory: {e}")
