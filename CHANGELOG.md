@@ -17,6 +17,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Triggered after major version milestones or on explicit request
   - Maintains lean CHANGELOG focused on recent releases
 
+### Fixed
+- **Installation Script Errors** (PR #439): Fixed three critical bugs preventing successful installation
+  - Fixed NameError: `install_package` function now properly defined
+  - Fixed ModuleNotFoundError: GPU detection uses `importlib.util` for direct file loading to avoid package __init__.py dependency issues during installation
+  - Fixed Cloudflare API 401 error: Updated token verification to use account-specific endpoint with proper fallback to user-level endpoint
+  - Added safety validations: spec/loader existence checks, account_id validation with `.strip()`
+  - **Contributors:** @sykuang
+
 ## [10.9.0] - 2026-02-08
 
 ### Added
