@@ -412,6 +412,14 @@ class ONNXRankerModel:
             logger.error(f"Error scoring quality with {self.model_name}: {e}")
             return 0.5  # Return neutral score on error
 
+    # Minimum batch size to use batched ONNX inference on GPU.
+    # Below this threshold, sequential single-item GPU calls are faster
+    # because small batches incur padding + tensor transfer overhead
+    # without enough items to amortize it. Benchmarked on RTX 5050:
+    #   GPU sequential: 5.2ms/item, GPU batch@10: 15.3ms/item,
+    #   GPU batch@32: 0.7ms/item. Crossover is ~16 items.
+    MIN_GPU_BATCH_SIZE = int(os.environ.get("MCP_QUALITY_MIN_GPU_BATCH", "16"))
+
     def score_quality_batch(
         self, pairs: List[Tuple[str, str]], max_batch_size: int = 32
     ) -> List[float]:
@@ -419,6 +427,8 @@ class ONNXRankerModel:
         Score multiple (query, memory_content) pairs in batched inference calls.
 
         Processes items in chunks of max_batch_size to cap memory usage.
+        On GPU with small batches (< MIN_GPU_BATCH_SIZE), dispatches to
+        sequential single-item calls which are faster due to lower overhead.
         Falls back to sequential score_quality() on per-item error.
 
         Args:
@@ -430,6 +440,16 @@ class ONNXRankerModel:
         """
         if not pairs:
             return []
+
+        # On GPU, small batches are slower than sequential single-item calls
+        # due to padding + tensor transfer overhead exceeding parallelism gains.
+        is_gpu = self._model.get_providers()[0] in ('CUDAExecutionProvider', 'TensorrtExecutionProvider')
+        if is_gpu and len(pairs) < self.MIN_GPU_BATCH_SIZE:
+            logger.debug(
+                f"Batch size {len(pairs)} < GPU threshold {self.MIN_GPU_BATCH_SIZE}, "
+                f"using sequential GPU calls"
+            )
+            return [self.score_quality(q, c) for q, c in pairs]
 
         all_scores: List[float] = []
 
