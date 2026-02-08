@@ -27,6 +27,7 @@ import sys
 import platform
 import hashlib
 import struct
+import re
 from collections import Counter
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional, Set, Callable
@@ -736,7 +737,67 @@ SOLUTIONS:
             self.conn.execute("""
                 INSERT OR REPLACE INTO metadata (key, value) VALUES ('distance_metric', 'cosine')
             """)
-            
+
+            # Create FTS5 virtual table for BM25 keyword search (v10.8.0+)
+            # Uses external content table pattern for minimal storage overhead
+            # Trigram tokenizer provides optimal multilingual support and exact matching
+            self.conn.execute('''
+                CREATE VIRTUAL TABLE IF NOT EXISTS memory_content_fts USING fts5(
+                    content,
+                    content='memories',
+                    content_rowid='id',
+                    tokenize='trigram'
+                )
+            ''')
+
+            # Add triggers for automatic FTS5 synchronization
+            # INSERT trigger
+            self.conn.execute('''
+                CREATE TRIGGER IF NOT EXISTS memories_fts_ai AFTER INSERT ON memories
+                BEGIN
+                    INSERT INTO memory_content_fts(rowid, content)
+                    VALUES (new.id, new.content);
+                END;
+            ''')
+
+            # UPDATE trigger
+            self.conn.execute('''
+                CREATE TRIGGER IF NOT EXISTS memories_fts_au AFTER UPDATE ON memories
+                BEGIN
+                    DELETE FROM memory_content_fts WHERE rowid = old.id;
+                    INSERT INTO memory_content_fts(rowid, content)
+                    VALUES (new.id, new.content);
+                END;
+            ''')
+
+            # DELETE trigger (including soft deletes)
+            self.conn.execute('''
+                CREATE TRIGGER IF NOT EXISTS memories_fts_ad AFTER DELETE ON memories
+                BEGIN
+                    DELETE FROM memory_content_fts WHERE rowid = old.id;
+                END;
+            ''')
+
+            # Backfill FTS5 index with existing memories (one-time operation)
+            cursor = self.conn.execute('SELECT COUNT(*) FROM memory_content_fts')
+            fts_count = cursor.fetchone()[0]
+            cursor = self.conn.execute('SELECT COUNT(*) FROM memories WHERE deleted_at IS NULL')
+            mem_count = cursor.fetchone()[0]
+
+            if fts_count == 0 and mem_count > 0:
+                logger.info(f"Backfilling FTS5 index with {mem_count} existing memories...")
+                self.conn.execute('''
+                    INSERT INTO memory_content_fts(rowid, content)
+                    SELECT id, content FROM memories WHERE deleted_at IS NULL
+                ''')
+                logger.info("FTS5 backfill complete")
+
+            # Mark FTS5 as enabled in metadata
+            self.conn.execute("""
+                INSERT OR REPLACE INTO metadata (key, value)
+                VALUES ('fts5_enabled', 'true')
+            """)
+
             # Create indexes for better performance
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_content_hash ON memories(content_hash)')
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at)')
@@ -1290,12 +1351,203 @@ SOLUTIONS:
 
             logger.info(f"Retrieved {len(results)} memories for query: {query}")
             return results
-            
+
         except Exception as e:
             logger.error(f"Failed to retrieve memories: {str(e)}")
             logger.error(traceback.format_exc())
             return []
-    
+
+    def _normalize_bm25_score(self, bm25_rank: float) -> float:
+        """
+        Convert BM25's negative ranking to 0-1 scale.
+
+        BM25 returns negative scores where closer to 0 = better match.
+        Formula from AgentKits Memory: max(0, min(1, 1 + rank/10))
+
+        Examples:
+            rank=0 → score=1.0 (perfect match)
+            rank=-5 → score=0.5 (moderate match)
+            rank=-10 → score=0.0 (poor match)
+
+        Args:
+            bm25_rank: BM25 rank from FTS5 (negative value, closer to 0 is better)
+
+        Returns:
+            Normalized score in 0-1 range
+        """
+        return max(0.0, min(1.0, 1.0 + bm25_rank / 10.0))
+
+    async def _search_bm25(
+        self,
+        query: str,
+        n_results: int = 5,
+        sanitize_query: bool = True
+    ) -> List[Tuple[str, float]]:
+        """
+        Perform BM25 keyword search using FTS5.
+
+        Args:
+            query: Search query
+            n_results: Maximum results to return
+            sanitize_query: Whether to sanitize FTS5 operators (default: True)
+
+        Returns:
+            List of (content_hash, bm25_rank) tuples
+        """
+        try:
+            if not self.conn:
+                logger.error("Database not initialized")
+                return []
+
+            # Sanitize query to remove FTS5 operators (AND, OR, NOT, *, ^, etc.)
+            if sanitize_query:
+                query_clean = re.sub(r'[^\w\s-]', '', query)
+            else:
+                query_clean = query
+
+            if not query_clean.strip():
+                logger.warning("Query is empty after sanitization")
+                return []
+
+            # Execute FTS5 BM25 query
+            def search_fts():
+                cursor = self.conn.execute('''
+                    SELECT m.content_hash, bm25(memory_content_fts) as rank
+                    FROM memory_content_fts f
+                    JOIN memories m ON f.rowid = m.id
+                    WHERE memory_content_fts MATCH ? AND m.deleted_at IS NULL
+                    ORDER BY rank
+                    LIMIT ?
+                ''', (f'"{query_clean}"', n_results))
+                return cursor.fetchall()
+
+            results = await self._execute_with_retry(search_fts)
+
+            logger.debug(f"BM25 search found {len(results)} results for query: {query_clean}")
+            return results
+
+        except Exception as e:
+            logger.error(f"BM25 search failed: {str(e)}")
+            logger.error(traceback.format_exc())
+            return []
+
+    def _fuse_scores(
+        self,
+        keyword_score: float,
+        semantic_score: float,
+        keyword_weight: Optional[float] = None,
+        semantic_weight: Optional[float] = None
+    ) -> float:
+        """
+        Combine keyword and semantic scores using weighted average.
+
+        Args:
+            keyword_score: BM25-based score (0-1)
+            semantic_score: Vector similarity score (0-1)
+            keyword_weight: Override config weight (optional)
+            semantic_weight: Override config weight (optional)
+
+        Returns:
+            Fused score (0-1)
+        """
+        from ..config import MCP_HYBRID_KEYWORD_WEIGHT, MCP_HYBRID_SEMANTIC_WEIGHT
+
+        kw_weight = keyword_weight if keyword_weight is not None else MCP_HYBRID_KEYWORD_WEIGHT
+        sem_weight = semantic_weight if semantic_weight is not None else MCP_HYBRID_SEMANTIC_WEIGHT
+
+        return (keyword_score * kw_weight) + (semantic_score * sem_weight)
+
+    async def retrieve_hybrid(
+        self,
+        query: str,
+        n_results: int = 5,
+        keyword_weight: Optional[float] = None,
+        semantic_weight: Optional[float] = None
+    ) -> List[MemoryQueryResult]:
+        """
+        Hybrid search combining BM25 keyword matching and vector similarity.
+
+        Executes BM25 and vector searches in parallel, merges results by content_hash,
+        and ranks by fused score.
+
+        Args:
+            query: Search query
+            n_results: Maximum results to return
+            keyword_weight: BM25 weight override (default from config)
+            semantic_weight: Vector weight override (default from config)
+
+        Returns:
+            List of MemoryQueryResult sorted by fused score
+        """
+        try:
+            # Execute searches in parallel (over-fetch to ensure good coverage)
+            bm25_task = asyncio.create_task(self._search_bm25(query, n_results * 2))
+            vector_task = asyncio.create_task(self.retrieve(query, n_results * 2))
+
+            bm25_results, vector_results = await asyncio.gather(bm25_task, vector_task)
+
+            # Build lookup maps
+            bm25_scores = {}
+            for content_hash, bm25_rank in bm25_results:
+                bm25_scores[content_hash] = self._normalize_bm25_score(bm25_rank)
+
+            semantic_scores = {}
+            for result in vector_results:
+                semantic_scores[result.memory.content_hash] = result.relevance_score
+
+            # Merge results by content_hash
+            all_hashes = set(bm25_scores.keys()) | set(semantic_scores.keys())
+
+            merged_results = []
+            for content_hash in all_hashes:
+                # Get scores (default to 0.0 if missing)
+                keyword_score = bm25_scores.get(content_hash, 0.0)
+                semantic_score = semantic_scores.get(content_hash, 0.0)
+
+                # Fuse scores
+                final_score = self._fuse_scores(
+                    keyword_score,
+                    semantic_score,
+                    keyword_weight,
+                    semantic_weight
+                )
+
+                # Find corresponding memory (from vector_results if available)
+                memory = None
+                for result in vector_results:
+                    if result.memory.content_hash == content_hash:
+                        memory = result.memory
+                        break
+
+                # If not in vector results, fetch from database
+                if memory is None:
+                    memory = await self.get_by_hash(content_hash)
+
+                if memory:
+                    merged_results.append(MemoryQueryResult(
+                        memory=memory,
+                        relevance_score=final_score,
+                        debug_info={
+                            "keyword_score": keyword_score,
+                            "semantic_score": semantic_score,
+                            "backend": "hybrid-bm25-vector"
+                        }
+                    ))
+
+            # Sort by fused score and limit
+            merged_results.sort(key=lambda r: r.relevance_score, reverse=True)
+            results = merged_results[:n_results]
+
+            logger.info(f"Hybrid search found {len(results)} results "
+                       f"(BM25: {len(bm25_results)}, Vector: {len(vector_results)})")
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Hybrid search failed: {str(e)}")
+            logger.error(traceback.format_exc())
+            return []
+
     async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
         """Search memories by tags with optional time filtering.
 

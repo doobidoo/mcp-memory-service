@@ -78,7 +78,7 @@ async def test_time_expr_parsing_issue_396(temp_db_path):
         limit=10
     )
     assert result['total'] >= 1, "Should find at least the yesterday memory"
-    yesterday_contents = [m.content for m in result['memories']]
+    yesterday_contents = [m['content'] for m in result['memories']]
     assert any("yesterday" in c.lower() for c in yesterday_contents), "Should find yesterday memory"
 
     # Test 2: "3 days ago" (reported as failing)
@@ -87,7 +87,7 @@ async def test_time_expr_parsing_issue_396(temp_db_path):
         limit=10
     )
     assert result['total'] >= 1, "Should find at least the 3 days ago memory"
-    three_days_contents = [m.content for m in result['memories']]
+    three_days_contents = [m['content'] for m in result['memories']]
     assert any("3 days ago" in c.lower() for c in three_days_contents), "Should find 3 days ago memory"
 
     # Test 3: "last week" (reported as failing)
@@ -96,7 +96,7 @@ async def test_time_expr_parsing_issue_396(temp_db_path):
         limit=10
     )
     assert result['total'] >= 1, "Should find at least the last week memory"
-    last_week_contents = [m.content for m in result['memories']]
+    last_week_contents = [m['content'] for m in result['memories']]
     # Last week should return memories from last Monday-Sunday (not including current week)
     # So it should find the memory from 7 days ago
     assert any("last week" in c.lower() for c in last_week_contents), "Should find last week memory"

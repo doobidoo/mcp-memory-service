@@ -10,7 +10,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.8.0] - 2026-02-08
+
+### Added
+- **Hybrid BM25 + Vector Search** (Issue #175, PR #436): Combines keyword matching with semantic search for improved exact match scoring
+  - FTS5-based BM25 keyword search with trigram tokenizer for multilingual support
+  - Parallel execution of BM25 and vector searches (<15ms typical latency)
+  - Configurable score fusion weights (default: 30% keyword, 70% semantic)
+  - Automatic FTS5 index synchronization via database triggers
+  - Backward compatible: existing `mode="semantic"` searches unchanged
+  - Available via unified search interface: `mode="hybrid"`
+  - Configuration options:
+    - `MCP_HYBRID_SEARCH_ENABLED`: Enable hybrid search (default: true)
+    - `MCP_HYBRID_KEYWORD_WEIGHT`: BM25 weight (default: 0.3)
+    - `MCP_HYBRID_SEMANTIC_WEIGHT`: Vector weight (default: 0.7)
+  - Comprehensive test suite: 12 tests covering unit, integration, performance
+  - Performance: <50ms average latency for 100 memories
+  - Reference implementation: AgentKits Memory (sub-10ms latency, 70% token efficiency gains)
+
 ### Fixed
+- **search_memories() Response Format** (PR #436): Corrected pre-existing bug where `search_memories()` returned Memory objects instead of dictionaries with `similarity_score`
+  - Now returns flat dictionaries with all memory fields plus `similarity_score`
+  - Updated affected tests (test_issue_396, hybrid search tests) to use dictionary access
+  - Maintains API specification compliance
 - **Test Safety: Prevent accidental Cloudflare data deletion** (Commit d3d8425): Tests now force `sqlite_vec` backend to prevent soft-deleting production memories in Cloudflare D1
   - Automatically overrides `MCP_MEMORY_STORAGE_BACKEND` to `sqlite_vec` for all test runs
   - Prints warning when overriding a cloud backend setting
