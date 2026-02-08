@@ -292,6 +292,8 @@ def detect_gpu():
     except ImportError:
         # Load module directly from file path without triggering package init
         spec = importlib.util.spec_from_file_location("gpu_detection", gpu_detection_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not load GPU detection module from {gpu_detection_path}")
         gpu_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(gpu_module)
         shared_detect_gpu = gpu_module.detect_gpu
@@ -848,9 +850,15 @@ def test_cloudflare_connection(credentials):
         }
 
         # Test API token validity using account-specific endpoint
-        account_id = credentials.get('CLOUDFLARE_ACCOUNT_ID', '')
+        account_id = credentials.get('CLOUDFLARE_ACCOUNT_ID', '').strip()
+        if account_id:
+            endpoint = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/tokens/verify"
+        else:
+            # Fallback to user-level endpoint if account_id is not provided
+            endpoint = "https://api.cloudflare.com/client/v4/user/tokens/verify"
+
         response = requests.get(
-            f"https://api.cloudflare.com/client/v4/accounts/{account_id}/tokens/verify",
+            endpoint,
             headers=headers,
             timeout=10
         )
