@@ -175,23 +175,20 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.10.0** (February 8, 2026)
+## 🆕 Latest Release: **v10.10.1** (February 9, 2026)
 
-**Environment Configuration Viewer** 🛠️
+**Critical Bug Fixes & Search Improvements** 🐛
 
 **What's New:**
-- 🔍 **Environment Configuration Viewer**: New Settings Panel tab with comprehensive configuration visibility
-  - 11 categorized parameter groups (Storage, Database, HTTP Server, Security, Quality, Consolidation, OAuth, Embeddings, Logging, Graph, Advanced)
-  - Sensitive value masking (API tokens, keys, credentials automatically redacted)
-  - Copy-to-clipboard functionality for easy configuration sharing
-  - New API endpoint: `GET /api/config/env` for programmatic access
-  - Dark mode optimized with organized accordion layout
-- 📊 **Graph Visualization Enhancement**: Enriched node data with quality scores, updated timestamps, and metadata parsing
-  - Max node limit increased from 500 to 1000 for larger visualizations
-- 🐛 **Installation Script Fixes** (PR #439): Three critical bugs resolved (NameError, ModuleNotFoundError, Cloudflare API 401)
-- 📝 **Changelog Archival Agent**: Automated CHANGELOG maintenance for lean, focused release history
+- 🐛 **Search Handler Fix (#444, #446)**: Resolved AttributeError when storage backends return dictionaries
+- 🔌 **Import Error Fix (#443)**: Fixed response_limiter path - max_response_chars feature now works
+- 🛡️ **Security Enhancement (#441)**: SQL injection prevention in maintenance scripts with allowlist validation
+- 🔍 **Improved Exact Search (#445)**: Case-insensitive substring matching (LIKE) replaces full-content equality
+  - ⚠️ **Breaking Change**: Exact mode now performs substring search instead of full match
 
 **Previous Releases**:
+- **v10.10.0** - Environment Configuration Viewer (11 categorized parameters, sensitive masking, Settings Panel integration)
+- **v10.9.0** - Batched Inference Performance (4-16x GPU speedup, 2.3-2.5x CPU speedup with adaptive GPU dispatch)
 - **v10.9.0** - Batched Inference Performance (4-16x GPU speedup, 2.3-2.5x CPU speedup with adaptive GPU dispatch)
 - **v10.8.0** - Hybrid BM25 + Vector Search (combines keyword matching with semantic search, solves exact match problem)
 - **v10.7.2** - Server Management Button Fix (Settings modal buttons causing page reload)

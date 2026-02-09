@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop and 13+ AI applications. It uses vector embeddings for semantic search, supports multiple storage backends (SQLite-vec, Cloudflare, Hybrid), and includes advanced features like memory consolidation, quality scoring, and OAuth 2.1 team collaboration.
 
-**Current Version:** v10.10.0 - Environment Configuration Viewer (11 categorized parameters, sensitive masking, Settings Panel integration) - see [CHANGELOG.md](CHANGELOG.md) for details
+**Current Version:** v10.10.1 - Critical Bug Fixes (search handler, import errors, security, exact search improvements) - see [CHANGELOG.md](CHANGELOG.md) for details
 
 > **🎯 v10.0.0 Milestone**: This major release represents a complete API consolidation - 34 tools unified into 12 with enhanced capabilities. All deprecated tools continue working with warnings until v11.0. See `docs/MIGRATION.md` for migration guide.
 
@@ -392,6 +392,17 @@ export MCP_EXTERNAL_EMBEDDING_API_KEY=sk-xxx  # Optional
 4. **Cleanup:** Use `scripts/maintenance/cleanup_memories.py` to remove test memories and orphaned data
 
 ## Troubleshooting
+
+### ⚠️ Heredoc Permission Corruption
+
+**NEVER click "Always allow" on heredoc/here-document commands** (e.g. `cat << 'EOF' > /tmp/report.md`). Claude Code stores the **entire command including multi-page content** as a Bash permission pattern in `.claude/settings.local.json`. This causes parsing errors on next startup (garbled tree-character artifacts, ":* pattern must be at the end" errors).
+
+**Prevention:**
+- Use single "Allow" (not "Always allow") for heredoc commands
+- For report generation, prefer `tee`, `python -c`, or write files via the `Write` tool instead of shell heredocs
+- Agents generating reports should write files directly, not via `cat << EOF`
+
+**Recovery:** Remove the corrupted entries from `.claude/settings.local.json` `permissions.allow` array. They are identifiable by their massive size (entire reports embedded as permission strings).
 
 ### Common Issues
 

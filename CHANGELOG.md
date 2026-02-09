@@ -10,6 +10,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.10.1] - 2026-02-09
+
+### Fixed
+- **Search Handler (#444, #446):** Fixed AttributeError in memory_search - handle dict results correctly when storage backend returns dictionaries instead of SearchResult objects
+- **Import Error (#443):** Fixed response_limiter import path in server/handlers/memory.py (max_response_chars feature now works)
+- **Security (#441):** Added allowlist validation to maintenance scripts (SQL injection prevention in soft_delete_test_memories.py and migration scripts)
+
+### Changed
+- **Exact Search Mode (#445):** Changed to case-insensitive substring matching (LIKE) instead of full-content equality for more intuitive search behavior
+  - **BREAKING CHANGE:** Users relying on exact full-match behavior may need to adjust queries
+  - Previous: `mode=exact` matched only if entire content was identical
+  - New: `mode=exact` performs case-insensitive substring search using SQL LIKE operator
+
+### Known Issues
+- **CLI Async (#447):** ingest-directory async handling under investigation - deferred to separate PR
+
 ## [10.10.0] - 2026-02-08
 
 ### Added
