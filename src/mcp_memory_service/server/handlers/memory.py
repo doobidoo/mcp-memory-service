@@ -721,18 +721,19 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
 
         # Apply truncation if needed
         if max_response_chars > 0 and memories:
-            # Convert memories to dict format
+            # Memories are already dicts from storage.search_memories()
+            # Just ensure consistent format for truncation
             memory_dicts = []
             for memory in memories:
                 memory_dicts.append({
-                    'content': memory.content,
-                    'content_hash': memory.content_hash,
-                    'created_at': memory.created_at_iso if hasattr(memory, 'created_at_iso') else str(memory.created_at),
-                    'tags': memory.tags if memory.tags else [],
+                    'content': memory.get('content', ''),
+                    'content_hash': memory.get('content_hash', ''),
+                    'created_at': memory.get('created_at_iso') or str(memory.get('created_at', '')),
+                    'tags': memory.get('tags', []),
                 })
 
             # Apply truncation
-            from ...utils.response_limiter import truncate_memories, format_truncated_response
+            from ..utils.response_limiter import truncate_memories, format_truncated_response
             truncated, meta = truncate_memories(memory_dicts, max_response_chars)
 
             # Build header
@@ -753,16 +754,18 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
                 response += f" for query: '{result['query']}'"
             return [types.TextContent(type="text", text=response)]
 
-        # Format memories
+        # Format memories (memories are dicts from storage.search_memories())
         formatted_results = []
         for idx, memory in enumerate(memories, 1):
-            created_at = memory.created_at_iso if hasattr(memory, 'created_at_iso') else str(memory.created_at)
-            tags_str = f" [{', '.join(memory.tags)}]" if memory.tags else ""
+            created_at = memory.get('created_at_iso') or str(memory.get('created_at', ''))
+            tags = memory.get('tags', [])
+            tags_display = f" [{', '.join(tags)}]" if tags else ""
+            content_hash = memory.get('content_hash', '')
 
             formatted_results.append(
-                f"{idx}. {memory.content}\n"
-                f"   Hash: {memory.content_hash[:16]}...\n"
-                f"   Created: {created_at}{tags_str}"
+                f"{idx}. {memory.get('content', '')}\n"
+                f"   Hash: {content_hash[:16]}...\n"
+                f"   Created: {created_at}{tags_display}"
             )
 
         header = f"Found {total} memories"

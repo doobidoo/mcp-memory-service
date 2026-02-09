@@ -943,7 +943,7 @@ class MemoryStorage(ABC):
 
         Modes:
             - semantic: Vector similarity search (default) - finds conceptually similar content
-            - exact: Exact string match in content - finds memories containing the exact query
+            - exact: Case-insensitive substring match - finds memories where content contains the query string
             - hybrid: Semantic search with quality-based reranking
 
         Time Filters:

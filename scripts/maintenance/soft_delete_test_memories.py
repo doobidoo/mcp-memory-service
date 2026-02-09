@@ -31,6 +31,32 @@ from typing import List, Tuple
 # Default database path
 DEFAULT_DB_PATH = Path.home() / "AppData" / "Local" / "mcp-memory" / "sqlite_vec.db"
 
+# Allowlist of safe tags for maintenance operations
+# This prevents SQL injection via malicious tag values
+ALLOWED_TAGS = {
+    '__test__', '__perf__', '__integration__',
+    'test', 'perf', 'integration', 'concurrent',
+    'hybrid', 'sync-test', 'rapid', 'consistency',
+    'health', 'token', 'multi', 'compat', 'demo', 'mixed',
+    'test-data', 'showcase', 'test1',
+    'unique-search-tag', 'before-date-tag', 'before-date-test',
+    'timeframe-tag-filter', 'timeframe-delete', 'timeframe-test',
+    'recall-test', 'quality-test', 'singletag',
+    'tag1', 'tag2', 'tag3',
+    'tag-a', 'tag-b', 'tag-c',
+    'new-tag-1', 'new-tag-2',
+    'delete-tag', 'all-tag-test', 'partial-tag',
+}
+
+def escape_glob_pattern(pattern: str) -> str:
+    """Escape special GLOB characters for SQLite patterns."""
+    # Escape GLOB metacharacters: [ ] * ?
+    return (pattern
+        .replace('[', '[[]')
+        .replace(']', '[]]')
+        .replace('*', '[*]')
+        .replace('?', '[?]'))
+
 # Test tags commonly used in pytest scripts
 TEST_TAGS = [
     # High priority - direct test markers
@@ -78,9 +104,17 @@ def count_by_tags(cursor: sqlite3.Cursor, tags: List[str]) -> int:
     if not tags:
         return 0
 
+    # Validate against allowlist
+    safe_tags = [tag for tag in tags if tag in ALLOWED_TAGS]
+    if not safe_tags:
+        print(f"Warning: No allowed tags found in: {tags}")
+        return 0
+
     conditions = []
-    for tag in tags:
-        conditions.append(f"(',' || REPLACE(tags, ' ', '') || ',') GLOB '*,{tag},*'")
+    for tag in safe_tags:
+        # Escape GLOB special characters
+        escaped_tag = escape_glob_pattern(tag)
+        conditions.append(f"(',' || REPLACE(tags, ' ', '') || ',') GLOB '*,{escaped_tag},*'")
 
     where = " OR ".join(conditions)
     cursor.execute(f"""
@@ -91,33 +125,39 @@ def count_by_tags(cursor: sqlite3.Cursor, tags: List[str]) -> int:
 
 
 def count_by_tag_patterns(cursor: sqlite3.Cursor, patterns: List[str]) -> int:
-    """Count memories matching tag patterns."""
+    """Count memories matching tag patterns (uses safe parameterized queries)."""
     if not patterns:
         return 0
 
+    # Use parameterized queries instead of string interpolation
     conditions = []
+    params = []
     for pattern in patterns:
-        conditions.append(f"(',' || REPLACE(tags, ' ', '') || ',') GLOB '{pattern}'")
+        conditions.append("(',' || REPLACE(tags, ' ', '') || ',') GLOB ?")
+        params.append(pattern)
 
     where = " OR ".join(conditions)
-    cursor.execute(f"""
+    query = f"""
         SELECT COUNT(*) FROM memories
         WHERE deleted_at IS NULL AND ({where})
-    """)
+    """
+    cursor.execute(query, params)
     return cursor.fetchone()[0]
 
 
 def count_by_content_patterns(cursor: sqlite3.Cursor, patterns: List[str]) -> int:
-    """Count memories matching content patterns."""
+    """Count memories matching content patterns (uses parameterized queries)."""
     if not patterns:
         return 0
 
-    conditions = [f"LOWER(content) LIKE '{p}'" for p in patterns]
+    # Use parameterized queries for LIKE patterns
+    conditions = ["LOWER(content) LIKE ?" for _ in patterns]
     where = " OR ".join(conditions)
-    cursor.execute(f"""
+    query = f"""
         SELECT COUNT(*) FROM memories
         WHERE deleted_at IS NULL AND ({where})
-    """)
+    """
+    cursor.execute(query, patterns)
     return cursor.fetchone()[0]
 
 
@@ -132,13 +172,21 @@ def count_uuid_patterns(cursor: sqlite3.Cursor) -> int:
 
 
 def soft_delete_by_tags(cursor: sqlite3.Cursor, tags: List[str], deleted_at: float) -> int:
-    """Soft-delete memories by tags."""
+    """Soft-delete memories by tags (uses allowlist validation)."""
     if not tags:
         return 0
 
+    # Validate against allowlist
+    safe_tags = [tag for tag in tags if tag in ALLOWED_TAGS]
+    if not safe_tags:
+        print(f"Warning: No allowed tags found in: {tags}")
+        return 0
+
     conditions = []
-    for tag in tags:
-        conditions.append(f"(',' || REPLACE(tags, ' ', '') || ',') GLOB '*,{tag},*'")
+    for tag in safe_tags:
+        # Escape GLOB special characters
+        escaped_tag = escape_glob_pattern(tag)
+        conditions.append(f"(',' || REPLACE(tags, ' ', '') || ',') GLOB '*,{escaped_tag},*'")
 
     where = " OR ".join(conditions)
     cursor.execute(f"""
@@ -150,35 +198,42 @@ def soft_delete_by_tags(cursor: sqlite3.Cursor, tags: List[str], deleted_at: flo
 
 
 def soft_delete_by_tag_patterns(cursor: sqlite3.Cursor, patterns: List[str], deleted_at: float) -> int:
-    """Soft-delete memories by tag patterns."""
+    """Soft-delete memories by tag patterns (uses parameterized queries)."""
     if not patterns:
         return 0
 
+    # Use parameterized queries
     conditions = []
+    params = [deleted_at]  # Start with deleted_at parameter
     for pattern in patterns:
-        conditions.append(f"(',' || REPLACE(tags, ' ', '') || ',') GLOB '{pattern}'")
+        conditions.append("(',' || REPLACE(tags, ' ', '') || ',') GLOB ?")
+        params.append(pattern)
 
     where = " OR ".join(conditions)
-    cursor.execute(f"""
+    query = f"""
         UPDATE memories
         SET deleted_at = ?
         WHERE deleted_at IS NULL AND ({where})
-    """, (deleted_at,))
+    """
+    cursor.execute(query, params)
     return cursor.rowcount
 
 
 def soft_delete_by_content_patterns(cursor: sqlite3.Cursor, patterns: List[str], deleted_at: float) -> int:
-    """Soft-delete memories by content patterns."""
+    """Soft-delete memories by content patterns (uses parameterized queries)."""
     if not patterns:
         return 0
 
-    conditions = [f"LOWER(content) LIKE '{p}'" for p in patterns]
+    # Use parameterized queries for LIKE patterns
+    conditions = ["LOWER(content) LIKE ?" for _ in patterns]
     where = " OR ".join(conditions)
-    cursor.execute(f"""
+    params = [deleted_at] + patterns
+    query = f"""
         UPDATE memories
         SET deleted_at = ?
         WHERE deleted_at IS NULL AND ({where})
-    """, (deleted_at,))
+    """
+    cursor.execute(query, params)
     return cursor.rowcount
 
 

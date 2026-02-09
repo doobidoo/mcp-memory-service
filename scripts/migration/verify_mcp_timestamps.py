@@ -111,9 +111,16 @@ def check_timestamps():
     print("-" * 70)
     
     # For each timestamp field, show the date range
+    # Allowlist for column names to prevent SQL injection
+    ALLOWED_DTYPES = {'int_value', 'float_value', 'string_value'}
+
     for field, dtype in [('timestamp', 'int_value'), ('created_at', 'float_value')]:
+        if dtype not in ALLOWED_DTYPES:
+            print(f"Error: Invalid dtype '{dtype}' not in allowed list")
+            continue
+
         cursor.execute(f"""
-            SELECT 
+            SELECT
                 MIN({dtype}) as min_val,
                 MAX({dtype}) as max_val,
                 COUNT(DISTINCT id) as count

@@ -2231,11 +2231,14 @@ SOLUTIONS:
             if not self.conn:
                 return []
 
+            # Use case-insensitive substring matching (LIKE) instead of exact equality
             cursor = self.conn.execute('''
                 SELECT content, tags, memory_type, metadata, content_hash,
                        created_at, created_at_iso, updated_at, updated_at_iso
                 FROM memories
-                WHERE content = ? AND deleted_at IS NULL
+                WHERE content LIKE '%' || ? || '%' COLLATE NOCASE
+                AND deleted_at IS NULL
+                ORDER BY created_at DESC
             ''', (content,))
 
             memories = []

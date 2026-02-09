@@ -103,6 +103,12 @@ def get_table_schema(cursor, table_name):
     """
     Retrieves the schema of a table to understand available columns.
     """
+    # Allowlist of valid table names to prevent SQL injection
+    ALLOWED_TABLES = {'embedding_metadata', 'memories', 'tags', 'associations', 'quality_scores'}
+
+    if table_name not in ALLOWED_TABLES:
+        raise ValueError(f"Table '{table_name}' not in allowed list: {ALLOWED_TABLES}")
+
     cursor.execute(f"PRAGMA table_info({table_name})")
     columns = cursor.fetchall()
     return {col[1]: col for col in columns}  # returns dict with column name as key
