@@ -764,9 +764,9 @@ class TestCloudflareTimeBasedDeletion:
 
             memories = await cloudflare_storage.get_by_exact_content(content)
 
-            # Verify SQL query structure
+            # Verify SQL query structure (now uses LIKE for substring matching)
             sql_payload = mock_request.call_args_list[0].kwargs["json"]
-            assert "content = ?" in sql_payload["sql"]
+            assert "content LIKE" in sql_payload["sql"]
             assert "deleted_at IS NULL" in sql_payload["sql"]
             assert sql_payload["params"] == [content]
 
