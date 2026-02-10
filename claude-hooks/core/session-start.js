@@ -939,11 +939,13 @@ async function executeSessionStart(context) {
                 // tag OR mention the project name in content. This prevents generic
                 // "architecture" tags from pulling in unrelated project memories.
                 const projectScoped = (importantMemories || []).filter(mem => {
+                    if (!projectTag) {
+                        return false;
+                    }
+                    const projectTagLower = projectTag.toLowerCase();
                     const tags = (mem.tags || []).map(t => t.toLowerCase());
-                    if (tags.includes(projectTag.toLowerCase())) return true;
                     const content = (mem.content || mem.preview || '').toLowerCase();
-                    if (content.includes(projectTag.toLowerCase())) return true;
-                    return false;
+                    return tags.includes(projectTagLower) || content.includes(projectTagLower);
                 });
 
                 // Filter out duplicates using similarity-based deduplication (80% threshold)
