@@ -963,6 +963,42 @@ if MCP_QUALITY_SYSTEM_ENABLED:
 # =============================================================================
 
 # =============================================================================
+# Hybrid Search Configuration (v10.8.0+)
+# =============================================================================
+
+# Enable hybrid BM25 + Vector search
+MCP_HYBRID_SEARCH_ENABLED = safe_get_bool_env('MCP_HYBRID_SEARCH_ENABLED', True)
+
+# Score fusion weights (must sum to 1.0)
+MCP_HYBRID_KEYWORD_WEIGHT = float(os.getenv('MCP_HYBRID_KEYWORD_WEIGHT', '0.3'))
+MCP_HYBRID_SEMANTIC_WEIGHT = float(os.getenv('MCP_HYBRID_SEMANTIC_WEIGHT', '0.7'))
+
+# Validate weights
+if not 0.0 <= MCP_HYBRID_KEYWORD_WEIGHT <= 1.0:
+    logger.warning(f"Invalid keyword weight: {MCP_HYBRID_KEYWORD_WEIGHT}. Using default 0.3")
+    MCP_HYBRID_KEYWORD_WEIGHT = 0.3
+
+if not 0.0 <= MCP_HYBRID_SEMANTIC_WEIGHT <= 1.0:
+    logger.warning(f"Invalid semantic weight: {MCP_HYBRID_SEMANTIC_WEIGHT}. Using default 0.7")
+    MCP_HYBRID_SEMANTIC_WEIGHT = 0.7
+
+# Warn if weights don't sum to 1.0 (within tolerance)
+weight_sum = MCP_HYBRID_KEYWORD_WEIGHT + MCP_HYBRID_SEMANTIC_WEIGHT
+if abs(weight_sum - 1.0) > 0.01:
+    logger.warning(f"Hybrid weights sum to {weight_sum}, expected 1.0. Normalizing...")
+    total = MCP_HYBRID_KEYWORD_WEIGHT + MCP_HYBRID_SEMANTIC_WEIGHT
+    MCP_HYBRID_KEYWORD_WEIGHT /= total
+    MCP_HYBRID_SEMANTIC_WEIGHT /= total
+
+logger.info(f"Hybrid Search: enabled={MCP_HYBRID_SEARCH_ENABLED}, "
+            f"keyword_weight={MCP_HYBRID_KEYWORD_WEIGHT:.2f}, "
+            f"semantic_weight={MCP_HYBRID_SEMANTIC_WEIGHT:.2f}")
+
+# =============================================================================
+# End Hybrid Search Configuration
+# =============================================================================
+
+# =============================================================================
 # Association-Based Quality Enhancement Configuration (v8.47.0+)
 # =============================================================================
 

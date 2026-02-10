@@ -60,6 +60,34 @@ function Load-EnvFile {
     }
 }
 
+# Find uv executable (Task Scheduler has a minimal PATH)
+function Find-Executable {
+    # Common install locations for uv on Windows
+    $Candidates = @(
+        (Join-Path $env:USERPROFILE ".local\bin\uv.exe"),
+        (Join-Path $env:LOCALAPPDATA "uv\uv.exe"),
+        (Join-Path $env:USERPROFILE ".cargo\bin\uv.exe"),
+        (Join-Path $env:ProgramData "uv\uv.exe")
+    )
+
+    foreach ($Path in $Candidates) {
+        if (Test-Path $Path) {
+            Write-Log "Found uv at: $Path"
+            return $Path
+        }
+    }
+
+    # Try PATH resolution (works in interactive shells, may fail in Task Scheduler)
+    $PathResolved = Get-Command uv -ErrorAction SilentlyContinue
+    if ($PathResolved) {
+        Write-Log "Found uv on PATH: $($PathResolved.Source)"
+        return $PathResolved.Source
+    }
+
+    Write-Log "uv not found, will fall back to python directly" "WARN"
+    return $null
+}
+
 # Check if server is already running
 function Test-ServerRunning {
     if (Test-Path $PidFile) {
@@ -109,23 +137,65 @@ while ($RestartCount -lt $MaxRestarts) {
     Write-Log "Starting HTTP server (attempt $($RestartCount + 1)/$MaxRestarts)..."
 
     try {
-        # Start the server process
+        # Resolve executable (uv or python fallback)
+        $UvPath = Find-Executable
         $ProcessInfo = New-Object System.Diagnostics.ProcessStartInfo
-        $ProcessInfo.FileName = "uv"
-        $ProcessInfo.Arguments = "run python scripts/server/run_http_server.py"
+        if ($UvPath) {
+            $ProcessInfo.FileName = $UvPath
+            $ProcessInfo.Arguments = "run python scripts/server/run_http_server.py"
+        } else {
+            # Fallback: run python directly (same PATH issue applies)
+            $PythonPath = $null
+
+            # Try py.exe launcher first (installed in SystemRoot, reliably on PATH)
+            $PyLauncher = Join-Path $env:SystemRoot "py.exe"
+            if (Test-Path $PyLauncher) {
+                $PythonPath = $PyLauncher
+            }
+
+            # Try common Python install locations
+            if (-not $PythonPath) {
+                $PythonCandidates = @(
+                    (Join-Path $env:LOCALAPPDATA "Programs\Python\Python3*\python.exe"),
+                    (Join-Path $env:ProgramFiles "Python3*\python.exe"),
+                    "C:\Python3*\python.exe"
+                )
+                foreach ($Pattern in $PythonCandidates) {
+                    $Matches = Get-Item $Pattern -ErrorAction SilentlyContinue
+                    if ($Matches) { $PythonPath = ($Matches | Sort-Object DirectoryName -Descending | Select-Object -First 1).FullName; break }
+                }
+            }
+
+            # Last resort: PATH resolution
+            if (-not $PythonPath) {
+                $PythonPath = (Get-Command python -ErrorAction SilentlyContinue).Source
+            }
+
+            if (-not $PythonPath) {
+                Write-Log "Neither uv nor python found. Cannot start server." "ERROR"
+                throw "No Python executable found"
+            }
+
+            $ProcessInfo.FileName = $PythonPath
+            $ProcessInfo.Arguments = "scripts/server/run_http_server.py"
+        }
         $ProcessInfo.WorkingDirectory = $ProjectRoot
         $ProcessInfo.UseShellExecute = $false
         $ProcessInfo.RedirectStandardOutput = $true
         $ProcessInfo.RedirectStandardError = $true
         $ProcessInfo.CreateNoWindow = $true
 
+        Write-Log "Executable: $($ProcessInfo.FileName) $($ProcessInfo.Arguments)"
+
         $Process = New-Object System.Diagnostics.Process
         $Process.StartInfo = $ProcessInfo
 
         # Event handlers for output
+        # NOTE: $using: scope does NOT work in .NET event handlers (only in PS jobs/runspaces).
+        # Use $script: scope which is captured by the closure.
         $OutputHandler = {
             if (-not [String]::IsNullOrEmpty($EventArgs.Data)) {
-                Add-Content -Path $using:LogFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [SERVER] $($EventArgs.Data)"
+                Add-Content -Path $script:LogFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [SERVER] $($EventArgs.Data)"
             }
         }
 

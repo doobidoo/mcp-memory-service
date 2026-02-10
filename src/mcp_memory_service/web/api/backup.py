@@ -26,14 +26,8 @@ from pydantic import BaseModel
 
 from mcp_memory_service.config import OAUTH_ENABLED
 
-# OAuth authentication imports (conditional)
-if OAUTH_ENABLED or TYPE_CHECKING:
-    from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
-else:
-    # Provide type stubs when OAuth is disabled
-    AuthenticationResult = None
-    require_read_access = None
-    require_write_access = None
+# OAuth authentication imports
+from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
 
 router = APIRouter()
 
@@ -50,6 +44,7 @@ class BackupStatusResponse(BaseModel):
     time_since_last_seconds: Optional[float]
     next_backup_at: Optional[str]
     scheduler_running: bool
+    backup_directory: Optional[str] = None
 
 
 class BackupCreateResponse(BaseModel):
@@ -79,7 +74,7 @@ class BackupListResponse(BaseModel):
 
 @router.get("/backup/status", response_model=BackupStatusResponse)
 async def get_backup_status(
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get current backup service status.
@@ -101,7 +96,8 @@ async def get_backup_status(
             last_backup_time=status.get('last_backup_time'),
             time_since_last_seconds=status.get('time_since_last_seconds'),
             next_backup_at=status.get('next_backup_at'),
-            scheduler_running=status.get('scheduler_running', False)
+            scheduler_running=status.get('scheduler_running', False),
+            backup_directory=status.get('backups_dir'),
         )
 
     except Exception as e:
@@ -110,7 +106,7 @@ async def get_backup_status(
 
 @router.post("/backup/now", response_model=BackupCreateResponse)
 async def trigger_backup(
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Manually trigger an immediate backup.
@@ -142,7 +138,7 @@ async def trigger_backup(
 
 @router.get("/backup/list", response_model=BackupListResponse)
 async def list_backups(
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     List all available backups.

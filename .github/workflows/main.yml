@@ -175,14 +175,17 @@ jobs:
 
         # Run import validation (fast-fail before tests)
         echo "=== Import Validation ==="
+        source .venv/bin/activate
         bash scripts/ci/validate_imports.sh
 
         # Run handler coverage check
         echo "=== Handler Coverage Check ==="
+        source .venv/bin/activate
         python scripts/validation/check_handler_coverage.py
 
         # Run tests with coverage
-        # Set env vars BEFORE pytest to disable auth for integration tests
+        # Set default env vars to disable auth for most tests
+        # Middleware tests will override these to test auth explicitly
         source .venv/bin/activate
         export MCP_API_KEY=""
         export MCP_OAUTH_ENABLED="false"

@@ -168,10 +168,6 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
   <img src="https://raw.githubusercontent.com/wiki/doobidoo/mcp-memory-service/images/dashboard/mcp-memory-dashboard-v9.3.0-tour.gif" alt="MCP Memory Dashboard Tour" width="800"/>
 </p>
 
-| Dashboard | Quality Analytics | Browse Tags |
-|:---------:|:-----------------:|:-----------:|
-| ![Dashboard](https://raw.githubusercontent.com/wiki/doobidoo/mcp-memory-service/images/dashboard/01-dashboard.png) | ![Quality](https://raw.githubusercontent.com/wiki/doobidoo/mcp-memory-service/images/dashboard/13-quality.png) | ![Browse](https://raw.githubusercontent.com/wiki/doobidoo/mcp-memory-service/images/dashboard/03-browse.gif) |
-
 **8 Dashboard Tabs:** Dashboard • Search • Browse • Documents • Manage • Analytics • **Quality** (NEW) • API Docs
 
 📖 See [Web Dashboard Guide](https://github.com/doobidoo/mcp-memory-service/wiki/Web-Dashboard-Guide) for complete documentation.
@@ -179,21 +175,35 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.4.2** (February 1, 2026)
+## 🆕 Latest Release: **v10.10.1** (February 9, 2026)
 
-**CRITICAL FIX: Docker Container Startup**
+**Critical Bug Fixes & Search Improvements** 🐛
 
-**What's Fixed:**
-- 🐛 **Docker ModuleNotFoundError**: Fixed critical bug preventing Docker container startup (Issue #400)
-  - Container failed with "ModuleNotFoundError: No module named 'aiosqlite'"
-  - Root cause: Core dependencies not installed properly with optional dependency groups
-  - Split installation into three steps ensuring core dependencies always installed
-  - All Docker users should upgrade immediately to this version
+**What's New:**
+- 🐛 **Search Handler Fix (#444, #446)**: Resolved AttributeError when storage backends return dictionaries
+- 🔌 **Import Error Fix (#443)**: Fixed response_limiter path - max_response_chars feature now works
+- 🛡️ **Security Enhancement (#441)**: SQL injection prevention in maintenance scripts with allowlist validation
+- 🔍 **Improved Exact Search (#445)**: Case-insensitive substring matching (LIKE) replaces full-content equality
+  - ⚠️ **Breaking Change**: Exact mode now performs substring search instead of full match
 
 **Previous Releases**:
+- **v10.10.0** - Environment Configuration Viewer (11 categorized parameters, sensitive masking, Settings Panel integration)
+- **v10.9.0** - Batched Inference Performance (4-16x GPU speedup, 2.3-2.5x CPU speedup with adaptive GPU dispatch)
+- **v10.9.0** - Batched Inference Performance (4-16x GPU speedup, 2.3-2.5x CPU speedup with adaptive GPU dispatch)
+- **v10.8.0** - Hybrid BM25 + Vector Search (combines keyword matching with semantic search, solves exact match problem)
+- **v10.7.2** - Server Management Button Fix (Settings modal buttons causing page reload)
+- **v10.7.1** - Dashboard API Authentication Fix (complete auth coverage for all endpoints)
+- **v10.7.0** - Backup UI Enhancements (View Backups modal, backup directory display, enhanced API)
+- **v10.6.1** - Dashboard SSE Authentication Fix (EventSource API compatibility with query params)
+- **v10.6.0** - Server Management Dashboard: Complete server administration from Dashboard Settings
+- **v10.5.1** - Test Environment Safety: 4 critical scripts to prevent production database testing
+- **v10.5.0** - Dashboard Authentication UI: Graceful user experience (authentication modal, API key/OAuth flows)
+- **v10.4.6** - Documentation Enhancement: HTTP dashboard authentication requirements clarified (authentication setup examples)
+- **v10.4.5** - Unified CLI Interface: `memory server --http` flag (easier UX, single command)
+- **v10.4.4** - CRITICAL Security Fix: Timing attack vulnerability in API key comparison (CWE-208) + API Key Auth without OAuth
+- **v10.4.2** - Docker Container Startup Fix (ModuleNotFoundError: aiosqlite)
 - **v10.4.1** - Bug Fix: Time Expression Parsing (natural language time expressions fixed)
 - **v10.4.0** - Memory Hook Quality Improvements (semantic deduplication, tag normalization, budget optimization)
-- **v10.3.0** - SQL-Level Filtering Optimization (115x performance speedup, efficient bulk operations)
 - **v10.2.1** - MCP Client Compatibility & Delete Operations Fixes (integer enum fix, method name corrections)
 - **v10.2.0** - External Embedding API Support (vLLM, Ollama, TEI, OpenAI integration)
 - **v10.1.2** - Windows PowerShell 7+ Service Management Fix (SSL compatibility for manage_service.ps1)
@@ -588,10 +598,16 @@ These warnings disappear after the first successful run. The service is working 
 - **Multi-Auth Support** - OAuth + API keys + optional anonymous access
 
 ### 🧠 **Intelligent Memory Management**
-- **Semantic search** with vector embeddings
-- **Natural language time queries** ("yesterday", "last week")
-- **Tag-based organization** with smart categorization
-- **Memory consolidation** with dream-inspired algorithms
+- **Hybrid BM25 + Vector Search** 🆕 v10.8.0 - Best of both worlds for exact match + semantic search
+  - Solves exact match problem: 60-70% → near-100% scoring for identical text
+  - Parallel execution: BM25 keyword + vector similarity (<15ms latency)
+  - Configurable fusion: 30% keyword + 70% semantic (adjustable)
+  - Automatic FTS5 index sync via database triggers
+  - Backward compatible: `mode="semantic"` unchanged, `mode="hybrid"` opt-in
+- **Semantic search** with vector embeddings - Context-aware similarity matching
+- **Natural language time queries** - "yesterday", "last week", "3 days ago"
+- **Tag-based organization** - Smart categorization with hierarchical support
+- **Memory consolidation** - Dream-inspired algorithms for importance scoring
 - **Document-aware search** - Query across uploaded documents and manual memories
 
 ### 🧬 **Memory Type Ontology** 🆕 v9.0.0
@@ -695,8 +711,11 @@ pip install mcp-memory-service-lite
 
 ### 📄 **Document Ingestion** (v8.6.0+)
 ```bash
+# For local development/single-user: Enable anonymous access
+export MCP_ALLOW_ANONYMOUS_ACCESS=true
+
 # Start HTTP dashboard server (separate from MCP server)
-uv run python scripts/server/run_http_server.py
+memory server --http
 
 # Access interactive dashboard
 open http://127.0.0.1:8000/
@@ -712,11 +731,13 @@ curl -X POST http://127.0.0.1:8000/api/search \
   -d '{"query": "authentication flow", "limit": 10}'
 ```
 
+> **⚠️ Authentication Required**: The HTTP dashboard requires authentication by default. For local development, set `MCP_ALLOW_ANONYMOUS_ACCESS=true`. For production, use API key authentication (`MCP_API_KEY`) or OAuth. See [Configuration](#-configuration) for details.
+
 ### 🔗 **Team Collaboration with OAuth** (v7.0.0+)
 ```bash
 # Start OAuth-enabled HTTP server for team collaboration
 export MCP_OAUTH_ENABLED=true
-uv run python scripts/server/run_http_server.py
+memory server --http
 
 # Claude Code team members connect via HTTP transport
 claude mcp add --transport http memory-service http://your-server:8000/mcp
@@ -728,8 +749,17 @@ claude mcp add --transport http memory-service http://your-server:8000/mcp
 # Store a memory
 uv run memory store "Fixed race condition in authentication by adding mutex locks"
 
-# Search for relevant memories
+# Search for relevant memories (hybrid search - default in v10.8.0+)
 uv run memory recall "authentication race condition"
+
+# Use hybrid search via HTTP API for exact match + semantic
+curl -X POST http://127.0.0.1:8000/api/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "OAuth 2.1 authentication",
+    "mode": "hybrid",
+    "limit": 10
+  }'
 
 # Search by tags
 uv run memory search --tags python debugging
@@ -804,8 +834,15 @@ export CLOUDFLARE_VECTORIZE_INDEX="mcp-memory-index"
 export MCP_HTTP_ENABLED=true
 export MCP_HTTP_PORT=8000
 
-# Security
+# Security (choose one authentication method)
+# Option 1: API Key authentication (recommended for production)
 export MCP_API_KEY="your-secure-key"
+
+# Option 2: Anonymous access (local development only)
+# export MCP_ALLOW_ANONYMOUS_ACCESS=true
+
+# Option 3: OAuth team collaboration
+# export MCP_OAUTH_ENABLED=true
 ```
 
 **SQLite-vec Only (Local):**
@@ -814,6 +851,23 @@ export MCP_API_KEY="your-secure-key"
 export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
 export MCP_MEMORY_SQLITE_PRAGMAS="busy_timeout=15000,cache_size=20000"
 ```
+
+**Hybrid Search (v10.8.0+):**
+```bash
+# Enable hybrid BM25 + vector search (default: enabled)
+export MCP_HYBRID_SEARCH_ENABLED=true
+
+# Configure score fusion weights (must sum to ~1.0)
+export MCP_HYBRID_KEYWORD_WEIGHT=0.3    # BM25 keyword match weight
+export MCP_HYBRID_SEMANTIC_WEIGHT=0.7   # Vector similarity weight
+
+# Adjust weights based on your use case:
+# - More keyword-focused: 0.5 keyword / 0.5 semantic
+# - More semantic-focused: 0.2 keyword / 0.8 semantic
+# - Default balanced: 0.3 keyword / 0.7 semantic (recommended)
+```
+
+> **Note:** Hybrid search is only available with `sqlite_vec` and `hybrid` backends. It automatically combines BM25 keyword matching with vector similarity for better exact match scoring while maintaining semantic capabilities.
 
 ### Response Size Management 🆕 v9.0.0
 

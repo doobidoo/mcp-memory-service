@@ -27,6 +27,7 @@ import sys
 import platform
 import hashlib
 import struct
+import re
 from collections import Counter
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional, Set, Callable
@@ -269,7 +270,7 @@ class SqliteVecMemoryStorage(MemoryStorage):
             logger.error(f"JSON type error in {context}: {e}")
             return {}
 
-    async def _execute_with_retry(self, operation: Callable, max_retries: int = 3, initial_delay: float = 0.1):
+    async def _execute_with_retry(self, operation: Callable, max_retries: int = 5, initial_delay: float = 0.2):
         """
         Execute a database operation with exponential backoff retry logic.
         
@@ -736,7 +737,67 @@ SOLUTIONS:
             self.conn.execute("""
                 INSERT OR REPLACE INTO metadata (key, value) VALUES ('distance_metric', 'cosine')
             """)
-            
+
+            # Create FTS5 virtual table for BM25 keyword search (v10.8.0+)
+            # Uses external content table pattern for minimal storage overhead
+            # Trigram tokenizer provides optimal multilingual support and exact matching
+            self.conn.execute('''
+                CREATE VIRTUAL TABLE IF NOT EXISTS memory_content_fts USING fts5(
+                    content,
+                    content='memories',
+                    content_rowid='id',
+                    tokenize='trigram'
+                )
+            ''')
+
+            # Add triggers for automatic FTS5 synchronization
+            # INSERT trigger
+            self.conn.execute('''
+                CREATE TRIGGER IF NOT EXISTS memories_fts_ai AFTER INSERT ON memories
+                BEGIN
+                    INSERT INTO memory_content_fts(rowid, content)
+                    VALUES (new.id, new.content);
+                END;
+            ''')
+
+            # UPDATE trigger
+            self.conn.execute('''
+                CREATE TRIGGER IF NOT EXISTS memories_fts_au AFTER UPDATE ON memories
+                BEGIN
+                    DELETE FROM memory_content_fts WHERE rowid = old.id;
+                    INSERT INTO memory_content_fts(rowid, content)
+                    VALUES (new.id, new.content);
+                END;
+            ''')
+
+            # DELETE trigger (including soft deletes)
+            self.conn.execute('''
+                CREATE TRIGGER IF NOT EXISTS memories_fts_ad AFTER DELETE ON memories
+                BEGIN
+                    DELETE FROM memory_content_fts WHERE rowid = old.id;
+                END;
+            ''')
+
+            # Backfill FTS5 index with existing memories (one-time operation)
+            cursor = self.conn.execute('SELECT COUNT(*) FROM memory_content_fts')
+            fts_count = cursor.fetchone()[0]
+            cursor = self.conn.execute('SELECT COUNT(*) FROM memories WHERE deleted_at IS NULL')
+            mem_count = cursor.fetchone()[0]
+
+            if fts_count == 0 and mem_count > 0:
+                logger.info(f"Backfilling FTS5 index with {mem_count} existing memories...")
+                self.conn.execute('''
+                    INSERT INTO memory_content_fts(rowid, content)
+                    SELECT id, content FROM memories WHERE deleted_at IS NULL
+                ''')
+                logger.info("FTS5 backfill complete")
+
+            # Mark FTS5 as enabled in metadata
+            self.conn.execute("""
+                INSERT OR REPLACE INTO metadata (key, value)
+                VALUES ('fts5_enabled', 'true')
+            """)
+
             # Create indexes for better performance
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_content_hash ON memories(content_hash)')
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at)')
@@ -1126,32 +1187,31 @@ SOLUTIONS:
             tags_str = ",".join(memory.tags) if memory.tags else ""
             metadata_str = json.dumps(memory.metadata) if memory.metadata else "{}"
             
-            # Insert into memories table (metadata) with retry logic
-            def insert_memory():
-                cursor = self.conn.execute('''
-                    INSERT INTO memories (
-                        content_hash, content, tags, memory_type,
-                        metadata, created_at, updated_at, created_at_iso, updated_at_iso
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    memory.content_hash,
-                    memory.content,
-                    tags_str,
-                    memory.memory_type,
-                    metadata_str,
-                    memory.created_at,
-                    memory.updated_at,
-                    memory.created_at_iso,
-                    memory.updated_at_iso
-                ))
-                return cursor.lastrowid
-            
-            memory_rowid = await self._execute_with_retry(insert_memory)
-            
-            # Insert into embeddings table with retry logic
-            def insert_embedding():
-                # Check if we can insert with specific rowid
+            # Insert memory + embedding atomically using SAVEPOINT.
+            # Both must succeed together — a memory without a matching
+            # embedding is unsearchable, and an embedding without a
+            # matching memory rowid breaks the JOIN.
+            def insert_memory_and_embedding():
+                self.conn.execute('SAVEPOINT store_memory')
                 try:
+                    cursor = self.conn.execute('''
+                        INSERT INTO memories (
+                            content_hash, content, tags, memory_type,
+                            metadata, created_at, updated_at, created_at_iso, updated_at_iso
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        memory.content_hash,
+                        memory.content,
+                        tags_str,
+                        memory.memory_type,
+                        metadata_str,
+                        memory.created_at,
+                        memory.updated_at,
+                        memory.created_at_iso,
+                        memory.updated_at_iso
+                    ))
+                    memory_rowid = cursor.lastrowid
+
                     self.conn.execute('''
                         INSERT INTO memory_embeddings (rowid, content_embedding)
                         VALUES (?, ?)
@@ -1159,17 +1219,13 @@ SOLUTIONS:
                         memory_rowid,
                         serialize_float32(embedding)
                     ))
-                except sqlite3.Error as e:
-                    # If rowid insert fails, try without specifying rowid
-                    logger.warning(f"Failed to insert with rowid {memory_rowid}: {e}. Trying without rowid.")
-                    self.conn.execute('''
-                        INSERT INTO memory_embeddings (content_embedding)
-                        VALUES (?)
-                    ''', (
-                        serialize_float32(embedding),
-                    ))
-            
-            await self._execute_with_retry(insert_embedding)
+                    self.conn.execute('RELEASE SAVEPOINT store_memory')
+                except Exception:
+                    self.conn.execute('ROLLBACK TO SAVEPOINT store_memory')
+                    self.conn.execute('RELEASE SAVEPOINT store_memory')
+                    raise
+
+            await self._execute_with_retry(insert_memory_and_embedding)
             
             # Commit with retry logic
             await self._execute_with_retry(self.conn.commit)
@@ -1182,7 +1238,114 @@ SOLUTIONS:
             logger.error(error_msg)
             logger.error(traceback.format_exc())
             return False, error_msg
-    
+
+    async def store_batch(self, memories: List[Memory]) -> List[Tuple[bool, str]]:
+        """
+        Store multiple memories in a single transaction with batched embedding generation.
+
+        Generates all embeddings in one batched call, then inserts all records
+        within a single SQLite transaction for atomicity and performance.
+
+        Args:
+            memories: List of Memory objects to store
+
+        Returns:
+            List of (success, message) tuples matching input order
+        """
+        if not memories:
+            return []
+
+        if not self.conn:
+            return [(False, "Database not initialized")] * len(memories)
+
+        # Batch-generate embeddings for all memories upfront
+        contents = [m.content for m in memories]
+        try:
+            if not self.embedding_model:
+                raise RuntimeError("No embedding model available")
+            raw_embeddings = self.embedding_model.encode(contents, convert_to_numpy=True)
+        except Exception as e:
+            error_msg = f"Batch embedding generation failed: {e}"
+            logger.error(error_msg)
+            return [(False, error_msg)] * len(memories)
+
+        # Insert memories inside a single transaction with per-item error handling.
+        # Dedup check and insert happen atomically within the transaction to
+        # avoid TOCTOU races with concurrent store() calls.
+        results: List[Tuple[bool, str]] = [None] * len(memories)
+
+        def batch_insert():
+            for j, memory in enumerate(memories):
+                # Dedup check inside transaction (same connection holds the lock).
+                # Read-only, so no savepoint needed here.
+                cursor = self.conn.execute(
+                    'SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
+                    (memory.content_hash,)
+                )
+                if cursor.fetchone():
+                    results[j] = (False, "Duplicate content detected (exact match)")
+                    continue
+
+                embedding = raw_embeddings[j]
+                if hasattr(embedding, "tolist"):
+                    embedding_list = embedding.tolist()
+                else:
+                    embedding_list = list(embedding)
+
+                tags_str = ",".join(memory.tags) if memory.tags else ""
+                metadata_str = json.dumps(memory.metadata) if memory.metadata else "{}"
+
+                # SAVEPOINT gives per-item atomicity: if the embedding INSERT
+                # fails, ROLLBACK TO undoes the memories INSERT too, preventing
+                # orphaned rows that would be unsearchable.
+                try:
+                    self.conn.execute('SAVEPOINT batch_item')
+
+                    cur = self.conn.execute('''
+                        INSERT INTO memories (
+                            content_hash, content, tags, memory_type,
+                            metadata, created_at, updated_at, created_at_iso, updated_at_iso
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        memory.content_hash, memory.content, tags_str,
+                        memory.memory_type, metadata_str,
+                        memory.created_at, memory.updated_at,
+                        memory.created_at_iso, memory.updated_at_iso
+                    ))
+                    rowid = cur.lastrowid
+
+                    self.conn.execute('''
+                        INSERT INTO memory_embeddings (rowid, content_embedding)
+                        VALUES (?, ?)
+                    ''', (rowid, serialize_float32(embedding_list)))
+
+                    self.conn.execute('RELEASE SAVEPOINT batch_item')
+                    results[j] = (True, "Memory stored successfully")
+                except sqlite3.IntegrityError:
+                    self.conn.execute('ROLLBACK TO SAVEPOINT batch_item')
+                    self.conn.execute('RELEASE SAVEPOINT batch_item')
+                    results[j] = (False, "Duplicate content detected (race condition)")
+                except sqlite3.Error as db_err:
+                    self.conn.execute('ROLLBACK TO SAVEPOINT batch_item')
+                    self.conn.execute('RELEASE SAVEPOINT batch_item')
+                    results[j] = (False, f"Insert failed: {db_err}")
+
+        try:
+            await self._execute_with_retry(batch_insert)
+            await self._execute_with_retry(self.conn.commit)
+
+            stored = sum(1 for r in results if r and r[0])
+            logger.info(f"Batch stored {stored}/{len(memories)} memories in single transaction")
+        except Exception as e:
+            error_msg = f"Batch transaction failed: {e}"
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
+            for j in range(len(memories)):
+                if results[j] is None:
+                    results[j] = (False, error_msg)
+
+        return [(r if r is not None else (False, "Skipped")) for r in results]
+
     async def retrieve(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
         """Retrieve memories using semantic search."""
         try:
@@ -1290,12 +1453,203 @@ SOLUTIONS:
 
             logger.info(f"Retrieved {len(results)} memories for query: {query}")
             return results
-            
+
         except Exception as e:
             logger.error(f"Failed to retrieve memories: {str(e)}")
             logger.error(traceback.format_exc())
             return []
-    
+
+    def _normalize_bm25_score(self, bm25_rank: float) -> float:
+        """
+        Convert BM25's negative ranking to 0-1 scale.
+
+        BM25 returns negative scores where closer to 0 = better match.
+        Formula from AgentKits Memory: max(0, min(1, 1 + rank/10))
+
+        Examples:
+            rank=0 → score=1.0 (perfect match)
+            rank=-5 → score=0.5 (moderate match)
+            rank=-10 → score=0.0 (poor match)
+
+        Args:
+            bm25_rank: BM25 rank from FTS5 (negative value, closer to 0 is better)
+
+        Returns:
+            Normalized score in 0-1 range
+        """
+        return max(0.0, min(1.0, 1.0 + bm25_rank / 10.0))
+
+    async def _search_bm25(
+        self,
+        query: str,
+        n_results: int = 5,
+        sanitize_query: bool = True
+    ) -> List[Tuple[str, float]]:
+        """
+        Perform BM25 keyword search using FTS5.
+
+        Args:
+            query: Search query
+            n_results: Maximum results to return
+            sanitize_query: Whether to sanitize FTS5 operators (default: True)
+
+        Returns:
+            List of (content_hash, bm25_rank) tuples
+        """
+        try:
+            if not self.conn:
+                logger.error("Database not initialized")
+                return []
+
+            # Sanitize query to remove FTS5 operators (AND, OR, NOT, *, ^, etc.)
+            if sanitize_query:
+                query_clean = re.sub(r'[^\w\s-]', '', query)
+            else:
+                query_clean = query
+
+            if not query_clean.strip():
+                logger.warning("Query is empty after sanitization")
+                return []
+
+            # Execute FTS5 BM25 query
+            def search_fts():
+                cursor = self.conn.execute('''
+                    SELECT m.content_hash, bm25(memory_content_fts) as rank
+                    FROM memory_content_fts f
+                    JOIN memories m ON f.rowid = m.id
+                    WHERE memory_content_fts MATCH ? AND m.deleted_at IS NULL
+                    ORDER BY rank
+                    LIMIT ?
+                ''', (f'"{query_clean}"', n_results))
+                return cursor.fetchall()
+
+            results = await self._execute_with_retry(search_fts)
+
+            logger.debug(f"BM25 search found {len(results)} results for query: {query_clean}")
+            return results
+
+        except Exception as e:
+            logger.error(f"BM25 search failed: {str(e)}")
+            logger.error(traceback.format_exc())
+            return []
+
+    def _fuse_scores(
+        self,
+        keyword_score: float,
+        semantic_score: float,
+        keyword_weight: Optional[float] = None,
+        semantic_weight: Optional[float] = None
+    ) -> float:
+        """
+        Combine keyword and semantic scores using weighted average.
+
+        Args:
+            keyword_score: BM25-based score (0-1)
+            semantic_score: Vector similarity score (0-1)
+            keyword_weight: Override config weight (optional)
+            semantic_weight: Override config weight (optional)
+
+        Returns:
+            Fused score (0-1)
+        """
+        from ..config import MCP_HYBRID_KEYWORD_WEIGHT, MCP_HYBRID_SEMANTIC_WEIGHT
+
+        kw_weight = keyword_weight if keyword_weight is not None else MCP_HYBRID_KEYWORD_WEIGHT
+        sem_weight = semantic_weight if semantic_weight is not None else MCP_HYBRID_SEMANTIC_WEIGHT
+
+        return (keyword_score * kw_weight) + (semantic_score * sem_weight)
+
+    async def retrieve_hybrid(
+        self,
+        query: str,
+        n_results: int = 5,
+        keyword_weight: Optional[float] = None,
+        semantic_weight: Optional[float] = None
+    ) -> List[MemoryQueryResult]:
+        """
+        Hybrid search combining BM25 keyword matching and vector similarity.
+
+        Executes BM25 and vector searches in parallel, merges results by content_hash,
+        and ranks by fused score.
+
+        Args:
+            query: Search query
+            n_results: Maximum results to return
+            keyword_weight: BM25 weight override (default from config)
+            semantic_weight: Vector weight override (default from config)
+
+        Returns:
+            List of MemoryQueryResult sorted by fused score
+        """
+        try:
+            # Execute searches in parallel (over-fetch to ensure good coverage)
+            bm25_task = asyncio.create_task(self._search_bm25(query, n_results * 2))
+            vector_task = asyncio.create_task(self.retrieve(query, n_results * 2))
+
+            bm25_results, vector_results = await asyncio.gather(bm25_task, vector_task)
+
+            # Build lookup maps
+            bm25_scores = {}
+            for content_hash, bm25_rank in bm25_results:
+                bm25_scores[content_hash] = self._normalize_bm25_score(bm25_rank)
+
+            semantic_scores = {}
+            for result in vector_results:
+                semantic_scores[result.memory.content_hash] = result.relevance_score
+
+            # Merge results by content_hash
+            all_hashes = set(bm25_scores.keys()) | set(semantic_scores.keys())
+
+            merged_results = []
+            for content_hash in all_hashes:
+                # Get scores (default to 0.0 if missing)
+                keyword_score = bm25_scores.get(content_hash, 0.0)
+                semantic_score = semantic_scores.get(content_hash, 0.0)
+
+                # Fuse scores
+                final_score = self._fuse_scores(
+                    keyword_score,
+                    semantic_score,
+                    keyword_weight,
+                    semantic_weight
+                )
+
+                # Find corresponding memory (from vector_results if available)
+                memory = None
+                for result in vector_results:
+                    if result.memory.content_hash == content_hash:
+                        memory = result.memory
+                        break
+
+                # If not in vector results, fetch from database
+                if memory is None:
+                    memory = await self.get_by_hash(content_hash)
+
+                if memory:
+                    merged_results.append(MemoryQueryResult(
+                        memory=memory,
+                        relevance_score=final_score,
+                        debug_info={
+                            "keyword_score": keyword_score,
+                            "semantic_score": semantic_score,
+                            "backend": "hybrid-bm25-vector"
+                        }
+                    ))
+
+            # Sort by fused score and limit
+            merged_results.sort(key=lambda r: r.relevance_score, reverse=True)
+            results = merged_results[:n_results]
+
+            logger.info(f"Hybrid search found {len(results)} results "
+                       f"(BM25: {len(bm25_results)}, Vector: {len(vector_results)})")
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Hybrid search failed: {str(e)}")
+            logger.error(traceback.format_exc())
+            return []
+
     async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
         """Search memories by tags with optional time filtering.
 
@@ -1877,11 +2231,14 @@ SOLUTIONS:
             if not self.conn:
                 return []
 
+            # Use case-insensitive substring matching (LIKE) instead of exact equality
             cursor = self.conn.execute('''
                 SELECT content, tags, memory_type, metadata, content_hash,
                        created_at, created_at_iso, updated_at, updated_at_iso
                 FROM memories
-                WHERE content = ? AND deleted_at IS NULL
+                WHERE content LIKE '%' || ? || '%' COLLATE NOCASE
+                AND deleted_at IS NULL
+                ORDER BY created_at DESC
             ''', (content,))
 
             memories = []
@@ -2907,7 +3264,9 @@ SOLUTIONS:
                     m.content,
                     m.memory_type,
                     m.created_at,
+                    m.updated_at,
                     m.tags,
+                    m.metadata,
                     COUNT(DISTINCT mg.target_hash) as connection_count
                 FROM memories m
                 INNER JOIN memory_graph mg ON m.content_hash = mg.source_hash
@@ -2923,12 +3282,20 @@ SOLUTIONS:
             node_hashes = set()
 
             for row in cursor.fetchall():
-                content_hash, content, memory_type, created_at, tags_str, connection_count = row
+                content_hash, content, memory_type, created_at, updated_at, tags_str, metadata_str, connection_count = row
 
                 # Parse tags
                 tags = []
                 if tags_str:
                     tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()]
+
+                # Parse metadata to extract quality_score
+                metadata = {}
+                if metadata_str:
+                    try:
+                        metadata = json.loads(metadata_str)
+                    except json.JSONDecodeError:
+                        pass
 
                 # Create node
                 nodes.append({
@@ -2937,6 +3304,8 @@ SOLUTIONS:
                     "content": content[:100] if content else "",  # Preview only
                     "connections": connection_count,
                     "created_at": created_at,
+                    "updated_at": updated_at,
+                    "quality_score": metadata.get("quality_score", 0.5),
                     "tags": tags
                 })
                 node_hashes.add(content_hash)

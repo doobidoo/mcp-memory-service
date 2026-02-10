@@ -4,7 +4,7 @@ Coordinates between local SLM, Groq, Gemini, and implicit signals.
 """
 
 import logging
-from typing import Optional
+from typing import List, Optional
 from .config import QualityConfig
 from .onnx_ranker import get_onnx_ranker_model, ONNXRankerModel
 from .implicit_signals import ImplicitSignalsEvaluator
@@ -190,6 +190,103 @@ class QualityEvaluator:
         memory.metadata['quality_provider'] = provider_used
 
         return score
+
+    async def evaluate_quality_batch(self, query: str, memories: List[Memory]) -> List[float]:
+        """
+        Evaluate quality for multiple memories in a single batch.
+
+        Uses batched ONNX inference for local tiers. Non-ONNX tiers
+        (Groq/Gemini/implicit) fall back to sequential evaluation.
+
+        Args:
+            query: Search query for context
+            memories: List of Memory objects to evaluate
+
+        Returns:
+            List of quality scores between 0.0 and 1.0
+        """
+        self._ensure_initialized()
+
+        if not memories:
+            return []
+
+        if not self.config.enabled:
+            return [0.5] * len(memories)
+
+        # Tier 1: Local ONNX batched scoring
+        if self.config.ai_provider in ['local', 'auto']:
+            # Fallback mode with multiple models
+            if self.config.fallback_enabled and len(self._onnx_models) >= 2:
+                try:
+                    return self._score_with_fallback_batch(query, memories)
+                except Exception as e:
+                    logger.error(f"Batch fallback scoring failed: {e}")
+            # Single model mode
+            elif self._onnx_ranker:
+                try:
+                    pairs = [(query, m.content) for m in memories]
+                    scores = self._onnx_ranker.score_quality_batch(pairs)
+                    for memory, score in zip(memories, scores):
+                        memory.metadata['quality_provider'] = 'onnx_local'
+                    return scores
+                except Exception as e:
+                    logger.warning(f"Batch ONNX scoring failed: {e}")
+
+        # Fall back to sequential for non-ONNX tiers or on error
+        logger.debug("Falling back to sequential evaluation for batch")
+        return await asyncio.gather(*(self.evaluate_quality(query, m) for m in memories))
+
+    def _score_with_fallback_batch(
+        self, query: str, memories: List[Memory]
+    ) -> List[float]:
+        """
+        Batch version of _score_with_fallback.
+
+        DeBERTa scores all items first. Items below threshold get
+        a second-pass MS-MARCO score.
+        """
+        deberta = self._onnx_models.get('nvidia-quality-classifier-deberta')
+        ms_marco = self._onnx_models.get('ms-marco-MiniLM-L-6-v2')
+
+        if not deberta:
+            return [0.5] * len(memories)
+
+        # Step 1: Batch DeBERTa score for all items
+        deberta_pairs = [("", m.content) for m in memories]
+        deberta_scores = deberta.score_quality_batch(deberta_pairs)
+
+        deberta_threshold = self.config.deberta_threshold
+        final_scores = list(deberta_scores)
+
+        # Step 2: Find items below threshold that need MS-MARCO rescue
+        if ms_marco:
+            low_indices = [
+                i for i, s in enumerate(deberta_scores) if s < deberta_threshold
+            ]
+            if low_indices:
+                msmarco_pairs = [("", memories[i].content) for i in low_indices]
+                msmarco_scores = ms_marco.score_quality_batch(msmarco_pairs)
+
+                ms_marco_threshold = self.config.ms_marco_threshold
+                for idx, ms_score in zip(low_indices, msmarco_scores):
+                    if ms_score >= ms_marco_threshold:
+                        final_scores[idx] = ms_score
+                        memories[idx].metadata['quality_components'] = {
+                            'deberta_score': deberta_scores[idx],
+                            'ms_marco_score': ms_score,
+                            'decision': 'ms_marco_rescue',
+                        }
+                    else:
+                        memories[idx].metadata['quality_components'] = {
+                            'deberta_score': deberta_scores[idx],
+                            'ms_marco_score': ms_score,
+                            'decision': 'both_low',
+                        }
+
+        for memory in memories:
+            memory.metadata['quality_provider'] = 'fallback_deberta-msmarco'
+
+        return final_scores
 
     async def _score_with_groq(self, query: str, memory: Memory) -> float:
         """

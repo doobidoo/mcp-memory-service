@@ -76,11 +76,13 @@ Branch protection configured to allow admin bypass:
 - Incomplete GitHub Release
 - Missed workflow verification
 - Version mismatch between files
+- **Real incident (v10.8.0, Feb 8, 2026)**: Forgot to update `_version.py`, dashboard showed wrong version
 
 **With agent** (✅):
-- All files updated consistently
+- All files updated consistently (pyproject.toml, _version.py, README.md, CHANGELOG.md)
 - Proper release created
 - Complete documentation
 - CHANGELOG properly formatted
+- Dashboard version correct
 
-**Lesson**: Always use agents, even for "simple" hotfixes
+**Lesson**: Always use github-release-manager agent, even for "simple" hotfixes. The five-file version bump is error-prone when done manually.

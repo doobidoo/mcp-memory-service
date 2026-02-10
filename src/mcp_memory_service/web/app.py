@@ -60,6 +60,8 @@ from .api.mcp import router as mcp_router
 from .api.consolidation import router as consolidation_router
 from .api.backup import router as backup_router
 from .api.quality import router as quality_router
+from .api.server import router as server_router
+from .api.configuration import router as configuration_router
 from .sse import sse_manager
 
 logger = logging.getLogger(__name__)
@@ -312,6 +314,14 @@ def create_app() -> FastAPI:
     # Include consolidation router
     app.include_router(consolidation_router, tags=["consolidation"])
     logger.info(f"✓ Included consolidation router with {len(consolidation_router.routes)} routes")
+
+    # Include server management router
+    app.include_router(server_router, prefix="/api/server", tags=["server-management"])
+    logger.info(f"✓ Included server router with {len(server_router.routes)} routes")
+
+    # Include configuration router
+    app.include_router(configuration_router, prefix="/api", tags=["configuration"])
+    logger.info(f"✓ Included configuration router with {len(configuration_router.routes)} routes")
 
     # Include MCP protocol router
     app.include_router(mcp_router, tags=["mcp-protocol"])
@@ -894,13 +904,23 @@ def create_app() -> FastAPI:
             </div>
             
             <script>
+                // Auth helper - reads API key from localStorage (shared with dashboard)
+                function getAuthHeaders() {
+                    const headers = { 'Content-Type': 'application/json' };
+                    const apiKey = localStorage.getItem('mcp_api_key');
+                    const oauthToken = localStorage.getItem('mcp_oauth_token');
+                    if (apiKey) headers['X-API-Key'] = apiKey;
+                    else if (oauthToken) headers['Authorization'] = 'Bearer ' + oauthToken;
+                    return headers;
+                }
+
                 // Fetch and display live stats
                 async function updateStats() {
                     try {
                         const healthResponse = await fetch('/api/health');
                         const health = await healthResponse.json();
-                        
-                        const detailedResponse = await fetch('/api/health/detailed');
+
+                        const detailedResponse = await fetch('/api/health/detailed', { headers: getAuthHeaders() });
                         const detailed = await detailedResponse.json();
                         
                         const stats = document.getElementById('stats');
@@ -949,7 +969,7 @@ def create_app() -> FastAPI:
                 async function loadDynamicInfo() {
                     try {
                         // Load detailed health information
-                        const response = await fetch('/api/health/detailed');
+                        const response = await fetch('/api/health/detailed', { headers: getAuthHeaders() });
                         if (!response.ok) {
                             throw new Error(`HTTP ${response.status}`);
                         }

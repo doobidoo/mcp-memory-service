@@ -280,13 +280,23 @@ def detect_gpu():
 
     Wrapper function that uses the shared GPU detection module.
     """
-    # Lazy import to avoid module-level import issues in tests
+    # Import the module directly by file path to avoid triggering package __init__.py
+    # which has dependencies that aren't installed yet
+    import importlib.util
+    
+    gpu_detection_path = Path(__file__).parent.parent.parent / "src" / "mcp_memory_service" / "utils" / "gpu_detection.py"
+    
     try:
+        # First try if package is already installed
         from mcp_memory_service.utils.gpu_detection import detect_gpu as shared_detect_gpu
     except ImportError:
-        # Fallback for scripts directory context
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-        from src.mcp_memory_service.utils.gpu_detection import detect_gpu as shared_detect_gpu
+        # Load module directly from file path without triggering package init
+        spec = importlib.util.spec_from_file_location("gpu_detection", gpu_detection_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not load GPU detection module from {gpu_detection_path}")
+        gpu_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gpu_module)
+        shared_detect_gpu = gpu_module.detect_gpu
 
     system_info = detect_system()
 
@@ -839,9 +849,16 @@ def test_cloudflare_connection(credentials):
             'Content-Type': 'application/json'
         }
 
-        # Test API token validity
+        # Test API token validity using account-specific endpoint
+        account_id = credentials.get('CLOUDFLARE_ACCOUNT_ID', '').strip()
+        if account_id:
+            endpoint = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/tokens/verify"
+        else:
+            # Fallback to user-level endpoint if account_id is not provided
+            endpoint = "https://api.cloudflare.com/client/v4/user/tokens/verify"
+
         response = requests.get(
-            "https://api.cloudflare.com/client/v4/user/tokens/verify",
+            endpoint,
             headers=headers,
             timeout=10
         )
@@ -1010,6 +1027,16 @@ def _detect_installer_command():
 
 def _setup_storage_and_gpu_environment(args, system_info, gpu_info, env):
     """Set up storage backend and GPU environment variables."""
+    # Get installer command
+    installer_cmd = _detect_installer_command()
+    if installer_cmd is None:
+        return False
+    
+    # Determine installation mode
+    install_mode = []
+    if args.dev:
+        install_mode = ['-e']
+    
     # Choose and install storage backend
     chosen_backend = choose_storage_backend(system_info, gpu_info, args)
 
@@ -1211,6 +1238,26 @@ def _setup_storage_and_gpu_environment(args, system_info, gpu_info, env):
                 print_info("Try running: python install.py --storage-backend sqlite_vec --skip-pytorch")
             
         return False
+
+
+def install_package(args):
+    """Install the MCP Memory Service package with appropriate dependencies."""
+    print_step("3", "Installing MCP Memory Service")
+    
+    # Determine installation mode (kept for compatibility, used by helper)
+    if args.dev:
+        print_info("Installing in development mode")
+    
+    # Set environment variables for installation
+    env = os.environ.copy()
+    
+    # Get system and GPU info
+    system_info = detect_system()
+    gpu_info = detect_gpu()
+    
+    # Setup and install using the helper
+    return _setup_storage_and_gpu_environment(args, system_info, gpu_info, env)
+
 
 def get_platform_base_dir() -> Path:
     """Get platform-specific base directory for MCP Memory storage.

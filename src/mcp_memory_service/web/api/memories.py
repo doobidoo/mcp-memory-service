@@ -28,18 +28,13 @@ from ...storage.base import MemoryStorage
 from ...models.memory import Memory
 from ...services.memory_service import MemoryService
 from ...utils.hashing import generate_content_hash
-from ...config import INCLUDE_HOSTNAME, OAUTH_ENABLED
+from ...config import INCLUDE_HOSTNAME
+# OAuth config no longer needed - auth is always enabled
 from ..dependencies import get_storage, get_memory_service
 from ..sse import sse_manager, create_memory_stored_event, create_memory_deleted_event
 
-# OAuth authentication imports (conditional)
-if OAUTH_ENABLED or TYPE_CHECKING:
-    from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
-else:
-    # Provide type stubs when OAuth is disabled
-    AuthenticationResult = None
-    require_read_access = None
-    require_write_access = None
+# OAuth authentication imports
+from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -138,7 +133,7 @@ async def store_memory(
     request: MemoryCreateRequest,
     http_request: Request,
     memory_service: MemoryService = Depends(get_memory_service),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Store a new memory.
@@ -234,7 +229,7 @@ async def list_memories(
     tag: Optional[str] = Query(None, description="Filter by tag"),
     memory_type: Optional[str] = Query(None, description="Filter by memory type"),
     memory_service: MemoryService = Depends(get_memory_service),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     List memories with pagination and optional filtering.
@@ -266,7 +261,7 @@ async def list_memories(
 async def get_memory(
     content_hash: str,
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get a specific memory by its content hash.
@@ -292,7 +287,7 @@ async def get_memory(
 async def delete_memory(
     content_hash: str,
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Delete a memory by its content hash.
@@ -326,7 +321,7 @@ async def update_memory(
     content_hash: str,
     request: MemoryUpdateRequest,
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Update memory metadata (tags, type, metadata) without changing content or timestamps.
@@ -391,7 +386,7 @@ async def update_memory(
 @router.get("/tags", response_model=TagListResponse, tags=["tags"])
 async def get_tags(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get all tags with their usage counts.

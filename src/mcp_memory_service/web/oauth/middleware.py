@@ -19,8 +19,9 @@ Provides Bearer token validation with fallback to API key authentication.
 """
 
 import logging
+import secrets
 from typing import Optional, Dict, Any
-from fastapi import HTTPException, status, Depends
+from fastapi import HTTPException, status, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt, ExpiredSignatureError
 from jose.jwt import JWTClaimsError
@@ -271,8 +272,8 @@ def authenticate_api_key(api_key: str) -> AuthenticationResult:
             error="api_key_not_configured"
         )
 
-    # Validate API key
-    if api_key == API_KEY:
+    # Validate API key using constant-time comparison to prevent timing attacks
+    if secrets.compare_digest(api_key.encode(), API_KEY.encode()):
         logger.debug("API key authentication successful")
         return AuthenticationResult(
             authenticated=True,
@@ -290,6 +291,7 @@ def authenticate_api_key(api_key: str) -> AuthenticationResult:
 
 
 async def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme)
 ) -> AuthenticationResult:
     """
@@ -339,6 +341,33 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"}
         )
 
+    # Check for API key authentication without Bearer token
+    # Try X-API-Key header first (recommended for security)
+    if API_KEY:
+        api_key_header = request.headers.get("X-API-Key")
+        if api_key_header:
+            api_key_result = authenticate_api_key(api_key_header)
+            if api_key_result.authenticated:
+                logger.debug("Authenticated via X-API-Key header")
+                return api_key_result
+
+        # Try query parameter as fallback (less secure, but convenient)
+        api_key_param = request.query_params.get("api_key")
+        if api_key_param:
+            api_key_result = authenticate_api_key(api_key_param)
+            if api_key_result.authenticated:
+                logger.debug("Authenticated via api_key query parameter")
+                return api_key_result
+
+    # Try OAuth token as query parameter (EventSource API doesn't support headers)
+    if OAUTH_ENABLED:
+        oauth_token_param = request.query_params.get("token")
+        if oauth_token_param:
+            auth_result = await authenticate_bearer_token(oauth_token_param)
+            if auth_result.authenticated:
+                logger.debug("Authenticated via token query parameter (SSE workaround)")
+                return auth_result
+
     # Allow anonymous access only if explicitly enabled
     if ALLOW_ANONYMOUS_ACCESS:
         logger.debug("Anonymous access explicitly enabled, granting read-only access")
@@ -353,11 +382,11 @@ async def get_current_user(
     if API_KEY or OAUTH_ENABLED:
         logger.debug("No valid authentication provided")
         if OAUTH_ENABLED and API_KEY:
-            error_msg = "Authorization required. Provide valid OAuth Bearer token or API key."
+            error_msg = "Authorization required. Provide valid OAuth Bearer token or API key (via X-API-Key header or api_key query parameter)."
         elif OAUTH_ENABLED:
             error_msg = "Authorization required. Provide valid OAuth Bearer token."
         else:
-            error_msg = "Authorization required. Provide valid API key."
+            error_msg = "Authorization required. Provide valid API key via X-API-Key header or api_key query parameter."
     else:
         logger.debug("No authentication configured and anonymous access disabled")
         error_msg = "Authentication is required. Set MCP_ALLOW_ANONYMOUS_ACCESS=true to enable anonymous access."

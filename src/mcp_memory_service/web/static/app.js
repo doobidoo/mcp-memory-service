@@ -76,6 +76,15 @@ class MemoryDashboard {
         this.liveSearchEnabled = true;
         this.debounceTimer = null;
 
+        // Authentication state
+        this.authState = {
+            isAuthenticated: false,
+            authMethod: null, // 'api_key', 'oauth', 'anonymous', or null
+            apiKey: localStorage.getItem('mcp_api_key') || null,
+            oauthToken: localStorage.getItem('mcp_oauth_token') || null,
+            requiresAuth: false
+        };
+
         // Settings with defaults
         this.settings = {
             theme: 'light',
@@ -106,7 +115,23 @@ class MemoryDashboard {
         this.loadSettings();
         this.applyTheme();
         this.setupEventListeners();
+        this.setupAuthListeners();
+        this.setupServerManagement();
         this.setupSSE();
+
+        // Check for secure context
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+            console.warn('⚠️ Insecure connection detected. Credentials should be transmitted over HTTPS.');
+            this.showToast('Warning: Connection not secure. Please use HTTPS in production.', 'warning');
+        }
+
+        // Detect authentication requirement before loading data
+        const needsAuth = await this.detectAuthRequirement();
+        if (needsAuth && !this.authState.apiKey && !this.authState.oauthToken) {
+            this.showAuthModal();
+            return; // Don't load data until authenticated
+        }
+
         await this.loadVersion();
         await this.loadDashboardData();
         this.updateConnectionStatus('connected');
@@ -114,6 +139,27 @@ class MemoryDashboard {
         // Initialize sync status monitoring for hybrid mode
         await this.checkSyncStatus();
         this.startSyncStatusMonitoring();
+    }
+
+    /**
+     * Detect if authentication is required
+     */
+    async detectAuthRequirement() {
+        try {
+            const response = await fetch(`${this.apiBase}/health`);
+            if (response.status === 401) {
+                this.authState.requiresAuth = true;
+                return true;
+            } else if (response.ok) {
+                this.authState.requiresAuth = false;
+                this.authState.isAuthenticated = true;
+                this.authState.authMethod = 'anonymous';
+                return false;
+            }
+        } catch (error) {
+            console.error('Failed to detect auth requirement:', error);
+            return false;
+        }
     }
 
     /**
@@ -531,6 +577,9 @@ class MemoryDashboard {
             this.closeModal(document.getElementById('settingsModal'));
         });
 
+        // Initialize settings tabs
+        this.initializeSettingsTabs();
+
         // Tag cloud event delegation
         document.getElementById('tagsCloudContainer')?.addEventListener('click', (e) => {
             if (e.target.classList.contains('tag-bubble') || e.target.closest('.tag-bubble')) {
@@ -560,6 +609,8 @@ class MemoryDashboard {
         document.getElementById('refreshGraphBtn')?.addEventListener('click', this.handleGraphRefresh.bind(this));
         document.getElementById('graphLimitSelect')?.addEventListener('change', this.handleGraphRefresh.bind(this));
         document.getElementById('graphMinConnectionsSelect')?.addEventListener('change', this.handleGraphRefresh.bind(this));
+        document.getElementById('graphFullscreenBtn')?.addEventListener('click', this.enterGraphFullscreen.bind(this));
+        document.getElementById('graphExitFullscreenBtn')?.addEventListener('click', this.exitGraphFullscreen.bind(this));
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
@@ -579,7 +630,14 @@ class MemoryDashboard {
      */
     setupSSE() {
         try {
-            this.eventSource = new EventSource(`${this.apiBase}/events`);
+            // Build SSE URL with query parameter auth (EventSource API doesn't support custom headers)
+            const sseUrl = new URL(`${this.apiBase}/events`, window.location.origin);
+            if (this.authState.apiKey) {
+                sseUrl.searchParams.set('api_key', this.authState.apiKey);
+            } else if (this.authState.oauthToken) {
+                sseUrl.searchParams.set('token', this.authState.oauthToken);
+            }
+            this.eventSource = new EventSource(sseUrl.toString());
 
             this.eventSource.onopen = () => {
                 this.updateConnectionStatus('connected');
@@ -1021,13 +1079,8 @@ class MemoryDashboard {
         // Sync buttons event listeners are attached in checkSyncStatus()
         // after buttons are confirmed to be accessible in the DOM
 
-        // Backup now button
-        const backupNowButton = document.getElementById('backupNowButton');
-        if (backupNowButton) {
-            backupNowButton.addEventListener('click', () => {
-                this.createBackup();
-            });
-        }
+        // Backup buttons use inline onclick handlers in HTML
+        // (setupEventListeners runs before settings modal DOM is interactive)
 
         // Document search button
         const docSearchBtn = document.getElementById('docSearchBtn');
@@ -1258,8 +1311,16 @@ class MemoryDashboard {
         formData.append('chunk_overlap', config.chunk_overlap.toString());
         formData.append('memory_type', config.memory_type);
 
+        const headers = {};
+        if (this.authState.apiKey) {
+            headers['X-API-Key'] = this.authState.apiKey;
+        } else if (this.authState.oauthToken) {
+            headers['Authorization'] = `Bearer ${this.authState.oauthToken}`;
+        }
+
         const response = await fetch(`${this.apiBase}/documents/upload`, {
             method: 'POST',
+            headers: headers,
             body: formData
         });
 
@@ -1309,8 +1370,16 @@ class MemoryDashboard {
         formData.append('chunk_overlap', config.chunk_overlap.toString());
         formData.append('memory_type', config.memory_type);
 
+        const headers = {};
+        if (this.authState.apiKey) {
+            headers['X-API-Key'] = this.authState.apiKey;
+        } else if (this.authState.oauthToken) {
+            headers['Authorization'] = `Bearer ${this.authState.oauthToken}`;
+        }
+
         const response = await fetch(`${this.apiBase}/documents/batch-upload`, {
             method: 'POST',
+            headers: headers,
             body: formData
         });
 
@@ -1639,6 +1708,81 @@ class MemoryDashboard {
             this.showToast(this.t('toast.backupFailed', 'Failed to create backup'), 'error');
         } finally {
             if (backupButton) backupButton.disabled = false;
+        }
+    }
+
+    /**
+     * Open the View Backups modal and load backup list
+     */
+    async openViewBackupsModal() {
+        const modal = document.getElementById('viewBackupsModal');
+        if (!modal) return;
+
+        // Show loading state
+        const listEl = document.getElementById('backupsList');
+        const summaryEl = document.getElementById('backupsSummary');
+        if (listEl) listEl.innerHTML = '<p class="loading-text">Loading backups...</p>';
+        if (summaryEl) summaryEl.innerHTML = '';
+
+        this.openModal(modal);
+        await this.loadBackupsList();
+    }
+
+    /**
+     * Load and render the backup list from the API
+     */
+    async loadBackupsList() {
+        const listEl = document.getElementById('backupsList');
+        const summaryEl = document.getElementById('backupsSummary');
+        if (!listEl) return;
+
+        try {
+            const [data, status] = await Promise.all([
+                this.apiCall('/backup/list'),
+                this.apiCall('/backup/status').catch(() => null)
+            ]);
+            const backups = data.backups || [];
+            const totalCount = data.total_count || backups.length;
+            const totalSizeBytes = data.total_size_bytes || 0;
+            const totalSizeMB = (totalSizeBytes / 1024 / 1024).toFixed(2);
+            const backupDir = status?.backup_directory || '';
+
+            // Render summary
+            if (summaryEl) {
+                let html = `<strong>${totalCount}</strong> backup${totalCount !== 1 ? 's' : ''} &middot; <strong>${totalSizeMB} MB</strong> total`;
+                if (backupDir) {
+                    html += `<br><span class="backup-directory-path">${this.escapeHtml(backupDir)}</span>`;
+                }
+                summaryEl.innerHTML = html;
+            }
+
+            // Render backup list
+            if (backups.length === 0) {
+                listEl.innerHTML = '<p class="loading-text">No backups found. Create one using "Create Backup Now".</p>';
+                return;
+            }
+
+            listEl.innerHTML = backups.map(backup => {
+                const sizeMB = (backup.size_bytes / 1024 / 1024).toFixed(2);
+                const createdDate = backup.created_at ? new Date(backup.created_at).toLocaleString() : 'Unknown';
+                const ageDays = backup.age_days != null ? backup.age_days : '?';
+                const ageLabel = ageDays === 1 ? '1 day ago' : `${ageDays} days ago`;
+
+                return `
+                    <div class="backup-item">
+                        <div class="backup-filename">${this.escapeHtml(backup.filename)}</div>
+                        <div class="backup-meta">
+                            <span>${sizeMB} MB</span>
+                            <span>${this.escapeHtml(createdDate)}</span>
+                            <span>${ageLabel}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+        } catch (error) {
+            console.error('Error loading backups list:', error);
+            listEl.innerHTML = '<p class="loading-text" style="color: var(--error);">Failed to load backups.</p>';
         }
     }
 
@@ -3252,11 +3396,24 @@ class MemoryDashboard {
             }
         };
 
+        // Add authentication headers
+        if (this.authState.apiKey) {
+            options.headers['X-API-Key'] = this.authState.apiKey;
+        } else if (this.authState.oauthToken) {
+            options.headers['Authorization'] = `Bearer ${this.authState.oauthToken}`;
+        }
+
         if (data) {
             options.body = JSON.stringify(data);
         }
 
         const response = await fetch(`${this.apiBase}${endpoint}`, options);
+
+        // Handle 401 responses
+        if (response.status === 401) {
+            this.handleAuthFailure();
+            throw new Error('Authentication required');
+        }
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
@@ -3264,6 +3421,276 @@ class MemoryDashboard {
         }
 
         return await response.json();
+    }
+
+    /**
+     * Handle authentication failure (401 response)
+     */
+    handleAuthFailure() {
+        // Clear invalid credentials
+        this.authState.isAuthenticated = false;
+        localStorage.removeItem('mcp_api_key');
+        localStorage.removeItem('mcp_oauth_token');
+
+        // Show authentication modal
+        this.showAuthModal();
+    }
+
+    /**
+     * Show authentication modal
+     */
+    showAuthModal() {
+        const modal = document.getElementById('authModal');
+        if (modal) {
+            this.openModal(modal);
+        }
+    }
+
+    /**
+     * Authenticate with API key
+     */
+    async authenticateWithApiKey(apiKey) {
+        // Store API key
+        this.authState.apiKey = apiKey;
+        localStorage.setItem('mcp_api_key', apiKey);
+
+        // Test authentication
+        try {
+            await this.apiCall('/health');
+            this.authState.isAuthenticated = true;
+            this.authState.authMethod = 'api_key';
+
+            // Close modal and refresh data
+            const modal = document.getElementById('authModal');
+            if (modal) {
+                this.closeModal(modal);
+            }
+
+            // Reload dashboard data
+            this.loadDashboardData();
+            this.showToast('Authentication successful', 'success');
+
+            return true;
+        } catch (error) {
+            // Authentication failed
+            this.showToast('Authentication failed. Please check your API key.', 'error');
+            this.authState.apiKey = null;
+            localStorage.removeItem('mcp_api_key');
+            return false;
+        }
+    }
+
+    /**
+     * Setup authentication event listeners
+     */
+    setupAuthListeners() {
+        const apiKeyBtn = document.getElementById('authWithApiKey');
+        const apiKeyInput = document.getElementById('apiKeyInput');
+
+        if (apiKeyBtn && apiKeyInput) {
+            apiKeyBtn.addEventListener('click', async () => {
+                const apiKey = apiKeyInput.value.trim();
+                if (apiKey) {
+                    await this.authenticateWithApiKey(apiKey);
+                }
+            });
+
+            // Allow Enter key to submit
+            apiKeyInput.addEventListener('keypress', async (e) => {
+                if (e.key === 'Enter') {
+                    const apiKey = apiKeyInput.value.trim();
+                    if (apiKey) {
+                        await this.authenticateWithApiKey(apiKey);
+                    }
+                }
+            });
+        }
+
+        const oauthBtn = document.getElementById('authWithOAuth');
+        if (oauthBtn) {
+            oauthBtn.addEventListener('click', () => {
+                // Redirect to OAuth authorization endpoint
+                window.location.href = '/oauth/authorize';
+            });
+        }
+    }
+
+    /**
+     * Setup server management event listeners
+     */
+    setupServerManagement() {
+        const checkBtn = document.getElementById('checkUpdatesBtn');
+        const updateBtn = document.getElementById('updateServerBtn');
+        const restartBtn = document.getElementById('restartServerBtn');
+
+        if (checkBtn) {
+            checkBtn.addEventListener('click', () => this.checkForUpdates());
+        }
+        if (updateBtn) {
+            updateBtn.addEventListener('click', () => this.updateAndRestart());
+        }
+        if (restartBtn) {
+            restartBtn.addEventListener('click', () => this.restartServer());
+        }
+
+        // Load server status when settings open
+        this.loadServerStatus();
+    }
+
+    /**
+     * Load server status information
+     */
+    async loadServerStatus() {
+        try {
+            const data = await this.apiCall('/server/status');
+            const pidEl = document.getElementById('settingsServerPid');
+            const platformEl = document.getElementById('settingsServerPlatform');
+            if (pidEl) pidEl.textContent = data.pid || '-';
+            if (platformEl) platformEl.textContent = `${data.platform || '-'} / Python ${data.python_version || '-'}`;
+        } catch (error) {
+            console.error('Failed to load server status:', error);
+        }
+    }
+
+    /**
+     * Check for available updates
+     */
+    async checkForUpdates() {
+        const statusEl = document.getElementById('settingsUpdateAvailable');
+        const updateBtn = document.getElementById('updateServerBtn');
+        const actionStatus = document.getElementById('serverActionStatus');
+        const actionText = document.getElementById('serverActionText');
+
+        if (actionStatus) { actionStatus.style.display = 'flex'; }
+        if (actionText) { actionText.textContent = 'Checking for updates...'; }
+
+        try {
+            const data = await this.apiCall('/server/version/check');
+            if (actionStatus) { actionStatus.style.display = 'none'; }
+
+            if (data.update_available) {
+                if (statusEl) {
+                    statusEl.textContent = `Yes - ${data.commits_behind} commit(s) available`;
+                    statusEl.style.color = 'var(--success, #10b981)';
+                    statusEl.style.fontWeight = '600';
+                }
+                if (updateBtn) { updateBtn.style.display = 'inline-flex'; }
+                this.showToast(`${data.commits_behind} update(s) available!`, 'info');
+            } else {
+                if (statusEl) {
+                    statusEl.textContent = 'Up to date';
+                    statusEl.style.color = 'var(--text-secondary)';
+                }
+                if (updateBtn) { updateBtn.style.display = 'none'; }
+                this.showToast('Already up to date.', 'success');
+            }
+        } catch (error) {
+            if (actionStatus) { actionStatus.style.display = 'none'; }
+            if (statusEl) { statusEl.textContent = 'Check failed'; }
+            this.showToast('Failed to check for updates: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * Update and restart the server
+     */
+    async updateAndRestart() {
+        if (!confirm('This will pull the latest code, install dependencies, and restart the server. Continue?')) {
+            return;
+        }
+
+        const actionStatus = document.getElementById('serverActionStatus');
+        const actionText = document.getElementById('serverActionText');
+
+        if (actionStatus) { actionStatus.style.display = 'flex'; }
+        if (actionText) { actionText.textContent = 'Pulling updates and installing...'; }
+
+        try {
+            const data = await this.apiCall('/server/update', 'POST', { confirm: true });
+
+            if (actionText) { actionText.textContent = 'Update complete. Server restarting...'; }
+            this.showRestartOverlay();
+        } catch (error) {
+            if (actionStatus) { actionStatus.style.display = 'none'; }
+            this.showToast('Update failed: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * Restart the server
+     */
+    async restartServer() {
+        if (!confirm('Are you sure you want to restart the server? This will temporarily disconnect all clients.')) {
+            return;
+        }
+
+        try {
+            await this.apiCall('/server/restart', 'POST', { confirm: true });
+            this.showRestartOverlay();
+        } catch (error) {
+            // Server may have already started shutting down
+            if (error.message && error.message.includes('fetch')) {
+                this.showRestartOverlay();
+            } else {
+                this.showToast('Restart failed: ' + error.message, 'error');
+            }
+        }
+    }
+
+    /**
+     * Show restart overlay and poll for server recovery
+     */
+    showRestartOverlay() {
+        const overlay = document.getElementById('restartOverlay');
+        const countdownEl = document.getElementById('restartCountdown');
+        const statusEl = document.getElementById('restartStatus');
+
+        if (overlay) { overlay.style.display = 'flex'; }
+
+        let countdown = 5;
+        let attempts = 0;
+        const maxAttempts = 30;
+
+        const countdownInterval = setInterval(() => {
+            countdown--;
+            if (countdownEl) { countdownEl.textContent = countdown; }
+            if (countdown <= 0) {
+                clearInterval(countdownInterval);
+                this.pollServerHealth(statusEl, overlay, attempts, maxAttempts);
+            }
+        }, 1000);
+    }
+
+    /**
+     * Poll server health after restart
+     */
+    async pollServerHealth(statusEl, overlay, attempts, maxAttempts) {
+        if (attempts >= maxAttempts) {
+            if (statusEl) { statusEl.textContent = 'Server did not come back online. Please check manually.'; }
+            setTimeout(() => {
+                if (overlay) { overlay.style.display = 'none'; }
+            }, 5000);
+            return;
+        }
+
+        if (statusEl) { statusEl.textContent = `Attempt ${attempts + 1}/${maxAttempts} - Waiting for server...`; }
+
+        try {
+            const response = await fetch('/api/health');
+            if (response.ok) {
+                if (statusEl) { statusEl.textContent = 'Server is back online! Reloading...'; }
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1500);
+                return;
+            }
+        } catch (e) {
+            // Server not ready yet
+        }
+
+        setTimeout(() => {
+            this.pollServerHealth(statusEl, overlay, attempts + 1, maxAttempts);
+        }, 2000);
     }
 
     /**
@@ -3768,6 +4195,177 @@ class MemoryDashboard {
         this.showToast(this.t('toast.settingsSaved', 'Settings saved successfully'), 'success');
     }
 
+    /**
+     * Initialize settings tabs
+     */
+    initializeSettingsTabs() {
+        const tabs = document.querySelectorAll('.settings-tab');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                const targetTab = e.target.dataset.tab;
+                this.switchSettingsTab(targetTab);
+            });
+        });
+
+        // Initialize copy button for environment config
+        document.getElementById('copyEnvBtn')?.addEventListener('click', () => {
+            this.copyEnvironmentConfig();
+        });
+    }
+
+    /**
+     * Switch settings tab
+     * @param {string} tabName - Tab name (preferences, environment, system, backup)
+     */
+    switchSettingsTab(tabName) {
+        // Hide all tab contents
+        document.querySelectorAll('.settings-tab-content').forEach(content => {
+            content.style.display = 'none';
+        });
+
+        // Remove active class from all tabs
+        document.querySelectorAll('.settings-tab').forEach(tab => {
+            tab.classList.remove('active');
+        });
+
+        // Show selected tab
+        const tabContent = document.getElementById(`${tabName}Tab`);
+        if (tabContent) {
+            tabContent.style.display = 'block';
+        }
+
+        // Add active class to selected tab
+        const activeTab = document.querySelector(`[data-tab="${tabName}"]`);
+        if (activeTab) {
+            activeTab.classList.add('active');
+        }
+
+        // Load environment config when switching to environment tab
+        if (tabName === 'environment') {
+            this.loadEnvironmentConfig();
+        }
+    }
+
+    /**
+     * Load environment configuration
+     */
+    async loadEnvironmentConfig() {
+        const container = document.getElementById('envConfigContainer');
+        if (!container) return;
+
+        try {
+            container.innerHTML = '<div class="loading-spinner"></div>';
+
+            const config = await this.apiCall('/config/env');
+
+            container.innerHTML = '';
+
+            config.categories.forEach(category => {
+                const categoryDiv = document.createElement('div');
+                categoryDiv.className = 'env-category';
+
+                categoryDiv.innerHTML = `
+                    <h4 class="env-category-title">${this.escapeHtml(category.name)}</h4>
+                    <p class="env-param-description">${this.escapeHtml(category.description)}</p>
+                    <div class="env-params">
+                        ${category.parameters.map(param => `
+                            <div class="env-param-row">
+                                <div class="env-param-key">
+                                    <strong>${this.escapeHtml(param.key)}</strong>
+                                    ${param.sensitive ? '<span class="sensitive-badge">🔒 Sensitive</span>' : ''}
+                                </div>
+                                <div class="env-param-value ${param.sensitive ? 'masked' : ''}">
+                                    ${this.renderParamValue(param)}
+                                </div>
+                                ${param.description ? `
+                                    <div class="env-param-description">${this.escapeHtml(param.description)}</div>
+                                ` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+
+                container.appendChild(categoryDiv);
+            });
+
+            // Store config for copy functionality
+            this.currentEnvConfig = config;
+
+        } catch (error) {
+            console.error('Failed to load environment config:', error);
+            container.innerHTML = '<p class="error">Failed to load configuration</p>';
+        }
+    }
+
+    /**
+     * Render parameter value with appropriate formatting
+     * @param {Object} param - Parameter object
+     * @returns {string} HTML string for parameter value
+     */
+    renderParamValue(param) {
+        if (!param.value) {
+            return '<span class="env-value-empty">(not set)</span>';
+        }
+
+        if (param.sensitive) {
+            return `<code class="env-value">${this.escapeHtml(param.value)}</code>`;
+        }
+
+        if (param.type === 'boolean') {
+            const isTrue = param.value === 'true' || param.value === true;
+            return `<span class="env-value-boolean ${isTrue ? 'true' : 'false'}">${isTrue ? '✓ Enabled' : '✗ Disabled'}</span>`;
+        }
+
+        if (param.choices && param.choices.length > 0) {
+            return `<code class="env-value">${this.escapeHtml(param.value)}</code> <span class="env-choices">(options: ${param.choices.map(c => this.escapeHtml(c)).join(', ')})</span>`;
+        }
+
+        return `<code class="env-value">${this.escapeHtml(param.value)}</code>`;
+    }
+
+    /**
+     * Copy environment configuration to clipboard
+     */
+    async copyEnvironmentConfig() {
+        if (!this.currentEnvConfig) {
+            this.showToast('No configuration loaded', 'error');
+            return;
+        }
+
+        let configText = '# MCP Memory Service Configuration\n';
+        configText += `# Exported: ${new Date().toISOString()}\n\n`;
+
+        this.currentEnvConfig.categories.forEach(category => {
+            configText += `# ========================================\n`;
+            configText += `# ${category.name}\n`;
+            configText += `# ========================================\n`;
+            if (category.description) {
+                configText += `# ${category.description}\n`;
+            }
+            configText += '\n';
+
+            category.parameters.forEach(param => {
+                if (param.description) {
+                    configText += `# ${param.description}\n`;
+                }
+                if (param.value && !param.sensitive) {
+                    configText += `${param.key}=${param.value}\n`;
+                } else {
+                    configText += `# ${param.key}=\n`;
+                }
+            });
+            configText += '\n';
+        });
+
+        try {
+            await navigator.clipboard.writeText(configText);
+            this.showToast('Configuration copied to clipboard', 'success');
+        } catch (error) {
+            console.error('Failed to copy:', error);
+            this.showToast('Failed to copy to clipboard', 'error');
+        }
+    }
+
     // ===== MANAGE TAB METHODS =====
 
     /**
@@ -3790,10 +4388,7 @@ class MemoryDashboard {
      */
     async loadUntaggedCount() {
         try {
-            const response = await fetch(`${this.apiBase}/manage/untagged/count`);
-            if (!response.ok) return;
-
-            const data = await response.json();
+            const data = await this.apiCall('/manage/untagged/count');
             const count = data.count || 0;
             const countSpan = document.getElementById('untaggedCount');
             const card = document.getElementById('deleteUntaggedCard');
@@ -3814,10 +4409,7 @@ class MemoryDashboard {
      */
     async loadTagSelectOptions() {
         try {
-            const response = await fetch(`${this.apiBase}/manage/tags/stats`);
-            if (!response.ok) throw new Error('Failed to load tags');
-
-            const data = await response.json();
+            const data = await this.apiCall('/manage/tags/stats');
             const select = document.getElementById('deleteTagSelect');
             if (!select) return;
 
@@ -3847,10 +4439,7 @@ class MemoryDashboard {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/manage/tags/stats`);
-            if (!response.ok) throw new Error('Failed to load tag stats');
-
-            const data = await response.json();
+            const data = await this.apiCall('/manage/tags/stats');
             this.renderTagManagementTable(data);
         } catch (error) {
             console.error('Failed to load tag management stats:', error);
@@ -3924,23 +4513,10 @@ class MemoryDashboard {
 
         this.setLoading(true);
         try {
-            const response = await fetch(`${this.apiBase}/manage/bulk-delete`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            const result = await this.apiCall('/manage/bulk-delete', 'POST', {
                     tag: tag,
                     confirm_count: count
-                })
-            });
-
-            const result = await response.json();
-
-            // Check HTTP status first (handles HTTPException responses with 'detail')
-            if (!response.ok) {
-                const errorMsg = result.detail || result.message || 'Unknown error';
-                this.showToast(errorMsg, 'error');
-                return;
-            }
+                });
 
             if (result.success) {
                 this.showToast(result.message, 'success');
@@ -3967,17 +4543,7 @@ class MemoryDashboard {
 
         this.setLoading(true);
         try {
-            const response = await fetch(`${this.apiBase}/manage/cleanup-duplicates`, {
-                method: 'POST'
-            });
-
-            const result = await response.json();
-
-            if (!response.ok) {
-                const errorMsg = result.detail || result.message || 'Unknown error';
-                this.showToast(errorMsg, 'error');
-                return;
-            }
+            const result = await this.apiCall('/manage/cleanup-duplicates', 'POST');
 
             if (result.success) {
                 this.showToast(result.message, 'success');
@@ -4012,21 +4578,9 @@ class MemoryDashboard {
 
         this.setLoading(true);
         try {
-            const response = await fetch(`${this.apiBase}/manage/bulk-delete`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            const result = await this.apiCall('/manage/bulk-delete', 'POST', {
                     before_date: date
-                })
-            });
-
-            const result = await response.json();
-
-            if (!response.ok) {
-                const errorMsg = result.detail || result.message || 'Unknown error';
-                this.showToast(errorMsg, 'error');
-                return;
-            }
+                });
 
             if (result.success) {
                 this.showToast(result.message, 'success');
@@ -4062,17 +4616,7 @@ class MemoryDashboard {
 
         this.setLoading(true);
         try {
-            const response = await fetch(`${this.apiBase}/manage/delete-untagged?confirm_count=${count}`, {
-                method: 'POST'
-            });
-
-            const result = await response.json();
-
-            if (!response.ok) {
-                const errorMsg = result.detail || result.message || 'Unknown error';
-                this.showToast(errorMsg, 'error');
-                return;
-            }
+            const result = await this.apiCall(`/manage/delete-untagged?confirm_count=${count}`, 'POST');
 
             if (result.success) {
                 this.showToast(result.message, 'success');
@@ -4154,10 +4698,7 @@ class MemoryDashboard {
      */
     async loadAnalyticsOverview() {
         try {
-            const response = await fetch(`${this.apiBase}/analytics/overview`);
-            if (!response.ok) throw new Error('Failed to load overview');
-
-            const data = await response.json();
+            const data = await this.apiCall('/analytics/overview');
 
             // Update metric cards
             this.updateElementText('analyticsTotalMemories', data.total_memories || 0);
@@ -4180,10 +4721,7 @@ class MemoryDashboard {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/analytics/memory-growth?period=${period}`);
-            if (!response.ok) throw new Error('Failed to load growth data');
-
-            const data = await response.json();
+            const data = await this.apiCall(`/analytics/memory-growth?period=${period}`);
             this.renderMemoryGrowthChart(container, data);
         } catch (error) {
             console.error('Failed to load memory growth:', error);
@@ -4233,10 +4771,7 @@ class MemoryDashboard {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/analytics/tag-usage`);
-            if (!response.ok) throw new Error('Failed to load tag usage');
-
-            const data = await response.json();
+            const data = await this.apiCall('/analytics/tag-usage');
             this.renderTagUsageChart(container, data);
         } catch (error) {
             console.error('Failed to load tag usage:', error);
@@ -4293,10 +4828,7 @@ class MemoryDashboard {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/analytics/memory-types`);
-            if (!response.ok) throw new Error('Failed to load memory types');
-
-            const data = await response.json();
+            const data = await this.apiCall('/analytics/memory-types');
             this.renderMemoryTypesChart(container, data);
         } catch (error) {
             console.error('Failed to load memory types:', error);
@@ -4355,10 +4887,7 @@ class MemoryDashboard {
         if (!container) return;
 
     try {
-    const response = await fetch(`${this.apiBase}/analytics/top-tags?period=${period}`);
-            if (!response.ok) throw new Error('Failed to load top tags');
-
-    const data = await response.json();
+    const data = await this.apiCall(`/analytics/top-tags?period=${period}`);
         this.renderTopTagsReport(container, data);
     } catch (error) {
     console.error('Failed to load top tags:', error);
@@ -4407,10 +4936,7 @@ class MemoryDashboard {
         if (!container) return;
 
     try {
-    const response = await fetch(`${this.apiBase}/analytics/activity-breakdown?granularity=${granularity}`);
-    if (!response.ok) throw new Error('Failed to load activity breakdown');
-
-    const data = await response.json();
+    const data = await this.apiCall(`/analytics/activity-breakdown?granularity=${granularity}`);
     this.renderRecentActivityReport(container, data);
     } catch (error) {
     console.error('Failed to load recent activity:', error);
@@ -4476,10 +5002,7 @@ class MemoryDashboard {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/analytics/activity-heatmap?days=${period}`);
-            if (!response.ok) throw new Error('Failed to load heatmap data');
-
-            const data = await response.json();
+            const data = await this.apiCall(`/analytics/activity-heatmap?days=${period}`);
             this.renderActivityHeatmapChart(container, data);
         } catch (error) {
             console.error('Failed to load activity heatmap:', error);
@@ -4586,10 +5109,7 @@ class MemoryDashboard {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/analytics/storage-stats`);
-            if (!response.ok) throw new Error('Failed to load storage stats');
-
-            const data = await response.json();
+            const data = await this.apiCall('/analytics/storage-stats');
             this.renderStorageReport(container, data);
         } catch (error) {
             console.error('Failed to load storage report:', error);
@@ -4649,10 +5169,7 @@ class MemoryDashboard {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/analytics/relationship-types`);
-            if (!response.ok) throw new Error('Failed to load relationship types');
-
-            const data = await response.json();
+            const data = await this.apiCall('/analytics/relationship-types');
             this.renderRelationshipTypesChart(container, data);
         } catch (error) {
             console.error('Failed to load relationship types:', error);
@@ -4716,10 +5233,21 @@ class MemoryDashboard {
             const limit = document.getElementById('graphLimitSelect')?.value || 100;
             const minConnections = document.getElementById('graphMinConnectionsSelect')?.value || 1;
 
-            const response = await fetch(`${this.apiBase}/analytics/graph-visualization?limit=${limit}&min_connections=${minConnections}`);
-            if (!response.ok) throw new Error('Failed to load graph visualization');
+            // Warn about performance for large graphs
+            if (limit >= 750) {
+                this.showToast(`Loading ${limit} nodes may impact performance. Consider using filters.`, 'warning', 5000);
+            }
 
-            const data = await response.json();
+            const data = await this.apiCall(`/analytics/graph-visualization?limit=${limit}&min_connections=${minConnections}`);
+
+            if (!data || !data.nodes || data.nodes.length === 0) {
+                container.innerHTML = '<p>No connected memories found. Try lowering the minimum connections filter.</p>';
+                return;
+            }
+
+            // Store data for fullscreen use
+            this.currentGraphData = data;
+
             this.renderGraphVisualization(container, data);
         } catch (error) {
             console.error('Failed to load graph visualization:', error);
@@ -4741,7 +5269,15 @@ class MemoryDashboard {
 
         // Get container dimensions
         const width = container.clientWidth;
-        const height = 500;
+        const height = 600;
+
+        this.renderGraphVisualizationInContainer(container, data, width, height, false);
+    }
+
+    /**
+     * Render graph in a specific container with custom dimensions
+     */
+    renderGraphVisualizationInContainer(container, data, width, height, isFullscreen) {
 
         // Create SVG
         const svg = d3.select(container)
@@ -4778,10 +5314,15 @@ class MemoryDashboard {
             'related': '#95A5A6'
         };
 
+        // Adjust force parameters based on node count for performance
+        const nodeCount = data.nodes.length;
+        const chargeStrength = nodeCount > 500 ? -200 : -300;
+        const linkDistance = nodeCount > 500 ? 80 : 100;
+
         // Create force simulation
         const simulation = d3.forceSimulation(data.nodes)
-            .force('link', d3.forceLink(data.edges).id(d => d.id).distance(100))
-            .force('charge', d3.forceManyBody().strength(-300))
+            .force('link', d3.forceLink(data.edges).id(d => d.id).distance(linkDistance))
+            .force('charge', d3.forceManyBody().strength(chargeStrength))
             .force('center', d3.forceCenter(width / 2, height / 2))
             .force('collision', d3.forceCollide().radius(30));
 
@@ -4801,7 +5342,12 @@ class MemoryDashboard {
             .attr('class', 'graph-node')
             .attr('r', d => Math.min(20, 8 + Math.sqrt(d.connections) * 2))
             .attr('fill', d => nodeColors[d.type] || nodeColors['untyped'])
+            .style('cursor', 'pointer')
+            .on('click', (event, d) => this.handleGraphNodeClick(event, d))
             .call(this.dragBehavior(simulation));
+
+        // Adjust text size for large graphs
+        const fontSize = nodeCount > 750 ? '8px' : nodeCount > 500 ? '10px' : '12px';
 
         // Add labels
         const label = g.append('g')
@@ -4809,6 +5355,8 @@ class MemoryDashboard {
             .data(data.nodes)
             .join('text')
             .attr('class', 'graph-label')
+            .attr('font-size', fontSize)
+            .attr('fill', isFullscreen ? '#ffffff' : 'currentColor')
             .attr('dy', -15)
             .text(d => {
                 const content = d.content || '';
@@ -4828,14 +5376,7 @@ class MemoryDashboard {
                 .duration(200)
                 .style('opacity', 1);
 
-            tooltip.html(`
-                <div class="graph-tooltip-title">${d.type || 'untyped'}</div>
-                <div class="graph-tooltip-content">${this.escapeHtml(d.content || '')}</div>
-                <div class="graph-tooltip-meta">
-                    ${d.connections} connections
-                    ${d.tags && d.tags.length > 0 ? '<br>Tags: ' + d.tags.join(', ') : ''}
-                </div>
-            `)
+            tooltip.html(this.formatGraphTooltip(d))
                 .style('left', (event.pageX + 10) + 'px')
                 .style('top', (event.pageY - 28) + 'px');
         })
@@ -4863,8 +5404,12 @@ class MemoryDashboard {
         });
 
         // Store references for cleanup
-        this.graphSimulation = simulation;
-        this.graphSvg = svg;
+        if (isFullscreen) {
+            this.fullscreenSimulation = simulation;
+        } else {
+            this.graphSimulation = simulation;
+            this.graphSvg = svg;
+        }
     }
 
     /**
@@ -4901,6 +5446,154 @@ class MemoryDashboard {
         await this.loadGraphVisualization();
     }
 
+    /**
+     * Format enhanced tooltip with quality score, timestamps, and metadata
+     */
+    formatGraphTooltip(d) {
+        const qualityClass = d.quality_score >= 0.7 ? 'high' : d.quality_score >= 0.4 ? 'medium' : 'low';
+        const qualityColor = qualityClass === 'high' ? '#50C878' : qualityClass === 'medium' ? '#F39C12' : '#E24A4A';
+
+        const createdDate = new Date(d.created_at * 1000);
+        const updatedDate = d.updated_at ? new Date(d.updated_at * 1000) : null;
+        const now = new Date();
+
+        const formatRelativeTime = (date) => {
+            const seconds = Math.floor((now - date) / 1000);
+            if (seconds < 60) return `${seconds}s ago`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+            if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+            return `${Math.floor(seconds / 86400)}d ago`;
+        };
+
+        return `
+            <div class="graph-tooltip-title">${this.escapeHtml(d.type || 'untyped')}</div>
+            <div class="graph-tooltip-content">${this.escapeHtml(d.content || '')}</div>
+            <div class="graph-tooltip-meta">
+                <div class="tooltip-row">
+                    <span class="tooltip-icon">🔗</span>
+                    <span>${d.connections} connection${d.connections !== 1 ? 's' : ''}</span>
+                </div>
+                <div class="tooltip-row">
+                    <span class="tooltip-icon">⭐</span>
+                    <span style="color: ${qualityColor}">Quality: ${(d.quality_score * 100).toFixed(0)}%</span>
+                </div>
+                <div class="tooltip-row">
+                    <span class="tooltip-icon">📅</span>
+                    <span>Created ${formatRelativeTime(createdDate)}</span>
+                </div>
+                ${updatedDate ? `
+                <div class="tooltip-row">
+                    <span class="tooltip-icon">🔄</span>
+                    <span>Updated ${formatRelativeTime(updatedDate)}</span>
+                </div>
+                ` : ''}
+                ${d.tags && d.tags.length > 0 ? `
+                <div class="tooltip-row">
+                    <span class="tooltip-icon">🏷️</span>
+                    <span>${this.escapeHtml(d.tags.join(', '))}</span>
+                </div>
+                ` : ''}
+                <div class="tooltip-row tooltip-id">
+                    <span class="tooltip-icon">🔑</span>
+                    <span title="${d.id}">${d.id.substring(0, 12)}...</span>
+                </div>
+                <div class="tooltip-hint">💡 Click node to view full memory</div>
+            </div>
+        `;
+    }
+
+    /**
+     * Handle click on graph node to show memory details
+     */
+    async handleGraphNodeClick(event, nodeData) {
+        event.stopPropagation();
+
+        // Visual feedback - highlight selected node
+        d3.selectAll('.graph-node').classed('selected', false);
+        d3.select(event.currentTarget).classed('selected', true);
+
+        try {
+            // Show loading indicator
+            this.showToast('Loading memory details...', 'info');
+
+            // Fetch full memory details
+            const memory = await this.apiCall(`/memories/${nodeData.id}`);
+
+            // Open existing memory detail modal
+            this.showMemoryDetails(memory);
+
+        } catch (error) {
+            console.error('Failed to load memory:', error);
+            this.showToast('Failed to load memory details', 'error');
+        }
+    }
+
+    /**
+     * Enter fullscreen mode for graph visualization
+     */
+    enterGraphFullscreen() {
+        const modal = document.getElementById('graphFullscreenModal');
+        const container = document.getElementById('graphFullscreenContainer');
+        const legend = document.getElementById('graphFullscreenLegend');
+        const nodeCount = document.getElementById('graphFullscreenNodeCount');
+
+        // Clone legend from main graph
+        const originalLegend = document.getElementById('graphLegend');
+        legend.innerHTML = originalLegend.innerHTML;
+
+        // Show modal
+        modal.style.display = 'flex';
+
+        // Get window dimensions for fullscreen
+        const width = window.innerWidth - 80;
+        const height = window.innerHeight - 180;
+
+        // Show node count
+        if (this.currentGraphData) {
+            nodeCount.textContent = `${this.currentGraphData.nodes.length} nodes, ${this.currentGraphData.edges.length} edges`;
+        }
+
+        // Re-render graph in fullscreen with larger dimensions
+        if (this.currentGraphData) {
+            this.renderGraphVisualizationInContainer(
+                container,
+                this.currentGraphData,
+                width,
+                height,
+                true // isFullscreen flag
+            );
+        }
+
+        // Add escape key listener
+        this.fullscreenEscapeHandler = (e) => {
+            if (e.key === 'Escape') this.exitGraphFullscreen();
+        };
+        document.addEventListener('keydown', this.fullscreenEscapeHandler);
+    }
+
+    /**
+     * Exit fullscreen mode
+     */
+    exitGraphFullscreen() {
+        const modal = document.getElementById('graphFullscreenModal');
+        modal.style.display = 'none';
+
+        // Clear container
+        document.getElementById('graphFullscreenContainer').innerHTML = '';
+
+        // Remove escape listener
+        if (this.fullscreenEscapeHandler) {
+            document.removeEventListener('keydown', this.fullscreenEscapeHandler);
+            this.fullscreenEscapeHandler = null;
+        }
+
+        // Stop any running simulation
+        if (this.fullscreenSimulation) {
+            this.fullscreenSimulation.stop();
+            this.fullscreenSimulation = null;
+        }
+    }
+
     // ===== QUALITY ANALYTICS METHODS =====
 
     /**
@@ -4908,10 +5601,7 @@ class MemoryDashboard {
      */
     async loadQualityAnalytics() {
         try {
-            const response = await fetch(`${this.apiBase}/quality/distribution`);
-            if (!response.ok) throw new Error('Failed to load quality analytics');
-
-            const data = await response.json();
+            const data = await this.apiCall('/quality/distribution');
 
             // Update summary stats
             this.updateElementText('quality-total-memories', data.total_memories.toLocaleString());
@@ -5164,18 +5854,10 @@ class MemoryDashboard {
      */
     async rateMemory(contentHash, rating) {
         try {
-            const response = await fetch(`${this.apiBase}/quality/memories/${contentHash}/rate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            const result = await this.apiCall(`/quality/memories/${contentHash}/rate`, 'POST', {
                     rating: rating,
                     feedback: ''
-                })
-            });
-
-            if (!response.ok) throw new Error('Failed to rate memory');
-
-            const result = await response.json();
+                });
             this.showToast(`Rating saved! Quality score updated to ${result.new_quality_score.toFixed(2)}`, 'success');
 
             // Refresh memory display if viewing details

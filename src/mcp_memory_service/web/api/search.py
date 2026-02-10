@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 
 from ...storage.base import MemoryStorage
 from ...models.memory import Memory, MemoryQueryResult
-from ...config import OAUTH_ENABLED
+# OAuth config no longer needed - auth is always enabled
 from ...utils.time_parser import parse_time_expression
 from ..dependencies import get_storage
 from .memories import MemoryResponse, memory_to_response
@@ -36,13 +36,8 @@ from ..sse import sse_manager, create_search_completed_event
 # Constants
 _TIME_SEARCH_CANDIDATE_POOL_SIZE = 100  # Number of candidates to retrieve for time filtering (reduced for performance)
 
-# OAuth authentication imports (conditional)
-if OAUTH_ENABLED or TYPE_CHECKING:
-    from ..oauth.middleware import require_read_access, AuthenticationResult
-else:
-    # Provide type stubs when OAuth is disabled
-    AuthenticationResult = None
-    require_read_access = None
+# OAuth authentication imports
+from ..oauth.middleware import require_read_access, AuthenticationResult
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -111,7 +106,7 @@ def memory_to_search_result(memory: Memory, reason: str = None) -> SearchResult:
 async def semantic_search(
     request: SemanticSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Perform semantic similarity search on memory content.
@@ -207,7 +202,7 @@ async def semantic_search(
 async def tag_search(
     request: TagSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Search memories by tags with optional time filtering.
@@ -289,7 +284,7 @@ async def tag_search(
 async def time_search(
     request: TimeSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Search memories by time-based queries.
@@ -359,7 +354,7 @@ async def find_similar(
     content_hash: str,
     n_results: int = Query(default=10, ge=1, le=100, description="Number of similar memories to find"),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Find memories similar to a specific memory identified by its content hash.

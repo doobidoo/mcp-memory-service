@@ -55,29 +55,56 @@ def cli(ctx):
 
 @cli.command()
 @click.option('--debug', is_flag=True, help='Enable debug logging')
+@click.option('--http', is_flag=True, help='Start HTTP REST API server instead of MCP server (dashboard at http://localhost:8000)')
 @click.option('--storage-backend', '-s', default=None,
               type=click.Choice(['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid']), help='Storage backend to use (defaults to environment or sqlite_vec)')
-def server(debug, storage_backend):
+def server(debug, http, storage_backend):
     """
     Start the MCP Memory Service server.
 
     This starts the Model Context Protocol server that can be used by
     Claude Desktop, VS Code extensions, and other MCP-compatible clients.
+
+    Use --http flag to start the HTTP REST API server with dashboard instead.
     """
     # Set environment variables if explicitly provided
     if storage_backend is not None:
         os.environ['MCP_MEMORY_STORAGE_BACKEND'] = storage_backend
-    
-    # Import and run the server main function
-    from ..server import main as server_main
-    
+
     # Set debug flag
     if debug:
         import logging
         logging.basicConfig(level=logging.DEBUG)
-    
-    # Start the server
-    server_main()
+
+    # Start HTTP server if --http flag is provided
+    if http:
+        click.echo("Starting HTTP REST API server with dashboard...")
+
+        # Get port from environment or default
+        port = int(os.environ.get('MCP_HTTP_PORT', 8000))
+        host = os.environ.get('MCP_HTTP_HOST', '127.0.0.1')
+
+        click.echo(f"Dashboard will be available at: http://{host}:{port}")
+        click.echo(f"API docs at: http://{host}:{port}/docs")
+        click.echo("")
+
+        try:
+            # Direct import and run (most reliable)
+            from ..web.app import app
+            import uvicorn
+
+            uvicorn.run(app, host=host, port=port, log_level="info" if not debug else "debug")
+        except ImportError as e:
+            click.echo(f"Error: Missing dependencies for HTTP server: {e}", err=True)
+            click.echo("Install with: pip install 'mcp-memory-service[full]'", err=True)
+            sys.exit(1)
+        except Exception as e:
+            click.echo(f"Error starting HTTP server: {e}", err=True)
+            sys.exit(1)
+    else:
+        # Start the MCP server (default behavior)
+        from ..server import main as server_main
+        server_main()
 
 
 @cli.command()

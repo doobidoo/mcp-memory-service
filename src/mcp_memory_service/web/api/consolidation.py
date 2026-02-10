@@ -22,8 +22,10 @@ including manual triggers and scheduler status queries.
 import logging
 from typing import Dict, Any, Optional
 from datetime import datetime
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
+
+from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +69,7 @@ class RecommendationsResponse(BaseModel):
 
 
 @router.post("/trigger", response_model=ConsolidationResponse)
-async def trigger_consolidation(request: ConsolidationRequest) -> Dict[str, Any]:
+async def trigger_consolidation(request: ConsolidationRequest, user: AuthenticationResult = Depends(require_write_access)) -> Dict[str, Any]:
     """
     Trigger a consolidation operation manually.
 
@@ -120,7 +122,7 @@ async def trigger_consolidation(request: ConsolidationRequest) -> Dict[str, Any]
 
 
 @router.get("/status", response_model=SchedulerStatusResponse)
-async def get_scheduler_status() -> Dict[str, Any]:
+async def get_scheduler_status(user: AuthenticationResult = Depends(require_read_access)) -> Dict[str, Any]:
     """
     Get consolidation scheduler status and next run times.
 
@@ -168,7 +170,7 @@ async def get_scheduler_status() -> Dict[str, Any]:
 
 
 @router.get("/recommendations/{time_horizon}", response_model=RecommendationsResponse)
-async def get_recommendations(time_horizon: str) -> Dict[str, Any]:
+async def get_recommendations(time_horizon: str, user: AuthenticationResult = Depends(require_read_access)) -> Dict[str, Any]:
     """
     Get consolidation recommendations for a specific time horizon.
 

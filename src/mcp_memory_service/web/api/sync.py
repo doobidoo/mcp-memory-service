@@ -26,16 +26,10 @@ from pydantic import BaseModel
 
 from ...storage.base import MemoryStorage
 from ..dependencies import get_storage
-from ...config import OAUTH_ENABLED
+# OAuth config no longer needed - auth is always enabled
 
-# OAuth authentication imports (conditional)
-if OAUTH_ENABLED or TYPE_CHECKING:
-    from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
-else:
-    # Provide type stubs when OAuth is disabled
-    AuthenticationResult = None
-    require_read_access = None
-    require_write_access = None
+# OAuth authentication imports
+from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
 
 router = APIRouter()
 
@@ -68,7 +62,7 @@ class SyncForceResponse(BaseModel):
 @router.get("/sync/status", response_model=SyncStatusResponse)
 async def get_sync_status(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get current sync status for hybrid backend.
@@ -141,7 +135,7 @@ async def get_sync_status(
 @router.post("/sync/force", response_model=SyncForceResponse)
 async def force_sync(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Manually trigger immediate bi-directional sync with Cloudflare.
@@ -222,7 +216,7 @@ class SyncPauseResponse(BaseModel):
 @router.post("/sync/pause", response_model=SyncPauseResponse)
 async def pause_sync(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Pause background sync operations.
@@ -258,7 +252,7 @@ async def pause_sync(
 @router.post("/sync/resume", response_model=SyncPauseResponse)
 async def resume_sync(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Resume background sync operations.

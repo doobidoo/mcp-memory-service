@@ -557,17 +557,12 @@ async def test_end_to_end_workflow_with_real_storage(temp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_store_memory_endpoint(temp_db, unique_content, monkeypatch):
+async def test_http_api_store_memory_endpoint(temp_db, unique_content):
     """
     Test POST /api/memories endpoint with real HTTP request.
 
     Uses TestClient to make actual HTTP request to FastAPI app.
     """
-    # Disable authentication for tests
-    monkeypatch.setenv('MCP_API_KEY', '')
-    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
-    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
-
     # Create real storage
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
@@ -575,7 +570,27 @@ async def test_http_api_store_memory_endpoint(temp_db, unique_content, monkeypat
     try:
         # Import app and set storage
         from mcp_memory_service.web.app import app
+        from mcp_memory_service.web.oauth.middleware import (
+            require_write_access,
+            require_read_access,
+            get_current_user,
+            AuthenticationResult
+        )
         set_storage(storage)
+
+        # Mock auth to allow full access
+        async def mock_get_current_user():
+            return AuthenticationResult(
+                authenticated=True,
+                client_id="test_client",
+                scope="read write admin",
+                auth_method="test"
+            )
+
+        # Override FastAPI dependencies
+        app.dependency_overrides[get_current_user] = mock_get_current_user
+        app.dependency_overrides[require_write_access] = mock_get_current_user
+        app.dependency_overrides[require_read_access] = mock_get_current_user
 
         # Create TestClient
         client = TestClient(app)
@@ -600,6 +615,9 @@ async def test_http_api_store_memory_endpoint(temp_db, unique_content, monkeypat
         assert "memory" in data
         assert data["memory"]["content"] == content
         assert "http" in data["memory"]["tags"]
+
+        # Clean up dependency overrides
+        app.dependency_overrides.clear()
 
     finally:
         storage.close()
@@ -791,23 +809,39 @@ async def test_http_api_get_memory_by_hash_endpoint(temp_db, unique_content, mon
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_delete_memory_endpoint(temp_db, unique_content, monkeypatch):
+async def test_http_api_delete_memory_endpoint(temp_db, unique_content):
     """
     Test DELETE /api/memories/{hash} endpoint with real HTTP request.
 
     Verifies deletion works through HTTP API.
     """
-    # Disable authentication for tests
-    monkeypatch.setenv('MCP_API_KEY', '')
-    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
-    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
-
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
 
     try:
+        # Import app and set storage
         from mcp_memory_service.web.app import app
+        from mcp_memory_service.web.oauth.middleware import (
+            require_write_access,
+            require_read_access,
+            get_current_user,
+            AuthenticationResult
+        )
         set_storage(storage)
+
+        # Mock auth to allow full access
+        async def mock_get_current_user():
+            return AuthenticationResult(
+                authenticated=True,
+                client_id="test_client",
+                scope="read write admin",
+                auth_method="test"
+            )
+
+        # Override FastAPI dependencies
+        app.dependency_overrides[get_current_user] = mock_get_current_user
+        app.dependency_overrides[require_write_access] = mock_get_current_user
+        app.dependency_overrides[require_read_access] = mock_get_current_user
 
         # Store a memory
         service = MemoryService(storage=storage)
@@ -830,6 +864,9 @@ async def test_http_api_delete_memory_endpoint(temp_db, unique_content, monkeypa
         # Verify memory is gone
         get_response = client.get(f"/api/memories/{content_hash}")
         assert get_response.status_code == 404
+
+        # Clean up dependency overrides
+        app.dependency_overrides.clear()
 
     finally:
         storage.close()
@@ -984,23 +1021,38 @@ async def test_http_api_client_hostname_header(temp_db, unique_content, monkeypa
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_http_api_complete_crud_workflow(temp_db, unique_content, monkeypatch):
+async def test_http_api_complete_crud_workflow(temp_db, unique_content):
     """
     Complete end-to-end CRUD workflow through real HTTP API.
 
     This verifies the entire HTTP API stack works correctly.
     """
-    # Disable authentication for tests
-    monkeypatch.setenv('MCP_API_KEY', '')
-    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
-    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
-
     storage = SqliteVecMemoryStorage(temp_db)
     await storage.initialize()
 
     try:
         from mcp_memory_service.web.app import app
+        from mcp_memory_service.web.oauth.middleware import (
+            require_write_access,
+            require_read_access,
+            get_current_user,
+            AuthenticationResult
+        )
         set_storage(storage)
+
+        # Mock auth to allow full access
+        async def mock_get_current_user():
+            return AuthenticationResult(
+                authenticated=True,
+                client_id="test_client",
+                scope="read write admin",
+                auth_method="test"
+            )
+
+        # Override FastAPI dependencies
+        app.dependency_overrides[get_current_user] = mock_get_current_user
+        app.dependency_overrides[require_write_access] = mock_get_current_user
+        app.dependency_overrides[require_read_access] = mock_get_current_user
 
         client = TestClient(app)
 
@@ -1045,6 +1097,9 @@ async def test_http_api_complete_crud_workflow(temp_db, unique_content, monkeypa
         # VERIFY: Memory is gone
         verify_response = client.get(f"/api/memories/{content_hash}")
         assert verify_response.status_code == 404
+
+        # Clean up dependency overrides
+        app.dependency_overrides.clear()
 
     finally:
         storage.close()

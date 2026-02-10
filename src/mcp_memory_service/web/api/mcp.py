@@ -15,16 +15,10 @@ from pydantic import BaseModel, ConfigDict
 
 from ..dependencies import get_storage
 from ...utils.hashing import generate_content_hash
-from ...config import OAUTH_ENABLED
+# OAuth config no longer needed - auth is always enabled
 
 # Import OAuth dependencies only when needed
-if OAUTH_ENABLED or TYPE_CHECKING:
-    from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
-else:
-    # Provide type stubs when OAuth is disabled
-    AuthenticationResult = None
-    require_read_access = None
-    require_write_access = None
+from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +148,7 @@ MCP_TOOLS = [
 @router.post("")
 async def mcp_endpoint(
     request: MCPRequest,
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """Main MCP protocol endpoint for processing MCP requests."""
     try:
@@ -398,7 +392,7 @@ async def handle_tool_call(storage, tool_name: str, arguments: Dict[str, Any]) -
 
 @router.get("/tools")
 async def list_mcp_tools(
-    user: AuthenticationResult = Depends(require_read_access) if OAUTH_ENABLED else None
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """List available MCP tools for discovery."""
     return {

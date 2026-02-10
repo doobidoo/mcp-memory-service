@@ -48,30 +48,8 @@ $StartTime = Get-Date
 # Configuration
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $ManageServiceScript = Join-Path $PSScriptRoot "manage_service.ps1"
-# HTTPS is enabled by default - use https and skip certificate validation for self-signed certs
-$HealthUrl = "https://127.0.0.1:8000/api/health"
-
-# Skip SSL certificate validation for self-signed certificates
-# Compatible with both PowerShell 5.1 and 7+
-[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-
-# Check if we're on PowerShell 7+ (has -SkipCertificateCheck parameter)
-$Script:SkipCertCheckSupported = $PSVersionTable.PSVersion.Major -ge 7
-
-# For PowerShell 5.1, use callback approach
-if (-not $Script:SkipCertCheckSupported) {
-    if (-not ("TrustAllCertsPolicy" -as [type])) {
-        Add-Type @"
-using System.Net;
-using System.Security.Cryptography.X509Certificates;
-public class TrustAllCertsPolicy : ICertificatePolicy {
-    public bool CheckValidationResult(ServicePoint srvPoint, X509Certificate certificate,
-        WebRequest request, int certificateProblem) { return true; }
-}
-"@
-    }
-    [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-}
+# HTTP server (default configuration — no TLS)
+$HealthUrl = "http://127.0.0.1:8000/api/health"
 
 # Color helpers
 function Write-InfoLog { param($Message) Write-Host "[i] $Message" -ForegroundColor Cyan }
@@ -102,7 +80,6 @@ function Get-ServerVersion {
             TimeoutSec = 3
             ErrorAction = 'SilentlyContinue'
         }
-        if ($Script:SkipCertCheckSupported) { $params['SkipCertificateCheck'] = $true }
         $Response = Invoke-RestMethod @params
         return $Response.version
     } catch {
@@ -330,7 +307,6 @@ if ($NoRestart) {
                 TimeoutSec = 2
                 ErrorAction = 'SilentlyContinue'
             }
-            if ($Script:SkipCertCheckSupported) { $params['SkipCertificateCheck'] = $true }
             $HealthResponse = Invoke-RestMethod @params
             $ServerVersion = $HealthResponse.version
 
@@ -368,8 +344,8 @@ Write-Host ""
 Write-SuccessLog "Version: $CurrentVersion -> $NewVersion"
 Write-SuccessLog "Total time: ${TotalTime}s"
 Write-Host ""
-Write-InfoLog "Dashboard: https://localhost:8000"
-Write-InfoLog "API Docs:  https://localhost:8000/api/docs"
+Write-InfoLog "Dashboard: http://localhost:8000"
+Write-InfoLog "API Docs:  http://localhost:8000/api/docs"
 Write-Host ""
 
 if ($CurrentVersion -ne $NewVersion) {

@@ -965,9 +965,15 @@ class CloudflareStorage(MemoryStorage):
             return False, f"Deletion failed: {str(e)}"
 
     async def get_by_exact_content(self, content: str) -> List[Memory]:
-        """Retrieve memories by exact content match."""
+        """Retrieve memories by case-insensitive substring match."""
         try:
-            sql = "SELECT * FROM memories WHERE content = ? AND deleted_at IS NULL"
+            # Use LIKE for substring matching (D1 SQL is case-insensitive by default)
+            sql = """
+                SELECT * FROM memories
+                WHERE content LIKE '%' || ? || '%'
+                AND deleted_at IS NULL
+                ORDER BY created_at DESC
+            """
             payload = {"sql": sql, "params": [content]}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
