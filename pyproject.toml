@@ -62,6 +62,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Development dependencies for testing and code quality
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.0.0",
+    "pytest-benchmark>=4.0.0",
+    "black>=24.0.0",
+    "ruff>=0.1.0",
+]
 # Machine learning dependencies for semantic search and embeddings
 ml = [
     "sentence-transformers>=2.2.2",
@@ -78,7 +87,7 @@ sqlite-ml = [
 ]
 # Full installation including all optional dependencies
 full = [
-    "mcp-memory-service[sqlite,ml]"
+    "mcp-memory-service[sqlite,ml,dev]"
 ]
 
 [project.scripts]

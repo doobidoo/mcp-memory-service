@@ -24,11 +24,19 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union, TypedDict
-try:
-    from typing import NotRequired  # Python 3.11+
-except ImportError:
-    from typing_extensions import NotRequired  # Python 3.10
+import sys
+from typing import Dict, List, Optional, Any, Union
+
+# Pydantic v2.12 requires typing_extensions.TypedDict on Python < 3.12
+# See: https://errors.pydantic.dev/2.12/u/typed-dict-version
+if sys.version_info < (3, 12):
+    from typing_extensions import TypedDict, NotRequired
+else:
+    from typing import TypedDict
+    try:
+        from typing import NotRequired  # Python 3.11+
+    except ImportError:
+        from typing_extensions import NotRequired
 
 # Add src to path for imports
 current_dir = Path(__file__).parent

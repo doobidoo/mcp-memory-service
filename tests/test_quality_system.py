@@ -436,7 +436,6 @@ class TestMemoryAccessTracking:
 class TestQualitySystemPerformance:
     """Performance benchmarks for quality scoring."""
 
-    @pytest.mark.skip(reason="Issue #316: Missing pytest-benchmark fixture - requires pytest-benchmark plugin")
     @pytest.mark.benchmark
     def test_implicit_signals_performance(self, benchmark):
         """Benchmark implicit signals evaluation."""
