@@ -24,7 +24,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-import sys
 from typing import Dict, List, Optional, Any, Union
 
 # Pydantic v2.12 requires typing_extensions.TypedDict on Python < 3.12
