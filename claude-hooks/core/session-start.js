@@ -945,9 +945,9 @@ async function executeSessionStart(context) {
                 // Filter to require project affinity: memory must have the project
                 // tag OR mention the project name in content. This prevents generic
                 // "architecture" tags from pulling in unrelated project memories.
+                const projectTagLower = projectTag?.toLowerCase();
                 const projectScoped = (importantMemories || []).filter(mem => {
-                    if (!projectTag) return false;
-                    const projectTagLower = projectTag.toLowerCase();
+                    if (!projectTagLower) return false;
                     const tags = (mem.tags || []).map(t => t.toLowerCase());
                     const content = (mem.content || mem.preview || '').toLowerCase();
                     return tags.includes(projectTagLower) || content.includes(projectTagLower);
