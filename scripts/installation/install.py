@@ -13,6 +13,7 @@ import shutil
 from pathlib import Path
 from typing import Tuple, Dict, Any, Optional
 import re
+import json
 import importlib.util
 
 def is_python_version_at_least(major, minor):
