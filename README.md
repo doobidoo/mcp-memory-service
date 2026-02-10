@@ -175,16 +175,18 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.10.5** (February 10, 2026)
+## 🆕 Latest Release: **v10.10.6** (February 10, 2026)
 
-**Embedding Dimension Cache Fix** 🔧
+**Test Infrastructure Improvements** 🧪
 
 **What's New:**
-- 🔧 **Embedding Dimension Cache Fix (#412)**: Fixed embedding dimensions not being restored from model cache, preventing dimension mismatches (384 vs 768)
-- ⚡ **Cache Consistency**: Added `_DIMENSION_CACHE` to track embedding dimensions alongside `_MODEL_CACHE` for all embedding types
-- ✅ **Stability Improvement**: Consistent embedding dimensions across multiple storage instances
+- 🔧 **Python 3.11 Compatibility (#317)**: Fixed TypedDict import blocking test collection on Python 3.11
+- ⚡ **Performance Testing (#318)**: Re-enabled pytest-benchmark for development performance benchmarking
+- 📊 **Coverage Baseline (#317)**: Established 60.05% coverage baseline with 4-phase improvement plan
+- 📝 **Documentation Updates (#91, #261)**: Issue status updates for ontology (97% complete) and quality system (Phase 1 complete)
 
 **Previous Releases**:
+- **v10.10.5** - Embedding Dimension Cache Fix (dimension mismatch prevention, cache consistency)
 - **v10.10.4** - CLI Batch Ingestion Fix (async bug causing "NoneType" errors, 100% success rate restored)
 - **v10.10.3** - Test Infrastructure & Memory Scoring Fixes (graph validation, test authentication, score capping)
 - **v10.10.2** - Memory Injection Filtering (minRelevanceScore enforcement, project-affinity filter, security hardening)
