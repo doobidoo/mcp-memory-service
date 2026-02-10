@@ -482,7 +482,7 @@ function calculateRelevanceScore(memory, projectContext, options = {}) {
             breakdown.projectAffinity = 'none (filtered)';
         } else if (!hasProjectTag) {
             // Some tag relevance but no project tag - might be related
-            finalScore = Math.min(1.0, finalScore) * 0.25; // Cap then penalize to guarantee < minRelevanceScore (0.3)
+            finalScore = Math.min(1.0, finalScore) * 0.5; // Cap to prevent bonus inflation, moderate penalty preserves cross-project technology sharing
             breakdown.projectAffinity = 'low';
         } else {
             breakdown.projectAffinity = 'high';
