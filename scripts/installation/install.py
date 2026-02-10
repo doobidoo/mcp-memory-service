@@ -12,9 +12,9 @@ import argparse
 import shutil
 from pathlib import Path
 from typing import Tuple, Dict, Any, Optional
-import re
-import json
 import importlib.util
+import json
+import re
 
 def is_python_version_at_least(major, minor):
     """Check if current Python version is at least the specified version.
