@@ -1,0 +1,28 @@
+name: "MCP Memory Service CodeQL Config"
+
+# Paths to exclude from analysis (reduces false positives)
+paths-ignore:
+  - 'tests/**'              # Test files
+  - 'archive/**'            # Archived code
+  - 'docs/**'               # Documentation
+  - 'scripts/**'            # Utility scripts
+  - '.worktrees/**'         # Git worktrees
+  - 'examples/**'           # Example code
+  - '**/__pycache__/**'     # Python cache
+  - '**/node_modules/**'    # Node modules (if any)
+
+# Paths to always include (even if in exclude patterns)
+paths:
+  - 'src/mcp_memory_service/**'
+
+# Query suites to run
+queries:
+  - uses: security-and-quality  # Comprehensive security + code quality checks
+
+# Disable specific queries that cause false positives
+disable-default-queries: false
+
+# Custom query filters (optional)
+# query-filters:
+#   - exclude:
+#       id: py/sql-injection  # Example: disable if using parameterized queries everywhere

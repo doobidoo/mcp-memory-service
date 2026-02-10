@@ -1,0 +1,79 @@
+name: "CodeQL Security Analysis"
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run weekly security scans on Mondays at 00:00 UTC
+    - cron: '0 0 * * 1'
+
+jobs:
+  analyze:
+    name: Analyze Python Code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # Required for CodeQL to upload results
+      security-events: write
+      # Required to fetch internal or private CodeQL packs
+      packages: read
+      # Required for private repositories
+      contents: read
+      actions: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'python' ]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    # Install dependencies to improve CodeQL analysis accuracy
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[sqlite]"
+
+    # Initialize CodeQL tools for scanning
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        # Query suites: security-extended includes more security checks
+        queries: security-and-quality
+        # Custom CodeQL config for excluding test files, etc.
+        config-file: ./.github/codeql/codeql-config.yml
+
+    # Autobuild attempts to build any compiled languages (not needed for Python)
+    # Python analysis works by scanning the source code directly
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v3
+
+    # Perform CodeQL Analysis
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"
+        # Upload SARIF file for GitHub Security tab
+        upload: true
+
+    # Optional: Fail build if high-severity issues found
+    # Uncomment to enforce security gates
+    # - name: Check for high-severity findings
+    #   run: |
+    #     if [ -f "codeql-results.sarif" ]; then
+    #       HIGH_COUNT=$(jq '[.runs[].results[] | select(.level == "error")] | length' codeql-results.sarif)
+    #       if [ "$HIGH_COUNT" -gt 0 ]; then
+    #         echo "❌ Found $HIGH_COUNT high-severity security issues"
+    #         exit 1
+    #       fi
+    #     fi
