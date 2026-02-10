@@ -10,6 +10,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.10.6] - 2026-02-10
+
+### Fixed
+- **Test Infrastructure (#317):** Fixed TypedDict import for Python 3.11 compatibility - resolved Pydantic v2.12 error blocking test collection
+  - Changed `from typing import TypedDict` to `from typing_extensions import TypedDict` for Python 3.11 support
+  - **Result:** All tests now run successfully on Python 3.11+
+- **Performance Tests (#318):** Re-enabled pytest-benchmark performance tests with dev dependencies
+  - Added pytest-benchmark to dev dependencies in pyproject.toml
+  - **Result:** Performance benchmarking now available for development
+
+### Documentation
+- **Issue Triage (#91, #261):** Updated status documentation for ontology and quality system milestones
+  - #91: Phase 0 ontology improvements 97% complete (6,542 memories processed)
+  - #261: Phase 1 quality system complete, Phase 2 decision needed on Rust vs Python
+- **Coverage Baseline (#317):** Established 60.05% coverage baseline with 4-phase improvement plan
+  - Phase 1: Core storage/embeddings to 75%+
+  - Phase 2: Services to 70%+
+  - Phase 3: Server/API to 65%+
+  - Phase 4: Utils/edge cases to 60%+
+
 ## [10.10.5] - 2026-02-10
 
 ### Fixed
