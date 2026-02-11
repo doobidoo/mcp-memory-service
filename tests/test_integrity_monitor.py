@@ -47,13 +47,14 @@ def temp_db():
 @pytest.fixture
 def monitor(temp_db, monkeypatch):
     """Create an IntegrityMonitor with test config."""
-    monkeypatch.setenv("MCP_MEMORY_INTEGRITY_CHECK_ENABLED", "true")
-    monkeypatch.setenv("MCP_MEMORY_INTEGRITY_CHECK_INTERVAL", "60")
-
-    # Reload config to pick up test values
-    import importlib
     from mcp_memory_service import config
-    importlib.reload(config)
+    from mcp_memory_service.health import integrity as integrity_mod
+
+    # Patch config values without importlib.reload (which breaks in uvx)
+    monkeypatch.setattr(config, "INTEGRITY_CHECK_ENABLED", True)
+    monkeypatch.setattr(config, "INTEGRITY_CHECK_INTERVAL", 60)
+    monkeypatch.setattr(integrity_mod, "INTEGRITY_CHECK_ENABLED", True)
+    monkeypatch.setattr(integrity_mod, "INTEGRITY_CHECK_INTERVAL", 60)
 
     from mcp_memory_service.health.integrity import IntegrityMonitor
     return IntegrityMonitor(temp_db)
@@ -62,21 +63,32 @@ def monitor(temp_db, monkeypatch):
 class TestIntegrityCheck:
     """Tests for PRAGMA integrity_check."""
 
-    def test_healthy_database(self, monitor):
-        is_healthy, detail = monitor.check_integrity()
+    @pytest.mark.asyncio
+    async def test_healthy_database(self, monitor):
+        is_healthy, detail = await monitor.check_integrity()
         assert is_healthy is True
         assert detail == "ok"
 
-    def test_missing_database(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_missing_database(self, tmp_path, monkeypatch):
+        from mcp_memory_service import config
+        from mcp_memory_service.health import integrity as integrity_mod
+
+        monkeypatch.setattr(config, "INTEGRITY_CHECK_ENABLED", True)
+        monkeypatch.setattr(config, "INTEGRITY_CHECK_INTERVAL", 60)
+        monkeypatch.setattr(integrity_mod, "INTEGRITY_CHECK_ENABLED", True)
+        monkeypatch.setattr(integrity_mod, "INTEGRITY_CHECK_INTERVAL", 60)
+
         from mcp_memory_service.health.integrity import IntegrityMonitor
         m = IntegrityMonitor(str(tmp_path / "nonexistent.db"))
         # SQLite creates the file on connect, so it will be "healthy" but empty
-        is_healthy, detail = m.check_integrity()
+        is_healthy, detail = await m.check_integrity()
         assert is_healthy is True
 
-    def test_check_increments_counters(self, monitor):
+    @pytest.mark.asyncio
+    async def test_check_increments_counters(self, monitor):
         assert monitor.total_checks == 0
-        asyncio.get_event_loop().run_until_complete(monitor.run_check())
+        await monitor.run_check()
         assert monitor.total_checks == 1
         assert monitor.last_check_healthy is True
 
@@ -84,8 +96,9 @@ class TestIntegrityCheck:
 class TestWalRepair:
     """Tests for WAL checkpoint repair."""
 
-    def test_repair_on_healthy_db(self, monitor):
-        success, detail = monitor.attempt_wal_repair()
+    @pytest.mark.asyncio
+    async def test_repair_on_healthy_db(self, monitor):
+        success, detail = await monitor.attempt_wal_repair()
         assert success is True
         assert "successful" in detail
 
@@ -93,9 +106,10 @@ class TestWalRepair:
 class TestMemoryExport:
     """Tests for emergency memory export."""
 
-    def test_export_memories(self, monitor, tmp_path):
+    @pytest.mark.asyncio
+    async def test_export_memories(self, monitor, tmp_path):
         export_path = str(tmp_path / "export.json")
-        success, count = monitor.export_memories(export_path)
+        success, count = await monitor.export_memories(export_path)
         assert success is True
         assert count == 1
 
@@ -105,7 +119,16 @@ class TestMemoryExport:
         assert data[0]["hash"] == "hash1"
         assert data[0]["content"] == "test memory"
 
-    def test_export_empty_database(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_export_empty_database(self, tmp_path, monkeypatch):
+        from mcp_memory_service import config
+        from mcp_memory_service.health import integrity as integrity_mod
+
+        monkeypatch.setattr(config, "INTEGRITY_CHECK_ENABLED", True)
+        monkeypatch.setattr(config, "INTEGRITY_CHECK_INTERVAL", 60)
+        monkeypatch.setattr(integrity_mod, "INTEGRITY_CHECK_ENABLED", True)
+        monkeypatch.setattr(integrity_mod, "INTEGRITY_CHECK_INTERVAL", 60)
+
         from mcp_memory_service.health.integrity import IntegrityMonitor
 
         db_path = str(tmp_path / "empty.db")
@@ -121,7 +144,7 @@ class TestMemoryExport:
 
         m = IntegrityMonitor(db_path)
         export_path = str(tmp_path / "export.json")
-        success, count = m.export_memories(export_path)
+        success, count = await m.export_memories(export_path)
         assert success is True
         assert count == 0
 
@@ -129,8 +152,9 @@ class TestMemoryExport:
 class TestRunCheck:
     """Tests for the full check + repair flow."""
 
-    def test_healthy_check_result(self, monitor):
-        result = asyncio.get_event_loop().run_until_complete(monitor.run_check())
+    @pytest.mark.asyncio
+    async def test_healthy_check_result(self, monitor):
+        result = await monitor.run_check()
         assert result["healthy"] is True
         assert result["repaired"] is False
         assert result["exported"] is False
@@ -147,8 +171,9 @@ class TestGetStatus:
         assert status["total_auto_repairs"] == 0
         assert status["total_unrecoverable"] == 0
 
-    def test_status_after_check(self, monitor):
-        asyncio.get_event_loop().run_until_complete(monitor.run_check())
+    @pytest.mark.asyncio
+    async def test_status_after_check(self, monitor):
+        await monitor.run_check()
         status = monitor.get_status()
         assert status["total_checks"] == 1
         assert status["last_check_healthy"] is True

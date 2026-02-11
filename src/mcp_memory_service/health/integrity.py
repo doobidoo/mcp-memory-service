@@ -72,28 +72,34 @@ class IntegrityMonitor:
             f"interval={INTEGRITY_CHECK_INTERVAL}s)"
         )
 
-    def check_integrity(self) -> tuple[bool, str]:
+    async def check_integrity(self) -> tuple[bool, str]:
         """Run PRAGMA integrity_check on the database.
 
         Uses a separate short-lived connection to avoid interfering with
-        the service's main connection.
+        the service's main connection. Runs in a thread to avoid blocking
+        the asyncio event loop.
 
         Returns:
             Tuple of (is_healthy, detail_message).
         """
-        try:
-            conn = sqlite3.connect(self.db_path, timeout=5)
-            result = conn.execute("PRAGMA integrity_check").fetchone()
-            conn.close()
+        def _check():
+            try:
+                conn = sqlite3.connect(self.db_path, timeout=5)
+                try:
+                    result = conn.execute("PRAGMA integrity_check").fetchone()
+                finally:
+                    conn.close()
 
-            is_healthy = result is not None and result[0] == "ok"
-            detail = result[0] if result else "no result"
-            return is_healthy, detail
+                is_healthy = result is not None and result[0] == "ok"
+                detail = result[0] if result else "no result"
+                return is_healthy, detail
 
-        except Exception as e:
-            return False, f"connection error: {e}"
+            except Exception as e:
+                return False, f"connection error: {e}"
 
-    def attempt_wal_repair(self) -> tuple[bool, str]:
+        return await asyncio.to_thread(_check)
+
+    async def attempt_wal_repair(self) -> tuple[bool, str]:
         """Attempt to repair corruption via WAL checkpoint.
 
         PRAGMA wal_checkpoint(TRUNCATE) flushes the WAL file into the
@@ -103,22 +109,29 @@ class IntegrityMonitor:
         Returns:
             Tuple of (repair_succeeded, detail_message).
         """
-        try:
-            conn = sqlite3.connect(self.db_path, timeout=10)
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            conn.close()
+        def _repair():
+            try:
+                conn = sqlite3.connect(self.db_path, timeout=10)
+                try:
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                finally:
+                    conn.close()
+                return True, ""
+            except Exception as e:
+                return False, f"WAL checkpoint failed: {e}"
 
-            # Verify repair worked
-            is_healthy, detail = self.check_integrity()
-            if is_healthy:
-                return True, "WAL checkpoint repair successful"
-            else:
-                return False, f"WAL checkpoint did not fix corruption: {detail}"
+        repaired, detail = await asyncio.to_thread(_repair)
+        if not repaired:
+            return False, detail
 
-        except Exception as e:
-            return False, f"WAL checkpoint failed: {e}"
+        # Verify repair worked
+        is_healthy, detail = await self.check_integrity()
+        if is_healthy:
+            return True, "WAL checkpoint repair successful"
+        else:
+            return False, f"WAL checkpoint did not fix corruption: {detail}"
 
-    def export_memories(self, export_path: str) -> tuple[bool, int]:
+    async def export_memories(self, export_path: str) -> tuple[bool, int]:
         """Export surviving memories to JSON for manual recovery.
 
         Args:
@@ -127,34 +140,39 @@ class IntegrityMonitor:
         Returns:
             Tuple of (success, memory_count).
         """
-        try:
-            conn = sqlite3.connect(self.db_path, timeout=10)
-            rows = conn.execute(
-                "SELECT content_hash, content, created_at, metadata, tags, type "
-                "FROM memories"
-            ).fetchall()
-            conn.close()
+        def _export():
+            try:
+                conn = sqlite3.connect(self.db_path, timeout=10)
+                try:
+                    rows = conn.execute(
+                        "SELECT content_hash, content, created_at, metadata, tags, type "
+                        "FROM memories"
+                    ).fetchall()
+                finally:
+                    conn.close()
 
-            memories = []
-            for r in rows:
-                memories.append({
-                    "hash": r[0],
-                    "content": r[1],
-                    "created_at": r[2],
-                    "metadata": r[3],
-                    "tags": r[4] or "",
-                    "type": r[5] or "note",
-                })
+                memories = []
+                for r in rows:
+                    memories.append({
+                        "hash": r[0],
+                        "content": r[1],
+                        "created_at": r[2],
+                        "metadata": r[3],
+                        "tags": r[4] or "",
+                        "type": r[5] or "note",
+                    })
 
-            with open(export_path, "w") as f:
-                json.dump(memories, f, indent=2)
+                with open(export_path, "w") as f:
+                    json.dump(memories, f, indent=2)
 
-            logger.info(f"Exported {len(memories)} memories to {export_path}")
-            return True, len(memories)
+                logger.info(f"Exported {len(memories)} memories to {export_path}")
+                return True, len(memories)
 
-        except Exception as e:
-            logger.error(f"Memory export failed: {e}")
-            return False, 0
+            except Exception as e:
+                logger.error(f"Memory export failed: {e}")
+                return False, 0
+
+        return await asyncio.to_thread(_export)
 
     async def run_check(self) -> Dict[str, Any]:
         """Run a single integrity check with repair attempt on failure.
@@ -163,7 +181,7 @@ class IntegrityMonitor:
             Dict with check results.
         """
         start = time.perf_counter()
-        is_healthy, detail = self.check_integrity()
+        is_healthy, detail = await self.check_integrity()
         check_ms = (time.perf_counter() - start) * 1000
 
         self.last_check_time = time.time()
@@ -185,7 +203,7 @@ class IntegrityMonitor:
         # Corruption detected — attempt repair
         logger.warning(f"Database corruption detected: {detail}")
 
-        repaired, repair_detail = self.attempt_wal_repair()
+        repaired, repair_detail = await self.attempt_wal_repair()
         result["repair_detail"] = repair_detail
 
         if repaired:
@@ -201,7 +219,7 @@ class IntegrityMonitor:
             os.path.dirname(self.db_path),
             f"emergency_export_{int(time.time())}.json",
         )
-        success, count = self.export_memories(export_path)
+        success, count = await self.export_memories(export_path)
         if success:
             result["exported"] = True
             result["export_path"] = export_path
@@ -264,7 +282,7 @@ class IntegrityMonitor:
             try:
                 await self._task
             except asyncio.CancelledError:
-                pass
+                pass  # Expected when stop() cancels the monitoring task
 
         logger.info("IntegrityMonitor stopped")
 
