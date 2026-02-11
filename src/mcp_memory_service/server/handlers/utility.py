@@ -99,6 +99,11 @@ async def handle_check_database_health(server, arguments: dict) -> List[types.Te
             except Exception:
                 pass
 
+        # Add integrity monitor status if available
+        integrity_status = {}
+        if hasattr(server, 'integrity_monitor') and server.integrity_monitor:
+            integrity_status = server.integrity_monitor.get_status()
+
         # Combine results with performance data
         result = {
             "version": __version__,
@@ -107,6 +112,7 @@ async def handle_check_database_health(server, arguments: dict) -> List[types.Te
                 "message": message
             },
             "statistics": stats,
+            "integrity": integrity_status,
             "performance": {
                 "storage": performance_stats,
                 "server": server_stats

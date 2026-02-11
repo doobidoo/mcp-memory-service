@@ -609,6 +609,27 @@ logger.info(f"Backup configuration: enabled={BACKUP_ENABLED}, interval={BACKUP_I
 # End Automatic Backup Configuration
 # =============================================================================
 
+# =============================================================================
+# Database Integrity Health Monitoring
+# =============================================================================
+# Periodic PRAGMA integrity_check to detect SQLite corruption early.
+# SQLite WAL mode is crash-resistant but not SIGKILL-resistant — process kills
+# during writes can corrupt the WAL/SHM files or main database. Periodic
+# integrity monitoring catches corruption within minutes rather than waiting
+# for the next user operation to fail and lose data.
+#
+# Performance: integrity_check takes ~3.5ms on a typical database.
+# At the default 30-minute interval, this adds 0.0002% overhead.
+
+INTEGRITY_CHECK_ENABLED = safe_get_bool_env('MCP_MEMORY_INTEGRITY_CHECK_ENABLED', True)
+INTEGRITY_CHECK_INTERVAL = safe_get_int_env('MCP_MEMORY_INTEGRITY_CHECK_INTERVAL', 1800, min_value=60, max_value=86400)  # seconds, default 30 min
+
+logger.info(f"Integrity monitoring: enabled={INTEGRITY_CHECK_ENABLED}, interval={INTEGRITY_CHECK_INTERVAL}s")
+
+# =============================================================================
+# End Database Integrity Health Monitoring
+# =============================================================================
+
 # Dream-inspired consolidation configuration
 CONSOLIDATION_ENABLED = os.getenv('MCP_CONSOLIDATION_ENABLED', 'false').lower() == 'true'
 

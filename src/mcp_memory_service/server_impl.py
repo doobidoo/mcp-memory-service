@@ -99,7 +99,9 @@ from .config import (
     # Hybrid backend configuration
     HYBRID_SYNC_INTERVAL,
     HYBRID_BATCH_SIZE,
-    HYBRID_SYNC_ON_STARTUP
+    HYBRID_SYNC_ON_STARTUP,
+    # Integrity monitoring
+    INTEGRITY_CHECK_ENABLED,
 )
 # Storage imports will be done conditionally in the server class
 from .models.memory import Memory
@@ -139,6 +141,9 @@ class MemoryServer:
         # Initialize progress tracking
         self.current_progress = {}  # Track ongoing operations
         
+        # Initialize integrity monitor (if enabled)
+        self.integrity_monitor = None
+
         # Initialize consolidation system (if enabled)
         self.consolidator = None
         self.consolidation_scheduler = None
@@ -411,6 +416,9 @@ class MemoryServer:
 
             # Initialize consolidation system after storage is ready
             await self._initialize_consolidation()
+
+            # Initialize integrity monitoring for SQLite backends
+            await self._initialize_integrity_monitor()
 
             return True
         except Exception as e:
@@ -752,6 +760,38 @@ class MemoryServer:
             logger.error(traceback.format_exc())
             self.consolidator = None
             self.consolidation_scheduler = None
+
+    async def _initialize_integrity_monitor(self):
+        """Initialize database integrity monitoring for SQLite backends."""
+        if not INTEGRITY_CHECK_ENABLED:
+            logger.info("Integrity monitoring disabled")
+            return
+
+        # Only applicable to SQLite-based storage backends
+        if STORAGE_BACKEND not in ('sqlite_vec', 'sqlite'):
+            logger.info(f"Integrity monitoring not applicable for {STORAGE_BACKEND} backend")
+            return
+
+        try:
+            from .health import IntegrityMonitor
+
+            self.integrity_monitor = IntegrityMonitor(SQLITE_VEC_PATH)
+
+            # Run startup check before accepting requests
+            result = await self.integrity_monitor.startup_check()
+            if not result["healthy"]:
+                logger.warning(
+                    "Database integrity issue detected at startup. "
+                    "The service will continue but may encounter errors."
+                )
+
+            # Start periodic monitoring
+            await self.integrity_monitor.start()
+
+        except Exception as e:
+            logger.error(f"Failed to initialize integrity monitor: {e}")
+            logger.error(traceback.format_exc())
+            self.integrity_monitor = None
 
     def handle_method_not_found(self, method: str) -> None:
         """Custom handler for unsupported methods.
