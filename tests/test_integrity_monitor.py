@@ -8,6 +8,10 @@ import tempfile
 
 import pytest
 
+# Skip entire module if health subpackage can't be imported
+# (happens in uvx/coverage environments where package namespace is shadowed)
+pytest.importorskip("mcp_memory_service.health")
+
 
 @pytest.fixture
 def temp_db():
