@@ -1029,18 +1029,18 @@ class MemoryServer:
         async def handle_get_prompt(name: str, arguments: dict) -> types.GetPromptResult:
             """Handle prompt execution with provided arguments."""
             await self._ensure_storage_initialized()
-            
+
             # Dispatch to specific prompt handler
             if name == "memory_review":
-                messages = await self._prompt_memory_review(arguments)
+                messages = await _prompt_memory_review(self, arguments)
             elif name == "memory_analysis":
-                messages = await self._prompt_memory_analysis(arguments)
+                messages = await _prompt_memory_analysis(self, arguments)
             elif name == "knowledge_export":
-                messages = await self._prompt_knowledge_export(arguments)
+                messages = await _prompt_knowledge_export(self, arguments)
             elif name == "memory_cleanup":
-                messages = await self._prompt_memory_cleanup(arguments)
+                messages = await _prompt_memory_cleanup(self, arguments)
             elif name == "learning_session":
-                messages = await self._prompt_learning_session(arguments)
+                messages = await _prompt_learning_session(self, arguments)
             else:
                 messages = [
                     types.PromptMessage(
@@ -1051,7 +1051,7 @@ class MemoryServer:
                         )
                     )
                 ]
-            
+
             return types.GetPromptResult(
                 description=f"Result of {name} prompt",
                 messages=messages
