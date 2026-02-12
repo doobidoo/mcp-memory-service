@@ -16,6 +16,7 @@ from mcp_memory_service.server import MemoryServer
 class TestPromptHandlersExist:
     """Test suite to verify prompt handlers are properly initialized."""
 
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_server_has_prompts_registered(self):
         """Test that MemoryServer properly registers all prompt handlers."""
@@ -29,6 +30,7 @@ class TestPromptHandlersExist:
         # means the nested functions are properly accessible.
         # This test prevents regression of issue #458.
 
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_prompt_handlers_smoke_test(self, unique_content):
         """
