@@ -788,6 +788,13 @@ def test_normalize_tags_json_encoded_array():
     result = normalize_tags('[]')
     assert result == []
 
+    # Large JSON string (DoS protection) - should be treated as literal
+    large_json = '[' + ','.join(['"tag"'] * 2000) + ']'  # >4KB JSON
+    result = normalize_tags(large_json)
+    # Should treat entire string as single tag (DoS protection)
+    assert len(result) == 1
+    assert result[0] == large_json.lower()
+
 
 @pytest.mark.asyncio
 async def test_store_memory_deduplicates_tags(memory_service, mock_storage):

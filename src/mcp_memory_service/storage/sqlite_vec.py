@@ -1382,13 +1382,19 @@ SOLUTIONS:
                 logger.warning("No embeddings found in database. Memories may have been stored without embeddings.")
                 return []
 
-            # When filtering by tags, we must scan all vector candidates
+            # When filtering by tags, we must scan more vector candidates
             # because tag membership is orthogonal to semantic similarity —
             # a tagged memory could rank anywhere. The SQL WHERE clause
             # filters by tag before constructing Python objects, so only
             # matching rows are materialized.
+            #
+            # Hard cap to prevent DoS: Even with SQL-level tag filtering,
+            # vector search must scan k candidates. Cap at 10,000 to balance
+            # recall vs performance/memory. For databases >10k memories,
+            # tagged results may be missed if they rank very low semantically.
+            MAX_TAG_SEARCH_CANDIDATES = 10000
             if tags:
-                k_value = embedding_count
+                k_value = min(embedding_count, MAX_TAG_SEARCH_CANDIDATES)
             else:
                 k_value = n_results
 

@@ -6,6 +6,7 @@ between mcp_server.py and server.py. It provides a single source of truth for
 all memory operations, eliminating the DRY violation and ensuring consistent behavior.
 """
 
+import json
 import logging
 import sys
 from typing import Dict, List, Optional, Any, Union, Tuple
@@ -64,15 +65,20 @@ def normalize_tags(tags: Union[str, List[str], None]) -> List[str]:
         # Handle JSON-encoded arrays (e.g. '["tag1", "tag2"]' from oneOf schemas)
         stripped = tags.strip()
         if stripped.startswith('['):
-            try:
-                import json
-                parsed = json.loads(stripped)
-                if isinstance(parsed, list):
-                    tags = [str(t) for t in parsed]
-                else:
-                    tags = [stripped]
-            except (json.JSONDecodeError, ValueError):
+            # Prevent DoS via large/deeply nested JSON strings
+            MAX_JSON_LENGTH = 4096  # 4KB limit for tag JSON
+            if len(stripped) > MAX_JSON_LENGTH:
+                logger.warning(f"Tag JSON string exceeds {MAX_JSON_LENGTH} bytes, treating as literal string")
                 tags = [stripped]
+            else:
+                try:
+                    parsed = json.loads(stripped)
+                    if isinstance(parsed, list):
+                        tags = [str(t) for t in parsed]
+                    else:
+                        tags = [stripped]
+                except (json.JSONDecodeError, ValueError):
+                    tags = [stripped]
         # Split by comma if present, otherwise single tag
         elif ',' in tags:
             tags = [tag.strip() for tag in tags.split(',') if tag.strip()]
