@@ -1096,8 +1096,17 @@ class MemoryStorage(ABC):
                     }
 
                 if query:
-                    # Determine fetch limit (over-fetch if quality boost enabled)
-                    fetch_limit = limit * 3 if quality_boost > 0 and mode == "hybrid" else limit
+                    # Determine fetch limit (over-fetch when post-filtering is needed)
+                    fetch_limit = limit
+                    if quality_boost > 0 and mode == "hybrid":
+                        fetch_limit = limit * 3
+                    if tags:
+                        # Tags are filtered post-retrieval, so we must fetch
+                        # enough candidates to include tag-matching memories
+                        # that may rank low in semantic similarity (e.g. a few
+                        # user notes among thousands of ingested documents).
+                        total = await self.count_all_memories()
+                        fetch_limit = max(fetch_limit, total)
 
                     # Choose search method based on mode and available features
                     if mode == "hybrid" and hasattr(self, 'retrieve_hybrid'):

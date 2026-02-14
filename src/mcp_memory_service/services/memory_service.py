@@ -61,8 +61,20 @@ def normalize_tags(tags: Union[str, List[str], None]) -> List[str]:
     if isinstance(tags, str):
         if not tags.strip():
             return []
+        # Handle JSON-encoded arrays (e.g. '["tag1", "tag2"]' from oneOf schemas)
+        stripped = tags.strip()
+        if stripped.startswith('['):
+            try:
+                import json
+                parsed = json.loads(stripped)
+                if isinstance(parsed, list):
+                    tags = [str(t) for t in parsed]
+                else:
+                    tags = [stripped]
+            except (json.JSONDecodeError, ValueError):
+                tags = [stripped]
         # Split by comma if present, otherwise single tag
-        if ',' in tags:
+        elif ',' in tags:
             tags = [tag.strip() for tag in tags.split(',') if tag.strip()]
         else:
             tags = [tags.strip()]

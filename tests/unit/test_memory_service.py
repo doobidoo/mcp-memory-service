@@ -759,6 +759,36 @@ def test_normalize_tags_non_string_elements():
     assert result == ["tag1", "tag2", "tag3"]
 
 
+def test_normalize_tags_json_encoded_array():
+    """Test that JSON-encoded array strings are parsed correctly.
+
+    When a tool schema uses oneOf (array or string) for tags, the MCP
+    protocol may deserialize array values as JSON strings rather than
+    native lists. normalize_tags should handle this transparently.
+    """
+    from mcp_memory_service.services.memory_service import normalize_tags
+
+    # Single-element JSON array
+    result = normalize_tags('["preference"]')
+    assert result == ["preference"]
+
+    # Multi-element JSON array
+    result = normalize_tags('["tag1", "tag2", "TAG1"]')
+    assert result == ["tag1", "tag2"]  # deduped, lowercased
+
+    # JSON array with whitespace
+    result = normalize_tags('  ["python", "java"]  ')
+    assert result == ["python", "java"]
+
+    # Malformed JSON starting with [ should not crash
+    result = normalize_tags('[not valid json')
+    assert result == ["[not valid json"]
+
+    # Empty JSON array
+    result = normalize_tags('[]')
+    assert result == []
+
+
 @pytest.mark.asyncio
 async def test_store_memory_deduplicates_tags(memory_service, mock_storage):
     """Test that store_memory deduplicates tags case-insensitively."""
