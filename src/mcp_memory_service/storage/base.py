@@ -96,8 +96,16 @@ class MemoryStorage(ABC):
         return final_results
     
     @abstractmethod
-    async def retrieve(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
-        """Retrieve memories by semantic search."""
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None) -> List[MemoryQueryResult]:
+        """Retrieve memories by semantic search.
+
+        Args:
+            query: The search query text.
+            n_results: Maximum number of results to return.
+            tags: Optional list of tags to filter by (match ANY tag).
+                  When provided, the implementation should over-fetch
+                  vector candidates and filter by tag at the SQL level.
+        """
         pass
 
     async def retrieve_with_quality_boost(
@@ -1100,13 +1108,6 @@ class MemoryStorage(ABC):
                     fetch_limit = limit
                     if quality_boost > 0 and mode == "hybrid":
                         fetch_limit = limit * 3
-                    if tags:
-                        # Tags are filtered post-retrieval, so we must fetch
-                        # enough candidates to include tag-matching memories
-                        # that may rank low in semantic similarity (e.g. a few
-                        # user notes among thousands of ingested documents).
-                        total = await self.count_all_memories()
-                        fetch_limit = max(fetch_limit, total)
 
                     # Choose search method based on mode and available features
                     if mode == "hybrid" and hasattr(self, 'retrieve_hybrid'):
@@ -1128,7 +1129,7 @@ class MemoryStorage(ABC):
                                     quality_weight=quality_boost
                                 )
                             else:
-                                results = await self.retrieve(query, n_results=fetch_limit)
+                                results = await self.retrieve(query, n_results=fetch_limit, tags=tags)
                     elif quality_boost > 0:
                         # Use quality-boosted retrieval
                         results = await self.retrieve_with_quality_boost(
@@ -1139,7 +1140,7 @@ class MemoryStorage(ABC):
                         )
                     else:
                         # Standard semantic search
-                        results = await self.retrieve(query, n_results=fetch_limit)
+                        results = await self.retrieve(query, n_results=fetch_limit, tags=tags)
 
                     pre_filter_count = len(results)
                 else:

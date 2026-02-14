@@ -1356,37 +1356,60 @@ SOLUTIONS:
 
         return [(r if r is not None else (False, "Skipped")) for r in results]
 
-    async def retrieve(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None) -> List[MemoryQueryResult]:
         """Retrieve memories using semantic search."""
         try:
             if not self.conn:
                 logger.error("Database not initialized")
                 return []
-            
+
             if not self.embedding_model:
                 logger.warning("No embedding model available, cannot perform semantic search")
                 return []
-            
+
             # Generate query embedding
             try:
                 query_embedding = self._generate_embedding(query)
             except Exception as e:
                 logger.error(f"Failed to generate query embedding: {str(e)}")
                 return []
-            
+
             # First, check if embeddings table has data
             cursor = self.conn.execute('SELECT COUNT(*) FROM memory_embeddings')
             embedding_count = cursor.fetchone()[0]
-            
+
             if embedding_count == 0:
                 logger.warning("No embeddings found in database. Memories may have been stored without embeddings.")
                 return []
-            
+
+            # When filtering by tags, we must scan all vector candidates
+            # because tag membership is orthogonal to semantic similarity —
+            # a tagged memory could rank anywhere. The SQL WHERE clause
+            # filters by tag before constructing Python objects, so only
+            # matching rows are materialized.
+            if tags:
+                k_value = embedding_count
+            else:
+                k_value = n_results
+
             # Perform vector similarity search using JOIN with retry logic
             def search_memories():
-                # Try direct rowid join first - use k=? syntax for sqlite-vec
-                # Note: ORDER BY distance is implicit with k=? and redundant in subquery
-                cursor = self.conn.execute('''
+                # Build tag filter for outer WHERE clause
+                tag_conditions = ""
+                params = [serialize_float32(query_embedding), k_value]
+
+                if tags:
+                    # Match ANY tag using LIKE on the comma-separated tags column.
+                    # Escape LIKE wildcards (%, _) in tag values to prevent
+                    # pattern injection, using \ as the escape character.
+                    tag_clauses = []
+                    for tag in tags:
+                        escaped = tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                        tag_clauses.append("(',' || m.tags || ',' LIKE ? ESCAPE '\\')")
+                        params.append(f"%,{escaped},%")
+                    tag_conditions = " AND (" + " OR ".join(tag_clauses) + ")"
+
+                sql = f'''
                     SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
                            m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
                            e.distance
@@ -1396,10 +1419,14 @@ SOLUTIONS:
                         FROM memory_embeddings
                         WHERE content_embedding MATCH ? AND k = ?
                     ) e ON m.id = e.rowid
-                    WHERE m.deleted_at IS NULL
+                    WHERE m.deleted_at IS NULL{tag_conditions}
                     ORDER BY e.distance
-                ''', (serialize_float32(query_embedding), n_results))
-                
+                    LIMIT ?
+                '''
+                params.append(n_results)
+
+                cursor = self.conn.execute(sql, params)
+
                 # Check if we got results
                 results = cursor.fetchall()
                 if not results:
@@ -1407,7 +1434,7 @@ SOLUTIONS:
                     logger.debug("No results from vector search. Checking database state...")
                     mem_count = self.conn.execute('SELECT COUNT(*) FROM memories').fetchone()[0]
                     logger.debug(f"Memories table has {mem_count} rows, embeddings table has {embedding_count} rows")
-                
+
                 return results
             
             search_results = await self._execute_with_retry(search_memories)
