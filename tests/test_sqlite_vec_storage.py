@@ -1623,3 +1623,53 @@ class TestSemanticDeduplication:
         success2, msg2 = await storage.store(memory2)
         assert not success2, "Should reject exact duplicate"
         assert "exact match" in msg2.lower(), f"Expected exact match message, got: {msg2}"
+
+    @pytest.mark.asyncio
+    async def test_retrieve_k_value_capping_without_tags(self, storage):
+        """Test that k_value is capped even when no tags provided (DoS protection).
+
+        Without capping, an attacker could request n_results=1000000 to force
+        exhaustive scan of all embeddings, consuming excessive CPU/memory.
+        """
+        # Store some test memories
+        for i in range(5):
+            memory = Memory(
+                content=f"Test memory {i} for k-value capping",
+                content_hash=generate_content_hash(f"Test memory {i} for k-value capping"),
+                tags=["k-cap-test"]
+            )
+            await storage.store(memory)
+
+        # Request an arbitrarily large number of results
+        # Should be capped at _MAX_TAG_SEARCH_CANDIDATES (10,000)
+        results = await storage.retrieve("k-value test", n_results=1000000)
+
+        # Should return results (not crash) and be limited by what's actually in DB
+        assert isinstance(results, list)
+        assert len(results) <= 5  # Only 5 memories stored
+
+    @pytest.mark.asyncio
+    async def test_retrieve_all_invalid_tags_returns_empty(self, storage):
+        """Test that providing only invalid tags returns empty results (not unfiltered).
+
+        When tags filter is provided but all tags are invalid (non-string),
+        should return empty results instead of silently ignoring the filter.
+        """
+        # Store some memories
+        for i in range(3):
+            memory = Memory(
+                content=f"Test memory {i} for invalid tags",
+                content_hash=generate_content_hash(f"Test memory {i} for invalid tags"),
+                tags=["valid-tag"]
+            )
+            await storage.store(memory)
+
+        # Provide only invalid tags (non-strings)
+        results = await storage.retrieve(
+            "invalid tags test",
+            n_results=10,
+            tags=[None, 123, {"key": "value"}]  # All invalid
+        )
+
+        # Should return empty results, not unfiltered results
+        assert len(results) == 0

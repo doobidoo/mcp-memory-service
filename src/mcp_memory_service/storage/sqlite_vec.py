@@ -1392,10 +1392,10 @@ SOLUTIONS:
             # filters by tag before constructing Python objects, so only
             # matching rows are materialized.
             #
-            # Hard cap to prevent DoS: Even with SQL-level tag filtering,
-            # vector search must scan k candidates. Cap at 10,000 to balance
-            # recall vs performance/memory. For databases >10k memories,
-            # tagged results may be missed if they rank very low semantically.
+            # Hard cap to prevent DoS: The k parameter controls how many
+            # vector candidates sqlite-vec scans. Without a cap, an attacker
+            # could specify arbitrarily large n_results to force exhaustive
+            # embedding scans, consuming excessive CPU/memory.
             if tags:
                 # Limit number of tags to prevent DoS and SQLite parameter limits
                 if len(tags) > _MAX_TAGS_FOR_SEARCH:
@@ -1404,7 +1404,10 @@ SOLUTIONS:
 
                 k_value = min(embedding_count, _MAX_TAG_SEARCH_CANDIDATES)
             else:
-                k_value = n_results
+                # CRITICAL: Cap k_value even without tags to prevent DoS
+                # An attacker could request n_results=1000000 to trigger
+                # exhaustive scan of all embeddings
+                k_value = min(n_results, _MAX_TAG_SEARCH_CANDIDATES)
 
             # Perform vector similarity search using JOIN with retry logic
             def search_memories():
@@ -1425,7 +1428,15 @@ SOLUTIONS:
                         escaped = tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                         tag_clauses.append("(',' || m.tags || ',' LIKE ? ESCAPE '\\')")
                         params.append(f"%,{escaped},%")
-                    tag_conditions = " AND (" + " OR ".join(tag_clauses) + ")" if tag_clauses else ""
+
+                    # CRITICAL: If tag filter was provided but all tags invalid,
+                    # return empty results instead of silently ignoring the filter.
+                    # This aligns with user intent to filter by tags.
+                    if not tag_clauses:
+                        logger.warning("Tag filter provided but contained no valid tags. Returning empty results.")
+                        return []
+
+                    tag_conditions = " AND (" + " OR ".join(tag_clauses) + ")"
 
                 sql = f'''
                     SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
