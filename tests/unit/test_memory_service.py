@@ -792,8 +792,48 @@ def test_normalize_tags_json_encoded_array():
     large_json = '[' + ','.join(['"tag"'] * 2000) + ']'  # >4KB JSON
     result = normalize_tags(large_json)
     # Should treat entire string as single tag (DoS protection)
+    # Note: Commas are replaced with hyphens, and tag is truncated to 100 chars
     assert len(result) == 1
-    assert result[0] == large_json.lower()
+    assert len(result[0]) == 100  # Truncated to _MAX_TAG_LENGTH
+    assert result[0].startswith('["tag"-"tag"-')  # Commas replaced with hyphens
+
+
+def test_normalize_tags_comma_sanitization():
+    """Test that commas are removed from tags to prevent LIKE-based search breakage.
+
+    Tags are stored comma-separated in SQLite. If a tag contains a comma,
+    the LIKE '%,tag,%' pattern matching breaks. Commas should be replaced
+    with hyphens to preserve semantic meaning.
+    """
+    from mcp_memory_service.services.memory_service import normalize_tags
+
+    # Single tag with comma
+    result = normalize_tags(['machine,learning'])
+    assert result == ['machine-learning']
+
+    # Multiple tags with commas
+    result = normalize_tags(['data,science', 'web,dev', 'python'])
+    assert result == ['data-science', 'web-dev', 'python']
+
+    # JSON array with comma-containing tags
+    result = normalize_tags('["cloud,computing", "AI,ML"]')
+    assert result == ['cloud-computing', 'ai-ml']
+
+
+def test_normalize_tags_length_limiting():
+    """Test that excessively long tags and too many tags are limited."""
+    from mcp_memory_service.services.memory_service import normalize_tags
+
+    # Single very long tag (>100 chars)
+    long_tag = 'a' * 150
+    result = normalize_tags([long_tag])
+    assert len(result) == 1
+    assert len(result[0]) == 100  # Truncated to _MAX_TAG_LENGTH
+
+    # Too many tags (>100)
+    many_tags = [f'tag{i}' for i in range(150)]
+    result = normalize_tags(many_tags)
+    assert len(result) == 100  # Limited to _MAX_TAGS_PER_MEMORY
 
 
 @pytest.mark.asyncio

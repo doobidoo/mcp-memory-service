@@ -72,6 +72,10 @@ from ..config import SQLITEVEC_MAX_CONTENT_LENGTH
 
 logger = logging.getLogger(__name__)
 
+# Module-level constants for vector search and tag filtering
+_MAX_TAG_SEARCH_CANDIDATES = 10000  # Maximum vector candidates when filtering by tags (DoS protection)
+_MAX_TAGS_FOR_SEARCH = 100          # Maximum number of tags to process in a single search (DoS protection)
+
 # Global model cache for performance optimization
 _MODEL_CACHE = {}
 _DIMENSION_CACHE = {}  # Cache embedding dimensions alongside models (Issue #412)
@@ -1392,9 +1396,13 @@ SOLUTIONS:
             # vector search must scan k candidates. Cap at 10,000 to balance
             # recall vs performance/memory. For databases >10k memories,
             # tagged results may be missed if they rank very low semantically.
-            MAX_TAG_SEARCH_CANDIDATES = 10000
             if tags:
-                k_value = min(embedding_count, MAX_TAG_SEARCH_CANDIDATES)
+                # Limit number of tags to prevent DoS and SQLite parameter limits
+                if len(tags) > _MAX_TAGS_FOR_SEARCH:
+                    logger.warning(f"Too many tags provided for search ({len(tags)}), limiting to {_MAX_TAGS_FOR_SEARCH}")
+                    tags = tags[:_MAX_TAGS_FOR_SEARCH]
+
+                k_value = min(embedding_count, _MAX_TAG_SEARCH_CANDIDATES)
             else:
                 k_value = n_results
 

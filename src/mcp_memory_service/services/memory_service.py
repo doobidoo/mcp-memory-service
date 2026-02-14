@@ -38,6 +38,11 @@ from ..quality.async_scorer import async_scorer
 
 logger = logging.getLogger(__name__)
 
+# Module-level constants for tag processing
+_MAX_JSON_LENGTH = 4096  # 4KB limit for tag JSON to prevent DoS
+_MAX_TAG_LENGTH = 100    # Maximum length for individual tags
+_MAX_TAGS_PER_MEMORY = 100  # Maximum number of tags per memory
+
 
 def normalize_tags(tags: Union[str, List[str], None]) -> List[str]:
     """
@@ -66,9 +71,8 @@ def normalize_tags(tags: Union[str, List[str], None]) -> List[str]:
         stripped = tags.strip()
         if stripped.startswith('['):
             # Prevent DoS via large/deeply nested JSON strings
-            MAX_JSON_LENGTH = 4096  # 4KB limit for tag JSON
-            if len(stripped) > MAX_JSON_LENGTH:
-                logger.warning(f"Tag JSON string exceeds {MAX_JSON_LENGTH} bytes, treating as literal string")
+            if len(stripped) > _MAX_JSON_LENGTH:
+                logger.warning(f"Tag JSON string exceeds {_MAX_JSON_LENGTH} bytes, treating as literal string")
                 tags = [stripped]
             else:
                 try:
@@ -85,7 +89,7 @@ def normalize_tags(tags: Union[str, List[str], None]) -> List[str]:
         else:
             tags = [tags.strip()]
 
-    # Case-normalize, deduplicate, remove empties
+    # Case-normalize, deduplicate, remove empties, sanitize
     normalized = []
     seen_lower = set()
 
@@ -97,6 +101,19 @@ def normalize_tags(tags: Union[str, List[str], None]) -> List[str]:
         if not tag_stripped:
             continue
 
+        # CRITICAL: Remove commas from tags to prevent LIKE-based search breakage.
+        # Tags are stored comma-separated in SQLite, so commas within tags would
+        # break the pattern matching logic: LIKE '%,tag,%'
+        # Replace commas with hyphens to preserve semantic meaning.
+        if ',' in tag_stripped:
+            tag_stripped = tag_stripped.replace(',', '-')
+            logger.debug(f"Removed comma from tag, replaced with hyphen: {tag_stripped}")
+
+        # Enforce maximum tag length to prevent abuse
+        if len(tag_stripped) > _MAX_TAG_LENGTH:
+            logger.warning(f"Tag exceeds {_MAX_TAG_LENGTH} characters, truncating: {tag_stripped[:50]}...")
+            tag_stripped = tag_stripped[:_MAX_TAG_LENGTH]
+
         tag_lower = tag_stripped.lower()
 
         # Skip if already seen (case-insensitive deduplication)
@@ -105,6 +122,11 @@ def normalize_tags(tags: Union[str, List[str], None]) -> List[str]:
 
         seen_lower.add(tag_lower)
         normalized.append(tag_lower)  # Store in lowercase
+
+    # Limit total number of tags to prevent DoS
+    if len(normalized) > _MAX_TAGS_PER_MEMORY:
+        logger.warning(f"Too many tags ({len(normalized)}), limiting to {_MAX_TAGS_PER_MEMORY}")
+        normalized = normalized[:_MAX_TAGS_PER_MEMORY]
 
     return normalized
 
