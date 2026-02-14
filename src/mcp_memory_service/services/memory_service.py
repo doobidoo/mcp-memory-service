@@ -81,7 +81,8 @@ def normalize_tags(tags: Union[str, List[str], None]) -> List[str]:
                         tags = [str(t) for t in parsed]
                     else:
                         tags = [stripped]
-                except (json.JSONDecodeError, ValueError):
+                except (json.JSONDecodeError, ValueError, RecursionError):
+                    # RecursionError from deeply nested JSON like [[[[...]]]]
                     tags = [stripped]
         # Split by comma if present, otherwise single tag
         elif ',' in tags:

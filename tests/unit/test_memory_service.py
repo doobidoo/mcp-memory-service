@@ -836,6 +836,18 @@ def test_normalize_tags_length_limiting():
     assert len(result) == 100  # Limited to _MAX_TAGS_PER_MEMORY
 
 
+def test_normalize_tags_recursion_error_handling():
+    """Test that deeply nested JSON structures don't crash the server."""
+    from mcp_memory_service.services.memory_service import normalize_tags
+
+    # Deeply nested JSON (would trigger RecursionError without proper handling)
+    deeply_nested = '[' * 500 + ']' * 500
+    result = normalize_tags(deeply_nested)
+    # Should treat as literal string instead of crashing
+    assert len(result) == 1
+    assert result[0].startswith('[[[')  # Commas don't exist, so no replacement
+
+
 @pytest.mark.asyncio
 async def test_store_memory_deduplicates_tags(memory_service, mock_storage):
     """Test that store_memory deduplicates tags case-insensitively."""

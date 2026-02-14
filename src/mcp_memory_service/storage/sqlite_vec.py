@@ -1418,10 +1418,14 @@ SOLUTIONS:
                     # pattern injection, using \ as the escape character.
                     tag_clauses = []
                     for tag in tags:
+                        # Type validation: skip non-string elements to prevent AttributeError
+                        if not isinstance(tag, str):
+                            logger.warning(f"Skipping non-string tag in search: {type(tag).__name__}")
+                            continue
                         escaped = tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                         tag_clauses.append("(',' || m.tags || ',' LIKE ? ESCAPE '\\')")
                         params.append(f"%,{escaped},%")
-                    tag_conditions = " AND (" + " OR ".join(tag_clauses) + ")"
+                    tag_conditions = " AND (" + " OR ".join(tag_clauses) + ")" if tag_clauses else ""
 
                 sql = f'''
                     SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,

@@ -112,6 +112,7 @@ class MemoryStorage(ABC):
         self,
         query: str,
         n_results: int = 10,
+        tags: Optional[List[str]] = None,
         quality_boost: Optional[bool] = None,
         quality_weight: Optional[float] = None
     ) -> List[MemoryQueryResult]:
@@ -125,6 +126,7 @@ class MemoryStorage(ABC):
         Args:
             query: Search query
             n_results: Number of results to return
+            tags: Optional list of tags to filter by (match ANY tag)
             quality_boost: Enable quality reranking (default from config)
             quality_weight: Weight for quality score 0.0-1.0 (default 0.3, meaning 30% quality, 70% semantic)
 
@@ -157,12 +159,12 @@ class MemoryStorage(ABC):
 
         if not quality_boost:
             # Standard retrieval, no reranking
-            return await self.retrieve(query, n_results)
+            return await self.retrieve(query, n_results, tags=tags)
 
         # Quality-boosted retrieval
         # Step 1: Over-fetch (3x) to have pool for reranking
         oversample_factor = 3
-        candidates = await self.retrieve(query, n_results * oversample_factor)
+        candidates = await self.retrieve(query, n_results * oversample_factor, tags=tags)
 
         if not candidates:
             return []
@@ -1125,6 +1127,7 @@ class MemoryStorage(ABC):
                                 results = await self.retrieve_with_quality_boost(
                                     query,
                                     n_results=fetch_limit,
+                                    tags=tags,
                                     quality_boost=True,
                                     quality_weight=quality_boost
                                 )
@@ -1135,6 +1138,7 @@ class MemoryStorage(ABC):
                         results = await self.retrieve_with_quality_boost(
                             query,
                             n_results=fetch_limit,
+                            tags=tags,
                             quality_boost=True,
                             quality_weight=quality_boost
                         )
