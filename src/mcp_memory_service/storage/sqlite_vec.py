@@ -73,7 +73,8 @@ from ..config import SQLITEVEC_MAX_CONTENT_LENGTH
 logger = logging.getLogger(__name__)
 
 # Module-level constants for vector search and tag filtering
-_MAX_TAG_SEARCH_CANDIDATES = 10000  # Maximum vector candidates when filtering by tags (DoS protection)
+_SQLITE_VEC_MAX_KNN_K = 4096        # sqlite-vec hard limit for k in KNN queries
+_MAX_TAG_SEARCH_CANDIDATES = _SQLITE_VEC_MAX_KNN_K  # Cap at sqlite-vec limit (was 10000, which exceeds k limit)
 _MAX_TAGS_FOR_SEARCH = 100          # Maximum number of tags to process in a single search (DoS protection)
 
 # Global model cache for performance optimization

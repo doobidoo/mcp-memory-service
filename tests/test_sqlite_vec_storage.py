@@ -1624,6 +1624,19 @@ class TestSemanticDeduplication:
         assert not success2, "Should reject exact duplicate"
         assert "exact match" in msg2.lower(), f"Expected exact match message, got: {msg2}"
 
+    def test_max_tag_search_candidates_within_sqlite_vec_limit(self):
+        """_MAX_TAG_SEARCH_CANDIDATES must not exceed sqlite-vec's hard k=4096 KNN limit.
+
+        If this constant exceeds 4096, any tag-filtered retrieve() on a database
+        with more than 4096 memories will raise 'k value in knn query too large'
+        and silently return 0 results.
+        """
+        from mcp_memory_service.storage.sqlite_vec import _MAX_TAG_SEARCH_CANDIDATES, _SQLITE_VEC_MAX_KNN_K
+        assert _MAX_TAG_SEARCH_CANDIDATES <= 4096, (
+            f"_MAX_TAG_SEARCH_CANDIDATES={_MAX_TAG_SEARCH_CANDIDATES} exceeds "
+            f"sqlite-vec hard limit of {_SQLITE_VEC_MAX_KNN_K}"
+        )
+
     @pytest.mark.asyncio
     async def test_retrieve_k_value_capping_without_tags(self, storage):
         """Test that k_value is capped even when no tags provided (DoS protection).
@@ -1641,7 +1654,7 @@ class TestSemanticDeduplication:
             await storage.store(memory)
 
         # Request an arbitrarily large number of results
-        # Should be capped at _MAX_TAG_SEARCH_CANDIDATES (10,000)
+        # Should be capped at _MAX_TAG_SEARCH_CANDIDATES (4,096 — sqlite-vec hard limit)
         results = await storage.retrieve("k-value test", n_results=1000000)
 
         # Should return results (not crash) and be limited by what's actually in DB
