@@ -207,11 +207,11 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
             # Chunked response - multiple memories created
             num_chunks = len(result["memories"])
             original_hash = result.get("original_hash", "unknown")
-            message = f"Successfully stored {num_chunks} memory chunks (original hash: {original_hash[:8]}...)"
+            message = f"Successfully stored {num_chunks} memory chunks (original hash: {original_hash})"
         else:
             # Single memory response
             memory_hash = result["memory"]["content_hash"]
-            message = f"Memory stored successfully (hash: {memory_hash[:8]}...)"
+            message = f"Memory stored successfully (hash: {memory_hash})"
 
         return [types.TextContent(type="text", text=message)]
 
@@ -382,7 +382,7 @@ async def handle_retrieve_with_quality_boost(server, arguments: dict) -> List[ty
                 f"- Semantic: {semantic_score:.3f}",
                 f"- Quality: {quality_score:.3f}",
                 f"- Timestamp: {timestamp_str}",
-                f"- Hash: {memory.content_hash[:12]}...",
+                f"- Hash: {memory.content_hash}",
                 f"- Content: {memory.content[:200]}{'...' if len(memory.content) > 200 else ''}",
             ]
 
@@ -532,7 +532,7 @@ async def handle_delete_memory(server, arguments: dict) -> List[types.TextConten
 
         # Handle response based on success/failure format
         if result["success"]:
-            return [types.TextContent(type="text", text=f"Memory deleted successfully: {result['content_hash'][:16]}...")]
+            return [types.TextContent(type="text", text=f"Memory deleted successfully: {result['content_hash']}")]
         else:
             return [types.TextContent(type="text", text=f"Failed to delete memory: {result.get('error', 'Unknown error')}")]
     except Exception as e:
@@ -656,7 +656,7 @@ async def handle_memory_delete(server, arguments: dict) -> List[types.TextConten
             if result.get("dry_run"):
                 response += f"\n\nWould delete {result['deleted_count']} memories"
                 if result['deleted_count'] > 0:
-                    response += f"\nHashes: {', '.join(h[:16] + '...' for h in result['deleted_hashes'][:5])}"
+                    response += f"\nHashes: {', '.join(result['deleted_hashes'][:5])}"
                     if result['deleted_count'] > 5:
                         response += f" ... and {result['deleted_count'] - 5} more"
             else:
@@ -764,7 +764,7 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
 
             formatted_results.append(
                 f"{idx}. {memory.get('content', '')}\n"
-                f"   Hash: {content_hash[:16]}...\n"
+                f"   Hash: {content_hash}\n"
                 f"   Created: {created_at}{tags_display}"
             )
 

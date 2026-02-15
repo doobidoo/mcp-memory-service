@@ -167,7 +167,7 @@ async def handle_rate_memory(server, arguments: dict) -> List[types.TextContent]
         rating_text = {-1: "thumbs down", 0: "neutral", 1: "thumbs up"}[rating]
         response = [
             f"✅ Memory rated successfully: {rating_text}",
-            f"Content hash: {content_hash[:16]}...",
+            f"Content hash: {content_hash}",
             f"New quality score: {new_quality_score:.3f} (was {existing_score:.3f})",
         ]
         if feedback:
@@ -217,7 +217,7 @@ async def handle_get_memory_quality(server, arguments: dict) -> List[types.TextC
 
         # Format as readable text
         response_lines = [
-            f"🔍 Quality Metrics for Memory: {content_hash[:16]}...",
+            f"🔍 Quality Metrics for Memory: {content_hash}",
             "",
             f"Quality Score: {quality_data['quality_score']:.3f} / 1.0",
             f"Quality Provider: {quality_data['quality_provider']}",

@@ -1188,7 +1188,7 @@ SOLUTIONS:
                     similarity_threshold=self.semantic_dedup_threshold
                 )
                 if is_duplicate:
-                    return False, f"Duplicate content detected (semantically similar to {existing_hash[:8]}...)"
+                    return False, f"Duplicate content detected (semantically similar to {existing_hash})"
 
             # Generate and validate embedding
             try:
