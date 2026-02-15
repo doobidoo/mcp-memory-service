@@ -175,18 +175,20 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.13.0** (February 14, 2026)
+## 🆕 Latest Release: **v10.13.1** (February 15, 2026)
 
-**Test Suite Stability - 100% Pass Rate Achievement** ✅
+**Critical Bug Fixes - Production Stability** 🔥
 
 **What's New:**
-- ✅ **100% Test Pass Rate**: Fixed all 41 failing tests across test suite (1,161 passing, 0 failures)
-- 🔐 **Authentication Testing**: Added FastAPI dependency_overrides pattern for 29 API/analytics tests
-- 🔧 **Storage Interface**: Enhanced CloudflareStorage and HybridStorage with tags parameter for compatibility
-- 📊 **+32 Net Improvement**: Test pass count increased from 1,129 to 1,161 tests
-- 🧪 **ONNX Test Refinement**: Marked 9 implementation-dependent tests as xfail for future behavioral testing
+- 🚨 **Tag Search Fix**: Capped sqlite-vec k=4096 limit to prevent silent failures on large databases (#465)
+- 🚨 **REST API Fix**: Fixed retrieve_memories() field access bug causing 0 results (#466)
+- 🏷️ **Tag Display Fix**: Resolved metadata corruption causing tags to show as individual characters (#467)
+- 📋 **Hash Display**: Restored full 64-character content hashes for copy-paste workflows (#468)
+- 💥 **Crash Prevention**: Fixed Memory field access in MCP prompt handlers (#469)
+- 🙏 **Special Thanks**: All 5 fixes contributed by @binaryphile
 
 **Previous Releases**:
+- **v10.13.0** - Test Suite Stability (100% pass rate, 1,161 passing tests, authentication testing patterns)
 - **v10.12.1** - Custom Memory Type Configuration Test Fixes (test isolation, environment cleanup)
 - **v10.12.0** - Configurable Memory Type Ontology (75 types supporting PM and knowledge work, custom type configuration)
 - **v10.11.2** - Tag Filtering & Security Hardening (DoS protection, SQL-level optimization, comprehensive tests)

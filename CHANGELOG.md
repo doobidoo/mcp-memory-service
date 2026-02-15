@@ -10,6 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.13.1] - 2026-02-15
+
+### Fixed
+- **CRITICAL**: Cap tag search candidates at sqlite-vec k=4096 limit to prevent silent search failures on large databases (#465, thanks @binaryphile)
+- **CRITICAL**: Fix `retrieve_memories()` reading tags/memory_type from wrong field, causing REST API to return 0 results (#466, thanks @binaryphile)
+- Fix tags displayed as individual characters in search results due to metadata corruption (#467, thanks @binaryphile)
+- Show full 64-character content hashes in tool responses to restore copy-paste workflow (#468, thanks @binaryphile)
+- Fix Memory field access in MCP prompt handlers to prevent AttributeError crashes (#469, thanks @binaryphile)
+
+### Credits
+- All fixes in this release contributed by @binaryphile - thank you for the excellent bug reports and high-quality patches!
+
 ## [10.13.0] - 2026-02-14
 
 ### Fixed
