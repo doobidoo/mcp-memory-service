@@ -1074,8 +1074,8 @@ class MemoryServer:
             if memories:
                 for mem in memories:
                     prompt_text += f"- {mem.content}\n"
-                    if mem.metadata.tags:
-                        prompt_text += f"  Tags: {', '.join(mem.metadata.tags)}\n"
+                    if mem.tags:
+                        prompt_text += f"  Tags: {', '.join(mem.tags)}\n"
             else:
                 prompt_text += "No memories found for this time period."
             
@@ -1108,9 +1108,9 @@ class MemoryServer:
             tag_counts = {}
             type_counts = {}
             for mem in memories:
-                for tag in mem.metadata.tags:
+                for tag in mem.tags:
                     tag_counts[tag] = tag_counts.get(tag, 0) + 1
-                mem_type = mem.metadata.memory_type
+                mem_type = mem.memory_type
                 type_counts[mem_type] = type_counts.get(mem_type, 0) + 1
             
             analysis_text += f"Total memories analyzed: {len(memories)}\n\n"
@@ -1148,14 +1148,14 @@ class MemoryServer:
             
             if format_type == "markdown":
                 for mem in memories:
-                    export_text += f"## {mem.metadata.created_at_iso}\n"
+                    export_text += f"## {mem.created_at_iso}\n"
                     export_text += f"{mem.content}\n"
-                    if mem.metadata.tags:
-                        export_text += f"*Tags: {', '.join(mem.metadata.tags)}*\n"
+                    if mem.tags:
+                        export_text += f"*Tags: {', '.join(mem.tags)}*\n"
                     export_text += "\n"
             elif format_type == "text":
                 for mem in memories:
-                    export_text += f"[{mem.metadata.created_at_iso}] {mem.content}\n"
+                    export_text += f"[{mem.created_at_iso}] {mem.content}\n"
             else:  # json
                 import json
                 export_data = [m.to_dict() for m in memories]
