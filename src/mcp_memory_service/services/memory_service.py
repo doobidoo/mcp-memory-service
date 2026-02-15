@@ -514,13 +514,13 @@ class MemoryService:
                 for query_result in memories:
                     # Filter by tags if specified
                     if tags:
-                        memory_tags = query_result.memory.metadata.get('tags', [])
+                        memory_tags = query_result.memory.tags or []
                         if not any(tag in memory_tags for tag in tags):
                             continue
 
                     # Filter by memory_type if specified
                     if memory_type:
-                        mem_type = query_result.memory.metadata.get('memory_type', '')
+                        mem_type = query_result.memory.memory_type or ''
                         if mem_type != memory_type:
                             continue
 
