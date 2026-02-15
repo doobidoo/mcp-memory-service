@@ -945,3 +945,54 @@ async def test_normalize_tags_integration_workflow(memory_service, mock_storage)
 
     # Verify no duplicate python tag
     assert stored_memory.tags.count("python") == 1, "Should not have duplicate 'python' tag"
+
+
+@pytest.mark.asyncio
+async def test_store_memory_strips_tags_from_metadata(memory_service, mock_storage):
+    """Test that store_memory strips 'tags' key from metadata before passing to Memory.
+
+    Regression test: metadata dict with a 'tags' key was passed through to
+    Memory(metadata=...) unchanged. Memory.to_dict() then did **self.metadata,
+    leaking the raw tags string into the result dict. When displayed via
+    ', '.join(tags_string), tags were split into individual characters.
+    """
+    mock_storage.store.return_value = (True, "Success")
+
+    result = await memory_service.store_memory(
+        content="Test metadata tags stripping",
+        tags=["python", "debugging"],
+        metadata={"tags": "python,debugging", "custom_key": "keep_me"}
+    )
+
+    stored_memory = mock_storage.store.call_args.args[0]
+    # The 'tags' key should NOT be in metadata (stripped to prevent leak via to_dict)
+    assert "tags" not in stored_memory.metadata, \
+        "metadata should not contain 'tags' key — it leaks through **self.metadata in to_dict()"
+    # Other metadata keys should be preserved
+    assert stored_memory.metadata["custom_key"] == "keep_me"
+    # The Memory.tags field should have the properly normalized tags
+    assert sorted(stored_memory.tags) == ["debugging", "python"]
+
+
+def test_to_dict_tags_override_prevents_metadata_leak():
+    """Test that to_dict() returns proper tags list even when metadata contains a 'tags' key.
+
+    Regression test: Memory objects loaded from storage may have a stale 'tags'
+    key in their metadata dict (from before the store_memory fix). to_dict()
+    does **self.metadata which would leak this key. The explicit 'tags' override
+    in to_dict() ensures the correct list always wins.
+    """
+    memory = Memory(
+        content="Test content",
+        content_hash="abc123",
+        tags=["python", "debugging"],
+        memory_type="note",
+        metadata={"tags": "python,debugging", "source": "test"}  # simulates corrupted data
+    )
+
+    result = memory.to_dict()
+    # The 'tags' key in the result should be the proper list, not the metadata string
+    assert result["tags"] == ["python", "debugging"], \
+        f"Expected proper tags list, got: {result['tags']}"
+    assert isinstance(result["tags"], list), \
+        f"tags should be a list, not {type(result['tags'])}"

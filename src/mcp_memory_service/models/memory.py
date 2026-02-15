@@ -374,7 +374,8 @@ class Memory:
             "created_at_iso": self.created_at_iso,
             "updated_at": self.updated_at,
             "updated_at_iso": self.updated_at_iso,
-            **self.metadata
+            **self.metadata,
+            "tags": self.tags,  # override any leaked metadata["tags"]
         }
 
     @classmethod

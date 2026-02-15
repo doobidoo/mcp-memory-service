@@ -355,11 +355,16 @@ class MemoryService:
             final_tags = normalize_tags(tags)
 
             # Extract and normalize metadata.tags if present
-            final_metadata = metadata or {}
+            final_metadata = dict(metadata) if metadata else {}
             if metadata and "tags" in metadata:
                 metadata_tags = normalize_tags(metadata.get("tags"))
                 # Merge with parameter tags (normalize_tags already deduplicates)
                 final_tags = normalize_tags(final_tags + metadata_tags)  # Re-normalize after merge
+
+            # Strip keys that have dedicated Memory fields to prevent
+            # them leaking through **self.metadata in to_dict()
+            for key in ("tags", "type"):
+                final_metadata.pop(key, None)
 
             # Apply hostname tagging if provided (for consistent source tracking)
             if client_hostname:
