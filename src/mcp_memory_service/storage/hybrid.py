@@ -1301,10 +1301,16 @@ class HybridMemoryStorage(MemoryStorage):
             "progress_percentage": round((self.initial_sync_completed / max(self.initial_sync_total, 1)) * 100, 1) if self.initial_sync_total > 0 else 0
         }
 
-    async def store(self, memory: Memory) -> Tuple[bool, str]:
-        """Store a memory in primary storage and queue for secondary sync."""
+    async def store(self, memory: Memory, skip_semantic_dedup: bool = False) -> Tuple[bool, str]:
+        """Store a memory in primary storage and queue for secondary sync.
+
+        Args:
+            memory: The Memory object to store.
+            skip_semantic_dedup: If True, bypass semantic similarity check on primary storage.
+                Exact hash deduplication is always enforced.
+        """
         # Always store in primary first for immediate availability
-        success, message = await self.primary.store(memory)
+        success, message = await self.primary.store(memory, skip_semantic_dedup=skip_semantic_dedup)
 
         if success and self.sync_service:
             # Queue for background sync to secondary
