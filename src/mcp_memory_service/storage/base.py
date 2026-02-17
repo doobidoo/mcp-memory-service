@@ -59,8 +59,14 @@ class MemoryStorage(ABC):
         pass
     
     @abstractmethod
-    async def store(self, memory: Memory) -> Tuple[bool, str]:
-        """Store a memory. Returns (success, message)."""
+    async def store(self, memory: Memory, skip_semantic_dedup: bool = False) -> Tuple[bool, str]:
+        """Store a memory. Returns (success, message).
+
+        Args:
+            memory: The Memory object to store.
+            skip_semantic_dedup: If True, bypass semantic similarity check.
+                Exact hash deduplication is always enforced.
+        """
         pass
 
     async def store_batch(self, memories: List[Memory]) -> List[Tuple[bool, str]]:

@@ -1624,6 +1624,33 @@ class TestSemanticDeduplication:
         assert not success2, "Should reject exact duplicate"
         assert "exact match" in msg2.lower(), f"Expected exact match message, got: {msg2}"
 
+    @pytest.mark.asyncio
+    async def test_skip_semantic_dedup_allows_similar_content(self, storage):
+        """When skip_semantic_dedup=True, semantically similar content is stored."""
+        original = Memory(
+            content="Claude Code is a powerful CLI tool for software engineering.",
+            content_hash=generate_content_hash("Claude Code is a powerful CLI tool for software engineering."),
+            tags=["claude-code"],
+            memory_type="note"
+        )
+        success1, _ = await storage.store(original)
+        assert success1
+
+        similar = Memory(
+            content="The Claude Code CLI is an excellent software development tool.",
+            content_hash=generate_content_hash("The Claude Code CLI is an excellent software development tool."),
+            tags=["claude-code"],
+            memory_type="note"
+        )
+        # Without flag: rejected
+        success2, msg2 = await storage.store(similar)
+        assert not success2
+        assert "semantically similar" in msg2.lower()
+
+        # With flag: accepted
+        success3, msg3 = await storage.store(similar, skip_semantic_dedup=True)
+        assert success3, f"Expected success with skip_semantic_dedup=True, got: {msg3}"
+
     def test_max_tag_search_candidates_within_sqlite_vec_limit(self):
         """_MAX_TAG_SEARCH_CANDIDATES must not exceed sqlite-vec's hard k=4096 KNN limit.
 
