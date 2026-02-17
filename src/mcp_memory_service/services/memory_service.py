@@ -347,6 +347,9 @@ class MemoryService:
             memory_type: Optional memory type classification
             metadata: Optional additional metadata (can also contain tags)
             client_hostname: Optional client hostname for source tagging
+            conversation_id: Optional conversation identifier. When supplied, semantic
+                deduplication is skipped so all turns of the same conversation
+                can be saved independently. Exact hash dedup is always preserved.
 
         Returns:
             Dictionary with operation result
@@ -375,7 +378,8 @@ class MemoryService:
                 final_metadata["hostname"] = client_hostname
 
             # Store conversation_id in metadata for future grouping/retrieval
-            if conversation_id:
+            skip_dedup = bool(conversation_id)
+            if skip_dedup:
                 final_metadata["conversation_id"] = conversation_id
 
             # Generate content hash for deduplication
@@ -409,7 +413,6 @@ class MemoryService:
                         metadata=chunk_metadata
                     )
 
-                    skip_dedup = conversation_id is not None
                     success, message = await self.storage.store(memory, skip_semantic_dedup=skip_dedup)
                     if success:
                         stored_memories.append(self._format_memory_response(memory))
@@ -448,7 +451,6 @@ class MemoryService:
                     metadata=final_metadata
                 )
 
-                skip_dedup = conversation_id is not None
                 success, message = await self.storage.store(memory, skip_semantic_dedup=skip_dedup)
 
                 if success:

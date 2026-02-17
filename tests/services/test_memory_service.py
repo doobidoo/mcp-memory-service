@@ -9,9 +9,6 @@ _test_db_dir = tempfile.mkdtemp(prefix='mcp-service-test-')
 os.environ['MCP_MEMORY_SQLITE_PATH'] = os.path.join(_test_db_dir, 'test.db')
 os.environ['MCP_SEMANTIC_DEDUP_ENABLED'] = 'false'  # off by default; tests override
 
-import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src'))
-
 from mcp_memory_service.services.memory_service import MemoryService
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
