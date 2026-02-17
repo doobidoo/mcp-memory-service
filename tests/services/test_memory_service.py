@@ -55,3 +55,19 @@ class TestStoreMemory:
         )
         assert not result3["success"]
         assert "semantically similar" in result3.get("error", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_conversation_id_persisted_in_metadata(self, memory_service):
+        """conversation_id is stored in memory metadata for future grouping/retrieval."""
+        result = await memory_service.store_memory(
+            content="A memory tagged with a conversation ID for retrieval.",
+            tags=["test"],
+            conversation_id="conv-persist-check"
+        )
+        assert result["success"]
+        content_hash = result["memory"]["content_hash"]
+
+        # Retrieve the stored memory and verify conversation_id is in metadata
+        memory = await memory_service.storage.get_by_hash(content_hash)
+        assert memory is not None
+        assert memory.metadata.get("conversation_id") == "conv-persist-check"
