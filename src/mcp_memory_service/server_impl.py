@@ -1257,6 +1257,9 @@ class MemoryServer:
                         - Array: ["tag1", "tag2"]
                         - String: "tag1,tag2"
 
+                        Use `conversation_id` to bypass semantic deduplication when saving
+                        incremental memories from the same conversation.
+
                        Examples:
                         # Using array format:
                         {
@@ -1274,6 +1277,15 @@ class MemoryServer:
                                 "tags": "important,reference",
                                 "type": "note"
                             }
+                        }
+
+                        # Using conversation_id to save incremental notes:
+                        {
+                            "content": "User prefers dark mode",
+                            "conversation_id": "conv_abc123",
+                            "metadata": {
+                                "tags": "preference,ui"
+                            }
                         }""",
                         inputSchema={
                             "type": "object",
@@ -1281,6 +1293,10 @@ class MemoryServer:
                                 "content": {
                                     "type": "string",
                                     "description": "The memory content to store, such as a fact, note, or piece of information."
+                                },
+                                "conversation_id": {
+                                    "type": "string",
+                                    "description": "Optional conversation identifier. When provided, semantic deduplication is skipped, allowing multiple incremental memories from the same conversation to be stored even if their content is topically similar. Exact duplicate hashes are still rejected."
                                 },
                                 "metadata": {
                                     "type": "object",
