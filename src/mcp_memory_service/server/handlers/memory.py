@@ -188,6 +188,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
         tags = metadata.get("tags", "")
         memory_type = metadata.get("type", "note")  # HTTP server uses metadata.type
         client_hostname = arguments.get("client_hostname")
+        conversation_id = arguments.get("conversation_id")
 
         # Call shared MemoryService business logic
         result = await server.memory_service.store_memory(
@@ -195,7 +196,8 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
             tags=tags,
             memory_type=memory_type,
             metadata=metadata,
-            client_hostname=client_hostname
+            client_hostname=client_hostname,
+            conversation_id=conversation_id,
         )
 
         # Convert MemoryService result to MCP response format

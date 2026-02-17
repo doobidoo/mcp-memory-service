@@ -131,6 +131,30 @@ class TestHandleStoreMemory:
         assert "successfully" in text.lower()
 
 
+    @pytest.mark.asyncio
+    async def test_store_memory_with_conversation_id(self, unique_content):
+        """Storing with conversation_id allows semantically similar saves."""
+        server = MemoryServer()
+        await server._ensure_storage_initialized()
+        server.storage.semantic_dedup_enabled = True
+
+        content1 = unique_content("Claude Code is a powerful CLI tool for software engineering.")
+        result1 = await server.handle_store_memory({
+            "content": content1,
+            "conversation_id": "test-conv-001",
+            "metadata": {"tags": ["test"], "type": "note"}
+        })
+        assert "successfully" in result1[0].text.lower()
+
+        content2 = unique_content("The Claude Code CLI is an excellent software development tool.")
+        result2 = await server.handle_store_memory({
+            "content": content2,
+            "conversation_id": "test-conv-001",
+            "metadata": {"tags": ["test"], "type": "note"}
+        })
+        assert "successfully" in result2[0].text.lower(), f"Expected success, got: {result2[0].text}"
+
+
 class TestHandleRetrieveMemory:
     """Test suite for handle_retrieve_memory MCP handler."""
 
