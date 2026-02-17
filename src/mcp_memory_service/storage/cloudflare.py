@@ -522,8 +522,15 @@ class CloudflareStorage(MemoryStorage):
                 raise ValueError(f"R2 bucket '{self.r2_bucket}' not found")
             raise
     
-    async def store(self, memory: Memory) -> Tuple[bool, str]:
-        """Store a memory in Cloudflare storage."""
+    async def store(self, memory: Memory, skip_semantic_dedup: bool = False) -> Tuple[bool, str]:
+        """Store a memory in Cloudflare storage.
+
+        Args:
+            memory: The Memory object to store.
+            skip_semantic_dedup: Accepted for interface compatibility; Cloudflare
+                storage does not implement semantic deduplication, so this flag
+                has no effect.
+        """
         try:
             # Generate embedding for the content
             embedding = await self._generate_embedding(memory.content)

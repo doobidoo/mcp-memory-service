@@ -1168,7 +1168,13 @@ SOLUTIONS:
         return False, None
 
     async def store(self, memory: Memory, skip_semantic_dedup: bool = False) -> Tuple[bool, str]:
-        """Store a memory in the SQLite-vec database."""
+        """Store a memory in the SQLite-vec database.
+
+        Args:
+            memory: The Memory object to store.
+            skip_semantic_dedup: If True, bypass semantic similarity check.
+                Exact hash deduplication is always enforced.
+        """
         try:
             if not self.conn:
                 return False, "Database not initialized"
