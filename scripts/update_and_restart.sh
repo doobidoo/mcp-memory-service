@@ -187,12 +187,21 @@ find_compatible_python() {
 SYS_PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "3.12")
 SYS_PY_MINOR=$(echo "$SYS_PY_VERSION" | cut -d. -f2)
 
-# Recreate venv if Python 3.14+ detected or venv missing/broken
+# Recreate venv if Python 3.14+ detected, venv missing/broken, or venv was relocated
 NEEDS_VENV_RECREATE=false
 if [ "$VENV_PY_VERSION" = "none" ]; then
     log_warning "No venv found, creating..."
     NEEDS_VENV_RECREATE=true
-elif [ "$SYS_PY_MINOR" -ge 14 ] 2>/dev/null && [ ! -f "$VENV_DIR/.python312_compat" ]; then
+elif [ -f "$VENV_PIP" ]; then
+    # Check if the pip shebang points to a path that no longer exists (e.g. project was moved)
+    VENV_PIP_INTERP=$(head -1 "$VENV_PIP" 2>/dev/null | sed 's/^#!//')
+    if [ -n "$VENV_PIP_INTERP" ] && [ ! -f "$VENV_PIP_INTERP" ]; then
+        log_warning "Venv is stale (interpreter path no longer exists: ${VENV_PIP_INTERP})"
+        log_info "Recreating venv (project may have been moved or renamed)..."
+        NEEDS_VENV_RECREATE=true
+    fi
+fi
+if [ "$NEEDS_VENV_RECREATE" = false ] && [ "$SYS_PY_MINOR" -ge 14 ] 2>/dev/null && [ ! -f "$VENV_DIR/.python312_compat" ]; then
     # System Python is 3.14+, check if venv was created with compatible Python
     VENV_MINOR=$(echo "$VENV_PY_VERSION" | cut -d. -f2)
     if [ "$VENV_MINOR" -ge 14 ] 2>/dev/null; then
