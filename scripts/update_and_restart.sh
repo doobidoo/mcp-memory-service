@@ -187,28 +187,35 @@ find_compatible_python() {
 SYS_PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "3.12")
 SYS_PY_MINOR=$(echo "$SYS_PY_VERSION" | cut -d. -f2)
 
-# Recreate venv if Python 3.14+ detected, venv missing/broken, or venv was relocated
+# Pre-compute stale venv check: does the pip shebang point to a missing interpreter?
+VENV_IS_STALE=false
+if [ -f "$VENV_PIP" ]; then
+    VENV_PIP_INTERP=$(head -1 "$VENV_PIP" 2>/dev/null | sed 's/^#!//')
+    if [ -n "$VENV_PIP_INTERP" ] && [ ! -f "$VENV_PIP_INTERP" ]; then
+        VENV_IS_STALE=true
+    fi
+fi
+
+# Pre-compute Python 3.14+ incompatibility check
+VENV_MINOR=$(echo "$VENV_PY_VERSION" | cut -d. -f2)
+VENV_PY14_INCOMPAT=false
+if [ "$SYS_PY_MINOR" -ge 14 ] 2>/dev/null && [ ! -f "$VENV_DIR/.python312_compat" ] && [ "$VENV_MINOR" -ge 14 ] 2>/dev/null; then
+    VENV_PY14_INCOMPAT=true
+fi
+
+# Recreate venv if: missing, stale (project moved/renamed), or Python 3.14+ incompatible
 NEEDS_VENV_RECREATE=false
 if [ "$VENV_PY_VERSION" = "none" ]; then
     log_warning "No venv found, creating..."
     NEEDS_VENV_RECREATE=true
-elif [ -f "$VENV_PIP" ]; then
-    # Check if the pip shebang points to a path that no longer exists (e.g. project was moved)
-    VENV_PIP_INTERP=$(head -1 "$VENV_PIP" 2>/dev/null | sed 's/^#!//')
-    if [ -n "$VENV_PIP_INTERP" ] && [ ! -f "$VENV_PIP_INTERP" ]; then
-        log_warning "Venv is stale (interpreter path no longer exists: ${VENV_PIP_INTERP})"
-        log_info "Recreating venv (project may have been moved or renamed)..."
-        NEEDS_VENV_RECREATE=true
-    fi
-fi
-if [ "$NEEDS_VENV_RECREATE" = false ] && [ "$SYS_PY_MINOR" -ge 14 ] 2>/dev/null && [ ! -f "$VENV_DIR/.python312_compat" ]; then
-    # System Python is 3.14+, check if venv was created with compatible Python
-    VENV_MINOR=$(echo "$VENV_PY_VERSION" | cut -d. -f2)
-    if [ "$VENV_MINOR" -ge 14 ] 2>/dev/null; then
-        log_warning "Venv uses Python ${VENV_PY_VERSION} (incompatible with some packages)"
-        log_info "Recreating venv with compatible Python..."
-        NEEDS_VENV_RECREATE=true
-    fi
+elif [ "$VENV_IS_STALE" = true ]; then
+    log_warning "Venv is stale (interpreter path no longer exists: ${VENV_PIP_INTERP})"
+    log_info "Recreating venv (project may have been moved or renamed)..."
+    NEEDS_VENV_RECREATE=true
+elif [ "$VENV_PY14_INCOMPAT" = true ]; then
+    log_warning "Venv uses Python ${VENV_PY_VERSION} (incompatible with some packages)"
+    log_info "Recreating venv with compatible Python..."
+    NEEDS_VENV_RECREATE=true
 fi
 
 if [ "$NEEDS_VENV_RECREATE" = true ]; then
