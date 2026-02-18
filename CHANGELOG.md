@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.15.1] - 2026-02-18
+
+### Fixed
+- **`update_and_restart.sh`: detect stale venv after project move/rename**: Python venvs embed absolute interpreter paths at creation time and are not relocatable. When the project directory is moved or renamed, the pip shebang becomes invalid and all install attempts fail silently with "bad interpreter". The script previously retried 3 times and exited with a misleading "network error" message. Now reads the pip shebang and checks whether the interpreter path still exists on disk; if not, the venv is flagged as stale and automatically recreated before installation proceeds.
+
 ## [10.15.0] - 2026-02-18
 
 ### Fixed
