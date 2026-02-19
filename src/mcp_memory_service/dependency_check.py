@@ -231,6 +231,7 @@ def get_recommended_timeout() -> float:
             if override > 0:
                 logger.info(f"Using MCP_INIT_TIMEOUT override: {override}s")
                 return override
+            logger.warning(f"MCP_INIT_TIMEOUT must be a positive number, got '{env_timeout}'. Using automatic detection.")
         except ValueError:
             logger.warning(f"Invalid MCP_INIT_TIMEOUT value '{env_timeout}', using automatic detection")
 
