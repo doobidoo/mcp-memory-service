@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop and 13+ AI applications. It uses vector embeddings for semantic search, supports multiple storage backends (SQLite-vec, Cloudflare, Hybrid), and includes advanced features like memory consolidation, quality scoring, and OAuth 2.1 team collaboration.
 
-**Current Version:** v10.16.0 - Agentic AI market repositioning with REST API integration guides for LangGraph, CrewAI, AutoGen; X-Agent-ID header auto-tagging - see [CHANGELOG.md](CHANGELOG.md) for details
+**Current Version:** v10.16.1 - Windows MCP initialization timeout fix via `MCP_INIT_TIMEOUT` env var; 7 unit tests for override logic - see [CHANGELOG.md](CHANGELOG.md) for details
 
 > **🎯 v10.0.0 Milestone**: This major release represents a complete API consolidation - 34 tools unified into 12 with enhanced capabilities. All deprecated tools continue working with warnings until v11.0. See `docs/MIGRATION.md` for migration guide.
 
@@ -279,6 +279,10 @@ export MCP_CONSOLIDATION_ENABLED=true
 
 # SQLite Concurrent Access (CRITICAL for HTTP + MCP servers)
 export MCP_MEMORY_SQLITE_PRAGMAS=journal_mode=WAL,busy_timeout=15000,cache_size=20000
+
+# Initialization Timeout (Windows users may need to increase this)
+# Default: 30s on Windows, 15s on Linux/macOS (auto-doubled on first run)
+# export MCP_INIT_TIMEOUT=120        # Increase for slow Windows systems
 ```
 
 **Configuration Precedence:** Environment variables > .env file > Global Claude Config > defaults
@@ -466,6 +470,7 @@ memory.memory_type or ''
 | Schema validation errors after PR merge | Run `/mcp` in Claude Code to reconnect with new schema |
 | Database lock errors | Add `journal_mode=WAL` to `MCP_MEMORY_SQLITE_PRAGMAS` in `.env`, restart servers |
 | Tests failing after git pull | Run `./scripts/update_and_restart.sh` (installs deps, restarts server) |
+| MCP fails on every session (Windows) | Set `MCP_INIT_TIMEOUT=120` in your MCP server env config (issue #474) |
 
 **Comprehensive troubleshooting:** [docs/troubleshooting/hooks-quick-reference.md](docs/troubleshooting/hooks-quick-reference.md)
 

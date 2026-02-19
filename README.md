@@ -259,18 +259,18 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.16.0** (February 18, 2026)
+## 🆕 Latest Release: **v10.16.1** (February 19, 2026)
 
-**Agentic AI Market Repositioning with REST API Integration Guides**
+**Windows MCP Initialization Timeout Fix**
 
 **What's New:**
-- **Agent framework integration guides**: Five new guides in `docs/agents/` — LangGraph StateGraph memory nodes, CrewAI BaseTool implementations, AutoGen 0.4+ FunctionTool schema, and generic HTTP examples covering all 15 REST endpoints.
-- **`X-Agent-ID` header auto-tagging**: Send `X-Agent-ID: my-agent` in any `POST /api/memories` request to automatically scope memories to that agent identity — no client-side tag management required.
-- **`agent:` tag namespace**: New `NAMESPACE_AGENT` entry in tag taxonomy for agent-scoped memory isolation and retrieval.
-- **README overhaul**: New hero section "Persistent Shared Memory for AI Agent Pipelines", "Why Agents Need This" comparison table, competitor comparison (vs Mem0/Zep/DIY), and LangGraph/CrewAI/AutoGen framework badges.
-- **PyPI discoverability**: Updated description and keywords to target the multi-agent and agentic AI ecosystem.
+- **`MCP_INIT_TIMEOUT` environment variable**: Set `MCP_INIT_TIMEOUT=120` in your MCP server env to override the auto-computed initialization timeout — solves "fails on every new session" on slow Windows machines (#474).
+- **Automatic detection preserved**: Invalid, zero, or negative values fall back to platform-aware auto-detection (30s Windows / 15s other, doubled on first run or missing deps).
+- **7 unit tests** covering all edge cases for the new override logic.
+- **Documentation**: Documented in `.env.example` and added Windows troubleshooting entry to CLAUDE.md.
 
 **Previous Releases**:
+- **v10.16.0** - Agentic AI Market Repositioning with REST API Integration Guides (LangGraph, CrewAI, AutoGen guides, X-Agent-ID header auto-tagging, agent: tag namespace)
 - **v10.15.1** - Stale Venv Detection for Moved/Renamed Projects (auto-recreate venv when pip shebang interpreter path is missing)
 - **v10.15.0** - Config Validation & Safe Environment Parsing (`validate_config()` at startup, `safe_get_int_env()`, 8 new robustness tests)
 - **v10.14.0** - `conversation_id` Support for Incremental Conversation Saves (semantic dedup bypass, metadata storage, all backends)

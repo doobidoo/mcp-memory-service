@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.16.1] - 2026-02-19
+
+### Fixed
+- **`MCP_INIT_TIMEOUT` environment variable override for Windows initialization timeout** (#474): The eager storage initialization timeout (30s on Windows, 15s on other platforms) was sometimes insufficient for ONNX model loading on slower Windows machines. On these systems the server would fall back to lazy loading, causing the MCP client to treat the initial connection as failed — requiring a manual reconnect on every new session. Users can now set `MCP_INIT_TIMEOUT=120` (or any positive number) in their MCP server environment to override the automatically computed timeout. Invalid, zero, or negative values are logged as warnings and fall through to automatic detection. Documented in `.env.example` and `CLAUDE.md` Common Issues table.
+
+### Added
+- **7 unit tests** for `get_recommended_timeout()` covering env override (integer, float), invalid values (non-numeric, zero, negative, empty string), and no-override path (`tests/unit/test_dependency_check.py`).
+
 ## [10.16.0] - 2026-02-18
 
 ### Added
