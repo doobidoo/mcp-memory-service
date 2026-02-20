@@ -259,17 +259,19 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.17.0** (February 20, 2026)
+## 🆕 Latest Release: **v10.17.1** (February 20, 2026)
 
-**Default "untagged" Tag for All Memories + Cleanup Tooling**
+**Hook System Bug Fixes + Root Installer + Session-Start Reliability**
 
 **What's New:**
-- **Universal "untagged" default**: Every new Memory with no tags automatically receives `["untagged"]` — enforced in `Memory.__post_init__`, the single creation point for all 5 entry-paths (MCP, REST API, ingestion, consolidation, CLI). Zero-tag memories are now impossible.
-- **`scripts/maintenance/tag_untagged_memories.py`**: One-shot migration script for existing databases. Run with `--dry-run` to preview, `--apply` to write. Handles document chunks (tagged `untagged,document`) and plain memories separately.
-- **3 new/updated tests** confirming default-tag enforcement, explicit-tag preservation, and `None`-input handling.
-- **306 production memories retroactively fixed**: 121 document chunks, 169 plain memories now discoverable via tag search.
+- **`session-end.js` SyntaxError fix**: Duplicate `uniqueTags` declaration caused a SyntaxError on Node.js v24, preventing the session-end hook from running entirely. Fixed by removing the redundant declaration (#477).
+- **Hook installer now reads `MCP_HTTP_PORT` from MCP config**: `install_hooks.py` previously ignored `MCP_HTTP_PORT` from `~/.claude.json`, always generating port 8000. Now reads the value from the server's `env` block (#478).
+- **Session-start retry backoff**: `session-start.js` now retries the HTTP connection up to 4 times (2 s, 4 s, 8 s back-off) before falling back to MCP-tool mode, resolving the race condition with Claude Code's lazy MCP server startup (#479).
+- **Root-level `install.py` dispatcher**: Users following the wiki guide who run `python install.py` from the repo root now get an interactive menu rather than a `No such file or directory` error. Supports `--package` and `--hooks` flags (#476).
+- **GitNexus skill files** added to `.claude/skills/gitnexus/` for architecture exploration, debugging, impact analysis, and refactoring workflows.
 
 **Previous Releases**:
+- **v10.17.0** - Default "untagged" Tag for All Tagless Memories + Cleanup Script (306 production memories retroactively fixed)
 - **v10.16.1** - Windows MCP Initialization Timeout Fix (`MCP_INIT_TIMEOUT` env override, 7 unit tests)
 - **v10.16.0** - Agentic AI Market Repositioning with REST API Integration Guides (LangGraph, CrewAI, AutoGen guides, X-Agent-ID header auto-tagging, agent: tag namespace)
 - **v10.15.1** - Stale Venv Detection for Moved/Renamed Projects (auto-recreate venv when pip shebang interpreter path is missing)

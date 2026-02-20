@@ -10,6 +10,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.17.1] - 2026-02-20
+
+### Fixed
+- **`session-end.js`: SyntaxError on Node.js v24 from duplicate `uniqueTags` declaration** (#477): Two `const uniqueTags` declarations existed in the same scope — the first performing plain deduplication, the second lowercasing. Node.js v24 treats this as a strict SyntaxError, preventing the session-end hook from running at all. Removed the redundant first declaration; the case-insensitive version is now the sole declaration.
+- **`scripts/install_hooks.py`: `MCP_HTTP_PORT` from MCP server config was ignored** (#478): The hook installer correctly detected the existing MCP server entry in `~/.claude.json` but did not read `MCP_HTTP_PORT` from its `env` block. Generated `~/.claude/hooks/config.json` therefore always used the default port 8000 regardless of user configuration. Added `_read_mcp_http_port_from_claude_json()` helper that reads the detected server's `env` block and passes the discovered port to the config generator. Default remains 8000 when no override is found.
+- **`claude-hooks/core/session-start.js`: Race condition when MCP server starts lazily** (#479): Claude Code starts MCP servers lazily (on the first tool call), so `SessionStart` hooks fire before the HTTP API is available. The hook was therefore always falling back to MCP-tool mode, defeating the purpose of pre-fetching memories at session start. Added `withRetry()` async helper implementing exponential back-off (2 s, 4 s, 8 s; up to 4 attempts, ~14 s total) around both `MemoryClient.connect()` call sites. Log output during retries: `Retrying in 2s... (attempt 1/4)`.
+- **`install.py`: Missing root-level installer redirector for wiki users** (#476): The installation wiki guide instructs users to run `python install.py` from the repository root, but no such file existed there. Users received a `No such file or directory` error. Added a root-level `install.py` dispatcher that presents an interactive menu (no args), or delegates directly via `--package` (to `scripts/installation/install.py`) or `--hooks` (to `claude-hooks/install_hooks.py`). Also detects Python 3.13 and prints a warning about the known `safetensors` compatibility issue.
+
+### Added
+- **GitNexus skill files** (`.claude/skills/gitnexus/`): Four workflow guides for using the GitNexus MCP knowledge graph — `exploring/SKILL.md` (architecture navigation), `debugging/SKILL.md` (bug tracing via execution flows), `impact-analysis/SKILL.md` (blast radius before changes), and `refactoring/SKILL.md` (safe multi-file rename/extract/split). These complement the GitNexus section already in `CLAUDE.md`.
+- **`AGENTS.md`**: Standard agent guidance file read by AI coding tools (Amp, Codex, etc.), documenting how to use the GitNexus MCP knowledge graph for code navigation, impact analysis, debugging, and refactoring. Mirrors the GitNexus section in `CLAUDE.md`.
+- **`.gitnexus/` added to `.gitignore`**: The `.gitnexus/` directory contains the kuzu binary graph database (~102 MB, generated locally by `npx gitnexus analyze`). Added to `.gitignore` to prevent accidental commits.
+
 ## [10.17.0] - 2026-02-20
 
 ### Added
