@@ -178,8 +178,8 @@ class TestBurstI2TagValidation:
         assert "sys:core" not in caplog.text  # Valid, not logged
         assert "python" not in caplog.text    # Legacy, not logged
 
-    def test_empty_tags_no_validation(self):
-        """Empty tags list should not trigger validation"""
+    def test_empty_tags_gets_untagged_default(self):
+        """Empty tags list should get 'untagged' default tag"""
         content = "Test content"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
 
@@ -189,4 +189,30 @@ class TestBurstI2TagValidation:
             tags=[]
         )
 
-        assert memory.tags == []
+        assert memory.tags == ["untagged"]
+
+    def test_explicit_tags_not_adds_untagged(self):
+        """Memory with explicit tags should NOT get 'untagged' added"""
+        content = "Test content with tags"
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+
+        memory = Memory(
+            content=content,
+            content_hash=content_hash,
+            tags=["python", "testing"]
+        )
+
+        assert memory.tags == ["python", "testing"]
+        assert "untagged" not in memory.tags
+
+    def test_none_tags_gets_untagged_default(self):
+        """Memory created without tags param should get 'untagged' default"""
+        content = "Test content no tags"
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+
+        memory = Memory(
+            content=content,
+            content_hash=content_hash,
+        )
+
+        assert memory.tags == ["untagged"]

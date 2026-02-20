@@ -590,8 +590,8 @@ async def test_list_memories_database_level_filtering(memory_service, mock_stora
 
 
 @pytest.mark.asyncio
-async def test_empty_tags_list_stored_correctly(memory_service, mock_storage):
-    """Test that empty or None tags are handled correctly."""
+async def test_empty_tags_list_gets_untagged_default(memory_service, mock_storage):
+    """Test that empty or None tags get 'untagged' default."""
     mock_storage.store.return_value = None
 
     # Store with None tags
@@ -599,7 +599,7 @@ async def test_empty_tags_list_stored_correctly(memory_service, mock_storage):
 
     stored_memory = mock_storage.store.call_args.args[0]
     assert isinstance(stored_memory.tags, list)
-    assert len(stored_memory.tags) == 0
+    assert "untagged" in stored_memory.tags
 
 
 @pytest.mark.asyncio

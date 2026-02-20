@@ -72,6 +72,10 @@ class Memory:
                 )
                 self.memory_type = "observation"  # Default to base type
 
+        # Default tag when no tags provided
+        if not self.tags:
+            self.tags = ["untagged"]
+
         # Validate tags using taxonomy (soft validation)
         if self.tags:
             invalid_tags = []
