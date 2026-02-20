@@ -575,14 +575,16 @@ const CONSOLE_COLORS = {
  * @returns {Promise<*>} Result of fn on first success
  * @throws  Last error if all attempts fail
  */
-async function withRetry(fn, maxAttempts = 4, initialDelayMs = 2000) {
+async function withRetry(fn, maxAttempts = 4, initialDelayMs = 2000, verbose = true, cleanMode = false) {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
             return await fn();
         } catch (err) {
             if (attempt === maxAttempts) throw err;
             const delay = initialDelayMs * Math.pow(2, attempt - 1);
-            console.error(`⏳ Memory Hook → HTTP not ready, retrying in ${delay / 1000}s... (attempt ${attempt}/${maxAttempts})`);
+            if (verbose && !cleanMode) {
+                console.log(`${CONSOLE_COLORS.YELLOW}⏳ Memory Hook${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.GRAY}HTTP not ready, retrying in ${delay / 1000}s... (attempt ${attempt}/${maxAttempts})${CONSOLE_COLORS.RESET}`);
+            }
             await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
@@ -693,7 +695,9 @@ async function executeSessionStart(context) {
                 const connection = await withRetry(
                     () => memoryClient.connect(),
                     4,    // up to 4 attempts
-                    2000  // 2s, 4s, 8s backoff (max ~14s total)
+                    2000, // 2s, 4s, 8s backoff (max ~14s total)
+                    verbose,
+                    cleanMode
                 );
                 connectionInfo = memoryClient.getConnectionInfo();
 
@@ -741,6 +745,7 @@ async function executeSessionStart(context) {
                         }
                     }
             } catch (error) {
+                memoryClient = null;
                 // Memory client connection failed, fall back to environment detection
                 if (verbose && showMemoryDetails && !cleanMode) {
                     console.log(`${CONSOLE_COLORS.YELLOW}⚠️  Memory Connection${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.GRAY}${error.message}, using environment fallback${CONSOLE_COLORS.RESET}`);
@@ -824,7 +829,9 @@ async function executeSessionStart(context) {
                 await withRetry(
                     () => memoryClient.connect(),
                     4,    // up to 4 attempts
-                    2000  // 2s, 4s, 8s backoff (max ~14s total)
+                    2000, // 2s, 4s, 8s backoff (max ~14s total)
+                    verbose,
+                    cleanMode
                 );
                 connectionInfo = memoryClient.getConnectionInfo();
             } catch (error) {
