@@ -10,6 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.17.0] - 2026-02-20
+
+### Added
+- **Default "untagged" tag for memories without tags** (`Memory.__post_init__`): All Memory objects now receive a default `["untagged"]` tag when no tags are supplied at creation time. The enforcement point is the `Memory` dataclass `__post_init__` method — universal across all 5 entry-points (MCP tools, REST API, document ingestion, consolidation, CLI). Previously, 306 production memories had empty tag lists, making them unretrievable via tag-based search and invisible in tag-faceted dashboards.
+- **`scripts/maintenance/tag_untagged_memories.py`**: New one-shot cleanup script for existing databases with untagged memories. Supports `--dry-run` (preview counts by category) and `--apply` (write changes). Applied to production DB: 16 test artifacts soft-deleted, 121 document chunks tagged `untagged,document`, 169 real memories tagged `untagged`, 0 untagged memories remaining.
+
+### Fixed
+- **3 tests updated** to reflect new default-tag behaviour: `test_empty_tags_gets_untagged_default` (updated assertion), `test_explicit_tags_not_adds_untagged` (new — verifies explicit tags are preserved), `test_none_tags_gets_untagged_default` (new — verifies `None` tags input is handled correctly).
+- **`tests/unit/test_memory_service.py`**: Updated `test_empty_tags_list_gets_untagged_default` to assert `["untagged"]` rather than `[]`.
+
 ## [10.16.1] - 2026-02-19
 
 ### Fixed

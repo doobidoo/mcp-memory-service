@@ -259,17 +259,18 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.16.1** (February 19, 2026)
+## 🆕 Latest Release: **v10.17.0** (February 20, 2026)
 
-**Windows MCP Initialization Timeout Fix**
+**Default "untagged" Tag for All Memories + Cleanup Tooling**
 
 **What's New:**
-- **`MCP_INIT_TIMEOUT` environment variable**: Set `MCP_INIT_TIMEOUT=120` in your MCP server env to override the auto-computed initialization timeout — solves "fails on every new session" on slow Windows machines (#474).
-- **Automatic detection preserved**: Invalid, zero, or negative values fall back to platform-aware auto-detection (30s Windows / 15s other, doubled on first run or missing deps).
-- **7 unit tests** covering all edge cases for the new override logic.
-- **Documentation**: Documented in `.env.example` and added Windows troubleshooting entry to CLAUDE.md.
+- **Universal "untagged" default**: Every new Memory with no tags automatically receives `["untagged"]` — enforced in `Memory.__post_init__`, the single creation point for all 5 entry-paths (MCP, REST API, ingestion, consolidation, CLI). Zero-tag memories are now impossible.
+- **`scripts/maintenance/tag_untagged_memories.py`**: One-shot migration script for existing databases. Run with `--dry-run` to preview, `--apply` to write. Handles document chunks (tagged `untagged,document`) and plain memories separately.
+- **3 new/updated tests** confirming default-tag enforcement, explicit-tag preservation, and `None`-input handling.
+- **306 production memories retroactively fixed**: 121 document chunks, 169 plain memories now discoverable via tag search.
 
 **Previous Releases**:
+- **v10.16.1** - Windows MCP Initialization Timeout Fix (`MCP_INIT_TIMEOUT` env override, 7 unit tests)
 - **v10.16.0** - Agentic AI Market Repositioning with REST API Integration Guides (LangGraph, CrewAI, AutoGen guides, X-Agent-ID header auto-tagging, agent: tag namespace)
 - **v10.15.1** - Stale Venv Detection for Moved/Renamed Projects (auto-recreate venv when pip shebang interpreter path is missing)
 - **v10.15.0** - Config Validation & Safe Environment Parsing (`validate_config()` at startup, `safe_get_int_env()`, 8 new robustness tests)

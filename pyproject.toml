@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-memory-service"
-version = "10.16.1"
+version = "10.17.0"
 description = "Open-source persistent memory for AI agent pipelines and Claude. REST API + semantic search + knowledge graph + autonomous consolidation. Self-host, zero cloud cost."
 readme = "README.md"
 requires-python = ">=3.10"
