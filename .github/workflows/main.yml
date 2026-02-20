@@ -134,7 +134,7 @@ jobs:
   test-uvx-compatibility:
     runs-on: ubuntu-latest
     name: Test uvx compatibility
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
     - name: Checkout repository

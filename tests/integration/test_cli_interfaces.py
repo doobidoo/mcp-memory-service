@@ -40,26 +40,35 @@ class TestCLIInterfaces:
         assert "MCP Memory Service" in result.stdout
     
     def test_memory_command_exists(self):
-        """Test that the memory command is available."""
+        """Test that the memory command is available.
+
+        Uses a 120s timeout (up from 60s) because uv dependency resolution on a
+        cold CI cache can exceed 60s.  The HuggingFace model cache is warmed by an
+        earlier CI step, but the uv resolver still needs to solve the full
+        dependency graph on first run.
+        """
         result = subprocess.run(
             ["uv", "run", "memory", "--help"],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=120,
             cwd=current_dir.parent.parent
         )
         assert result.returncode == 0
         assert "MCP Memory Service" in result.stdout
         assert "server" in result.stdout
         assert "status" in result.stdout
-    
+
     def test_memory_server_command_exists(self):
-        """Test that the memory-server command is available."""
+        """Test that the memory-server command is available.
+
+        Uses a 120s timeout (up from 60s) - same reason as test_memory_command_exists.
+        """
         result = subprocess.run(
             ["uv", "run", "memory-server", "--help"],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=120,
             cwd=current_dir.parent.parent
         )
         assert result.returncode == 0
