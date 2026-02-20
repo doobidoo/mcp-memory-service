@@ -121,19 +121,19 @@ def main() -> int:
         show_help()
         return 0
 
-    if "--package" in args:
-        extra = [a for a in args if a != "--package"]
-        print("Delegating to: scripts/installation/install.py")
-        print()
-        return run_installer(PACKAGE_INSTALLER, extra)
-
     if "--hooks" in args:
         extra = [a for a in args if a != "--hooks"]
         print("Delegating to: claude-hooks/install_hooks.py")
         print()
         return run_installer(HOOKS_INSTALLER, extra)
 
-    # No recognised flags - show interactive menu
+    if "--package" in args or args:
+        extra = [a for a in args if a != "--package"]
+        print("Delegating to: scripts/installation/install.py")
+        print()
+        return run_installer(PACKAGE_INSTALLER, extra)
+
+    # No flags - show interactive menu
     return interactive_menu()
 
 
