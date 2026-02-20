@@ -477,12 +477,20 @@ class HookInstaller:
             mcp_servers = claude_config.get('mcpServers', {})
             for server_name in self.MEMORY_SERVER_NAMES:
                 server_config = mcp_servers.get(server_name, {})
-                port = server_config.get('env', {}).get('MCP_HTTP_PORT')
-                if port:
-                    self.info(f"Detected MCP_HTTP_PORT={port} from ~/.claude.json server '{server_name}'")
-                    return str(port)
+                port_str = server_config.get('env', {}).get('MCP_HTTP_PORT')
+                if port_str is not None:
+                    # Validate port is a valid integer in range 1-65535
+                    try:
+                        port_int = int(port_str)
+                        if 1 <= port_int <= 65535:
+                            self.info(f"Detected MCP_HTTP_PORT={port_int} from ~/.claude.json server '{server_name}'")
+                            return str(port_int)
+                        else:
+                            self.warn(f"MCP_HTTP_PORT {port_str!r} out of range (1-65535), using default 8000")
+                    except ValueError:
+                        self.warn(f"MCP_HTTP_PORT {port_str!r} is not a valid integer, using default 8000")
 
-        except Exception as e:
+        except (json.JSONDecodeError, OSError) as e:
             self.warn(f"Could not read MCP_HTTP_PORT from ~/.claude.json: {e}")
 
         return "8000"
