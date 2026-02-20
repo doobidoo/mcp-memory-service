@@ -193,6 +193,9 @@ data/
 # GitHub wiki clone (managed separately)
 .wiki/
 
+# GitNexus knowledge graph database (binary, generated locally by npx gitnexus analyze)
+.gitnexus/
+
 # Keep directory structure but ignore content
 !.claude/amp/prompts/pending/.gitkeep
 !.claude/amp/responses/ready/.gitkeep
