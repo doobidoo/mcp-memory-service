@@ -124,26 +124,26 @@ def main():
     deleted = 0
     tagged = 0
 
-    for content_hash, _ in test_rows:
-        conn.execute(
+    if test_rows:
+        conn.executemany(
             "UPDATE memories SET deleted_at = ? WHERE content_hash = ?",
-            (now, content_hash),
+            [(now, h) for h, _ in test_rows],
         )
-        deleted += 1
+        deleted = len(test_rows)
 
-    for content_hash, _ in doc_rows:
-        conn.execute(
+    if doc_rows:
+        conn.executemany(
             "UPDATE memories SET tags = ? WHERE content_hash = ?",
-            ("untagged,document", content_hash),
+            [("untagged,document", h) for h, _ in doc_rows],
         )
-        tagged += 1
+        tagged += len(doc_rows)
 
-    for content_hash, _ in real_rows:
-        conn.execute(
+    if real_rows:
+        conn.executemany(
             "UPDATE memories SET tags = ? WHERE content_hash = ?",
-            ("untagged", content_hash),
+            [("untagged", h) for h, _ in real_rows],
         )
-        tagged += 1
+        tagged += len(real_rows)
 
     conn.commit()
     conn.close()
