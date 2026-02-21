@@ -81,8 +81,8 @@ class SSEManager:
             try:
                 await self._heartbeat_task
             except asyncio.CancelledError:
-                pass
-        
+                pass  # Expected when heartbeat task is cancelled during shutdown
+
         # Close all connections
         for connection_id in list(self.connections.keys()):
             await self._remove_connection(connection_id)
@@ -130,8 +130,8 @@ class SSEManager:
                     data={"connection_id": connection_id, "duration_seconds": duration}
                 )
                 await connection_info['queue'].put(close_event)
-            except:
-                pass  # Queue might be closed
+            except Exception:
+                pass  # Queue might be closed during connection teardown
             
             del self.connections[connection_id]
             logger.info(f"SSE connection removed: {connection_id} (duration: {duration:.1f}s)")

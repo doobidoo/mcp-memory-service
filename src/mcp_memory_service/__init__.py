@@ -42,4 +42,4 @@ try:
     from .storage import SqliteVecMemoryStorage
     __all__.append('SqliteVecMemoryStorage')
 except ImportError:
-    pass
+    pass  # SqliteVecMemoryStorage is optional; not available in all environments

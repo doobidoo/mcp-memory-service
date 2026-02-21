@@ -232,7 +232,7 @@ class SystemInfo:
                     return 16
                 else:
                     return 8
-            except:
+            except Exception:
                 return 8  # Default for CUDA
         elif self.accelerator == AcceleratorType.MPS:
             return 8  # Conservative for Apple Silicon

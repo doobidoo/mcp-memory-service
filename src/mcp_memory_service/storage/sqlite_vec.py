@@ -1072,7 +1072,7 @@ SOLUTIONS:
                     if 'microsoft' in version:
                         docker_platform = "Docker Desktop for Windows"
             except (IOError, FileNotFoundError):
-                pass
+                pass  # /proc/version is not readable; skip Docker WSL detection
 
         return (
             f"\n🐳 Docker Environment Detected ({docker_platform})\n"
@@ -3368,7 +3368,7 @@ SOLUTIONS:
                     try:
                         metadata = json.loads(metadata_str)
                     except json.JSONDecodeError:
-                        pass
+                        pass  # Use empty dict if metadata JSON is malformed
 
                 # Create node
                 nodes.append({

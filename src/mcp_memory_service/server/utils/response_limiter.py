@@ -16,7 +16,6 @@ Example:
 """
 
 import os
-import sys
 import warnings
 from typing import Any, Dict, List, Tuple
 

@@ -202,12 +202,12 @@ class ServerRunManager:
             except asyncio.CancelledError:
                 self.logger.info("Server run cancelled")
                 raise
-            except BaseException as e:
+            except Exception as e:
                 self._handle_server_exception(e)
             finally:
                 self.logger.info("Server run completed")
 
-    def _handle_server_exception(self, e: BaseException) -> None:
+    def _handle_server_exception(self, e: Exception) -> None:
         """Handle exceptions during server run."""
         # Handle ExceptionGroup specially (Python 3.11+)
         if type(e).__name__ == 'ExceptionGroup' or 'ExceptionGroup' in str(type(e)):

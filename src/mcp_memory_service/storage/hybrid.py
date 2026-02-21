@@ -250,7 +250,7 @@ class BackgroundSyncService:
             try:
                 await self.sync_task
             except asyncio.CancelledError:
-                pass
+                pass  # Expected when task is cancelled during shutdown
 
         logger.info("Background sync service stopped")
 

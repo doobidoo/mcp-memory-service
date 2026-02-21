@@ -106,12 +106,12 @@ def check_version_consistency():
         try:
             import pkg_resources
             installed_version = pkg_resources.get_distribution("mcp-memory-service").version
-        except:
+        except Exception:
             # If pkg_resources fails, try importlib.metadata (Python 3.8+)
             try:
                 from importlib import metadata
                 installed_version = metadata.version("mcp-memory-service")
-            except:
+            except Exception:
                 # Can't determine installed version - skip check
                 return
 

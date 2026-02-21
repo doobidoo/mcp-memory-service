@@ -120,8 +120,8 @@ def encode_quality_metadata(metadata: Dict[str, Any]) -> str:
             if 'T' in str(rca):
                 dt = datetime.fromisoformat(rca.replace('Z', '+00:00'))
                 rca = int(dt.timestamp())
-        except:
-            pass
+        except (ValueError, TypeError, AttributeError):
+            pass  # Keep original rca value if datetime parsing fails
     parts.append(str(rca))
 
     # Decay factors
@@ -139,8 +139,8 @@ def encode_quality_metadata(metadata: Dict[str, Any]) -> str:
             if 'T' in str(qbd):
                 dt = datetime.fromisoformat(qbd.replace('Z', '+00:00'))
                 qbd = int(dt.timestamp())
-        except:
-            pass
+        except (ValueError, TypeError, AttributeError):
+            pass  # Keep original qbd value if datetime parsing fails
     parts.append(str(qbd))
 
     parts.append(str(metadata.get('quality_boost_reason', '')))

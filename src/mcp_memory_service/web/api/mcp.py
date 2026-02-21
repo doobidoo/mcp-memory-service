@@ -236,7 +236,7 @@ async def handle_tool_call(storage, tool_name: str, arguments: Dict[str, Any]) -
         if isinstance(metadata, str):
             try:
                 metadata = json.loads(metadata)
-            except:
+            except (json.JSONDecodeError, ValueError):
                 metadata = {}
         elif not isinstance(metadata, dict):
             metadata = {}

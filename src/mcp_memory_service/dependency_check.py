@@ -34,7 +34,7 @@ def detect_mcp_client_simple():
         
         # Default to Claude Desktop for strict mode
         return 'claude_desktop'
-    except:
+    except Exception:
         return 'claude_desktop'
 
 def check_torch_installed() -> Tuple[bool, Optional[str]]:
