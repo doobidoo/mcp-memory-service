@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-memory-service"
-version = "10.17.10"
+version = "10.17.11"
 description = "Open-source persistent memory for AI agent pipelines and Claude. REST API + semantic search + knowledge graph + autonomous consolidation. Self-host, zero cloud cost."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -204,3 +204,210 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "@(abc\\.)?abstractmethod",
 ]
+[build-system]
+requires = ["hatchling", "python-semantic-release", "build"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-memory-service"
+version = "10.17.11"
+description = "Open-source persistent memory for AI agent pipelines and Claude. REST API + semantic search + knowledge graph + autonomous consolidation. Self-host, zero cloud cost."
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = [
+    "mcp", "model-context-protocol", "semantic-memory", "agent-memory",
+    "multi-agent", "langgraph", "crewai", "autogen", "agentic-ai",
+    "knowledge-graph", "vector-database", "ai-agents", "rag",
+    "long-term-memory", "semantic-search", "memory-consolidation",
+    "fastapi", "rest-api", "sqlite-vec", "cloudflare", "open-source",
+    "privacy-first", "self-hosted", "claude-desktop", "ai-assistant"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Database :: Database Engines/Servers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11", 
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+    "Framework :: FastAPI"
+]
+authors = [
+    { name = "Heinrich Krupp", email = "heinrich.krupp@gmail.com" }
+]
+license = { text = "Apache-2.0" }
+dependencies = [
+    "tokenizers>=0.22.2",
+    "mcp>=1.8.0,<2.0.0",
+    "python-dotenv>=1.0.0",
+    "sqlite-vec>=0.1.0",
+    "aiosqlite>=0.20.0",
+    "build>=0.10.0",
+    "aiohttp>=3.13.3",
+    "fastapi>=0.115.5",
+    "uvicorn>=0.30.0",
+    "python-multipart>=0.0.22",
+    "sse-starlette>=2.1.0",
+    "aiofiles>=23.2.1",
+    "psutil>=5.9.0",
+    "zeroconf>=0.130.0",
+    "pypdf2>=3.0.0",
+    "chardet>=5.0.0",
+    "click>=8.0.0",
+    "httpx>=0.24.0",
+    "authlib>=1.6.5",
+    "python-jose[cryptography]>=3.3.0",
+    "requests>=2.32.4",
+    "sentence-transformers>=2.2.2",
+    "torch>=2.0.0",
+    "typing-extensions>=4.0.0; python_version < '3.11'",
+    "apscheduler>=3.11.0",
+]
+
+[project.optional-dependencies]
+# Development dependencies for testing and code quality
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.0.0",
+    "pytest-benchmark>=4.0.0",
+    "black>=24.0.0",
+    "ruff>=0.1.0",
+]
+# Machine learning dependencies for semantic search and embeddings
+ml = [
+    "sentence-transformers>=2.2.2",
+    "torch>=2.0.0",
+    "wandb>=0.18.0"  # Fix for Issue #311: Ensure wandb is compatible with protobuf 5.x
+]
+# SQLite-vec with lightweight ONNX embeddings (recommended for most users)
+sqlite = [
+    "onnxruntime>=1.14.1"
+]
+# SQLite-vec with full ML capabilities (for advanced features)
+sqlite-ml = [
+    "mcp-memory-service[sqlite,ml]"
+]
+# Full installation including all optional dependencies
+full = [
+    "mcp-memory-service[sqlite,ml,dev]"
+]
+
+[project.scripts]
+memory = "mcp_memory_service.cli.main:main"
+memory-server = "mcp_memory_service.cli.main:memory_server_main"
+mcp-memory-server = "mcp_memory_service.mcp_server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_memory_service"]
+
+[tool.hatch.version]
+path = "src/mcp_memory_service/__init__.py"
+
+[tool.semantic_release]
+version_variable = [
+    "src/mcp_memory_service/_version.py:__version__",
+    "pyproject.toml:version"
+]
+branch = "main"
+changelog_file = "CHANGELOG.md"
+build_command = "pip install build && python -m build"
+build_command_env = []
+dist_path = "dist/"
+upload_to_pypi = true
+upload_to_release = true
+commit_message = "chore(release): bump version to {version}"
+
+[tool.semantic_release.commit_parser_options]
+allowed_tags = [
+    "build",
+    "chore",
+    "ci",
+    "docs",
+    "feat",
+    "fix",
+    "perf",
+    "style",
+    "refactor",
+    "test"
+]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf"]
+
+[tool.semantic_release.changelog]
+template_dir = "templates"
+changelog_sections = [
+    ["feat", "Features"],
+    ["fix", "Bug Fixes"],
+    ["perf", "Performance"],
+    ["refactor", "Code Refactoring"],
+    ["test", "Tests"]
+]
+
+[tool.coverage.run]
+source = ["src/mcp_memory_service"]
+omit = [
+    # OAuth system - no tests yet (Issue #316)
+    "src/mcp_memory_service/web/oauth/*",
+    # Web infrastructure - minimal test coverage
+    "src/mcp_memory_service/web/app.py",
+    "src/mcp_memory_service/web/sse.py",
+    # Web API endpoints - minimal test coverage
+    "src/mcp_memory_service/web/api/*",
+    "src/mcp_memory_service/web/dependencies.py",
+    # Sync infrastructure - no tests
+    "src/mcp_memory_service/sync/*",
+    # Backup/scheduler - infrastructure code
+    "src/mcp_memory_service/backup/scheduler.py",
+    "src/mcp_memory_service/consolidation/scheduler.py",
+    # CLI commands - minimal coverage
+    "src/mcp_memory_service/cli/*",
+    # API client layer - infrastructure code
+    "src/mcp_memory_service/api/client.py",
+    "src/mcp_memory_service/api/operations.py",
+    "src/mcp_memory_service/api/sync_wrapper.py",
+    # Ingestion system - minimal coverage
+    "src/mcp_memory_service/ingestion/*",
+    # Discovery system - infrastructure code
+    "src/mcp_memory_service/discovery/*",
+    # Utility modules - infrastructure code
+    "src/mcp_memory_service/utils/cache_manager.py",
+    "src/mcp_memory_service/utils/directory_ingestion.py",
+    "src/mcp_memory_service/utils/health_check.py",
+    "src/mcp_memory_service/utils/http_server_manager.py",
+    "src/mcp_memory_service/utils/port_detection.py",
+    "src/mcp_memory_service/utils/quality_analytics.py",
+    "src/mcp_memory_service/utils/startup_orchestrator.py",
+    "src/mcp_memory_service/utils/time_parser.py",
+    "src/mcp_memory_service/utils/gpu_detection.py",
+    "src/mcp_memory_service/utils/db_utils.py",
+    "src/mcp_memory_service/utils/content_splitter.py",
+    "src/mcp_memory_service/utils/debug.py",
+    # HTTP client - minimal usage
+    "src/mcp_memory_service/storage/http_client.py",
+    # CLI utilities
+    "src/mcp_memory_service/cli/utils.py",
+    # CLI entry points
+    "src/mcp_memory_service/__main__.py",
+    "src/mcp_memory_service/mcp_server.py",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if TYPE_CHECKING:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "@(abc\\.)?abstractmethod",
+]
+
