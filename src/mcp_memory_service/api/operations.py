@@ -46,6 +46,11 @@ from ..utils.hashing import generate_content_hash
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_log_value(value: object) -> str:
+    """Sanitize a user-provided value for safe inclusion in log messages."""
+    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
+
 @sync_wrapper
 async def search(
     query: str,
@@ -294,7 +299,7 @@ async def _consolidate_async(time_horizon: str) -> CompactConsolidationResult:
         start_time = time.time()
 
         # Run consolidation
-        logger.info(f"Running {time_horizon} consolidation...")
+        logger.info(f"Running {_sanitize_log_value(time_horizon)} consolidation...")
         result = await consolidator.consolidate(time_horizon)
 
         # Calculate duration

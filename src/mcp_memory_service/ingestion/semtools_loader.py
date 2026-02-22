@@ -23,7 +23,7 @@ import logging
 import asyncio
 import os
 from pathlib import Path
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator
 import shutil
 
 from .base import DocumentLoader, DocumentChunk

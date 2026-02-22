@@ -21,14 +21,14 @@ Provides usage statistics, trends, and performance metrics for the memory system
 """
 
 import logging
-from typing import List, Optional, Dict, Any, TYPE_CHECKING, Tuple
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ...storage.base import MemoryStorage
 # OAuth config no longer needed - auth is always enabled

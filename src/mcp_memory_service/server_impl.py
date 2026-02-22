@@ -129,7 +129,6 @@ class MemoryServer:
         self.consolidation_scheduler = None
         if CONSOLIDATION_ENABLED:
             try:
-                config = ConsolidationConfig(**CONSOLIDATION_CONFIG)
                 self.consolidator = None  # Will be initialized after storage
                 self.consolidation_scheduler = None  # Will be initialized after consolidator
                 logger.info("Consolidation system will be initialized after storage")
@@ -1148,8 +1147,7 @@ class MemoryServer:
         async def _prompt_memory_cleanup(self, arguments: dict) -> list:
             """Generate memory cleanup prompt."""
             older_than = arguments.get("older_than", "")
-            similarity_threshold = float(arguments.get("similarity_threshold", "0.95"))
-            
+
             cleanup_text = "Memory Cleanup Report:\n\n"
             
             # Find duplicates

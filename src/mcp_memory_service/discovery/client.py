@@ -212,8 +212,6 @@ class DiscoveryClient:
         Returns:
             Service capabilities or None if failed
         """
-        docs_url = f"{service.api_url}/docs"
-        
         try:
             headers = {}
             if api_key and service.requires_auth:

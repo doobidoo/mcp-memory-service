@@ -28,10 +28,14 @@ import httpx
 
 from .base import MemoryStorage
 from ..models.memory import Memory, MemoryQueryResult
-from ..utils.hashing import generate_content_hash
 from ..config import CLOUDFLARE_MAX_CONTENT_LENGTH
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_log_value(value: object) -> str:
+    """Sanitize a user-provided value for safe inclusion in log messages."""
+    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
 
 
 def normalize_tags_for_search(tags: List[str]) -> List[str]:
@@ -514,7 +518,7 @@ class CloudflareStorage(MemoryStorage):
         """Verify R2 bucket exists and is accessible."""
         try:
             # Try to list objects (empty list is fine)
-            response = await self._retry_request("GET", f"{self.r2_url}?max-keys=1")
+            await self._retry_request("GET", f"{self.r2_url}?max-keys=1")
             logger.info(f"R2 bucket verified: {self.r2_bucket}")
             
         except httpx.HTTPStatusError as e:
@@ -891,8 +895,8 @@ class CloudflareStorage(MemoryStorage):
         except Exception as e:
             logger.error(
                 "Failed to search memories by tags %s with operation %s: %s",
-                tags,
-                operation,
+                [_sanitize_log_value(t) for t in tags],
+                _sanitize_log_value(operation),
                 e
             )
             return []
@@ -1095,11 +1099,11 @@ class CloudflareStorage(MemoryStorage):
                 if success:
                     deleted_count += 1
             
-            logger.info(f"Deleted {deleted_count} memories with tag: {tag}")
+            logger.info(f"Deleted {deleted_count} memories with tag: {_sanitize_log_value(tag)}")
             return deleted_count, f"Deleted {deleted_count} memories"
 
         except Exception as e:
-            logger.error(f"Failed to delete by tag {tag}: {e}")
+            logger.error(f"Failed to delete by tag {_sanitize_log_value(tag)}: {e}")
             return 0, f"Deletion failed: {str(e)}"
 
     async def delete_by_tags(self, tags: List[str]) -> Tuple[int, str, List[str]]:

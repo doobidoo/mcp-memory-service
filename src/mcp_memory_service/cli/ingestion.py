@@ -21,8 +21,6 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import List
-
 import click
 
 from ..ingestion import get_loader_for_file, is_supported_file, SUPPORTED_FORMATS

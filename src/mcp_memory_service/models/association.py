@@ -5,7 +5,7 @@ Dataclasses for typed memory associations in the knowledge graph.
 Part of Phase 0: Ontology Foundation (Component 3).
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 
 

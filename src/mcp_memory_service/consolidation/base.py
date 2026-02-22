@@ -15,7 +15,7 @@
 """Base classes and interfaces for memory consolidation components."""
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import logging
@@ -114,7 +114,7 @@ class ConsolidationBase(ABC):
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
     
     @abstractmethod
-    async def process(self, memories: List[Memory], **kwargs) -> Any:
+    async def process(self, memories: List[Memory], *args, **kwargs) -> Any:
         """Process the given memories and return results."""
         pass
     

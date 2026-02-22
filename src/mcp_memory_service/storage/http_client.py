@@ -31,6 +31,11 @@ from ..config import HTTP_HOST, HTTP_PORT
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_log_value(value: object) -> str:
+    """Sanitize a user-provided value for safe inclusion in log messages."""
+    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
+
 class HTTPClientStorage(MemoryStorage):
     """
     HTTP client storage implementation.
@@ -179,7 +184,7 @@ class HTTPClientStorage(MemoryStorage):
                         )
                         results.append(result)
                     
-                    logger.info(f"Retrieved {len(results)} memories via HTTP for query: {query}")
+                    logger.info(f"Retrieved {len(results)} memories via HTTP for query: {_sanitize_log_value(query)}")
                     return results
                 else:
                     logger.error(f"HTTP retrieve error: {response.status}")
@@ -264,7 +269,7 @@ class HTTPClientStorage(MemoryStorage):
                     logger.info(
                         "Found %d memories via HTTP with tags %s (match_all=%s)",
                         len(results),
-                        tags,
+                        [_sanitize_log_value(t) for t in tags],
                         match_all
                     )
                     return results

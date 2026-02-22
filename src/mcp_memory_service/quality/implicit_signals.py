@@ -100,7 +100,6 @@ class ImplicitSignalsEvaluator:
 
         # Update running average
         current_avg = memory.metadata.get('avg_ranking', 0.5)
-        access_count = memory.metadata.get('access_count', 0)
 
         # Weighted average favoring recent positions
         alpha = 0.3  # Weight for new observation

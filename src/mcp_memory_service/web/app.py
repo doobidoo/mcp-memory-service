@@ -24,7 +24,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional, Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
@@ -37,8 +37,6 @@ from ..config import (
     HTTP_PORT,
     HTTP_HOST,
     CORS_ORIGINS,
-    DATABASE_PATH,
-    EMBEDDING_MODEL_NAME,
     MDNS_ENABLED,
     HTTPS_ENABLED,
     OAUTH_ENABLED,
@@ -47,7 +45,7 @@ from ..config import (
     CONSOLIDATION_SCHEDULE,
     BACKUP_ENABLED
 )
-from .dependencies import set_storage, get_storage, create_storage_backend
+from .dependencies import set_storage, create_storage_backend
 from .api.health import router as health_router
 from .api.memories import router as memories_router
 from .api.search import router as search_router
@@ -76,7 +74,6 @@ mdns_advertiser: Optional[Any] = None
 oauth_cleanup_task: Optional[asyncio.Task] = None
 
 # Global consolidation instances
-consolidator: Optional["DreamInspiredConsolidator"] = None
 consolidation_scheduler: Optional["ConsolidationScheduler"] = None
 
 # Global backup scheduler instance
@@ -109,7 +106,7 @@ async def oauth_cleanup_background_task():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan management."""
-    global storage, mdns_advertiser, oauth_cleanup_task, consolidator, consolidation_scheduler, backup_scheduler
+    global storage, mdns_advertiser, oauth_cleanup_task, consolidation_scheduler, backup_scheduler
 
     # Startup
     logger.info("Starting MCP Memory Service HTTP interface...")
@@ -156,7 +153,6 @@ async def lifespan(app: FastAPI):
 
             except Exception as e:
                 logger.error(f"Failed to initialize consolidation system: {e}")
-                consolidator = None
                 consolidation_scheduler = None
         else:
             logger.info("Consolidation system disabled")

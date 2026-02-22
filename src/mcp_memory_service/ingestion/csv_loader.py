@@ -183,7 +183,7 @@ class CSVLoader(DocumentLoader):
                 try:
                     # Try UTF-8 first
                     with open(file_path, 'r', encoding='utf-8') as f:
-                        sample = f.read(1024)
+                        f.read(1024)
                     detected_encoding = 'utf-8'
                 except UnicodeDecodeError:
                     # Fallback to other encodings
@@ -191,7 +191,7 @@ class CSVLoader(DocumentLoader):
                     for enc in encodings_to_try:
                         try:
                             with open(file_path, 'r', encoding=enc) as f:
-                                sample = f.read(1024)
+                                f.read(1024)
                             detected_encoding = enc
                             break
                         except UnicodeDecodeError:

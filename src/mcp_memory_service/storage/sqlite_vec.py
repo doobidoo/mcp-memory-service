@@ -20,6 +20,7 @@ Provides local vector similarity search using sqlite-vec extension.
 import sqlite3
 import json
 import logging
+import math
 import traceback
 import time
 import os
@@ -62,12 +63,17 @@ from .base import MemoryStorage
 from .migration_runner import MigrationRunner
 from ..models.memory import Memory, MemoryQueryResult
 from ..utils.system_detection import (
-    get_system_info,
     get_torch_device,
 )
 from ..config import SQLITEVEC_MAX_CONTENT_LENGTH
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_log_value(value: object) -> str:
+    """Sanitize a user-provided value for safe inclusion in log messages."""
+    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
 
 # Module-level constants for vector search and tag filtering
 _SQLITE_VEC_MAX_KNN_K = 4096        # sqlite-vec hard limit for k in KNN queries
@@ -954,7 +960,6 @@ SOLUTIONS:
                 return
 
             # Get system info for optimal settings
-            system_info = get_system_info()
             device = get_torch_device()
 
             logger.info(f"Loading embedding model: {self.embedding_model_name}")
@@ -1103,7 +1108,7 @@ SOLUTIONS:
                 raise ValueError(f"Embedding dimension mismatch: expected {self.embedding_dimension}, got {len(embedding_list)}")
             
             # Validate values are finite
-            if not all(isinstance(x, (int, float)) and not (x != x) and x != float('inf') and x != float('-inf') for x in embedding_list):
+            if not all(isinstance(x, (int, float)) and not math.isnan(x) and x != float('inf') and x != float('-inf') for x in embedding_list):
                 raise ValueError("Embedding contains invalid values (NaN or infinity)")
             
             # Cache the result
@@ -1521,7 +1526,7 @@ SOLUTIONS:
                 except Exception as e:
                     logger.warning(f"Failed to persist access metadata: {e}")
 
-            logger.info(f"Retrieved {len(results)} memories for query: {query}")
+            logger.info(f"Retrieved {len(results)} memories for query: {_sanitize_log_value(query)}")
             return results
 
         except Exception as e:
@@ -1789,7 +1794,7 @@ SOLUTIONS:
                     logger.warning(f"Failed to parse memory result: {parse_error}")
                     continue
             
-            logger.info(f"Found {len(results)} memories with tags: {tags}")
+            logger.info(f"Found {len(results)} memories with tags: {[_sanitize_log_value(t) for t in tags]}")
             return results
             
         except Exception as e:
@@ -2149,7 +2154,7 @@ SOLUTIONS:
             self.conn.commit()
 
             count = cursor.rowcount
-            logger.info(f"Soft-deleted {count} memories with tag: {tag}")
+            logger.info(f"Soft-deleted {count} memories with tag: {_sanitize_log_value(tag)}")
 
             if count > 0:
                 return count, f"Successfully deleted {count} memories with tag '{tag}'"
@@ -2810,70 +2815,6 @@ SOLUTIONS:
             logger.error(traceback.format_exc())
             return []
     
-    async def get_all_memories(self) -> List[Memory]:
-        """
-        Get all memories from the database.
-        
-        Returns:
-            List of all Memory objects in the database.
-        """
-        try:
-            if not self.conn:
-                logger.error("Database not initialized, cannot retrieve memories")
-                return []
-            
-            cursor = self.conn.execute('''
-                SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
-                       m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
-                       e.content_embedding
-                FROM memories m
-                LEFT JOIN memory_embeddings e ON m.id = e.rowid
-                WHERE m.deleted_at IS NULL
-                ORDER BY m.created_at DESC
-            ''')
-
-            results = []
-            for row in cursor.fetchall():
-                try:
-                    content_hash, content, tags_str, memory_type, metadata_str = row[:5]
-                    created_at, updated_at, created_at_iso, updated_at_iso = row[5:9]
-                    embedding_blob = row[9] if len(row) > 9 else None
-
-                    # Parse tags and metadata
-                    tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()] if tags_str else []
-                    metadata = self._safe_json_loads(metadata_str, "memory_metadata")
-
-                    # Deserialize embedding if present
-                    embedding = None
-                    if embedding_blob:
-                        embedding = deserialize_embedding(embedding_blob)
-
-                    memory = Memory(
-                        content=content,
-                        content_hash=content_hash,
-                        tags=tags,
-                        memory_type=memory_type,
-                        metadata=metadata,
-                        embedding=embedding,
-                        created_at=created_at,
-                        updated_at=updated_at,
-                        created_at_iso=created_at_iso,
-                        updated_at_iso=updated_at_iso
-                    )
-                    
-                    results.append(memory)
-                    
-                except Exception as parse_error:
-                    logger.warning(f"Failed to parse memory result: {parse_error}")
-                    continue
-            
-            logger.info(f"Retrieved {len(results)} total memories")
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error getting all memories: {str(e)}")
-            return []
-
     async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
         """Get memories within a specific time range."""
         try:

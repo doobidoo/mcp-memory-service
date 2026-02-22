@@ -159,17 +159,14 @@ async def force_sync(
 
         # Step 1: Pull FROM Cloudflare TO local (if method exists)
         memories_pulled = 0
-        pull_message = ""
         pull_result = None
         if hasattr(storage, 'force_pull_sync'):
             pull_result = await storage.force_pull_sync()
             memories_pulled = pull_result.get('memories_pulled', 0)
-            pull_message = pull_result.get('message', '')
 
         # Step 2: Push FROM local TO Cloudflare (existing behavior)
         push_result = await storage.force_sync()
         operations_synced = push_result.get('operations_synced', 0)
-        push_message = push_result.get('message', 'Sync completed')
 
         # Check success flags from both operations
         pull_success = pull_result.get('success', True) if pull_result else True

@@ -10,8 +10,6 @@ import asyncio
 import logging
 import os
 from typing import List, Optional
-from queue import Queue
-import threading
 
 from ..models.memory import Memory
 from .ai_evaluator import QualityEvaluator

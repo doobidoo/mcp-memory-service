@@ -287,7 +287,6 @@ class BackgroundSyncService:
                 cloudflare_available = True
             except Exception as e:
                 logger.warning(f"Cloudflare not available during force sync: {e}")
-                cloudflare_available = False
                 self.sync_stats['cloudflare_available'] = False
                 return {
                     'status': 'partial',
@@ -1084,7 +1083,7 @@ class HybridMemoryStorage(MemoryStorage):
                                         cf_deleted_at = cf_memory.metadata.get('deleted_at')
                                     if cf_deleted_at is not None:
                                         logger.debug(f"Memory {cf_memory.content_hash[:8]} is soft-deleted in Cloudflare, skipping")
-                                        return ('skipped_deleted', cf_memory.content_hash)
+                                        return ('skipped_deleted', cf_memory.content_hash, None)
 
                                     # Check if memory was soft-deleted locally (tombstone check)
                                     # This prevents re-syncing memories that were intentionally deleted
@@ -1094,7 +1093,7 @@ class HybridMemoryStorage(MemoryStorage):
                                         if self.sync_service:
                                             operation = SyncOperation(operation='delete', content_hash=cf_memory.content_hash)
                                             await self.sync_service.enqueue_operation(operation)
-                                        return ('tombstone', cf_memory.content_hash)
+                                        return ('tombstone', cf_memory.content_hash, None)
 
                                     batch_missing += 1
                                     # Memory doesn't exist locally, sync it
@@ -1122,7 +1121,7 @@ class HybridMemoryStorage(MemoryStorage):
                                                 except Exception as e:
                                                     logger.debug(f"Failed to broadcast SSE progress: {e}")
 
-                                        return ('synced', cf_memory.content_hash)
+                                        return ('synced', cf_memory.content_hash, None)
                                     else:
                                         logger.warning(f"Failed to sync memory {cf_memory.content_hash}: {message}")
                                         return ('failed', cf_memory.content_hash, message)
@@ -1153,8 +1152,8 @@ class HybridMemoryStorage(MemoryStorage):
                                                 batch_synced += 1
                                                 synced_count += 1
                                                 logger.debug(f"Synced metadata for: {cf_memory.content_hash[:8]}")
-                                                return ('drift_synced', cf_memory.content_hash)
-                                return ('skipped', cf_memory.content_hash)
+                                                return ('drift_synced', cf_memory.content_hash, None)
+                                return ('skipped', cf_memory.content_hash, None)
                             except Exception as e:
                                 logger.warning(f"Error syncing memory {cf_memory.content_hash}: {e}")
                                 return ('error', cf_memory.content_hash, str(e))

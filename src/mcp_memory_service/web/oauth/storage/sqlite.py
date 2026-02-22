@@ -44,6 +44,11 @@ from ....config import OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES, OAUTH_AUTHORIZATION_CO
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_log_value(value: object) -> str:
+    """Sanitize a user-provided value for safe inclusion in log messages."""
+    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
+
 class SQLiteOAuthStorage(OAuthStorage):
     """
     SQLite-based storage for OAuth 2.1 clients and tokens.
@@ -330,7 +335,7 @@ class SQLiteOAuthStorage(OAuthStorage):
                 (code, client_id, redirect_uri, scope, now + expires_in, now)
             )
             await self._commit()
-            logger.debug(f"Stored authorization code for client: {client_id}")
+            logger.debug(f"Stored authorization code for client: {_sanitize_log_value(client_id)}")
 
     async def get_authorization_code(self, code: str) -> Optional[Dict]:
         """
@@ -378,7 +383,7 @@ class SQLiteOAuthStorage(OAuthStorage):
 
             # Check if update succeeded (race condition protection)
             if cursor.rowcount == 0:
-                logger.warning(f"Authorization code already consumed (race condition): {code}")
+                logger.warning(f"Authorization code already consumed (race condition): {_sanitize_log_value(code)}")
                 return None
 
             await self._commit()
@@ -424,7 +429,7 @@ class SQLiteOAuthStorage(OAuthStorage):
                 (token, client_id, scope, now + expires_in, now)
             )
             await self._commit()
-            logger.debug(f"Stored access token for client: {client_id}")
+            logger.debug(f"Stored access token for client: {_sanitize_log_value(client_id)}")
 
     async def get_access_token(self, token: str) -> Optional[Dict]:
         """

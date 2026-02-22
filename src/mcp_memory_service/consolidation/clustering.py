@@ -24,7 +24,6 @@ import re
 try:
     from sklearn.cluster import DBSCAN
     from sklearn.cluster import AgglomerativeClustering
-    from sklearn.metrics import silhouette_score
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False

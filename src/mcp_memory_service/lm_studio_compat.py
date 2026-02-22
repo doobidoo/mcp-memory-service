@@ -88,12 +88,13 @@ def patch_mcp_for_lm_studio():
             # Store the original __or__ operator if it exists
             original_or = getattr(original_client_notification, '__or__', None)
             
-            # Create a new union type that includes CancelledNotification
+            # Create a new union type that includes CancelledNotification (unused, kept for documentation)
             if original_or:
                 # Add CancelledNotification to the union
-                PatchedClientNotification = Union[original_client_notification, CancelledNotification]
+                _patched_union = Union[original_client_notification, CancelledNotification]
             else:
-                PatchedClientNotification = original_client_notification
+                _patched_union = original_client_notification
+            del _patched_union  # Variable is only created for type documentation purposes
             
             # Store original model_validate
             original_validate = original_client_notification.model_validate
@@ -147,8 +148,8 @@ def patch_mcp_for_lm_studio():
                 # Check if this is a CancelledNotification
                 if hasattr(notification, 'method') and notification.method == 'notifications/cancelled':
                     logger.info("Handling cancelled notification - ignoring")
-                    return  # Just ignore it
-                
+                    return None  # Just ignore it
+
                 # Otherwise handle normally
                 return await original_handle(self, notification)
             

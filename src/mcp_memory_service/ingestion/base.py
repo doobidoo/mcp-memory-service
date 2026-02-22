@@ -20,7 +20,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Any, Optional, AsyncGenerator
+from typing import List, Dict, Any, AsyncGenerator
 from datetime import datetime
 
 logger = logging.getLogger(__name__)

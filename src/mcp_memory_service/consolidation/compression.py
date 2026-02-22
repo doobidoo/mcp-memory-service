@@ -227,8 +227,6 @@ class SemanticCompressionEngine(ConsolidationBase):
     async def _generate_thematic_summary(self, memories: List[Memory], key_concepts: List[str]) -> str:
         """Generate a thematic summary of the memory cluster."""
         # Analyze the memories to identify common themes and patterns
-        all_content = [m.content for m in memories]
-        
         # Extract representative sentences that contain key concepts
         representative_sentences = []
         concept_coverage = set()

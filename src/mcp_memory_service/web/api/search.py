@@ -42,6 +42,11 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_log_value(value: object) -> str:
+    """Sanitize a user-provided value for safe inclusion in log messages."""
+    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
+
 # Request Models
 class SemanticSearchRequest(BaseModel):
     """Request model for semantic similarity search."""
@@ -155,7 +160,7 @@ async def semantic_search(
             # Take top N after reranking
             query_results = query_results[:request.n_results]
 
-            logger.debug(f"Quality-boosted search: reranked {fetch_limit} → {len(query_results)} results")
+            logger.debug(f"Quality-boosted search: reranked {fetch_limit} -> {len(query_results)} results for query: {_sanitize_log_value(request.query)}")
 
         # Convert to search results
         search_results = []

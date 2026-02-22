@@ -51,7 +51,7 @@ except ImportError:
     
     # Create dummy objects for graceful degradation
     class _DummyFastMCP:
-        def tool(self):
+        def tool(self, *args, **kwargs):
             """Dummy decorator that does nothing."""
             def decorator(func):
                 return func

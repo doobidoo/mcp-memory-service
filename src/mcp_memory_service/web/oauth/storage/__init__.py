@@ -91,5 +91,4 @@ __all__ = [
     "MemoryOAuthStorage",
     "SQLiteOAuthStorage",
     "get_oauth_storage",
-    "oauth_storage",
 ]

@@ -37,6 +37,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _sanitize_log_value(value: object) -> str:
+    """Sanitize a user-provided value for safe inclusion in log messages."""
+    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
+
 def validate_redirect_uris(redirect_uris: Optional[List[str]]) -> None:
     """
     Validate redirect URIs according to OAuth 2.1 security requirements.
@@ -249,7 +254,7 @@ async def register_client(request: ClientRegistrationRequest) -> ClientRegistrat
             client_name=request.client_name
         )
 
-        logger.info(f"OAuth client registered successfully: client_id={client_id}, name={request.client_name}")
+        logger.info(f"OAuth client registered successfully: client_id={_sanitize_log_value(client_id)}, name={_sanitize_log_value(request.client_name)}")
         return response
 
     except ValidationError as e:
@@ -283,7 +288,7 @@ async def get_client_info(client_id: str) -> ClientRegistrationResponse:
     Note: This is an extension endpoint, not part of RFC 7591.
     Useful for debugging and client management.
     """
-    logger.info(f"Client info request for client_id={client_id}")
+    logger.info(f"Client info request for client_id={_sanitize_log_value(client_id)}")
 
     client = await get_oauth_storage().get_client(client_id)
     if not client:

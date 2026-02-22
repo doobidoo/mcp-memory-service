@@ -301,7 +301,9 @@ async def repair_database(storage) -> Tuple[bool, str]:
                     
                 except Exception as e:
                     return False, f"SQLite-vec repair failed: {str(e)}"
-        
+            else:
+                return True, "SQLite-vec database connection is already healthy"
+
         # Cloudflare storage repair
         elif storage_type == "CloudflareStorage":
             # For Cloudflare storage, we can't repair infrastructure (Vectorize, D1, R2)

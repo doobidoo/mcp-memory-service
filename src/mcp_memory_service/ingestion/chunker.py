@@ -18,7 +18,7 @@ Intelligent text chunking strategies for document ingestion.
 
 import re
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Tuple
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)

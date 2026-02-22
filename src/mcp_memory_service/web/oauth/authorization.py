@@ -42,6 +42,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _sanitize_log_value(value: object) -> str:
+    """Sanitize a user-provided value for safe inclusion in log messages."""
+    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
+
 def parse_basic_auth(authorization_header: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
     """
     Parse HTTP Basic authentication header.
@@ -153,7 +158,7 @@ async def authorize(
     Implements the authorization code flow. For MVP, this auto-approves
     all requests without user interaction.
     """
-    logger.info(f"Authorization request: client_id={client_id}, response_type={response_type}")
+    logger.info(f"Authorization request: client_id={_sanitize_log_value(client_id)}, response_type={_sanitize_log_value(response_type)}")
 
     try:
         # Validate response_type
@@ -194,7 +199,7 @@ async def authorize(
 
         redirect_url = f"{validated_redirect_uri}?{urlencode(redirect_params)}"
 
-        logger.info(f"Authorization granted for client_id={client_id}")
+        logger.info(f"Authorization granted for client_id={_sanitize_log_value(client_id)}")
         return RedirectResponse(url=redirect_url)
 
     except HTTPException:
@@ -294,7 +299,7 @@ async def _handle_authorization_code_grant(
         expires_in=expires_in
     )
 
-    logger.info(f"Access token issued for client_id={final_client_id}")
+    logger.info(f"Access token issued for client_id={_sanitize_log_value(final_client_id)}")
     return TokenResponse(
         access_token=access_token,
         token_type="Bearer",
@@ -337,7 +342,7 @@ async def _handle_client_credentials_grant(
         expires_in=expires_in
     )
 
-    logger.info(f"Client credentials token issued for client_id={final_client_id}")
+    logger.info(f"Client credentials token issued for client_id={_sanitize_log_value(final_client_id)}")
     return TokenResponse(
         access_token=access_token,
         token_type="Bearer",
@@ -370,7 +375,7 @@ async def token(
     final_client_secret = basic_client_secret or client_secret
 
     auth_method = "client_secret_basic" if basic_client_id else "client_secret_post"
-    logger.info(f"Token request: grant_type={grant_type}, client_id={final_client_id}, auth_method={auth_method}")
+    logger.info(f"Token request: grant_type={_sanitize_log_value(grant_type)}, client_id={_sanitize_log_value(final_client_id)}, auth_method={_sanitize_log_value(auth_method)}")
 
     try:
         if grant_type == "authorization_code":

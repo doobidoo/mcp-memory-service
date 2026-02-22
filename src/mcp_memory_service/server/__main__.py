@@ -22,7 +22,6 @@ This is required for backward compatibility with CI/CD workflows
 and Docker containers that use `python -m` invocation.
 """
 
-import sys
 import argparse
 from . import main
 
@@ -47,7 +46,7 @@ def run_with_args():
     )
 
     # Parse known args to allow --version/--help while passing through other args
-    args, unknown = parser.parse_known_args()
+    parser.parse_known_args()
 
     # If we get here, no --version or --help was provided
     # Start the server normally

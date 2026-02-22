@@ -19,7 +19,6 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 """
 import asyncio
 import logging
-import warnings
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone, timedelta, date
@@ -524,7 +523,6 @@ class MemoryStorage(ABC):
             if tags and not before and not after and tag_match == "any":
                 # Optimized path: tag-only deletion with ANY match
                 if hasattr(self, 'delete_by_tags') and not dry_run:
-                    use_optimized = True
                     count, message, deleted_hashes = await self.delete_by_tags(tags)
                     return {
                         "success": count > 0,

@@ -390,6 +390,7 @@ class ONNXRankerModel:
             logits = outputs[0][0]  # Shape: (num_classes,)
 
             # Convert logits to score based on model type
+            score = 0.5  # Default score if model type is unrecognized
             if self.model_config['type'] == 'classifier':
                 # DeBERTa: 3-class classification
                 # Apply softmax to get probabilities

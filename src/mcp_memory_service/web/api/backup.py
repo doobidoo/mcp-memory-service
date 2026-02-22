@@ -18,8 +18,7 @@ Backup management endpoints for MCP Memory Service.
 Provides status monitoring, manual backup triggering, and backup listing.
 """
 
-from typing import Dict, Any, List, Optional, TYPE_CHECKING
-from datetime import datetime, timezone
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel

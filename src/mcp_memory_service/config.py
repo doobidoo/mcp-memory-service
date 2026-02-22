@@ -290,14 +290,17 @@ except Exception as e:
 SERVER_NAME = "memory"
 
 # Import version with fallback for circular import scenarios
+SERVER_VERSION = "0.0.0.dev0"
 try:
-    from . import __version__ as SERVER_VERSION
+    from . import __version__
+    SERVER_VERSION = __version__
 except (ImportError, AttributeError):
     # Fallback if __init__.py isn't fully loaded yet (circular import)
     try:
-        from ._version import __version__ as SERVER_VERSION
+        from ._version import __version__
+        SERVER_VERSION = __version__
     except ImportError:
-        SERVER_VERSION = "0.0.0.dev0"
+        pass
 
 # Storage backend configuration
 SUPPORTED_BACKENDS = ['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid']
@@ -834,7 +837,7 @@ def validate_oauth_configuration() -> None:
 
         # Test key access
         signing_key = get_jwt_signing_key()
-        verification_key = get_jwt_verification_key()
+        get_jwt_verification_key()
 
         if algorithm == "RS256":
             if not OAUTH_PRIVATE_KEY or not OAUTH_PUBLIC_KEY:

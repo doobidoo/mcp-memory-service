@@ -6,6 +6,8 @@ Based on ONNXMiniLM_L6_V2 implementation.
 
 import hashlib
 import logging
+import math
+import os
 import tarfile
 from pathlib import Path
 from typing import List, Optional, Union
@@ -37,6 +39,16 @@ def _verify_sha256(fname: str, expected_sha256: str) -> bool:
         for byte_block in iter(lambda: f.read(4096), b""):
             sha256_hash.update(byte_block)
     return sha256_hash.hexdigest() == expected_sha256
+
+
+def _safe_tar_extract(tar: tarfile.TarFile, path) -> None:
+    """Safely extract a tar archive, preventing path traversal attacks."""
+    abs_path = os.path.realpath(str(path))
+    for member in tar.getmembers():
+        member_path = os.path.realpath(os.path.join(abs_path, member.name))
+        if not member_path.startswith(abs_path + os.sep) and member_path != abs_path:
+            raise ValueError(f"Attempted path traversal in tar file: {member.name}")
+    tar.extractall(path)
 
 
 class ONNXEmbeddingModel:
@@ -110,7 +122,7 @@ class ONNXEmbeddingModel:
         # Extract the archive
         logger.info(f"Extracting model to {extracted_path}")
         with tarfile.open(archive_path, "r:gz") as tar:
-            tar.extractall(self.DOWNLOAD_PATH)
+            _safe_tar_extract(tar, self.DOWNLOAD_PATH)
         
         # Verify extraction
         if not (extracted_path / "model.onnx").exists():

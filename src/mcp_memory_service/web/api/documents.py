@@ -46,6 +46,11 @@ router = APIRouter()
 MAX_TAG_LENGTH = 100
 
 
+def _sanitize_log_value(value: object) -> str:
+    """Sanitize a user-provided value for safe inclusion in log messages."""
+    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
+
 def parse_and_validate_tags(tags: str) -> List[str]:
     """
     Parse and validate tags from user input.
@@ -473,6 +478,7 @@ async def process_single_file_upload(
             session.status = "failed"
             session.errors.append(str(e))
             session.completed_at = datetime.now()
+        return None
     finally:
         # Clean up temp file (always executed)
         try:
@@ -498,7 +504,6 @@ async def process_batch_upload(
         # Get storage
         storage = await ensure_storage_initialized()
 
-        total_files = len(file_info)
         processed_files = 0
         total_chunks_processed = 0
         total_chunks_stored = 0
@@ -616,7 +621,7 @@ async def remove_document(upload_id: str, remove_from_memory: bool = True):
     Returns:
         Removal status with count of memories deleted
     """
-    logger.info(f"Remove document request for upload_id: {upload_id}, remove_from_memory: {remove_from_memory}")
+    logger.info(f"Remove document request for upload_id: {_sanitize_log_value(upload_id)}, remove_from_memory: {remove_from_memory}")
 
     # Get session info if available (may not exist after server restart)
     session = upload_sessions.get(upload_id)
@@ -630,13 +635,13 @@ async def remove_document(upload_id: str, remove_from_memory: bool = True):
 
             # Search by tag pattern: upload_id:{upload_id}
             upload_tag = f"upload_id:{upload_id}"
-            logger.info(f"Searching for memories with tag: {upload_tag}")
+            logger.info(f"Searching for memories with tag: {_sanitize_log_value(upload_tag)}")
 
             try:
                 # Delete all memories with this upload_id tag
                 count, _, _ = await storage.delete_by_tags([upload_tag])
                 memories_deleted = count
-                logger.info(f"Deleted {memories_deleted} memories with tag {upload_tag}")
+                logger.info(f"Deleted {memories_deleted} memories with tag {_sanitize_log_value(upload_tag)}")
 
                 # If we deleted memories but don't have session info, try to get filename from first memory
                 if memories_deleted > 0 and not session:
@@ -668,11 +673,9 @@ async def remove_document(upload_id: str, remove_from_memory: bool = True):
 
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error removing document: {str(e)}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to remove document: {str(e)}")
+    except Exception:
+        logger.exception("Unexpected error removing document")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.delete("/remove-by-tags")
 async def remove_documents_by_tags(tags: List[str]):
@@ -685,7 +688,7 @@ async def remove_documents_by_tags(tags: List[str]):
     Returns:
         Removal status with affected upload IDs and memory counts
     """
-    logger.info(f"Remove documents by tags request: {tags}")
+    logger.info(f"Remove documents by tags request: {[_sanitize_log_value(t) for t in tags]}")
 
     try:
         # Get storage
@@ -697,7 +700,6 @@ async def remove_documents_by_tags(tags: List[str]):
 
         # Find and remove affected upload sessions
         affected_sessions = []
-        to_remove = []
 
         for upload_id, session in upload_sessions.items():
             # Check if any of the document's tags match
@@ -713,9 +715,9 @@ async def remove_documents_by_tags(tags: List[str]):
             "message": f"Deleted {memories_deleted} memories matching tags"
         }
 
-    except Exception as e:
-        logger.error(f"Error removing documents by tags: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to remove documents: {str(e)}")
+    except Exception:
+        logger.exception("Unexpected error removing documents by tags")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/search-content/{upload_id}")
 async def search_document_content(upload_id: str, limit: int = 1000):
@@ -729,14 +731,14 @@ async def search_document_content(upload_id: str, limit: int = 1000):
     Returns:
         List of memories with their content and metadata
     """
-    logger.info(f"Search document content for upload_id: {upload_id}, limit: {limit}")
+    logger.info(f"Search document content for upload_id: {_sanitize_log_value(upload_id)}, limit: {limit}")
 
     # Get session info if available (may not exist after server restart)
     session = upload_sessions.get(upload_id)
 
     # If no session, we'll still try to find memories by upload_id tag
     if not session:
-        logger.info(f"No upload session found for {upload_id}, searching by tag only")
+        logger.info(f"No upload session found for {_sanitize_log_value(upload_id)}, searching by tag only")
 
     try:
         # Get storage
@@ -744,7 +746,7 @@ async def search_document_content(upload_id: str, limit: int = 1000):
 
         # Search for memories with upload_id tag
         upload_tag = f"upload_id:{upload_id}"
-        logger.info(f"Searching for memories with tag: {upload_tag}")
+        logger.info(f"Searching for memories with tag: {_sanitize_log_value(upload_tag)}")
 
         # Use tag search (search_by_tags doesn't support limit parameter)
         all_memories = await storage.search_by_tags([upload_tag])
@@ -795,8 +797,8 @@ async def search_document_content(upload_id: str, limit: int = 1000):
             "memories": results
         }
 
-    except Exception as e:
-        logger.error(f"Error searching document content: {str(e)}")
+    except Exception:
+        logger.exception("Unexpected error searching document content")
         # Get filename from session if available
         filename = session.filename if session else f"Document (upload_id: {upload_id[:8]}...)"
         # Return empty results instead of error to avoid breaking UI
@@ -806,5 +808,5 @@ async def search_document_content(upload_id: str, limit: int = 1000):
             "filename": filename,
             "total_found": 0,
             "memories": [],
-            "error": str(e)
+            "error": "An error occurred while searching document content"
         }
