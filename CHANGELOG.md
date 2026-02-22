@@ -10,6 +10,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.17.14] - 2026-02-22
+
+### Security
+- security: replace python-jose with PyJWT to eliminate ecdsa CVE-2024-23342 (CVSS 7.4)
+  - **Dependency swap**: Removed `python-jose[cryptography]` and replaced with `PyJWT[crypto]>=2.8.0`
+  - **Eliminated packages**: ecdsa, python-jose, pyasn1, rsa, six (5 transitive packages removed)
+  - **Root cause**: python-jose pulls in ecdsa which is vulnerable to a Minerva timing attack (CVE-2024-23342); the ecdsa project explicitly considers side-channel attacks out of scope with no fix planned
+  - **No functional change**: Service only uses RS256/HS256 via the cryptography package; ecdsa was not actually used
+  - **Files changed**: `pyproject.toml`, `web/oauth/authorization.py`, `web/oauth/middleware.py`, `uv.lock`
+- security: fix stack-trace exposure in consolidation API (CWE-209)
+  - **py/stack-trace-exposure (CodeQL #356)**: Exception messages from `ValueError` and `RuntimeError` were passed directly to `HTTPException(detail=str(e))`, potentially leaking internal implementation details to API clients
+  - Replaced `str(e)` with fixed, generic error messages in `web/api/consolidation.py`; full exceptions still logged internally via `logger.error()`
+
+### Performance
+- perf(consolidation): increase default `MCP_ASSOCIATION_MAX_PAIRS` from 100 to 1000
+  - Previous default of 100 pairs resulted in 0 associations being discovered on datasets with 8000+ memories (~6% sampling coverage per batch)
+  - Increasing to 1000 pairs restores effective association discovery (0 -> 13 associations observed in testing with same dataset)
+  - Still fully configurable via `MCP_ASSOCIATION_MAX_PAIRS` env var; `ConsolidationConfig` dataclass default in `base.py` remains at 100 to preserve backward compatibility for direct programmatic usage
+  - **File changed**: `config.py`
+
 ## [10.17.13] - 2026-02-22
 
 ### Security

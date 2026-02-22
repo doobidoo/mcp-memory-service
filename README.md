@@ -259,18 +259,20 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.17.13** (February 22, 2026)
+## 🆕 Latest Release: **v10.17.14** (February 22, 2026)
 
-**Security: Final 4 CodeQL Alerts Resolved — Zero Open Alerts**
+**Security + Performance: CVE-2024-23342 Eliminated, CWE-209 Fixed, Consolidation Association Discovery Restored**
 
 **What's New:**
-- **Zero open CodeQL alerts**: Complete remediation of all GitHub code scanning findings.
-- **py/log-injection (1 alert)**: Removed integer arg from `logger.info` in `web/api/documents.py`.
-- **py/stack-trace-exposure (3 alerts)**: Explicit type casting (`str`/`int`/`float`) in API response dicts in `web/api/documents.py` and `web/api/consolidation.py` to break taint flow from user input to responses.
+- **CVE-2024-23342 eliminated**: Replaced python-jose with PyJWT[crypto] — removes ecdsa transitive dependency (Minerva timing attack, CVSS 7.4).
+- **CWE-209 fixed (CodeQL #356)**: Consolidation API no longer leaks exception messages in HTTP error responses.
+- **Consolidation association discovery restored**: Default `MCP_ASSOCIATION_MAX_PAIRS` raised from 100 to 1000 — fixes 0 associations found on large memory sets (8000+ memories).
+- **5 transitive packages removed**: ecdsa, python-jose, pyasn1, rsa, six no longer in dependency tree.
 
 ---
 
 **Previous Releases**:
+- **v10.17.13** - Security: Final 4 CodeQL Alerts Resolved (log-injection, stack-trace-exposure) — Zero Open Alerts
 - **v10.17.12** - Security: File Restoration + 43 CodeQL Alerts (repeated-import, multiple-definition, log-injection, stack-trace-exposure)
 - **v10.17.11** - Security: 6 CodeQL Alerts Resolved (log injection, stack-trace-exposure, unused variable)
 - **v10.17.10** - Security: All 30 Remaining CodeQL Alerts Resolved (log injection, clear-text logging, URL redirection, stack-trace-exposure)
