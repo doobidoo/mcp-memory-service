@@ -1546,6 +1546,10 @@ Features:
             installer.info("  - Smart Auto-Capture hooks")
             installer.info("  - Pattern detection for Decision/Error/Learning/Implementation")
             installer.info("  - PostToolUse hook (Edit, Write, Bash)")
+        if install_permission_hook:
+            installer.info("  - Permission Request Hook (global: affects ALL MCP servers)")
+        else:
+            installer.info("  - Permission Request Hook: SKIPPED (opt-in, use --permission-hook)")
         return
 
     # Create backup
@@ -1597,6 +1601,10 @@ Features:
                 installer.info("  ✅ Mid-conversation memory injection")
                 installer.info("  ✅ Smart Auto-Capture (PostToolUse for Edit/Write/Bash)")
                 installer.info("  ✅ Performance optimization and CLI management")
+                if install_permission_hook:
+                    installer.info("  ✅ Permission Request Hook (auto-approves safe MCP operations)")
+                else:
+                    installer.info("  ℹ  Permission Request Hook not installed (run with --permission-hook to add)")
                 installer.info("")
                 installer.info("CLI Management:")
                 installer.info(f"  node {installer.claude_hooks_dir}/memory-mode-controller.js status")
