@@ -986,7 +986,7 @@ class HookInstaller:
             self.error(f"Failed to install configuration: {e}")
             return False
 
-    def configure_claude_settings(self, install_mid_conversation: bool = False, install_auto_capture: bool = False) -> bool:
+    def configure_claude_settings(self, install_mid_conversation: bool = False, install_auto_capture: bool = False, install_permission_hook: bool = False) -> bool:
         """Configure Claude Code settings.json for hook integration."""
         self.info("Configuring Claude Code settings...")
 
@@ -1043,22 +1043,25 @@ class HookInstaller:
                         }
                     ]
 
-            # Add PreToolUse hook for MCP permission auto-approval (v8.73.0+)
-            permission_request_script = self.claude_hooks_dir / 'core' / 'permission-request.js'
-            if permission_request_script.exists():
-                hook_config["hooks"]["PreToolUse"] = [
-                    {
-                        "matcher": "mcp__",
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": f'node "{self.claude_hooks_dir}/core/permission-request.js"',
-                                "timeout": 5
-                            }
-                        ]
-                    }
-                ]
-                self.success("Added PreToolUse hook for MCP permission auto-approval")
+            # Add PreToolUse hook for MCP permission auto-approval (opt-in only, issue #503)
+            if install_permission_hook:
+                permission_request_script = self.claude_hooks_dir / 'core' / 'permission-request.js'
+                if permission_request_script.exists():
+                    hook_config["hooks"]["PreToolUse"] = [
+                        {
+                            "matcher": "mcp__",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": f'node "{self.claude_hooks_dir}/core/permission-request.js"',
+                                    "timeout": 5
+                                }
+                            ]
+                        }
+                    ]
+                    self.success("Added PreToolUse hook for MCP permission auto-approval")
+                else:
+                    self.warn("permission-request.js not found, skipping PreToolUse hook")
 
             # Add mid-conversation hook if Natural Memory Triggers are installed
             if install_mid_conversation:
@@ -1564,6 +1567,10 @@ Features:
         if not installer.install_auto_capture():
             overall_success = False
 
+    if install_permission_hook:
+        if not installer.install_permission_hook():
+            overall_success = False
+
     # Install configuration (always needed) with MCP awareness
     if not installer.install_configuration(install_natural_triggers=install_natural_triggers,
                                          detected_mcp=detected_mcp if use_existing_mcp else None,
@@ -1572,7 +1579,8 @@ Features:
 
     # Configure Claude Code settings
     if not installer.configure_claude_settings(install_mid_conversation=install_natural_triggers,
-                                              install_auto_capture=install_auto_capture):
+                                              install_auto_capture=install_auto_capture,
+                                              install_permission_hook=install_permission_hook):
         overall_success = False
 
     # Run tests to verify installation
