@@ -790,6 +790,24 @@ class HookInstaller:
             self.error(f"Failed to install basic hooks: {e}")
             return False
 
+    def install_permission_hook(self) -> bool:
+        """Copy permission-request.js to the hooks directory (opt-in, issue #503)."""
+        self.info("Installing permission-request hook...")
+        try:
+            (self.claude_hooks_dir / "core").mkdir(parents=True, exist_ok=True)
+            src = self.script_dir / "core" / "permission-request.js"
+            dst = self.claude_hooks_dir / "core" / "permission-request.js"
+            if src.exists():
+                shutil.copy2(src, dst)
+                self.success("permission-request.js installed")
+                return True
+            else:
+                self.error("permission-request.js not found in source directory")
+                return False
+        except Exception as e:
+            self.error(f"Failed to install permission hook: {e}")
+            return False
+
     def install_auto_capture(self) -> bool:
         """Install Smart Auto-Capture hooks for automatic memory capture."""
         self.info("Installing Smart Auto-Capture hooks...")
