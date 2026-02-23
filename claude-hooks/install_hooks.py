@@ -1488,6 +1488,41 @@ Features:
     install_natural_triggers = args.natural_triggers or install_all
     install_auto_capture = args.auto_capture or install_all
 
+    # Permission hook: explicit opt-in required (issue #503)
+    if args.permission_hook is True:
+        install_permission_hook = True
+        installer.info("Permission hook: enabled via --permission-hook flag")
+    elif args.permission_hook is False:
+        install_permission_hook = False
+        installer.info("Permission hook: skipped via --no-permission-hook flag")
+    else:
+        # Interactive prompt - default is NO
+        installer.header("Optional: Permission Request Hook")
+        installer.info("")
+        installer.info("This hook auto-approves safe MCP tool calls (read-only operations like")
+        installer.info("get, list, retrieve, search) and prompts for destructive ones")
+        installer.info("(delete, write, update, etc.), reducing repetitive confirmation dialogs.")
+        installer.info("")
+        installer.warn("GLOBAL EFFECT: This hook applies to ALL MCP servers on your system,")
+        installer.warn("not just the memory service. It will affect every MCP server you use")
+        installer.warn("(browser automation, code-context, Context7, and any future servers).")
+        installer.info("")
+        installer.info("Why it ships with mcp-memory-service:")
+        installer.info("  Memory operations are frequent and repetitive by design. This hook")
+        installer.info("  was developed alongside the memory service and is tested against its")
+        installer.info("  tool naming conventions. A standalone Gist version is also available:")
+        installer.info("  https://gist.github.com/doobidoo/fa84d31c0819a9faace345ca227b268f")
+        installer.info("")
+        try:
+            answer = input("  Install permission-request hook? [y/N]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        install_permission_hook = answer in ("y", "yes")
+        if install_permission_hook:
+            installer.success("Permission hook will be installed")
+        else:
+            installer.info("Permission hook skipped (install later with --permission-hook)")
+
     installer.info(f"Installation plan:")
     installer.info(f"  Basic hooks: {'Yes' if install_basic else 'No'}")
     installer.info(f"  Natural Memory Triggers: {'Yes' if install_natural_triggers else 'No'}")
