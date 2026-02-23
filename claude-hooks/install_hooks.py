@@ -722,8 +722,7 @@ class HookInstaller:
                 "session-start.js",
                 "session-end.js",
                 "memory-retrieval.js",
-                "topic-change.js",
-                "permission-request.js"
+                "topic-change.js"
             ]
 
             for file in core_files:
