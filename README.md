@@ -259,19 +259,20 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.17.14** (February 22, 2026)
+## 🆕 Latest Release: **v10.17.15** (February 23, 2026)
 
-**Security + Performance: CVE-2024-23342 Eliminated, CWE-209 Fixed, Consolidation Association Discovery Restored**
+**Permission-Request Hook Made Opt-In — No More Silent Global Hook Installation**
 
 **What's New:**
-- **CVE-2024-23342 eliminated**: Replaced python-jose with PyJWT[crypto] — removes ecdsa transitive dependency (Minerva timing attack, CVSS 7.4).
-- **CWE-209 fixed (CodeQL #356)**: Consolidation API no longer leaks exception messages in HTTP error responses.
-- **Consolidation association discovery restored**: Default `MCP_ASSOCIATION_MAX_PAIRS` raised from 100 to 1000 — fixes 0 associations found on large memory sets (8000+ memories).
-- **5 transitive packages removed**: ecdsa, python-jose, pyasn1, rsa, six no longer in dependency tree.
+- **Permission hook is now opt-in** (#503): `permission-request.js` is no longer silently installed alongside other hooks — users are prompted with a clear explanation of its global scope.
+- **Global-effect warning**: Hook applies to ALL MCP servers on the system, not just mcp-memory-service — now clearly documented.
+- **CLI flags added**: `--permission-hook` / `--no-permission-hook` for non-interactive scripted installs.
+- **Config default fixed**: `permissionRequest.enabled` now defaults to `false` in `config.template.json`.
 
 ---
 
 **Previous Releases**:
+- **v10.17.14** - Security + Performance: CVE-2024-23342 (ecdsa Minerva attack) eliminated via PyJWT migration, CWE-209 fixed, MCP_ASSOCIATION_MAX_PAIRS raised 100→1000
 - **v10.17.13** - Security: Final 4 CodeQL Alerts Resolved (log-injection, stack-trace-exposure) — Zero Open Alerts
 - **v10.17.12** - Security: File Restoration + 43 CodeQL Alerts (repeated-import, multiple-definition, log-injection, stack-trace-exposure)
 - **v10.17.11** - Security: 6 CodeQL Alerts Resolved (log injection, stack-trace-exposure, unused variable)

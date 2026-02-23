@@ -10,6 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.17.15] - 2026-02-23
+
+### Changed
+- **Permission hook now opt-in** (#503): `permission-request.js` is no longer silently installed with all other hooks. Users are now prompted during `install_hooks.py` with a clear explanation of its global effect (applies to ALL MCP servers, not just memory). Can also be controlled via `--permission-hook` / `--no-permission-hook` CLI flags for non-interactive installs.
+
+### Fixed
+- `config.template.json`: `permissionRequest.enabled` now defaults to `false`
+
+### Documentation
+- `README-PERMISSION-REQUEST.md`: Added "Why is this in mcp-memory-service?" rationale section and "Opt-in Installation" instructions
+- `claude-hooks/README.md`: Marked permission-request hook as opt-in with global-effect note
+
 ## [10.17.14] - 2026-02-22
 
 ### Security
