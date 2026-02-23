@@ -70,7 +70,7 @@
     "logFilePath": "./claude-hooks.log"
   },
   "permissionRequest": {
-    "enabled": true,
+    "enabled": false,
     "autoApprove": true,
     "customSafePatterns": [],
     "customDestructivePatterns": [],
