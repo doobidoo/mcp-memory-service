@@ -11,6 +11,30 @@ This hook intercepts Claude Code permission requests and makes intelligent decis
 - **Works universally** across all MCP servers (memory, browser, context7, etc.)
 - **Safe-by-default** - unknown patterns require user confirmation
 
+## Why is this in mcp-memory-service?
+
+This hook was developed alongside the memory service because memory operations
+are frequent and repetitive — retrieving, searching, and listing memories would
+otherwise generate constant permission prompts.
+
+The hook is tested against the memory service's tool naming conventions and ships
+here for convenience. However, it works universally across **all MCP servers**,
+which is also why installation is **opt-in** (see below).
+
+A standalone version is available as a GitHub Gist:
+https://gist.github.com/doobidoo/fa84d31c0819a9faace345ca227b268f
+
+## Opt-in Installation
+
+This hook is **not installed automatically**. During `install_hooks.py` you will
+be prompted with an explanation of its global effect and asked to confirm.
+
+To install non-interactively:
+```bash
+python install_hooks.py --permission-hook      # install it
+python install_hooks.py --no-permission-hook   # skip it explicitly
+```
+
 ## Features
 
 ✅ **Smart Pattern Matching** - Analyzes tool names to determine safety
