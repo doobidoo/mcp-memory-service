@@ -75,7 +75,7 @@ const DEFAULT_SAFE_PATTERNS = [
 
 // Configuration state (loaded at startup)
 let config = {
-    enabled: true,
+    enabled: false,
     autoApprove: true,
     logDecisions: false,
     destructivePatterns: DEFAULT_DESTRUCTIVE_PATTERNS,
@@ -106,7 +106,7 @@ function loadConfiguration() {
         const hookConfig = fullConfig.permissionRequest;
 
         // Load flags (with defaults)
-        config.enabled = hookConfig.enabled !== undefined ? hookConfig.enabled : true;
+        config.enabled = hookConfig.enabled !== undefined ? hookConfig.enabled : false;
         config.autoApprove = hookConfig.autoApprove !== undefined ? hookConfig.autoApprove : true;
         config.logDecisions = hookConfig.logDecisions !== undefined ? hookConfig.logDecisions : false;
 

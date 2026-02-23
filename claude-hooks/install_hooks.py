@@ -1062,6 +1062,11 @@ class HookInstaller:
                     self.success("Added PreToolUse hook for MCP permission auto-approval")
                 else:
                     self.warn("permission-request.js not found, skipping PreToolUse hook")
+            else:
+                # Explicitly remove PreToolUse hook if user opted out (handles upgrades from v10.17.14)
+                if "PreToolUse" in hook_config.get("hooks", {}):
+                    del hook_config["hooks"]["PreToolUse"]
+                    self.info("Removed PreToolUse hook (permission-request not opted in)")
 
             # Add mid-conversation hook if Natural Memory Triggers are installed
             if install_mid_conversation:
@@ -1165,6 +1170,12 @@ class HookInstaller:
                         # No conflicts, safe to update memory awareness hooks
                         existing_settings['hooks'].update(hook_config['hooks'])
                         self.info("Updated memory awareness hooks without conflicts")
+
+                    # Upgrade path: remove PreToolUse from existing settings when user opted out
+                    # (handles upgrades from v10.17.14 where the hook was auto-installed)
+                    if not install_permission_hook and "PreToolUse" in existing_settings.get("hooks", {}):
+                        del existing_settings["hooks"]["PreToolUse"]
+                        self.info("Removed PreToolUse hook from existing settings (permission-request not opted in)")
 
                     final_config = existing_settings
                     self.success("Settings merged intelligently, preserving existing configuration")
@@ -1499,32 +1510,35 @@ Features:
         install_permission_hook = False
         installer.info("Permission hook: skipped via --no-permission-hook flag")
     else:
-        # Interactive prompt - default is NO
-        installer.header("Optional: Permission Request Hook")
-        installer.info("")
-        installer.info("This hook auto-approves safe MCP tool calls (read-only operations like")
-        installer.info("get, list, retrieve, search) and prompts for destructive ones")
-        installer.info("(delete, write, update, etc.), reducing repetitive confirmation dialogs.")
-        installer.info("")
-        installer.warn("GLOBAL EFFECT: This hook applies to ALL MCP servers on your system,")
-        installer.warn("not just the memory service. It will affect every MCP server you use")
-        installer.warn("(browser automation, code-context, Context7, and any future servers).")
-        installer.info("")
-        installer.info("Why it ships with mcp-memory-service:")
-        installer.info("  Memory operations are frequent and repetitive by design. This hook")
-        installer.info("  was developed alongside the memory service and is tested against its")
-        installer.info("  tool naming conventions. A standalone Gist version is also available:")
-        installer.info("  https://gist.github.com/doobidoo/fa84d31c0819a9faace345ca227b268f")
-        installer.info("")
-        try:
-            answer = input("  Install permission-request hook? [y/N]: ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            answer = ""
-        install_permission_hook = answer in ("y", "yes")
-        if install_permission_hook:
-            installer.success("Permission hook will be installed")
+        # Interactive prompt - default is NO (skip during dry-run)
+        if args.dry_run:
+            install_permission_hook = False
         else:
-            installer.info("Permission hook skipped (install later with --permission-hook)")
+            installer.header("Optional: Permission Request Hook")
+            installer.info("")
+            installer.info("This hook auto-approves safe MCP tool calls (read-only operations like")
+            installer.info("get, list, retrieve, search) and prompts for destructive ones")
+            installer.info("(delete, write, update, etc.), reducing repetitive confirmation dialogs.")
+            installer.info("")
+            installer.warn("GLOBAL EFFECT: This hook applies to ALL MCP servers on your system,")
+            installer.warn("not just the memory service. It will affect every MCP server you use")
+            installer.warn("(browser automation, code-context, Context7, and any future servers).")
+            installer.info("")
+            installer.info("Why it ships with mcp-memory-service:")
+            installer.info("  Memory operations are frequent and repetitive by design. This hook")
+            installer.info("  was developed alongside the memory service and is tested against its")
+            installer.info("  tool naming conventions. A standalone Gist version is also available:")
+            installer.info("  https://gist.github.com/doobidoo/fa84d31c0819a9faace345ca227b268f")
+            installer.info("")
+            try:
+                answer = input("  Install permission-request hook? [y/N]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                answer = ""
+            install_permission_hook = answer in ("y", "yes")
+            if install_permission_hook:
+                installer.success("Permission hook will be installed")
+            else:
+                installer.info("Permission hook skipped (install later with --permission-hook)")
 
     installer.info(f"Installation plan:")
     installer.info(f"  Basic hooks: {'Yes' if install_basic else 'No'}")
@@ -1574,6 +1588,7 @@ Features:
     if install_permission_hook:
         if not installer.install_permission_hook():
             overall_success = False
+            install_permission_hook = False  # prevent configure_claude_settings from registering a missing hook
 
     # Install configuration (always needed) with MCP awareness
     if not installer.install_configuration(install_natural_triggers=install_natural_triggers,
