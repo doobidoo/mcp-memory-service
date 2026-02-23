@@ -1384,6 +1384,8 @@ Examples:
   python install_hooks.py --auto-capture     # Smart Auto-Capture only
   python install_hooks.py --test             # Run tests only
   python install_hooks.py --uninstall        # Remove hooks
+  python install_hooks.py --permission-hook      # Include permission hook (opt-in)
+  python install_hooks.py --no-permission-hook   # Skip permission hook
 
 Features:
   Basic: Session-start and session-end hooks for memory awareness
@@ -1408,6 +1410,12 @@ Features:
                         help='Remove installed hooks')
     parser.add_argument('--force', action='store_true',
                         help='Force installation even if prerequisites fail')
+    parser.add_argument('--permission-hook', action='store_true', default=None,
+                        dest='permission_hook',
+                        help='Install the permission-request hook (opt-in, global effect on ALL MCP servers)')
+    parser.add_argument('--no-permission-hook', action='store_false',
+                        dest='permission_hook',
+                        help='Skip the permission-request hook installation')
     parser.add_argument('--dry-run', action='store_true',
                         help='Show what would be installed without making changes')
 
