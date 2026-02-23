@@ -24,7 +24,7 @@ This installs hooks that automatically:
 
 ## Components
 
-- **Core Hooks**: `session-start.js` (Hook v2.2), `session-end.js`, `memory-retrieval.js`, `permission-request.js` (v1.0) - Smart memory management and permission automation
+- **Core Hooks**: `session-start.js` (Hook v2.2), `session-end.js`, `memory-retrieval.js`, `permission-request.js` (v1.0, opt-in, global effect on ALL MCP servers) - Smart memory management and permission automation
 - **Utilities**: Project detection, quality-aware scoring, intelligent formatting, context shift detection
 - **Tests**: Comprehensive integration test suite (14 tests)
 
@@ -65,7 +65,7 @@ Three complementary ways to view session memory context:
 - **Project Awareness**: Detect current project context and frameworks
 - **Memory Consolidation**: Store session outcomes and insights
 - **Intelligent Selection**: Quality-aware scoring that prioritizes meaningful content over just recency
-- **🆕 Permission Automation** (v1.0): Auto-approve safe MCP tool operations, block destructive actions - See [README-PERMISSION-REQUEST.md](README-PERMISSION-REQUEST.md)
+- **🆕 Permission Automation** (v1.0, opt-in, global effect on ALL MCP servers): Auto-approve safe MCP tool operations, block destructive actions - See [README-PERMISSION-REQUEST.md](README-PERMISSION-REQUEST.md)
 
 ### 🎮 **User Overrides** (`#skip` / `#remember`)
 
