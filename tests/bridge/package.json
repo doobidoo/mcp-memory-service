@@ -13,7 +13,7 @@
   },
   "devDependencies": {},
   "overrides": {
-    "minimatch": "^10.2.1"
+    "minimatch": "^10.2.3"
   },
   "keywords": ["mcp", "bridge", "testing"],
   "author": "",
