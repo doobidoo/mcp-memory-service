@@ -57,6 +57,10 @@ class MemoryDashboard {
         settingsUptime: {
             sources: [{ path: 'uptime_seconds', api: 'detailedHealth' }],
             formatter: (value) => (value != null) ? MemoryDashboard.formatUptime(value) : 'N/A'
+        },
+        settingsOAuthEnabled: {
+            sources: [{ path: 'oauth_enabled', api: 'oauthStatus' }],
+            formatter: (value) => (value === true) ? '✓ Enabled' : (value === false) ? 'Disabled' : 'N/A'
         }
     };
 
@@ -4098,14 +4102,16 @@ class MemoryDashboard {
     async loadSystemInfo() {
         try {
             // Use Promise.allSettled for robust error handling
-            const [healthResult, detailedHealthResult] = await Promise.allSettled([
+            const [healthResult, detailedHealthResult, oauthStatusResult] = await Promise.allSettled([
                 this.apiCall('/health'),
-                this.apiCall('/health/detailed')
+                this.apiCall('/health/detailed'),
+                this.apiCall('/oauth/status')
             ]);
 
             const apiData = {
                 health: healthResult.status === 'fulfilled' ? healthResult.value : null,
-                detailedHealth: detailedHealthResult.status === 'fulfilled' ? detailedHealthResult.value : null
+                detailedHealth: detailedHealthResult.status === 'fulfilled' ? detailedHealthResult.value : null,
+                oauthStatus: oauthStatusResult.status === 'fulfilled' ? oauthStatusResult.value : null
             };
 
             // Update fields using configuration
@@ -4125,12 +4131,28 @@ class MemoryDashboard {
                 element.textContent = config.formatter(value);
             });
 
+            // Populate OAuth detail fields (conditionally shown when enabled)
+            const oauthData = apiData.oauthStatus;
+            if (oauthData && oauthData.oauth_enabled) {
+                const showRow = (id) => { const el = document.getElementById(id); if (el) el.style.display = ''; };
+                showRow('oauthBackendRow');
+                showRow('oauthClientsRow');
+                showRow('oauthTokensRow');
+                const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+                setVal('settingsOAuthBackend', oauthData.storage_backend || 'N/A');
+                setVal('settingsOAuthClients', oauthData.registered_clients_count ?? 'N/A');
+                setVal('settingsOAuthTokens', oauthData.active_tokens_count ?? 'N/A');
+            }
+
             // Log warnings for failed API calls
             if (healthResult.status === 'rejected') {
                 console.warn('Failed to load health endpoint:', healthResult.reason);
             }
             if (detailedHealthResult.status === 'rejected') {
                 console.warn('Failed to load detailed health endpoint:', detailedHealthResult.reason);
+            }
+            if (oauthStatusResult.status === 'rejected') {
+                console.warn('Failed to load OAuth status endpoint:', oauthStatusResult.reason);
             }
         } catch (error) {
             console.error('Unexpected error loading system info:', error);

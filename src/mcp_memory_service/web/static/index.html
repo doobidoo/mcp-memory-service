@@ -1368,6 +1368,28 @@
                             </div>
                         </div>
 
+                        <div id="oauthStatusSection">
+                            <h4 class="settings-section-heading" style="margin-top: var(--space-6); margin-bottom: var(--space-4);" data-i18n="modal.settings.oauthStatus">OAuth Status</h4>
+                            <div class="system-info">
+                                <div class="info-row">
+                                    <span class="info-label" data-i18n="modal.settings.oauthEnabled">OAuth Enabled:</span>
+                                    <span class="info-value" id="settingsOAuthEnabled" data-i18n="status.loading">Loading...</span>
+                                </div>
+                                <div class="info-row" id="oauthBackendRow" style="display: none;">
+                                    <span class="info-label" data-i18n="modal.settings.oauthBackend">OAuth Backend:</span>
+                                    <span class="info-value" id="settingsOAuthBackend">-</span>
+                                </div>
+                                <div class="info-row" id="oauthClientsRow" style="display: none;">
+                                    <span class="info-label" data-i18n="modal.settings.oauthClients">Registered Clients:</span>
+                                    <span class="info-value" id="settingsOAuthClients">-</span>
+                                </div>
+                                <div class="info-row" id="oauthTokensRow" style="display: none;">
+                                    <span class="info-label" data-i18n="modal.settings.oauthTokens">Active Tokens:</span>
+                                    <span class="info-value" id="settingsOAuthTokens">-</span>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
 
                     <!-- Backup Tab -->

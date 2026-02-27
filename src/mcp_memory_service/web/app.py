@@ -60,6 +60,7 @@ from .api.backup import router as backup_router
 from .api.quality import router as quality_router
 from .api.server import router as server_router
 from .api.configuration import router as configuration_router
+from .api.oauth_status import router as oauth_status_router
 from .sse import sse_manager
 
 logger = logging.getLogger(__name__)
@@ -318,6 +319,10 @@ def create_app() -> FastAPI:
     # Include configuration router
     app.include_router(configuration_router, prefix="/api", tags=["configuration"])
     logger.info(f"✓ Included configuration router with {len(configuration_router.routes)} routes")
+
+    # Include OAuth status router (always available, returns disabled status if OAuth off)
+    app.include_router(oauth_status_router, prefix="/api", tags=["oauth-status"])
+    logger.info(f"✓ Included OAuth status router with {len(oauth_status_router.routes)} routes")
 
     # Include MCP protocol router
     app.include_router(mcp_router, tags=["mcp-protocol"])
