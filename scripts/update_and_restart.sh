@@ -431,7 +431,7 @@ INSTALLED_VERSION=$("$VENV_PIP" show mcp-memory-service 2>/dev/null | grep "^Ver
 if [ "$INSTALLED_VERSION" != "$NEW_VERSION" ]; then
     log_warning "Installation version mismatch! Expected: ${NEW_VERSION}, Got: ${INSTALLED_VERSION}"
     log_warning "Retrying installation..."
-    "$VENV_PIP" install -e . --force-reinstall --quiet
+    "$VENV_PIP" install -e ".[dev]" --force-reinstall --quiet
     INSTALLED_VERSION=$("$VENV_PIP" show mcp-memory-service 2>/dev/null | grep "^Version:" | awk '{print $2}' || echo "unknown")
 fi
 
