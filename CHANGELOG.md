@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.18.3] - 2026-02-27
+
+### Security
+- **Fix 5 Dependabot vulnerabilities** (#513): Address 4 high-severity ReDoS alerts in npm dependencies and 1 medium-severity RAM exhaustion alert in Python dependency.
+  - **minimatch ReDoS (4 alerts, High severity)**: Updated `minimatch` override from `^10.2.1` to `^10.2.3` in `tests/bridge/package.json` and `tests/integration/package.json`, with regenerated lockfiles. Fixes CVE-2026-27903, CVE-2026-27904 (Dependabot alerts #39, #40, #41, #42).
+  - **pypdf RAM exhaustion (1 alert, Medium severity)**: Updated `pypdf` from 6.7.2 to 6.7.4 via `uv lock`. Fixes CVE-2026-27888 (Dependabot alert #43).
+
 ## [10.18.2] - 2026-02-27
 
 ### Fixed

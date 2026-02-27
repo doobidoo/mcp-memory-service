@@ -259,18 +259,19 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.18.2** (February 27, 2026)
+## 🆕 Latest Release: **v10.18.3** (February 27, 2026)
 
-**Dev Dependency Fix: Missing Test Packages and Install Script**
+**Security Patch: 5 Dependabot Vulnerabilities Fixed**
 
 **What's New:**
-- **Missing test dependencies added** (#509, closes #508): `pytest-timeout` and `pytest-subtests` added to `[dev]` extras in `pyproject.toml`.
-- **Install script fixed**: `scripts/update_and_restart.sh` now installs `.[dev]` (was bare `.`), ensuring all dev dependencies are available after running the script.
-- **uv.lock updated** to reflect the new transitive closure of dev dependencies.
+- **minimatch ReDoS patched** (#513): Updated `minimatch` override to `^10.2.3` in npm test packages, fixing 4 high-severity ReDoS alerts (CVE-2026-27903, CVE-2026-27904, Dependabot #39-#42).
+- **pypdf RAM exhaustion fixed** (#513): Updated `pypdf` to 6.7.4, fixing a medium-severity RAM exhaustion vulnerability (CVE-2026-27888, Dependabot #43).
+- **uv.lock updated** to reflect the new pypdf transitive closure.
 
 ---
 
 **Previous Releases**:
+- **v10.18.2** - Dev dependency fix: add missing pytest-timeout/pytest-subtests, fix update_and_restart.sh to install .[dev] (#509, closes #508)
 - **v10.18.1** - Security patch: sanitize consolidation recommendations response (CWE-209, CodeQL alert #356 py/stack-trace-exposure)
 - **v10.18.0** - SSE transport mode (`--sse` flag), hook installer improvements (merge, raised timeouts, uvx support), setup docs for pyenv+uvx
 - **v10.17.16** - Security patch: fix minimatch ReDoS (Dependabot #3/#6, High), replace abandoned PyPDF2 with pypdf (Dependabot moderate)
