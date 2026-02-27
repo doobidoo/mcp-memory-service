@@ -259,18 +259,20 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.18.3** (February 27, 2026)
+## 🆕 Latest Release: **v10.19.0** (February 27, 2026)
 
-**Security Patch: 5 Dependabot Vulnerabilities Fixed**
+**New Feature: Read-Only OAuth Status in Dashboard**
 
 **What's New:**
-- **minimatch ReDoS patched** (#513): Updated `minimatch` override to `^10.2.3` in npm test packages, fixing 4 high-severity ReDoS alerts (CVE-2026-27903, CVE-2026-27904, Dependabot #39-#42).
-- **pypdf RAM exhaustion fixed** (#513): Updated `pypdf` to 6.7.4, fixing a medium-severity RAM exhaustion vulnerability (CVE-2026-27888, Dependabot #43).
-- **uv.lock updated** to reflect the new pypdf transitive closure.
+- **OAuth status visibility** (#515, closes #259): New `GET /api/oauth/status` endpoint lets authenticated dashboard users see OAuth configuration at a glance — enabled status, storage backend, client count, and active token count. No credentials or secrets exposed.
+- **Dashboard Settings integration**: OAuth Status card added to Settings > System Info tab; detail rows hidden automatically when OAuth is disabled.
+- **Full i18n support**: All new UI strings translated across all 7 supported locales (en, de, es, fr, ja, ko, zh).
+- **Auth-gated**: Endpoint requires authentication and returns 401 when unauthenticated.
 
 ---
 
 **Previous Releases**:
+- **v10.18.3** - Security patch: 5 Dependabot vulnerabilities fixed (minimatch ReDoS CVE-2026-27903/27904 #39-#42, pypdf RAM exhaustion CVE-2026-27888 #43)
 - **v10.18.2** - Dev dependency fix: add missing pytest-timeout/pytest-subtests, fix update_and_restart.sh to install .[dev] (#509, closes #508)
 - **v10.18.1** - Security patch: sanitize consolidation recommendations response (CWE-209, CodeQL alert #356 py/stack-trace-exposure)
 - **v10.18.0** - SSE transport mode (`--sse` flag), hook installer improvements (merge, raised timeouts, uvx support), setup docs for pyenv+uvx

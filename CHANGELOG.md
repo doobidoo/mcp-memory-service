@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.19.0] - 2026-02-27
+
+### Added
+- **Read-only OAuth status display in dashboard** (#515, closes #259): New `GET /api/oauth/status` endpoint and Settings > System Info tab section expose OAuth configuration visibility to authenticated dashboard users without revealing any credentials or secrets.
+  - New `GET /api/oauth/status` endpoint returns: `enabled` (bool), `storage_backend` (str), `client_count` (int), `active_token_count` (int). Requires authentication; returns 401 when unauthenticated.
+  - Dashboard Settings tab gains an "OAuth Status" card inside the System Info accordion. Shows enabled/disabled badge, storage backend, registered client count, and active token count when OAuth is enabled. Detail rows are hidden when OAuth is disabled, preventing visual noise.
+  - Full i18n support across all 7 supported locales: English, German, Spanish, French, Japanese, Korean, and Simplified Chinese.
+  - No credentials, secrets, client IDs, or token values are exposed — the endpoint is intentionally read-only and informational.
+
 ## [10.18.3] - 2026-02-27
 
 ### Security
