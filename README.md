@@ -259,19 +259,19 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.18.1** (February 24, 2026)
+## 🆕 Latest Release: **v10.18.2** (February 27, 2026)
 
-**Security Patch: Sanitize Consolidation Recommendations Response**
+**Dev Dependency Fix: Missing Test Packages and Install Script**
 
 **What's New:**
-- **CWE-209 fix** (CodeQL alert #356): `GET /api/consolidation/recommendations` no longer exposes stack traces or raw exception messages to API clients.
-- **Allowlist validation**: `recommendation` field values are validated against an explicit allowlist; unknown values fall back to `"unknown"`.
-- **Safe type coercion**: All `int()` / `float()` / `datetime` conversions wrapped in `try/except` with safe fallbacks.
-- **No functional change** for valid requests; operator logging unchanged.
+- **Missing test dependencies added** (#509, closes #508): `pytest-timeout` and `pytest-subtests` added to `[dev]` extras in `pyproject.toml`.
+- **Install script fixed**: `scripts/update_and_restart.sh` now installs `.[dev]` (was bare `.`), ensuring all dev dependencies are available after running the script.
+- **uv.lock updated** to reflect the new transitive closure of dev dependencies.
 
 ---
 
 **Previous Releases**:
+- **v10.18.1** - Security patch: sanitize consolidation recommendations response (CWE-209, CodeQL alert #356 py/stack-trace-exposure)
 - **v10.18.0** - SSE transport mode (`--sse` flag), hook installer improvements (merge, raised timeouts, uvx support), setup docs for pyenv+uvx
 - **v10.17.16** - Security patch: fix minimatch ReDoS (Dependabot #3/#6, High), replace abandoned PyPDF2 with pypdf (Dependabot moderate)
 - **v10.17.15** - Permission-Request Hook Made Opt-In (no silent global hook installation, CLI flags added)

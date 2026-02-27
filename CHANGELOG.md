@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.18.2] - 2026-02-27
+
+### Fixed
+- **Add missing test dependencies and fix dev install script** (#509, closes #508): Development environment setup was incomplete due to missing test dependencies in the `dev` extras group and the install script not invoking the `dev` extras.
+  - Added `pytest-timeout` and `pytest-subtests` to the `[project.optional-dependencies.dev]` group in `pyproject.toml`.
+  - Updated `scripts/update_and_restart.sh` to install `.[dev]` instead of bare `.` in both the primary install path and the retry fallback path, ensuring all development dependencies (including newly added `pytest-timeout` and `pytest-subtests`) are always available after running the script.
+  - `uv.lock` updated to reflect the new transitive closure of dev dependencies.
+
 ## [10.18.1] - 2026-02-24
 
 ### Security
