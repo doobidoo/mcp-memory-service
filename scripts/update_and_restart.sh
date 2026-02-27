@@ -392,7 +392,7 @@ while [ $INSTALL_SUCCESS = false ] && [ $INSTALL_ATTEMPTS -lt $MAX_ATTEMPTS ]; d
     fi
 
     # Attempt installation
-    "$VENV_PIP" install -e . $EXTRA_INDEX 2>&1 | while IFS= read -r line; do
+    "$VENV_PIP" install -e ".[dev]" $EXTRA_INDEX 2>&1 | while IFS= read -r line; do
         # Show progress for key actions only
         if echo "$line" | grep -qE "Processing|Installing|Collecting|Successfully|ERROR|WARNING"; then
             echo "  $line"
@@ -408,7 +408,7 @@ while [ $INSTALL_SUCCESS = false ] && [ $INSTALL_ATTEMPTS -lt $MAX_ATTEMPTS ]; d
     else
         log_error "Installation failed after $MAX_ATTEMPTS attempts"
         log_info "Please check your network connection and try again"
-        log_info "You can also try running: .venv/bin/pip install -e ."
+        log_info "You can also try running: .venv/bin/pip install -e '.[dev]'"
         exit 1
     fi
 done
