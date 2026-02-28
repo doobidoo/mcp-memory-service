@@ -140,6 +140,11 @@ class ServerRunManager:
         self.logger = logging.getLogger(__name__)
 
     @staticmethod
+    def is_streamable_http_mode() -> bool:
+        """Check if running in Streamable HTTP transport mode."""
+        return os.environ.get('MCP_STREAMABLE_HTTP_MODE', '').lower() == '1'
+
+    @staticmethod
     def is_sse_mode() -> bool:
         """Check if running in SSE transport mode."""
         return os.environ.get('MCP_SSE_MODE', '').lower() == '1'
@@ -260,6 +265,143 @@ class ServerRunManager:
                 await response(scope, receive, send)
 
         self.logger.info(f"Starting SSE transport on {MCP_SSE_HOST}:{MCP_SSE_PORT}")
+        config = uvicorn.Config(
+            app,
+            host=MCP_SSE_HOST,
+            port=MCP_SSE_PORT,
+            log_level="info",
+        )
+        uvi_server = uvicorn.Server(config)
+        await uvi_server.serve()
+
+    async def run_streamable_http(self) -> None:
+        """Run server with Streamable HTTP transport.
+
+        Uses StreamableHTTPSessionManager for the MCP protocol transport,
+        which is what Claude.ai and modern MCP clients expect.
+
+        When OAuth is enabled (MCP_OAUTH_ENABLED=true), this also serves
+        OAuth 2.1 endpoints (discovery, DCR, authorization, token) alongside
+        the MCP transport endpoint, and requires Bearer token auth on /mcp.
+        """
+        import uvicorn
+        from starlette.responses import Response as StarletteResponse
+        from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+        from ..config import OAUTH_ENABLED, API_KEY
+
+        server_instance = self.server.server
+        session_manager = StreamableHTTPSessionManager(
+            app=server_instance,
+            event_store=None,
+            stateless=True,
+        )
+
+        # Build OAuth sub-app if enabled
+        oauth_app = None
+        if OAUTH_ENABLED:
+            from fastapi import FastAPI
+            from fastapi.responses import JSONResponse
+            from ..web.oauth.discovery import router as discovery_router
+            from ..web.oauth.registration import router as registration_router
+            from ..web.oauth.authorization import router as authorization_router
+            from ..config import OAUTH_ISSUER
+
+            oauth_app = FastAPI(title="MCP Memory OAuth", docs_url=None, redoc_url=None)
+            oauth_app.include_router(discovery_router)
+            oauth_app.include_router(registration_router, prefix="/oauth")
+            oauth_app.include_router(authorization_router, prefix="/oauth")
+
+            # RFC 9728: OAuth Protected Resource Metadata
+            @oauth_app.get("/.well-known/oauth-protected-resource")
+            @oauth_app.get("/.well-known/oauth-protected-resource/{path:path}")
+            async def protected_resource_metadata(path: str = ""):
+                return JSONResponse({
+                    "resource": OAUTH_ISSUER,
+                    "authorization_servers": [OAUTH_ISSUER],
+                    "scopes_supported": ["read", "write", "admin"],
+                    "bearer_methods_supported": ["header"],
+                })
+
+            self.logger.info("OAuth 2.1 endpoints enabled on Streamable HTTP transport")
+
+        _session_manager_ctx = None
+
+        async def app(scope, receive, send):
+            nonlocal _session_manager_ctx
+            if scope["type"] == "lifespan":
+                while True:
+                    message = await receive()
+                    if message["type"] == "lifespan.startup":
+                        _session_manager_ctx = session_manager.run()
+                        await _session_manager_ctx.__aenter__()
+                        await send({"type": "lifespan.startup.complete"})
+                    elif message["type"] == "lifespan.shutdown":
+                        if _session_manager_ctx:
+                            await _session_manager_ctx.__aexit__(None, None, None)
+                        await send({"type": "lifespan.shutdown.complete"})
+                        return
+
+            path = scope.get("path", "")
+            if path == "/mcp" or path == "/mcp/":
+                # Auth check on /mcp
+                if OAUTH_ENABLED or API_KEY:
+                    if not await _check_auth_from_scope(scope, receive, send):
+                        return
+                await session_manager.handle_request(scope, receive, send)
+            elif oauth_app and (
+                path.startswith("/.well-known/") or
+                path.startswith("/oauth/")
+            ):
+                await oauth_app(scope, receive, send)
+            else:
+                response = StarletteResponse("Not Found", status_code=404)
+                await response(scope, receive, send)
+
+        async def _check_auth_from_scope(scope, receive, send) -> bool:
+            """Validate auth on /mcp requests. Returns True if authorized."""
+            from ..web.oauth.middleware import (
+                authenticate_bearer_token,
+                authenticate_api_key,
+            )
+
+            # Extract headers from ASGI scope
+            headers = dict(scope.get("headers", []))
+            auth_header = headers.get(b"authorization", b"").decode("latin-1")
+            api_key_header = headers.get(b"x-api-key", b"").decode("latin-1")
+
+            # Try Bearer token (OAuth)
+            if auth_header.lower().startswith("bearer ") and OAUTH_ENABLED:
+                token = auth_header[7:]
+                result = await authenticate_bearer_token(token)
+                if result.authenticated:
+                    return True
+
+            # Try API key via header
+            if api_key_header and API_KEY:
+                result = authenticate_api_key(api_key_header)
+                if result.authenticated:
+                    return True
+
+            # Try Bearer token as API key fallback
+            if auth_header.lower().startswith("bearer ") and API_KEY:
+                token = auth_header[7:]
+                result = authenticate_api_key(token)
+                if result.authenticated:
+                    return True
+
+            # Auth failed - send 401
+            response = StarletteResponse(
+                '{"error":"unauthorized","error_description":"Valid Bearer token or API key required"}',
+                status_code=401,
+                headers={
+                    "WWW-Authenticate": "Bearer",
+                    "Content-Type": "application/json",
+                },
+            )
+            await response(scope, receive, send)
+            return False
+
+        self.logger.info(f"Starting Streamable HTTP transport on {MCP_SSE_HOST}:{MCP_SSE_PORT}")
         config = uvicorn.Config(
             app,
             host=MCP_SSE_HOST,

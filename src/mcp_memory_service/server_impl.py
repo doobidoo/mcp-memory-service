@@ -2786,7 +2786,9 @@ async def async_main():
         # Run server based on mode
         run_manager = ServerRunManager(memory_server, system_info)
 
-        if ServerRunManager.is_sse_mode():
+        if ServerRunManager.is_streamable_http_mode():
+            await run_manager.run_streamable_http()
+        elif ServerRunManager.is_sse_mode():
             await run_manager.run_sse()
         elif ServerRunManager.is_standalone_mode():
             await run_manager.run_standalone()
