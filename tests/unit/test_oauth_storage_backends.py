@@ -534,3 +534,83 @@ class TestPerformance:
         assert store_time < 10, f"Store took {store_time:.2f}ms (>10ms)"
         assert get_time < 10, f"Get took {get_time:.2f}ms (>10ms)"
         assert auth_time < 10, f"Auth took {auth_time:.2f}ms (>10ms)"
+
+
+class TestPKCE:
+    """PKCE (Proof Key for Code Exchange) tests across all backends."""
+
+    @pytest.mark.asyncio
+    async def test_store_and_get_authorization_code_with_pkce(self, storage):
+        """Test that code_challenge and code_challenge_method round-trip correctly."""
+        challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        method = "S256"
+
+        await storage.store_authorization_code(
+            code="pkce_code_123",
+            client_id="pkce_client",
+            redirect_uri="http://localhost/callback",
+            scope="read write",
+            expires_in=300,
+            code_challenge=challenge,
+            code_challenge_method=method,
+        )
+
+        code_data = await storage.get_authorization_code("pkce_code_123")
+
+        assert code_data is not None
+        assert code_data["client_id"] == "pkce_client"
+        assert code_data["code_challenge"] == challenge
+        assert code_data["code_challenge_method"] == method
+
+    @pytest.mark.asyncio
+    async def test_authorization_code_without_pkce(self, storage):
+        """Test that codes without PKCE still work (backward compat)."""
+        await storage.store_authorization_code(
+            code="no_pkce_code",
+            client_id="plain_client",
+            redirect_uri="http://localhost/callback",
+            scope="read",
+            expires_in=300,
+        )
+
+        code_data = await storage.get_authorization_code("no_pkce_code")
+
+        assert code_data is not None
+        assert code_data["client_id"] == "plain_client"
+        assert code_data.get("code_challenge") is None
+        assert code_data.get("code_challenge_method") is None
+
+
+class TestDCRModel:
+    """Dynamic Client Registration model tests."""
+
+    def test_dcr_accepts_extra_fields(self):
+        """Verify DCR request with extra fields doesn't raise ValidationError."""
+        from mcp_memory_service.web.oauth.models import ClientRegistrationRequest
+
+        # Claude.ai sends extra fields like 'contacts', 'logo_uri', etc.
+        data = {
+            "client_name": "Claude.ai",
+            "redirect_uris": ["https://claude.ai/oauth/callback"],
+            "grant_types": ["authorization_code"],
+            "response_types": ["code"],
+            "contacts": ["admin@anthropic.com"],
+            "logo_uri": "https://claude.ai/logo.png",
+            "tos_uri": "https://claude.ai/tos",
+            "policy_uri": "https://claude.ai/privacy",
+        }
+
+        req = ClientRegistrationRequest(**data)
+        assert req.client_name == "Claude.ai"
+        assert req.redirect_uris == ["https://claude.ai/oauth/callback"]
+        # Extra fields should be silently ignored, not cause an error
+        assert not hasattr(req, "contacts")
+
+    def test_dcr_accepts_non_standard_uris(self):
+        """Verify DCR accepts redirect URIs that strict HttpUrl would reject."""
+        from mcp_memory_service.web.oauth.models import ClientRegistrationRequest
+
+        req = ClientRegistrationRequest(
+            redirect_uris=["http://localhost:3000/callback", "urn:ietf:wg:oauth:2.0:oob"],
+        )
+        assert len(req.redirect_uris) == 2
