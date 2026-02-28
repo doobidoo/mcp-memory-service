@@ -170,7 +170,7 @@ def validate_redirect_uris(redirect_uris: Optional[List[str]]) -> None:
 
 def validate_grant_types(grant_types: List[str]) -> None:
     """Validate that requested grant types are supported."""
-    supported_grant_types = {"authorization_code", "client_credentials"}
+    supported_grant_types = {"authorization_code", "client_credentials", "refresh_token"}
 
     for grant_type in grant_types:
         if grant_type not in supported_grant_types:
