@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.20.0] - 2026-02-28
+
+### Added
+- **Streamable HTTP transport with OAuth 2.1 + PKCE** (#518): Enable Claude.ai remote MCP server connectivity by adding Streamable HTTP as a new transport mode alongside the existing SSE transport. The new transport is a fully separate code path — SSE users are completely unaffected.
+  - New `--streamable-http` CLI flag and `run_streamable_http()` method on `ServerRunManager`. Configure host/port via `MCP_STREAMABLE_HTTP_HOST` (default `0.0.0.0`) and `MCP_STREAMABLE_HTTP_PORT` (default `9000`).
+  - Bearer token / API key authentication middleware on the `/mcp` endpoint — unauthenticated requests receive HTTP 401 before any MCP protocol handling occurs.
+  - API key-gated HTML authorization page: `/authorize` now requires `MCP_API_KEY` instead of auto-approving, preventing unauthorized OAuth token issuance.
+  - JavaScript `window.location` redirect after authorization (instead of HTTP 302) for compatibility with Claude.ai's OAuth popup flow, which does not reliably follow server-side redirects from form POST.
+  - **PKCE (S256) support** added to OAuth authorization code flow across all storage backends (in-memory and SQLite). Both backends store `code_challenge` / `code_challenge_method` per authorization code and verify the PKCE proof before issuing access tokens. S256 support is advertised in OAuth server metadata discovery.
+  - **Schema migration** for existing SQLite OAuth databases: `code_challenge` and `code_challenge_method` columns are added automatically on startup when absent, enabling zero-downtime upgrades from pre-PKCE installations.
+  - **RFC 9728 OAuth Protected Resource Metadata** endpoint (`/.well-known/oauth-protected-resource`): returns the authorization server URL, enabling OAuth 2.1-compliant clients to discover the authorization server from the resource server.
+  - `refresh_token` grant type accepted in Dynamic Client Registration (DCR) requests: Claude.ai includes `refresh_token` in `grant_types` during DCR; adding it to the accepted list prevents HTTP 400 errors during the OAuth handshake.
+  - `streamable-http` mode added to Docker unified entrypoint (`tools/docker/docker-entrypoint-unified.sh`), enabling containerized Streamable HTTP deployments.
+
 ## [10.18.1] - 2026-02-24
 
 ### Security
