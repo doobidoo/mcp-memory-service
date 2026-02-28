@@ -17,7 +17,7 @@ OAuth 2.1 data models and schemas for MCP Memory Service.
 """
 
 from typing import List, Optional
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 
 class OAuthServerMetadata(BaseModel):
@@ -48,12 +48,23 @@ class OAuthServerMetadata(BaseModel):
         default=None,
         description="Supported JWT signing algorithms for access tokens"
     )
+    code_challenge_methods_supported: Optional[List[str]] = Field(
+        default=None,
+        description="Supported PKCE code challenge methods"
+    )
 
 
 class ClientRegistrationRequest(BaseModel):
-    """OAuth 2.1 Dynamic Client Registration Request (RFC 7591)."""
+    """OAuth 2.1 Dynamic Client Registration Request (RFC 7591).
 
-    redirect_uris: Optional[List[HttpUrl]] = Field(
+    Uses permissive types (str instead of HttpUrl) to accept varied client
+    implementations (e.g., Claude.ai) that may send URIs in formats that
+    strict Pydantic HttpUrl validation rejects.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    redirect_uris: Optional[List[str]] = Field(
         default=None,
         description="Array of redirection URI strings for use in redirect-based flows"
     )
@@ -73,7 +84,7 @@ class ClientRegistrationRequest(BaseModel):
         default=None,
         description="Human-readable string name of the client"
     )
-    client_uri: Optional[HttpUrl] = Field(
+    client_uri: Optional[str] = Field(
         default=None,
         description="URL string of a web page providing information about the client"
     )

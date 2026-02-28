@@ -51,7 +51,8 @@ async def oauth_authorization_server_metadata() -> OAuthServerMetadata:
         response_types_supported=["code"],
         token_endpoint_auth_methods_supported=["client_secret_basic", "client_secret_post"],
         scopes_supported=["read", "write", "admin"],
-        id_token_signing_alg_values_supported=[algorithm]
+        id_token_signing_alg_values_supported=[algorithm],
+        code_challenge_methods_supported=["S256"]
     )
 
     logger.debug(f"Returning OAuth metadata: issuer={metadata.issuer}")

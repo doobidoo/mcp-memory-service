@@ -21,16 +21,18 @@ Implements OAuth 2.1 authorization code flow and token endpoints.
 import time
 import logging
 import base64
+import secrets
 from typing import Optional, Tuple
 from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, status, Form, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 import jwt
 
 from ...config import (
     OAUTH_ISSUER,
     OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES,
     OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES,
+    API_KEY,
     get_jwt_algorithm,
     get_jwt_signing_key
 )
@@ -151,101 +153,162 @@ async def validate_redirect_uri(client_id: str, redirect_uri: Optional[str]) -> 
     )
 
 
+def _build_authorize_page(query_string: str, error: Optional[str] = None) -> str:
+    """Build the HTML authorization/login page."""
+    error_html = ""
+    if error:
+        error_html = f'<div style="color:#ef4444;background:#fef2f2;border:1px solid #fecaca;padding:12px;border-radius:8px;margin-bottom:16px;font-size:14px;">{error}</div>'
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP Memory Service - Authorize</title>
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #e2e8f0; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }}
+  .card {{ background: #1e293b; border-radius: 12px; padding: 32px; width: 100%; max-width: 400px; box-shadow: 0 4px 24px rgba(0,0,0,0.3); }}
+  h1 {{ font-size: 20px; margin: 0 0 8px; color: #f8fafc; }}
+  p {{ font-size: 14px; color: #94a3b8; margin: 0 0 24px; }}
+  label {{ display: block; font-size: 13px; font-weight: 500; color: #cbd5e1; margin-bottom: 6px; }}
+  input[type=password] {{ width: 100%; padding: 10px 12px; border: 1px solid #334155; border-radius: 8px; background: #0f172a; color: #f8fafc; font-size: 15px; box-sizing: border-box; }}
+  input[type=password]:focus {{ outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }}
+  button {{ width: 100%; padding: 10px; margin-top: 16px; background: #3b82f6; color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: 500; cursor: pointer; }}
+  button:hover {{ background: #2563eb; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>MCP Memory Service</h1>
+  <p>Enter your API key to authorize this connection.</p>
+  {error_html}
+  <form method="POST" action="/oauth/authorize?{query_string}">
+    <label for="api_key">API Key</label>
+    <input type="password" id="api_key" name="api_key" required autofocus autocomplete="current-password">
+    <button type="submit">Authorize</button>
+  </form>
+</div>
+</body>
+</html>"""
+
+
 @router.get("/authorize")
-async def authorize(
+async def authorize_get(
+    request: Request,
     response_type: str = Query(..., description="OAuth response type"),
     client_id: str = Query(..., description="OAuth client identifier"),
     redirect_uri: Optional[str] = Query(None, description="Redirection URI"),
     scope: Optional[str] = Query(None, description="Requested scope"),
-    state: Optional[str] = Query(None, description="Opaque value for CSRF protection")
+    state: Optional[str] = Query(None, description="Opaque value for CSRF protection"),
+    code_challenge: Optional[str] = Query(None, description="PKCE code challenge"),
+    code_challenge_method: Optional[str] = Query(None, description="PKCE code challenge method (S256)")
 ):
     """
-    OAuth 2.1 Authorization endpoint.
+    OAuth 2.1 Authorization endpoint (GET).
 
-    Implements the authorization code flow. For MVP, this auto-approves
-    all requests without user interaction.
+    Shows a login page where the user must enter their API key
+    to approve the authorization request.
     """
-    logger.info("Authorization request received")
+    logger.info("Authorization page requested")
 
-    # Validate redirect_uri against registered client BEFORE any redirect use.
-    # Per OAuth 2.1 spec, only pre-registered URIs may be used as redirect targets.
-    # If validation fails here, raise an error without redirecting (to avoid open redirect).
+    # Validate client and redirect_uri before showing the form
+    if redirect_uri:
+        await validate_redirect_uri(client_id, redirect_uri)
+
+    if response_type != "code":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "unsupported_response_type", "error_description": "Only 'code' response type is supported"}
+        )
+
+    # Show login form — pass all query params through so the POST can use them
+    return HTMLResponse(_build_authorize_page(str(request.url.query)))
+
+
+@router.post("/authorize")
+async def authorize_post(
+    request: Request,
+    response_type: str = Query(..., description="OAuth response type"),
+    client_id: str = Query(..., description="OAuth client identifier"),
+    redirect_uri: Optional[str] = Query(None, description="Redirection URI"),
+    scope: Optional[str] = Query(None, description="Requested scope"),
+    state: Optional[str] = Query(None, description="Opaque value for CSRF protection"),
+    code_challenge: Optional[str] = Query(None, description="PKCE code challenge"),
+    code_challenge_method: Optional[str] = Query(None, description="PKCE code challenge method (S256)"),
+    api_key: str = Form(..., description="API key for authorization")
+):
+    """
+    OAuth 2.1 Authorization endpoint (POST).
+
+    Validates the API key and issues an authorization code if correct.
+    """
+    logger.info("Authorization form submitted")
+
+    # Validate API key
+    if not API_KEY or not secrets.compare_digest(api_key.encode(), API_KEY.encode()):
+        logger.warning("Authorization denied: invalid API key")
+        return HTMLResponse(
+            _build_authorize_page(str(request.url.query), error="Invalid API key. Please try again."),
+            status_code=403
+        )
+
+    # Validate redirect_uri against registered client
     validated_redirect_uri: Optional[str] = None
     if redirect_uri:
         try:
             validated_redirect_uri = await validate_redirect_uri(client_id, redirect_uri)
         except HTTPException:
-            # Invalid client or redirect_uri - respond without redirecting
             raise
 
     try:
-        # Validate response_type
-        if response_type != "code":
-            error_params = {
-                "error": "unsupported_response_type",
-                "error_description": "Only 'code' response type is supported"
-            }
-            if state:
-                error_params["state"] = _sanitize_state(state)
-
-            # Only redirect to a validated URI; otherwise return HTTP error
-            if validated_redirect_uri:
-                error_url = f"{validated_redirect_uri}?{urlencode(error_params)}"
-                return RedirectResponse(url=error_url)
-            else:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_params)
-
-        # Validate client and redirect_uri (also handles the case where redirect_uri was None)
         safe_redirect_uri = validated_redirect_uri or await validate_redirect_uri(client_id, redirect_uri)
 
-        # Generate authorization code
+        # Generate and store authorization code
         auth_code = get_oauth_storage().generate_authorization_code()
-
-        # Store authorization code
         await get_oauth_storage().store_authorization_code(
             code=auth_code,
             client_id=client_id,
             redirect_uri=safe_redirect_uri,
             scope=scope,
-            expires_in=OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES * 60
+            expires_in=OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES * 60,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method
         )
 
-        # Build redirect URL with authorization code
+        # Redirect with authorization code
         redirect_params = {"code": auth_code}
         if state:
             redirect_params["state"] = _sanitize_state(state)
 
         redirect_url = f"{safe_redirect_uri}?{urlencode(redirect_params)}"
-
-        logger.info("Authorization granted")
-        return RedirectResponse(url=redirect_url)
+        logger.info(f"Authorization granted, redirecting to callback")
+        # Use HTML meta-refresh + JS redirect for maximum popup compatibility.
+        # Some OAuth clients (Claude.ai) use popups where HTTP 302 from a
+        # form POST can be unreliable across cross-origin boundaries.
+        return HTMLResponse(f"""<!DOCTYPE html>
+<html><head>
+<meta http-equiv="refresh" content="0;url={redirect_url}">
+<script>window.location.href = {__import__('json').dumps(redirect_url)};</script>
+</head><body>Redirecting...</body></html>""")
 
     except HTTPException:
-        # Re-raise HTTP exceptions
         raise
     except Exception:
         logger.error("Authorization error occurred")
-
-        error_params = {
-            "error": "server_error",
-            "error_description": "Internal server error"
-        }
+        error_params = {"error": "server_error", "error_description": "Internal server error"}
         if state:
             error_params["state"] = _sanitize_state(state)
-
-        # Only redirect to a pre-validated URI; otherwise return HTTP error
         if validated_redirect_uri:
-            error_url = f"{validated_redirect_uri}?{urlencode(error_params)}"
-            return RedirectResponse(url=error_url)
-        else:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_params)
+            return RedirectResponse(url=f"{validated_redirect_uri}?{urlencode(error_params)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_params)
 
 
 async def _handle_authorization_code_grant(
     final_client_id: str,
     final_client_secret: str,
     code: Optional[str],
-    redirect_uri: Optional[str]
+    redirect_uri: Optional[str],
+    code_verifier: Optional[str] = None
 ) -> TokenResponse:
     """Handle OAuth authorization_code grant type."""
     if not code:
@@ -306,6 +369,30 @@ async def _handle_authorization_code_grant(
                 "error_description": "redirect_uri does not match the one used in authorization request"
             }
         )
+
+    # PKCE verification
+    stored_challenge = code_data.get("code_challenge")
+    if stored_challenge:
+        if not code_verifier:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "invalid_grant",
+                    "error_description": "code_verifier required for PKCE"
+                }
+            )
+        import hashlib
+        computed = base64.urlsafe_b64encode(
+            hashlib.sha256(code_verifier.encode("ascii")).digest()
+        ).rstrip(b"=").decode("ascii")
+        if computed != stored_challenge:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "invalid_grant",
+                    "error_description": "PKCE code_verifier does not match code_challenge"
+                }
+            )
 
     # Create access token
     access_token, expires_in = create_access_token(final_client_id, code_data["scope"])
@@ -376,7 +463,8 @@ async def token(
     code: Optional[str] = Form(None, description="Authorization code"),
     redirect_uri: Optional[str] = Form(None, description="Redirection URI"),
     client_id: Optional[str] = Form(None, description="OAuth client identifier"),
-    client_secret: Optional[str] = Form(None, description="OAuth client secret")
+    client_secret: Optional[str] = Form(None, description="OAuth client secret"),
+    code_verifier: Optional[str] = Form(None, description="PKCE code verifier")
 ):
     """
     OAuth 2.1 Token endpoint.
@@ -398,7 +486,7 @@ async def token(
     try:
         if grant_type == "authorization_code":
             return await _handle_authorization_code_grant(
-                final_client_id, final_client_secret, code, redirect_uri
+                final_client_id, final_client_secret, code, redirect_uri, code_verifier
             )
         elif grant_type == "client_credentials":
             return await _handle_client_credentials_grant(

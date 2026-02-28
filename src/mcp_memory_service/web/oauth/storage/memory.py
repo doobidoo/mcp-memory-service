@@ -102,7 +102,9 @@ class MemoryOAuthStorage(OAuthStorage):
         client_id: str,
         redirect_uri: Optional[str] = None,
         scope: Optional[str] = None,
-        expires_in: Optional[int] = None
+        expires_in: Optional[int] = None,
+        code_challenge: Optional[str] = None,
+        code_challenge_method: Optional[str] = None
     ) -> None:
         """
         Store an authorization code for the authorization code flow.
@@ -113,6 +115,8 @@ class MemoryOAuthStorage(OAuthStorage):
             redirect_uri: Redirect URI associated with this authorization
             scope: Space-separated list of granted scopes
             expires_in: Expiration time in seconds (None uses default)
+            code_challenge: PKCE code challenge
+            code_challenge_method: PKCE code challenge method (S256)
         """
         if expires_in is None:
             expires_in = OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES * 60
@@ -121,7 +125,9 @@ class MemoryOAuthStorage(OAuthStorage):
                 "client_id": client_id,
                 "redirect_uri": redirect_uri,
                 "scope": scope,
-                "expires_at": time.time() + expires_in
+                "expires_at": time.time() + expires_in,
+                "code_challenge": code_challenge,
+                "code_challenge_method": code_challenge_method,
             }
 
     async def get_authorization_code(self, code: str) -> Optional[Dict]:

@@ -168,9 +168,25 @@ class SQLiteOAuthStorage(OAuthStorage):
                 expires_at REAL NOT NULL,
                 consumed INTEGER NOT NULL DEFAULT 0,
                 created_at REAL NOT NULL,
+                code_challenge TEXT,
+                code_challenge_method TEXT,
                 FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id) ON DELETE CASCADE
             )
         """)
+
+        # Migration: add PKCE columns to existing tables
+        try:
+            await self._execute(
+                "ALTER TABLE oauth_authorization_codes ADD COLUMN code_challenge TEXT"
+            )
+        except Exception:
+            pass  # Column already exists
+        try:
+            await self._execute(
+                "ALTER TABLE oauth_authorization_codes ADD COLUMN code_challenge_method TEXT"
+            )
+        except Exception:
+            pass  # Column already exists
 
         # Create indexes for authorization codes
         await self._execute(
@@ -306,7 +322,9 @@ class SQLiteOAuthStorage(OAuthStorage):
         client_id: str,
         redirect_uri: Optional[str] = None,
         scope: Optional[str] = None,
-        expires_in: Optional[int] = None
+        expires_in: Optional[int] = None,
+        code_challenge: Optional[str] = None,
+        code_challenge_method: Optional[str] = None
     ) -> None:
         """
         Store an authorization code for the authorization code flow.
@@ -317,6 +335,8 @@ class SQLiteOAuthStorage(OAuthStorage):
             redirect_uri: Redirect URI associated with this authorization
             scope: Space-separated list of granted scopes
             expires_in: Expiration time in seconds (None uses default)
+            code_challenge: PKCE code challenge
+            code_challenge_method: PKCE code challenge method (S256)
 
         Raises:
             Exception: If storage operation fails
@@ -329,10 +349,12 @@ class SQLiteOAuthStorage(OAuthStorage):
             await self._execute(
                 """
                 INSERT INTO oauth_authorization_codes
-                (code, client_id, redirect_uri, scope, expires_at, consumed, created_at)
-                VALUES (?, ?, ?, ?, ?, 0, ?)
+                (code, client_id, redirect_uri, scope, expires_at, consumed, created_at,
+                 code_challenge, code_challenge_method)
+                VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
                 """,
-                (code, client_id, redirect_uri, scope, now + expires_in, now)
+                (code, client_id, redirect_uri, scope, now + expires_in, now,
+                 code_challenge, code_challenge_method)
             )
             await self._commit()
             logger.debug(f"Stored authorization code for client: {_sanitize_log_value(client_id)}")
@@ -393,7 +415,9 @@ class SQLiteOAuthStorage(OAuthStorage):
                 "client_id": row["client_id"],
                 "redirect_uri": row["redirect_uri"],
                 "scope": row["scope"],
-                "expires_at": row["expires_at"]
+                "expires_at": row["expires_at"],
+                "code_challenge": row["code_challenge"] if "code_challenge" in row.keys() else None,
+                "code_challenge_method": row["code_challenge_method"] if "code_challenge_method" in row.keys() else None,
             }
 
     async def store_access_token(

@@ -85,7 +85,9 @@ class OAuthStorage(ABC):
         client_id: str,
         redirect_uri: Optional[str] = None,
         scope: Optional[str] = None,
-        expires_in: Optional[int] = None
+        expires_in: Optional[int] = None,
+        code_challenge: Optional[str] = None,
+        code_challenge_method: Optional[str] = None
     ) -> None:
         """
         Store an authorization code for the authorization code flow.
