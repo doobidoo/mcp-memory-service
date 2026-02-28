@@ -35,10 +35,20 @@ if [ "$MODE" = "http" ] || [ "$MODE" = "api" ]; then
     # Start the HTTP server
     exec python /app/run_server.py "$@"
     
+elif [ "$MODE" = "streamable-http" ]; then
+    # Streamable HTTP Transport Mode (for Claude.ai remote MCP)
+    echo "[INFO] Starting MCP server with Streamable HTTP transport"
+
+    HOST="${MCP_SSE_HOST:-0.0.0.0}"
+    PORT="${MCP_SSE_PORT:-8765}"
+    echo "[INFO] Listening on ${HOST}:${PORT}"
+
+    exec python -m mcp_memory_service.cli.main server --streamable-http --sse-host "$HOST" --sse-port "$PORT" "$@"
+
 elif [ "$MODE" = "mcp" ]; then
     # MCP Protocol Mode (stdin/stdout)
     echo "[INFO] Starting MCP protocol server (stdin/stdout communication)"
-    
+
     # Function to keep stdin alive
     keep_stdin_alive() {
         while true; do
@@ -47,25 +57,25 @@ elif [ "$MODE" = "mcp" ]; then
             sleep 30
         done
     }
-    
+
     # Start the keep-alive process in the background
     keep_stdin_alive &
     KEEPALIVE_PID=$!
-    
+
     # Run the MCP server
     python -u -m mcp_memory_service.server "$@" &
     SERVER_PID=$!
-    
+
     # Wait for the server process
     wait $SERVER_PID
     SERVER_EXIT_CODE=$?
-    
+
     # Clean up the keep-alive process
     kill $KEEPALIVE_PID 2>/dev/null || true
-    
+
     exit $SERVER_EXIT_CODE
-    
+
 else
-    echo "[ERROR] Unknown mode: $MODE. Use 'mcp' for protocol mode or 'http' for API mode"
+    echo "[ERROR] Unknown mode: $MODE. Use 'mcp', 'http', or 'streamable-http'"
     exit 1
 fi

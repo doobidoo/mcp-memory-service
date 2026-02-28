@@ -90,8 +90,8 @@ RUN chmod a+rw /dev/stdin /dev/stdout /dev/stderr && \
 # Add volume mount points for data persistence
 VOLUME ["/app/sqlite_db", "/app/backups"]
 
-# Expose the port (if needed)
-EXPOSE 8000
+# Expose ports: 8000 for HTTP API, 8765 for SSE/Streamable HTTP transport
+EXPOSE 8000 8765
 
 # Use the unified entrypoint script by default
 # Can be overridden with docker-entrypoint.sh for backward compatibility
