@@ -370,8 +370,11 @@ class ServerRunManager:
             api_key_header = headers.get(b"x-api-key", b"").decode("latin-1")
 
             # Try Bearer token (OAuth)
-            if auth_header.lower().startswith("bearer ") and OAUTH_ENABLED:
-                token = auth_header[7:]
+            is_bearer = auth_header.lower().startswith("bearer ")
+            token = auth_header[7:] if is_bearer else ""
+
+            # Try Bearer token (OAuth)
+            if is_bearer and OAUTH_ENABLED:
                 result = await authenticate_bearer_token(token)
                 if result.authenticated:
                     return True
@@ -383,8 +386,7 @@ class ServerRunManager:
                     return True
 
             # Try Bearer token as API key fallback
-            if auth_header.lower().startswith("bearer ") and API_KEY:
-                token = auth_header[7:]
+            if is_bearer and API_KEY:
                 result = authenticate_api_key(token)
                 if result.authenticated:
                     return True
