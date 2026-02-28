@@ -285,10 +285,11 @@ async def authorize_post(
         # Use HTML meta-refresh + JS redirect for maximum popup compatibility.
         # Some OAuth clients (Claude.ai) use popups where HTTP 302 from a
         # form POST can be unreliable across cross-origin boundaries.
+        import json
         return HTMLResponse(f"""<!DOCTYPE html>
 <html><head>
-<meta http-equiv="refresh" content="0;url={redirect_url}">
-<script>window.location.href = {__import__('json').dumps(redirect_url)};</script>
+<meta http-equiv=\"refresh\" content=\"0;url={redirect_url}\">
+<script>window.location.href = {json.dumps(redirect_url)};</script>
 </head><body>Redirecting...</body></html>""")
 
     except HTTPException:
