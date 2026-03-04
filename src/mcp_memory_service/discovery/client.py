@@ -21,12 +21,13 @@ MCP Memory Service instances on the local network.
 
 import asyncio
 import logging
+import ssl
 import aiohttp
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
 
 from .mdns_service import ServiceDiscovery, ServiceDetails
-from ..config import MDNS_DISCOVERY_TIMEOUT
+from ..config import MDNS_DISCOVERY_TIMEOUT, PEER_VERIFY_SSL, PEER_SSL_CA_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +43,22 @@ class HealthStatus:
     error: Optional[str] = None
 
 
+def _create_ssl_connector() -> aiohttp.TCPConnector:
+    """Create a TCP connector with proper TLS verification settings.
+
+    Uses PEER_VERIFY_SSL (default True) and optional PEER_SSL_CA_FILE
+    from config. When a custom CA file is provided, an SSL context is
+    built from it; otherwise the system default CA bundle is used.
+    """
+    if PEER_SSL_CA_FILE:
+        ssl_context = ssl.create_default_context(cafile=PEER_SSL_CA_FILE)
+        return aiohttp.TCPConnector(ssl=ssl_context)
+    return aiohttp.TCPConnector(verify_ssl=PEER_VERIFY_SSL)
+
+
 class DiscoveryClient:
     """High-level client for discovering and validating MCP Memory Services."""
-    
+
     def __init__(self, discovery_timeout: int = MDNS_DISCOVERY_TIMEOUT):
         self.discovery_timeout = discovery_timeout
         self._discovery = ServiceDiscovery(discovery_timeout=discovery_timeout)
@@ -148,8 +162,8 @@ class DiscoveryClient:
             start_time = time.time()
             
             timeout_config = aiohttp.ClientTimeout(total=timeout)
-            connector = aiohttp.TCPConnector(verify_ssl=False)  # Allow self-signed certs
-            
+            connector = _create_ssl_connector()
+
             async with aiohttp.ClientSession(
                 timeout=timeout_config,
                 connector=connector
@@ -218,8 +232,8 @@ class DiscoveryClient:
                 headers['Authorization'] = f'Bearer {api_key}'
             
             timeout_config = aiohttp.ClientTimeout(total=timeout)
-            connector = aiohttp.TCPConnector(verify_ssl=False)
-            
+            connector = _create_ssl_connector()
+
             async with aiohttp.ClientSession(
                 timeout=timeout_config,
                 connector=connector

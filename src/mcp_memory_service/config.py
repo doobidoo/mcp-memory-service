@@ -564,6 +564,10 @@ MDNS_SERVICE_NAME = os.getenv('MCP_MDNS_SERVICE_NAME', 'MCP Memory Service')
 MDNS_SERVICE_TYPE = os.getenv('MCP_MDNS_SERVICE_TYPE', '_mcp-memory._tcp.local.')
 MDNS_DISCOVERY_TIMEOUT = safe_get_int_env('MCP_MDNS_DISCOVERY_TIMEOUT', 5, min_value=1, max_value=60)
 
+# Peer Discovery TLS Configuration
+PEER_VERIFY_SSL = os.getenv('MCP_PEER_VERIFY_SSL', 'true').lower() == 'true'
+PEER_SSL_CA_FILE = os.getenv('MCP_PEER_SSL_CA_FILE', None)
+
 # Database path for HTTP interface (use SQLite-vec by default)
 if (STORAGE_BACKEND in ['sqlite_vec', 'hybrid']) and SQLITE_VEC_PATH:
     DATABASE_PATH = SQLITE_VEC_PATH
