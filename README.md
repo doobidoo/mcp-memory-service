@@ -265,18 +265,19 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.20.6** (March 4, 2026)
+## 🆕 Latest Release: **v10.21.0** (March 4, 2026)
 
-**Security: Fix MITM vulnerability in peer discovery TLS (GHSA-x9r8-q2qj-cgvw)**
+**Security: Harden health endpoints against info disclosure (GHSA-73hc-m4hx-79pj)**
 
-**What's Fixed:**
-- **TLS verification hardcoded off in peer discovery** (GHSA-x9r8-q2qj-cgvw, CVSS 7.4 High): `discovery/client.py` used `verify_ssl=False` for all peer HTTPS connections, enabling MITM attacks on peer discovery traffic. TLS verification is now enabled by default.
-- **New config options for opt-out**: `MCP_PEER_VERIFY_SSL=false` disables verification for dev environments; `MCP_PEER_SSL_CA_FILE` points to a custom CA bundle for private PKI deployments.
-- **Regression test**: AST-based test in `tests/discovery/test_tls_verification.py` ensures `verify_ssl=False` cannot be silently re-introduced.
+**What's New:**
+- **Health endpoint info disclosure fix** (GHSA-73hc-m4hx-79pj, CVSS 5.3 Medium): `/api/health` no longer exposes OS/Python version, CPU count, RAM, disk sizes, or database filesystem path to unauthenticated users. `/api/health/detailed` now requires authentication (write access).
+- **BREAKING: Default HTTP binding changed to `127.0.0.1`**: Server no longer listens on all interfaces by default. Set `MCP_HTTP_HOST=0.0.0.0` to restore network-wide access.
+- **7 regression tests** added in `tests/web/api/test_health_info_disclosure.py`.
 
 ---
 
 **Previous Releases**:
+- **v10.20.6** - Security patch: Fix MITM vulnerability in peer discovery TLS (GHSA-x9r8-q2qj-cgvw, CVSS 7.4 High) — TLS verification now enabled by default, `MCP_PEER_VERIFY_SSL` / `MCP_PEER_SSL_CA_FILE` opt-out options, AST regression test
 - **v10.20.5** - Fix: Standardize content-only hashing across all call sites — removed `metadata` param from `generate_content_hash()`, updated 5 call sites, 7 unit tests (PR #536, closes #522)
 - **v10.20.4** - Bug fixes: Cloudflare/Hybrid tags column always NULL in D1 INSERT (delete_by_tags silently failing) + empty-tag LIKE false matches guard (PR #534, contributor: shawnsw)
 - **v10.20.3** - Bug fixes: HTTP server auto-start (wrong module path, env var handling, startup polling, auth forwarding) + hook installer improvements (pyproject.toml check, API key generation, dual-server guidance) (PRs #529, #531)

@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.21.0] - 2026-03-04
+
+### Security
+- **Fix health endpoints info disclosure (GHSA-73hc-m4hx-79pj, CVSS 5.3 Medium)**: `/api/health` and `/api/health/detailed` leaked sensitive system fingerprinting data to unauthenticated callers — OS version, Python version, CPU count, total/available RAM, disk sizes, and the absolute filesystem path of the database. These fields have been stripped from the public `/api/health` response (version and uptime removed, status-only response now). The detailed endpoint `/api/health/detailed` now requires `write` access (authenticated requests only); unauthenticated callers receive HTTP 403. The `database_path` field has been removed entirely from all health responses. 7 new regression tests added in `tests/web/api/test_health_info_disclosure.py`.
+
+### Changed
+- **BREAKING: Default HTTP binding changed from `0.0.0.0` to `127.0.0.1`** (`MCP_HTTP_HOST` in `config.py`, hardcoded bind in `mcp_server.py`): The HTTP server previously listened on all network interfaces by default, exposing the REST API and dashboard to every device on the local network (and potentially the internet if the host had a public IP). The new default binds to `127.0.0.1` (loopback only), so the service is only reachable from the same machine. **Migration**: If you need network access (e.g. multi-agent pipelines on different hosts, Docker bridge networking, or remote dashboard access), set `MCP_HTTP_HOST=0.0.0.0` explicitly in your environment or `.env` file. Docker deployments and users who already set `MCP_HTTP_HOST` are unaffected.
+
 ## [10.20.6] - 2026-03-04
 
 ### Security
