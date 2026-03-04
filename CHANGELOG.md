@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.20.6] - 2026-03-04
+
+### Security
+- **Fix MITM vulnerability in peer discovery TLS (GHSA-x9r8-q2qj-cgvw, CVSS 7.4 High)**: `discovery/client.py` hardcoded `verify_ssl=False` for all peer-to-peer HTTPS connections, allowing a network attacker to intercept and tamper with discovery traffic. TLS certificate verification is now enabled by default. Two new environment variables allow opt-out for development environments and custom PKI deployments: `MCP_PEER_VERIFY_SSL=false` (disable verification) and `MCP_PEER_SSL_CA_FILE=/path/to/ca-bundle.pem` (custom CA bundle). Seven unit tests added in `tests/discovery/test_tls_verification.py` including an AST-based regression test that ensures `verify_ssl=False` can never be re-introduced silently.
+
 ## [10.20.5] - 2026-03-04
 
 ### Fixed
