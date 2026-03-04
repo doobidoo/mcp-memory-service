@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.20.5] - 2026-03-04
+
+### Fixed
+- **Standardize content-only hashing across all call sites** (#522, closes #522): `generate_content_hash()` previously accepted an optional `metadata` parameter that was silently ignored, creating an inconsistent API where the same content could appear to produce different hashes depending on how call sites invoked the function. The `metadata` parameter has been removed — the function now only accepts `content` — and all 5 affected call sites updated (`cli/ingestion.py`, `server/handlers/documents.py`, `utils/document_processing.py`, `web/api/documents.py`, `web/api/mcp.py`). Hash output is identical for all previously correct call sites; call sites that incorrectly passed `metadata` now produce the same hash as content-only call sites (resolving the inconsistency). 7 new `@pytest.mark.unit` tests added in `tests/unit/test_content_hash_consistency.py` covering: no-metadata-parameter enforcement, deterministic output, content sensitivity, whitespace handling, Unicode, empty string, and long content.
+
 ## [10.20.4] - 2026-03-04
 
 ### Fixed

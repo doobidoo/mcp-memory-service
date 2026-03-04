@@ -265,17 +265,17 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## 🆕 Latest Release: **v10.20.4** (March 4, 2026)
+## 🆕 Latest Release: **v10.20.5** (March 4, 2026)
 
-**Bug Fix: Cloudflare/Hybrid tags column NULL in D1 INSERT**
+**Fix: Standardize content-only hashing across all call sites**
 
 **What's Fixed:**
-- **Cloudflare/Hybrid: tags column always NULL in D1 INSERT** (#534, contributor: shawnsw): The denormalized `tags` TEXT column was never populated, causing `delete_by_tags()` and `delete_by_timeframe()` to silently return success without deleting any memories on Cloudflare and Hybrid backends. Tags are now joined as a comma-separated string and written on every INSERT.
-- **Cloudflare/Hybrid: empty-tag LIKE false matches** (#534, contributor: shawnsw): Empty strings in the tags list produced trailing commas in LIKE patterns (e.g. `%,`) causing spurious matches. Empty tags are now filtered out before assembly.
+- **Removed `metadata` parameter from `generate_content_hash()`** (#536, closes #522): The function previously accepted an optional `metadata` parameter that was silently ignored, creating API inconsistency where identical content could appear to hash differently depending on how call sites invoked the function. Parameter removed, all 5 call sites updated (`cli/ingestion.py`, `server/handlers/documents.py`, `utils/document_processing.py`, `web/api/documents.py`, `web/api/mcp.py`). 7 new unit tests added in `tests/unit/test_content_hash_consistency.py`.
 
 ---
 
 **Previous Releases**:
+- **v10.20.4** - Bug fixes: Cloudflare/Hybrid tags column always NULL in D1 INSERT (delete_by_tags silently failing) + empty-tag LIKE false matches guard (PR #534, contributor: shawnsw)
 - **v10.20.3** - Bug fixes: HTTP server auto-start (wrong module path, env var handling, startup polling, auth forwarding) + hook installer improvements (pyproject.toml check, API key generation, dual-server guidance) (PRs #529, #531)
 - **v10.20.2** - Bug fix: TypeError in `_prompt_learning_session` (missing `content_hash` in `Memory` constructor, PR #521)
 - **v10.20.1** - Security patch: serialize-javascript RCE (alerts #44 #45) + pypdf RAM exhaustion (CVE-2026-28351 / CVE-2026-27888, alerts #43 #46)
