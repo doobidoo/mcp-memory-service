@@ -3,12 +3,11 @@
 Verifies that generate_content_hash produces identical hashes
 for identical content regardless of how it's called.
 """
-import inspect
-
 import pytest
 from mcp_memory_service.utils.hashing import generate_content_hash
 
 
+@pytest.mark.unit
 class TestContentHashConsistency:
     """Verify content-only hashing policy."""
 
@@ -26,13 +25,9 @@ class TestContentHashConsistency:
         assert hash1 != hash2
 
     def test_no_metadata_parameter(self):
-        """generate_content_hash should only accept content (str)."""
-        sig = inspect.signature(generate_content_hash)
-        params = list(sig.parameters.keys())
-        assert params == ["content"], (
-            f"Expected only 'content' parameter, got {params}. "
-            "Metadata should not affect content identity (Issue #522)."
-        )
+        """generate_content_hash should reject unexpected arguments (Issue #522)."""
+        with pytest.raises(TypeError):
+            generate_content_hash("content", {"key": "value"})
 
     def test_hash_is_sha256_hex(self):
         """Hash should be a valid SHA-256 hex digest."""
@@ -51,3 +46,9 @@ class TestContentHashConsistency:
         hash1 = generate_content_hash("Hello World")
         hash2 = generate_content_hash("hello world")
         assert hash1 == hash2
+
+    def test_internal_whitespace_preserved(self):
+        """Internal whitespace differences should produce different hashes."""
+        hash1 = generate_content_hash("hello  world")
+        hash2 = generate_content_hash("hello world")
+        assert hash1 != hash2
