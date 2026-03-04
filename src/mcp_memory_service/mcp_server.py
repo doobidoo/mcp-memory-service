@@ -67,6 +67,8 @@ from .config import (
     STORAGE_BACKEND,
     EMBEDDING_MODEL_NAME,
     SQLITE_VEC_PATH,
+    HTTP_HOST,
+    HTTP_PORT,
 )
 from .storage.base import MemoryStorage
 from .services.memory_service import MemoryService
@@ -234,9 +236,9 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
 # Create FastMCP server instance
 try:
     mcp = FastMCP(
-        name="MCP Memory Service", 
-        host="127.0.0.1",  # Localhost only by default; set MCP_HTTP_HOST=0.0.0.0 for network access
-        port=8000,       # Default port
+        name="MCP Memory Service",
+        host=HTTP_HOST,
+        port=HTTP_PORT,
         lifespan=mcp_server_lifespan,
         stateless_http=True  # Enable stateless HTTP for Claude Code compatibility
     )
@@ -754,10 +756,6 @@ def main():
     This `mcp-memory-server` entry point starts an HTTP server on a port and is
     intended for remote/HTTP-based MCP clients only.
     """
-    # Configure for Claude Code integration
-    port = int(os.getenv("MCP_SERVER_PORT", "8000"))
-    host = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
-
     # Emit a prominent warning so users who accidentally invoke this via stdio
     # see a clear message rather than a silent misconfiguration.
     print(
@@ -769,7 +767,7 @@ def main():
         file=sys.stderr
     )
 
-    logger.info(f"Starting MCP Memory Service FastAPI server on {host}:{port}")
+    logger.info(f"Starting MCP Memory Service FastAPI server on {HTTP_HOST}:{HTTP_PORT}")
     logger.info(f"Storage backend: {STORAGE_BACKEND}")
 
     # Run server with streamable HTTP transport

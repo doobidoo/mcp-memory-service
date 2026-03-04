@@ -258,7 +258,7 @@ class ClearCachesResponse(BaseModel):
 
 @router.get("/memory-stats", response_model=MemoryStatsResponse)
 async def get_memory_stats(
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Get detailed memory usage statistics for the process.
@@ -302,7 +302,7 @@ async def get_memory_stats(
 
 @router.post("/clear-caches", response_model=ClearCachesResponse)
 async def clear_caches(
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Clear all caches to free memory.
