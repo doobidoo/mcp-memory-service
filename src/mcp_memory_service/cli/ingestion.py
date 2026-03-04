@@ -110,7 +110,7 @@ def ingest_document(file_path: Path, tags: tuple, chunk_size: int, chunk_overlap
                         # Create memory object
                         memory = Memory(
                             content=chunk.content,
-                            content_hash=generate_content_hash(chunk.content, chunk.metadata),
+                            content_hash=generate_content_hash(chunk.content),
                             tags=list(set(all_tags)),  # Remove duplicates
                             memory_type=memory_type,
                             metadata=chunk.metadata

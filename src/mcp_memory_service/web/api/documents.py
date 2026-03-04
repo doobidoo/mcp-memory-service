@@ -439,7 +439,7 @@ async def process_single_file_upload(
                 # Create memory object
                 memory = Memory(
                     content=chunk.content,
-                    content_hash=generate_content_hash(chunk.content, chunk_metadata),
+                    content_hash=generate_content_hash(chunk.content),
                     tags=list(set(all_tags)),  # Remove duplicates
                     memory_type=memory_type,
                     metadata=chunk_metadata

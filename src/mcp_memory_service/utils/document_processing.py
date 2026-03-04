@@ -78,7 +78,7 @@ def create_memory_from_chunk(
     # Create and return memory object
     return Memory(
         content=chunk.content,
-        content_hash=generate_content_hash(chunk.content, chunk_metadata),
+        content_hash=generate_content_hash(chunk.content),
         tags=list(set(all_tags)),  # Remove duplicates
         memory_type=memory_type,
         metadata=chunk_metadata

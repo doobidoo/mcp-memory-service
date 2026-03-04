@@ -119,7 +119,7 @@ async def handle_ingest_document(server, arguments: dict) -> List[types.TextCont
                 from ...utils import generate_content_hash
                 memory = Memory(
                     content=chunk.content,
-                    content_hash=generate_content_hash(chunk.content, chunk.metadata),
+                    content_hash=generate_content_hash(chunk.content),
                     tags=list(set(all_tags)),  # Remove duplicates
                     memory_type=memory_type,
                     metadata=chunk.metadata
