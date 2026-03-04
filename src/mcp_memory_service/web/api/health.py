@@ -36,7 +36,7 @@ except (ImportError, AttributeError):
 # OAuth config no longer needed - auth is always enabled
 
 # OAuth authentication imports
-from ..oauth.middleware import require_read_access, AuthenticationResult
+from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
 
 router = APIRouter()
 
@@ -44,9 +44,6 @@ router = APIRouter()
 class HealthResponse(BaseModel):
     """Basic health check response."""
     status: str
-    version: str
-    timestamp: str
-    uptime_seconds: float
 
 
 class DetailedHealthResponse(BaseModel):
@@ -67,36 +64,35 @@ _startup_time = time.time()
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Basic health check endpoint."""
-    return HealthResponse(
-        status="healthy",
-        version=__version__,
-        timestamp=datetime.now(timezone.utc).isoformat(),
-        uptime_seconds=time.time() - _startup_time
-    )
+    """Basic health check endpoint.
+
+    Returns only operational status — no version, uptime, or system
+    details to avoid information disclosure to unauthenticated callers
+    (GHSA-73hc-m4hx-79pj).
+    """
+    return HealthResponse(status="healthy")
 
 
 @router.get("/health/detailed", response_model=DetailedHealthResponse)
 async def detailed_health_check(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_write_access)
 ):
-    """Detailed health check with system and storage information."""
-    
-    # Get system information
+    """Detailed health check with storage information.
+
+    Requires write (admin) access to prevent information disclosure
+    to anonymous or read-only users (GHSA-73hc-m4hx-79pj).
+
+    System details are limited to memory/disk usage percentages —
+    no OS version, Python version, absolute paths, or hardware specs.
+    """
+
+    # Only expose resource utilization percentages — no fingerprinting data
     memory_info = psutil.virtual_memory()
     disk_info = psutil.disk_usage('/')
-    
+
     system_info = {
-        "platform": platform.system(),
-        "platform_version": platform.version(),
-        "python_version": platform.python_version(),
-        "cpu_count": psutil.cpu_count(),
-        "memory_total_gb": round(memory_info.total / (1024**3), 2),
-        "memory_available_gb": round(memory_info.available / (1024**3), 2),
         "memory_percent": memory_info.percent,
-        "disk_total_gb": round(disk_info.total / (1024**3), 2),
-        "disk_free_gb": round(disk_info.free / (1024**3), 2),
         "disk_percent": round((disk_info.used / disk_info.total) * 100, 2)
     }
     
@@ -128,8 +124,8 @@ async def detailed_health_check(
             }
 
             # Add backend-specific information if available
-            if hasattr(storage, 'db_path'):
-                storage_info["database_path"] = storage.db_path
+            # NOTE: database_path intentionally omitted — leaks filesystem
+            # structure and username (GHSA-73hc-m4hx-79pj)
             if hasattr(storage, 'embedding_model_name'):
                 storage_info["embedding_model"] = storage.embedding_model_name
 

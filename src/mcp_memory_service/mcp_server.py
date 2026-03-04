@@ -235,7 +235,7 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
 try:
     mcp = FastMCP(
         name="MCP Memory Service", 
-        host="0.0.0.0",  # Listen on all interfaces for remote access
+        host="127.0.0.1",  # Localhost only by default; set MCP_HTTP_HOST=0.0.0.0 for network access
         port=8000,       # Default port
         lifespan=mcp_server_lifespan,
         stateless_http=True  # Enable stateless HTTP for Claude Code compatibility
@@ -756,7 +756,7 @@ def main():
     """
     # Configure for Claude Code integration
     port = int(os.getenv("MCP_SERVER_PORT", "8000"))
-    host = os.getenv("MCP_SERVER_HOST", "0.0.0.0")
+    host = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
 
     # Emit a prominent warning so users who accidentally invoke this via stdio
     # see a clear message rather than a silent misconfiguration.

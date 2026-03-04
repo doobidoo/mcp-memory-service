@@ -64,7 +64,7 @@ PARAM_DESCRIPTIONS = {
     # Core Configuration
     "MCP_MEMORY_STORAGE_BACKEND": "Storage backend to use: sqlite_vec (local), cloudflare (cloud), or hybrid (best of both)",
     "MCP_HTTP_PORT": "Port for the HTTP server (default: 8000)",
-    "MCP_HTTP_HOST": "Host address for HTTP server (default: 0.0.0.0)",
+    "MCP_HTTP_HOST": "Host address for HTTP server (default: 127.0.0.1; set to 0.0.0.0 for network access)",
     "MCP_HTTP_ENABLED": "Enable the HTTP/HTTPS web interface",
     "MCP_HTTPS_ENABLED": "Enable HTTPS with automatic or custom certificate",
     "MCP_SSL_CERT_FILE": "Path to SSL certificate file for HTTPS",
