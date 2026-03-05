@@ -1425,18 +1425,21 @@ SOLUTIONS:
                 params = [serialize_float32(query_embedding), k_value]
 
                 if tags:
-                    # Match ANY tag using LIKE on the comma-separated tags column.
-                    # Escape LIKE wildcards (%, _) in tag values to prevent
-                    # pattern injection, using \ as the escape character.
+                    # Match ANY tag using GLOB on the comma-separated tags column.
+                    # GLOB is case-sensitive and uses * wildcards (no injection risk from user data
+                    # since GLOB special chars * ? [ are not valid in tag names).
+                    # REPLACE strips whitespace to handle "tag1, tag2" storage format.
                     tag_clauses = []
                     for tag in tags:
                         # Type validation: skip non-string elements to prevent AttributeError
                         if not isinstance(tag, str):
                             logger.warning(f"Skipping non-string tag in search: {type(tag).__name__}")
                             continue
-                        escaped = tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-                        tag_clauses.append("(',' || m.tags || ',' LIKE ? ESCAPE '\\')")
-                        params.append(f"%,{escaped},%")
+                        stripped = tag.strip()
+                        tag_clauses.append(
+                            "(',' || REPLACE(m.tags, ' ', '') || ',') GLOB ?"
+                        )
+                        params.append(f"*,{stripped},*")
 
                     # CRITICAL: If tag filter was provided but all tags invalid,
                     # return empty results instead of silently ignoring the filter.
@@ -2230,13 +2233,17 @@ SOLUTIONS:
             end_ts = datetime.combine(end_date, datetime.max.time()).timestamp()
 
             if tag:
-                # Delete with tag filter
-                cursor = self.conn.execute('''
+                # Delete with tag filter (GLOB for exact tag match in CSV column)
+                stripped_tag = tag.strip()
+                cursor = self.conn.execute(
+                    """
                     SELECT content_hash FROM memories
                     WHERE created_at >= ? AND created_at <= ?
-                    AND (tags LIKE ? OR tags LIKE ? OR tags LIKE ? OR tags = ?)
+                    AND (',' || REPLACE(tags, ' ', '') || ',') GLOB ?
                     AND deleted_at IS NULL
-                ''', (start_ts, end_ts, f"{tag},%", f"%,{tag},%", f"%,{tag}", tag))
+                """,
+                    (start_ts, end_ts, f"*,{stripped_tag},*"),
+                )
             else:
                 # Delete all in timeframe
                 cursor = self.conn.execute('''
@@ -2270,13 +2277,17 @@ SOLUTIONS:
             before_ts = datetime.combine(before_date, datetime.min.time()).timestamp()
 
             if tag:
-                # Delete with tag filter
-                cursor = self.conn.execute('''
+                # Delete with tag filter (GLOB for exact tag match in CSV column)
+                stripped_tag = tag.strip()
+                cursor = self.conn.execute(
+                    """
                     SELECT content_hash FROM memories
                     WHERE created_at < ?
-                    AND (tags LIKE ? OR tags LIKE ? OR tags LIKE ? OR tags = ?)
+                    AND (',' || REPLACE(tags, ' ', '') || ',') GLOB ?
                     AND deleted_at IS NULL
-                ''', (before_ts, f"{tag},%", f"%,{tag},%", f"%,{tag}", tag))
+                """,
+                    (before_ts, f"*,{stripped_tag},*"),
+                )
             else:
                 # Delete all before date
                 cursor = self.conn.execute('''
@@ -2987,11 +2998,17 @@ SOLUTIONS:
                 where_conditions.append('m.memory_type = ?')
                 params.append(memory_type)
 
-            # Add tags filter if specified (using database-level filtering like search_by_tag_chronological)
+            # Add tags filter if specified (GLOB for exact tag matching in CSV column)
             if tags and len(tags) > 0:
-                tag_conditions = " OR ".join(["m.tags LIKE ?" for _ in tags])
+                stripped_tags = [tag.strip() for tag in tags]
+                tag_conditions = " OR ".join(
+                    [
+                        "(',' || REPLACE(m.tags, ' ', '') || ',') GLOB ?"
+                        for _ in stripped_tags
+                    ]
+                )
                 where_conditions.append(f"({tag_conditions})")
-                params.extend([f"%{tag}%" for tag in tags])
+                params.extend([f"*,{tag},*" for tag in stripped_tags])
 
             # Apply WHERE clause
             query += ' WHERE ' + ' AND '.join(where_conditions)
@@ -3146,12 +3163,16 @@ SOLUTIONS:
                 params.append(memory_type)
 
             if tags:
-                # Filter by tags - match ANY tag (OR logic)
-                tag_conditions = ' OR '.join(['tags LIKE ?' for _ in tags])
-                conditions.append(f'({tag_conditions})')
-                # Add each tag with wildcards for LIKE matching
-                for tag in tags:
-                    params.append(f'%{tag}%')
+                # Filter by tags - match ANY tag (OR logic, GLOB for exact match in CSV)
+                stripped_tags = [tag.strip() for tag in tags]
+                tag_conditions = " OR ".join(
+                    [
+                        "(',' || REPLACE(tags, ' ', '') || ',') GLOB ?"
+                        for _ in stripped_tags
+                    ]
+                )
+                conditions.append(f"({tag_conditions})")
+                params.extend([f"*,{tag},*" for tag in stripped_tags])
 
             # Build final query (always exclude soft-deleted)
             conditions.append('deleted_at IS NULL')
