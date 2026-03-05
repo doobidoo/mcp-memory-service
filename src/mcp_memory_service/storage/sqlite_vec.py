@@ -1920,14 +1920,14 @@ SOLUTIONS:
             limit_clause = f"LIMIT {limit}" if limit is not None else ""
             offset_clause = f"OFFSET {offset}" if offset > 0 else ""
 
-            query = f'''
+            query = f"""
                 SELECT content_hash, content, tags, memory_type, metadata,
                        created_at, updated_at, created_at_iso, updated_at_iso
                 FROM memories
-                WHERE {tag_conditions}
+                WHERE ({tag_conditions}) AND deleted_at IS NULL
                 ORDER BY created_at DESC
                 {limit_clause} {offset_clause}
-            '''
+            """
 
             cursor = self.conn.execute(query, tag_params)
             results = []
@@ -2703,8 +2703,10 @@ SOLUTIONS:
                     '''
                     
                     if time_where:
-                        base_query += f" WHERE {time_where}"
-                    
+                        base_query += f" WHERE m.deleted_at IS NULL AND {time_where}"
+                    else:
+                        base_query += " WHERE m.deleted_at IS NULL"
+
                     base_query += " ORDER BY e.distance"
                     
                     # Prepare parameters: embedding, limit, then time filter params
@@ -2737,14 +2739,25 @@ SOLUTIONS:
                             )
                             
                             # Calculate relevance score (lower distance = higher relevance)
-                            relevance_score = max(0.0, 1.0 - distance)
-                            
-                            results.append(MemoryQueryResult(
-                                memory=memory,
-                                relevance_score=relevance_score,
-                                debug_info={"distance": distance, "backend": "sqlite-vec", "time_filtered": bool(time_where)}
-                            ))
-                            
+                            # Cosine distance ranges from 0 (identical) to 2 (opposite)
+                            relevance_score = (
+                                max(0.0, 1.0 - (float(distance) / 2.0))
+                                if distance is not None
+                                else 0.0
+                            )
+
+                            results.append(
+                                MemoryQueryResult(
+                                    memory=memory,
+                                    relevance_score=relevance_score,
+                                    debug_info={
+                                        "distance": distance,
+                                        "backend": "sqlite-vec",
+                                        "time_filtered": bool(time_where),
+                                    },
+                                )
+                            )
+
                         except Exception as parse_error:
                             logger.warning(f"Failed to parse memory result: {parse_error}")
                             continue
@@ -2765,8 +2778,10 @@ SOLUTIONS:
             '''
             
             if time_where:
-                base_query += f" WHERE {time_where}"
-            
+                base_query += f" WHERE deleted_at IS NULL AND {time_where}"
+            else:
+                base_query += " WHERE deleted_at IS NULL"
+
             base_query += " ORDER BY created_at DESC LIMIT ?"
             
             # Add limit parameter
@@ -2819,14 +2834,17 @@ SOLUTIONS:
         """Get memories within a specific time range."""
         try:
             await self.initialize()
-            cursor = self.conn.execute('''
+            cursor = self.conn.execute(
+                """
                 SELECT content_hash, content, tags, memory_type, metadata,
                        created_at, updated_at, created_at_iso, updated_at_iso
                 FROM memories
-                WHERE created_at BETWEEN ? AND ?
+                WHERE created_at BETWEEN ? AND ? AND deleted_at IS NULL
                 ORDER BY created_at DESC
-            ''', (start_time, end_time))
-            
+            """,
+                (start_time, end_time),
+            )
+
             results = []
             for row in cursor.fetchall():
                 try:
@@ -3049,6 +3067,7 @@ SOLUTIONS:
             query = """
                 SELECT content_hash, content, tags, memory_type, metadata, created_at, updated_at
                 FROM memories
+                WHERE deleted_at IS NULL
                 ORDER BY LENGTH(content) DESC
                 LIMIT ?
             """
@@ -3062,7 +3081,9 @@ SOLUTIONS:
                     memory = Memory(
                         content_hash=row[0],
                         content=row[1],
-                        tags=json.loads(row[2]) if row[2] else [],
+                        tags=[t.strip() for t in row[2].split(",") if t.strip()]
+                        if row[2]
+                        else [],
                         memory_type=row[3],
                         metadata=json.loads(row[4]) if row[4] else {},
                         created_at=row[5],
@@ -3102,7 +3123,7 @@ SOLUTIONS:
                 query = """
                     SELECT created_at
                     FROM memories
-                    WHERE created_at >= ?
+                    WHERE created_at >= ? AND deleted_at IS NULL
                     ORDER BY created_at DESC
                 """
                 cursor = self.conn.execute(query, (cutoff_timestamp,))
@@ -3110,6 +3131,7 @@ SOLUTIONS:
                 query = """
                     SELECT created_at
                     FROM memories
+                    WHERE deleted_at IS NULL
                     ORDER BY created_at DESC
                 """
                 cursor = self.conn.execute(query)
