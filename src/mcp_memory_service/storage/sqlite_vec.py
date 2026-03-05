@@ -75,6 +75,15 @@ def _sanitize_log_value(value: object) -> str:
     return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
 
 
+def _escape_glob(value: str) -> str:
+    """Escape GLOB metacharacters so they are treated as literals.
+
+    SQLite GLOB uses *, ?, and [...] as wildcards.  Bracket escaping
+    (``[*]``, ``[?]``, ``[[]``) turns them into literal matches.
+    """
+    return value.replace("[", "[[]").replace("*", "[*]").replace("?", "[?]")
+
+
 # Module-level constants for vector search and tag filtering
 _SQLITE_VEC_MAX_KNN_K = 4096        # sqlite-vec hard limit for k in KNN queries
 _MAX_TAG_SEARCH_CANDIDATES = _SQLITE_VEC_MAX_KNN_K  # Cap at sqlite-vec limit (was 10000, which exceeds k limit)
@@ -1439,7 +1448,7 @@ SOLUTIONS:
                         tag_clauses.append(
                             "(',' || REPLACE(m.tags, ' ', '') || ',') GLOB ?"
                         )
-                        params.append(f"*,{stripped},*")
+                        params.append(f"*,{_escape_glob(stripped)},*")
 
                     # CRITICAL: If tag filter was provided but all tags invalid,
                     # return empty results instead of silently ignoring the filter.
@@ -1752,7 +1761,7 @@ SOLUTIONS:
             # Strip whitespace from tags to match get_all_tags_with_counts behavior
             stripped_tags = [tag.strip() for tag in tags]
             tag_conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') GLOB ?" for _ in stripped_tags])
-            tag_params = [f"*,{tag},*" for tag in stripped_tags]
+            tag_params = [f"*,{_escape_glob(tag)},*" for tag in stripped_tags]
 
             # Add time filter to WHERE clause if provided
             # Also exclude soft-deleted memories
@@ -1832,7 +1841,7 @@ SOLUTIONS:
             stripped_tags = [tag.strip() for tag in tags]
             comparator = " AND " if normalized_operation == "AND" else " OR "
             tag_conditions = comparator.join(["(',' || REPLACE(tags, ' ', '') || ',') GLOB ?" for _ in stripped_tags])
-            tag_params = [f"*,{tag},*" for tag in stripped_tags]
+            tag_params = [f"*,{_escape_glob(tag)},*" for tag in stripped_tags]
 
             where_conditions = [f"({tag_conditions})"] if tag_conditions else []
             # Always exclude soft-deleted memories
@@ -1917,7 +1926,7 @@ SOLUTIONS:
             # Strip whitespace from tags to match get_all_tags_with_counts behavior
             stripped_tags = [tag.strip() for tag in tags]
             tag_conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') GLOB ?" for _ in stripped_tags])
-            tag_params = [f"*,{tag},*" for tag in stripped_tags]
+            tag_params = [f"*,{_escape_glob(tag)},*" for tag in stripped_tags]
 
             # Build pagination clauses
             limit_clause = f"LIMIT {limit}" if limit is not None else ""
@@ -2136,7 +2145,7 @@ SOLUTIONS:
             # Pattern: (',' || tags || ',') GLOB '*,tag,*' matches exact tag in comma-separated list
             # Strip whitespace to match get_all_tags_with_counts behavior
             stripped_tag = tag.strip()
-            exact_match_pattern = f"*,{stripped_tag},*"
+            exact_match_pattern = f"*,{_escape_glob(stripped_tag)},*"
 
             # Get the ids first to delete corresponding embeddings (only non-deleted)
             cursor = self.conn.execute(
@@ -2190,7 +2199,7 @@ SOLUTIONS:
             # Strip whitespace to match get_all_tags_with_counts behavior
             stripped_tags = [tag.strip() for tag in tags]
             conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') GLOB ?" for _ in stripped_tags])
-            params = [f"*,{tag},*" for tag in stripped_tags]
+            params = [f"*,{_escape_glob(tag)},*" for tag in stripped_tags]
 
             # Get the ids and content_hashes first to delete corresponding embeddings (only non-deleted)
             query = f'SELECT id, content_hash FROM memories WHERE ({conditions}) AND deleted_at IS NULL'
@@ -2242,7 +2251,7 @@ SOLUTIONS:
                     AND (',' || REPLACE(tags, ' ', '') || ',') GLOB ?
                     AND deleted_at IS NULL
                 """,
-                    (start_ts, end_ts, f"*,{stripped_tag},*"),
+                    (start_ts, end_ts, f"*,{_escape_glob(stripped_tag)},*"),
                 )
             else:
                 # Delete all in timeframe
@@ -2286,7 +2295,7 @@ SOLUTIONS:
                     AND (',' || REPLACE(tags, ' ', '') || ',') GLOB ?
                     AND deleted_at IS NULL
                 """,
-                    (before_ts, f"*,{stripped_tag},*"),
+                    (before_ts, f"*,{_escape_glob(stripped_tag)},*"),
                 )
             else:
                 # Delete all before date
@@ -3008,7 +3017,7 @@ SOLUTIONS:
                     ]
                 )
                 where_conditions.append(f"({tag_conditions})")
-                params.extend([f"*,{tag},*" for tag in stripped_tags])
+                params.extend([f"*,{_escape_glob(tag)},*" for tag in stripped_tags])
 
             # Apply WHERE clause
             query += ' WHERE ' + ' AND '.join(where_conditions)
@@ -3172,7 +3181,7 @@ SOLUTIONS:
                     ]
                 )
                 conditions.append(f"({tag_conditions})")
-                params.extend([f"*,{tag},*" for tag in stripped_tags])
+                params.extend([f"*,{_escape_glob(tag)},*" for tag in stripped_tags])
 
             # Build final query (always exclude soft-deleted)
             conditions.append('deleted_at IS NULL')

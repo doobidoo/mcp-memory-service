@@ -845,6 +845,72 @@ class TestSqliteVecStorage:
         assert results[1].content == "Second"
         assert results[2].content == "First"
 
+    @pytest.mark.asyncio
+    async def test_tag_matching_is_exact_not_substring(self, storage):
+        """Regression: tag queries must match exact tags, not substrings.
+
+        With LIKE '%tag%', searching for 'test' would also match 'testing' or
+        'my-test-tag'. GLOB-based matching ensures only exact tag matches.
+        """
+        content1 = "Memory with tag 'test'"
+        mem1 = Memory(
+            content=content1,
+            content_hash=generate_content_hash(content1),
+            tags=["test"],
+        )
+        content2 = "Memory with tag 'testing'"
+        mem2 = Memory(
+            content=content2,
+            content_hash=generate_content_hash(content2),
+            tags=["testing"],
+        )
+        content3 = "Memory with tag 'my-test-tag'"
+        mem3 = Memory(
+            content=content3,
+            content_hash=generate_content_hash(content3),
+            tags=["my-test-tag"],
+        )
+        await storage.store(mem1)
+        await storage.store(mem2)
+        await storage.store(mem3)
+
+        # search_by_tag should only return exact match
+        results = await storage.search_by_tag(["test"])
+        hashes = [m.content_hash for m in results]
+        assert mem1.content_hash in hashes
+        assert mem2.content_hash not in hashes, (
+            "Substring 'testing' should not match tag 'test'"
+        )
+        assert mem3.content_hash not in hashes, (
+            "Substring 'my-test-tag' should not match tag 'test'"
+        )
+
+        # get_all_memories with tag filter should also be exact
+        results = await storage.get_all_memories(tags=["test"])
+        hashes = [m.content_hash for m in results]
+        assert mem1.content_hash in hashes
+        assert mem2.content_hash not in hashes
+        assert mem3.content_hash not in hashes
+
+        # count_all_memories with tag filter should also be exact
+        count = await storage.count_all_memories(tags=["test"])
+        assert count == 1, f"Expected 1 match for exact tag 'test', got {count}"
+        count_testing = await storage.count_all_memories(tags=["testing"])
+        assert count_testing == 1, (
+            f"Expected 1 match for exact tag 'testing', got {count_testing}"
+        )
+
+        # retrieve() with tag filter should also be exact
+        results = await storage.retrieve("memory with tag", n_results=10, tags=["test"])
+        hashes = [r.memory.content_hash for r in results]
+        assert mem1.content_hash in hashes
+        assert mem2.content_hash not in hashes, (
+            "retrieve() substring 'testing' should not match tag 'test'"
+        )
+        assert mem3.content_hash not in hashes, (
+            "retrieve() substring 'my-test-tag' should not match tag 'test'"
+        )
+
 
 class TestSqliteVecTimeBasedDeletion:
     """Tests for time-based deletion methods added in v8.66.0."""
@@ -1211,71 +1277,6 @@ class TestSqliteVecTimeBasedDeletion:
         results = await storage.get_by_exact_content(content)
         assert len(results) == 0
 
-    @pytest.mark.asyncio
-    async def test_tag_matching_is_exact_not_substring(self, storage):
-        """Regression: tag queries must match exact tags, not substrings.
-
-        With LIKE '%tag%', searching for 'test' would also match 'testing' or
-        'my-test-tag'. GLOB-based matching ensures only exact tag matches.
-        """
-        content1 = "Memory with tag 'test'"
-        mem1 = Memory(
-            content=content1,
-            content_hash=generate_content_hash(content1),
-            tags=["test"],
-        )
-        content2 = "Memory with tag 'testing'"
-        mem2 = Memory(
-            content=content2,
-            content_hash=generate_content_hash(content2),
-            tags=["testing"],
-        )
-        content3 = "Memory with tag 'my-test-tag'"
-        mem3 = Memory(
-            content=content3,
-            content_hash=generate_content_hash(content3),
-            tags=["my-test-tag"],
-        )
-        await storage.store(mem1)
-        await storage.store(mem2)
-        await storage.store(mem3)
-
-        # search_by_tag should only return exact match
-        results = await storage.search_by_tag(["test"])
-        hashes = [m.content_hash for m in results]
-        assert mem1.content_hash in hashes
-        assert mem2.content_hash not in hashes, (
-            "Substring 'testing' should not match tag 'test'"
-        )
-        assert mem3.content_hash not in hashes, (
-            "Substring 'my-test-tag' should not match tag 'test'"
-        )
-
-        # get_all_memories with tag filter should also be exact
-        results = await storage.get_all_memories(tags=["test"])
-        hashes = [m.content_hash for m in results]
-        assert mem1.content_hash in hashes
-        assert mem2.content_hash not in hashes
-        assert mem3.content_hash not in hashes
-
-        # count_all_memories with tag filter should also be exact
-        count = await storage.count_all_memories(tags=["test"])
-        assert count == 1, f"Expected 1 match for exact tag 'test', got {count}"
-        count_testing = await storage.count_all_memories(tags=["testing"])
-        assert count_testing == 1, (
-            f"Expected 1 match for exact tag 'testing', got {count_testing}"
-        )
-
-        # retrieve() with tag filter should also be exact
-        results = await storage.retrieve("memory with tag", n_results=10, tags=["test"])
-        hashes = [r.memory.content_hash for r in results]
-        assert mem1.content_hash in hashes
-        assert mem2.content_hash not in hashes, (
-            "retrieve() substring 'testing' should not match tag 'test'"
-        )
-        assert mem3.content_hash not in hashes, (
-            "retrieve() substring 'my-test-tag' should not match tag 'test'"
-        )
 
 
 class TestSqliteVecStorageWithoutEmbeddings:
