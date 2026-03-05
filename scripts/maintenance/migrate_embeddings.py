@@ -461,7 +461,7 @@ Examples:
         ("distance_metric", "cosine"),
         ("embedding_model", args.model),
         ("embedding_dims", str(target_dims)),
-        ("migration_date", time.strftime("%Y-%m-%dT%H:%M:%SZ")),
+        ("migration_date", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),
         ("migration_from_dims", str(stats["current_dims"] or "unknown")),
     ]:
         conn.execute(
