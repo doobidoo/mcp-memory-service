@@ -343,6 +343,20 @@ class SqliteVecMemoryStorage(MemoryStorage):
 
         await self._execute_with_retry(update_metadata)
 
+    async def _persist_access_metadata_batch(self, memories: List[Memory]):
+        """Batch-persist access metadata for multiple memories in one transaction."""
+        if not memories:
+            return
+
+        def batch_update():
+            self.conn.executemany(
+                "UPDATE memories SET metadata = ? WHERE content_hash = ?",
+                [(json.dumps(m.metadata), m.content_hash) for m in memories],
+            )
+            self.conn.commit()
+
+        await self._execute_with_retry(batch_update)
+
     def _run_graph_migrations(self):
         """Execute Knowledge Graph table migrations.
 
@@ -1519,12 +1533,11 @@ SOLUTIONS:
                     logger.warning(f"Failed to parse memory result: {parse_error}")
                     continue
 
-            # Persist updated metadata for accessed memories
-            for result in results:
-                try:
-                    await self._persist_access_metadata(result.memory)
-                except Exception as e:
-                    logger.warning(f"Failed to persist access metadata: {e}")
+            # Persist updated metadata for accessed memories (batched)
+            try:
+                await self._persist_access_metadata_batch([r.memory for r in results])
+            except Exception as e:
+                logger.warning(f"Failed to persist access metadata: {e}")
 
             logger.info(f"Retrieved {len(results)} memories for query: {_sanitize_log_value(query)}")
             return results
@@ -1669,11 +1682,29 @@ SOLUTIONS:
                 bm25_scores[content_hash] = self._normalize_bm25_score(bm25_rank)
 
             semantic_scores = {}
+            vector_memories = {}
             for result in vector_results:
                 semantic_scores[result.memory.content_hash] = result.relevance_score
+                vector_memories[result.memory.content_hash] = result.memory
 
             # Merge results by content_hash
             all_hashes = set(bm25_scores.keys()) | set(semantic_scores.keys())
+
+            # Batch-fetch BM25-only memories (not in vector results) in one query
+            bm25_only_hashes = [h for h in all_hashes if h not in vector_memories]
+            fetched_memories = {}
+            if bm25_only_hashes:
+                placeholders = ",".join("?" for _ in bm25_only_hashes)
+                cursor = self.conn.execute(
+                    f"SELECT content_hash, content, tags, memory_type, metadata, "
+                    f"created_at, updated_at, created_at_iso, updated_at_iso "
+                    f"FROM memories WHERE content_hash IN ({placeholders}) AND deleted_at IS NULL",
+                    bm25_only_hashes,
+                )
+                for row in cursor.fetchall():
+                    memory = self._row_to_memory(row)
+                    if memory:
+                        fetched_memories[memory.content_hash] = memory
 
             merged_results = []
             for content_hash in all_hashes:
@@ -1689,16 +1720,9 @@ SOLUTIONS:
                     semantic_weight
                 )
 
-                # Find corresponding memory (from vector_results if available)
-                memory = None
-                for result in vector_results:
-                    if result.memory.content_hash == content_hash:
-                        memory = result.memory
-                        break
-
-                # If not in vector results, fetch from database
-                if memory is None:
-                    memory = await self.get_by_hash(content_hash)
+                memory = vector_memories.get(content_hash) or fetched_memories.get(
+                    content_hash
+                )
 
                 if memory:
                     merged_results.append(MemoryQueryResult(
