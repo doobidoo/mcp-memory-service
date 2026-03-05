@@ -1278,10 +1278,96 @@ class TestSqliteVecTimeBasedDeletion:
         assert len(results) == 0
 
 
+    @pytest.mark.asyncio
+    async def test_get_memory_connections_excludes_deleted(self, storage):
+        """get_memory_connections should not count soft-deleted memories in tag groups."""
+        mem1 = Memory(
+            content="Connection test memory 1",
+            content_hash=generate_content_hash("Connection test memory 1"),
+            tags=["conn-tag"],
+        )
+        mem2 = Memory(
+            content="Connection test memory 2",
+            content_hash=generate_content_hash("Connection test memory 2"),
+            tags=["conn-tag"],
+        )
+        await storage.store(mem1)
+        await storage.store(mem2)
+
+        connections_before = await storage.get_memory_connections()
+        assert any(count >= 2 for count in connections_before.values())
+
+        # Soft-delete one
+        await storage.delete(mem1.content_hash)
+
+        connections_after = await storage.get_memory_connections()
+        # The deleted memory's tag group should have one fewer count
+        total_before = sum(connections_before.values())
+        total_after = sum(connections_after.values())
+        assert total_after < total_before
+
+    @pytest.mark.asyncio
+    async def test_get_access_patterns_excludes_deleted(self, storage):
+        """get_access_patterns should not return soft-deleted memories."""
+        mem = Memory(
+            content="Access pattern test memory",
+            content_hash=generate_content_hash("Access pattern test memory"),
+            tags=["access-test"],
+        )
+        await storage.store(mem)
+
+        patterns_before = await storage.get_access_patterns()
+        assert mem.content_hash in patterns_before
+
+        await storage.delete(mem.content_hash)
+
+        patterns_after = await storage.get_access_patterns()
+        assert mem.content_hash not in patterns_after
+
+    @pytest.mark.asyncio
+    async def test_update_memory_metadata_skips_deleted(self, storage):
+        """update_memory_metadata should not modify a soft-deleted memory."""
+        mem = Memory(
+            content="Metadata update test",
+            content_hash=generate_content_hash("Metadata update test"),
+            tags=["meta-test"],
+        )
+        await storage.store(mem)
+        await storage.delete(mem.content_hash)
+
+        success, msg = await storage.update_memory_metadata(
+            mem.content_hash, {"tags": ["should-not-apply"]}
+        )
+        assert not success
+        assert "not found" in msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_update_memories_batch_skips_deleted(self, storage):
+        """update_memories_batch should skip soft-deleted memories gracefully."""
+        mem = Memory(
+            content="Batch update test",
+            content_hash=generate_content_hash("Batch update test"),
+            tags=["batch-test"],
+            metadata={"new_key": "new_value"},
+        )
+        await storage.store(mem)
+        await storage.delete(mem.content_hash)
+
+        # Batch update should skip the deleted memory without error
+        updated_mem = Memory(
+            content="Batch update test",
+            content_hash=mem.content_hash,
+            tags=["batch-test"],
+            metadata={"updated": True},
+        )
+        results = await storage.update_memories_batch([updated_mem])
+        # Returns List[bool] — the deleted memory should not be updated
+        assert results == [False]
+
 
 class TestSqliteVecStorageWithoutEmbeddings:
     """Test SQLite-vec storage when sentence transformers is not available."""
-    
+
     @pytest.mark.asyncio
     async def test_initialization_without_embeddings(self):
         """Test that storage can initialize without sentence transformers."""
