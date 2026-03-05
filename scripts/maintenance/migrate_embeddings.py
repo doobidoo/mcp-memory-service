@@ -152,7 +152,10 @@ def get_db_stats(conn: sqlite3.Connection) -> dict:
     deleted = conn.execute(
         "SELECT COUNT(*) FROM memories WHERE deleted_at IS NOT NULL"
     ).fetchone()[0]
-    edges = conn.execute("SELECT COUNT(*) FROM memory_graph").fetchone()[0]
+    try:
+        edges = conn.execute("SELECT COUNT(*) FROM memory_graph").fetchone()[0]
+    except sqlite3.OperationalError:
+        edges = 0
 
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE name='memory_embeddings' AND type='table'"
@@ -365,6 +368,22 @@ Examples:
     else:
         print("  Service check OK.")
 
+    # Phases 2-5 perform destructive operations (DROP TABLE, etc.).
+    # Wrap in try/except so Ctrl+C gives a clear recovery message.
+    backup_path = None
+    try:
+        _run_migration(args, conn, db_path, stats, target_dims, api_key)
+    except KeyboardInterrupt:
+        print("\n\n  Migration interrupted!")
+        print("  Your database may be in an inconsistent state.")
+        print(f"  Check for .pre-migration backups in {db_path.parent}")
+        sys.exit(1)
+    finally:
+        conn.close()
+
+
+def _run_migration(args, conn, db_path, stats, target_dims, api_key):
+    """Execute the destructive migration phases (2-5)."""
     # --- Phase 2: Prepare ---
     print("\n" + "=" * 60)
     print("Phase 2: Backup and read memories")
@@ -405,7 +424,6 @@ Examples:
             f"  ERROR: Embedding count ({len(embeddings)}) != "
             f"memory count ({len(rowids)})"
         )
-        conn.close()
         sys.exit(1)
 
     # --- Phase 4: Migrate database ---
@@ -423,7 +441,6 @@ Examples:
     ).fetchone()
     if row:
         print("  ERROR: Failed to drop memory_embeddings table")
-        conn.close()
         sys.exit(1)
 
     print(f"  Creating new vec0 table at FLOAT[{target_dims}]...")
@@ -450,9 +467,12 @@ Examples:
     print(f"  Inserted {len(embeddings)} embeddings in {elapsed:.1f}s")
 
     if not args.keep_graph:
-        print(f"  Wiping {stats['graph_edges']} graph edges...")
-        conn.execute("DELETE FROM memory_graph")
-        conn.commit()
+        try:
+            print(f"  Wiping {stats['graph_edges']} graph edges...")
+            conn.execute("DELETE FROM memory_graph")
+            conn.commit()
+        except sqlite3.OperationalError:
+            print("  No memory_graph table found (skipping graph wipe)")
     else:
         print(f"  Keeping {stats['graph_edges']} graph edges (--keep-graph)")
 
@@ -530,33 +550,36 @@ Examples:
 
     # Test KNN search
     print("  Testing KNN search...")
-    headers = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    test_resp = requests.post(
-        args.url,
-        json={"input": "test search query", "model": args.model},
-        headers=headers,
-        timeout=15,
-    )
-    test_emb = test_resp.json()["data"][0]["embedding"]
-    test_blob = serialize_float32(test_emb)
-    knn_results = conn.execute(
-        "SELECT me.rowid, m.content_hash, distance "
-        "FROM memory_embeddings me "
-        "JOIN memories m ON m.rowid = me.rowid "
-        "WHERE content_embedding MATCH ? "
-        "  AND k = 3 "
-        "  AND m.deleted_at IS NULL "
-        "ORDER BY distance",
-        (test_blob,),
-    ).fetchall()
-    print(f"  KNN search returned {len(knn_results)} results:")
-    for rid, hash_val, dist in knn_results:
-        sim = 1.0 - dist
-        print(f"    rowid={rid} hash={hash_val[:16]}... similarity={sim:.4f}")
-
-    conn.close()
+    try:
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        test_resp = requests.post(
+            args.url,
+            json={"input": "test search query", "model": args.model},
+            headers=headers,
+            timeout=15,
+        )
+        test_resp.raise_for_status()
+        test_emb = test_resp.json()["data"][0]["embedding"]
+        test_blob = serialize_float32(test_emb)
+        knn_results = conn.execute(
+            "SELECT me.rowid, m.content_hash, distance "
+            "FROM memory_embeddings me "
+            "JOIN memories m ON m.rowid = me.rowid "
+            "WHERE content_embedding MATCH ? "
+            "  AND k = 3 "
+            "  AND m.deleted_at IS NULL "
+            "ORDER BY distance",
+            (test_blob,),
+        ).fetchall()
+        print(f"  KNN search returned {len(knn_results)} results:")
+        for rid, hash_val, dist in knn_results:
+            sim = 1.0 - dist
+            print(f"    rowid={rid} hash={hash_val[:16]}... similarity={sim:.4f}")
+    except Exception as e:
+        print(f"  KNN search test skipped (non-fatal): {e}")
+        print("  Migration data is committed. Verify manually after restart.")
 
     # Summary
     db_size_mb = db_path.stat().st_size / (1024 * 1024)
