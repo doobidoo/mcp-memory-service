@@ -143,14 +143,21 @@ def batch_embed(
     total = len(texts)
     for i in range(0, total, batch_size):
         batch = texts[i : i + batch_size]
-        resp = requests.post(
-            url,
-            headers=headers,
-            json={"input": batch, "model": model},
-            timeout=120,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            resp = requests.post(
+                url,
+                headers=headers,
+                json={"input": batch, "model": model},
+                timeout=120,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(
+                f"Embedding API failed at batch {i // batch_size + 1} "
+                f"({len(all_embeddings)}/{total} embedded so far): {e}\n"
+                f"No database changes have been made yet — safe to retry."
+            ) from e
         # Sort by index to ensure correct order
         batch_embs = sorted(data["data"], key=lambda x: x["index"])
         for item in batch_embs:
@@ -331,8 +338,8 @@ def _run_migration(
     logger.info("Phase B: Prepare")
     logger.info("=" * 60)
 
-    backup_path = args.db_path.with_suffix(
-        f".db.backup.{time.strftime('%Y%m%d-%H%M%S')}"
+    backup_path = args.db_path.parent / (
+        args.db_path.name + f".backup.{time.strftime('%Y%m%d-%H%M%S')}"
     )
     logger.info(f"  Backing up to {backup_path}")
     shutil.copy2(str(args.db_path), str(backup_path))
@@ -434,7 +441,7 @@ def _run_migration(
     )
     conn.execute(
         "INSERT OR REPLACE INTO metadata (key, value) VALUES ('migration_date', ?)",
-        (time.strftime("%Y-%m-%dT%H:%M:%SZ"),),
+        (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),),
     )
     conn.commit()
 
