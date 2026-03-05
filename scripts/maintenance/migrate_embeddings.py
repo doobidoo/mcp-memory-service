@@ -122,13 +122,28 @@ def batch_embed(
     total = len(texts)
     for i in range(0, total, batch_size):
         batch = texts[i : i + batch_size]
-        resp = requests.post(
-            url,
-            json={"input": batch, "model": model},
-            headers=headers,
-            timeout=120,
-        )
-        resp.raise_for_status()
+        batch_num = i // batch_size + 1
+        try:
+            resp = requests.post(
+                url,
+                json={"input": batch, "model": model},
+                headers=headers,
+                timeout=120,
+            )
+            resp.raise_for_status()
+        except requests.exceptions.Timeout:
+            raise RuntimeError(
+                f"Embedding API timed out on batch {batch_num} "
+                f"(memories {i + 1}-{min(i + batch_size, total)}). "
+                "No database changes have been made yet. "
+                "Consider reducing --batch-size or checking API availability."
+            )
+        except requests.exceptions.RequestException as exc:
+            raise RuntimeError(
+                f"Embedding API error on batch {batch_num} "
+                f"(memories {i + 1}-{min(i + batch_size, total)}): {exc}\n"
+                "No database changes have been made yet."
+            )
         data = resp.json()
         batch_embs = sorted(data["data"], key=lambda x: x["index"])
         for item in batch_embs:
