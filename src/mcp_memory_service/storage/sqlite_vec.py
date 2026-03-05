@@ -2055,7 +2055,7 @@ SOLUTIONS:
             # is not left dangling if the soft-delete UPDATE failed.
             try:
                 self.conn.rollback()
-            except Exception:
+            except sqlite3.OperationalError:
                 pass
             error_msg = f"Failed to delete memory: {str(e)}"
             logger.error(error_msg)
@@ -2514,17 +2514,26 @@ SOLUTIONS:
                 updated_at_iso = now_iso
 
             # Update the memory
-            self.conn.execute('''
+            self.conn.execute(
+                """
                 UPDATE memories SET
                     tags = ?, memory_type = ?, metadata = ?,
                     updated_at = ?, updated_at_iso = ?,
                     created_at = ?, created_at_iso = ?
-                WHERE content_hash = ?
-            ''', (
-                new_tags, new_type, json.dumps(new_metadata),
-                updated_at, updated_at_iso, created_at, created_at_iso, content_hash
-            ))
-            
+                WHERE content_hash = ? AND deleted_at IS NULL
+            """,
+                (
+                    new_tags,
+                    new_type,
+                    json.dumps(new_metadata),
+                    updated_at,
+                    updated_at_iso,
+                    created_at,
+                    created_at_iso,
+                    content_hash,
+                ),
+            )
+
             self.conn.commit()
             
             # Create summary of updated fields
@@ -2613,15 +2622,22 @@ SOLUTIONS:
                     new_type = memory.memory_type if memory.memory_type else current_type
 
                     # Execute update
-                    cursor.execute('''
+                    cursor.execute(
+                        """
                         UPDATE memories SET
                             tags = ?, memory_type = ?, metadata = ?,
                             updated_at = ?, updated_at_iso = ?
-                        WHERE content_hash = ?
-                    ''', (
-                        new_tags, new_type, json.dumps(merged_metadata),
-                        now, now_iso, memory.content_hash
-                    ))
+                        WHERE content_hash = ? AND deleted_at IS NULL
+                    """,
+                        (
+                            new_tags,
+                            new_type,
+                            json.dumps(merged_metadata),
+                            now,
+                            now_iso,
+                            memory.content_hash,
+                        ),
+                    )
 
                     results[idx] = True
 
