@@ -1928,18 +1928,21 @@ SOLUTIONS:
             tag_conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') GLOB ?" for _ in stripped_tags])
             tag_params = [f"*,{_escape_glob(tag)},*" for tag in stripped_tags]
 
-            # Build pagination clauses
-            limit_clause = f"LIMIT {limit}" if limit is not None else ""
-            offset_clause = f"OFFSET {offset}" if offset > 0 else ""
-
-            query = f'''
+            # Build query with parameterized pagination (avoid f-string interpolation)
+            query = f"""
                 SELECT content_hash, content, tags, memory_type, metadata,
                        created_at, updated_at, created_at_iso, updated_at_iso
                 FROM memories
                 WHERE {tag_conditions}
                 ORDER BY created_at DESC
-                {limit_clause} {offset_clause}
-            '''
+            """
+
+            if limit is not None:
+                query += " LIMIT ?"
+                tag_params.append(int(limit))
+            if offset > 0:
+                query += " OFFSET ?"
+                tag_params.append(int(offset))
 
             cursor = self.conn.execute(query, tag_params)
             results = []
