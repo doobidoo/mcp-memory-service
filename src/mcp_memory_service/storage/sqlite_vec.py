@@ -1694,17 +1694,30 @@ SOLUTIONS:
             bm25_only_hashes = [h for h in all_hashes if h not in vector_memories]
             fetched_memories = {}
             if bm25_only_hashes:
-                placeholders = ",".join("?" for _ in bm25_only_hashes)
-                cursor = self.conn.execute(
-                    f"SELECT content_hash, content, tags, memory_type, metadata, "
-                    f"created_at, updated_at, created_at_iso, updated_at_iso "
-                    f"FROM memories WHERE content_hash IN ({placeholders}) AND deleted_at IS NULL",
-                    bm25_only_hashes,
-                )
-                for row in cursor.fetchall():
-                    memory = self._row_to_memory(row)
-                    if memory:
-                        fetched_memories[memory.content_hash] = memory
+                try:
+                    # Cap at SQLite parameter limit to avoid SQLITE_MAX_VARIABLE_NUMBER
+                    for batch_start in range(0, len(bm25_only_hashes), 999):
+                        batch = bm25_only_hashes[batch_start : batch_start + 999]
+                        placeholders = ",".join("?" for _ in batch)
+
+                        def fetch_batch(ph=placeholders, b=batch):
+                            cursor = self.conn.execute(
+                                f"SELECT content_hash, content, tags, memory_type, metadata, "
+                                f"created_at, updated_at, created_at_iso, updated_at_iso "
+                                f"FROM memories WHERE content_hash IN ({ph}) AND deleted_at IS NULL",
+                                b,
+                            )
+                            return cursor.fetchall()
+
+                        rows = await self._execute_with_retry(fetch_batch)
+                        for row in rows:
+                            memory = self._row_to_memory(row)
+                            if memory:
+                                fetched_memories[memory.content_hash] = memory
+                except Exception as e:
+                    logger.warning(
+                        f"Batch fetch for BM25-only hashes failed, some results may be missing: {e}"
+                    )
 
             merged_results = []
             for content_hash in all_hashes:
