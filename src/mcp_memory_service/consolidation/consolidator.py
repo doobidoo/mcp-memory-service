@@ -28,7 +28,7 @@ from .forgetting import ControlledForgettingEngine
 from .health import ConsolidationHealthMonitor
 from ..models.memory import Memory
 from ..storage.graph import GraphStorage
-from ..config import GRAPH_STORAGE_MODE
+from ..config import GRAPH_STORAGE_MODE, CONSOLIDATION_STORE_ASSOCIATIONS, TYPED_EDGES_ENABLED
 from .relationship_inference import RelationshipInferenceEngine
 
 logger = logging.getLogger(__name__)
@@ -151,7 +151,8 @@ class DreamInspiredConsolidator:
         self.compression_engine = SemanticCompressionEngine(config)
         self.forgetting_engine = ControlledForgettingEngine(config)
         self.relationship_inference = RelationshipInferenceEngine(
-            min_confidence=getattr(config, "relationship_confidence_threshold", 0.6)
+            min_confidence=getattr(config, "relationship_confidence_threshold", 0.6),
+            typed_edges_enabled=TYPED_EDGES_ENABLED,
         )
 
         # Initialize health monitoring
@@ -524,8 +525,8 @@ class DreamInspiredConsolidator:
             f"Storing {len(associations)} associations using mode: {GRAPH_STORAGE_MODE}"
         )
 
-        # Store in memories table if enabled
-        if GRAPH_STORAGE_MODE in ["memories_only", "dual_write"]:
+        # Store in memories table if enabled (and not suppressed by config)
+        if GRAPH_STORAGE_MODE in ["memories_only", "dual_write"] and CONSOLIDATION_STORE_ASSOCIATIONS:
             await self._store_associations_in_memories(associations)
 
         # Store in graph table if enabled
@@ -551,7 +552,7 @@ class DreamInspiredConsolidator:
                     content=content,
                     content_hash=f"assoc_{source_hashes[0][:8]}_{source_hashes[1][:8]}",
                     tags=["association", "discovered"] + connection_type.split(", "),
-                    memory_type="association",
+                    memory_type="observation",
                     metadata={
                         "source_memory_hashes": source_hashes,
                         "similarity_score": similarity,
@@ -564,14 +565,17 @@ class DreamInspiredConsolidator:
                     created_at_iso=datetime.now().isoformat() + "Z",
                 )
 
-                # Store the association memory
-                success, _ = await self.storage.store(association_memory)
+                # Store the association memory; skip semantic dedup because
+                # all association memories share very similar templated content.
+                success, reason = await self.storage.store(
+                    association_memory, skip_semantic_dedup=True
+                )
                 if success:
                     stored_count += 1
                 else:
                     failed_count += 1
                     self.logger.warning(
-                        f"Failed to store association memory for {source_hashes[0][:8]} <-> {source_hashes[1][:8]}"
+                        f"Failed to store association memory for {source_hashes[0][:8]} <-> {source_hashes[1][:8]}: {reason}"
                     )
 
             except Exception as e:

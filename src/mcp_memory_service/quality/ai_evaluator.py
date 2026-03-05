@@ -3,6 +3,7 @@ AI-powered quality evaluator with multi-tier fallback.
 Coordinates between local SLM, Groq, Gemini, and implicit signals.
 """
 
+import asyncio
 import logging
 from typing import List, Optional
 from .config import QualityConfig

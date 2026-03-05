@@ -145,6 +145,7 @@ class RelationshipInferenceEngine:
         min_confidence: float = 0.6,
         min_typed_confidence: float = 0.75,
         min_typed_similarity: float = 0.65,
+        typed_edges_enabled: bool = True,
     ):
         """
         Initialize the inference engine.
@@ -159,10 +160,15 @@ class RelationshipInferenceEngine:
             min_typed_similarity: When a cosine similarity is supplied, typed
                 labels are only assigned when similarity >= this threshold.
                 Defaults to 0.65 (issue #541).
+            typed_edges_enabled: When False, all inferred relationships are
+                returned as "related" regardless of analysis results.
+                Set via MCP_TYPED_EDGES_ENABLED=false to opt out of typed
+                edge inference (issue #546).
         """
         self.min_confidence = min_confidence
         self.min_typed_confidence = max(min_typed_confidence, min_confidence)
         self.min_typed_similarity = min_typed_similarity
+        self.typed_edges_enabled = typed_edges_enabled
 
     async def infer_relationship_type(
         self,
@@ -208,6 +214,10 @@ class RelationshipInferenceEngine:
             >>> result
             ("fixes", 0.85)
         """
+        # Issue #546: opt-out flag — skip all typed-label analysis
+        if not self.typed_edges_enabled:
+            return ("related", 0.0)
+
         source_tags = source_tags or []
         target_tags = target_tags or []
         source_lower = source_content.lower()

@@ -1080,6 +1080,24 @@ if GRAPH_STORAGE_MODE not in VALID_GRAPH_MODES:
 
 logger.info(f"Graph Storage Mode: {GRAPH_STORAGE_MODE}")
 
+# Whether consolidation should write association entries to the memories table.
+# Associations are already stored in memory_graph (the structured store).
+# Set to false to avoid search-result pollution and wasted embedding computation.
+# Default: true for backward compatibility.
+CONSOLIDATION_STORE_ASSOCIATIONS = os.getenv(
+    'MCP_CONSOLIDATION_STORE_ASSOCIATIONS', 'true'
+).lower() == 'true'
+logger.info(f"Consolidation store associations in memories table: {CONSOLIDATION_STORE_ASSOCIATIONS}")
+
+# Whether the RelationshipInferenceEngine assigns typed edges (fixes, causes,
+# contradicts, etc.) during consolidation. Set to false to keep all inferred
+# edges as "related", avoiding false-positive typed labels.
+# Default: true for backward compatibility.
+TYPED_EDGES_ENABLED = os.getenv(
+    'MCP_TYPED_EDGES_ENABLED', 'true'
+).lower() == 'true'
+logger.info(f"Typed edge inference enabled: {TYPED_EDGES_ENABLED}")
+
 # =============================================================================
 # End Graph Database Configuration
 # =============================================================================
