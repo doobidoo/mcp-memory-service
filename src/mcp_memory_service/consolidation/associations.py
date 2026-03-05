@@ -97,17 +97,26 @@ class CreativeAssociationEngine(ConsolidationBase):
     
     def _sample_memory_pairs(self, memories: List[Memory]) -> List[Tuple[Memory, Memory]]:
         """Sample random pairs of memories for association discovery."""
-        # Calculate maximum possible pairs
-        total_possible = len(memories) * (len(memories) - 1) // 2
+        n = len(memories)
+        total_possible = n * (n - 1) // 2
         max_pairs = min(self.max_pairs_per_run, total_possible)
-        
+
         if total_possible <= max_pairs:
-            # Return all possible pairs if total is manageable
             return list(combinations(memories, 2))
-        else:
-            # Randomly sample pairs to prevent combinatorial explosion
-            all_pairs = list(combinations(memories, 2))
-            return random.sample(all_pairs, max_pairs)
+
+        # When sampling most of the space, enumerate indices and sample
+        # to avoid rejection-sampling tail (coupon-collector degradation)
+        if max_pairs > total_possible * 0.7:
+            all_index_pairs = list(combinations(range(n), 2))
+            sampled = random.sample(all_index_pairs, max_pairs)
+            return [(memories[i], memories[j]) for i, j in sampled]
+
+        # Sparse sampling: generate random index pairs directly
+        pairs: Set[Tuple[int, int]] = set()
+        while len(pairs) < max_pairs:
+            i, j = random.sample(range(n), 2)
+            pairs.add((min(i, j), max(i, j)))
+        return [(memories[i], memories[j]) for i, j in pairs]
     
     async def _calculate_semantic_similarity(self, mem1: Memory, mem2: Memory) -> float:
         """Calculate semantic similarity between two memories using embeddings."""

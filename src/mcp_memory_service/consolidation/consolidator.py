@@ -14,7 +14,7 @@
 
 """Main dream-inspired consolidation orchestrator."""
 
-from typing import List, Dict, Any, Protocol, Tuple
+from typing import List, Dict, Any, Optional, Protocol, Tuple
 from datetime import datetime, timedelta, timezone
 import logging
 import time
@@ -39,12 +39,28 @@ class StorageProtocol(Protocol):
     async def get_all_memories(self) -> List[Memory]: pass
     async def get_memories_by_time_range(
         self, start_time: float, end_time: float
-    ) -> List[Memory]: pass
-    async def store(self, memory: Memory) -> Tuple[bool, str]: pass
-    async def update_memory(self, memory: Memory) -> bool: pass
-    async def delete_memory(self, content_hash: str) -> bool: pass
-    async def get_memory_connections(self) -> Dict[str, int]: pass
-    async def get_access_patterns(self) -> Dict[str, datetime]: pass
+    ) -> List[Memory]:
+        pass
+
+    async def search_by_tag(
+        self, tags: List[str], time_start: Optional[float] = None
+    ) -> List[Memory]:
+        pass
+
+    async def store(self, memory: Memory) -> Tuple[bool, str]:
+        pass
+
+    async def update_memory(self, memory: Memory) -> bool:
+        pass
+
+    async def delete_memory(self, content_hash: str) -> bool:
+        pass
+
+    async def get_memory_connections(self) -> Dict[str, int]:
+        pass
+
+    async def get_access_patterns(self) -> Dict[str, datetime]:
+        pass
 
 
 class SyncPauseContext:
@@ -488,18 +504,14 @@ class DreamInspiredConsolidator:
     async def _get_existing_associations(self) -> set:
         """Get existing memory associations to avoid duplicates."""
         try:
-            # Look for existing association memories
-            all_memories = await self.storage.get_all_memories()
+            # Look for existing association memories by tag instead of scanning all
+            all_memories = await self.storage.search_by_tag(["association"])
             associations = set()
 
             for memory in all_memories:
-                if (
-                    memory.memory_type == "association"
-                    and "source_memory_hashes" in memory.metadata
-                ):
+                if "source_memory_hashes" in memory.metadata:
                     source_hashes = memory.metadata["source_memory_hashes"]
                     if isinstance(source_hashes, list) and len(source_hashes) >= 2:
-                        # Create canonical pair representation
                         pair_key = tuple(sorted(source_hashes[:2]))
                         associations.add(pair_key)
 
