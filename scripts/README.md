@@ -148,6 +148,7 @@ Scripts for maintaining database integrity and performance.
 
 | Script | Purpose | Quick Usage |
 |--------|---------|-------------|
+| `migrate_embeddings.py` | **NEW:** Migrate to a different embedding model (handles dimension changes) | `python maintenance/migrate_embeddings.py --url ... --model ... --dry-run` |
 | `improve_memory_ontology.py` | **NEW (v9.3.0+):** Re-classify memory types and standardize tags | `python maintenance/improve_memory_ontology.py --dry-run` |
 | `update_graph_relationship_types.py` | **NEW (v9.3.0+):** Infer relationship types using RelationshipInferenceEngine | `python maintenance/update_graph_relationship_types.py --dry-run` |
 | `cleanup_memories.py` | General memory cleanup, enhanced with HTTP/HTTPS auto-detection | `python maintenance/cleanup_memories.py` |

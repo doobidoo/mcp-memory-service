@@ -8,6 +8,7 @@ This directory contains maintenance and diagnostic scripts for the MCP Memory Se
 |--------|---------|-------------|----------|
 | [`check_memory_types.py`](#check_memory_typespy-new) | Display type distribution | <1s | Quick health check, pre/post-consolidation validation |
 | [`consolidate_memory_types.py`](#consolidate_memory_typespy-new) | Consolidate fragmented types | ~5s for 1000 updates | Type taxonomy cleanup, reduce fragmentation |
+| [`migrate_embeddings.py`](#migrate_embeddingspy-new) | Migrate to a different embedding model | ~20s for 1000 memories | Switching models (e.g., 384-dim to 768-dim) |
 | [`regenerate_embeddings.py`](#regenerate_embeddingspy) | Regenerate all embeddings | ~5min for 2600 memories | After cosine migration or embedding corruption |
 | [`fast_cleanup_duplicates.sh`](#fast_cleanup_duplicatessh) | Fast duplicate removal | <5s for 100+ duplicates | Bulk duplicate cleanup |
 | [`find_all_duplicates.py`](#find_all_duplicatespy) | Detect near-duplicates | <2s for 2000 memories | Duplicate detection and analysis |
@@ -175,6 +176,76 @@ sqlite3 ~/.local/share/mcp-memory/sqlite_vec.db "SELECT COUNT(*), COUNT(DISTINCT
 - Run `--dry-run` monthly to check fragmentation
 - Execute when unique types exceed 150
 - Review custom mappings quarterly
+
+---
+
+### `migrate_embeddings.py` NEW
+
+**Purpose**: Migrates embeddings from one model to another, handling dimension changes. Unlike `regenerate_embeddings.py` (which re-embeds with the current model), this script drops and recreates the vec0 virtual table at the new dimension, re-embeds all active memories via an OpenAI-compatible API, and verifies integrity.
+
+**When to Use**:
+- Switching embedding models (e.g., `all-MiniLM-L6-v2` 384-dim to `nomic-embed-text` 768-dim)
+- Upgrading to a higher-quality model with different dimensions
+- Moving from local ONNX to an external embedding API
+
+**Usage**:
+```bash
+# Preview (safe, read-only):
+python scripts/maintenance/migrate_embeddings.py \
+    --url http://localhost:11434/v1/embeddings \
+    --model nomic-embed-text \
+    --dry-run
+
+# Run migration (Ollama example):
+python scripts/maintenance/migrate_embeddings.py \
+    --url http://localhost:11434/v1/embeddings \
+    --model nomic-embed-text
+
+# OpenAI example:
+python scripts/maintenance/migrate_embeddings.py \
+    --url https://api.openai.com/v1/embeddings \
+    --model text-embedding-3-small \
+    --api-key sk-...
+
+# Keep graph edges (skip wipe):
+python scripts/maintenance/migrate_embeddings.py \
+    --url http://localhost:11434/v1/embeddings \
+    --model nomic-embed-text \
+    --keep-graph
+```
+
+**Performance**: ~20 seconds for 1,000 memories via Ollama (depends on model and hardware)
+
+**Safety Features**:
+- Automatic timestamped backup before any changes
+- `--dry-run` mode for previewing state
+- Service running detection (macOS launchd, Linux systemd)
+- Dimension spot-check and KNN search verification after migration
+- Count matching validation (memories vs embeddings)
+
+**What It Does**:
+1. Validates the target embedding API is reachable and detects output dimension
+2. Backs up the database file
+3. Reads all active memories
+4. Generates new embeddings in batches via the target API
+5. Drops and recreates the `memory_embeddings` vec0 table at the new dimension
+6. Inserts embeddings with correct rowid mapping
+7. Optionally wipes graph edges (recommended since similarity scores change)
+8. Updates metadata, rebuilds FTS index, VACUUMs
+9. Verifies integrity
+
+**Comparison with `regenerate_embeddings.py`**:
+
+| Script | Handles dimension change | External API | Backup | Dry-run |
+|--------|------------------------|--------------|--------|---------|
+| `migrate_embeddings.py` | Yes (drop/recreate vec0) | Yes (any OpenAI-compatible) | Yes | Yes |
+| `regenerate_embeddings.py` | No (same model) | No (uses configured model) | No | No |
+
+**Prerequisites**:
+- Target embedding API must be running (e.g., `ollama serve`, vLLM, OpenAI)
+- `requests` Python package (`pip install requests`)
+- `sqlite-vec` Python package (auto-detected from mcp-memory-service venv)
+- mcp-memory-service should be stopped
 
 ---
 
