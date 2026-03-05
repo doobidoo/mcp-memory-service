@@ -437,14 +437,14 @@ Examples:
     print(f"  Inserting {len(embeddings)} embeddings...")
     t0 = time.time()
     conn.execute("BEGIN")
-    for i, (rowid, emb) in enumerate(zip(rowids, embeddings)):
-        blob = serialize_float32(emb)
-        conn.execute(
-            "INSERT INTO memory_embeddings (rowid, content_embedding) VALUES (?, ?)",
-            (rowid, blob),
-        )
-        if (i + 1) % 500 == 0:
-            print(f"    Inserted {i + 1}/{len(embeddings)}")
+    data_to_insert = (
+        (rowid, serialize_float32(emb))
+        for rowid, emb in zip(rowids, embeddings)
+    )
+    conn.executemany(
+        "INSERT INTO memory_embeddings (rowid, content_embedding) VALUES (?, ?)",
+        data_to_insert,
+    )
     conn.commit()
     elapsed = time.time() - t0
     print(f"  Inserted {len(embeddings)} embeddings in {elapsed:.1f}s")
