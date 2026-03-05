@@ -111,7 +111,10 @@ class CreativeAssociationEngine(ConsolidationBase):
             sampled = random.sample(all_index_pairs, max_pairs)
             return [(memories[i], memories[j]) for i, j in sampled]
 
-        # Sparse sampling: generate random index pairs directly
+        # Sparse sampling: generate random index pairs directly.
+        # Invariant: max_pairs <= total_possible * 0.7 (enforced by branch above),
+        # so expected iterations are bounded at ~3.3 * max_pairs.
+        assert max_pairs <= total_possible * 0.7
         pairs: Set[Tuple[int, int]] = set()
         while len(pairs) < max_pairs:
             i, j = random.sample(range(n), 2)
