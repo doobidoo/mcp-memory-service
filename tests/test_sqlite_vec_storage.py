@@ -1364,6 +1364,198 @@ class TestSqliteVecTimeBasedDeletion:
         # Returns List[bool] — the deleted memory should not be updated
         assert results == [False]
 
+    @pytest.mark.asyncio
+    async def test_recall_time_based_excludes_deleted(self, storage):
+        """Regression: recall() time-based path must exclude soft-deleted memories."""
+        content = "Recall time-based delete test"
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["recall-delete"],
+            memory_type="note",
+        )
+        await storage.store(memory)
+
+        # Recall without query triggers time-based path
+        results = await storage.recall(n_results=100)
+        hashes = [r.memory.content_hash for r in results]
+        assert memory.content_hash in hashes
+
+        await storage.delete(memory.content_hash)
+
+        results = await storage.recall(n_results=100)
+        hashes = [r.memory.content_hash for r in results]
+        assert memory.content_hash not in hashes
+
+    @pytest.mark.asyncio
+    async def test_recall_semantic_excludes_deleted(self, storage):
+        """Regression: recall() semantic search path must exclude soft-deleted memories."""
+        content = "Recall semantic delete test unique phrase"
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["recall-semantic-delete"],
+            memory_type="note",
+        )
+        await storage.store(memory)
+
+        # Recall with query triggers semantic search path
+        results = await storage.recall(query=content, n_results=10)
+        hashes = [r.memory.content_hash for r in results]
+        assert memory.content_hash in hashes
+
+        await storage.delete(memory.content_hash)
+
+        results = await storage.recall(query=content, n_results=10)
+        hashes = [r.memory.content_hash for r in results]
+        assert memory.content_hash not in hashes
+
+    @pytest.mark.asyncio
+    async def test_get_memories_by_time_range_excludes_deleted(self, storage):
+        """Regression: get_memories_by_time_range() must exclude soft-deleted memories."""
+        content = "Time range delete test"
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["timerange-delete"],
+        )
+        await storage.store(memory)
+
+        now = time.time()
+        results = await storage.get_memories_by_time_range(now - 60, now + 60)
+        hashes = [m.content_hash for m in results]
+        assert memory.content_hash in hashes
+
+        await storage.delete(memory.content_hash)
+
+        results = await storage.get_memories_by_time_range(now - 60, now + 60)
+        hashes = [m.content_hash for m in results]
+        assert memory.content_hash not in hashes
+
+    @pytest.mark.asyncio
+    async def test_search_by_tag_chronological_excludes_deleted(self, storage):
+        """Regression: search_by_tag_chronological() must exclude soft-deleted memories."""
+        content = "Tag chrono delete test"
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["chrono-delete-tag"],
+        )
+        await storage.store(memory)
+
+        results = await storage.search_by_tag_chronological(["chrono-delete-tag"])
+        assert len(results) >= 1
+        hashes = [m.content_hash for m in results]
+        assert memory.content_hash in hashes
+
+        await storage.delete(memory.content_hash)
+
+        results = await storage.search_by_tag_chronological(["chrono-delete-tag"])
+        hashes = [m.content_hash for m in results]
+        assert memory.content_hash not in hashes
+
+    @pytest.mark.asyncio
+    async def test_get_memory_timestamps_excludes_deleted(self, storage):
+        """Regression: get_memory_timestamps() must exclude soft-deleted memories."""
+        content = "Timestamps delete test"
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["timestamps-delete"],
+        )
+        await storage.store(memory)
+
+        timestamps_before = await storage.get_memory_timestamps()
+        count_before = len(timestamps_before)
+        assert count_before >= 1
+
+        await storage.delete(memory.content_hash)
+
+        timestamps_after = await storage.get_memory_timestamps()
+        assert len(timestamps_after) == count_before - 1
+
+    @pytest.mark.asyncio
+    async def test_get_memory_timestamps_with_days_excludes_deleted(self, storage):
+        """Regression: get_memory_timestamps(days=N) must exclude soft-deleted memories."""
+        content = "Timestamps days delete test"
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["timestamps-days-delete"],
+        )
+        await storage.store(memory)
+
+        timestamps_before = await storage.get_memory_timestamps(days=1)
+        count_before = len(timestamps_before)
+        assert count_before >= 1
+
+        await storage.delete(memory.content_hash)
+
+        timestamps_after = await storage.get_memory_timestamps(days=1)
+        assert len(timestamps_after) == count_before - 1
+
+    @pytest.mark.asyncio
+    async def test_get_largest_memories_excludes_deleted(self, storage):
+        """Regression: get_largest_memories() must exclude soft-deleted memories."""
+        content = "A" * 500  # Large memory to ensure it ranks high
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["largest-delete"],
+        )
+        await storage.store(memory)
+
+        results = await storage.get_largest_memories(n=100)
+        hashes = [m.content_hash for m in results]
+        assert memory.content_hash in hashes
+
+        await storage.delete(memory.content_hash)
+
+        results = await storage.get_largest_memories(n=100)
+        hashes = [m.content_hash for m in results]
+        assert memory.content_hash not in hashes
+
+    @pytest.mark.asyncio
+    async def test_get_largest_memories_parses_csv_tags(self, storage):
+        """Regression: get_largest_memories() must parse comma-separated tags, not JSON."""
+        content = "Tag parsing test for largest memories"
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["alpha", "beta", "gamma"],
+        )
+        await storage.store(memory)
+
+        results = await storage.get_largest_memories(n=100)
+        matched = [m for m in results if m.content_hash == memory.content_hash]
+        assert len(matched) == 1
+        assert matched[0].tags == ["alpha", "beta", "gamma"]
+
+    @pytest.mark.asyncio
+    async def test_recall_score_formula_cosine_distance(self, storage):
+        """Regression: recall() relevance score must map cosine distance [0,2] to [1,0]."""
+        content = "The quick brown fox jumps over the lazy dog"
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["score-test"],
+        )
+        await storage.store(memory)
+
+        results = await storage.recall(query=content, n_results=5)
+        assert len(results) >= 1
+
+        for r in results:
+            # Score must be in [0, 1] (not negative, which the old formula produced for distance > 1)
+            assert 0.0 <= r.relevance_score <= 1.0, (
+                f"Score {r.relevance_score} out of [0,1] range"
+            )
+
+        best = results[0]
+        assert best.relevance_score > 0.8, (
+            f"Exact content match scored only {best.relevance_score}"
+        )
+
 
 class TestSqliteVecStorageWithoutEmbeddings:
     """Test SQLite-vec storage when sentence transformers is not available."""

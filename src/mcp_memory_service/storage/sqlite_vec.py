@@ -352,6 +352,20 @@ class SqliteVecMemoryStorage(MemoryStorage):
 
         await self._execute_with_retry(update_metadata)
 
+    async def _persist_access_metadata_batch(self, memories: List[Memory]):
+        """Batch-persist access metadata for multiple memories in one transaction."""
+        if not memories:
+            return
+
+        def batch_update():
+            self.conn.executemany(
+                "UPDATE memories SET metadata = ? WHERE content_hash = ?",
+                [(json.dumps(m.metadata), m.content_hash) for m in memories],
+            )
+            self.conn.commit()
+
+        await self._execute_with_retry(batch_update)
+
     def _run_graph_migrations(self):
         """Execute Knowledge Graph table migrations.
 
@@ -1563,12 +1577,11 @@ SOLUTIONS:
                     logger.warning(f"Failed to parse memory result: {parse_error}")
                     continue
 
-            # Persist updated metadata for accessed memories
-            for result in results:
-                try:
-                    await self._persist_access_metadata(result.memory)
-                except Exception as e:
-                    logger.warning(f"Failed to persist access metadata: {e}")
+            # Persist updated metadata for accessed memories (batched)
+            try:
+                await self._persist_access_metadata_batch([r.memory for r in results])
+            except Exception as e:
+                logger.warning(f"Failed to persist access metadata: {e}")
 
             logger.info(f"Retrieved {len(results)} memories for query: {_sanitize_log_value(query)}")
             return results
@@ -1713,11 +1726,42 @@ SOLUTIONS:
                 bm25_scores[content_hash] = self._normalize_bm25_score(bm25_rank)
 
             semantic_scores = {}
+            vector_memories = {}
             for result in vector_results:
                 semantic_scores[result.memory.content_hash] = result.relevance_score
+                vector_memories[result.memory.content_hash] = result.memory
 
             # Merge results by content_hash
             all_hashes = set(bm25_scores.keys()) | set(semantic_scores.keys())
+
+            # Batch-fetch BM25-only memories (not in vector results) in one query
+            bm25_only_hashes = [h for h in all_hashes if h not in vector_memories]
+            fetched_memories = {}
+            if bm25_only_hashes:
+                try:
+                    # Cap at SQLite parameter limit to avoid SQLITE_MAX_VARIABLE_NUMBER
+                    for batch_start in range(0, len(bm25_only_hashes), 999):
+                        batch = bm25_only_hashes[batch_start : batch_start + 999]
+                        placeholders = ",".join("?" for _ in batch)
+
+                        def fetch_batch(ph=placeholders, b=batch):
+                            cursor = self.conn.execute(
+                                f"SELECT content_hash, content, tags, memory_type, metadata, "
+                                f"created_at, updated_at, created_at_iso, updated_at_iso "
+                                f"FROM memories WHERE content_hash IN ({ph}) AND deleted_at IS NULL",
+                                b,
+                            )
+                            return cursor.fetchall()
+
+                        rows = await self._execute_with_retry(fetch_batch)
+                        for row in rows:
+                            memory = self._row_to_memory(row)
+                            if memory:
+                                fetched_memories[memory.content_hash] = memory
+                except Exception as e:
+                    logger.warning(
+                        f"Batch fetch for BM25-only hashes failed, some results may be missing: {e}"
+                    )
 
             merged_results = []
             for content_hash in all_hashes:
@@ -1733,16 +1777,9 @@ SOLUTIONS:
                     semantic_weight
                 )
 
-                # Find corresponding memory (from vector_results if available)
-                memory = None
-                for result in vector_results:
-                    if result.memory.content_hash == content_hash:
-                        memory = result.memory
-                        break
-
-                # If not in vector results, fetch from database
-                if memory is None:
-                    memory = await self.get_by_hash(content_hash)
+                memory = vector_memories.get(content_hash) or fetched_memories.get(
+                    content_hash
+                )
 
                 if memory:
                     merged_results.append(MemoryQueryResult(
@@ -2786,10 +2823,12 @@ SOLUTIONS:
                     '''
                     
                     if time_where:
-                        base_query += f" WHERE {time_where}"
-                    
+                        base_query += f" WHERE m.deleted_at IS NULL AND {time_where}"
+                    else:
+                        base_query += " WHERE m.deleted_at IS NULL"
+
                     base_query += " ORDER BY e.distance"
-                    
+
                     # Prepare parameters: embedding, limit, then time filter params
                     query_params = [serialize_float32(query_embedding), n_results] + params
                     
@@ -2820,12 +2859,21 @@ SOLUTIONS:
                             )
                             
                             # Calculate relevance score (lower distance = higher relevance)
-                            relevance_score = max(0.0, 1.0 - distance)
-                            
+                            # Cosine distance ranges from 0 (identical) to 2 (opposite)
+                            relevance_score = (
+                                max(0.0, 1.0 - (float(distance) / 2.0))
+                                if distance is not None
+                                else 0.0
+                            )
+
                             results.append(MemoryQueryResult(
                                 memory=memory,
                                 relevance_score=relevance_score,
-                                debug_info={"distance": distance, "backend": "sqlite-vec", "time_filtered": bool(time_where)}
+                                debug_info={
+                                    "distance": distance,
+                                    "backend": "sqlite-vec",
+                                    "time_filtered": bool(time_where),
+                                }
                             ))
                             
                         except Exception as parse_error:
@@ -2846,10 +2894,12 @@ SOLUTIONS:
                        created_at, updated_at, created_at_iso, updated_at_iso
                 FROM memories
             '''
-            
+
             if time_where:
-                base_query += f" WHERE {time_where}"
-            
+                base_query += f" WHERE deleted_at IS NULL AND {time_where}"
+            else:
+                base_query += " WHERE deleted_at IS NULL"
+
             base_query += " ORDER BY created_at DESC LIMIT ?"
             
             # Add limit parameter
@@ -2906,7 +2956,7 @@ SOLUTIONS:
                 SELECT content_hash, content, tags, memory_type, metadata,
                        created_at, updated_at, created_at_iso, updated_at_iso
                 FROM memories
-                WHERE created_at BETWEEN ? AND ?
+                WHERE created_at BETWEEN ? AND ? AND deleted_at IS NULL
                 ORDER BY created_at DESC
             ''', (start_time, end_time))
             
@@ -3138,6 +3188,7 @@ SOLUTIONS:
             query = """
                 SELECT content_hash, content, tags, memory_type, metadata, created_at, updated_at
                 FROM memories
+                WHERE deleted_at IS NULL
                 ORDER BY LENGTH(content) DESC
                 LIMIT ?
             """
@@ -3151,7 +3202,7 @@ SOLUTIONS:
                     memory = Memory(
                         content_hash=row[0],
                         content=row[1],
-                        tags=json.loads(row[2]) if row[2] else [],
+                        tags=[t.strip() for t in row[2].split(",") if t.strip()] if row[2] else [],
                         memory_type=row[3],
                         metadata=json.loads(row[4]) if row[4] else {},
                         created_at=row[5],
@@ -3191,7 +3242,7 @@ SOLUTIONS:
                 query = """
                     SELECT created_at
                     FROM memories
-                    WHERE created_at >= ?
+                    WHERE created_at >= ? AND deleted_at IS NULL
                     ORDER BY created_at DESC
                 """
                 cursor = self.conn.execute(query, (cutoff_timestamp,))
@@ -3199,6 +3250,7 @@ SOLUTIONS:
                 query = """
                     SELECT created_at
                     FROM memories
+                    WHERE deleted_at IS NULL
                     ORDER BY created_at DESC
                 """
                 cursor = self.conn.execute(query)
