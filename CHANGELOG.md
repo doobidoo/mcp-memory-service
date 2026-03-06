@@ -10,6 +10,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.25.0] - 2026-03-06
+
+### Added
+
+- **Embedding model migration script** (`scripts/maintenance/migrate_embeddings.py`): Standalone script for migrating embeddings between models, including across different dimensions (e.g., 384-dim `all-MiniLM-L6-v2` to 768-dim `nomic-embed-text`). Works with any OpenAI-compatible API (Ollama, vLLM, OpenAI, TEI). Features: `--dry-run`, auto-detect dimension, timestamped backup, service detection (macOS launchd, Linux systemd), cross-platform DB path detection, `--keep-graph` option, batched embedding with progress, post-migration integrity verification. Closes #552.
+
+### Fixed
+
+- **[#557] Soft-delete leaks in recall, time-range, and statistics methods**: `recall()` (both semantic and time-based paths), `get_memories_by_time_range()`, `get_largest_memories()`, and `get_memory_timestamps()` (both branches) were missing `deleted_at IS NULL` filters, causing soft-deleted memories to appear in results.
+- **[#557] Incorrect cosine distance score formula in recall()**: Used `1.0 - distance` but cosine distance ranges [0, 2], producing negative scores for dissimilar pairs. Corrected to `max(0.0, 1.0 - (distance / 2.0))` to map to [0, 1].
+- **[#557] Tag parsing in get_largest_memories()**: Used `json.loads()` to parse tags, but tags are stored as comma-separated strings. Changed to `split(",")` to match all other methods.
+- **[#558] Substring tag matching bug**: `get_all_memories(tags=["test"])`, `count_all_memories(tags=["test"])`, and `retrieve()` used `LIKE '%test%'`, incorrectly matching `"testing"`, `"my-test-tag"`, etc. All now use the canonical GLOB exact-match pattern: `(',' || REPLACE(tags, ' ', '') || ',') GLOB '*,tag,*'`. Added `_escape_glob()` helper to prevent GLOB wildcard injection (`*`, `?`, `[`) from user-supplied tag values. `search_by_tag_chronological()` LIMIT/OFFSET now parameterized instead of f-string interpolated.
+- **[#559] O(n²) memory in association sampling**: `_sample_memory_pairs()` materialized all `combinations(memories, 2)` into a list (50M pairs for 10k memories) just to pick 100. Now uses random index pair generation, O(max_pairs) in the sparse case.
+- **[#559] Broken duplicate detection in consolidation**: `_get_existing_associations()` loaded all memories and filtered by `memory_type=="association"`, but new associations are stored with `memory_type="observation"` and tag `"association"`. The filter never matched, so duplicate associations were never prevented. Now uses `search_by_tag(["association"])`.
+- **[#560] Soft-delete gaps in write and statistics methods**: `get_memory_connections()`, `get_access_patterns()`, `update_memory_metadata()`, and `update_memories_batch()` could return or modify tombstoned memories. All now include `deleted_at IS NULL` filters. `delete()` error handler now explicitly rolls back the transaction with `sqlite3.OperationalError` narrowing to prevent dangling embedding DELETEs.
+
+### Performance
+
+- **Batch access metadata persistence** (`retrieve()`): Access metadata now persisted in one `executemany` call per query instead of N individual `UPDATE+COMMIT` round-trips (new `_persist_access_metadata_batch()` method).
+- **Hybrid search O(n+m) deduplication** (`retrieve_hybrid()`): Replaced O(n×m) nested-loop deduplication with O(n+m) dict-based merging. BM25-only memories now batch-fetched in one SQL query (capped at 999 to respect `SQLITE_MAX_VARIABLE_NUMBER`) instead of N+1 individual `get_by_hash()` calls.
+
+### Tests
+
+- 23 new regression tests covering all fixed methods
+- Total: 1,420 tests
+
 ## [10.24.0] - 2026-03-05
 
 ### Fixed

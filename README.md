@@ -265,7 +265,7 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.24.0** (March 5, 2026)
+## Latest Release: **v10.25.0** (March 5, 2026)
 
 **Bug fix: external embedding API failure now raises an error instead of silently corrupting the vector space**
 
