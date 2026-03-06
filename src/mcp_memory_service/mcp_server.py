@@ -12,6 +12,7 @@ Features:
 - Streamable HTTP transport for remote access
 - All 22 core memory operations (excluding dashboard tools)
 - SSL/HTTPS support with proper certificate handling
+- MCP Apps support (MEMORY_MCP_APPS=true) for interactive HTML UIs
 """
 
 import asyncio
@@ -47,7 +48,7 @@ try:
 except ImportError:
     logger_temp = logging.getLogger(__name__)
     logger_temp.warning("FastMCP not available in mcp library - mcp_server module cannot be used")
-    
+
     # Create dummy objects for graceful degradation
     class _DummyFastMCP:
         def tool(self, *args, **kwargs):
@@ -55,7 +56,7 @@ except ImportError:
             def decorator(func):
                 return func
             return decorator
-    
+
     FastMCP = _DummyFastMCP  # type: ignore
     Context = None  # type: ignore
 
@@ -71,6 +72,16 @@ from .config import (
 )
 from .storage.base import MemoryStorage
 from .services.memory_service import MemoryService
+
+# MCP Apps: interactive HTML UIs for capable clients (VS Code Insiders)
+# Enable via: MEMORY_MCP_APPS=true
+# See: docs/mcp-apps.md and https://github.com/github/github-mcp-server/discussions/2048
+from .mcp_apps import (
+    mcp_apps_enabled,
+    render_memory_search_results,
+    render_memory_list,
+    render_health_dashboard,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Default to INFO level
@@ -383,7 +394,7 @@ async def retrieve_memory(
     query: str,
     ctx: Context,
     n_results: int = 5
-) -> Dict[str, Any]:
+) -> Any:
     """Search stored memories using semantic similarity - finds conceptually related content even if exact words differ.
 
 USE THIS WHEN:
@@ -407,13 +418,11 @@ HOW IT WORKS:
 - Returns ranked by relevance score (0.0-1.0, higher is more similar)
 - Works across sessions - retrieves memories from any time period
 
-RETURNS:
-- Array of matching memories with:
-  - content: The stored text
-  - content_hash: Unique identifier
-  - similarity_score: Relevance score (0.0-1.0)
-  - metadata: Tags, type, timestamp, etc.
-  - created_at: When memory was stored
+RETURNS (standard):
+- Array of matching memories with content, content_hash, similarity_score, metadata
+
+RETURNS (MCP Apps mode, MEMORY_MCP_APPS=true):
+- EmbeddedResource with interactive HTML card view rendered in chat
 
 Examples:
 {
@@ -425,18 +434,20 @@ Examples:
     "query": "database connection settings",
     "n_results": 10
 }
-
-{
-    "query": "user authentication workflow preferences",
-    "n_results": 3
-}
     """
-    # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
-    return await memory_service.retrieve_memories(
+    result = await memory_service.retrieve_memories(
         query=query,
         n_results=n_results
     )
+
+    # MCP Apps: return interactive HTML UI for capable clients
+    if mcp_apps_enabled():
+        memories = result.get("memories", result if isinstance(result, list) else [])
+        logger.info(f"🎨 MCP Apps enabled - rendering HTML UI for retrieve_memory ({len(memories)} results)")
+        return render_memory_search_results(memories, query)
+
+    return result
 
 @mcp.tool(
     annotations=ToolAnnotations(
@@ -561,7 +572,7 @@ retrieve_memory(query: "outdated API documentation")
         readOnlyHint=True,
     ),
 )
-async def check_database_health(ctx: Context) -> Dict[str, Any]:
+async def check_database_health(ctx: Context) -> Any:
     """Check database health, storage backend status, and retrieve comprehensive memory service statistics.
 
 USE THIS WHEN:
@@ -585,26 +596,25 @@ WHAT IT CHECKS:
 - Sync status (for hybrid backend)
 - Configuration details (embedding model, index names, etc.)
 
-RETURNS:
-- status: "healthy" or error status
-- backend: Storage backend type (sqlite_vec/cloudflare/hybrid)
-- total_memories: Count of stored memories
-- database_info: Path, size, configuration details
-- timestamp: When health check was performed
-- Any error messages or warnings
+RETURNS (standard):
+- status, backend, total_memories, database_info, timestamp
+
+RETURNS (MCP Apps mode, MEMORY_MCP_APPS=true):
+- EmbeddedResource with interactive HTML stats dashboard rendered in chat
 
 Examples:
 No parameters required - just call it:
 {}
-
-Common use cases:
-- User: "How many memories do I have?" → check_database_health()
-- User: "Is the memory service working?" → check_database_health()
-- User: "What backend are we using?" → check_database_health()
     """
-    # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
-    return await memory_service.health_check()
+    result = await memory_service.health_check()
+
+    # MCP Apps: return interactive HTML dashboard for capable clients
+    if mcp_apps_enabled():
+        logger.info("🎨 MCP Apps enabled - rendering HTML dashboard for check_database_health")
+        return render_health_dashboard(result)
+
+    return result
 
 @mcp.tool(
     annotations=ToolAnnotations(
@@ -618,7 +628,7 @@ async def list_memories(
     page_size: int = 10,
     tag: Optional[str] = None,
     memory_type: Optional[str] = None
-) -> Dict[str, Any]:
+) -> Any:
     """List stored memories with pagination and optional filtering - browse all memories in pages rather than searching.
 
 USE THIS WHEN:
@@ -644,12 +654,11 @@ PAGINATION:
 - page_size: Number of results per page (default 10, max usually 100)
 - Returns total count and page info for navigation
 
-RETURNS:
-- memories: Array of memory objects for current page
-- total: Total count of matching memories
-- page: Current page number
-- page_size: Results per page
-- total_pages: Total pages available
+RETURNS (standard):
+- memories, total, page, page_size, total_pages
+
+RETURNS (MCP Apps mode, MEMORY_MCP_APPS=true):
+- EmbeddedResource with interactive paginated HTML browser rendered in chat
 
 Examples:
 {
@@ -669,14 +678,20 @@ Examples:
     "memory_type": "decision"
 }
     """
-    # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
-    return await memory_service.list_memories(
+    result = await memory_service.list_memories(
         page=page,
         page_size=page_size,
         tag=tag,
         memory_type=memory_type
     )
+
+    # MCP Apps: return interactive HTML browser for capable clients
+    if mcp_apps_enabled():
+        logger.info(f"🎨 MCP Apps enabled - rendering HTML browser for list_memories (page {page})")
+        return render_memory_list(result)
+
+    return result
 
 @mcp.tool(
     annotations=ToolAnnotations(
@@ -768,6 +783,8 @@ def main():
 
     logger.info(f"Starting MCP Memory Service FastAPI server on {HTTP_HOST}:{HTTP_PORT}")
     logger.info(f"Storage backend: {STORAGE_BACKEND}")
+    if mcp_apps_enabled():
+        logger.info("🎨 MCP Apps mode enabled - tools will return interactive HTML UIs")
 
     # Run server with streamable HTTP transport
     mcp.run("streamable-http")
