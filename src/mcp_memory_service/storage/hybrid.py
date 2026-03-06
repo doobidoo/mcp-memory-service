@@ -1187,8 +1187,8 @@ class HybridMemoryStorage(MemoryStorage):
                     if consecutive_empty_batches >= HYBRID_MAX_EMPTY_BATCHES and synced_count > 0:
                         logger.info(f"Completed after {consecutive_empty_batches} empty batches - {synced_count}/{missing_count} synced")
                         break
-                    elif processed_count >= HYBRID_MIN_CHECK_COUNT and synced_count == 0:
-                        logger.info(f"No missing memories after checking {processed_count} memories")
+                    elif processed_count >= secondary_count and synced_count == 0:
+                        logger.info(f"No missing memories after checking all {processed_count} memories")
                         break
 
                     await asyncio.sleep(0.01)
