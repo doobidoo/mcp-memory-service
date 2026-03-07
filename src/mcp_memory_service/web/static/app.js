@@ -583,6 +583,7 @@ class MemoryDashboard {
 
         // Initialize settings tabs
         this.initializeSettingsTabs();
+        this.initCredentialsTab();
 
         // Tag cloud event delegation
         document.getElementById('tagsCloudContainer')?.addEventListener('click', (e) => {
@@ -4266,6 +4267,198 @@ class MemoryDashboard {
         if (tabName === 'environment') {
             this.loadEnvironmentConfig();
         }
+
+        // Load credentials when switching to credentials tab
+        if (tabName === 'credentials') {
+            this.loadCredentials();
+        }
+    }
+
+    /**
+     * Load current Cloudflare credentials into the Credentials tab.
+     * Token shown as partial reveal; full value loaded on toggle.
+     */
+    async loadCredentials() {
+        try {
+            const data = await this.apiCall('/config/credentials');
+            const tokenInput = document.getElementById('cred-api-token');
+            const accountInput = document.getElementById('cred-account-id');
+            const d1Input = document.getElementById('cred-d1-id');
+            const vectorizeInput = document.getElementById('cred-vectorize');
+
+            if (tokenInput) tokenInput.value = data.api_token_partial || '';
+            if (accountInput) accountInput.value = data.account_id || '';
+            if (d1Input) d1Input.value = data.d1_database_id || '';
+            if (vectorizeInput) vectorizeInput.value = data.vectorize_index || '';
+
+            // Store partial for change detection
+            this._credOriginalToken = data.api_token_partial || '';
+            this._credTestedToken = null;
+
+            this._updateCredSaveBtn();
+        } catch (e) {
+            console.warn('Failed to load credentials:', e);
+        }
+    }
+
+    /**
+     * Enable Save button only when a successful test matches the current token value.
+     */
+    _updateCredSaveBtn() {
+        const saveBtn = document.getElementById('credSaveBtn');
+        if (!saveBtn) return;
+        const tokenVal = (document.getElementById('cred-api-token')?.value || '').trim();
+        saveBtn.disabled = !(this._credTestedToken && this._credTestedToken === tokenVal);
+    }
+
+    /**
+     * Initialize the Credentials tab event listeners (called once on app init).
+     */
+    initCredentialsTab() {
+        // Toggle reveal for password fields
+        document.querySelectorAll('.toggle-reveal').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const targetId = btn.dataset.target;
+                const input = document.getElementById(targetId);
+                if (!input) return;
+
+                if (input.type === 'password') {
+                    // Reveal: fetch full value if it looks like a partial
+                    if (targetId === 'cred-api-token' && input.value.includes('...')) {
+                        try {
+                            const data = await this.apiCall('/config/credentials?reveal=true');
+                            if (data.api_token_full) input.value = data.api_token_full;
+                        } catch (e) { /* show what we have */ }
+                    }
+                    if (targetId === 'cred-account-id' && input.value.includes('...')) {
+                        // account_id is not masked but keep consistent UX
+                    }
+                    input.type = 'text';
+                    btn.textContent = '🙈';
+                } else {
+                    input.type = 'password';
+                    btn.textContent = '👁';
+                }
+            });
+        });
+
+        // Invalidate tested token when the token field changes
+        const tokenInput = document.getElementById('cred-api-token');
+        if (tokenInput) {
+            tokenInput.addEventListener('input', () => {
+                this._credTestedToken = null;
+                this._updateCredSaveBtn();
+                // Reset test result
+                const result = document.getElementById('credTestResult');
+                if (result) result.style.display = 'none';
+            });
+        }
+
+        // Test Connection button
+        const testBtn = document.getElementById('credTestBtn');
+        if (testBtn) {
+            testBtn.addEventListener('click', () => this.testCloudflareCredentials());
+        }
+
+        // Save & Restart button
+        const saveBtn = document.getElementById('credSaveBtn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => this.saveCloudflareCredentials());
+        }
+    }
+
+    /**
+     * POST /api/config/credentials/test — validate token against Cloudflare.
+     */
+    async testCloudflareCredentials() {
+        const tokenVal = (document.getElementById('cred-api-token')?.value || '').trim();
+        const accountVal = (document.getElementById('cred-account-id')?.value || '').trim();
+        const resultEl = document.getElementById('credTestResult');
+        const testBtn = document.getElementById('credTestBtn');
+
+        if (!tokenVal || !accountVal) {
+            this._showCredResult('error', '⚠️ API Token and Account ID are required.');
+            return;
+        }
+
+        testBtn.disabled = true;
+        testBtn.textContent = 'Testing…';
+        if (resultEl) { resultEl.style.display = 'none'; }
+
+        try {
+            const data = await this.apiCall('/config/credentials/test', {
+                method: 'POST',
+                body: JSON.stringify({ api_token: tokenVal, account_id: accountVal })
+            });
+
+            if (data.valid) {
+                const expires = data.expires_on
+                    ? ` · Expires ${new Date(data.expires_on).toLocaleDateString()}`
+                    : '';
+                this._showCredResult('success', `✓ Token active${expires}`);
+                this._credTestedToken = tokenVal;
+            } else {
+                this._showCredResult('error', `✗ ${data.error || 'Invalid token'}`);
+                this._credTestedToken = null;
+            }
+        } catch (e) {
+            this._showCredResult('error', `✗ Request failed: ${e.message}`);
+            this._credTestedToken = null;
+        } finally {
+            testBtn.disabled = false;
+            testBtn.textContent = 'Test Connection';
+            this._updateCredSaveBtn();
+        }
+    }
+
+    /**
+     * POST /api/config/credentials — persist and restart.
+     */
+    async saveCloudflareCredentials() {
+        const tokenVal = (document.getElementById('cred-api-token')?.value || '').trim();
+        const accountVal = (document.getElementById('cred-account-id')?.value || '').trim();
+        const d1Val = (document.getElementById('cred-d1-id')?.value || '').trim();
+        const vectorizeVal = (document.getElementById('cred-vectorize')?.value || '').trim();
+        const saveBtn = document.getElementById('credSaveBtn');
+
+        if (!this._credTestedToken || this._credTestedToken !== tokenVal) {
+            this._showCredResult('error', '⚠️ Run "Test Connection" first.');
+            return;
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
+
+        try {
+            await this.apiCall('/config/credentials', {
+                method: 'POST',
+                body: JSON.stringify({
+                    api_token: tokenVal,
+                    account_id: accountVal,
+                    d1_database_id: d1Val,
+                    vectorize_index: vectorizeVal,
+                    tested_token: this._credTestedToken,
+                })
+            });
+            this._showCredResult('success', '✓ Credentials saved. Server restarting…');
+            this.closeModal(document.getElementById('settingsModal'));
+            // Show restart overlay (reuses existing restart UI)
+            const overlay = document.getElementById('restartOverlay');
+            if (overlay) overlay.style.display = 'flex';
+            setTimeout(() => this.waitForServerRestart(), 3000);
+        } catch (e) {
+            this._showCredResult('error', `✗ Save failed: ${e.message}`);
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save & Restart';
+        }
+    }
+
+    _showCredResult(type, message) {
+        const el = document.getElementById('credTestResult');
+        if (!el) return;
+        el.className = `cred-test-result cred-test-${type}`;
+        el.textContent = message;
+        el.style.display = 'block';
     }
 
     /**

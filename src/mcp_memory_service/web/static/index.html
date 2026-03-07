@@ -1278,9 +1278,12 @@
                 <!-- Tab Navigation -->
                 <div class="settings-tabs">
                     <button class="settings-tab active" data-tab="preferences">Preferences</button>
+                    <button class="settings-tab" data-tab="credentials">Credentials</button>
                     <button class="settings-tab" data-tab="environment">Environment</button>
                     <button class="settings-tab" data-tab="system">System Info</button>
+                    <button class="settings-tab" data-tab="quality">Quality</button>
                     <button class="settings-tab" data-tab="backup">Backup</button>
+                    <button class="settings-tab" data-tab="server">Server</button>
                 </div>
 
                 <div class="modal-body">
@@ -1392,64 +1395,78 @@
 
                     </div>
 
-                    <!-- Backup Tab -->
-                    <div id="backupTab" class="settings-tab-content" style="display: none;">
+                    <!-- Credentials Tab -->
+                    <div id="credentialsTab" class="settings-tab-content" style="display: none;">
+                        <h4 class="settings-section-heading">Cloudflare Credentials</h4>
+                        <p class="settings-description">Saved to <code>.env</code> — shared by the MCP server and HTTP server. A connection test is required before saving.</p>
+                        <div class="credentials-form">
+                            <div class="credential-field">
+                                <label for="cred-api-token">API Token</label>
+                                <div class="token-input-group">
+                                    <input type="password" id="cred-api-token" class="form-control" placeholder="Cloudflare API Token" autocomplete="off" spellcheck="false">
+                                    <button type="button" class="btn-icon toggle-reveal" data-target="cred-api-token" title="Show / Hide">&#128065;</button>
+                                </div>
+                                <small class="form-text">Required. Must have D1:Edit and Vectorize:Edit permissions.</small>
+                            </div>
+                            <div class="credential-field">
+                                <label for="cred-account-id">Account ID</label>
+                                <div class="token-input-group">
+                                    <input type="password" id="cred-account-id" class="form-control" placeholder="Cloudflare Account ID" autocomplete="off" spellcheck="false">
+                                    <button type="button" class="btn-icon toggle-reveal" data-target="cred-account-id" title="Show / Hide">&#128065;</button>
+                                </div>
+                            </div>
+                            <div class="credential-field">
+                                <label for="cred-d1-id">D1 Database ID</label>
+                                <input type="text" id="cred-d1-id" class="form-control" placeholder="D1 Database ID" autocomplete="off" spellcheck="false">
+                            </div>
+                            <div class="credential-field">
+                                <label for="cred-vectorize">Vectorize Index Name</label>
+                                <input type="text" id="cred-vectorize" class="form-control" placeholder="e.g. mcp-memory-index" autocomplete="off" spellcheck="false">
+                            </div>
+                        </div>
+                        <div id="credTestResult" class="cred-test-result" style="display:none;"></div>
+                        <div class="credentials-actions">
+                            <button type="button" id="credTestBtn" class="btn btn-secondary">Test Connection</button>
+                            <button type="button" id="credSaveBtn" class="btn btn-primary" disabled>Save &amp; Restart</button>
+                        </div>
+                        <p class="settings-hint">&#8505;&#65039; Token shown as partial reveal. Use the &#128065; button to see the full value.</p>
+                    </div>
+
+                    <!-- Quality Tab -->
+                    <div id="qualityTab" class="settings-tab-content" style="display: none;">
                         <h4 class="settings-section-heading" data-i18n="modal.settings.qualitySystem">Quality System</h4>
                         <div class="quality-settings">
-                            <!-- AI Provider Selection -->
                             <div class="setting-item">
-                                <label for="quality-provider" data-i18n="settings.quality.provider.label">
-                                    AI Provider
-                                </label>
+                                <label for="quality-provider" data-i18n="settings.quality.provider.label">AI Provider</label>
                                 <select id="quality-provider" class="form-select">
-                                    <option value="local" data-i18n="settings.quality.provider.local">
-                                        Local SLM (Privacy Mode)
-                                    </option>
-                                    <option value="groq" data-i18n="settings.quality.provider.groq">
-                                        Groq API
-                                    </option>
-                                    <option value="gemini" data-i18n="settings.quality.provider.gemini">
-                                        Gemini API
-                                    </option>
-                                    <option value="auto" data-i18n="settings.quality.provider.auto">
-                                        Auto (All Available)
-                                    </option>
-                                    <option value="none" data-i18n="settings.quality.provider.none">
-                                        Implicit Only (No AI)
-                                    </option>
+                                    <option value="local" data-i18n="settings.quality.provider.local">Local SLM (Privacy Mode)</option>
+                                    <option value="groq" data-i18n="settings.quality.provider.groq">Groq API</option>
+                                    <option value="gemini" data-i18n="settings.quality.provider.gemini">Gemini API</option>
+                                    <option value="auto" data-i18n="settings.quality.provider.auto">Auto (All Available)</option>
+                                    <option value="none" data-i18n="settings.quality.provider.none">Implicit Only (No AI)</option>
                                 </select>
-                                <small class="form-text" data-i18n="settings.quality.provider.help">
-                                    Local SLM provides zero-cost, privacy-preserving quality scoring
-                                </small>
+                                <small class="form-text" data-i18n="settings.quality.provider.help">Local SLM provides zero-cost, privacy-preserving quality scoring</small>
                             </div>
-
-                            <!-- Quality Boost Toggle -->
                             <div class="setting-item">
                                 <label class="checkbox-label">
                                     <input type="checkbox" id="quality-boost-enabled" checked>
-                                    <span data-i18n="settings.quality.boost.label">
-                                        Enable Quality-Boosted Search
-                                    </span>
+                                    <span data-i18n="settings.quality.boost.label">Enable Quality-Boosted Search</span>
                                 </label>
-                                <small class="form-text" data-i18n="settings.quality.boost.help">
-                                    Rerank search results to prioritize high-quality memories
-                                </small>
+                                <small class="form-text" data-i18n="settings.quality.boost.help">Rerank search results to prioritize high-quality memories</small>
                             </div>
-
-                            <!-- Current Provider Info -->
                             <div class="setting-info">
                                 <div data-i18n="settings.quality.current.label">Current Provider:</div>
                                 <div id="current-provider-info" class="info-value">
-                                    <strong>Local SLM</strong> (ms-marco-MiniLM-L-6-v2)
-                                    <br>
-                                    <span class="text-muted">Zero cost • Full privacy • 50-100ms latency</span>
+                                    <strong>Local SLM</strong> (ms-marco-MiniLM-L-6-v2)<br>
+                                    <span class="text-muted">Zero cost &bull; Full privacy &bull; 50-100ms latency</span>
                                 </div>
                             </div>
                         </div>
+                    </div>
 
-                        <hr class="settings-divider">
-
-                        <h4 class="settings-section-heading" data-i18n="modal.settings.backupRestore">Backup & Restore</h4>
+                    <!-- Backup Tab -->
+                    <div id="backupTab" class="settings-tab-content" style="display: none;">
+                        <h4 class="settings-section-heading" data-i18n="modal.settings.backupRestore">Backup &amp; Restore</h4>
                         <div class="backup-settings">
                             <div class="info-row">
                                 <span class="info-label" data-i18n="modal.settings.lastBackup">Last Backup:</span>
@@ -1468,9 +1485,10 @@
                                 <button type="button" id="viewBackupsButton" class="btn btn-sm btn-secondary" data-i18n="modal.settings.viewBackups" onclick="if(window.app) window.app.openViewBackupsModal()">View Backups</button>
                             </div>
                         </div>
+                    </div>
 
-                        <hr class="settings-divider">
-
+                    <!-- Server Tab -->
+                    <div id="serverTab" class="settings-tab-content" style="display: none;">
                         <h4 class="settings-section-heading">Server Management</h4>
                         <div class="server-management">
                             <div class="info-row">
