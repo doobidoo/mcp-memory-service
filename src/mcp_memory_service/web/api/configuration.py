@@ -705,9 +705,9 @@ async def save_credentials(
         )
 
     # Validate account_id to prevent SSRF (only hex chars and hyphens)
-    import re as _re
-    if not _re.fullmatch(r"[a-f0-9\-]{1,64}", request.account_id):
-        raise HTTPException(status_code=400, detail="account_id contains invalid characters")
+    # Use module-level 're' import
+    if not re.fullmatch(r"[a-f0-9]{32}", request.account_id):
+        raise HTTPException(status_code=400, detail="account_id must be a 32-character hexadecimal string")
 
     # Sanitize all credential values — strip newlines to prevent .env injection
     def _sanitize(v: str) -> str:
