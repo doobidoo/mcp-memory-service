@@ -10,6 +10,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.25.3] - 2026-03-07
+
+### Fixed
+
+- **[#561] Strict stdio MCP clients (e.g. Codex CLI) timing out during startup handshake**: Non-LM-Studio stdio clients performing eager initialization could exceed the client's fixed handshake budget (Codex uses ~10 s). The eager-init timeout is now capped at 5.0 s for these clients, ensuring the MCP handshake completes within budget. Co-authored-by SergioChan.
+- **Syntax errors in eager-init timeout cap (follow-up to PR #569)**: Resolved a duplicate function call, an orphaned closing parenthesis, and a duplicate `return` statement introduced in the initial fix. Named constants replace magic numbers, a dead-code guard was corrected, and warning messages were clarified.
+- **Hybrid sync premature termination**: The cloud-to-local sync aborted early when `synced_count` was 0 at the `HYBRID_MIN_CHECK_COUNT` (1,000) threshold, even though thousands of memories remained unchecked. The early-exit condition now only triggers after all `secondary_count` memories have been inspected, ensuring a complete Cloudflare-to-local sync.
+- **Dashboard version badge always blank**: `loadVersion()` called `/health` which returns only `{"status":"healthy"}` since the v10.21.0 GHSA-73hc security hardening. Changed to `/health/detailed` which includes the `version` field.
+
+### Chores
+
+- `.gitignore` updated to exclude TLS certificate files (`*.pem`, `certs/` directory) to prevent accidental credential commits.
+
 ## [10.25.2] - 2026-03-07
 
 ### Fixed

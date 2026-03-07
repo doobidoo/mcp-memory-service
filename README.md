@@ -265,17 +265,20 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.25.2** (March 7, 2026)
+## Latest Release: **v10.25.3** (March 7, 2026)
 
-**Patch fix: `update_and_restart.sh` health check now reads `status` field instead of removed `version` field**
+**Patch release: stdio handshake timeout cap, syntax fixes, hybrid sync fix, dashboard version badge fix**
 
 **What's New:**
-- **Fix `update_and_restart.sh` always reporting "unknown" version**: The `/api/health` endpoint had its `version` field removed in v10.25.1 (security patch GHSA-73hc-m4hx-79pj), but the update script still tried to read `data.get('version')`. This caused the script to always report "unknown" and wait the full 15-second timeout. The check now reads the `status` field (`"healthy"`) to confirm the server is up and reports the pip-installed version instead.
-- **No Python changes**: Scripts-only fix; all 1,420 tests continue to pass unchanged.
+- **Fix Codex CLI / strict stdio MCP startup timeout (#561)**: Non-LM-Studio stdio clients now have their eager-init timeout capped at 5.0 s, preventing handshake failures in clients with tight startup budgets (e.g. Codex CLI ~10 s). Co-authored-by SergioChan.
+- **Follow-up syntax fixes for PR #569**: Resolved duplicate function call, orphaned parenthesis, duplicate return, magic numbers, and dead-code guard introduced in the initial fix.
+- **Fix hybrid sync premature early-exit**: Cloud-to-local sync no longer aborts at the 1,000-memory threshold when `synced_count` is 0 — all memories are now checked before the sync exits.
+- **Fix dashboard version badge**: `loadVersion()` now calls `/health/detailed` (includes `version` field) instead of `/health` (status-only since GHSA-73hc hardening in v10.21.0).
 
 ---
 
 **Previous Releases**:
+- **v10.25.2** - Patch fix: `update_and_restart.sh` health check reads `status` field instead of removed `version` field
 - **v10.25.1** - Security: CORS wildcard default changed to localhost-only, soft-delete leak in `search_by_tag_chronological()` fixed (GHSA-g9rg-8vq5-mpwm)
 - **v10.25.0** - Embedding migration script, 5 soft-delete leak fixes, cosine distance formula fix, substring tag matching fix, O(n²) association sampling fix — 23 new tests, 1,420 total
 - **v10.24.0** - External embedding API silent fallback fixed: raises RuntimeError on API failure instead of mixing embedding spaces (#551) — 10 new tests, 1,397 total
