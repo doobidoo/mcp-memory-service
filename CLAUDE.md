@@ -291,6 +291,8 @@ export MCP_MEMORY_SQLITE_PRAGMAS=journal_mode=WAL,busy_timeout=15000,cache_size=
 
 **CRITICAL:** `MCP_MEMORY_SQLITE_PRAGMAS` must include `journal_mode=WAL` for concurrent access. Omitting WAL disables concurrent reads/writes and causes "database is locked" errors when HTTP server and MCP server run simultaneously.
 
+**RECOMMENDED for Hybrid mode:** Set `MCP_HYBRID_SYNC_OWNER=http` so that only the HTTP server syncs to Cloudflare. With this setting the MCP server (Claude Desktop) skips Cloudflare initialization entirely and uses SQLite-Vec directly — no Cloudflare credentials needed in `claude_desktop_config.json`. The HTTP server (running `run_http_server.py` with `.env`) handles all background sync. This is the correct separation of concerns: Claude Desktop = memory access, HTTP server = sync infrastructure.
+
 ### External Embedding APIs
 
 **Note:** Only supported with `sqlite_vec` backend (not compatible with `hybrid` or `cloudflare`).
@@ -471,6 +473,7 @@ memory.memory_type or ''
 | Database lock errors | Add `journal_mode=WAL` to `MCP_MEMORY_SQLITE_PRAGMAS` in `.env`, restart servers |
 | Tests failing after git pull | Run `./scripts/update_and_restart.sh` (installs deps, restarts server) |
 | MCP fails on every session (Windows) | Set `MCP_INIT_TIMEOUT=120` in your MCP server env config (issue #474) |
+| Cloudflare 401 on MCP server startup (hybrid mode) | Set `MCP_HYBRID_SYNC_OWNER=http` in `.env` — MCP server then uses SQLite-Vec only, no Cloudflare token needed in Claude Desktop config |
 | Strict stdio client times out during handshake (e.g. Codex, 10s budget) | Set `MCP_INIT_TIMEOUT=5` to force lazy loading — storage initializes on first tool call instead (issue #561) |
 
 **Comprehensive troubleshooting:** [docs/troubleshooting/hooks-quick-reference.md](docs/troubleshooting/hooks-quick-reference.md)

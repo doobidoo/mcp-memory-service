@@ -1022,11 +1022,15 @@ For [OpenCode](https://opencode.ai) (Go-based terminal AI), add to `~/.config/op
 export MCP_MEMORY_STORAGE_BACKEND=hybrid
 export MCP_MEMORY_SQLITE_PRAGMAS="busy_timeout=15000,cache_size=20000"
 
-# Cloudflare credentials (required for hybrid)
+# Cloudflare credentials (required for hybrid — only needed in .env, not in Claude Desktop config)
 export CLOUDFLARE_API_TOKEN="your-token"
 export CLOUDFLARE_ACCOUNT_ID="your-account"
 export CLOUDFLARE_D1_DATABASE_ID="your-db-id"
 export CLOUDFLARE_VECTORIZE_INDEX="mcp-memory-index"
+
+# Sync ownership: let HTTP server handle all Cloudflare sync (RECOMMENDED)
+# MCP server (Claude Desktop) then uses SQLite-Vec only — no Cloudflare token needed there
+export MCP_HYBRID_SYNC_OWNER=http
 
 # Enable HTTP API
 export MCP_HTTP_ENABLED=true
