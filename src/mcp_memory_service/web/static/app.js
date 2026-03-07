@@ -784,7 +784,7 @@ class MemoryDashboard {
      */
     async loadVersion() {
         try {
-            const healthResponse = await this.apiCall('/health');
+            const healthResponse = await this.apiCall('/health/detailed');
             const versionBadge = document.getElementById('versionBadge');
             if (versionBadge && healthResponse.version) {
                 versionBadge.textContent = `v${healthResponse.version}`;
