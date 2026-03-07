@@ -265,19 +265,20 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.25.1** (March 5, 2026)
+## Latest Release: **v10.25.2** (March 7, 2026)
 
-**Bug fix: external embedding API failure now raises an error instead of silently corrupting the vector space**
+**Patch fix: `update_and_restart.sh` health check now reads `status` field instead of removed `version` field**
 
 **What's New:**
-- **Fix silent fallback on external embedding API failure** (closes #551): When an external embedding provider (vLLM, Ollama, TEI, OpenAI-compatible) returned an error, the service silently fell back to the local ONNX model, mixing embedding spaces and causing all semantic searches to return incorrect results. Now raises a hard `RuntimeError` with the API failure reason and, when detectable, the existing DB dimension.
-- **DRY, informative error messages**: Error includes the detected DB embedding dimension from `sqlite_master` (via `_get_existing_db_embedding_dimension()`) to help diagnose mismatches.
-- **Stale integration test corrected**: `/api/health` integration test updated to match the security-hardened endpoint (GHSA-73hc-m4hx-79pj stripped the `version` field).
-- **1,397 tests** now passing (10 new regression tests for issue #551)
+- **Fix `update_and_restart.sh` always reporting "unknown" version**: The `/api/health` endpoint had its `version` field removed in v10.25.1 (security patch GHSA-73hc-m4hx-79pj), but the update script still tried to read `data.get('version')`. This caused the script to always report "unknown" and wait the full 15-second timeout. The check now reads the `status` field (`"healthy"`) to confirm the server is up and reports the pip-installed version instead.
+- **No Python changes**: Scripts-only fix; all 1,420 tests continue to pass unchanged.
 
 ---
 
 **Previous Releases**:
+- **v10.25.1** - Security: CORS wildcard default changed to localhost-only, soft-delete leak in `search_by_tag_chronological()` fixed (GHSA-g9rg-8vq5-mpwm)
+- **v10.25.0** - Embedding migration script, 5 soft-delete leak fixes, cosine distance formula fix, substring tag matching fix, O(n²) association sampling fix — 23 new tests, 1,420 total
+- **v10.24.0** - External embedding API silent fallback fixed: raises RuntimeError on API failure instead of mixing embedding spaces (#551) — 10 new tests, 1,397 total
 - **v10.23.0** - Quality scorer fix, consolidator improvements, two new opt-out flags: fix asyncio NameError in ai_evaluator.py (#544), fix consolidator invalid memory_type and dedup bug (#545), MCP_TYPED_EDGES_ENABLED opt-out (#546), MCP_CONSOLIDATION_STORE_ASSOCIATIONS opt-out (#547) — 14 new tests
 - **v10.22.0** - Consolidation engine stability: fix memory_consolidate status KeyError (#542), prevent exponential metadata prefix nesting (#543), reduce RelationshipInferenceEngine false positive rate (#541) — 40 new tests
 - **v10.21.1** - Security: Resolve 5 CodeQL code scanning alerts — removed unused imports, fixed empty except clause with explanatory comment, mitigated stack-trace exposure via `repr()` in consolidation API responses

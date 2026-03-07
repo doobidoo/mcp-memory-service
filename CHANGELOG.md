@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.25.2] - 2026-03-07
+
+### Fixed
+
+- **Health check in `update_and_restart.sh` always reported "unknown" version**: The `/api/health` endpoint was stripped of its `version` field in v10.25.1 (security patch GHSA-73hc-m4hx-79pj). The update script still tried to read `data.get('version')`, causing it to always fall back to "unknown" and wait the full 15-second timeout before giving up. The check now reads the `status` field (`"healthy"`) to confirm the server is up, and reports the already-known pip-installed version instead.
+
 ## [10.25.1] - 2026-03-06
 
 ### Security
