@@ -10,6 +10,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.26.0] - 2026-03-07
+
+### Added
+
+- **Credentials tab in Settings modal** (`GET /api/config/credentials`, `POST /api/config/credentials/test`, `POST /api/config/credentials`): Manage Cloudflare API token, Account ID, D1 Database ID, and Vectorize Index directly from the dashboard. Credentials shown with partial-reveal (masked) display and an eye-toggle for full reveal.
+- **Connection test gate (test-gate pattern)**: Credentials must pass a live connection test before they can be saved, preventing accidental misconfiguration.
+- **Sync Owner selector** (`MCP_HYBRID_SYNC_OWNER`: `http` / `both` / `mcp`): New setting to control which server handles Cloudflare sync in hybrid mode. Default is `http` (recommended) — HTTP server owns all sync; MCP server (Claude Desktop) uses SQLite-Vec only, removing the need for a Cloudflare token in the MCP config.
+- **Settings tabs restructured**: The Backup tab is split into three focused tabs — Quality, Backup, and Server — bringing the total to 7 tabs for clearer organisation.
+
+### Security
+
+- **SSRF protection on credentials endpoint**: `account_id` validated against `[a-f0-9]{32}` regex before use in Cloudflare API calls, blocking Server-Side Request Forgery via crafted account IDs.
+- **Newline injection prevention**: Credential values sanitised to reject embedded newlines, preventing HTTP header injection.
+- **`sync_owner` allowlist**: Only `http`, `both`, and `mcp` are accepted; unknown values are rejected with a 422 error.
+
+### Documentation
+
+- `CLAUDE.md` and `README.md` updated: `MCP_HYBRID_SYNC_OWNER=http` documented as the recommended configuration for hybrid mode, along with the rationale (HTTP server as sole sync owner, MCP server token-free).
+
+### CI
+
+- Claude Code Review GitHub Actions workflow disabled due to OAuth token expiry issues (will be migrated to API key auth).
+
+### Tests
+
+- No new tests added in this release (1,420 total).
+
 ## [10.25.3] - 2026-03-07
 
 ### Fixed

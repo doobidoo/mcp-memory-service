@@ -265,19 +265,21 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.25.3** (March 7, 2026)
+## Latest Release: **v10.26.0** (March 7, 2026)
 
-**Patch release: stdio handshake timeout cap, syntax fixes, hybrid sync fix, dashboard version badge fix**
+**Minor release: Credentials tab + Settings restructure + Sync Owner selector in dashboard**
 
 **What's New:**
-- **Fix Codex CLI / strict stdio MCP startup timeout (#561)**: Non-LM-Studio stdio clients now have their eager-init timeout capped at 5.0 s, preventing handshake failures in clients with tight startup budgets (e.g. Codex CLI ~10 s). Co-authored-by SergioChan.
-- **Follow-up syntax fixes for PR #569**: Resolved duplicate function call, orphaned parenthesis, duplicate return, magic numbers, and dead-code guard introduced in the initial fix.
-- **Fix hybrid sync premature early-exit**: Cloud-to-local sync no longer aborts at the 1,000-memory threshold when `synced_count` is 0 — all memories are now checked before the sync exits.
-- **Fix dashboard version badge**: `loadVersion()` now calls `/health/detailed` (includes `version` field) instead of `/health` (status-only since GHSA-73hc hardening in v10.21.0).
+- **Credentials tab in Settings modal**: Manage Cloudflare API token, Account ID, D1 Database ID, and Vectorize Index directly from the dashboard. Credentials shown with partial-reveal (masked) display and eye-toggle.
+- **Connection test gate**: Credentials must pass a live connection test before they can be saved — prevents accidental misconfiguration.
+- **Sync Owner selector**: New `MCP_HYBRID_SYNC_OWNER` setting (`http` / `both` / `mcp`) with "http only (recommended)" as default. HTTP server handles all Cloudflare sync; MCP server uses SQLite-Vec only.
+- **Settings tabs restructured**: Backup tab split into Quality / Backup / Server tabs — 7 tabs total for clearer organisation.
+- **Security hardening**: SSRF protection (account_id validated to `[a-f0-9]{32}`), newline injection prevention, sync_owner allowlist.
 
 ---
 
 **Previous Releases**:
+- **v10.25.3** - Patch release: stdio handshake timeout cap, syntax fixes, hybrid sync fix, dashboard version badge fix
 - **v10.25.2** - Patch fix: `update_and_restart.sh` health check reads `status` field instead of removed `version` field
 - **v10.25.1** - Security: CORS wildcard default changed to localhost-only, soft-delete leak in `search_by_tag_chronological()` fixed (GHSA-g9rg-8vq5-mpwm)
 - **v10.25.0** - Embedding migration script, 5 soft-delete leak fixes, cosine distance formula fix, substring tag matching fix, O(n²) association sampling fix — 23 new tests, 1,420 total
