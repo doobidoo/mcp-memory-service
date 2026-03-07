@@ -70,10 +70,14 @@ class TestGetRecommendedTimeout:
 
     def test_lm_studio_keeps_adaptive_timeout(self, monkeypatch):
         """LM Studio keeps longer adaptive timeout for heavyweight local startup."""
+        import platform
         monkeypatch.delenv('MCP_INIT_TIMEOUT', raising=False)
         from mcp_memory_service import dependency_check
         monkeypatch.setattr(dependency_check, 'detect_mcp_client_simple', lambda: 'lm_studio')
         monkeypatch.setattr(dependency_check, 'check_critical_dependencies', lambda: (False, ['torch']))
         monkeypatch.setattr(dependency_check, 'is_first_run', lambda: True)
+
+        base_timeout = 30.0 if platform.system() == "Windows" else 15.0
+        expected_timeout = base_timeout * 2 * 2  # For missing deps and first run
         result = dependency_check.get_recommended_timeout()
-        assert result >= 30.0
+        assert result == expected_timeout
