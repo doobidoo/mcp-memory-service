@@ -1424,6 +1424,24 @@
                                 <input type="text" id="cred-vectorize" class="form-control" placeholder="e.g. mcp-memory-index" autocomplete="off" spellcheck="false">
                             </div>
                         </div>
+                        <hr class="settings-divider">
+
+                        <h4 class="settings-section-heading">Sync Configuration</h4>
+                        <div class="credential-field">
+                            <label for="cred-sync-owner">Cloudflare Sync Owner</label>
+                            <select id="cred-sync-owner" class="form-select">
+                                <option value="http">HTTP server only (recommended)</option>
+                                <option value="both">Both servers</option>
+                                <option value="mcp">MCP server only</option>
+                            </select>
+                            <small class="form-text">
+                                <strong>HTTP server only</strong> — Claude Desktop uses SQLite-Vec directly (fast, no Cloudflare token needed there).
+                                The HTTP server handles all background sync via <code>.env</code>.<br>
+                                <strong>Both</strong> — each server maintains its own sync queue (legacy default).<br>
+                                <strong>MCP only</strong> — HTTP server skips sync, MCP server syncs.
+                            </small>
+                        </div>
+
                         <div id="credTestResult" class="cred-test-result" style="display:none;"></div>
                         <div class="credentials-actions">
                             <button type="button" id="credTestBtn" class="btn btn-secondary">Test Connection</button>

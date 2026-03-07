@@ -511,6 +511,7 @@ class CredentialsReadResponse(BaseModel):
     account_id: Optional[str]
     d1_database_id: Optional[str]
     vectorize_index: Optional[str]
+    sync_owner: Optional[str]
     env_file_path: Optional[str]
 
 
@@ -532,6 +533,7 @@ class SaveCredentialsRequest(BaseModel):
     account_id: str
     d1_database_id: str
     vectorize_index: str
+    sync_owner: str
     tested_token: str
 
 
@@ -618,6 +620,7 @@ async def get_credentials(
         account_id=get("CLOUDFLARE_ACCOUNT_ID"),
         d1_database_id=get("CLOUDFLARE_D1_DATABASE_ID"),
         vectorize_index=get("CLOUDFLARE_VECTORIZE_INDEX"),
+        sync_owner=get("MCP_HYBRID_SYNC_OWNER") or "http",
         env_file_path=str(env_path) if env_path.exists() else None,
     )
 
@@ -700,6 +703,7 @@ async def save_credentials(
             "CLOUDFLARE_ACCOUNT_ID": request.account_id,
             "CLOUDFLARE_D1_DATABASE_ID": request.d1_database_id,
             "CLOUDFLARE_VECTORIZE_INDEX": request.vectorize_index,
+            "MCP_HYBRID_SYNC_OWNER": request.sync_owner,
         }.items():
             _write_credential_to_env(env_path, key, value)
     except Exception as e:

@@ -4290,6 +4290,8 @@ class MemoryDashboard {
             if (accountInput) accountInput.value = data.account_id || '';
             if (d1Input) d1Input.value = data.d1_database_id || '';
             if (vectorizeInput) vectorizeInput.value = data.vectorize_index || '';
+            const syncOwnerSelect = document.getElementById('cred-sync-owner');
+            if (syncOwnerSelect) syncOwnerSelect.value = data.sync_owner || 'http';
 
             // Store partial for change detection
             this._credOriginalToken = data.api_token_partial || '';
@@ -4430,6 +4432,7 @@ class MemoryDashboard {
         saveBtn.textContent = 'Saving…';
 
         try {
+            const syncOwnerVal = (document.getElementById('cred-sync-owner')?.value || 'http');
             await this.apiCall('/config/credentials', {
                 method: 'POST',
                 body: JSON.stringify({
@@ -4437,6 +4440,7 @@ class MemoryDashboard {
                     account_id: accountVal,
                     d1_database_id: d1Val,
                     vectorize_index: vectorizeVal,
+                    sync_owner: syncOwnerVal,
                     tested_token: this._credTestedToken,
                 })
             });
