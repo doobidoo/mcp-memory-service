@@ -4446,10 +4446,7 @@ class MemoryDashboard {
             });
             this._showCredResult('success', '✓ Credentials saved. Server restarting…');
             this.closeModal(document.getElementById('settingsModal'));
-            // Show restart overlay (reuses existing restart UI)
-            const overlay = document.getElementById('restartOverlay');
-            if (overlay) overlay.style.display = 'flex';
-            setTimeout(() => this.waitForServerRestart(), 3000);
+            this.showRestartOverlay();
         } catch (e) {
             this._showCredResult('error', `✗ Save failed: ${e.message}`);
             saveBtn.disabled = false;

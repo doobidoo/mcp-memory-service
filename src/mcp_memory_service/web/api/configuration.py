@@ -35,13 +35,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/config", tags=["configuration"])
 
-# Cloudflare fields managed by the Credentials tab
-CREDENTIAL_KEYS = [
-    "CLOUDFLARE_API_TOKEN",
-    "CLOUDFLARE_ACCOUNT_ID",
-    "CLOUDFLARE_D1_DATABASE_ID",
-    "CLOUDFLARE_VECTORIZE_INDEX",
-]
+
 
 
 class ConfigParameter(BaseModel):
@@ -533,7 +527,7 @@ class SaveCredentialsRequest(BaseModel):
     account_id: str
     d1_database_id: str
     vectorize_index: str
-    sync_owner: str
+    sync_owner: str  # validated below against allowed values
     tested_token: str
 
 
@@ -566,7 +560,10 @@ def _read_env_file_dict(env_path: Path) -> dict:
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:
                     key, value = line.split('=', 1)
-                    result[key.strip()] = value.strip()
+                    v = value.strip()
+                    if len(v) >= 2 and v[0] in ('"', "'") and v[0] == v[-1]:
+                        v = v[1:-1]
+                    result[key.strip()] = v
     except Exception as e:
         logger.error(f"Error reading .env file: {e}")
     return result
@@ -578,7 +575,7 @@ def _write_credential_to_env(env_path: Path, key: str, value: str) -> None:
     found = False
 
     if env_path.exists():
-        with open(env_path) as f:
+        with open(env_path, encoding='utf-8') as f:
             lines = f.readlines()
 
     new_lines = []
@@ -592,7 +589,7 @@ def _write_credential_to_env(env_path: Path, key: str, value: str) -> None:
     if not found:
         new_lines.append(f"{key}={value}\n")
 
-    with open(env_path, 'w') as f:
+    with open(env_path, 'w', encoding='utf-8') as f:
         f.writelines(new_lines)
 
 
@@ -634,6 +631,10 @@ async def test_credentials(
     Validate a Cloudflare API token against the accounts/.../tokens/verify endpoint.
     Does NOT persist anything. Requires admin access.
     """
+    import re as _re
+    if not _re.fullmatch(r"[a-f0-9\-]{1,64}", request.account_id):
+        return TestCredentialsResponse(valid=False, error="account_id contains invalid characters")
+
     url = f"https://api.cloudflare.com/client/v4/accounts/{request.account_id}/tokens/verify"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -695,14 +696,31 @@ async def save_credentials(
         msg = errors[0].get("message", "Invalid token") if errors else "Invalid token"
         raise HTTPException(status_code=400, detail=f"Token verification failed: {msg}")
 
+    # Validate sync_owner
+    allowed_sync_owners = {"http", "mcp", "both"}
+    if request.sync_owner not in allowed_sync_owners:
+        raise HTTPException(
+            status_code=400,
+            detail=f"sync_owner must be one of: {', '.join(sorted(allowed_sync_owners))}"
+        )
+
+    # Validate account_id to prevent SSRF (only hex chars and hyphens)
+    import re as _re
+    if not _re.fullmatch(r"[a-f0-9\-]{1,64}", request.account_id):
+        raise HTTPException(status_code=400, detail="account_id contains invalid characters")
+
+    # Sanitize all credential values — strip newlines to prevent .env injection
+    def _sanitize(v: str) -> str:
+        return v.replace("\n", "").replace("\r", "").replace("\x00", "")
+
     # Write to .env
     env_path = _find_env_path()
     try:
         for key, value in {
-            "CLOUDFLARE_API_TOKEN": request.api_token,
-            "CLOUDFLARE_ACCOUNT_ID": request.account_id,
-            "CLOUDFLARE_D1_DATABASE_ID": request.d1_database_id,
-            "CLOUDFLARE_VECTORIZE_INDEX": request.vectorize_index,
+            "CLOUDFLARE_API_TOKEN": _sanitize(request.api_token),
+            "CLOUDFLARE_ACCOUNT_ID": _sanitize(request.account_id),
+            "CLOUDFLARE_D1_DATABASE_ID": _sanitize(request.d1_database_id),
+            "CLOUDFLARE_VECTORIZE_INDEX": _sanitize(request.vectorize_index),
             "MCP_HYBRID_SYNC_OWNER": request.sync_owner,
         }.items():
             _write_credential_to_env(env_path, key, value)
