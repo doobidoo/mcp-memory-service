@@ -479,7 +479,7 @@ else
         fi
 
         if [ -n "$HEALTH_DATA" ]; then
-            HEALTH_STATUS=$(echo "$HEALTH_DATA" | "$VENV_PYTHON" -c "import sys, json; data=json.load(sys.stdin); print(data.get('status', 'unknown'))" 2>/dev/null || echo "unknown")
+            HEALTH_STATUS=$(printf "%s" "$HEALTH_DATA" | "$VENV_PYTHON" -c "import sys, json; data=json.load(sys.stdin); print(data.get('status', 'unknown'))" 2>/dev/null || echo "unknown")
 
             if [ "$HEALTH_STATUS" = "healthy" ]; then
                 log_success "Server healthy (installed version: ${INSTALLED_VERSION})"
