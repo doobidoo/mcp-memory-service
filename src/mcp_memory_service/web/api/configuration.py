@@ -589,7 +589,7 @@ def _write_credential_to_env(env_path: Path, key: str, value: str) -> None:
     if not found:
         new_lines.append(f"{key}={value}\n")
 
-    with open(env_path, 'w', encoding='utf-8') as f:  # noqa: S314 — .env file, clear-text by design
+    with open(env_path, 'w', encoding='utf-8') as f:  # lgtm[py/clear-text-storage-of-sensitive-data]
         f.writelines(new_lines)
 
 
@@ -636,11 +636,11 @@ async def test_credentials(
         return TestCredentialsResponse(valid=False, error="account_id must be a 32-character hexadecimal string")
 
     # account_id validated above to be exactly 32 hex chars — no SSRF risk
-    safe_account_id = re.sub(r"[^a-f0-9]", "", request.account_id)  # noqa: S105
+    safe_account_id = re.sub(r"[^a-f0-9]", "", request.account_id)
     url = f"https://api.cloudflare.com/client/v4/accounts/{safe_account_id}/tokens/verify"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
+            resp = await client.get(  # lgtm[py/ssrf]
                 url,
                 headers={"Authorization": f"Bearer {request.api_token}"}
             )
@@ -700,7 +700,7 @@ async def save_credentials(
     url = f"https://api.cloudflare.com/client/v4/accounts/{safe_account_id}/tokens/verify"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
+            resp = await client.get(  # lgtm[py/ssrf]
                 url,
                 headers={"Authorization": f"Bearer {request.api_token}"}
             )
