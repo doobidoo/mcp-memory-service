@@ -12,8 +12,8 @@ on:
 
 jobs:
   claude-review:
-    # SECURITY: Only run for repository owner to prevent API credit abuse
-    if: github.event.pull_request.user.login == github.repository_owner
+    # Disabled: OAuth token expires every 24h causing noisy failures; use Gemini review instead
+    if: false
 
     runs-on: ubuntu-latest
     permissions:
