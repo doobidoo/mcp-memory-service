@@ -589,7 +589,7 @@ def _write_credential_to_env(env_path: Path, key: str, value: str) -> None:
     if not found:
         new_lines.append(f"{key}={value}\n")
 
-    with open(env_path, 'w', encoding='utf-8') as f:  # lgtm[py/clear-text-storage-of-sensitive-data]
+    with open(env_path, 'w', encoding='utf-8') as f:
         f.writelines(new_lines)
 
 
@@ -640,7 +640,7 @@ async def test_credentials(
     url = f"https://api.cloudflare.com/client/v4/accounts/{safe_account_id}/tokens/verify"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(  # lgtm[py/ssrf]
+            resp = await client.get(
                 url,
                 headers={"Authorization": f"Bearer {request.api_token}"}
             )
@@ -700,7 +700,7 @@ async def save_credentials(
     url = f"https://api.cloudflare.com/client/v4/accounts/{safe_account_id}/tokens/verify"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(  # lgtm[py/ssrf]
+            resp = await client.get(
                 url,
                 headers={"Authorization": f"Bearer {request.api_token}"}
             )

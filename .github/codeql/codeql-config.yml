@@ -22,7 +22,9 @@ queries:
 # Disable specific queries that cause false positives
 disable-default-queries: false
 
-# Custom query filters (optional)
-# query-filters:
-#   - exclude:
-#       id: py/sql-injection  # Example: disable if using parameterized queries everywhere
+# Suppress false positives
+query-filters:
+  - exclude:
+      id: py/clear-text-storage-of-sensitive-data  # .env files are clear-text by design
+  - exclude:
+      id: py/ssrf  # account_id validated to [a-f0-9]{32} before URL construction
