@@ -260,14 +260,16 @@ def get_recommended_timeout() -> float:
     # Keep eager init conservative and rely on lazy-load fallback.
     client = detect_mcp_client_simple()
     ADAPTIVE_TIMEOUT_CLIENT = 'lm_studio'
-    STRICT_CLIENT_TIMEOUT_CAP_S = 5.0
-    if client != ADAPTIVE_TIMEOUT_CLIENT:
-        strict_timeout = min(timeout, STRICT_CLIENT_TIMEOUT_CAP_S)
-        if strict_timeout != timeout:
-            logger.info(
-                "Strict MCP client detected (%s); capping eager init timeout to %.1fs",
-                client,
-                strict_timeout,
+    client = detect_mcp_client_simple()
+    if client != 'lm_studio':
+        strict_timeout = min(timeout, 5.0)
+        logger.info(
+            "Strict MCP client detected (%s); capping eager init timeout from %.1fs to %.1fs",
+            client,
+            timeout,
+            strict_timeout,
+        )
+        timeout = strict_timeout
             )
         timeout = strict_timeout
 
