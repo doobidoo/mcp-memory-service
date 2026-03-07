@@ -271,6 +271,6 @@ def get_recommended_timeout() -> float:
         )
         timeout = strict_timeout
             )
-        timeout = strict_timeout
+    return timeout
 
     return timeout
