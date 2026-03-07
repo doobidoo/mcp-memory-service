@@ -631,9 +631,9 @@ async def test_credentials(
     Validate a Cloudflare API token against the accounts/.../tokens/verify endpoint.
     Does NOT persist anything. Requires admin access.
     """
-    import re as _re
-    if not _re.fullmatch(r"[a-f0-9\-]{1,64}", request.account_id):
-        return TestCredentialsResponse(valid=False, error="account_id contains invalid characters")
+    # Use module-level 're' import
+    if not re.fullmatch(r"[a-f0-9]{32}", request.account_id):
+        return TestCredentialsResponse(valid=False, error="account_id must be a 32-character hexadecimal string")
 
     url = f"https://api.cloudflare.com/client/v4/accounts/{request.account_id}/tokens/verify"
     try:
