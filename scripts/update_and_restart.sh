@@ -469,7 +469,7 @@ else
     while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
         # Try HTTPS first (most common), then HTTP
         # Note: /api/health returns only {"status":"healthy"} (no version)
-        # since v10.25.1 security patch (GHSA-73hc-m4hx-79pj)
+        # since v10.21.0 security hardening (GHSA-73hc-m4hx-79pj)
         if HEALTH_DATA=$(curl -fsk --max-time 2 "$HEALTH_URL_HTTPS" 2>/dev/null); then
             HEALTH_URL="$HEALTH_URL_HTTPS"
         elif HEALTH_DATA=$(curl -fs --max-time 2 "$HEALTH_URL_HTTP" 2>/dev/null); then
