@@ -468,12 +468,12 @@ else
 
     while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
         # Try HTTPS first (most common), then HTTP
+        # Note: /api/health returns only {"status":"healthy"} (no version)
+        # since v10.25.1 security patch (GHSA-73hc-m4hx-79pj)
         if curl -sk --max-time 2 "$HEALTH_URL_HTTPS" > /dev/null 2>&1; then
-            # Get health data
             HEALTH_DATA=$(curl -sk --max-time 2 "$HEALTH_URL_HTTPS")
             HEALTH_URL="$HEALTH_URL_HTTPS"
         elif curl -s --max-time 2 "$HEALTH_URL_HTTP" > /dev/null 2>&1; then
-            # Get health data
             HEALTH_DATA=$(curl -s --max-time 2 "$HEALTH_URL_HTTP")
             HEALTH_URL="$HEALTH_URL_HTTP"
         else
@@ -481,14 +481,14 @@ else
         fi
 
         if [ -n "$HEALTH_DATA" ]; then
-            SERVER_VERSION=$(echo "$HEALTH_DATA" | "$VENV_PYTHON" -c "import sys, json; data=json.load(sys.stdin); print(data.get('version', 'unknown'))" 2>/dev/null || echo "unknown")
+            HEALTH_STATUS=$(echo "$HEALTH_DATA" | "$VENV_PYTHON" -c "import sys, json; data=json.load(sys.stdin); print(data.get('status', 'unknown'))" 2>/dev/null || echo "unknown")
 
-            if [ "$SERVER_VERSION" = "$NEW_VERSION" ]; then
-                log_success "Server healthy and running version ${SERVER_VERSION}"
+            if [ "$HEALTH_STATUS" = "healthy" ]; then
+                log_success "Server healthy (installed version: ${INSTALLED_VERSION})"
                 break
             else
-                log_warning "Server running old version: ${SERVER_VERSION} (expected: ${NEW_VERSION})"
-                log_info "Waiting for server to reload... (${WAIT_COUNT}s)"
+                log_warning "Server returned status: ${HEALTH_STATUS}"
+                log_info "Waiting for server to become healthy... (${WAIT_COUNT}s)"
             fi
         fi
 
