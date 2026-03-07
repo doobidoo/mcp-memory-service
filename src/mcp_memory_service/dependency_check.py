@@ -259,8 +259,10 @@ def get_recommended_timeout() -> float:
     # Strict stdio clients often have small handshake budgets.
     # Keep eager init conservative and rely on lazy-load fallback.
     client = detect_mcp_client_simple()
-    if client != 'lm_studio':
-        strict_timeout = min(timeout, 5.0)
+    ADAPTIVE_TIMEOUT_CLIENT = 'lm_studio'
+    STRICT_CLIENT_TIMEOUT_CAP_S = 5.0
+    if client != ADAPTIVE_TIMEOUT_CLIENT:
+        strict_timeout = min(timeout, STRICT_CLIENT_TIMEOUT_CAP_S)
         if strict_timeout != timeout:
             logger.info(
                 "Strict MCP client detected (%s); capping eager init timeout to %.1fs",
