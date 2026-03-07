@@ -249,28 +249,28 @@ def get_recommended_timeout() -> float:
     # Extend timeout if dependencies are missing
     if not all_installed:
         timeout *= 2  # Double the timeout
-        logger.warning(f"Dependencies missing, extending timeout to {timeout}s")
+        logger.warning(f"Dependencies missing, extending base timeout to {timeout}s (before client cap)")
 
     # Extend timeout if it's first run
     if first_run:
         timeout *= 2  # Double the timeout
-        logger.warning(f"First run detected, extending timeout to {timeout}s")
+        logger.warning(f"First run detected, extending base timeout to {timeout}s (before client cap)")
 
     # Strict stdio clients often have small handshake budgets.
     # Keep eager init conservative and rely on lazy-load fallback.
-    client = detect_mcp_client_simple()
     ADAPTIVE_TIMEOUT_CLIENT = 'lm_studio'
+    STRICT_CLIENT_TIMEOUT_CAP_S = 5.0
+
     client = detect_mcp_client_simple()
-    if client != 'lm_studio':
-        strict_timeout = min(timeout, 5.0)
-        logger.info(
-            "Strict MCP client detected (%s); capping eager init timeout from %.1fs to %.1fs",
-            client,
-            timeout,
-            strict_timeout,
-        )
-        timeout = strict_timeout
+    if client != ADAPTIVE_TIMEOUT_CLIENT:
+        strict_timeout = min(timeout, STRICT_CLIENT_TIMEOUT_CAP_S)
+        if strict_timeout < timeout:
+            logger.info(
+                "Strict MCP client detected (%s); capping eager init timeout from %.1fs to %.1fs",
+                client,
+                timeout,
+                strict_timeout,
             )
-    return timeout
+        timeout = strict_timeout
 
     return timeout
