@@ -226,6 +226,21 @@ class HealthCheckFactory:
     """Factory for creating appropriate health check strategies."""
 
     @staticmethod
+    def _is_hybrid_like_storage(storage: Any) -> bool:
+        """Detect hybrid storage instances, including delegated/wrapped variants."""
+        if storage.__class__.__name__ == "HybridMemoryStorage":
+            return True
+
+        # Hybrid storage exposes a primary backend and either secondary backend
+        # or sync service metadata. Use structural detection to avoid relying
+        # solely on class names when storage objects are wrapped/delegated.
+        has_primary = hasattr(storage, 'primary')
+        has_secondary = hasattr(storage, 'secondary')
+        has_sync_service = hasattr(storage, 'sync_service')
+
+        return has_primary and (has_secondary or has_sync_service)
+
+    @staticmethod
     def create(storage: Any) -> HealthCheckStrategy:
         """
         Create a health check strategy based on storage type.
@@ -238,12 +253,12 @@ class HealthCheckFactory:
         """
         storage_type = storage.__class__.__name__
 
-        if storage_type == "SqliteVecMemoryStorage":
+        if HealthCheckFactory._is_hybrid_like_storage(storage):
+            return HybridHealthChecker()
+        elif storage_type == "SqliteVecMemoryStorage":
             return SqliteHealthChecker()
         elif storage_type == "CloudflareStorage":
             return CloudflareHealthChecker()
-        elif storage_type == "HybridMemoryStorage":
-            return HybridHealthChecker()
         else:
             # Default to a simple unknown strategy
             return UnknownStorageChecker()
