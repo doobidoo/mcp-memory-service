@@ -470,11 +470,9 @@ else
         # Try HTTPS first (most common), then HTTP
         # Note: /api/health returns only {"status":"healthy"} (no version)
         # since v10.25.1 security patch (GHSA-73hc-m4hx-79pj)
-        if curl -sk --max-time 2 "$HEALTH_URL_HTTPS" > /dev/null 2>&1; then
-            HEALTH_DATA=$(curl -sk --max-time 2 "$HEALTH_URL_HTTPS")
+        if HEALTH_DATA=$(curl -sk --max-time 2 "$HEALTH_URL_HTTPS" 2>/dev/null); then
             HEALTH_URL="$HEALTH_URL_HTTPS"
-        elif curl -s --max-time 2 "$HEALTH_URL_HTTP" > /dev/null 2>&1; then
-            HEALTH_DATA=$(curl -s --max-time 2 "$HEALTH_URL_HTTP")
+        elif HEALTH_DATA=$(curl -s --max-time 2 "$HEALTH_URL_HTTP" 2>/dev/null); then
             HEALTH_URL="$HEALTH_URL_HTTP"
         else
             HEALTH_DATA=""
