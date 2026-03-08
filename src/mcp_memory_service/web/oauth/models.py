@@ -54,6 +54,24 @@ class OAuthServerMetadata(BaseModel):
     )
 
 
+class OAuthProtectedResourceMetadata(BaseModel):
+    """OAuth 2.0 Protected Resource Metadata (RFC 9728)."""
+
+    resource: str = Field(..., description="Protected resource identifier (its URL)")
+    authorization_servers: List[str] = Field(
+        ..., description="Authorization server(s) that can authorize access"
+    )
+    scopes_supported: Optional[List[str]] = Field(
+        default=None, description="Scopes supported by this resource"
+    )
+    bearer_methods_supported: Optional[List[str]] = Field(
+        default=None, description="Methods for sending bearer tokens"
+    )
+    resource_documentation: Optional[str] = Field(
+        default=None, description="URL of resource documentation"
+    )
+
+
 class ClientRegistrationRequest(BaseModel):
     """OAuth 2.1 Dynamic Client Registration Request (RFC 7591).
 

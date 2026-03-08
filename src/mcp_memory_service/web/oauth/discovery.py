@@ -21,12 +21,31 @@ Implements .well-known endpoints required for OAuth 2.1 Dynamic Client Registrat
 import logging
 from fastapi import APIRouter
 from ...config import OAUTH_ISSUER, get_jwt_algorithm
-from .models import OAuthServerMetadata
+from .models import OAuthServerMetadata, OAuthProtectedResourceMetadata
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+
+@router.get("/.well-known/oauth-protected-resource")
+async def oauth_protected_resource_metadata() -> OAuthProtectedResourceMetadata:
+    """
+    OAuth 2.0 Protected Resource Metadata endpoint (RFC 9728).
+
+    Returns metadata about the protected resource, including which authorization
+    server(s) can issue tokens for it. Required by MCP spec for OAuth integration.
+    """
+    logger.info("OAuth protected resource metadata requested")
+
+    return OAuthProtectedResourceMetadata(
+        resource=OAUTH_ISSUER,
+        authorization_servers=[OAUTH_ISSUER],
+        scopes_supported=["read", "write", "admin"],
+        bearer_methods_supported=["header"],
+        resource_documentation=f"{OAUTH_ISSUER}/docs"
+    )
 
 
 @router.get("/.well-known/oauth-authorization-server/mcp")
@@ -49,7 +68,7 @@ async def oauth_authorization_server_metadata() -> OAuthServerMetadata:
         registration_endpoint=f"{OAUTH_ISSUER}/oauth/register",
         grant_types_supported=["authorization_code", "client_credentials"],
         response_types_supported=["code"],
-        token_endpoint_auth_methods_supported=["client_secret_basic", "client_secret_post"],
+        token_endpoint_auth_methods_supported=["client_secret_basic", "client_secret_post", "none"],
         scopes_supported=["read", "write", "admin"],
         id_token_signing_alg_values_supported=[algorithm],
         code_challenge_methods_supported=["S256"]
