@@ -122,8 +122,42 @@ def update_header_range(header: str, oldest_kept: str) -> str:
     return new_header
 
 
+def _is_previous_releases_start(line: str) -> bool:
+    """Detect 'Previous Releases' section start in various formats.
+
+    Matches:
+        ## Previous Releases       (markdown header)
+        **Previous Releases**:     (bold text, as used in current README)
+    """
+    if re.match(r"^#{1,4}\s.*[Pp]revious\s+[Rr]eleases", line):
+        return True
+    if re.match(r"^\*\*[Pp]revious\s+[Rr]eleases\*\*", line):
+        return True
+    return False
+
+
+def _is_section_end(line: str) -> bool:
+    """Detect the end of the 'Previous Releases' section.
+
+    Ends at:
+        - Any markdown header (## ..., ### ...)
+        - Horizontal rule (---) separating sections
+        - 'Full version history' footer link (marks end of release list)
+    """
+    if re.match(r"^#{1,3}\s", line):
+        return True
+    if re.match(r"^---\s*$", line):
+        return True
+    if re.match(r"^\*\*Full version history\*\*", line):
+        return True
+    return False
+
+
 def trim_readme_previous_releases(text: str, max_entries: int) -> tuple[str, int]:
     """Trim the 'Previous Releases' section in README.md.
+
+    Only trims release entry lines (- **vX.Y.Z** ...) beyond max_entries.
+    All other content (headers, footers, subsequent sections) is preserved.
 
     Returns (new_text, entries_removed).
     """
@@ -132,34 +166,22 @@ def trim_readme_previous_releases(text: str, max_entries: int) -> tuple[str, int
     in_section = False
     entry_count = 0
     entries_removed = 0
-    footer_link = (
-        "**Full version history**: [CHANGELOG.md](CHANGELOG.md) "
-        "| [Older versions](docs/archive/CHANGELOG-HISTORIC.md) "
-        "| [All Releases](https://github.com/doobidoo/mcp-memory-service/releases)"
-    )
 
     i = 0
     while i < len(lines):
         line = lines[i]
 
-        # Detect section start (various header levels)
-        if re.match(r"^#{1,4}\s.*[Pp]revious\s+[Rr]eleases", line):
+        # Detect section start
+        if not in_section and _is_previous_releases_start(line):
             in_section = True
             result.append(line)
             i += 1
             continue
 
         if in_section:
-            # Detect section end (next header of same or higher level)
-            if re.match(r"^#{1,3}\s", line) and not re.match(
-                r"^#{1,4}\s.*[Pp]revious\s+[Rr]eleases", line
-            ):
+            # Detect section end — stop trimming, preserve everything after
+            if _is_section_end(line) and not _is_previous_releases_start(line):
                 in_section = False
-                # Ensure footer link is present
-                if result and not any(footer_link[:30] in r for r in result[-5:]):
-                    result.append("")
-                    result.append(footer_link)
-                    result.append("")
                 result.append(line)
                 i += 1
                 continue
@@ -186,11 +208,11 @@ def count_readme_entries(text: str) -> int:
     in_section = False
     count = 0
     for line in text.split("\n"):
-        if re.match(r"^#{1,4}\s.*[Pp]revious\s+[Rr]eleases", line):
+        if not in_section and _is_previous_releases_start(line):
             in_section = True
             continue
         if in_section:
-            if re.match(r"^#{1,3}\s", line):
+            if _is_section_end(line):
                 break
             if re.match(r"^\s*-\s+\*\*v\d+", line):
                 count += 1
