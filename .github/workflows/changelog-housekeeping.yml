@@ -44,7 +44,7 @@ jobs:
 
     - name: Create Pull Request
       if: steps.housekeeping.outputs.changes == 'true'
-      uses: peter-evans/create-pull-request@v7
+      uses: peter-evans/create-pull-request@67ccf5d5e48bc43b8d67988607b5fdaee1b0f4b8  # v7.0.6
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         commit-message: "chore: archive changelog entries older than v${{ steps.housekeeping.outputs.oldest_version }}"

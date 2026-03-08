@@ -96,12 +96,17 @@ def extract_archive_versions(text: str) -> set[str]:
     return set(re.findall(r"^## \[(\d+\.\d+\.\d+)\]", text, re.MULTILINE))
 
 
-def update_header_range(header: str, oldest_kept: str) -> str:
+def update_header_range(header: str, oldest_kept: str, newest_archived: str) -> str:
     """Update the header comment to reflect new version range.
+
+    Args:
+        oldest_kept: The oldest version still in CHANGELOG.md
+        newest_archived: The newest version moved to the archive
 
     Replaces lines like:
         **Recent releases for MCP Memory Service (v10.25.0 and later)**
-    with the correct oldest kept version.
+    with the correct oldest kept version, and updates the archive boundary
+    to reference the newest archived version.
     """
     pattern = re.compile(
         r"\*\*Recent releases for MCP Memory Service \(v[\d.]+ and later\)\*\*"
@@ -109,15 +114,13 @@ def update_header_range(header: str, oldest_kept: str) -> str:
     replacement = f"**Recent releases for MCP Memory Service (v{oldest_kept} and later)**"
     new_header = pattern.sub(replacement, header)
 
-    # Also update the archive reference
+    # Update the archive reference to point to the newest archived version
     # Pattern: **Versions vX.Y.Z and earlier** – See [...]
     ver_pattern = re.compile(
         r"\*\*Versions v[\d.]+ and earlier\*\*"
     )
-    # The version just before oldest_kept would be the archive boundary
-    # We parse from the header what's there and update
     new_header = ver_pattern.sub(
-        f"**Versions v{oldest_kept} and earlier**", new_header
+        f"**Versions v{newest_archived} and earlier**", new_header
     )
     return new_header
 
@@ -200,6 +203,18 @@ def trim_readme_previous_releases(text: str, max_entries: int) -> tuple[str, int
 
         i += 1
 
+    # If "Previous Releases" was the last section, ensure footer link is present
+    footer_link = (
+        "**Full version history**: [CHANGELOG.md](CHANGELOG.md) "
+        "| [Older versions](docs/archive/CHANGELOG-HISTORIC.md) "
+        "| [All Releases](https://github.com/doobidoo/mcp-memory-service/releases)"
+    )
+    if in_section and entries_removed > 0:
+        if not any(footer_link[:30] in r for r in result[-5:]):
+            result.append("")
+            result.append(footer_link)
+            result.append("")
+
     return "\n".join(result), entries_removed
 
 
@@ -281,7 +296,8 @@ def run(dry_run: bool = False) -> int:
         print(f"Skipping {skipped} versions already in archive")
 
     # --- Build new CHANGELOG.md ---
-    new_header = update_header_range(header, oldest_kept)
+    newest_archived = archive_blocks[0][0]
+    new_header = update_header_range(header, oldest_kept, newest_archived)
     parts = [new_header.rstrip(), "", unreleased.rstrip(), ""]
     for _v, block_text in keep_blocks:
         parts.append(block_text.rstrip())
@@ -337,7 +353,6 @@ def run(dry_run: bool = False) -> int:
     # --- Validate ---
     _, _, new_version_blocks = parse_changelog_blocks(new_changelog)
     new_archive_versions = extract_archive_versions(new_archive)
-    total_after = len(new_version_blocks) + len(new_archive_versions)
 
     all_before = set(v for v, _ in version_blocks) | existing_archive_versions
     all_after = set(v for v, _ in new_version_blocks) | new_archive_versions
