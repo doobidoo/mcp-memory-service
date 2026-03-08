@@ -1,0 +1,71 @@
+name: Changelog Housekeeping
+
+on:
+  schedule:
+    # Runs at 09:00 UTC on the 1st of every month
+    - cron: '0 9 1 * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  housekeeping:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Run changelog housekeeping
+      id: housekeeping
+      run: |
+        python scripts/maintenance/changelog_housekeeping.py 2>&1 | tee /tmp/housekeeping.log
+        EXIT_CODE=${PIPESTATUS[0]}
+
+        # Check if changes were made
+        if git diff --quiet; then
+          echo "changes=false" >> $GITHUB_OUTPUT
+          echo "No changes needed"
+        else
+          echo "changes=true" >> $GITHUB_OUTPUT
+
+          # Extract oldest kept version for branch/commit naming
+          OLDEST=$(grep -oP 'Oldest version in CHANGELOG\.md: v\K[\d.]+' /tmp/housekeeping.log || echo "unknown")
+          echo "oldest_version=$OLDEST" >> $GITHUB_OUTPUT
+        fi
+
+        exit $EXIT_CODE
+
+    - name: Create Pull Request
+      if: steps.housekeeping.outputs.changes == 'true'
+      uses: peter-evans/create-pull-request@v7
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "chore: archive changelog entries older than v${{ steps.housekeeping.outputs.oldest_version }}"
+        title: "chore: changelog housekeeping — archive older entries"
+        body: |
+          ## Automated Changelog Housekeeping
+
+          This PR was created automatically by the [changelog-housekeeping workflow](../.github/workflows/changelog-housekeeping.yml).
+
+          **What changed:**
+          - Archived older CHANGELOG.md entries to `docs/archive/CHANGELOG-HISTORIC.md`
+          - Kept last 8 versions in CHANGELOG.md
+          - Trimmed README.md "Previous Releases" section (max 7 entries)
+
+          **Validation:** The script verified that no version entries were lost during archival.
+
+          ---
+          *Triggered: ${{ github.event_name == 'schedule' && 'monthly schedule' || 'manual dispatch' }}*
+        branch: chore/changelog-housekeeping
+        delete-branch: true
+        labels: |
+          maintenance
+          documentation
+        assignees: doobidoo
