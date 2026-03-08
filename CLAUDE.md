@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop and 13+ AI applications. It uses vector embeddings for semantic search, supports multiple storage backends (SQLite-vec, Cloudflare, Hybrid), and includes advanced features like memory consolidation, quality scoring, and OAuth 2.1 team collaboration.
 
-**Current Version:** v10.26.0 - Credentials tab + Settings restructure + Sync Owner selector in dashboard; `MCP_HYBRID_SYNC_OWNER=http` recommended for hybrid mode — 1,420 tests — see [CHANGELOG.md](CHANGELOG.md) for details
+**Current Version:** v10.26.1 - Hybrid backend correctly reported in MCP health checks (`HealthCheckFactory` structural detection fix for wrapped/delegated backends, issue #570) — 1,420 tests — see [CHANGELOG.md](CHANGELOG.md) for details
 
 > **🎯 v10.0.0 Milestone**: This major release represents a complete API consolidation - 34 tools unified into 12 with enhanced capabilities. All deprecated tools continue working with warnings until v11.0. See `docs/MIGRATION.md` for migration guide.
 
@@ -474,6 +474,7 @@ memory.memory_type or ''
 | Tests failing after git pull | Run `./scripts/update_and_restart.sh` (installs deps, restarts server) |
 | MCP fails on every session (Windows) | Set `MCP_INIT_TIMEOUT=120` in your MCP server env config (issue #474) |
 | Cloudflare 401 on MCP server startup (hybrid mode) | Set `MCP_HYBRID_SYNC_OWNER=http` in `.env` — MCP server then uses SQLite-Vec only, no Cloudflare token needed in Claude Desktop config |
+| Cloudflare 403 / sync not running (IPv6) | Python prefers IPv6 but token IP allowlist may only have IPv4. Add your IPv6 /64 network to token's Client IP Address Filtering, or remove IP filtering entirely |
 | Strict stdio client times out during handshake (e.g. Codex, 10s budget) | Set `MCP_INIT_TIMEOUT=5` to force lazy loading — storage initializes on first tool call instead (issue #561) |
 
 **Comprehensive troubleshooting:** [docs/troubleshooting/hooks-quick-reference.md](docs/troubleshooting/hooks-quick-reference.md)

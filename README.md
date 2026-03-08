@@ -265,20 +265,18 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.26.0** (March 7, 2026)
+## Latest Release: **v10.26.1** (March 8, 2026)
 
-**Minor release: Credentials tab + Settings restructure + Sync Owner selector in dashboard**
+**Patch release: Hybrid backend correctly reported in MCP health checks**
 
 **What's New:**
-- **Credentials tab in Settings modal**: Manage Cloudflare API token, Account ID, D1 Database ID, and Vectorize Index directly from the dashboard. Credentials shown with partial-reveal (masked) display and eye-toggle.
-- **Connection test gate**: Credentials must pass a live connection test before they can be saved — prevents accidental misconfiguration.
-- **Sync Owner selector**: New `MCP_HYBRID_SYNC_OWNER` setting (`http` / `both` / `mcp`) with "http only (recommended)" as default. HTTP server handles all Cloudflare sync; MCP server uses SQLite-Vec only.
-- **Settings tabs restructured**: Backup tab split into Quality / Backup / Server tabs — 7 tabs total for clearer organisation.
-- **Security hardening**: SSRF protection (account_id validated to `[a-f0-9]{32}`), newline injection prevention, sync_owner allowlist.
+- **[#570] Hybrid backend misidentified as sqlite-vec in `memory_health`**: `HealthCheckFactory` now uses structural detection (checks for `primary` + `secondary`/`sync_service` attributes) instead of class-name matching to identify hybrid storage. Wrapped or delegated hybrid backends are now reported correctly as `"hybrid"`, ensuring Cloudflare sync status is visible in health output.
+- Three focused unit tests added for strategy selection (sqlite class-name path, wrapped hybrid structural path, unknown fallback).
 
 ---
 
 **Previous Releases**:
+- **v10.26.0** - Credentials tab + Settings restructure + Sync Owner selector in dashboard; `MCP_HYBRID_SYNC_OWNER=http` recommended for hybrid mode
 - **v10.25.3** - Patch release: stdio handshake timeout cap, syntax fixes, hybrid sync fix, dashboard version badge fix
 - **v10.25.2** - Patch fix: `update_and_restart.sh` health check reads `status` field instead of removed `version` field
 - **v10.25.1** - Security: CORS wildcard default changed to localhost-only, soft-delete leak in `search_by_tag_chronological()` fixed (GHSA-g9rg-8vq5-mpwm)

@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.26.1] - 2026-03-08
+
+### Fixed
+
+- **[#570] Hybrid backend misidentified as sqlite-vec in MCP health checks** (`memory_health` tool): `HealthCheckFactory` relied solely on the storage object's class name to select the health-check strategy. When the hybrid backend's storage is accessed through a delegation or wrapper layer the class name is not `HybridMemoryStorage`, so the factory fell back to the sqlite-vec strategy and reported `"sqlite-vec"` instead of `"hybrid"`, hiding Cloudflare sync status from users. The factory now performs structural detection — if the storage object exposes both a `primary` attribute and either a `secondary` or `sync_service` attribute it is classified as hybrid regardless of class name. The existing SQLite and Cloudflare strategy paths are unchanged. Adds three focused unit tests for strategy selection (sqlite class-name path, wrapped/delegated hybrid structural path, unknown fallback). Fixes PR #574.
+
 ## [10.26.0] - 2026-03-07
 
 ### Added
