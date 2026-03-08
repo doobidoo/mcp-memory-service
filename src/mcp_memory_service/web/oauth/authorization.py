@@ -343,14 +343,14 @@ async def _handle_authorization_code_grant(
                 }
             )
     else:
-        # Public client — verify it exists but don't require secret
+        # Public client — verify it exists and is actually a public client
         client = await get_oauth_storage().get_client(final_client_id)
-        if not client:
+        if not client or client.token_endpoint_auth_method != "none":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={
                     "error": "invalid_client",
-                    "error_description": "Unknown client_id"
+                    "error_description": "Client authentication failed"
                 }
             )
 
