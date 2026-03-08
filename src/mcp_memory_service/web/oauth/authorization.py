@@ -306,7 +306,7 @@ async def authorize_post(
 
 async def _handle_authorization_code_grant(
     final_client_id: str,
-    final_client_secret: str,
+    final_client_secret: Optional[str],
     code: Optional[str],
     redirect_uri: Optional[str],
     code_verifier: Optional[str] = None
@@ -351,6 +351,15 @@ async def _handle_authorization_code_grant(
                 detail={
                     "error": "invalid_client",
                     "error_description": "Client authentication failed"
+                }
+            )
+        # PKCE is mandatory for public clients (OAuth 2.1 §7.5.2)
+        if not code_verifier:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "invalid_request",
+                    "error_description": "code_verifier required for public clients"
                 }
             )
 
