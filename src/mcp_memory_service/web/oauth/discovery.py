@@ -44,7 +44,7 @@ async def oauth_protected_resource_metadata() -> OAuthProtectedResourceMetadata:
         authorization_servers=[OAUTH_ISSUER],
         scopes_supported=["read", "write", "admin"],
         bearer_methods_supported=["header"],
-        resource_documentation=f"{OAUTH_ISSUER}/docs"
+        resource_documentation=f"{OAUTH_ISSUER}/docs" if _docs_endpoint_exists() else None,
     )
 
 
