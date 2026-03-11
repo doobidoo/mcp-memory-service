@@ -723,6 +723,12 @@ if CONSOLIDATION_ENABLED:
 # OAuth 2.1 Configuration
 OAUTH_ENABLED = safe_get_bool_env('MCP_OAUTH_ENABLED', False)
 
+# Preset OAuth client credentials (stable ID and Secret)
+# Used for pre-registering a known client on startup
+OAUTH_PRESET_CLIENT_ID = os.getenv("MCP_OAUTH_PRESET_CLIENT_ID")
+OAUTH_PRESET_CLIENT_SECRET = os.getenv("MCP_OAUTH_PRESET_CLIENT_SECRET")
+OAUTH_PRESET_REDIRECT_URIS = os.getenv("MCP_OAUTH_PRESET_REDIRECT_URIS", "https://claude.ai/api/mcp/auth_callback").split(",")
+
 # OAuth Storage Backend Configuration
 OAUTH_STORAGE_BACKEND = os.getenv("MCP_OAUTH_STORAGE_BACKEND", "memory").lower()
 """
@@ -818,6 +824,24 @@ def get_jwt_verification_key() -> str:
         return OAUTH_SECRET_KEY
     else:
         raise ValueError("No JWT verification key available")
+
+
+def join_url(base: str, path: str) -> str:
+    """
+    Safely join a base URL and a path, avoiding double slashes.
+    
+    Args:
+        base: The base URL (e.g., OAUTH_ISSUER)
+        path: The path to append (e.g., "/oauth/token")
+        
+    Returns:
+        The combined URL string
+    """
+    if not base:
+        return path
+    base = base.rstrip("/")
+    path = path.lstrip("/")
+    return f"{base}/{path}"
 
 def validate_oauth_configuration() -> None:
     """

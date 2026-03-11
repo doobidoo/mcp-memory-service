@@ -115,6 +115,10 @@ async def lifespan(app: FastAPI):
         storage = await create_storage_backend()
         set_storage(storage)  # Set the global storage instance
 
+        # Auto-register preset OAuth client if credentials provided
+        from ..utils.startup_orchestrator import StartupCheckOrchestrator
+        await StartupCheckOrchestrator.auto_register_preset_client()
+
         # Initialize consolidation system if enabled
         if CONSOLIDATION_ENABLED:
             try:

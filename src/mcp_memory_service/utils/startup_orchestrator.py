@@ -64,6 +64,58 @@ class StartupCheckOrchestrator:
         # Check for version mismatch
         check_version_consistency()
 
+    @staticmethod
+    async def auto_register_preset_client() -> None:
+        """
+        Auto-register a preset OAuth client if credentials are provided via environment variables.
+        
+        This enables stable Client ID/Secret for deployments.
+        """
+        from ..config import (
+            OAUTH_ENABLED, OAUTH_PRESET_CLIENT_ID, OAUTH_PRESET_CLIENT_SECRET,
+            OAUTH_PRESET_REDIRECT_URIS
+        )
+        
+        if not OAUTH_ENABLED or not OAUTH_PRESET_CLIENT_ID or not OAUTH_PRESET_CLIENT_SECRET:
+            return
+
+        from ..web.oauth.storage import get_oauth_storage
+        from ..web.oauth.models import RegisteredClient
+        import time
+
+        try:
+            storage = get_oauth_storage()
+            existing_client = await storage.get_client(OAUTH_PRESET_CLIENT_ID)
+            
+            # Clean up redirect URIs (remove empty strings)
+            redirect_uris = [uri.strip() for uri in OAUTH_PRESET_REDIRECT_URIS if uri.strip()]
+            
+            # Create or update preset client
+            preset_client = RegisteredClient(
+                client_id=OAUTH_PRESET_CLIENT_ID,
+                client_secret=OAUTH_PRESET_CLIENT_SECRET,
+                redirect_uris=redirect_uris,
+                grant_types=["authorization_code", "client_credentials", "refresh_token"],
+                response_types=["code"],
+                token_endpoint_auth_method="client_secret_basic",
+                client_name="Preset Deployment Client",
+                created_at=time.time()
+            )
+
+            if not existing_client:
+                logger.info(f"Auto-registering preset OAuth client: {OAUTH_PRESET_CLIENT_ID}")
+                await storage.store_client(preset_client)
+                logger.info("Preset OAuth client registered successfully")
+            else:
+                # Perform an update (upsert) to ensure redirect_uris match
+                logger.info(f"Updating preset OAuth client metadata: {OAUTH_PRESET_CLIENT_ID}")
+                await storage.store_client(preset_client)
+                logger.info("Preset OAuth client metadata updated successfully")
+                
+        except Exception as e:
+            logger.error(f"Failed to auto-register/update preset OAuth client: {str(e)}")
+            # Don't crash startup for this, just log the error
+
 
 class InitializationRetryManager:
     """Manage server initialization with timeout and retry logic."""
