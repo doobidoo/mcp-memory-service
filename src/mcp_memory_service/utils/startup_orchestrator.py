@@ -47,24 +47,6 @@ class StartupCheckOrchestrator:
     """Orchestrate startup validation checks."""
 
     @staticmethod
-    def run_all_checks() -> None:
-        """Run all startup checks in sequence."""
-        # Apply LM Studio compatibility patch
-        patch_mcp_for_lm_studio()
-
-        # Add Windows-specific timeout handling
-        add_windows_timeout_handling()
-
-        # Run dependency check
-        run_dependency_check()
-
-        # Check if running with UV
-        check_uv_environment()
-
-        # Check for version mismatch
-        check_version_consistency()
-
-    @staticmethod
     async def auto_register_preset_client() -> None:
         """
         Auto-register a preset OAuth client if credentials are provided via environment variables.
@@ -75,13 +57,12 @@ class StartupCheckOrchestrator:
             OAUTH_ENABLED, OAUTH_PRESET_CLIENT_ID, OAUTH_PRESET_CLIENT_SECRET,
             OAUTH_PRESET_REDIRECT_URIS
         )
-        
-        if not OAUTH_ENABLED or not OAUTH_PRESET_CLIENT_ID or not OAUTH_PRESET_CLIENT_SECRET:
-            return
-
         from ..web.oauth.storage import get_oauth_storage
         from ..web.oauth.models import RegisteredClient
         import time
+        
+        if not OAUTH_ENABLED or not OAUTH_PRESET_CLIENT_ID or not OAUTH_PRESET_CLIENT_SECRET:
+            return
 
         try:
             storage = get_oauth_storage()
@@ -91,6 +72,9 @@ class StartupCheckOrchestrator:
             redirect_uris = [uri.strip() for uri in OAUTH_PRESET_REDIRECT_URIS if uri.strip()]
             
             # Create or update preset client
+            # Preserve original created_at if updating
+            created_at = existing_client.created_at if existing_client else time.time()
+            
             preset_client = RegisteredClient(
                 client_id=OAUTH_PRESET_CLIENT_ID,
                 client_secret=OAUTH_PRESET_CLIENT_SECRET,
@@ -99,16 +83,16 @@ class StartupCheckOrchestrator:
                 response_types=["code"],
                 token_endpoint_auth_method="client_secret_basic",
                 client_name="Preset Deployment Client",
-                created_at=time.time()
+                created_at=created_at
             )
 
             if not existing_client:
-                logger.info(f"Auto-registering preset OAuth client: {OAUTH_PRESET_CLIENT_ID}")
+                logger.info("Auto-registering preset OAuth client from environment configuration")
                 await storage.store_client(preset_client)
                 logger.info("Preset OAuth client registered successfully")
             else:
                 # Perform an update (upsert) to ensure redirect_uris match
-                logger.info(f"Updating preset OAuth client metadata: {OAUTH_PRESET_CLIENT_ID}")
+                logger.info("Updating preset OAuth client metadata from environment configuration")
                 await storage.store_client(preset_client)
                 logger.info("Preset OAuth client metadata updated successfully")
                 

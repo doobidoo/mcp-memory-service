@@ -125,7 +125,8 @@ def validate_jwt_token(token: str) -> Optional[Dict[str, Any]]:
             )
         except JWTClaimsError as e:
             # If exact match failed, try matching after normalization (trailing slash)
-            if "Invalid issuer" in str(e):
+            from jwt.exceptions import InvalidIssuerError
+            if isinstance(e, InvalidIssuerError):
                 # Manual decode without issuer check to inspect the claim
                 unverified_payload = jwt.decode(token, options={"verify_signature": False})
                 token_issuer = unverified_payload.get("iss", "").rstrip("/")

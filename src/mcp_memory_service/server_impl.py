@@ -269,8 +269,8 @@ class MemoryServer:
             if STORAGE_BACKEND == 'cloudflare':
                 logger.info(f"🔧 EAGER INIT: Cloudflare config validation:")
                 logger.info(f"   API_TOKEN: {'SET' if CLOUDFLARE_API_TOKEN else 'NOT SET'}")
-                logger.info(f"   ACCOUNT_ID: {CLOUDFLARE_ACCOUNT_ID}")
-                logger.info(f"   VECTORIZE_INDEX: {CLOUDFLARE_VECTORIZE_INDEX}")
+                logger.info(f"   ACCOUNT_ID: {'SET' if CLOUDFLARE_ACCOUNT_ID else 'NOT SET'}")
+                logger.info(f"   VECTORIZE_INDEX: {'SET' if CLOUDFLARE_VECTORIZE_INDEX else 'NOT SET'}")
                 logger.info(f"   D1_DATABASE_ID: {CLOUDFLARE_D1_DATABASE_ID}")
                 logger.info(f"   R2_BUCKET: {CLOUDFLARE_R2_BUCKET}")
                 logger.info(f"   EMBEDDING_MODEL: {CLOUDFLARE_EMBEDDING_MODEL}")
@@ -449,8 +449,8 @@ class MemoryServer:
                 if STORAGE_BACKEND == 'cloudflare':
                     logger.info(f"🔧 LAZY INIT: Cloudflare config validation:")
                     logger.info(f"   API_TOKEN: {'SET' if CLOUDFLARE_API_TOKEN else 'NOT SET'}")
-                    logger.info(f"   ACCOUNT_ID: {CLOUDFLARE_ACCOUNT_ID}")
-                    logger.info(f"   VECTORIZE_INDEX: {CLOUDFLARE_VECTORIZE_INDEX}")
+                    logger.info(f"   ACCOUNT_ID: {'SET' if CLOUDFLARE_ACCOUNT_ID else 'NOT SET'}")
+                    logger.info(f"   VECTORIZE_INDEX: {'SET' if CLOUDFLARE_VECTORIZE_INDEX else 'NOT SET'}")
                     logger.info(f"   D1_DATABASE_ID: {CLOUDFLARE_D1_DATABASE_ID}")
                     logger.info(f"   R2_BUCKET: {CLOUDFLARE_R2_BUCKET}")
                     logger.info(f"   EMBEDDING_MODEL: {CLOUDFLARE_EMBEDDING_MODEL}")
@@ -2781,9 +2781,6 @@ async def async_main():
     try:
         # Create server instance
         memory_server = MemoryServer()
-
-        # Auto-register preset OAuth client if credentials provided
-        await StartupCheckOrchestrator.auto_register_preset_client()
 
         # Initialize with retry logic
         retry_manager = InitializationRetryManager(max_retries=2, timeout=30.0, retry_delay=2.0)

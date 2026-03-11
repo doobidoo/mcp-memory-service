@@ -334,9 +334,11 @@ def create_app() -> FastAPI:
     logger.info(f"✓ Included OAuth status router with {len(oauth_status_router.routes)} routes")
 
     # Include MCP protocol router
-    # Mount at both /mcp and root for maximum compatibility
+    # Mount at /mcp (canonical path)
     app.include_router(mcp_router, prefix="/mcp", tags=["mcp-protocol"])
-    app.include_router(mcp_router, prefix="", tags=["mcp-protocol"])
+    # Add root POST handler ONLY for Claude.ai HTTP transport compatibility
+    # We include this without prefix but don't show it in the schema to avoid clutter
+    app.include_router(mcp_router, prefix="", include_in_schema=False, tags=["mcp-protocol"])
 
     # Include OAuth routers if enabled
     if OAUTH_ENABLED:
@@ -344,17 +346,12 @@ def create_app() -> FastAPI:
         from .oauth.registration import router as oauth_registration_router
         from .oauth.authorization import router as oauth_authorization_router
 
-        # Mount at both /oauth and root for maximum compatibility
-        # RFC 8414/7591 often uses /oauth/ prefix but some clients (Claude.ai)
-        # may expect them at the root level based on discovery.
+        # Discovery metadata (always at root .well-known)
         app.include_router(oauth_discovery_router, tags=["oauth-discovery"])
         
-        # Include registration and authorization at both /oauth and root
+        # Registration and Authorization at their standard /oauth prefix
         app.include_router(oauth_registration_router, prefix="/oauth", tags=["oauth"])
-        app.include_router(oauth_registration_router, tags=["oauth"])
-        
         app.include_router(oauth_authorization_router, prefix="/oauth", tags=["oauth"])
-        app.include_router(oauth_authorization_router, tags=["oauth"])
 
         logger.info("OAuth 2.1 endpoints enabled")
     else:

@@ -48,8 +48,8 @@ async def oauth_protected_resource_metadata() -> OAuthProtectedResourceMetadata:
     )
 
 
-@router.get("/.well-known/oauth-authorization-server/mcp")
-async def oauth_authorization_server_metadata() -> OAuthServerMetadata:
+    @router.get("/.well-known/oauth-authorization-server/mcp")
+    async def oauth_authorization_server_metadata() -> OAuthServerMetadata:
     """
     OAuth 2.1 Authorization Server Metadata endpoint.
 
@@ -73,6 +73,7 @@ async def oauth_authorization_server_metadata() -> OAuthServerMetadata:
         id_token_signing_alg_values_supported=[algorithm],
         code_challenge_methods_supported=["S256"]
     )
+
 
     logger.debug(f"Returning OAuth metadata: issuer={metadata.issuer}")
     return metadata
