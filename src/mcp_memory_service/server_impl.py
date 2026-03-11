@@ -2782,6 +2782,9 @@ async def async_main():
         # Create server instance
         memory_server = MemoryServer()
 
+        # Auto-register preset OAuth client if credentials provided
+        await StartupCheckOrchestrator.auto_register_preset_client()
+
         # Initialize with retry logic
         retry_manager = InitializationRetryManager(max_retries=2, timeout=30.0, retry_delay=2.0)
         await retry_manager.initialize_with_retry(memory_server)
