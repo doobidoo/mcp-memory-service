@@ -112,13 +112,37 @@ def validate_jwt_token(token: str) -> Optional[Dict[str, Any]]:
         verification_key = get_jwt_verification_key()
 
         logger.debug(f"Validating JWT token with algorithm: {algorithm}")
-        payload = jwt.decode(
-            token,
-            verification_key,
-            algorithms=[algorithm],
-            issuer=OAUTH_ISSUER,
-            audience="mcp-memory-service"
-        )
+        # Flexible issuer validation - some clients may send or omit trailing slash
+        # jwt.decode 'issuer' check is exact; we'll handle validation manually if needed
+        # but first try the standard way with the configured OAUTH_ISSUER
+        try:
+            payload = jwt.decode(
+                token,
+                verification_key,
+                algorithms=[algorithm],
+                issuer=OAUTH_ISSUER,
+                audience="mcp-memory-service"
+            )
+        except JWTClaimsError as e:
+            # If exact match failed, try matching after normalization (trailing slash)
+            if "Invalid issuer" in str(e):
+                # Manual decode without issuer check to inspect the claim
+                unverified_payload = jwt.decode(token, options={"verify_signature": False})
+                token_issuer = unverified_payload.get("iss", "").rstrip("/")
+                configured_issuer = OAUTH_ISSUER.rstrip("/")
+                
+                if token_issuer == configured_issuer:
+                    # Issuers match after normalization, re-decode without strict issuer check
+                    payload = jwt.decode(
+                        token,
+                        verification_key,
+                        algorithms=[algorithm],
+                        audience="mcp-memory-service"
+                    )
+                else:
+                    raise # Re-raise if they still don't match
+            else:
+                raise
 
         # Additional payload validation
         required_claims = ['sub', 'iss', 'aud', 'exp', 'iat']
