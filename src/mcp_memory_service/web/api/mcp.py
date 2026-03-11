@@ -21,7 +21,8 @@ from ..oauth.middleware import require_read_access, AuthenticationResult
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/mcp", tags=["mcp"])
+# No prefix here; we will handle prefixes during mounting in app.py
+router = APIRouter(tags=["mcp"])
 
 
 class MCPRequest(BaseModel):
@@ -144,7 +145,6 @@ MCP_TOOLS = [
 
 
 @router.post("/")
-@router.post("")
 async def mcp_endpoint(
     request: MCPRequest,
     user: AuthenticationResult = Depends(require_read_access)
