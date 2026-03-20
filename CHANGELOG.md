@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.26.6] - 2026-03-20
+
+### Security
+
+- **[#597] bump authlib>=1.6.9 — JWS JWK header injection, JWE Bleichenbacher padding oracle, fail-open OIDC hash binding (Critical + 2 High)**: `authlib` minimum version raised from `>=1.6.5` to `>=1.6.9`. Three vulnerabilities addressed: (1) JWS JWK header injection allowed an attacker to inject their own public key into the header and bypass signature verification (Critical); (2) JWE RSA1_5 algorithm was susceptible to a Bleichenbacher padding oracle attack allowing ciphertext decryption (High); (3) OIDC hash binding (`c_hash`/`at_hash`) validation was fail-open — invalid hash values were silently accepted rather than rejected (High). These affect deployments using the OAuth 2.1 endpoints.
+- **[#597] bump PyJWT[crypto]>=2.12.0 — unknown `crit` header extension acceptance (High)**: `PyJWT` minimum version raised from `>=2.8.0` to `>=2.12.0`. Prior versions accepted JWTs with unknown `crit` header extensions instead of rejecting them, which could allow crafted tokens to bypass validation checks relying on extension semantics.
+- **[#597] bump pypdf>=6.9.1 — inefficient array-stream decoding (DoS) (Medium)**: `pypdf` minimum version raised from `>=3.0.0` to `>=6.9.1`. Processing attacker-controlled PDF files with large array-based content streams could cause excessive CPU/memory usage. Fix limits stream length and improves decoding performance.
+- **[#598] uv.lock updated**: `pypdf` 6.8.0 -> 6.9.1, `authlib` 1.6.8 -> 1.6.9 (Dependabot lock-file sync).
+
 ## [10.26.5] - 2026-03-13
 
 ### Security
