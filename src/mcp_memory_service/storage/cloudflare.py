@@ -320,6 +320,16 @@ class CloudflareStorage(MemoryStorage):
                     if "name" in row:
                         columns.add(row["name"])
 
+            # On a fresh D1 database, PRAGMA table_info returns success with
+            # empty results when the table doesn't exist. In this case, skip
+            # migration — the table will be created by _initialize_d1_schema.
+            if not columns:
+                logger.debug(
+                    "Schema migration check: No columns found (table does not exist yet), "
+                    "skipping migration"
+                )
+                return
+
             migrations_needed = []
 
             # Check if 'tags' column exists

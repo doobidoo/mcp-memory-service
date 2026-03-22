@@ -57,6 +57,35 @@ class TestCloudflareD1Migration:
             assert "PRAGMA table_info(memories)" in str(call_args)
 
     @pytest.mark.asyncio
+    async def test_migrate_d1_schema_fresh_database_d1_success_empty(self, cloudflare_storage):
+        """Test migration when D1 returns success with empty results for a fresh database.
+
+        Cloudflare D1 returns {"success": true, "result": [{"results": []}]}
+        when PRAGMA table_info is run on a non-existent table, rather than
+        returning success=false. The migration should detect the empty results
+        and skip gracefully, allowing _initialize_d1_schema to create the table.
+
+        Regression test for https://github.com/doobidoo/mcp-memory-service/issues/600
+        """
+        # Mock PRAGMA response matching actual D1 behavior on fresh database
+        mock_pragma_response = Mock()
+        mock_pragma_response.json.return_value = {
+            "success": True,
+            "result": [{"results": []}]
+        }
+
+        with patch.object(cloudflare_storage, '_retry_request') as mock_request:
+            mock_request.return_value = mock_pragma_response
+
+            # Should not raise, just return early
+            await cloudflare_storage._migrate_d1_schema()
+
+            # Verify only the PRAGMA call was made (no ALTER TABLE attempts)
+            assert mock_request.call_count == 1
+            call_args = mock_request.call_args
+            assert "PRAGMA table_info(memories)" in str(call_args)
+
+    @pytest.mark.asyncio
     async def test_migrate_d1_schema_from_v8_69_0(self, cloudflare_storage):
         """Test migration from v8.69.0 schema (no tags, no deleted_at).
 
