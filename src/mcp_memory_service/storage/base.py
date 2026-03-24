@@ -729,7 +729,7 @@ class MemoryStorage(ABC):
         )
         return success
 
-    async def update_memories_batch(self, memories: List[Memory]) -> List[bool]:
+    async def update_memories_batch(self, memories: List[Memory], preserve_timestamps: bool = False) -> List[bool]:
         """
         Update multiple memories in a batch operation.
 
@@ -739,6 +739,7 @@ class MemoryStorage(ABC):
 
         Args:
             memories: List of Memory objects with updated fields
+            preserve_timestamps: If True, do not advance updated_at for metadata-only changes (#605)
 
         Returns:
             List of success booleans, one for each memory in the batch

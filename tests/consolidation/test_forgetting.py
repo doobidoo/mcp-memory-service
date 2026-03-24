@@ -201,7 +201,8 @@ class TestControlledForgettingEngine:
             tags=["temporary"],
             memory_type="observation",  # Changed from 'temporary' to valid ontology type
             embedding=[0.1] * 320,
-            created_at=(now - timedelta(days=10)).timestamp()  # Older than 7 days
+            created_at=(now - timedelta(days=10)).timestamp(),  # Older than 7 days
+            updated_at=(now - timedelta(days=10)).timestamp(),
         )
         
         score = RelevanceScore(

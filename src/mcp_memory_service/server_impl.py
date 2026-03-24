@@ -1198,7 +1198,7 @@ class MemoryServer:
                 content=learning_note,
                 content_hash=content_hash,
                 tags=["learning", topic.lower().replace(" ", "_")],
-                memory_type="learning_note"
+                memory_type="learning"
             )
             success, message = await self.storage.store(memory)
             

@@ -71,101 +71,99 @@ def sample_memories():
     """Create a sample set of memories for testing."""
     base_time = datetime.now().timestamp()
     
+    def _mem_ts(offset):
+        """Helper: return created_at/updated_at kwargs for a memory `offset` seconds old."""
+        ts = base_time - offset
+        iso = datetime.fromtimestamp(ts).isoformat() + 'Z'
+        return dict(created_at=ts, created_at_iso=iso, updated_at=ts, updated_at_iso=iso)
+
     memories = [
         # Recent critical memory
         Memory(
             content="Critical system configuration backup completed successfully",
             content_hash="hash001",
             tags=["critical", "backup", "system"],
-            memory_type="decision",  # Changed from 'critical' to valid ontology type
-            embedding=[0.1, 0.2, 0.3, 0.4, 0.5] * 64,  # 320-dim embedding
+            memory_type="decision",
+            embedding=[0.1, 0.2, 0.3, 0.4, 0.5] * 64,
             metadata={"importance_score": 2.0},
-            created_at=base_time - 86400,  # 1 day ago
-            created_at_iso=datetime.fromtimestamp(base_time - 86400).isoformat() + 'Z'
+            **_mem_ts(86400),  # 1 day ago
         ),
-        
+
         # Related system memory
         Memory(
             content="System configuration updated with new security settings",
             content_hash="hash002",
             tags=["system", "security", "config"],
-            memory_type="observation",  # Changed from 'standard' to valid ontology type
-            embedding=[0.15, 0.25, 0.35, 0.45, 0.55] * 64,  # Similar embedding
+            memory_type="observation",
+            embedding=[0.15, 0.25, 0.35, 0.45, 0.55] * 64,
             metadata={},
-            created_at=base_time - 172800,  # 2 days ago
-            created_at_iso=datetime.fromtimestamp(base_time - 172800).isoformat() + 'Z'
+            **_mem_ts(172800),  # 2 days ago
         ),
-        
+
         # Unrelated old memory
         Memory(
             content="Weather is nice today, went for a walk in the park",
             content_hash="hash003",
             tags=["personal", "weather"],
-            memory_type="observation",  # Changed from 'temporary' to valid ontology type
-            embedding=[0.9, 0.8, 0.7, 0.6, 0.5] * 64,  # Different embedding
+            memory_type="observation",
+            embedding=[0.9, 0.8, 0.7, 0.6, 0.5] * 64,
             metadata={},
-            created_at=base_time - 259200,  # 3 days ago
-            created_at_iso=datetime.fromtimestamp(base_time - 259200).isoformat() + 'Z'
+            **_mem_ts(259200),  # 3 days ago
         ),
-        
+
         # Reference memory
         Memory(
             content="Python documentation: List comprehensions provide concise syntax",
             content_hash="hash004",
             tags=["reference", "python", "documentation"],
-            memory_type="learning",  # Changed from 'reference' to valid ontology type
+            memory_type="learning",
             embedding=[0.2, 0.3, 0.4, 0.5, 0.6] * 64,
             metadata={"importance_score": 1.5},
-            created_at=base_time - 604800,  # 1 week ago
-            created_at_iso=datetime.fromtimestamp(base_time - 604800).isoformat() + 'Z'
+            **_mem_ts(604800),  # 1 week ago
         ),
-        
+
         # Related programming memory
         Memory(
             content="Python best practices: Use list comprehensions for simple transformations",
             content_hash="hash005",
             tags=["python", "best-practices", "programming"],
-            memory_type="observation",  # Changed from 'standard' to valid ontology type
-            embedding=[0.25, 0.35, 0.45, 0.55, 0.65] * 64,  # Related to reference
+            memory_type="observation",
+            embedding=[0.25, 0.35, 0.45, 0.55, 0.65] * 64,
             metadata={},
-            created_at=base_time - 691200,  # 8 days ago
-            created_at_iso=datetime.fromtimestamp(base_time - 691200).isoformat() + 'Z'
+            **_mem_ts(691200),  # 8 days ago
         ),
-        
+
         # Old low-quality memory
         Memory(
             content="test test test",
             content_hash="hash006",
             tags=["test"],
-            memory_type="observation",  # Changed from 'temporary' to valid ontology type
+            memory_type="observation",
             embedding=[0.1, 0.1, 0.1, 0.1, 0.1] * 64,
             metadata={},
-            created_at=base_time - 2592000,  # 30 days ago
-            created_at_iso=datetime.fromtimestamp(base_time - 2592000).isoformat() + 'Z'
+            **_mem_ts(2592000),  # 30 days ago
         ),
-        
+
         # Another programming memory for clustering
         Memory(
             content="JavaScript arrow functions provide cleaner syntax for callbacks",
             content_hash="hash007",
             tags=["javascript", "programming", "syntax"],
-            memory_type="observation",  # Changed from 'standard' to valid ontology type
-            embedding=[0.3, 0.4, 0.5, 0.6, 0.7] * 64,  # Related to other programming
+            memory_type="observation",
+            embedding=[0.3, 0.4, 0.5, 0.6, 0.7] * 64,
             metadata={},
-            created_at=base_time - 777600,  # 9 days ago
-            created_at_iso=datetime.fromtimestamp(base_time - 777600).isoformat() + 'Z'
+            **_mem_ts(777600),  # 9 days ago
         ),
-        
+
         # Duplicate-like memory
         Memory(
             content="test test test duplicate",
             content_hash="hash008",
             tags=["test", "duplicate"],
-            memory_type="observation",  # Changed from 'temporary' to valid ontology type
-            embedding=[0.11, 0.11, 0.11, 0.11, 0.11] * 64,  # Very similar to hash006
+            memory_type="observation",
+            embedding=[0.11, 0.11, 0.11, 0.11, 0.11] * 64,
             metadata={},
-            created_at=base_time - 2678400,  # 31 days ago
-            created_at_iso=datetime.fromtimestamp(base_time - 2678400).isoformat() + 'Z'
+            **_mem_ts(2678400),  # 31 days ago
         ),
 
         # Very old memory to ensure low relevance score for testing
@@ -176,8 +174,7 @@ def sample_memories():
             memory_type="observation",
             embedding=[0.05, 0.05, 0.05, 0.05, 0.05] * 64,
             metadata={},
-            created_at=base_time - 7776000,  # 90 days ago - ensures low decay factor
-            created_at_iso=datetime.fromtimestamp(base_time - 7776000).isoformat() + 'Z'
+            **_mem_ts(7776000),  # 90 days ago
         )
     ]
 
@@ -229,7 +226,7 @@ def mock_storage(sample_memories):
                 return True
             return False
 
-        async def update_memories_batch(self, memories: List[Memory]) -> List[bool]:
+        async def update_memories_batch(self, memories: List[Memory], preserve_timestamps: bool = False) -> List[bool]:
             """Batch update memories and return list of success statuses."""
             results = []
             for memory in memories:
@@ -341,7 +338,7 @@ def mock_large_storage(large_memory_set):
                 return True
             return False
 
-        async def update_memories_batch(self, memories: List[Memory]) -> List[bool]:
+        async def update_memories_batch(self, memories: List[Memory], preserve_timestamps: bool = False) -> List[bool]:
             """Batch update memories and return list of success statuses."""
             results = []
             for memory in memories:

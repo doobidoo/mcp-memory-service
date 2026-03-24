@@ -42,16 +42,20 @@ class TestExponentialDecayCalculator:
             tags=["test"],
             embedding=[0.1] * 320,
             created_at=recent_time.timestamp(),
-            created_at_iso=recent_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+            created_at_iso=recent_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
+            updated_at=recent_time.timestamp(),
+            updated_at_iso=recent_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
         )
-        
+
         old_memory = Memory(
             content="Old memory",
             content_hash="old",
             tags=["test"],
             embedding=[0.1] * 320,
             created_at=old_time.timestamp(),
-            created_at_iso=old_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+            created_at_iso=old_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
+            updated_at=old_time.timestamp(),
+            updated_at_iso=old_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
         )
         
         scores = await decay_calculator.process([recent_memory, old_memory])
@@ -70,24 +74,29 @@ class TestExponentialDecayCalculator:
         age_days = 60  # 2 months old
         
         # Create memories of different types but same age
+        mem_time = now - timedelta(days=age_days)
         critical_memory = Memory(
             content="Critical memory",
             content_hash="critical",
             tags=["critical"],
             memory_type="decision",  # Changed from 'critical' to valid ontology type
             embedding=[0.1] * 320,
-            created_at=(now - timedelta(days=age_days)).timestamp(),
-            created_at_iso=(now - timedelta(days=age_days)).isoformat() + 'Z'
+            created_at=mem_time.timestamp(),
+            created_at_iso=mem_time.isoformat() + 'Z',
+            updated_at=mem_time.timestamp(),
+            updated_at_iso=mem_time.isoformat() + 'Z'
         )
-        
+
         temporary_memory = Memory(
             content="Temporary memory",
             content_hash="temporary",
             tags=["temp"],
             memory_type="observation",  # Changed from 'temporary' to valid ontology type
             embedding=[0.1] * 320,
-            created_at=(now - timedelta(days=age_days)).timestamp(),
-            created_at_iso=(now - timedelta(days=age_days)).isoformat() + 'Z'
+            created_at=mem_time.timestamp(),
+            created_at_iso=mem_time.isoformat() + 'Z',
+            updated_at=mem_time.timestamp(),
+            updated_at_iso=mem_time.isoformat() + 'Z'
         )
         
         scores = await decay_calculator.process([critical_memory, temporary_memory])
@@ -216,14 +225,17 @@ class TestExponentialDecayCalculator:
     async def test_protected_memory_minimum_relevance(self, decay_calculator):
         """Test that protected memories maintain minimum relevance."""
         # Create a very old memory that would normally have very low relevance
+        old_time = datetime.now() - timedelta(days=500)
         old_critical_memory = Memory(
             content="Old critical memory",
             content_hash="old_critical",
             tags=["critical", "important"],
             memory_type="decision",  # Changed from 'critical' to valid ontology type
             embedding=[0.1] * 320,
-            created_at=(datetime.now() - timedelta(days=500)).timestamp(),
-            created_at_iso=(datetime.now() - timedelta(days=500)).isoformat() + 'Z'
+            created_at=old_time.timestamp(),
+            created_at_iso=old_time.isoformat() + 'Z',
+            updated_at=old_time.timestamp(),
+            updated_at_iso=old_time.isoformat() + 'Z'
         )
         
         scores = await decay_calculator.process([old_critical_memory])

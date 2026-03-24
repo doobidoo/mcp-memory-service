@@ -1476,7 +1476,7 @@ class HybridMemoryStorage(MemoryStorage):
 
         return success, message
 
-    async def update_memories_batch(self, memories: List[Memory]) -> List[bool]:
+    async def update_memories_batch(self, memories: List[Memory], preserve_timestamps: bool = False) -> List[bool]:
         """
         Update multiple memories in a batch operation with optimal performance.
 
@@ -1485,12 +1485,13 @@ class HybridMemoryStorage(MemoryStorage):
 
         Args:
             memories: List of Memory objects with updated fields
+            preserve_timestamps: If True, do not advance updated_at for metadata-only changes (#605)
 
         Returns:
             List of success booleans, one for each memory in the batch
         """
         # Use primary storage's optimized batch update (single transaction)
-        results = await self.primary.update_memories_batch(memories)
+        results = await self.primary.update_memories_batch(memories, preserve_timestamps=preserve_timestamps)
 
         # Queue successful updates for background sync to secondary
         if self.sync_service:

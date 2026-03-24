@@ -293,5 +293,6 @@ class ExponentialDecayCalculator(ConsolidationBase):
                     f"{original_quality:.3f} → {boosted_quality:.3f}"
                 )
 
-        memory.touch()  # Update the updated_at timestamp
+        # NOTE: Do NOT call memory.touch() here — relevance scoring is a read path.
+        # Advancing updated_at corrupts age calculations and inflates access boosts. (#604)
         return memory

@@ -132,14 +132,28 @@ class ConsolidationBase(ABC):
         return True
     
     def _get_memory_age_days(self, memory: Memory, reference_time: Optional[datetime] = None) -> int:
-        """Get the age of a memory in days."""
+        """Get the age of a memory in days.
+
+        Uses the most recent of created_at and updated_at so that content updates
+        effectively 'renew' a memory's age for consolidation purposes (#606).
+        """
         ref_time = reference_time or datetime.now(timezone.utc)
         if ref_time.tzinfo is None:
             ref_time = ref_time.replace(tzinfo=timezone.utc)
-        
+
+        # Determine the best reference timestamp: max(created_at, updated_at)
+        reference_ts = None
         if memory.created_at:
-            created_dt = datetime.fromtimestamp(memory.created_at, tz=timezone.utc)
-            return (ref_time - created_dt).days
+            reference_ts = memory.created_at
+        if memory.updated_at:
+            if reference_ts is None:
+                reference_ts = memory.updated_at
+            else:
+                reference_ts = max(reference_ts, memory.updated_at)
+
+        if reference_ts:
+            ref_dt = datetime.fromtimestamp(reference_ts, tz=timezone.utc)
+            return (ref_time - ref_dt).days
         elif memory.timestamp:
             ts = memory.timestamp
             if ts.tzinfo is None:

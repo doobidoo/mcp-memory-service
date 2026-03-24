@@ -477,7 +477,7 @@ class DreamInspiredConsolidator:
 
         # Single batch transaction instead of 500+ sequential calls
         if memories_to_update:
-            await self.storage.update_memories_batch(memories_to_update)
+            await self.storage.update_memories_batch(memories_to_update, preserve_timestamps=True)
 
         return relevance_scores
 
@@ -758,7 +758,7 @@ class DreamInspiredConsolidator:
 
         # Use batch update for optimal performance
         try:
-            results = await self.storage.update_memories_batch(memories)
+            results = await self.storage.update_memories_batch(memories, preserve_timestamps=True)
             success_count = sum(results)
             self.logger.info(
                 f"Consolidation timestamps updated: {success_count}/{len(memories)} memories"
