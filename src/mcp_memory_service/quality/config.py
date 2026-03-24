@@ -12,7 +12,7 @@ class QualityConfig:
     enabled: bool = True
 
     # AI provider selection
-    # Options: 'local' (ONNX only), 'groq', 'gemini', 'auto' (try all), 'none' (implicit only)
+    # Options: 'local' (ONNX only), 'groq', 'gemini', 'minimax', 'auto' (try all), 'none' (implicit only)
     ai_provider: str = 'local'
 
     # Local ONNX model settings
@@ -22,6 +22,7 @@ class QualityConfig:
     # Cloud API settings (optional, user opt-in)
     groq_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
+    minimax_api_key: Optional[str] = None
 
     # Quality boost (AI + implicit signals combination)
     boost_enabled: bool = False
@@ -43,6 +44,7 @@ class QualityConfig:
             local_device=os.getenv('MCP_QUALITY_LOCAL_DEVICE', 'auto'),
             groq_api_key=os.getenv('GROQ_API_KEY'),
             gemini_api_key=os.getenv('GEMINI_API_KEY'),
+            minimax_api_key=os.getenv('MINIMAX_API_KEY'),
             boost_enabled=os.getenv('MCP_QUALITY_BOOST_ENABLED', 'false').lower() == 'true',
             boost_weight=float(os.getenv('MCP_QUALITY_BOOST_WEIGHT', '0.3')),
             fallback_enabled=os.getenv('MCP_QUALITY_FALLBACK_ENABLED', 'false').lower() == 'true',
@@ -52,7 +54,7 @@ class QualityConfig:
 
     def validate(self) -> bool:
         """Validate configuration settings."""
-        if self.ai_provider not in ['local', 'groq', 'gemini', 'auto', 'none']:
+        if self.ai_provider not in ['local', 'groq', 'gemini', 'minimax', 'auto', 'none']:
             raise ValueError(f"Invalid ai_provider: {self.ai_provider}")
 
         if self.local_device not in ['auto', 'cpu', 'cuda', 'mps', 'directml']:
@@ -91,6 +93,9 @@ class QualityConfig:
         if self.ai_provider == 'gemini' and not self.gemini_api_key:
             raise ValueError("Gemini provider selected but GEMINI_API_KEY not set")
 
+        if self.ai_provider == 'minimax' and not self.minimax_api_key:
+            raise ValueError("MiniMax provider selected but MINIMAX_API_KEY not set")
+
         return True
 
     @property
@@ -107,6 +112,11 @@ class QualityConfig:
     def can_use_gemini(self) -> bool:
         """Check if Gemini API is available."""
         return self.gemini_api_key is not None and self.ai_provider in ['gemini', 'auto']
+
+    @property
+    def can_use_minimax(self) -> bool:
+        """Check if MiniMax API is available."""
+        return self.minimax_api_key is not None and self.ai_provider in ['minimax', 'auto']
 
 
 # Model registry for supported ONNX models

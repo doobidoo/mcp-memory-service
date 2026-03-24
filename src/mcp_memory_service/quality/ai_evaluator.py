@@ -1,6 +1,6 @@
 """
 AI-powered quality evaluator with multi-tier fallback.
-Coordinates between local SLM, Groq, Gemini, and implicit signals.
+Coordinates between local SLM, Groq, MiniMax, Gemini, and implicit signals.
 """
 
 import asyncio
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class QualityEvaluator:
     """
     Multi-tier AI quality evaluator with fallback chain.
-    Tries: Local ONNX → Groq → Gemini → Implicit Signals
+    Tries: Local ONNX → Groq → MiniMax → Gemini → Implicit Signals
     """
 
     def __init__(self, config: Optional[QualityConfig] = None):
@@ -171,7 +171,17 @@ class QualityEvaluator:
                 logger.warning(f"Groq scoring failed: {e}")
                 score = None
 
-        # Tier 3: Gemini API (if available and previous tiers failed)
+        # Tier 3: MiniMax API (if available and previous tiers failed)
+        if score is None and self.config.can_use_minimax:
+            try:
+                score = await self._score_with_minimax(query, memory)
+                provider_used = 'minimax'
+                logger.debug(f"MiniMax score: {score:.3f}")
+            except Exception as e:
+                logger.warning(f"MiniMax scoring failed: {e}")
+                score = None
+
+        # Tier 4: Gemini API (if available and previous tiers failed)
         if score is None and self.config.can_use_gemini:
             try:
                 score = await self._score_with_gemini(query, memory)
@@ -181,7 +191,7 @@ class QualityEvaluator:
                 logger.warning(f"Gemini scoring failed: {e}")
                 score = None
 
-        # Tier 4: Implicit signals (always available as fallback)
+        # Tier 5: Implicit signals (always available as fallback)
         if score is None:
             score = self._implicit_evaluator.evaluate_quality(memory, query)
             provider_used = 'implicit_signals'
@@ -340,6 +350,88 @@ class QualityEvaluator:
                 continue
 
         raise RuntimeError(f"All Groq models rate-limited: {last_error}")
+
+    async def _score_with_minimax(self, query: str, memory: Memory) -> float:
+        """
+        Score quality using MiniMax API (OpenAI-compatible).
+
+        Uses MiniMax's chat completions endpoint with model fallback:
+        1. MiniMax-M2.7 (primary)
+        2. MiniMax-M2.7-highspeed (faster fallback)
+
+        Args:
+            query: Search query
+            memory: Memory to score
+
+        Returns:
+            Quality score between 0.0 and 1.0
+        """
+        import httpx
+
+        api_key = self.config.minimax_api_key
+        if not api_key:
+            raise RuntimeError("MINIMAX_API_KEY not configured")
+
+        prompt = self._create_scoring_prompt(query, memory.content)
+        models = ["MiniMax-M2.7", "MiniMax-M2.7-highspeed"]
+        base_url = "https://api.minimax.io/v1"
+
+        last_error = None
+        for model in models:
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        f"{base_url}/chat/completions",
+                        headers={
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {api_key}",
+                        },
+                        json={
+                            "model": model,
+                            "messages": [
+                                {
+                                    "role": "system",
+                                    "content": "You are a quality scorer. Respond only with a number between 0.0 and 1.0.",
+                                },
+                                {"role": "user", "content": prompt},
+                            ],
+                            # MiniMax M2.7 uses internal reasoning (think tags) which
+                            # consumes tokens, so we need enough budget for both
+                            # thinking and the final numeric output.
+                            "max_tokens": 1024,
+                            "temperature": 0.1,
+                        },
+                    )
+
+                if response.status_code == 429:
+                    logger.warning(f"MiniMax rate limit on {model}, trying next model")
+                    last_error = f"Rate limit on {model}"
+                    continue
+
+                if response.status_code != 200:
+                    error_msg = response.text
+                    raise RuntimeError(f"MiniMax API error ({response.status_code}): {error_msg}")
+
+                data = response.json()
+                response_text = data["choices"][0]["message"]["content"].strip()
+
+                # Strip <think>...</think> tags if present (MiniMax thinking mode)
+                import re
+                response_text = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL).strip()
+
+                score = float(response_text)
+                return max(0.0, min(1.0, score))
+
+            except (ValueError, KeyError, IndexError) as e:
+                logger.warning(f"Could not parse MiniMax score from {model}: {e}")
+                last_error = f"Invalid score format from {model}: {e}"
+                continue
+            except httpx.TimeoutException:
+                logger.warning(f"MiniMax timeout on {model}, trying next model")
+                last_error = f"Timeout on {model}"
+                continue
+
+        raise RuntimeError(f"All MiniMax models failed: {last_error}")
 
     async def _score_with_gemini(self, query: str, memory: Memory) -> float:
         """
