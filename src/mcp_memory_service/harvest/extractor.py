@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 # Minimum text length to consider for extraction
 MIN_TEXT_LENGTH = 30
+# Maximum characters to keep in extracted candidate content
+MAX_CANDIDATE_CONTENT_LENGTH = 500
 
 # Regex to detect code blocks — we strip these before pattern matching
 CODE_BLOCK_RE = re.compile(r'```[\s\S]*?```', re.MULTILINE)
@@ -78,7 +80,7 @@ class PatternExtractor:
                 seen_types[memory_type] = confidence
 
                 # Extract a concise version: use the full text but cap at 500 chars
-                content = clean_text[:500].strip()
+                content = clean_text[:MAX_CANDIDATE_CONTENT_LENGTH].strip()
 
                 candidates.append(HarvestCandidate(
                     content=content,

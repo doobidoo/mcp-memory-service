@@ -2359,9 +2359,10 @@ Examples:
 
     async def handle_memory_harvest(self, arguments: dict) -> List[types.TextContent]:
         """Handle memory_harvest tool calls — extract learnings from session transcripts."""
+        import os
         from pathlib import Path as _Path
         from .harvest.harvester import SessionHarvester
-        from .harvest.models import HarvestConfig
+        from .harvest.models import HarvestConfig, MAX_CANDIDATE_PREVIEW_LENGTH
 
         # Resolve project directory
         project_path = arguments.get("project_path")
@@ -2369,8 +2370,8 @@ Examples:
             # Default: ~/.claude/projects/ — auto-detect from cwd
             cwd = _Path.cwd()
             claude_projects = _Path.home() / ".claude" / "projects"
-            # Convert cwd to Claude's project dir naming: replace / with -
-            project_dir_name = str(cwd).replace("/", "-")
+            # Convert cwd to Claude's project dir naming: replace path sep with -
+            project_dir_name = str(cwd).replace(os.sep, "-")
             project_path = claude_projects / project_dir_name
         else:
             project_path = _Path(project_path)
@@ -2417,7 +2418,7 @@ Examples:
                     "candidates": [
                         {
                             "type": c.memory_type,
-                            "content": c.content[:200],
+                            "content": c.content[:MAX_CANDIDATE_PREVIEW_LENGTH],
                             "confidence": round(c.confidence, 2),
                             "tags": c.tags,
                         }

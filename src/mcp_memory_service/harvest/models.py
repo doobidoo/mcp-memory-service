@@ -5,6 +5,9 @@ from typing import List, Dict, Optional
 
 HARVEST_TYPES = ["decision", "bug", "convention", "learning", "context"]
 
+# Maximum characters for candidate content preview in MCP tool output
+MAX_CANDIDATE_PREVIEW_LENGTH = 200
+
 
 @dataclass
 class HarvestCandidate:
