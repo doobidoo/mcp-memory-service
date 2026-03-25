@@ -10,6 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.27.0] - 2026-03-25
+
+### Fixed
+
+- **[#612] Tolerate missing index in external embedding responses (community contribution by [@qq540491950](https://github.com/qq540491950))**: The external embedding client raised a `KeyError` when the upstream API returned responses without an `index` field (non-standard but valid for single-item batches). The fix falls back to enumerate-based ordering when `index` is absent, making the client compatible with a broader range of self-hosted embedding providers.
+
+### Documentation
+
+- **[e9b5db0] Add real-world self-hosted Docker + Cloudflare deployment example**: Added a complete end-to-end deployment walkthrough covering Docker Compose setup, Cloudflare D1 + Vectorize configuration, and hybrid storage mode for production self-hosted deployments.
+
 ## [10.26.9] - 2026-03-24
 
 ### Refactored

@@ -368,21 +368,19 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.26.8** (March 24, 2026)
+## Latest Release: **v10.27.0** (March 25, 2026)
 
-**6 bug fixes in consolidation, embeddings, and memory types (#603-#608)**
+**External embedding compatibility fix + real-world Docker/Cloudflare deployment docs (#612)**
 
 **What's New:**
-- **Bug fix: invalid memory_type "learning_note"** (#603): learning session prompt now emits `"learning"` instead of the non-existent `"learning_note"` type.
-- **Bug fix: update_memory_relevance_metadata no longer corrupts updated_at** (#604): removed the spurious `memory.touch()` side-effect.
-- **Bug fix: consolidation preserves original timestamps** (#605): `update_memories_batch` gains `preserve_timestamps` flag; consolidation callers opt in.
-- **Bug fix: memory age uses max(created_at, updated_at)** (#606): updated memories are no longer prematurely forgotten.
-- **Bug fix: embedding dimension fallback on partial cache hit** (#607): re-derives dimension from cached model instead of raising `KeyError`.
-- **Bug fix: _HashEmbeddingModel fallback reads DB schema dimension** (#608): prevents vector dimension mismatch when reopening an existing database with the fallback encoder.
+- **Bug fix: tolerate missing index in external embedding responses** (#612, community contribution by @qq540491950): the external embedding client no longer raises `KeyError` when upstream APIs omit the `index` field, improving compatibility with a broader range of self-hosted providers.
+- **Docs: real-world self-hosted Docker + Cloudflare deployment example**: added a complete end-to-end walkthrough covering Docker Compose, Cloudflare D1 + Vectorize, and hybrid storage mode for production deployments.
+- **Refactor: eliminate N+1 query in update_memories_batch, simplify age calc, extract hash-embedding helper** (#610): three targeted refactors reducing DB round-trips and improving code clarity (v10.26.9).
 
 ---
 
 **Previous Releases**:
+- **v10.26.8** - 6 bug fixes in consolidation, embeddings, and memory types (#603-#608)
 - **v10.26.7** - Cloudflare D1 fresh-database schema initialization fix (issue #600), community contribution by @Lyt060814
 - **v10.26.6** - Security patch: authlib>=1.6.9, PyJWT>=2.12.0, pypdf>=6.9.1 (5 Dependabot alerts: 1 critical, 3 high, 1 medium)
 - **v10.26.5** - Security patch: black dev dependency bumped to >=26.3.1 (GHSA-3936-cmfr-pm3m, CVE-2026-32274, path traversal)
