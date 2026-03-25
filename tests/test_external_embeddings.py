@@ -110,6 +110,43 @@ class TestExternalEmbeddingModel:
         assert result.shape == (3, 768)
 
     @patch('mcp_memory_service.embeddings.external_api.requests.post')
+    def test_encode_multiple_sentences_without_index_uses_positional_order(self, mock_post):
+        """Providers that omit `index` should still work if order is preserved."""
+        # First call for connection verification
+        mock_response_init = MagicMock()
+        mock_response_init.status_code = 200
+        mock_response_init.json.return_value = {
+            'data': [{'embedding': [0.1] * 4, 'index': 0}]
+        }
+
+        # Second call omits `index` but preserves order
+        mock_response_encode = MagicMock()
+        mock_response_encode.status_code = 200
+        mock_response_encode.json.return_value = {
+            'data': [
+                {'embedding': [1.0, 0.0, 0.0, 0.0]},
+                {'embedding': [0.0, 1.0, 0.0, 0.0]},
+                {'embedding': [0.0, 0.0, 1.0, 0.0]},
+            ]
+        }
+        mock_response_encode.raise_for_status = MagicMock()
+
+        mock_post.side_effect = [mock_response_init, mock_response_encode]
+
+        model = ExternalEmbeddingModel(
+            api_url='http://test:8890/v1/embeddings',
+            model_name='test-model'
+        )
+
+        result = model.encode(["sentence 1", "sentence 2", "sentence 3"])
+
+        assert isinstance(result, np.ndarray)
+        assert result.shape == (3, 4)
+        assert result[0].tolist() == [1.0, 0.0, 0.0, 0.0]
+        assert result[1].tolist() == [0.0, 1.0, 0.0, 0.0]
+        assert result[2].tolist() == [0.0, 0.0, 1.0, 0.0]
+
+    @patch('mcp_memory_service.embeddings.external_api.requests.post')
     def test_get_sentence_embedding_dimension(self, mock_post):
         """Test getting embedding dimension."""
         mock_response = MagicMock()
