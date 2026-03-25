@@ -1857,6 +1857,77 @@ Examples:
                 tools.extend(ingestion_tools)
                 logger.info(f"Added {len(ingestion_tools)} ingestion tools")
 
+                # Session harvest tools
+                harvest_tools = [
+                    types.Tool(
+                        name="memory_harvest",
+                        description="""Extract learnings from Claude Code session transcripts.
+
+USE THIS WHEN:
+- End of session — auto-capture decisions, bugs, conventions, learnings
+- User asks to "harvest" or "extract learnings" from sessions
+- Building knowledge base from past sessions
+
+MODES:
+- dry_run=true (DEFAULT): Preview candidates without storing
+- dry_run=false: Store candidates as tagged memories
+
+MEMORY TYPES EXTRACTED:
+- decision: Architectural choices, tool selections
+- bug: Issues encountered and root causes
+- convention: Patterns/rules established
+- learning: Insights, mistakes learned from
+- context: Session state for continuity
+
+Examples:
+{"sessions": 1, "dry_run": true}
+{"sessions": 3, "types": ["decision", "bug"]}
+{"session_ids": ["abc123"], "dry_run": false}
+{"min_confidence": 0.7, "sessions": 1}
+""",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "sessions": {
+                                    "type": "integer",
+                                    "default": 1,
+                                    "description": "Number of recent sessions to harvest"
+                                },
+                                "session_ids": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Specific session IDs to harvest"
+                                },
+                                "types": {
+                                    "type": "array",
+                                    "items": {"type": "string", "enum": ["decision", "bug", "convention", "learning", "context"]},
+                                    "description": "Filter by memory types (default: all)"
+                                },
+                                "min_confidence": {
+                                    "type": "number",
+                                    "default": 0.6,
+                                    "description": "Minimum confidence threshold (0.0-1.0)"
+                                },
+                                "dry_run": {
+                                    "type": "boolean",
+                                    "default": True,
+                                    "description": "Preview candidates without storing (default: true)"
+                                },
+                                "project_path": {
+                                    "type": "string",
+                                    "description": "Override Claude Code project directory path"
+                                }
+                            }
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Harvest Session Learnings",
+                            destructiveHint=False,
+                        ),
+                    )
+                ]
+                tools.extend(harvest_tools)
+                logger.info(f"Added {len(harvest_tools)} harvest tools")
+
                 # Quality system tools
                 quality_tools = [
                     types.Tool(
@@ -2042,6 +2113,9 @@ Examples:
                 elif name == "memory_graph":
                     logger.info("Calling handle_memory_graph")
                     return await self.handle_memory_graph(arguments)
+                elif name == "memory_harvest":
+                    logger.info("Calling handle_memory_harvest")
+                    return await self.handle_memory_harvest(arguments)
 
                 # Legacy handlers (for tools that haven't been fully migrated yet)
                 # These will be removed once all old tool definitions are removed
@@ -2282,6 +2356,79 @@ Examples:
         """Handle unified document/directory ingestion (delegates to handler)."""
         from .server.handlers import documents as document_handlers
         return await document_handlers.handle_memory_ingest(self, arguments)
+
+    async def handle_memory_harvest(self, arguments: dict) -> List[types.TextContent]:
+        """Handle memory_harvest tool calls — extract learnings from session transcripts."""
+        from pathlib import Path as _Path
+        from .harvest.harvester import SessionHarvester
+        from .harvest.models import HarvestConfig
+
+        # Resolve project directory
+        project_path = arguments.get("project_path")
+        if not project_path:
+            # Default: ~/.claude/projects/ — auto-detect from cwd
+            cwd = _Path.cwd()
+            claude_projects = _Path.home() / ".claude" / "projects"
+            # Convert cwd to Claude's project dir naming: replace / with -
+            project_dir_name = str(cwd).replace("/", "-")
+            project_path = claude_projects / project_dir_name
+        else:
+            project_path = _Path(project_path)
+
+        if not project_path.exists():
+            return [types.TextContent(
+                type="text",
+                text=json.dumps({"error": f"Project directory not found: {project_path}"})
+            )]
+
+        config = HarvestConfig(
+            sessions=arguments.get("sessions", 1),
+            session_ids=arguments.get("session_ids"),
+            types=arguments.get("types", ["decision", "bug", "convention", "learning", "context"]),
+            min_confidence=arguments.get("min_confidence", 0.6),
+            dry_run=arguments.get("dry_run", True),
+            project_path=str(project_path),
+        )
+
+        memory_service = None
+        if not config.dry_run:
+            await self._ensure_storage_initialized()
+            memory_service = self.memory_service
+
+        harvester = SessionHarvester(
+            project_dir=project_path,
+            memory_service=memory_service
+        )
+
+        if config.dry_run:
+            results = harvester.harvest(config)
+        else:
+            results = await harvester.harvest_and_store(config)
+
+        output = {
+            "dry_run": config.dry_run,
+            "results": [
+                {
+                    "session_id": r.session_id,
+                    "total_messages": r.total_messages,
+                    "found": r.found,
+                    "stored": r.stored,
+                    "by_type": r.by_type,
+                    "candidates": [
+                        {
+                            "type": c.memory_type,
+                            "content": c.content[:200],
+                            "confidence": round(c.confidence, 2),
+                            "tags": c.tags,
+                        }
+                        for c in r.candidates
+                    ]
+                }
+                for r in results
+            ]
+        }
+
+        return [types.TextContent(type="text", text=json.dumps(output, indent=2))]
 
     async def handle_ingest_document(self, arguments: dict) -> List[types.TextContent]:
         """Handle document ingestion requests (delegates to handler)."""
