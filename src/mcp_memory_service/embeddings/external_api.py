@@ -200,11 +200,11 @@ class ExternalEmbeddingModel:
                 # Extract embeddings in order (API may return out of order)
                 batch_embeddings = [None] * len(batch)
                 seen_indices = set()
-                for item in data['data']:
-                    if 'index' not in item:
-                        raise RuntimeError(f"API response from {self.api_url} is missing the 'index' field.")
+                for pos, item in enumerate(data['data']):
+                    # Some OpenAI-compatible providers may omit `index` while
+                    # still returning embeddings in input order.
+                    idx = item.get('index', pos)
 
-                    idx = item['index']
                     if not (0 <= idx < len(batch)):
                         logger.warning(f"API returned out-of-bounds index {idx} for batch size {len(batch)}")
                         continue
@@ -212,6 +212,9 @@ class ExternalEmbeddingModel:
                     if idx in seen_indices:
                         raise RuntimeError(f"API returned duplicate index {idx} in the same batch.")
                     seen_indices.add(idx)
+
+                    if 'embedding' not in item:
+                        raise RuntimeError(f"API response from {self.api_url} is missing the 'embedding' field.")
 
                     batch_embeddings[idx] = item['embedding']
 
