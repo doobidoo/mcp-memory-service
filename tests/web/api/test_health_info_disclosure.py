@@ -39,8 +39,8 @@ class TestHealthEndpointSecurity:
         GHSA-73hc-m4hx-79pj protection: sensitive data was removed from the
         response (no OS version, paths, hardware specs — only memory/disk
         percentages). Read access is sufficient since the endpoint is read-only.
-        Anonymous users with MCP_ALLOW_ANONYMOUS_ACCESS=true get read scope
-        and can access this endpoint for dashboard auth detection (#621).
+        Anonymous users with MCP_ALLOW_ANONYMOUS_ACCESS=true get read write
+        scope and can access this endpoint for dashboard auth detection (#621).
         """
         from pathlib import Path
 
