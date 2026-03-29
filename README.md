@@ -1,5 +1,7 @@
 # mcp-memory-service
 
+[![SafeSkill 24/100](https://img.shields.io/badge/SafeSkill-24%2F100_Blocked-red)](https://safeskill.dev/scan/doobidoo-mcp-memory-service)
+
 ## Persistent Shared Memory for AI Agent Pipelines
 
 Open-source memory backend for multi-agent systems.
