@@ -3,7 +3,7 @@
 import logging
 from collections import Counter
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from .models import HarvestCandidate, HarvestConfig, HarvestResult
 from .parser import TranscriptParser
@@ -20,6 +20,14 @@ class SessionHarvester:
         self.memory_service = memory_service
         self.parser = TranscriptParser()
         self.extractor = PatternExtractor()
+        self._classifier = None
+
+    def _get_classifier(self):
+        """Lazy-init LLM classifier."""
+        if self._classifier is None:
+            from .classifier import HarvestClassifier
+            self._classifier = HarvestClassifier()
+        return self._classifier
 
     def harvest(self, config: HarvestConfig) -> List[HarvestResult]:
         """Parse sessions and extract candidates (synchronous, no storage)."""
@@ -85,12 +93,23 @@ class SessionHarvester:
             candidates = self.extractor.extract(msg)
             all_candidates.extend(candidates)
 
-        # Apply filters
+        # Apply regex-level filters
         filtered = [
             c for c in all_candidates
             if c.confidence >= config.min_confidence
             and c.memory_type in config.types
         ]
+
+        # Phase 2: LLM classification
+        if config.use_llm and filtered:
+            context_texts = [m.text for m in messages]
+            classifier = self._get_classifier()
+            before_count = len(filtered)
+            filtered = classifier.classify(filtered, context_messages=context_texts)
+            logger.info(
+                f"LLM classification: {before_count} → {len(filtered)} candidates "
+                f"({before_count - len(filtered)} rejected)"
+            )
 
         by_type = dict(Counter(c.memory_type for c in filtered))
 

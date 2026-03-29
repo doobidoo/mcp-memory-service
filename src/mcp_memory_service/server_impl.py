@@ -1879,11 +1879,17 @@ MEMORY TYPES EXTRACTED:
 - learning: Insights, mistakes learned from
 - context: Session state for continuity
 
+LLM CLASSIFICATION (Phase 2):
+- use_llm=true: Validate candidates with Groq LLM (higher precision, ~$0.001/candidate)
+- Filters conversation fragments, deduplicates, refines content
+- Requires GROQ_API_KEY environment variable
+
 Examples:
 {"sessions": 1, "dry_run": true}
 {"sessions": 3, "types": ["decision", "bug"]}
 {"session_ids": ["abc123"], "dry_run": false}
 {"min_confidence": 0.7, "sessions": 1}
+{"sessions": 1, "use_llm": true, "dry_run": true}
 """,
                         inputSchema={
                             "type": "object",
@@ -1916,6 +1922,11 @@ Examples:
                                 "project_path": {
                                     "type": "string",
                                     "description": "Override Claude Code project directory path"
+                                },
+                                "use_llm": {
+                                    "type": "boolean",
+                                    "default": False,
+                                    "description": "Use LLM to validate and refine candidates (requires GROQ_API_KEY)"
                                 }
                             }
                         },
@@ -2389,6 +2400,7 @@ Examples:
             min_confidence=arguments.get("min_confidence", 0.6),
             dry_run=arguments.get("dry_run", True),
             project_path=str(project_path),
+            use_llm=arguments.get("use_llm", False),
         )
 
         memory_service = None

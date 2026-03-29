@@ -39,3 +39,4 @@ class HarvestConfig:
     min_confidence: float = 0.6
     dry_run: bool = True
     project_path: Optional[str] = None  # Override project dir
+    use_llm: bool = False  # Phase 2: LLM-based classification
