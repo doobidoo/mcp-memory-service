@@ -2058,3 +2058,157 @@ class TestSemanticDeduplication:
 
         # Should return empty results, not unfiltered results
         assert len(results) == 0
+
+
+class TestGraphEdgeCleanupOnDelete:
+    """Regression tests for #632: orphaned graph edges on memory deletion."""
+
+    @pytest_asyncio.fixture
+    async def storage(self):
+        """Create a test storage instance."""
+        temp_dir = tempfile.mkdtemp()
+        db_path = os.path.join(temp_dir, "test_memory.db")
+
+        storage = SqliteVecMemoryStorage(db_path)
+        await storage.initialize()
+
+        yield storage
+
+        if storage.conn:
+            storage.conn.close()
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def _insert_edge(self, storage, source, target, similarity=0.8):
+        """Helper to insert a graph edge."""
+        storage.conn.execute(
+            'INSERT INTO memory_graph (source_hash, target_hash, similarity, connection_types, relationship_type, created_at) '
+            'VALUES (?, ?, ?, ?, ?, ?)',
+            (source, target, similarity, 'semantic', 'related', time.time())
+        )
+        storage.conn.commit()
+
+    def _count_edges(self, storage, content_hash=None):
+        """Count graph edges, optionally filtered by hash."""
+        if content_hash:
+            return storage.conn.execute(
+                'SELECT COUNT(*) FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
+                (content_hash, content_hash)
+            ).fetchone()[0]
+        return storage.conn.execute('SELECT COUNT(*) FROM memory_graph').fetchone()[0]
+
+    @pytest.mark.asyncio
+    async def test_delete_removes_graph_edges(self, storage):
+        """Deleting a memory must remove all its graph edges (#632)."""
+        m1 = Memory(content="Memory A", content_hash=generate_content_hash("Memory A"), tags=["test"])
+        m2 = Memory(content="Memory B", content_hash=generate_content_hash("Memory B"), tags=["test"])
+        m3 = Memory(content="Memory C", content_hash=generate_content_hash("Memory C"), tags=["test"])
+        await storage.store(m1)
+        await storage.store(m2)
+        await storage.store(m3)
+
+        # Create edges: m1<->m2, m1<->m3, m2<->m3
+        self._insert_edge(storage, m1.content_hash, m2.content_hash)
+        self._insert_edge(storage, m2.content_hash, m1.content_hash)
+        self._insert_edge(storage, m1.content_hash, m3.content_hash)
+        self._insert_edge(storage, m3.content_hash, m1.content_hash)
+        self._insert_edge(storage, m2.content_hash, m3.content_hash)
+        self._insert_edge(storage, m3.content_hash, m2.content_hash)
+
+        assert self._count_edges(storage) == 6
+
+        # Delete m1 — should remove 4 edges (m1<->m2 and m1<->m3, both directions)
+        success, _ = await storage.delete(m1.content_hash)
+        assert success
+
+        assert self._count_edges(storage, m1.content_hash) == 0, "Deleted memory should have no graph edges"
+        assert self._count_edges(storage) == 2, "Only m2<->m3 edges should remain"
+
+    @pytest.mark.asyncio
+    async def test_delete_by_tag_removes_graph_edges(self, storage):
+        """Deleting memories by tag must remove their graph edges (#632)."""
+        m1 = Memory(content="Tagged mem 1", content_hash=generate_content_hash("Tagged mem 1"), tags=["cleanup"])
+        m2 = Memory(content="Tagged mem 2", content_hash=generate_content_hash("Tagged mem 2"), tags=["cleanup"])
+        m3 = Memory(content="Keep this one", content_hash=generate_content_hash("Keep this one"), tags=["keep"])
+        await storage.store(m1)
+        await storage.store(m2)
+        await storage.store(m3)
+
+        # Edges between all three
+        self._insert_edge(storage, m1.content_hash, m2.content_hash)
+        self._insert_edge(storage, m2.content_hash, m1.content_hash)
+        self._insert_edge(storage, m1.content_hash, m3.content_hash)
+        self._insert_edge(storage, m3.content_hash, m1.content_hash)
+        self._insert_edge(storage, m2.content_hash, m3.content_hash)
+        self._insert_edge(storage, m3.content_hash, m2.content_hash)
+
+        assert self._count_edges(storage) == 6
+
+        # Delete by "cleanup" tag — m1 and m2 go, m3 stays
+        count, _ = await storage.delete_by_tag("cleanup")
+        assert count == 2
+
+        # All edges involving m1 or m2 should be gone
+        assert self._count_edges(storage, m1.content_hash) == 0
+        assert self._count_edges(storage, m2.content_hash) == 0
+        assert self._count_edges(storage) == 0, "No edges should remain (m3 had edges only to deleted memories)"
+
+    @pytest.mark.asyncio
+    async def test_delete_by_tags_removes_graph_edges(self, storage):
+        """Deleting memories by multiple tags must remove their graph edges (#632)."""
+        m1 = Memory(content="Alpha mem", content_hash=generate_content_hash("Alpha mem"), tags=["alpha"])
+        m2 = Memory(content="Beta mem", content_hash=generate_content_hash("Beta mem"), tags=["beta"])
+        m3 = Memory(content="Gamma mem", content_hash=generate_content_hash("Gamma mem"), tags=["gamma"])
+        await storage.store(m1)
+        await storage.store(m2)
+        await storage.store(m3)
+
+        self._insert_edge(storage, m1.content_hash, m3.content_hash)
+        self._insert_edge(storage, m3.content_hash, m1.content_hash)
+        self._insert_edge(storage, m2.content_hash, m3.content_hash)
+        self._insert_edge(storage, m3.content_hash, m2.content_hash)
+
+        assert self._count_edges(storage) == 4
+
+        # Delete by both alpha and beta tags
+        count, _, _ = await storage.delete_by_tags(["alpha", "beta"])
+        assert count == 2
+
+        assert self._count_edges(storage, m1.content_hash) == 0
+        assert self._count_edges(storage, m2.content_hash) == 0
+        assert self._count_edges(storage) == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_memory_without_edges_succeeds(self, storage):
+        """Deleting a memory with no graph edges should not error (#632)."""
+        m1 = Memory(content="Lone memory", content_hash=generate_content_hash("Lone memory"), tags=["test"])
+        await storage.store(m1)
+
+        assert self._count_edges(storage) == 0
+
+        success, _ = await storage.delete(m1.content_hash)
+        assert success
+        assert self._count_edges(storage) == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_preserves_unrelated_edges(self, storage):
+        """Deleting one memory must not affect edges between other memories (#632)."""
+        m1 = Memory(content="To delete", content_hash=generate_content_hash("To delete"), tags=["test"])
+        m2 = Memory(content="Survivor A", content_hash=generate_content_hash("Survivor A"), tags=["test"])
+        m3 = Memory(content="Survivor B", content_hash=generate_content_hash("Survivor B"), tags=["test"])
+        await storage.store(m1)
+        await storage.store(m2)
+        await storage.store(m3)
+
+        # m1<->m2 edge and independent m2<->m3 edge
+        self._insert_edge(storage, m1.content_hash, m2.content_hash)
+        self._insert_edge(storage, m2.content_hash, m1.content_hash)
+        self._insert_edge(storage, m2.content_hash, m3.content_hash)
+        self._insert_edge(storage, m3.content_hash, m2.content_hash)
+
+        success, _ = await storage.delete(m1.content_hash)
+        assert success
+
+        # m2<->m3 edges must survive
+        assert self._count_edges(storage, m2.content_hash) == 2
+        assert self._count_edges(storage, m3.content_hash) == 2
+        assert self._count_edges(storage) == 2
