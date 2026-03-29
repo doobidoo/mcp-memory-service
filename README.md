@@ -368,18 +368,20 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.28.3** (March 26, 2026)
+## Latest Release: **v10.28.4** (March 29, 2026)
 
-**HTTP MCP endpoint fix: accept 'content' as alias for 'query' so Claude Code HTTP transport returns results**
+**Security patch: cryptography>=46.0.6 (CVE-2026-34073), serialize-javascript>=7.0.5 (CVE-2026-34043), CodeQL unused import cleanup**
 
 **What's New:**
-- **Parameter alias fix**: `retrieve_memory` and `recall_memory` now accept `content` in addition to `query` as the search parameter name.
-- **Claude Code HTTP transport**: Resolves always-empty results when Claude Code invokes memory tools via HTTP (it sends `content`, not `query`).
-- **Backward compatible**: Existing callers using `query` are unaffected; `query` takes precedence when both are present.
+- **cryptography>=46.0.6**: Fixes CVE-2026-34073 (incomplete DNS name constraint enforcement, Dependabot #68).
+- **serialize-javascript>=7.0.5**: Fixes CVE-2026-34043 (CPU exhaustion DoS via crafted array-like objects, Dependabot #66, #67).
+- **CodeQL cleanup**: Removed unused `Optional` import in `harvester.py` (CodeQL #379).
+- **Dependency hygiene**: Alphabetical sorting of dependencies in `pyproject.toml`.
 
 ---
 
 **Previous Releases**:
+- **v10.28.3** - HTTP MCP endpoint fix: accept 'content' as alias for 'query' so Claude Code HTTP transport returns results
 - **v10.28.2** - Relationship inference tuning: 93.5% typed labels vs 0.5% before + German language support
 - **v10.28.1** - Harvest false-positive fix: skip system prompts, skill outputs, and long injected content (3 new tests)
 - **v10.28.0** - Session harvest tool (`memory_harvest`): extract learnings from Claude Code transcripts + security dependency updates (#614-#616)

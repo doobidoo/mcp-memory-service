@@ -10,6 +10,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.28.4] - 2026-03-29
+
+### Security
+
+- **[#622] bump cryptography from 46.0.5 to 46.0.6**: Fixes CVE-2026-34073 (incomplete DNS name constraint enforcement). Dependabot alert #68 (low severity). Automated Dependabot bump.
+- **[#623] bump serialize-javascript to >=7.0.5**: Fixes CVE-2026-34043 (CPU exhaustion DoS via crafted array-like objects in serialized output). Dependabot alerts #66 and #67 (medium severity). Applied to `tests/integration/` and `tests/web/` npm packages.
+
+### Fixed
+
+- **[#623] Remove unused `Optional` import in `harvester.py`**: CodeQL alert #379 (note). Import was a leftover from an earlier implementation; removal has no functional impact.
+
+### Maintenance
+
+- **[#623] Sort dependencies alphabetically in `pyproject.toml`**: Improves readability and prevents merge conflicts on future dependency updates.
+
 ## [10.28.3] - 2026-03-26
 
 ### Fixed
