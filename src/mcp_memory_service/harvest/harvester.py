@@ -3,7 +3,7 @@
 import logging
 from collections import Counter
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from .models import HarvestCandidate, HarvestConfig, HarvestResult
 from .parser import TranscriptParser

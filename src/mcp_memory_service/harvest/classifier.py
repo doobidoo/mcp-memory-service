@@ -5,9 +5,10 @@ improving precision from ~47% to ≥80% by filtering false positives,
 refining content, and deduplicating similar candidates.
 """
 
+import json
 import logging
 import os
-import sys
+import re
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -95,16 +96,13 @@ class HarvestClassifier:
             return False
 
         try:
-            scripts_path = (
-                __import__("pathlib").Path(__file__).parent.parent.parent.parent
-                / "scripts" / "utils"
-            )
-            if scripts_path.exists() and str(scripts_path) not in sys.path:
-                sys.path.insert(0, str(scripts_path))
-            from groq_agent_bridge import GroqAgentBridge
-            self._groq_bridge = GroqAgentBridge(api_key=self._api_key)
+            from groq import Groq
+            self._groq_bridge = _GroqClassifierBridge(api_key=self._api_key)
             logger.info("Harvest classifier: Groq bridge initialized")
             return True
+        except ImportError:
+            logger.warning("groq package not installed — LLM classification unavailable")
+            return False
         except Exception as e:
             logger.warning(f"Failed to init Groq bridge for harvest classifier: {e}")
             return False
@@ -183,8 +181,6 @@ class HarvestClassifier:
 
     def _parse_classification(self, response: str) -> ClassificationResult:
         """Parse LLM JSON response into ClassificationResult."""
-        import json
-
         # Extract JSON from response (handle markdown code blocks)
         text = response.strip()
         if text.startswith("```"):
@@ -193,11 +189,15 @@ class HarvestClassifier:
         try:
             data = json.loads(text)
         except json.JSONDecodeError:
-            # Try to find JSON object in response
-            import re
-            match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
-            if match:
-                data = json.loads(match.group())
+            # Find outermost JSON object: first '{' to last '}'
+            first_brace = text.find("{")
+            last_brace = text.rfind("}")
+            if first_brace != -1 and last_brace > first_brace:
+                try:
+                    data = json.loads(text[first_brace:last_brace + 1])
+                except json.JSONDecodeError:
+                    logger.warning(f"Could not parse LLM response: {text[:200]}")
+                    return ClassificationResult(keep=True, reason="parse error — keeping", confidence=0.5)
             else:
                 logger.warning(f"Could not parse LLM response: {text[:200]}")
                 return ClassificationResult(keep=True, reason="parse error — keeping", confidence=0.5)
@@ -218,7 +218,9 @@ class HarvestClassifier:
             candidate.content = result.refined_content
         if result.memory_type:
             candidate.memory_type = result.memory_type
-            candidate.tags = [f"harvest:{result.memory_type}"]
+            # Replace harvest: tag but preserve other tags
+            candidate.tags = [t for t in candidate.tags if not t.startswith("harvest:")]
+            candidate.tags.append(f"harvest:{result.memory_type}")
         candidate.confidence = result.confidence
         candidate.tags.append("llm-verified")
         return candidate
@@ -244,10 +246,7 @@ class HarvestClassifier:
                 system_message="You deduplicate memories. Respond only with a JSON array of indices.",
             )
             if result["status"] == "success":
-                import json
                 text = result["response"].strip()
-                # Extract array from response
-                import re
                 match = re.search(r'\[[\d,\s]*\]', text)
                 if match:
                     keep_indices = json.loads(match.group())
@@ -256,3 +255,40 @@ class HarvestClassifier:
             logger.warning(f"Deduplication failed: {e}")
 
         return candidates
+
+
+class _GroqClassifierBridge:
+    """Thin wrapper around Groq SDK for classifier use.
+
+    Avoids sys.path manipulation by importing groq directly.
+    Same call_model interface as GroqAgentBridge for compatibility.
+    """
+
+    def __init__(self, api_key: str):
+        from groq import Groq
+        self._client = Groq(api_key=api_key)
+
+    def call_model(self, prompt: str, model: str = "llama-3.1-8b-instant",
+                   max_tokens: int = 300, temperature: float = 0.1,
+                   system_message: Optional[str] = None) -> dict:
+        """Call Groq model and return result dict."""
+        try:
+            messages = []
+            if system_message:
+                messages.append({"role": "system", "content": system_message})
+            messages.append({"role": "user", "content": prompt})
+
+            response = self._client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            return {
+                "status": "success",
+                "response": response.choices[0].message.content,
+                "model": model,
+                "tokens_used": response.usage.total_tokens,
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}

@@ -78,8 +78,10 @@ class TestHarvestClassifier:
         assert classifier.classify([]) == []
 
     def test_no_api_key_returns_unfiltered(self, sample_candidates):
-        c = HarvestClassifier(groq_api_key=None)
-        with patch.dict("os.environ", {}, clear=True):
+        with patch.dict("os.environ", {"GROQ_API_KEY": ""}, clear=False):
+            c = HarvestClassifier(groq_api_key=None)
+            # Force re-init by ensuring bridge is None and key is empty
+            c._api_key = None
             result = c.classify(sample_candidates)
         assert len(result) == len(sample_candidates)
 
@@ -123,11 +125,11 @@ class TestHarvestClassifier:
         assert result[0].confidence == 0.9
 
     def test_classify_updates_memory_type(self, classifier):
-        """LLM can correct memory type."""
+        """LLM can correct memory type and preserve non-harvest tags."""
         candidate = HarvestCandidate(
             content="Learned that WAL mode is required for concurrent SQLite access",
             memory_type="bug",
-            tags=["harvest:bug"],
+            tags=["harvest:bug", "custom-tag"],
             confidence=0.7,
         )
         mock_bridge = MagicMock()
@@ -139,6 +141,8 @@ class TestHarvestClassifier:
         result = classifier.classify([candidate])
         assert result[0].memory_type == "learning"
         assert "harvest:learning" in result[0].tags
+        assert "custom-tag" in result[0].tags
+        assert "harvest:bug" not in result[0].tags
 
     def test_parse_classification_json(self, classifier):
         """Parse clean JSON response."""
