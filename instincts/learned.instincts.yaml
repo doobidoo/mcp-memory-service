@@ -1,0 +1,68 @@
+version: "1.0"
+instincts:
+  never-push-main-directly:
+    id: never-push-main-directly
+    rule: "Never push commits directly to main. Always create a feature branch and open a PR, even for single-line fixes. PRs are quality gates for code review, not bureaucracy."
+    domain: git
+    tags: [git, workflow, pr, code-review, branch-protection]
+    trigger_patterns:
+      - "git push.*main"
+      - "push to main"
+      - "commit.*main"
+    confidence: 0.8
+    min_confidence: 0.5
+    approved_by: human
+    active: true
+    created_at: "2026-03-29T16:25:00Z"
+    outcome_log: []
+
+  check-memory-before-diagnosing:
+    id: check-memory-before-diagnosing
+    rule: "When hitting a recurring error (especially Cloudflare 401, auth failures), search MCP Memory for prior incidents before investigating from scratch. The fix is often already documented."
+    domain: troubleshooting
+    tags: [troubleshooting, memory, cloudflare, auth, debugging]
+    trigger_patterns:
+      - "401"
+      - "unauthorized"
+      - "authentication error"
+      - "cloudflare.*fail"
+    confidence: 0.75
+    min_confidence: 0.5
+    approved_by: human
+    active: true
+    created_at: "2026-03-29T16:25:00Z"
+    outcome_log: []
+
+  verify-env-matches-dashboard:
+    id: verify-env-matches-dashboard
+    rule: "When Cloudflare API returns 401/auth errors, first verify the token in .env matches the active token in the Cloudflare Dashboard. Token rotation in the dashboard does not auto-update local config files."
+    domain: cloudflare
+    tags: [cloudflare, env, token, auth, configuration]
+    trigger_patterns:
+      - "cloudflare.*401"
+      - "invalid.*api.*token"
+      - "authentication error.*cloudflare"
+    confidence: 0.7
+    min_confidence: 0.5
+    approved_by: human
+    active: true
+    created_at: "2026-03-29T16:25:00Z"
+    outcome_log: []
+
+  use-release-agent-for-versions:
+    id: use-release-agent-for-versions
+    rule: "Never manually bump versions or create release commits. Always use the github-release-manager agent which handles version sync across pyproject.toml, _version.py, CHANGELOG, README, and CLAUDE.md consistently."
+    domain: workflow
+    tags: [workflow, release, versioning, automation]
+    trigger_patterns:
+      - "version bump"
+      - "release"
+      - "changelog"
+      - "patch release"
+      - "new version"
+    confidence: 0.75
+    min_confidence: 0.5
+    approved_by: human
+    active: true
+    created_at: "2026-03-29T16:25:00Z"
+    outcome_log: []
