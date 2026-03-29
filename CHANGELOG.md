@@ -16,6 +16,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - **[#632] Clean up orphaned graph edges on memory deletion**: When memories were deleted, their associated edges in the `memory_graph` table were not removed, causing dead references to accumulate over time and pollute graph queries. The fix adds explicit edge removal to `delete()`, `delete_by_tag()`, and `delete_by_tags()` in `sqlite_vec.py`. The consolidation forgetting phase now also performs a periodic orphan-pruning pass after archival, ensuring edges referencing non-existent memories are swept up even for memories removed by other means.
 
+### Documentation
+
+- **Troubleshooting additions**: Pre-commit hook PATH workaround (`.venv/bin`), editable install vs PyPI version switching, Cloudflare 401 memory-first diagnosis, dashboard testing guidelines, uv.lock revision downgrade
+- **Instincts bootstrap**: Added `instincts/learned.instincts.yaml` with 4 session-derived instincts (PR workflow, memory-first debugging, env/dashboard token sync, release agent usage)
+
 ## [10.29.0] - 2026-03-29
 
 ### Added
