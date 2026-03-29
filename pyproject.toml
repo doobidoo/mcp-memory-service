@@ -55,6 +55,7 @@ dependencies = [
     "click>=8.0.0",
     "httpx>=0.24.0",
     "authlib>=1.6.9",
+    "cryptography>=46.0.6",
     "PyJWT[crypto]>=2.12.0",
     "requests>=2.32.4",
     "sentence-transformers>=2.2.2",
