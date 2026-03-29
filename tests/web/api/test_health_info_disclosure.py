@@ -33,8 +33,15 @@ class TestHealthEndpointSecurity:
         fields = set(HealthResponse.model_fields.keys())
         assert fields == {"status"}, f"HealthResponse has extra fields: {fields - {'status'}}"
 
-    def test_detailed_health_requires_write_access(self):
-        """GET /health/detailed must use require_write_access, not require_read_access."""
+    def test_detailed_health_requires_authentication(self):
+        """GET /health/detailed must require authentication (at least read access).
+
+        GHSA-73hc-m4hx-79pj protection: sensitive data was removed from the
+        response (no OS version, paths, hardware specs — only memory/disk
+        percentages). Read access is sufficient since the endpoint is read-only.
+        Anonymous users with MCP_ALLOW_ANONYMOUS_ACCESS=true get read scope
+        and can access this endpoint for dashboard auth detection (#621).
+        """
         from pathlib import Path
 
         health_path = Path(__file__).parent.parent.parent.parent / \
@@ -44,16 +51,12 @@ class TestHealthEndpointSecurity:
 
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "detailed_health_check":
-                # Check decorator/default arguments for require_write_access
                 source_lines = source.split("\n")
-                # Get the function's full source range
                 func_start = node.lineno - 1
                 func_source = "\n".join(source_lines[func_start:func_start + 10])
-                assert "require_write_access" in func_source, (
-                    "detailed_health_check must use require_write_access"
-                )
-                assert "require_read_access" not in func_source, (
-                    "detailed_health_check must NOT use require_read_access"
+                # Must require at least read access (not unauthenticated)
+                assert "require_read_access" in func_source or "require_write_access" in func_source, (
+                    "detailed_health_check must require authentication"
                 )
                 break
         else:

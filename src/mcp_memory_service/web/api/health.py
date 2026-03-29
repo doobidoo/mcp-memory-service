@@ -75,15 +75,13 @@ async def health_check():
 @router.get("/health/detailed", response_model=DetailedHealthResponse)
 async def detailed_health_check(
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access)
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """Detailed health check with storage information.
 
-    Requires write (admin) access to prevent information disclosure
-    to anonymous or read-only users (GHSA-73hc-m4hx-79pj).
-
-    System details are limited to memory/disk usage percentages —
-    no OS version, Python version, absolute paths, or hardware specs.
+    Requires read access. System details are limited to memory/disk
+    usage percentages — no OS version, Python version, absolute paths,
+    or hardware specs (GHSA-73hc-m4hx-79pj).
     """
 
     # Only expose resource utilization percentages — no fingerprinting data

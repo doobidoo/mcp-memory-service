@@ -370,11 +370,11 @@ async def get_current_user(
 
     # Allow anonymous access only if explicitly enabled
     if ALLOW_ANONYMOUS_ACCESS:
-        logger.debug("Anonymous access explicitly enabled, granting read-only access")
+        logger.debug("Anonymous access explicitly enabled, granting full local access")
         return AuthenticationResult(
             authenticated=True,
             client_id="anonymous",
-            scope="read",  # Anonymous users get read-only access for security
+            scope="read write",  # User explicitly opted in via MCP_ALLOW_ANONYMOUS_ACCESS=true
             auth_method="none"
         )
 
