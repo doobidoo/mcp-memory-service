@@ -368,19 +368,20 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.29.0** (March 29, 2026)
+## Latest Release: **v10.29.1** (March 29, 2026)
 
-**feat(harvest): LLM-based classification via Groq (Phase 2) (#628)**
+**fix: clean up orphaned graph edges on memory deletion (#632)**
 
 **What's New:**
-- **LLM-powered harvest classification**: `memory_harvest` now supports an optional `use_llm=true` parameter that routes extracted memories through a Groq-backed classifier for higher-precision category labels.
-- **_GroqClassifierBridge**: New `harvest/classifier.py` module provides a lightweight bridge to Groq's LLM API, with graceful fallback to the existing rule-based classifier when the API is unavailable.
-- **14 new tests**: Full coverage for the classifier bridge, fallback behaviour, and end-to-end `use_llm` harvest flow.
-- **Closes #618**: Completes the two-phase harvest roadmap (Phase 1: rule-based extraction; Phase 2: LLM re-classification).
+- **Orphaned edge cleanup**: Deleting a memory now removes its associated edges from the `memory_graph` table immediately, preventing dead references from accumulating.
+- **Cascade deletion**: `delete()`, `delete_by_tag()`, and `delete_by_tags()` in the SQLite-Vec backend all perform graph edge removal as part of the same operation.
+- **Periodic orphan pruning**: The consolidation forgetting phase sweeps up any remaining orphaned edges after archival, providing a safety net for edges left by other deletion paths.
+- **Fixes #632**: Graph queries no longer return or traverse stale edges referencing deleted memories.
 
 ---
 
 **Previous Releases**:
+- **v10.29.0** - feat(harvest): LLM-based classification via Groq (Phase 2, #628) — `memory_harvest` supports `use_llm=true` for higher-precision category labels via _GroqClassifierBridge
 - **v10.28.5** - Bug fix: MCP_ALLOW_ANONYMOUS_ACCESS=true now respected in the dashboard (anonymous users granted read+write scope)
 - **v10.28.4** - Security patch: cryptography>=46.0.6 (CVE-2026-34073), serialize-javascript>=7.0.5 (CVE-2026-34043), CodeQL cleanup
 - **v10.28.3** - HTTP MCP endpoint fix: accept 'content' as alias for 'query' so Claude Code HTTP transport returns results
