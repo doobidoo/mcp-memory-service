@@ -399,6 +399,102 @@ class SqliteVecMemoryStorage(MemoryStorage):
         except Exception as e:
             logger.warning(f"Failed to run graph migrations (non-fatal): {e}")
 
+    # --- Memory Evolution: Staleness Scoring (P2) ---
+
+    _DECAY_WINDOW_DAYS: float = float(os.environ.get("MEMORY_DECAY_WINDOW_DAYS", 30))
+    _DECAY_RATE: float = float(os.environ.get("MEMORY_DECAY_RATE", 0.5))
+
+    def _compute_effective_confidence(
+        self,
+        memory: Memory,
+        last_accessed_override: Optional[float] = None,
+    ) -> float:
+        """Compute time-decayed confidence for a memory.
+
+        Formula (from Memory Evolution Design §6.1):
+            staleness = days_since_last_access / decay_window
+            confidence_decay = max(0.0, 1.0 - staleness * decay_rate)
+            effective_confidence = base_confidence * confidence_decay
+
+        Priority for last_accessed (highest first):
+          1. last_accessed_override (DB column, integer unix ts)
+          2. metadata['last_accessed_at'] (float, set by record_access)
+          3. memory.created_at (fallback for never-accessed memories)
+        """
+        base_confidence: float = memory.metadata.get("confidence", 1.0)
+
+        if last_accessed_override is not None:
+            last_accessed: float = float(last_accessed_override)
+        else:
+            last_accessed = memory.metadata.get("last_accessed_at") or memory.created_at or time.time()
+
+        days_since = (time.time() - last_accessed) / 86400.0
+        staleness = days_since / max(self._DECAY_WINDOW_DAYS, 1.0)
+        decay = max(0.0, 1.0 - staleness * self._DECAY_RATE)
+        return round(base_confidence * decay, 4)
+
+    async def retrieve_with_staleness(
+        self,
+        query: str,
+        n_results: int = 5,
+        tags: Optional[List[str]] = None,
+        min_confidence: float = 0.0,
+    ) -> List[MemoryQueryResult]:
+        """Like retrieve(), but reads the last_accessed DB column for accurate staleness scoring.
+
+        The regular retrieve() uses metadata['last_accessed_at'] which gets refreshed on
+        every access. This method reads the dedicated last_accessed INTEGER column (set
+        explicitly or via update_memory_versioned) so callers can set a specific staleness
+        timestamp without it being overwritten by access tracking.
+
+        Args:
+            min_confidence: Filter out memories with effective_confidence below this value.
+                            Default 0.0 means no filtering (backward compatible).
+        """
+        results = await self.retrieve(query, n_results=n_results, tags=tags)
+        if not results:
+            return results
+
+        # Fetch last_accessed column for all returned memories in one query
+        hashes = [r.memory.content_hash for r in results]
+        placeholders = ",".join("?" * len(hashes))
+        cursor = self.conn.execute(
+            f"SELECT content_hash, last_accessed FROM memories WHERE content_hash IN ({placeholders})",
+            hashes,
+        )
+        last_accessed_map: Dict[str, Optional[int]] = {row[0]: row[1] for row in cursor.fetchall()}
+
+        enriched = []
+        for r in results:
+            col_ts = last_accessed_map.get(r.memory.content_hash)
+            ec = self._compute_effective_confidence(r.memory, last_accessed_override=col_ts)
+            r.debug_info["effective_confidence"] = ec
+            enriched.append(r)
+
+        if min_confidence > 0.0:
+            before = len(enriched)
+            enriched = [r for r in enriched if r.debug_info["effective_confidence"] >= min_confidence]
+            logger.debug(f"retrieve_with_staleness: min_confidence={min_confidence} filtered {before - len(enriched)} stale memories")
+
+        return enriched
+
+    def _run_evolution_migrations(self):
+        """Execute Memory Evolution P1 migrations (non-destructive updates + lineage tracking)."""
+        try:
+            migrations_dir = Path(__file__).parent / "migrations"
+            if migrations_dir.exists():
+                migration_runner = MigrationRunner(migrations_dir)
+                success, message = migration_runner.run_migrations_sync(
+                    self.conn,
+                    ["011_memory_evolution_p1.sql"]
+                )
+                if not success:
+                    logger.warning(f"Evolution migrations warning: {message}")
+                else:
+                    logger.info(f"Evolution migrations completed: {message}")
+        except Exception as e:
+            logger.warning(f"Failed to run evolution migrations (non-fatal): {e}")
+
     def _ensure_fts5_initialized(self):
         """Ensure FTS5 virtual table exists for BM25 keyword search (v10.8.0+).
 
@@ -689,6 +785,9 @@ SOLUTIONS:
                     # Execute graph table migrations (Knowledge Graph feature v9.0.0+)
                     self._run_graph_migrations()
 
+                    # Execute Memory Evolution P1 migrations (v10.30.0+)
+                    self._run_evolution_migrations()
+
                     # Ensure FTS5 table exists (v10.8.0+ migration for existing databases)
                     self._ensure_fts5_initialized()
 
@@ -847,6 +946,9 @@ SOLUTIONS:
 
             # Execute graph table migrations (Knowledge Graph feature v9.0.0+)
             self._run_graph_migrations()
+
+            # Execute Memory Evolution P1 migrations (v10.30.0+)
+            self._run_evolution_migrations()
 
             # Mark as initialized to prevent re-initialization
             self._initialized = True
@@ -1458,7 +1560,7 @@ SOLUTIONS:
 
         return [(r if r is not None else (False, "Skipped")) for r in results]
 
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None) -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0) -> List[MemoryQueryResult]:
         """Retrieve memories using semantic search."""
         try:
             if not self.conn:
@@ -1549,7 +1651,7 @@ SOLUTIONS:
                         FROM memory_embeddings
                         WHERE content_embedding MATCH ? AND k = ?
                     ) e ON m.id = e.rowid
-                    WHERE m.deleted_at IS NULL{tag_conditions}
+                    WHERE m.deleted_at IS NULL AND (m.superseded_by IS NULL OR m.superseded_by = ''){tag_conditions}
                     ORDER BY e.distance
                     LIMIT ?
                 '''
@@ -1598,13 +1700,19 @@ SOLUTIONS:
                     # Convert to similarity score: 1 - (distance/2) gives 0-1 range
                     relevance_score = max(0.0, 1.0 - (float(distance) / 2.0)) if distance is not None else 0.0
 
+                    # Compute staleness BEFORE record_access overwrites last_accessed_at
+                    effective_confidence = self._compute_effective_confidence(memory)
+
                     # Record access for quality scoring (implicit signals)
                     memory.record_access(query)
-
                     results.append(MemoryQueryResult(
                         memory=memory,
                         relevance_score=relevance_score,
-                        debug_info={"distance": distance, "backend": "sqlite-vec"}
+                        debug_info={
+                            "distance": distance,
+                            "backend": "sqlite-vec",
+                            "effective_confidence": effective_confidence,
+                        }
                     ))
 
                 except Exception as parse_error:
@@ -1616,6 +1724,14 @@ SOLUTIONS:
                 await self._persist_access_metadata_batch([r.memory for r in results])
             except Exception as e:
                 logger.warning(f"Failed to persist access metadata: {e}")
+
+            if min_confidence > 0.0:
+                before = len(results)
+                results = [
+                    r for r in results
+                    if r.debug_info.get("effective_confidence", 1.0) >= min_confidence
+                ]
+                logger.debug(f"min_confidence={min_confidence} filtered {before - len(results)} stale memories")
 
             logger.info(f"Retrieved {len(results)} memories for query: {_sanitize_log_value(query)}")
             return results
@@ -3580,6 +3696,243 @@ SOLUTIONS:
         except Exception as e:
             logger.error(f"Unexpected error getting graph visualization data: {str(e)}")
             return {"nodes": [], "edges": []}
+
+    # -------------------------------------------------------------------------
+    # Memory Evolution P2: Staleness Scoring
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _effective_confidence(
+        confidence: Optional[float],
+        last_accessed: Optional[float],
+        created_at: Optional[float] = None,
+        now: Optional[float] = None,
+    ) -> float:
+        """Compute time-decayed confidence score.
+
+        Formula (MEMORY-EVOLUTION-DESIGN.md §6):
+            staleness = days_since_last_access / decay_window
+            decay     = max(0.0, 1.0 - staleness * decay_rate)
+            effective = confidence * decay
+
+        Defaults: decay_window=30d (MEMORY_DECAY_WINDOW_DAYS env), decay_rate=0.5
+        """
+        decay_window = float(os.environ.get("MEMORY_DECAY_WINDOW_DAYS", "30"))
+        decay_rate = 0.5
+        ts_now = now or time.time()
+        reference = last_accessed or created_at or ts_now
+        days_since = (ts_now - reference) / 86400.0
+        staleness = days_since / decay_window
+        decay = max(0.0, 1.0 - staleness * decay_rate)
+        return round((confidence or 1.0) * decay, 4)
+
+    async def retrieve_with_staleness(
+        self,
+        query: str,
+        n_results: int = 5,
+        tags: Optional[List[str]] = None,
+        min_confidence: float = 0.0,
+    ) -> List[MemoryQueryResult]:
+        """Semantic search with staleness-aware confidence scoring.
+
+        Wraps retrieve(), adds effective_confidence to debug_info, updates
+        last_accessed in DB, and optionally filters by min_confidence.
+
+        Args:
+            min_confidence: 0.0 = no filter (backward compatible).
+        """
+        fetch_n = max(n_results * 3, 20) if min_confidence > 0.0 else n_results
+        raw = await self.retrieve(query, fetch_n, tags)
+        if not raw:
+            return raw
+
+        hashes = [r.memory.content_hash for r in raw]
+        placeholders = ",".join("?" * len(hashes))
+        cursor = self.conn.execute(
+            f"SELECT content_hash, confidence, last_accessed, created_at "
+            f"FROM memories WHERE content_hash IN ({placeholders})",
+            hashes,
+        )
+        meta = {row[0]: row[1:] for row in cursor.fetchall()}
+
+        now = time.time()
+        enriched: List[MemoryQueryResult] = []
+        hashes_to_touch: List[str] = []
+
+        for result in raw:
+            ch = result.memory.content_hash
+            confidence, last_accessed, created_at = meta.get(ch, (1.0, None, None))
+            eff = self._effective_confidence(confidence, last_accessed, created_at, now)
+
+            if eff < min_confidence:
+                continue
+
+            result.debug_info["effective_confidence"] = eff
+            result.debug_info["confidence"] = confidence or 1.0
+            result.debug_info["last_accessed"] = last_accessed
+            hashes_to_touch.append(ch)
+            enriched.append(result)
+
+            if len(enriched) >= n_results:
+                break
+
+        if hashes_to_touch:
+            def _touch(hashes=hashes_to_touch, ts=now):
+                self.conn.executemany(
+                    "UPDATE memories SET last_accessed = ? WHERE content_hash = ?",
+                    [(int(ts), h) for h in hashes],
+                )
+                self.conn.commit()
+            try:
+                await self._execute_with_retry(_touch)
+            except Exception as e:
+                logger.warning(f"Failed to update last_accessed (non-fatal): {e}")
+
+        return enriched
+
+    async def update_memory_versioned(
+        self,
+        content_hash: str,
+        new_content: str,
+        new_tags: Optional[List[str]] = None,
+        new_memory_type: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> Tuple[bool, str, Optional[str]]:
+        """Non-destructive update: creates a child node and marks the old one superseded.
+
+        Returns:
+            (success, message, new_content_hash)
+        """
+        try:
+            if not self.conn:
+                return False, "Database not initialized", None
+
+            cursor = self.conn.execute(
+                """SELECT content_hash, content, tags, memory_type, metadata, version
+                   FROM memories
+                   WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL""",
+                (content_hash,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False, f"Memory {content_hash} not found or already superseded", None
+
+            old_hash, old_content, old_tags_str, old_type, old_metadata_str, old_version = row
+            old_version = old_version or 1
+
+            resolved_tags = new_tags if new_tags is not None else (
+                [t for t in old_tags_str.split(",") if t] if old_tags_str else []
+            )
+            resolved_type = new_memory_type if new_memory_type is not None else old_type
+            old_metadata = self._safe_json_loads(old_metadata_str, "update_memory_versioned")
+            if reason:
+                old_metadata["evolution_reason"] = reason
+
+            new_hash = hashlib.sha256(new_content.strip().lower().encode("utf-8")).hexdigest()
+
+            new_memory = Memory(
+                content=new_content,
+                content_hash=new_hash,
+                tags=resolved_tags,
+                memory_type=resolved_type,
+                metadata=old_metadata,
+            )
+
+            success, msg = await self.store(new_memory, skip_semantic_dedup=True)
+            if not success:
+                return False, f"Failed to store new version: {msg}", None
+
+            new_ver = old_version + 1
+
+            def finalize():
+                self.conn.execute(
+                    "UPDATE memories SET parent_id = ?, version = ? WHERE content_hash = ?",
+                    (old_hash, new_ver, new_hash),
+                )
+                self.conn.execute(
+                    "UPDATE memories SET superseded_by = ? WHERE content_hash = ?",
+                    (new_hash, old_hash),
+                )
+                self.conn.commit()
+
+            await self._execute_with_retry(finalize)
+            logger.info(f"Memory evolved: {old_hash[:8]} → {new_hash[:8]} (v{old_version} → v{new_ver})")
+            return True, f"Memory updated (v{old_version} → v{new_ver})", new_hash
+
+        except Exception as e:
+            logger.error(f"update_memory_versioned error: {e}")
+            return False, str(e), None
+
+    async def get_memory_history(self, content_hash: str) -> List[Dict[str, Any]]:
+        """Return full version lineage for a memory, oldest-first.
+
+        Works from any version: walks parent_id chain to root, then
+        traverses forward via recursive CTE.
+        """
+        try:
+            if not self.conn:
+                return []
+
+            # Walk parent_id chain upward to find the oldest existing ancestor.
+            # Stop if parent_id points to a hash that no longer exists in the DB
+            # (e.g. lineage started before Memory Evolution was introduced).
+            current = content_hash
+            visited: Set[str] = set()
+            while True:
+                if current in visited:
+                    break
+                visited.add(current)
+                cursor = self.conn.execute(
+                    "SELECT parent_id FROM memories WHERE content_hash = ?",
+                    (current,),
+                )
+                row = cursor.fetchone()
+                if not row or row[0] is None:
+                    break
+                parent_exists = self.conn.execute(
+                    "SELECT 1 FROM memories WHERE content_hash = ?", (row[0],)
+                ).fetchone()
+                if not parent_exists:
+                    break
+                current = row[0]
+
+            root = current
+
+            # Walk lineage forward from root (exclude soft-deleted nodes)
+            cursor = self.conn.execute(
+                """
+                WITH RECURSIVE lineage(content_hash, content, version, parent_id, superseded_by, created_at) AS (
+                    SELECT content_hash, content, version, parent_id, superseded_by, created_at
+                    FROM memories WHERE content_hash = ? AND deleted_at IS NULL
+                    UNION ALL
+                    SELECT m.content_hash, m.content, m.version, m.parent_id, m.superseded_by, m.created_at
+                    FROM memories m
+                    INNER JOIN lineage l ON m.parent_id = l.content_hash
+                    WHERE m.deleted_at IS NULL
+                )
+                SELECT content_hash, content, version, parent_id, superseded_by, created_at
+                FROM lineage
+                ORDER BY COALESCE(version, 1) ASC
+                """,
+                (root,),
+            )
+
+            return [
+                {
+                    "content_hash": r[0],
+                    "content": r[1],
+                    "version": r[2] or 1,
+                    "parent_id": r[3],
+                    "superseded_by": r[4],
+                    "created_at": r[5],
+                    "active": r[4] is None,
+                }
+                for r in cursor.fetchall()
+            ]
+
+        except Exception as e:
+            logger.error(f"get_memory_history error: {e}")
+            return []
 
     async def close(self):
         """Close the database connection."""
