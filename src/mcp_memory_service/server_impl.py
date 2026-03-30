@@ -2062,6 +2062,37 @@ Examples:
                 tools.extend(graph_tools)
                 logger.info(f"Added {len(graph_tools)} graph traversal tools")
 
+                # Conflict detection tools
+                conflict_tools = [
+                    types.Tool(
+                        name="memory_conflicts",
+                        description="List unresolved memory conflicts (contradictory memories detected by similarity analysis)",
+                        inputSchema={"type": "object", "properties": {}, "required": []},
+                        annotations=types.ToolAnnotations(
+                            title="Memory Conflicts",
+                            destructiveHint=False,
+                        ),
+                    ),
+                    types.Tool(
+                        name="memory_resolve",
+                        description="Resolve a memory conflict by choosing a winner",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "winner_hash": {"type": "string", "description": "Content hash of the correct memory"},
+                                "loser_hash": {"type": "string", "description": "Content hash of the incorrect memory"},
+                            },
+                            "required": ["winner_hash", "loser_hash"],
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Resolve Memory Conflict",
+                            destructiveHint=True,
+                        ),
+                    ),
+                ]
+                tools.extend(conflict_tools)
+                logger.info(f"Added {len(conflict_tools)} conflict detection tools")
+
                 logger.info(f"Returning {len(tools)} tools")
                 return tools
             except Exception as e:
@@ -2127,6 +2158,12 @@ Examples:
                 elif name == "memory_harvest":
                     logger.info("Calling handle_memory_harvest")
                     return await self.handle_memory_harvest(arguments)
+                elif name == "memory_conflicts":
+                    logger.info("Calling handle_memory_conflicts")
+                    return await self.handle_memory_conflicts(arguments)
+                elif name == "memory_resolve":
+                    logger.info("Calling handle_memory_resolve")
+                    return await self.handle_memory_resolve(arguments)
 
                 # Legacy handlers (for tools that haven't been fully migrated yet)
                 # These will be removed once all old tool definitions are removed
@@ -2492,6 +2529,36 @@ Examples:
         """Get memory subgraph for visualization (delegates to handler)."""
         from .server.handlers import graph as graph_handlers
         return await graph_handlers.handle_get_memory_subgraph(self, arguments)
+
+    # ============================================================
+    # Conflict Detection Handlers
+    # ============================================================
+
+    async def handle_memory_conflicts(self, arguments: dict) -> List[types.TextContent]:
+        """List unresolved memory conflicts."""
+        await self._ensure_storage_initialized()
+        conflicts = await self.storage.get_conflicts()
+        if not conflicts:
+            return [types.TextContent(type="text", text="No unresolved conflicts found.")]
+
+        lines = [f"Found {len(conflicts)} conflict(s):\n"]
+        for c in conflicts:
+            lines.append(f"- {c['hash_a'][:12]} vs {c['hash_b'][:12]} "
+                         f"(similarity: {c['similarity']:.2f}, divergence: {c.get('divergence', '?')})")
+            lines.append(f"  A: {c['content_a'][:100]}")
+            lines.append(f"  B: {c['content_b'][:100]}")
+        return [types.TextContent(type="text", text="\n".join(lines))]
+
+    async def handle_memory_resolve(self, arguments: dict) -> List[types.TextContent]:
+        """Resolve a memory conflict."""
+        await self._ensure_storage_initialized()
+        winner = arguments.get("winner_hash", "")
+        loser = arguments.get("loser_hash", "")
+        if not winner or not loser:
+            return [types.TextContent(type="text", text="Error: winner_hash and loser_hash required")]
+
+        ok, msg = await self.storage.resolve_conflict(winner, loser)
+        return [types.TextContent(type="text", text=msg)]
 
     # ============================================================
     # Test Compatibility Wrapper Methods
