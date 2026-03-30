@@ -1361,12 +1361,26 @@ SOLUTIONS:
                     raise
 
             await self._execute_with_retry(insert_memory_and_embedding)
-            
+
+            # --- Conflict detection (P3) ---
+            try:
+                conflict_infos = self._detect_conflicts(
+                    memory.content_hash, memory.content, embedding
+                )
+                if conflict_infos:
+                    await self._record_conflicts(memory.content_hash, conflict_infos)
+                    conflict_msg = f" {len(conflict_infos)} conflict(s) detected."
+                else:
+                    conflict_msg = ""
+            except Exception as e:
+                logger.warning(f"Conflict detection failed (non-fatal): {e}")
+                conflict_msg = ""
+
             # Commit with retry logic
             await self._execute_with_retry(self.conn.commit)
-            
+
             logger.info(f"Successfully stored memory: {memory.content_hash}")
-            return True, "Memory stored successfully"
+            return True, f"Memory stored successfully{conflict_msg}"
             
         except Exception as e:
             error_msg = f"Failed to store memory: {str(e)}"
@@ -3674,6 +3688,190 @@ SOLUTIONS:
         staleness = days_since / decay_window
         decay = max(0.0, 1.0 - staleness * decay_rate)
         return round((confidence or 1.0) * decay, 4)
+
+    # -------------------------------------------------------------------------
+    # Memory Evolution P3: Conflict Detection
+    # -------------------------------------------------------------------------
+
+    def _detect_conflicts(self, new_hash: str, new_content: str, embedding) -> list:
+        """Detect conflicting active memories for a newly stored memory.
+
+        Conflict = cosine similarity > 0.95 AND Levenshtein divergence > 0.20.
+        Returns list of conflict info dicts.
+        """
+        from difflib import SequenceMatcher
+
+        SIMILARITY_THRESHOLD = 0.95
+        DIVERGENCE_THRESHOLD = 0.20
+
+        if not self.conn or embedding is None:
+            return []
+
+        # Find top-5 nearest active memories (excluding self)
+        try:
+            cursor = self.conn.execute(
+                """SELECT m.content_hash, m.content,
+                          vec_distance_cosine(me.content_embedding, ?) as distance
+                   FROM memories m
+                   JOIN memory_embeddings me ON m.rowid = me.rowid
+                   WHERE m.deleted_at IS NULL
+                     AND (m.superseded_by IS NULL OR m.superseded_by = '')
+                     AND m.content_hash != ?
+                   ORDER BY distance ASC
+                   LIMIT 5""",
+                (serialize_float32(embedding), new_hash),
+            )
+            candidates = cursor.fetchall()
+        except Exception as e:
+            logger.warning(f"Conflict detection query failed: {e}")
+            return []
+
+        conflicts = []
+        for cand_hash, cand_content, distance in candidates:
+            # cosine distance to similarity: sim = 1 - dist (for normalized vectors)
+            similarity = max(0.0, 1.0 - float(distance))
+            if similarity < SIMILARITY_THRESHOLD:
+                continue
+
+            # Compute text divergence
+            ratio = SequenceMatcher(None, new_content.lower(), cand_content.lower()).ratio()
+            divergence = 1.0 - ratio
+            if divergence < DIVERGENCE_THRESHOLD:
+                continue
+
+            conflicts.append({
+                "existing_hash": cand_hash,
+                "existing_content": cand_content,
+                "similarity": round(similarity, 4),
+                "divergence": round(divergence, 4),
+            })
+
+        return conflicts
+
+    async def _record_conflicts(self, new_hash: str, conflicts: list) -> None:
+        """Tag conflicting memories and create graph edges."""
+        import json as _json
+
+        for c in conflicts:
+            existing_hash = c["existing_hash"]
+            metadata = _json.dumps({
+                "similarity": c["similarity"],
+                "divergence": c["divergence"],
+                "detected_at": time.time(),
+            })
+
+            # Add conflict:unresolved tag to both memories
+            for h in (new_hash, existing_hash):
+                cursor = self.conn.execute(
+                    "SELECT tags FROM memories WHERE content_hash = ?", (h,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    tags = row[0] or ""
+                    if "conflict:unresolved" not in tags:
+                        new_tags = f"{tags},conflict:unresolved" if tags else "conflict:unresolved"
+                        self.conn.execute(
+                            "UPDATE memories SET tags = ? WHERE content_hash = ?",
+                            (new_tags, h),
+                        )
+
+            # Create bidirectional contradicts edge in memory_graph
+            now = time.time()
+            for src, tgt in ((new_hash, existing_hash), (existing_hash, new_hash)):
+                self.conn.execute(
+                    """INSERT OR REPLACE INTO memory_graph
+                       (source_hash, target_hash, similarity, connection_types,
+                        metadata, created_at, relationship_type)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (src, tgt, c["similarity"], "semantic",
+                     metadata, now, "contradicts"),
+                )
+
+        logger.info(f"Recorded {len(conflicts)} conflict(s) for {new_hash[:8]}")
+
+    async def get_conflicts(self) -> list:
+        """Return all unresolved conflict pairs (active, non-superseded memories)."""
+        if not self.conn:
+            return []
+
+        try:
+            cursor = self.conn.execute(
+                """SELECT g.source_hash, g.target_hash, g.similarity, g.metadata,
+                          m1.content AS content_a, m2.content AS content_b
+                   FROM memory_graph g
+                   JOIN memories m1 ON m1.content_hash = g.source_hash
+                   JOIN memories m2 ON m2.content_hash = g.target_hash
+                   WHERE g.relationship_type = 'contradicts'
+                   AND m1.deleted_at IS NULL AND (m1.superseded_by IS NULL OR m1.superseded_by = '')
+                   AND m2.deleted_at IS NULL AND (m2.superseded_by IS NULL OR m2.superseded_by = '')
+                   AND g.source_hash < g.target_hash"""
+            )
+            results = []
+            for row in cursor.fetchall():
+                meta = self._safe_json_loads(row[3], "get_conflicts") if row[3] else {}
+                results.append({
+                    "hash_a": row[0],
+                    "hash_b": row[1],
+                    "content_a": row[4],
+                    "content_b": row[5],
+                    "similarity": row[2],
+                    "divergence": meta.get("divergence"),
+                    "detected_at": meta.get("detected_at"),
+                })
+            return results
+        except Exception as e:
+            logger.error(f"get_conflicts error: {e}")
+            return []
+
+    async def resolve_conflict(self, winner_hash: str, loser_hash: str) -> Tuple[bool, str]:
+        """Resolve a conflict: supersede loser, boost winner confidence."""
+        try:
+            if not self.conn:
+                return False, "Database not initialized"
+
+            # Verify both exist and are active
+            for h, label in ((winner_hash, "Winner"), (loser_hash, "Loser")):
+                cursor = self.conn.execute(
+                    "SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                    (h,),
+                )
+                if not cursor.fetchone():
+                    return False, f"{label} memory {h} not found or deleted"
+
+            now = time.time()
+
+            # Mark loser as superseded
+            self.conn.execute(
+                "UPDATE memories SET superseded_by = ? WHERE content_hash = ?",
+                (winner_hash, loser_hash),
+            )
+
+            # Boost winner: confidence = 1.0, last_accessed = now
+            self.conn.execute(
+                "UPDATE memories SET confidence = 1.0, last_accessed = ? WHERE content_hash = ?",
+                (int(now), winner_hash),
+            )
+
+            # Remove conflict:unresolved tag from both
+            for h in (winner_hash, loser_hash):
+                cursor = self.conn.execute(
+                    "SELECT tags FROM memories WHERE content_hash = ?", (h,)
+                )
+                row = cursor.fetchone()
+                if row and row[0]:
+                    tags = [t.strip() for t in row[0].split(",") if t.strip() != "conflict:unresolved"]
+                    self.conn.execute(
+                        "UPDATE memories SET tags = ? WHERE content_hash = ?",
+                        (",".join(tags), h),
+                    )
+
+            self.conn.commit()
+            logger.info(f"Conflict resolved: {winner_hash[:8]} wins over {loser_hash[:8]}")
+            return True, f"Conflict resolved: {winner_hash[:8]} supersedes {loser_hash[:8]}"
+
+        except Exception as e:
+            logger.error(f"resolve_conflict error: {e}")
+            return False, str(e)
 
     async def retrieve_with_staleness(
         self,
