@@ -116,6 +116,14 @@ class MemoryStorage(ABC):
         """
         pass
 
+    async def get_conflicts(self) -> List[Dict[str, Any]]:
+        """Return unresolved conflict pairs. Default: empty (no conflict support)."""
+        return []
+
+    async def resolve_conflict(self, winner_hash: str, loser_hash: str) -> Tuple[bool, str]:
+        """Resolve a conflict. Default: not supported."""
+        return False, "Conflict resolution not supported by this backend"
+
     async def retrieve_with_quality_boost(
         self,
         query: str,
