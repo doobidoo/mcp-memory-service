@@ -1528,7 +1528,10 @@ SOLUTIONS:
                 # CRITICAL: Cap k_value even without tags to prevent DoS
                 # An attacker could request n_results=1000000 to trigger
                 # exhaustive scan of all embeddings
-                k_value = min(n_results, _MAX_TAG_SEARCH_CANDIDATES)
+                # Overfetch when confidence filtering is active, since
+                # post-hoc filtering may discard stale results.
+                fetch_n = max(n_results * 3, 20) if min_confidence > 0.0 else n_results
+                k_value = min(fetch_n, _MAX_TAG_SEARCH_CANDIDATES)
 
             # Perform vector similarity search using JOIN with retry logic
             def search_memories():
@@ -1655,7 +1658,7 @@ SOLUTIONS:
                 results = [
                     r for r in results
                     if r.debug_info.get("effective_confidence", 1.0) >= min_confidence
-                ]
+                ][:n_results]
                 logger.debug(f"min_confidence={min_confidence} filtered {before - len(results)} stale memories")
 
             logger.info(f"Retrieved {len(results)} memories for query: {_sanitize_log_value(query)}")
