@@ -101,7 +101,7 @@ class MemoryStorage(ABC):
         return final_results
     
     @abstractmethod
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None) -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0) -> List[MemoryQueryResult]:
         """Retrieve memories by semantic search.
 
         Args:
@@ -110,6 +110,9 @@ class MemoryStorage(ABC):
             tags: Optional list of tags to filter by (match ANY tag).
                   When provided, the implementation should over-fetch
                   vector candidates and filter by tag at the SQL level.
+            min_confidence: Minimum effective confidence score (0.0-1.0).
+                  When > 0, stale memories below threshold are filtered out.
+                  Default 0.0 disables filtering (backward compatible).
         """
         pass
 
