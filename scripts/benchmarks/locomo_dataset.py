@@ -39,6 +39,7 @@ class LocomoObservation:
     session_id: str
     text: str
     speaker: str
+    dia_ref: str = ""  # Dialog turn reference (e.g. "D1:3")
 
 
 @dataclass
@@ -58,6 +59,16 @@ class LocomoConversation:
     observations: List[LocomoObservation] = field(default_factory=list)
     summaries: Dict[str, str] = field(default_factory=dict)
     qa_pairs: List[LocomoQA] = field(default_factory=list)
+
+
+# LoCoMo uses integer category IDs; map to human-readable names
+CATEGORY_MAP = {
+    1: "single-hop",
+    2: "multi-hop",
+    3: "temporal",
+    4: "open-domain",
+    5: "adversarial",
+}
 
 
 def _extract_session_ids(conversation: dict) -> List[str]:
@@ -92,19 +103,33 @@ def parse_conversation(entry: dict) -> LocomoConversation:
         obs_key = f"{sid}_observation"
         if obs_key not in obs_data:
             continue
-        raw_text = obs_data[obs_key]
-        for line in raw_text.strip().split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-            speaker = ""
-            for turn in turns:
-                if turn.session_id == sid and turn.speaker.split()[0] in line:
-                    speaker = turn.speaker
-                    break
-            observations.append(LocomoObservation(
-                session_id=sid, text=line, speaker=speaker,
-            ))
+        raw_obs = obs_data[obs_key]
+        if isinstance(raw_obs, dict):
+            # Real format: {speaker: [[text, dia_ref], ...]}
+            for speaker, items in raw_obs.items():
+                for item in items:
+                    if isinstance(item, list) and len(item) >= 2:
+                        text, dia_ref = item[0], item[1]
+                    else:
+                        text, dia_ref = str(item), ""
+                    observations.append(LocomoObservation(
+                        session_id=sid, text=text, speaker=speaker,
+                        dia_ref=dia_ref,
+                    ))
+        elif isinstance(raw_obs, str):
+            # Test/legacy format: newline-separated text
+            for line in raw_obs.strip().split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                speaker = ""
+                for turn in turns:
+                    if turn.session_id == sid and turn.speaker.split()[0] in line:
+                        speaker = turn.speaker
+                        break
+                observations.append(LocomoObservation(
+                    session_id=sid, text=line, speaker=speaker,
+                ))
 
     summaries: Dict[str, str] = {}
     for sid in session_ids:
@@ -114,11 +139,19 @@ def parse_conversation(entry: dict) -> LocomoConversation:
 
     qa_pairs: List[LocomoQA] = []
     for qa in entry.get("qa", []):
+        raw_cat = qa.get("category", "unknown")
+        category = CATEGORY_MAP.get(raw_cat, str(raw_cat)) if isinstance(raw_cat, int) else str(raw_cat)
+        # Adversarial questions (category 5) use 'adversarial_answer' instead of 'answer'
+        answer = qa.get("answer", qa.get("adversarial_answer", ""))
+        evidence = qa.get("evidence", [])
+        # Evidence may be a stringified list in some dataset versions
+        if isinstance(evidence, str):
+            evidence = json.loads(evidence.replace("'", '"'))
         qa_pairs.append(LocomoQA(
             question=qa["question"],
-            answer=qa["answer"],
-            category=qa.get("category", "unknown"),
-            evidence=qa.get("evidence", []),
+            answer=answer,
+            category=category,
+            evidence=evidence,
         ))
 
     return LocomoConversation(

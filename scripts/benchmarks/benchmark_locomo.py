@@ -44,29 +44,26 @@ def build_evidence_map(conv: LocomoConversation) -> Dict[str, str]:
 
 
 def _match_evidence(
-    retrieved_texts: List[str],
-    evidence_map: Dict[str, str],
+    retrieved_results,
     evidence_ids: List[str],
 ) -> Tuple[List[str], set]:
-    """Match retrieved texts against evidence via substring containment.
+    """Match retrieved memories against evidence via dia_ref tags.
+
+    Each observation is tagged with 'dia:D1:3' etc. during ingestion.
+    We check if a retrieved memory's tags contain any evidence dia_id.
 
     Returns (retrieved_labels, relevant_labels) where each evidence item
     gets a unique label so multi-evidence recall is computed correctly.
     """
-    # Build per-evidence-item labels
-    evidence_items = {}  # label -> text
-    for dia_id in evidence_ids:
-        if dia_id in evidence_map:
-            evidence_items[f"ev_{dia_id}"] = evidence_map[dia_id]
-
-    relevant_labels = set(evidence_items.keys())
+    relevant_labels = {f"ev_{dia_id}" for dia_id in evidence_ids}
 
     retrieved_labels = []
-    for text in retrieved_texts:
+    for result in retrieved_results:
+        tags = result.memory.tags or []
         matched_label = None
-        for label, ev_text in evidence_items.items():
-            if ev_text in text or text in ev_text:
-                matched_label = label
+        for dia_id in evidence_ids:
+            if f"dia:{dia_id}" in tags:
+                matched_label = f"ev_{dia_id}"
                 break
         if matched_label:
             retrieved_labels.append(matched_label)
@@ -97,10 +94,13 @@ async def ingest_conversation(storage: SqliteVecMemoryStorage, conv: LocomoConve
                 break
         created_at = _parse_session_date(session_date) if session_date else None
         content_hash = hashlib.sha256(obs.text.encode("utf-8")).hexdigest()
+        tags = ["locomo", conv.sample_id, obs.speaker, obs.session_id]
+        if obs.dia_ref:
+            tags.append(f"dia:{obs.dia_ref}")
         memory = Memory(
             content=obs.text,
             content_hash=content_hash,
-            tags=["locomo", conv.sample_id, obs.speaker, obs.session_id],
+            tags=tags,
             memory_type="observation",
             created_at=int(created_at) if created_at else None,
         )
@@ -123,10 +123,7 @@ async def evaluate_retrieval(
     per_question = []
     for qa in conv.qa_pairs:
         results = await storage.retrieve(qa.question, n_results=max_k)
-        retrieved_texts = [r.memory.content for r in results]
-        retrieved_labels, relevant_labels = _match_evidence(
-            retrieved_texts, evidence_map, qa.evidence,
-        )
+        retrieved_labels, relevant_labels = _match_evidence(results, qa.evidence)
         metrics: Dict = {"category": qa.category}
         for k in top_k:
             metrics[f"recall_at_{k}"] = recall_at_k(retrieved_labels, relevant_labels, k)
@@ -165,10 +162,7 @@ async def run_ablation(
         retrieve_fn = getattr(storage, method_name)
         for qa in conv.qa_pairs:
             results = await retrieve_fn(qa.question, n_results=max_k, **extra_kwargs)
-            retrieved_texts = [r.memory.content for r in results]
-            retrieved_labels, relevant_labels = _match_evidence(
-                retrieved_texts, evidence_map, qa.evidence,
-            )
+            retrieved_labels, relevant_labels = _match_evidence(results, qa.evidence)
             metrics: Dict = {"config_name": config_name, "category": qa.category}
             for k in top_k:
                 metrics[f"recall_at_{k}"] = recall_at_k(retrieved_labels, relevant_labels, k)
@@ -285,9 +279,7 @@ async def evaluate_qa(
         predicted = await adapter.generate_answer(qa.question, context_texts)
         f1 = token_f1(predicted, qa.answer)
 
-        retrieved_labels, relevant_labels = _match_evidence(
-            context_texts, evidence_map, qa.evidence,
-        )
+        retrieved_labels, relevant_labels = _match_evidence(results, qa.evidence)
 
         metrics: Dict = {"category": qa.category, "token_f1": f1}
         for k in top_k:
