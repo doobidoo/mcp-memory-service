@@ -1338,6 +1338,13 @@ SOLUTIONS:
             def insert_memory_and_embedding():
                 self.conn.execute('SAVEPOINT store_memory')
                 try:
+                    # Purge any soft-deleted tombstone with the same hash so
+                    # the UNIQUE constraint on content_hash does not block
+                    # re-insertion (#644).
+                    self.conn.execute(
+                        'DELETE FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL',
+                        (memory.content_hash,)
+                    )
                     cursor = self.conn.execute('''
                         INSERT INTO memories (
                             content_hash, content, tags, memory_type,

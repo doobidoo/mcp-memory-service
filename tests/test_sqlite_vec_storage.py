@@ -256,6 +256,36 @@ class TestSqliteVecStorage:
         assert memory is None, "Deleted memory should not be returned by get_by_hash"
     
     @pytest.mark.asyncio
+    async def test_store_after_delete_same_content(self, storage, sample_memory):
+        """Test that re-storing content after soft-delete succeeds (#644).
+
+        The UNIQUE constraint on content_hash must not block re-insertion
+        when the previous row was soft-deleted (tombstone).
+        """
+        # Store → delete → re-store must succeed
+        success, _ = await storage.store(sample_memory)
+        assert success
+
+        success, _ = await storage.delete(sample_memory.content_hash)
+        assert success
+
+        # Re-store the same content — this failed before the fix
+        success, msg = await storage.store(sample_memory)
+        assert success, f"Re-store after delete should succeed, got: {msg}"
+
+        # Verify the re-stored memory is retrievable
+        retrieved = await storage.get_by_hash(sample_memory.content_hash)
+        assert retrieved is not None
+        assert retrieved.content == sample_memory.content
+
+        # Verify tombstone was removed (only one row with this hash)
+        cursor = storage.conn.execute(
+            'SELECT COUNT(*) FROM memories WHERE content_hash = ?',
+            (sample_memory.content_hash,)
+        )
+        assert cursor.fetchone()[0] == 1, "Should have exactly one row, no leftover tombstone"
+
+    @pytest.mark.asyncio
     async def test_delete_nonexistent_memory(self, storage):
         """Test deleting a non-existent memory."""
         nonexistent_hash = "nonexistent123456789"
