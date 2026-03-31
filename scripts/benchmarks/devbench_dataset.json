@@ -1,0 +1,336 @@
+{
+  "memories": [
+    {
+      "id": "bench:decision-1",
+      "content": "Chose SQLite-Vec over FAISS for the storage backend because it is serverless, requires no separate process, supports KNN vector search natively, and works well for single-user development deployments.",
+      "tags": ["devbench", "bench:decision-1", "storage", "sqlite-vec"],
+      "memory_type": "decision",
+      "created_at_iso": "2025-06-12T09:15:00Z"
+    },
+    {
+      "id": "bench:decision-2",
+      "content": "Selected the Hybrid storage backend as the recommended production configuration. It combines local SQLite-Vec for fast reads with background Cloudflare sync for cloud backup and team collaboration.",
+      "tags": ["devbench", "bench:decision-2", "storage", "hybrid", "cloudflare"],
+      "memory_type": "decision",
+      "created_at_iso": "2025-07-03T14:22:00Z"
+    },
+    {
+      "id": "bench:decision-3",
+      "content": "Decided to use ONNX Runtime with all-MiniLM-L6-v2 for embeddings instead of PyTorch-based models. This keeps the dependency footprint small and avoids requiring a GPU for basic operation.",
+      "tags": ["devbench", "bench:decision-3", "embeddings", "onnx"],
+      "memory_type": "decision",
+      "created_at_iso": "2025-06-28T11:05:00Z"
+    },
+    {
+      "id": "bench:decision-4",
+      "content": "Adopted the Strategy Pattern for storage backends with a BaseStorage abstract class. All backends (SQLite-Vec, Cloudflare, Hybrid) implement the same interface, making them interchangeable via configuration.",
+      "tags": ["devbench", "bench:decision-4", "architecture", "storage"],
+      "memory_type": "decision",
+      "created_at_iso": "2025-08-15T16:30:00Z"
+    },
+    {
+      "id": "bench:decision-5",
+      "content": "Consolidated 34 MCP tools into 12 unified tools in v10.0.0. Deprecated tools continue working with warnings until v11.0. This simplifies the API surface while maintaining backward compatibility.",
+      "tags": ["devbench", "bench:decision-5", "api", "v10"],
+      "memory_type": "decision",
+      "created_at_iso": "2025-11-20T10:00:00Z"
+    },
+    {
+      "id": "bench:decision-6",
+      "content": "Chose OAuth 2.1 with Dynamic Client Registration for team collaboration. Public clients like claude.ai use PKCE without client_secret. The token_endpoint_auth_method on the client object determines auth behavior.",
+      "tags": ["devbench", "bench:decision-6", "oauth", "security"],
+      "memory_type": "decision",
+      "created_at_iso": "2026-01-08T13:45:00Z"
+    },
+    {
+      "id": "bench:learning-1",
+      "content": "Always use direct attribute access on Memory dataclass objects. Never access tags or memory_type via metadata dict. memory.tags returns the actual list, memory.metadata.get('tags') always returns empty default. This anti-pattern caused 3 production bugs in v10.13.1.",
+      "tags": ["devbench", "bench:learning-1", "memory", "dataclass", "anti-pattern"],
+      "memory_type": "learning",
+      "created_at_iso": "2025-12-05T08:20:00Z"
+    },
+    {
+      "id": "bench:learning-2",
+      "content": "The quality scoring system has three tiers: Tier 1 is local ONNX (80-150ms, free), Tier 2 is Groq/Llama3 (500-800ms), Tier 3 is Gemini 1.5 Flash (1-2s). Default is Tier 1 for privacy and speed.",
+      "tags": ["devbench", "bench:learning-2", "quality", "scoring"],
+      "memory_type": "learning",
+      "created_at_iso": "2025-10-14T15:10:00Z"
+    },
+    {
+      "id": "bench:learning-3",
+      "content": "The consolidation system is inspired by how human memory works during sleep. It runs decay scoring, association discovery, semantic clustering, and quality-based forgetting on a configurable schedule.",
+      "tags": ["devbench", "bench:learning-3", "consolidation", "memory-maintenance"],
+      "memory_type": "learning",
+      "created_at_iso": "2025-09-22T17:00:00Z"
+    },
+    {
+      "id": "bench:learning-4",
+      "content": "Global singleton caching in the MCP server layer prevents redundant storage initialization across tool calls. This optimization achieved a 534,628x performance improvement in v8.26.0.",
+      "tags": ["devbench", "bench:learning-4", "performance", "caching"],
+      "memory_type": "learning",
+      "created_at_iso": "2025-08-30T12:00:00Z"
+    },
+    {
+      "id": "bench:learning-5",
+      "content": "When running both HTTP server and MCP server simultaneously, set MCP_HYBRID_SYNC_OWNER=http so only the HTTP server syncs to Cloudflare. The MCP server then uses SQLite-Vec directly without needing Cloudflare credentials.",
+      "tags": ["devbench", "bench:learning-5", "hybrid", "sync", "deployment"],
+      "memory_type": "learning",
+      "created_at_iso": "2025-11-07T09:30:00Z"
+    },
+    {
+      "id": "bench:learning-6",
+      "content": "Document ingestion uses a pluggable loader architecture with a Registry pattern. Loaders for PDF, text, JSON, and CSV auto-register by file extension. New formats require implementing DocumentLoader interface and registering in the registry.",
+      "tags": ["devbench", "bench:learning-6", "ingestion", "architecture"],
+      "memory_type": "learning",
+      "created_at_iso": "2025-10-01T14:45:00Z"
+    },
+    {
+      "id": "bench:bugfix-1",
+      "content": "Test cleanup accidentally deleted 8,663 production memories on February 8, 2026. Root cause: conftest.py cleanup ran against the production database path. Fixed with triple safety system in PR #438: forced test DB path, pre-test verification, and triple-check cleanup.",
+      "tags": ["devbench", "bench:bugfix-1", "testing", "safety", "incident"],
+      "memory_type": "bug-fix",
+      "created_at_iso": "2026-02-10T11:00:00Z"
+    },
+    {
+      "id": "bench:bugfix-2",
+      "content": "retrieve_memories() broke the REST API — all filtered queries returned 0 results. Cause: accessing tags via memory.metadata.get('tags') instead of memory.tags directly. Fixed in PR #466.",
+      "tags": ["devbench", "bench:bugfix-2", "api", "memory", "metadata"],
+      "memory_type": "bug-fix",
+      "created_at_iso": "2025-12-18T10:30:00Z"
+    },
+    {
+      "id": "bench:bugfix-3",
+      "content": "Tags displayed as individual characters in the dashboard — 'python' showed as 'p,y,t,h,o,n'. Cause: same metadata.get('tags') anti-pattern returning a string instead of a list. Fixed in PR #467.",
+      "tags": ["devbench", "bench:bugfix-3", "dashboard", "tags", "display"],
+      "memory_type": "bug-fix",
+      "created_at_iso": "2025-12-20T14:15:00Z"
+    },
+    {
+      "id": "bench:bugfix-4",
+      "content": "Cloudflare sync failed with 401 errors after upgrading. Root cause: Python prefers IPv6 but the Cloudflare API token IP allowlist only had IPv4 addresses. Fix: add IPv6 /64 network to token filtering or remove IP filtering.",
+      "tags": ["devbench", "bench:bugfix-4", "cloudflare", "ipv6", "authentication"],
+      "memory_type": "bug-fix",
+      "created_at_iso": "2026-01-25T16:00:00Z"
+    },
+    {
+      "id": "bench:bugfix-5",
+      "content": "Database locked errors when HTTP and MCP servers run simultaneously. Cause: missing WAL journal mode. Fix: set MCP_MEMORY_SQLITE_PRAGMAS=journal_mode=WAL,busy_timeout=15000 in .env file.",
+      "tags": ["devbench", "bench:bugfix-5", "sqlite", "concurrency", "wal"],
+      "memory_type": "bug-fix",
+      "created_at_iso": "2025-09-10T09:00:00Z"
+    },
+    {
+      "id": "bench:bugfix-6",
+      "content": "Strict stdio MCP clients like Codex timed out during handshake because storage initialization took too long. Fix: set MCP_INIT_TIMEOUT=5 to force lazy loading — storage initializes on first tool call instead of startup.",
+      "tags": ["devbench", "bench:bugfix-6", "mcp", "timeout", "codex"],
+      "memory_type": "bug-fix",
+      "created_at_iso": "2026-02-28T13:20:00Z"
+    },
+    {
+      "id": "bench:arch-1",
+      "content": "The MCP server was refactored from a monolithic 5000+ line server.py into a modular architecture in v8.59.0. Components: server_impl.py for handlers, cache_manager.py for caching, client_detection.py for adapting behavior, and handlers/ directory for modular request handlers.",
+      "tags": ["devbench", "bench:arch-1", "server", "refactoring", "modular"],
+      "memory_type": "architecture",
+      "created_at_iso": "2025-08-05T10:00:00Z"
+    },
+    {
+      "id": "bench:arch-2",
+      "content": "Storage backends follow the Strategy Pattern: BaseStorage defines the abstract interface, with three concrete implementations — SqliteVecMemoryStorage for local development, CloudflareMemoryStorage for edge deployment, and HybridMemoryStorage combining both.",
+      "tags": ["devbench", "bench:arch-2", "storage", "strategy-pattern"],
+      "memory_type": "architecture",
+      "created_at_iso": "2025-07-18T14:30:00Z"
+    },
+    {
+      "id": "bench:arch-3",
+      "content": "The web layer is built with FastAPI providing REST endpoints that mirror MCP tools, OAuth 2.1 for authentication, SSE for real-time updates, and a single-page dashboard application in static files.",
+      "tags": ["devbench", "bench:arch-3", "web", "fastapi", "dashboard"],
+      "memory_type": "architecture",
+      "created_at_iso": "2025-09-05T11:00:00Z"
+    },
+    {
+      "id": "bench:arch-4",
+      "content": "Graph storage was added in v8.51.0 for relationship tracking between memories. It achieves 30x query performance improvement for relationship-based lookups. Relationship types are automatically inferred using multi-factor analysis.",
+      "tags": ["devbench", "bench:arch-4", "graph", "relationships", "performance"],
+      "memory_type": "architecture",
+      "created_at_iso": "2025-08-22T15:00:00Z"
+    },
+    {
+      "id": "bench:arch-5",
+      "content": "The relationship inference engine classifies connections between memories using content semantics, temporal patterns, and memory type combinations. It supports types: causes, fixes, contradicts, supports, follows, related. Confidence threshold defaults to 0.6.",
+      "tags": ["devbench", "bench:arch-5", "graph", "inference", "relationships"],
+      "memory_type": "architecture",
+      "created_at_iso": "2025-10-10T09:45:00Z"
+    },
+    {
+      "id": "bench:arch-6",
+      "content": "Utility modules follow four patterns established in v8.61.0: Strategy Pattern for health checks (5 strategies), Orchestrator Pattern for startup (3 orchestrators), Processor Pattern for ingestion (3 processors), and Analyzer Pattern for quality analytics (3 analyzers).",
+      "tags": ["devbench", "bench:arch-6", "patterns", "utilities", "refactoring"],
+      "memory_type": "architecture",
+      "created_at_iso": "2025-09-15T16:30:00Z"
+    },
+    {
+      "id": "bench:config-1",
+      "content": "MCP_MEMORY_SQLITE_PRAGMAS environment variable controls SQLite performance. Must include journal_mode=WAL for concurrent access. Recommended: journal_mode=WAL,busy_timeout=15000,cache_size=20000. Omitting WAL causes database locked errors.",
+      "tags": ["devbench", "bench:config-1", "sqlite", "pragmas", "wal"],
+      "memory_type": "configuration",
+      "created_at_iso": "2025-09-12T08:00:00Z"
+    },
+    {
+      "id": "bench:config-2",
+      "content": "MCP_MEMORY_STORAGE_BACKEND selects the storage backend: sqlite_vec for development, cloudflare for cloud-only, hybrid for production. The hybrid backend is recommended as it provides local speed with cloud backup.",
+      "tags": ["devbench", "bench:config-2", "storage", "backend", "environment"],
+      "memory_type": "configuration",
+      "created_at_iso": "2025-07-25T13:00:00Z"
+    },
+    {
+      "id": "bench:config-3",
+      "content": "MCP_INIT_TIMEOUT controls how long the server waits for storage initialization. Default: 30s on Windows, 15s on Linux/macOS. Set to 5 for strict stdio clients that have short handshake budgets. Auto-doubled on first run when model needs downloading.",
+      "tags": ["devbench", "bench:config-3", "timeout", "initialization"],
+      "memory_type": "configuration",
+      "created_at_iso": "2026-02-20T10:00:00Z"
+    },
+    {
+      "id": "bench:config-4",
+      "content": "External embedding APIs are configured via MCP_EXTERNAL_EMBEDDING_URL, MCP_EXTERNAL_EMBEDDING_MODEL, and MCP_EXTERNAL_EMBEDDING_API_KEY. Supports vLLM, Ollama, TEI, or any OpenAI-compatible endpoint. Only works with sqlite_vec backend, not hybrid or cloudflare.",
+      "tags": ["devbench", "bench:config-4", "embeddings", "external", "api"],
+      "memory_type": "configuration",
+      "created_at_iso": "2025-11-30T14:00:00Z"
+    },
+    {
+      "id": "bench:config-5",
+      "content": "OAuth configuration uses MCP_OAUTH_STORAGE_BACKEND (memory or sqlite) and MCP_OAUTH_SQLITE_PATH for persistent token storage. The sqlite backend is required for production to survive server restarts.",
+      "tags": ["devbench", "bench:config-5", "oauth", "configuration"],
+      "memory_type": "configuration",
+      "created_at_iso": "2026-01-15T11:30:00Z"
+    },
+    {
+      "id": "bench:config-6",
+      "content": "Claude Desktop integration uses python -m mcp_memory_service.server as the command. Set MCP_MEMORY_STORAGE_BACKEND in the env block. For hybrid mode with sync delegation, also set MCP_HYBRID_SYNC_OWNER=http so MCP server skips Cloudflare initialization.",
+      "tags": ["devbench", "bench:config-6", "claude-desktop", "mcp", "setup"],
+      "memory_type": "configuration",
+      "created_at_iso": "2025-12-10T09:00:00Z"
+    }
+  ],
+  "queries": [
+    {
+      "id": "exact-1",
+      "category": "exact",
+      "question": "Why did we choose SQLite-Vec for storage?",
+      "expected_tags": ["bench:decision-1"]
+    },
+    {
+      "id": "exact-2",
+      "category": "exact",
+      "question": "What embedding model does the service use?",
+      "expected_tags": ["bench:decision-3"]
+    },
+    {
+      "id": "exact-3",
+      "category": "exact",
+      "question": "How many MCP tools were consolidated in v10?",
+      "expected_tags": ["bench:decision-5"]
+    },
+    {
+      "id": "exact-4",
+      "category": "exact",
+      "question": "What is the recommended storage backend for production?",
+      "expected_tags": ["bench:decision-2", "bench:config-2"]
+    },
+    {
+      "id": "exact-5",
+      "category": "exact",
+      "question": "How do I configure Claude Desktop to use the memory service?",
+      "expected_tags": ["bench:config-6"]
+    },
+    {
+      "id": "semantic-1",
+      "category": "semantic",
+      "question": "Why do I get database locked errors?",
+      "expected_tags": ["bench:bugfix-5", "bench:config-1"]
+    },
+    {
+      "id": "semantic-2",
+      "category": "semantic",
+      "question": "How does the memory quality system work?",
+      "expected_tags": ["bench:learning-2"]
+    },
+    {
+      "id": "semantic-3",
+      "category": "semantic",
+      "question": "What happened with the production data loss?",
+      "expected_tags": ["bench:bugfix-1"]
+    },
+    {
+      "id": "semantic-4",
+      "category": "semantic",
+      "question": "How can I use a different embedding model?",
+      "expected_tags": ["bench:config-4"]
+    },
+    {
+      "id": "semantic-5",
+      "category": "semantic",
+      "question": "Why does Codex timeout when connecting?",
+      "expected_tags": ["bench:bugfix-6", "bench:config-3"]
+    },
+    {
+      "id": "cross-1",
+      "category": "cross_type",
+      "question": "What design patterns does the codebase use?",
+      "expected_tags": ["bench:decision-4", "bench:arch-2", "bench:arch-6"]
+    },
+    {
+      "id": "cross-2",
+      "category": "cross_type",
+      "question": "Tell me about the Cloudflare integration issues and setup",
+      "expected_tags": ["bench:bugfix-4", "bench:decision-2", "bench:learning-5"]
+    },
+    {
+      "id": "cross-3",
+      "category": "cross_type",
+      "question": "How was the server architecture improved over time?",
+      "expected_tags": ["bench:arch-1", "bench:learning-4"]
+    },
+    {
+      "id": "cross-4",
+      "category": "cross_type",
+      "question": "What problems did the metadata access pattern cause?",
+      "expected_tags": ["bench:learning-1", "bench:bugfix-2", "bench:bugfix-3"]
+    },
+    {
+      "id": "cross-5",
+      "category": "cross_type",
+      "question": "How do memory relationships and associations work?",
+      "expected_tags": ["bench:arch-4", "bench:arch-5"]
+    },
+    {
+      "id": "negative-1",
+      "category": "negative",
+      "question": "How does the billing system handle payments?",
+      "expected_tags": []
+    },
+    {
+      "id": "negative-2",
+      "category": "negative",
+      "question": "What Kubernetes deployment configuration do we use?",
+      "expected_tags": []
+    },
+    {
+      "id": "negative-3",
+      "category": "negative",
+      "question": "How is the mobile app implemented?",
+      "expected_tags": []
+    },
+    {
+      "id": "negative-4",
+      "category": "negative",
+      "question": "What machine learning training pipeline do we have?",
+      "expected_tags": []
+    },
+    {
+      "id": "negative-5",
+      "category": "negative",
+      "question": "How does the real-time video processing module work?",
+      "expected_tags": []
+    }
+  ]
+}
