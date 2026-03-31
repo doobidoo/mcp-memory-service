@@ -80,7 +80,8 @@ def _parse_session_date(date_str: str) -> float:
             return datetime.strptime(date_str, fmt).timestamp()
         except ValueError:
             continue
-    return datetime.now().timestamp()
+    logger.warning("Could not parse session date: %s", date_str)
+    return 0.0
 
 
 async def ingest_conversation(storage: SqliteVecMemoryStorage, conv: LocomoConversation) -> int:
@@ -102,7 +103,7 @@ async def ingest_conversation(storage: SqliteVecMemoryStorage, conv: LocomoConve
             content_hash=content_hash,
             tags=tags,
             memory_type="observation",
-            created_at=int(created_at) if created_at else None,
+            created_at=created_at if created_at else None,
         )
         success, msg = await storage.store(memory, skip_semantic_dedup=True)
         if success:

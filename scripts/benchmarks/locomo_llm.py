@@ -52,9 +52,10 @@ class ClaudeAdapter:
         self._anthropic = anthropic
 
     async def generate_answer(self, question: str, context: List[str]) -> str:
-        client = self._anthropic.AsyncAnthropic()
+        if not hasattr(self, "_client"):
+            self._client = self._anthropic.AsyncAnthropic()
         prompt = build_qa_prompt(question, context)
-        message = await client.messages.create(
+        message = await self._client.messages.create(
             model=self.model,
             max_tokens=256,
             messages=[{"role": "user", "content": prompt}],
@@ -83,11 +84,12 @@ class OllamaAdapter:
         prompt = build_qa_prompt(question, context)
         url = f"{self.base_url}/api/generate"
         payload = {"model": self.model, "prompt": prompt, "stream": False}
-        async with self._aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                return data.get("response", "").strip()
+        if not hasattr(self, "_session") or self._session.closed:
+            self._session = self._aiohttp.ClientSession()
+        async with self._session.post(url, json=payload) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+            return data.get("response", "").strip()
 
 
 def create_adapter(llm_name: str, model: str = "") -> LLMAdapter:
