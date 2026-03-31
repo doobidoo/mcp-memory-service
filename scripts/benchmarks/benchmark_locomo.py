@@ -337,13 +337,28 @@ async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
         "top_k": top_k,
         "num_conversations": len(conversations),
     }
+
+    if args.mode == "ablation":
+        # Group by config_name and return list of results
+        from collections import defaultdict
+        by_config = defaultdict(list)
+        for q in all_per_question:
+            by_config[q["config_name"]].append(q)
+        results = []
+        for config_name, questions in by_config.items():
+            r = aggregate_results(
+                questions, conversation_id="all",
+                mode=f"ablation:{config_name}", config=config,
+            )
+            results.append(r)
+        return results
+
     result = aggregate_results(
         all_per_question,
         conversation_id="all",
         mode=args.mode,
         config=config,
     )
-
     return result
 
 
@@ -405,13 +420,18 @@ def main():
     args = parse_args()
     result = asyncio.run(run_benchmark(args))
 
-    if args.markdown:
-        print(format_results_markdown(result))
-    else:
-        print(format_results_table(result))
+    # Ablation returns a list of results (one per config)
+    results = result if isinstance(result, list) else [result]
+
+    for r in results:
+        if args.markdown:
+            print(format_results_markdown(r))
+        else:
+            print(format_results_table(r))
 
     if args.output_dir:
-        filepath = save_results(result, args.output_dir)
+        for r in results:
+            filepath = save_results(r, args.output_dir)
         print(f"Results saved to: {filepath}")
 
 
