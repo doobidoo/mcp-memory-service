@@ -43,6 +43,39 @@ def build_evidence_map(conv: LocomoConversation) -> Dict[str, str]:
     return {turn.dia_id: turn.text for turn in conv.turns}
 
 
+def _match_evidence(
+    retrieved_texts: List[str],
+    evidence_map: Dict[str, str],
+    evidence_ids: List[str],
+) -> Tuple[List[str], set]:
+    """Match retrieved texts against evidence via substring containment.
+
+    Returns (retrieved_labels, relevant_labels) where each evidence item
+    gets a unique label so multi-evidence recall is computed correctly.
+    """
+    # Build per-evidence-item labels
+    evidence_items = {}  # label -> text
+    for dia_id in evidence_ids:
+        if dia_id in evidence_map:
+            evidence_items[f"ev_{dia_id}"] = evidence_map[dia_id]
+
+    relevant_labels = set(evidence_items.keys())
+
+    retrieved_labels = []
+    for text in retrieved_texts:
+        matched_label = None
+        for label, ev_text in evidence_items.items():
+            if ev_text in text or text in ev_text:
+                matched_label = label
+                break
+        if matched_label:
+            retrieved_labels.append(matched_label)
+        else:
+            retrieved_labels.append(f"irrelevant_{len(retrieved_labels)}")
+
+    return retrieved_labels, relevant_labels
+
+
 def _parse_session_date(date_str: str) -> float:
     """Parse LoCoMo date string to Unix timestamp."""
     for fmt in ("%B %d, %Y", "%b %d, %Y", "%Y-%m-%d"):
@@ -91,20 +124,14 @@ async def evaluate_retrieval(
     for qa in conv.qa_pairs:
         results = await storage.retrieve(qa.question, n_results=max_k)
         retrieved_texts = [r.memory.content for r in results]
-        relevant_evidence = set()
-        for dia_id in qa.evidence:
-            if dia_id in evidence_map:
-                relevant_evidence.add(evidence_map[dia_id])
-        binary_retrieved = []
-        for text in retrieved_texts:
-            is_match = any(ev in text or text in ev for ev in relevant_evidence)
-            binary_retrieved.append("relevant" if is_match else f"irrelevant_{len(binary_retrieved)}")
-        relevant_labels = {"relevant"}
+        retrieved_labels, relevant_labels = _match_evidence(
+            retrieved_texts, evidence_map, qa.evidence,
+        )
         metrics: Dict = {"category": qa.category}
         for k in top_k:
-            metrics[f"recall_at_{k}"] = recall_at_k(binary_retrieved, relevant_labels, k)
-            metrics[f"precision_at_{k}"] = precision_at_k(binary_retrieved, relevant_labels, k)
-        metrics["mrr"] = mrr(binary_retrieved, relevant_labels)
+            metrics[f"recall_at_{k}"] = recall_at_k(retrieved_labels, relevant_labels, k)
+            metrics[f"precision_at_{k}"] = precision_at_k(retrieved_labels, relevant_labels, k)
+        metrics["mrr"] = mrr(retrieved_labels, relevant_labels)
         per_question.append(metrics)
     return per_question
 
@@ -115,39 +142,38 @@ async def run_ablation(
     evidence_map: Dict[str, str],
     top_k: Optional[List[int]] = None,
 ) -> List[Dict]:
-    """Compare: baseline retrieve() vs retrieve_with_quality_boost()."""
+    """Compare retrieval configurations: baseline, +quality, +quality+decay.
+
+    Configurations:
+    1. baseline — retrieve() with cosine similarity only
+    2. +quality_boost — retrieve_with_quality_boost()
+    3. +quality+min_confidence — quality boost with min_confidence filtering
+    """
     if top_k is None:
         top_k = [5]
     max_k = max(top_k)
 
     configs = [
-        ("baseline", "retrieve"),
-        ("+quality_boost", "retrieve_with_quality_boost"),
+        ("baseline", "retrieve", {}),
+        ("+quality_boost", "retrieve_with_quality_boost", {}),
+        ("+quality_w0.5", "retrieve_with_quality_boost", {"quality_weight": 0.5}),
     ]
 
     all_results: List[Dict] = []
 
-    for config_name, method_name in configs:
+    for config_name, method_name, extra_kwargs in configs:
         retrieve_fn = getattr(storage, method_name)
         for qa in conv.qa_pairs:
-            results = await retrieve_fn(qa.question, n_results=max_k)
+            results = await retrieve_fn(qa.question, n_results=max_k, **extra_kwargs)
             retrieved_texts = [r.memory.content for r in results]
-            relevant_evidence = set()
-            for dia_id in qa.evidence:
-                if dia_id in evidence_map:
-                    relevant_evidence.add(evidence_map[dia_id])
-            binary_retrieved = []
-            for text in retrieved_texts:
-                is_match = any(ev in text or text in ev for ev in relevant_evidence)
-                binary_retrieved.append(
-                    "relevant" if is_match else f"irrelevant_{len(binary_retrieved)}"
-                )
-            relevant_labels = {"relevant"}
+            retrieved_labels, relevant_labels = _match_evidence(
+                retrieved_texts, evidence_map, qa.evidence,
+            )
             metrics: Dict = {"config_name": config_name, "category": qa.category}
             for k in top_k:
-                metrics[f"recall_at_{k}"] = recall_at_k(binary_retrieved, relevant_labels, k)
-                metrics[f"precision_at_{k}"] = precision_at_k(binary_retrieved, relevant_labels, k)
-            metrics["mrr"] = mrr(binary_retrieved, relevant_labels)
+                metrics[f"recall_at_{k}"] = recall_at_k(retrieved_labels, relevant_labels, k)
+                metrics[f"precision_at_{k}"] = precision_at_k(retrieved_labels, relevant_labels, k)
+            metrics["mrr"] = mrr(retrieved_labels, relevant_labels)
             all_results.append(metrics)
 
     return all_results
@@ -259,21 +285,15 @@ async def evaluate_qa(
         predicted = await adapter.generate_answer(qa.question, context_texts)
         f1 = token_f1(predicted, qa.answer)
 
-        relevant_evidence = set()
-        for dia_id in qa.evidence:
-            if dia_id in evidence_map:
-                relevant_evidence.add(evidence_map[dia_id])
-        binary_retrieved = []
-        for text in context_texts:
-            is_match = any(ev in text or text in ev for ev in relevant_evidence)
-            binary_retrieved.append("relevant" if is_match else f"irrelevant_{len(binary_retrieved)}")
-        relevant_labels = {"relevant"}
+        retrieved_labels, relevant_labels = _match_evidence(
+            context_texts, evidence_map, qa.evidence,
+        )
 
         metrics: Dict = {"category": qa.category, "token_f1": f1}
         for k in top_k:
-            metrics[f"recall_at_{k}"] = recall_at_k(binary_retrieved, relevant_labels, k)
-            metrics[f"precision_at_{k}"] = precision_at_k(binary_retrieved, relevant_labels, k)
-        metrics["mrr"] = mrr(binary_retrieved, relevant_labels)
+            metrics[f"recall_at_{k}"] = recall_at_k(retrieved_labels, relevant_labels, k)
+            metrics[f"precision_at_{k}"] = precision_at_k(retrieved_labels, relevant_labels, k)
+        metrics["mrr"] = mrr(retrieved_labels, relevant_labels)
         per_question.append(metrics)
     return per_question
 
@@ -293,13 +313,12 @@ async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
     logger.info("Loaded %d conversations", len(conversations))
 
     all_per_question: List[Dict] = []
-    storage, tmp_dir = create_isolated_storage()
 
-    try:
-        await storage.initialize()
-
-        for conv in conversations:
-            logger.info("Processing conversation: %s", conv.sample_id)
+    for conv in conversations:
+        logger.info("Processing conversation: %s", conv.sample_id)
+        storage, tmp_dir = create_isolated_storage()
+        try:
+            await storage.initialize()
             count = await ingest_conversation(storage, conv)
             logger.info("Ingested %d observations for %s", count, conv.sample_id)
             evidence_map = build_evidence_map(conv)
@@ -318,20 +337,20 @@ async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
                 raise ValueError(f"Unknown mode: {args.mode}")
 
             all_per_question.extend(per_question)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
-        config = {
-            "mode": args.mode,
-            "top_k": top_k,
-            "num_conversations": len(conversations),
-        }
-        result = aggregate_results(
-            all_per_question,
-            conversation_id="all",
-            mode=args.mode,
-            config=config,
-        )
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+    config = {
+        "mode": args.mode,
+        "top_k": top_k,
+        "num_conversations": len(conversations),
+    }
+    result = aggregate_results(
+        all_per_question,
+        conversation_id="all",
+        mode=args.mode,
+        config=config,
+    )
 
     return result
 
