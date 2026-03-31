@@ -488,6 +488,29 @@ result = storage.find_connected(
 - Asymmetric: causes, fixes, supports, follows (A→B ≠ B→A)
 - Symmetric: related, contradicts (A↔B)
 
+### Retrieval Benchmarks
+
+Two benchmarks measure retrieval quality (all-MiniLM-L6-v2, 384d embeddings):
+
+**DevBench** (practical developer workflow queries):
+
+| Category | Recall@5 | MRR |
+|----------|----------|-----|
+| **Overall** | **91.1%** | **0.861** |
+| exact | 100% | 1.000 |
+| semantic | 80.0% | 0.700 |
+| cross-type | 90.0% | 0.867 |
+
+**LoCoMo** ([ACL 2024](https://github.com/snap-research/locomo) long-term conversational memory):
+
+| Category | Recall@5 | MRR |
+|----------|----------|-----|
+| **Overall** | **49.7%** | **0.414** |
+| multi-hop | 72.0% | 0.600 |
+| temporal | 33.5% | 0.274 |
+
+Run benchmarks: `python scripts/benchmarks/benchmark_devbench.py` and `python scripts/benchmarks/benchmark_locomo.py`
+
 ### Performance Improvements
 
 - ontology validation: 97.5x faster (module-level caching)
