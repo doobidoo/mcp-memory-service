@@ -41,8 +41,8 @@ def token_f1(predicted: str, gold: str) -> float:
     Uses token count overlap (min of counts per shared token), not just set
     overlap, for correct F1 with repeated tokens.
     """
-    pred_tokens = predicted.lower().split()
-    gold_tokens = gold.lower().split()
+    pred_tokens = str(predicted).lower().split()
+    gold_tokens = str(gold).lower().split()
 
     if not pred_tokens or not gold_tokens:
         return 0.0
