@@ -1466,6 +1466,12 @@ SOLUTIONS:
                 try:
                     self.conn.execute('SAVEPOINT batch_item')
 
+                    # Purge any soft-deleted tombstone (#644)
+                    self.conn.execute(
+                        'DELETE FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL',
+                        (memory.content_hash,)
+                    )
+
                     cur = self.conn.execute('''
                         INSERT INTO memories (
                             content_hash, content, tags, memory_type,
@@ -4010,6 +4016,11 @@ SOLUTIONS:
             def versioned_insert():
                 self.conn.execute('SAVEPOINT evolve_memory')
                 try:
+                    # Purge any soft-deleted tombstone (#644)
+                    self.conn.execute(
+                        'DELETE FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL',
+                        (new_hash,)
+                    )
                     cursor = self.conn.execute('''
                         INSERT INTO memories (
                             content_hash, content, tags, memory_type, metadata,
