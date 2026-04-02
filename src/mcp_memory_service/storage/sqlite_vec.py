@@ -3365,7 +3365,7 @@ SOLUTIONS:
                         content=row[1],
                         tags=[t.strip() for t in row[2].split(",") if t.strip()] if row[2] else [],
                         memory_type=row[3],
-                        metadata=json.loads(row[4]) if row[4] else {},
+                        metadata=self._safe_json_loads(row[4], "get_largest_memories"),
                         created_at=row[5],
                         updated_at=row[6]
                     )
@@ -3607,12 +3607,7 @@ SOLUTIONS:
                     tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()]
 
                 # Parse metadata to extract quality_score
-                metadata = {}
-                if metadata_str:
-                    try:
-                        metadata = json.loads(metadata_str)
-                    except json.JSONDecodeError:
-                        pass  # Use empty dict if metadata JSON is malformed
+                metadata = self._safe_json_loads(metadata_str, "get_graph_data")
 
                 # Create node
                 nodes.append({
