@@ -135,11 +135,14 @@ class HTTPClientStorage(MemoryStorage):
                     logger.info(f"Successfully stored memory via HTTP: {result.get('content_hash')}")
                     return True, f"Memory stored successfully: {result.get('content_hash')}"
                 else:
-                    error_data = await response.json()
-                    error_msg = error_data.get('detail', f'HTTP {response.status}')
+                    try:
+                        error_data = await response.json()
+                        error_msg = error_data.get('detail', f'HTTP {response.status}')
+                    except (aiohttp.ContentTypeError, ValueError):
+                        error_msg = f'HTTP {response.status}: {await response.text()}'
                     logger.error(f"Failed to store memory via HTTP: {error_msg}")
                     return False, error_msg
-                    
+
         except Exception as e:
             return self._handle_http_error(e, "store")
     
@@ -311,11 +314,14 @@ class HTTPClientStorage(MemoryStorage):
                 elif response.status == 404:
                     return False, f"Memory with hash {content_hash} not found"
                 else:
-                    error_data = await response.json()
-                    error_msg = error_data.get('detail', f'HTTP {response.status}')
+                    try:
+                        error_data = await response.json()
+                        error_msg = error_data.get('detail', f'HTTP {response.status}')
+                    except (aiohttp.ContentTypeError, ValueError):
+                        error_msg = f'HTTP {response.status}: {await response.text()}'
                     logger.error(f"Failed to delete memory via HTTP: {error_msg}")
                     return False, error_msg
-                    
+
         except Exception as e:
             return self._handle_http_error(e, "delete")
     

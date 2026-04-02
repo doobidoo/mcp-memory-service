@@ -113,7 +113,12 @@ class ExternalEmbeddingModel:
             )
 
             if response.status_code == 200:
-                data = response.json()
+                try:
+                    data = response.json()
+                except (ValueError, requests.exceptions.JSONDecodeError) as e:
+                    raise ConnectionError(
+                        f"API returned 200 but response is not valid JSON: {e}"
+                    )
                 if 'data' in data and len(data['data']) > 0:
                     self.embedding_dimension = len(data['data'][0]['embedding'])
                     logger.info(
@@ -195,7 +200,12 @@ class ExternalEmbeddingModel:
                     timeout=self.timeout
                 )
                 response.raise_for_status()
-                data = response.json()
+                try:
+                    data = response.json()
+                except (ValueError, requests.exceptions.JSONDecodeError) as e:
+                    raise RuntimeError(
+                        f"API returned invalid JSON response: {e}"
+                    )
 
                 # Extract embeddings in order (API may return out of order)
                 batch_embeddings = [None] * len(batch)
