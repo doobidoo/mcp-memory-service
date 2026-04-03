@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Changed
+- Wrapped all remaining direct `self.conn.execute()` calls in `_execute_with_retry` to prevent
+  blocking the asyncio event loop during SQLite operations (fulfills TODO from #637)
+
 ## [10.31.2] - 2026-04-03
 
 ### Fixed
