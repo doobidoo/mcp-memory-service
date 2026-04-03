@@ -561,10 +561,12 @@ async def process_batch_upload(
                      session.total_chunks = total_chunks_processed
 
                 processed_files += 1
+                session.progress = (processed_files / len(file_info)) * 100
 
             except Exception:
                 all_errors.append(f"{filename}: processing error")
                 processed_files += 1
+                session.progress = (processed_files / len(file_info)) * 100
 
             finally:
                 # Clean up temp file (always executed)
