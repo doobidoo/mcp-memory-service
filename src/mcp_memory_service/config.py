@@ -568,6 +568,10 @@ MDNS_DISCOVERY_TIMEOUT = safe_get_int_env('MCP_MDNS_DISCOVERY_TIMEOUT', 5, min_v
 PEER_VERIFY_SSL = os.getenv('MCP_PEER_VERIFY_SSL', 'true').lower() == 'true'
 PEER_SSL_CA_FILE = os.getenv('MCP_PEER_SSL_CA_FILE', None)
 
+# HTTP Transport Timeout Configuration
+MCP_HTTP_TIMEOUT_KEEP_ALIVE = safe_get_int_env('MCP_HTTP_TIMEOUT_KEEP_ALIVE', 5, min_value=1, max_value=600)
+MCP_HTTP_TIMEOUT_GRACEFUL_SHUTDOWN = safe_get_int_env('MCP_HTTP_TIMEOUT_GRACEFUL_SHUTDOWN', 30, min_value=1, max_value=300)
+
 # Database path for HTTP interface (use SQLite-vec by default)
 if (STORAGE_BACKEND in ['sqlite_vec', 'hybrid']) and SQLITE_VEC_PATH:
     DATABASE_PATH = SQLITE_VEC_PATH

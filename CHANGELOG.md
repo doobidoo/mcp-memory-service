@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+- Added `/health` endpoint to SSE and Streamable HTTP transports for external monitoring
+- Added `MCP_HTTP_TIMEOUT_KEEP_ALIVE` and `MCP_HTTP_TIMEOUT_GRACEFUL_SHUTDOWN` configurable env vars
+
 ## [10.31.2] - 2026-04-03
 
 ### Fixed
