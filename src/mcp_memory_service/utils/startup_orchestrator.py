@@ -261,13 +261,8 @@ class ServerRunManager:
             elif path.startswith("/messages/"):
                 await sse.handle_post_message(scope, receive, send)
             elif path == "/health":
-                import json
-                body = json.dumps({"status": "ok"}).encode()
-                await send({"type": "http.response.start", "status": 200, "headers": [
-                    [b"content-type", b"application/json"],
-                    [b"content-length", str(len(body)).encode()],
-                ]})
-                await send({"type": "http.response.body", "body": body})
+                response = Response('{"status":"ok"}', media_type="application/json")
+                await response(scope, receive, send)
             else:
                 response = Response("Not Found", status_code=404)
                 await response(scope, receive, send)
@@ -364,13 +359,8 @@ class ServerRunManager:
             ):
                 await oauth_app(scope, receive, send)
             elif path == "/health":
-                import json
-                body = json.dumps({"status": "ok"}).encode()
-                await send({"type": "http.response.start", "status": 200, "headers": [
-                    [b"content-type", b"application/json"],
-                    [b"content-length", str(len(body)).encode()],
-                ]})
-                await send({"type": "http.response.body", "body": body})
+                response = StarletteResponse('{"status":"ok"}', media_type="application/json")
+                await response(scope, receive, send)
             else:
                 response = StarletteResponse("Not Found", status_code=404)
                 await response(scope, receive, send)
