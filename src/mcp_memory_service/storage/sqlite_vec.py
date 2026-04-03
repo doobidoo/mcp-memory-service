@@ -3607,7 +3607,7 @@ SOLUTIONS:
                     tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()]
 
                 # Parse metadata to extract quality_score
-                metadata = self._safe_json_loads(metadata_str, "get_graph_data")
+                metadata = self._safe_json_loads(metadata_str, "get_graph_visualization_data")
 
                 # Create node
                 nodes.append({
