@@ -11,8 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
-- Added `/health` endpoint to SSE and Streamable HTTP transports for external monitoring
-- Added `MCP_HTTP_TIMEOUT_KEEP_ALIVE` and `MCP_HTTP_TIMEOUT_GRACEFUL_SHUTDOWN` configurable env vars
+- Added `/health` endpoint to SSE and Streamable HTTP transports (port `MCP_SSE_PORT`, default 8765) for external monitoring (load balancers, Docker healthchecks, K8s probes)
+- Added `MCP_TRANSPORT_TIMEOUT_KEEP_ALIVE` (default 5s) and `MCP_TRANSPORT_TIMEOUT_GRACEFUL_SHUTDOWN` (default 30s) configurable env vars for MCP transport uvicorn instances
 
 ## [10.31.2] - 2026-04-03
 
