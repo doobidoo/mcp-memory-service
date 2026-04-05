@@ -18,11 +18,13 @@ OAuth 2.1 Dynamic Client Registration implementation for MCP Memory Service.
 Implements RFC 7591 - OAuth 2.0 Dynamic Client Registration Protocol.
 """
 
+import os
+import secrets
 import time
 import logging
 from typing import List, Optional
 from urllib.parse import urlparse, ParseResult
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import ValidationError
 
 from .models import (
@@ -198,17 +200,56 @@ def validate_response_types(response_types: List[str]) -> None:
             )
 
 
+def _validate_registration_key(request: Request) -> None:
+    """
+    Validate the optional DCR registration key.
+
+    When MCP_DCR_REGISTRATION_KEY is set, the /oauth/register endpoint
+    requires Authorization: Bearer <key>. When unset, DCR remains open
+    (backward compatible with RFC 7591 default behavior).
+    """
+    registration_key = os.environ.get("MCP_DCR_REGISTRATION_KEY")
+    if not registration_key:
+        return
+
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": "invalid_token",
+                "error_description": "Registration key required. Provide Authorization: Bearer <registration-key>"
+            }
+        )
+
+    provided_key = auth_header[len("Bearer "):]
+    if not secrets.compare_digest(provided_key, registration_key):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "access_denied",
+                "error_description": "Invalid registration key"
+            }
+        )
+
+
 @router.post("/register", response_model=ClientRegistrationResponse, status_code=status.HTTP_201_CREATED)
-async def register_client(request: ClientRegistrationRequest) -> ClientRegistrationResponse:
+async def register_client(request: ClientRegistrationRequest, raw_request: Request) -> ClientRegistrationResponse:
     """
     OAuth 2.1 Dynamic Client Registration endpoint.
 
     Implements RFC 7591 - OAuth 2.0 Dynamic Client Registration Protocol.
     Allows clients to register dynamically with the authorization server.
+
+    When MCP_DCR_REGISTRATION_KEY env var is set, requests must include
+    Authorization: Bearer <key> header. When unset, registration is open.
     """
     logger.info("OAuth client registration request received")
 
     try:
+        # Validate optional registration key protection
+        _validate_registration_key(raw_request)
+
         # Validate client metadata
         if request.redirect_uris:
             validate_redirect_uris([str(uri) for uri in request.redirect_uris])
