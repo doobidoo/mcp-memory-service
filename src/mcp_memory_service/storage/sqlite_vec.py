@@ -232,11 +232,6 @@ class SqliteVecMemoryStorage(MemoryStorage):
     while maintaining the same interface as other storage backends.
     """
 
-    # TODO(#637): ~119 direct self.conn.execute() calls bypass _execute_with_retry
-    # and still block the event loop. A follow-up PR should either:
-    # (a) route all DB calls through _execute_with_retry, or
-    # (b) migrate to aiosqlite for native async sqlite access.
-
     @property
     def max_content_length(self) -> Optional[int]:
         """SQLite-vec content length limit from configuration (default: unlimited)."""
@@ -261,6 +256,13 @@ class SqliteVecMemoryStorage(MemoryStorage):
         self.embedding_model = None
         self.embedding_dimension = 384  # Default for all-MiniLM-L6-v2
         self._initialized = False  # Track initialization state
+
+        # Serializes SAVEPOINT-based write operations (store, store_batch, evolve_memory).
+        # SQLite SAVEPOINTs are stacked on the connection — concurrent threads sharing the
+        # same connection would interleave their savepoint stacks, causing "no such savepoint"
+        # errors. asyncio.Lock serializes these at the coroutine level without blocking the
+        # event loop.
+        self._savepoint_lock = asyncio.Lock()
 
         # Performance settings
         self.enable_cache = True
@@ -687,11 +689,14 @@ SOLUTIONS:
             # Check if database is already initialized by another process
             # This prevents DDL lock conflicts when multiple servers start concurrently
             try:
-                cursor = self.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memories'")
-                memories_table_exists = cursor.fetchone() is not None
+                def _check_tables_exist():
+                    c1 = self.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memories'")
+                    mem_exists = c1.fetchone() is not None
+                    c2 = self.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_embeddings'")
+                    emb_exists = c2.fetchone() is not None
+                    return mem_exists, emb_exists
 
-                cursor = self.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_embeddings'")
-                embeddings_table_exists = cursor.fetchone() is not None
+                memories_table_exists, embeddings_table_exists = await self._execute_with_retry(_check_tables_exist)
 
                 if memories_table_exists and embeddings_table_exists:
                     # Database exists - run migrations for new columns, then skip full DDL
@@ -699,13 +704,18 @@ SOLUTIONS:
 
                     # Migration v8.64.0: Add deleted_at column for soft-delete support
                     try:
-                        cursor = self.conn.execute("PRAGMA table_info(memories)")
-                        columns = [row[1] for row in cursor.fetchall()]
-                        if 'deleted_at' not in columns:
-                            logger.info("Migrating database: Adding deleted_at column for soft-delete support...")
-                            self.conn.execute('ALTER TABLE memories ADD COLUMN deleted_at REAL DEFAULT NULL')
-                            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_at ON memories(deleted_at)')
-                            self.conn.commit()
+                        def _migrate_deleted_at_existing():
+                            cursor = self.conn.execute("PRAGMA table_info(memories)")
+                            columns = [row[1] for row in cursor.fetchall()]
+                            if 'deleted_at' not in columns:
+                                self.conn.execute('ALTER TABLE memories ADD COLUMN deleted_at REAL DEFAULT NULL')
+                                self.conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_at ON memories(deleted_at)')
+                                self.conn.commit()
+                                return True  # migrated
+                            return False  # already exists
+
+                        migrated = await self._execute_with_retry(_migrate_deleted_at_existing)
+                        if migrated:
                             logger.info("Migration complete: deleted_at column added")
                         else:
                             logger.debug("Migration check: deleted_at column already exists")
@@ -713,13 +723,13 @@ SOLUTIONS:
                         logger.warning(f"Migration check for deleted_at (non-fatal): {e}")
 
                     # Execute graph table migrations (Knowledge Graph feature v9.0.0+)
-                    self._run_graph_migrations()
+                    await asyncio.to_thread(self._run_graph_migrations)
 
                     # Execute Memory Evolution P1 migrations (v10.30.0+)
-                    self._run_evolution_migrations()
+                    await asyncio.to_thread(self._run_evolution_migrations)
 
                     # Ensure FTS5 table exists (v10.8.0+ migration for existing databases)
-                    self._ensure_fts5_initialized()
+                    await asyncio.to_thread(self._ensure_fts5_initialized)
 
                     await self._initialize_embedding_model()
                     self._initialized = True
@@ -737,7 +747,7 @@ SOLUTIONS:
                 "cache_size": "10000",  # Increase cache size
                 "temp_store": "MEMORY"  # Use memory for temp tables
             }
-            
+
             # Check for custom pragmas from environment variable
             custom_pragmas = os.environ.get("MCP_MEMORY_SQLITE_PRAGMAS", "")
             if custom_pragmas:
@@ -748,51 +758,57 @@ SOLUTIONS:
                         pragma_name, pragma_value = pragma_pair.split("=", 1)
                         default_pragmas[pragma_name.strip()] = pragma_value.strip()
                         logger.info(f"Custom pragma from env: {pragma_name}={pragma_value}")
-            
-            # Apply all pragmas
-            applied_pragmas = []
-            for pragma_name, pragma_value in default_pragmas.items():
-                try:
-                    self.conn.execute(f"PRAGMA {pragma_name}={pragma_value}")
-                    applied_pragmas.append(f"{pragma_name}={pragma_value}")
-                except sqlite3.Error as e:
-                    logger.warning(f"Failed to set pragma {pragma_name}={pragma_value}: {e}")
-            
-            logger.info(f"SQLite pragmas applied: {', '.join(applied_pragmas)}")
-            
-            # Create metadata table for storage configuration
-            self.conn.execute('''
-                CREATE TABLE IF NOT EXISTS metadata (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                )
-            ''')
 
-            # Create regular table for memory data
-            self.conn.execute('''
-                CREATE TABLE IF NOT EXISTS memories (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    content_hash TEXT UNIQUE NOT NULL,
-                    content TEXT NOT NULL,
-                    tags TEXT,
-                    memory_type TEXT,
-                    metadata TEXT,
-                    created_at REAL,
-                    updated_at REAL,
-                    created_at_iso TEXT,
-                    updated_at_iso TEXT,
-                    deleted_at REAL DEFAULT NULL
-                )
-            ''')
+            def _apply_pragmas_and_create_tables(dp=default_pragmas):
+                applied = []
+                for pragma_name, pragma_value in dp.items():
+                    try:
+                        self.conn.execute(f"PRAGMA {pragma_name}={pragma_value}")
+                        applied.append(f"{pragma_name}={pragma_value}")
+                    except sqlite3.Error as e:
+                        logger.warning(f"Failed to set pragma {pragma_name}={pragma_value}: {e}")
+
+                # Create metadata table for storage configuration
+                self.conn.execute('''
+                    CREATE TABLE IF NOT EXISTS metadata (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL
+                    )
+                ''')
+
+                # Create regular table for memory data
+                self.conn.execute('''
+                    CREATE TABLE IF NOT EXISTS memories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        content_hash TEXT UNIQUE NOT NULL,
+                        content TEXT NOT NULL,
+                        tags TEXT,
+                        memory_type TEXT,
+                        metadata TEXT,
+                        created_at REAL,
+                        updated_at REAL,
+                        created_at_iso TEXT,
+                        updated_at_iso TEXT,
+                        deleted_at REAL DEFAULT NULL
+                    )
+                ''')
+                return applied
+
+            applied_pragmas = await self._execute_with_retry(_apply_pragmas_and_create_tables)
+            logger.info(f"SQLite pragmas applied: {', '.join(applied_pragmas)}")
 
             # Migration: Add deleted_at column if table exists but column doesn't (v8.64.0)
             try:
-                cursor = self.conn.execute("PRAGMA table_info(memories)")
-                columns = [row[1] for row in cursor.fetchall()]
-                if 'deleted_at' not in columns:
-                    logger.info("Migrating database: Adding deleted_at column for soft-delete support...")
-                    self.conn.execute('ALTER TABLE memories ADD COLUMN deleted_at REAL DEFAULT NULL')
-                    self.conn.commit()
+                def _migrate_deleted_at_new():
+                    cursor = self.conn.execute("PRAGMA table_info(memories)")
+                    columns = [row[1] for row in cursor.fetchall()]
+                    if 'deleted_at' not in columns:
+                        self.conn.execute('ALTER TABLE memories ADD COLUMN deleted_at REAL DEFAULT NULL')
+                        self.conn.commit()
+                        return True
+                    return False
+
+                if await self._execute_with_retry(_migrate_deleted_at_new):
                     logger.info("Migration complete: deleted_at column added")
             except Exception as e:
                 logger.warning(f"Migration check for deleted_at (non-fatal): {e}")
@@ -803,82 +819,92 @@ SOLUTIONS:
             # Check if we need to migrate from L2 to cosine distance
             # This is a one-time migration - embeddings will be regenerated automatically
             try:
-                # First check if metadata table exists
-                cursor = self.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='metadata'")
-                metadata_exists = cursor.fetchone() is not None
-
-                if metadata_exists:
+                def _check_distance_migration():
+                    cursor = self.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='metadata'")
+                    metadata_exists = cursor.fetchone() is not None
+                    if not metadata_exists:
+                        return False  # fresh install, no migration needed
                     cursor = self.conn.execute("SELECT value FROM metadata WHERE key='distance_metric'")
                     current_metric = cursor.fetchone()
+                    return not current_metric or current_metric[0] != 'cosine'
 
-                    if not current_metric or current_metric[0] != 'cosine':
-                        logger.info("Migrating embeddings table from L2 to cosine distance...")
-                        logger.info("This is a one-time operation - embeddings will be regenerated automatically")
+                needs_migration = await self._execute_with_retry(_check_distance_migration)
 
-                        # Use a timeout and retry logic for DROP TABLE to handle concurrent access
-                        max_retries = 3
-                        retry_delay = 1.0  # seconds
+                if needs_migration:
+                    logger.info("Migrating embeddings table from L2 to cosine distance...")
+                    logger.info("This is a one-time operation - embeddings will be regenerated automatically")
 
-                        for attempt in range(max_retries):
-                            try:
-                                # Drop old embeddings table (memories table is preserved)
-                                # This may fail if another process has the database locked
+                    # Use a timeout and retry logic for DROP TABLE to handle concurrent access
+                    max_retries = 3
+                    retry_delay = 1.0  # seconds
+
+                    for attempt in range(max_retries):
+                        try:
+                            # Drop old embeddings table (memories table is preserved)
+                            # This may fail if another process has the database locked
+                            def _drop_embeddings():
                                 self.conn.execute("DROP TABLE IF EXISTS memory_embeddings")
-                                logger.info("Successfully dropped old embeddings table")
-                                break
-                            except sqlite3.OperationalError as drop_error:
-                                if "database is locked" in str(drop_error):
-                                    if attempt < max_retries - 1:
-                                        logger.warning(f"Database locked during migration (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay}s...")
-                                        await asyncio.sleep(retry_delay)
-                                        retry_delay *= 2  # Exponential backoff
-                                    else:
-                                        # Last attempt failed - check if table exists
-                                        # If it doesn't exist, migration was done by another process
-                                        cursor = self.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_embeddings'")
-                                        if not cursor.fetchone():
-                                            logger.info("Embeddings table doesn't exist - migration likely completed by another process")
-                                            break
-                                        else:
-                                            logger.error("Failed to drop embeddings table after retries - will attempt to continue")
-                                            # Don't fail initialization, just log the issue
-                                            break
+
+                            await self._execute_with_retry(_drop_embeddings)
+                            logger.info("Successfully dropped old embeddings table")
+                            break
+                        except sqlite3.OperationalError as drop_error:
+                            if "database is locked" in str(drop_error):
+                                if attempt < max_retries - 1:
+                                    logger.warning(f"Database locked during migration (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay}s...")
+                                    await asyncio.sleep(retry_delay)
+                                    retry_delay *= 2  # Exponential backoff
                                 else:
-                                    raise
+                                    # Last attempt failed - check if table exists
+                                    def _check_emb_exists():
+                                        cursor = self.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_embeddings'")
+                                        return cursor.fetchone() is not None
+
+                                    if not await self._execute_with_retry(_check_emb_exists):
+                                        logger.info("Embeddings table doesn't exist - migration likely completed by another process")
+                                        break
+                                    else:
+                                        logger.error("Failed to drop embeddings table after retries - will attempt to continue")
+                                        break
+                            else:
+                                raise
                 else:
-                    # No metadata table means fresh install, no migration needed
-                    logger.debug("Fresh database detected, no migration needed")
+                    # No migration needed
+                    logger.debug("Fresh database or cosine distance already configured, no migration needed")
             except Exception as e:
                 # If anything goes wrong, log but don't fail initialization
                 logger.warning(f"Migration check warning (non-fatal): {e}")
 
             # Now create virtual table with correct dimensions using cosine distance
             # Cosine similarity is better for text embeddings than L2 distance
-            self.conn.execute(f'''
-                CREATE VIRTUAL TABLE IF NOT EXISTS memory_embeddings USING vec0(
-                    content_embedding FLOAT[{self.embedding_dimension}] distance_metric=cosine
-                )
-            ''')
+            embedding_dim = self.embedding_dimension
 
-            # Store metric in metadata for future migrations
-            self.conn.execute("""
-                INSERT OR REPLACE INTO metadata (key, value) VALUES ('distance_metric', 'cosine')
-            """)
+            def _create_virtual_table_and_indexes():
+                self.conn.execute(f'''
+                    CREATE VIRTUAL TABLE IF NOT EXISTS memory_embeddings USING vec0(
+                        content_embedding FLOAT[{embedding_dim}] distance_metric=cosine
+                    )
+                ''')
+                # Store metric in metadata for future migrations
+                self.conn.execute("""
+                    INSERT OR REPLACE INTO metadata (key, value) VALUES ('distance_metric', 'cosine')
+                """)
+                # Create indexes for better performance
+                self.conn.execute('CREATE INDEX IF NOT EXISTS idx_content_hash ON memories(content_hash)')
+                self.conn.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at)')
+                self.conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_type ON memories(memory_type)')
+                self.conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_at ON memories(deleted_at)')
+
+            await self._execute_with_retry(_create_virtual_table_and_indexes)
 
             # Ensure FTS5 table exists (v10.8.0+)
-            self._ensure_fts5_initialized()
-
-            # Create indexes for better performance
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_content_hash ON memories(content_hash)')
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at)')
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_type ON memories(memory_type)')
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_at ON memories(deleted_at)')
+            await asyncio.to_thread(self._ensure_fts5_initialized)
 
             # Execute graph table migrations (Knowledge Graph feature v9.0.0+)
-            self._run_graph_migrations()
+            await asyncio.to_thread(self._run_graph_migrations)
 
             # Execute Memory Evolution P1 migrations (v10.30.0+)
-            self._run_evolution_migrations()
+            await asyncio.to_thread(self._run_evolution_migrations)
 
             # Mark as initialized to prevent re-initialization
             self._initialized = True
@@ -1278,18 +1304,20 @@ SOLUTIONS:
 
         # KNN search for similar memories created after cutoff
         # Query: Find memories with cosine similarity > threshold within time window
-        cursor = self.conn.execute('''
-            SELECT m.content_hash, m.content,
-                   vec_distance_cosine(me.content_embedding, ?) as similarity
-            FROM memories m
-            JOIN memory_embeddings me ON m.rowid = me.rowid
-            WHERE m.created_at > ?
-              AND m.deleted_at IS NULL
-            ORDER BY similarity ASC
-            LIMIT 1
-        ''', (embedding_blob, cutoff_timestamp))
+        def _search_semantic_dup():
+            cursor = self.conn.execute('''
+                SELECT m.content_hash, m.content,
+                       vec_distance_cosine(me.content_embedding, ?) as similarity
+                FROM memories m
+                JOIN memory_embeddings me ON m.rowid = me.rowid
+                WHERE m.created_at > ?
+                  AND m.deleted_at IS NULL
+                ORDER BY similarity ASC
+                LIMIT 1
+            ''', (embedding_blob, cutoff_timestamp))
+            return cursor.fetchone()
 
-        result = cursor.fetchone()
+        result = await self._execute_with_retry(_search_semantic_dup)
         if result and result[2] <= (1.0 - similarity_threshold):
             # Note: cosine distance = 1 - cosine similarity
             # Distance <= 0.15 means similarity >= 0.85
@@ -1310,11 +1338,13 @@ SOLUTIONS:
                 return False, "Database not initialized"
             
             # Check for exact hash duplicates
-            cursor = self.conn.execute(
-                'SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
-                (memory.content_hash,)
-            )
-            if cursor.fetchone():
+            def _check_exact_dup():
+                cursor = self.conn.execute(
+                    'SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
+                    (memory.content_hash,)
+                )
+                return cursor.fetchone()
+            if await self._execute_with_retry(_check_exact_dup):
                 return False, "Duplicate content detected (exact match)"
 
             # Check for semantic duplicates (skipped when caller signals incremental save)
@@ -1342,8 +1372,10 @@ SOLUTIONS:
             # Both must succeed together — a memory without a matching
             # embedding is unsearchable, and an embedding without a
             # matching memory rowid breaks the JOIN.
+            # Unique name prevents collision when concurrent stores share the connection.
+            _sp_name = f"store_{os.urandom(4).hex()}"
             def insert_memory_and_embedding():
-                self.conn.execute('SAVEPOINT store_memory')
+                self.conn.execute(f'SAVEPOINT {_sp_name}')
                 try:
                     self._purge_tombstone(memory.content_hash)
                     cursor = self.conn.execute('''
@@ -1371,18 +1403,23 @@ SOLUTIONS:
                         memory_rowid,
                         serialize_float32(embedding)
                     ))
-                    self.conn.execute('RELEASE SAVEPOINT store_memory')
+                    self.conn.execute(f'RELEASE SAVEPOINT {_sp_name}')
                 except Exception:
-                    self.conn.execute('ROLLBACK TO SAVEPOINT store_memory')
-                    self.conn.execute('RELEASE SAVEPOINT store_memory')
+                    self.conn.execute(f'ROLLBACK TO SAVEPOINT {_sp_name}')
+                    self.conn.execute(f'RELEASE SAVEPOINT {_sp_name}')
                     raise
 
-            await self._execute_with_retry(insert_memory_and_embedding)
+            async with self._savepoint_lock:
+                await self._execute_with_retry(insert_memory_and_embedding)
+                # Commit inside the lock — the insert's SAVEPOINT RELEASE only moves
+                # changes into the outer transaction; we must commit before releasing
+                # the lock so another concurrent store doesn't share the same outer TX.
+                await self._execute_with_retry(self.conn.commit)
 
-            # --- Conflict detection (P3) ---
+            # --- Conflict detection (P3) — runs after commit, outside the lock ---
             try:
-                conflict_infos = self._detect_conflicts(
-                    memory.content_hash, memory.content, embedding
+                conflict_infos = await asyncio.to_thread(
+                    self._detect_conflicts, memory.content_hash, memory.content, embedding
                 )
                 if conflict_infos:
                     await self._record_conflicts(memory.content_hash, conflict_infos)
@@ -1392,9 +1429,6 @@ SOLUTIONS:
             except Exception as e:
                 logger.warning(f"Conflict detection failed (non-fatal): {e}")
                 conflict_msg = ""
-
-            # Commit with retry logic
-            await self._execute_with_retry(self.conn.commit)
 
             logger.info(f"Successfully stored memory: {memory.content_hash}")
             return True, f"Memory stored successfully{conflict_msg}"
@@ -1464,8 +1498,10 @@ SOLUTIONS:
                 # SAVEPOINT gives per-item atomicity: if the embedding INSERT
                 # fails, ROLLBACK TO undoes the memories INSERT too, preventing
                 # orphaned rows that would be unsearchable.
+                # Unique name prevents collision when concurrent batch_store calls share the connection.
+                sp = f"batch_{os.urandom(4).hex()}"
                 try:
-                    self.conn.execute('SAVEPOINT batch_item')
+                    self.conn.execute(f'SAVEPOINT {sp}')
 
                     self._purge_tombstone(memory.content_hash)
 
@@ -1487,20 +1523,21 @@ SOLUTIONS:
                         VALUES (?, ?)
                     ''', (rowid, serialize_float32(embedding_list)))
 
-                    self.conn.execute('RELEASE SAVEPOINT batch_item')
+                    self.conn.execute(f'RELEASE SAVEPOINT {sp}')
                     results[j] = (True, "Memory stored successfully")
                 except sqlite3.IntegrityError:
-                    self.conn.execute('ROLLBACK TO SAVEPOINT batch_item')
-                    self.conn.execute('RELEASE SAVEPOINT batch_item')
+                    self.conn.execute(f'ROLLBACK TO SAVEPOINT {sp}')
+                    self.conn.execute(f'RELEASE SAVEPOINT {sp}')
                     results[j] = (False, "Duplicate content detected (race condition)")
                 except sqlite3.Error as db_err:
-                    self.conn.execute('ROLLBACK TO SAVEPOINT batch_item')
-                    self.conn.execute('RELEASE SAVEPOINT batch_item')
+                    self.conn.execute(f'ROLLBACK TO SAVEPOINT {sp}')
+                    self.conn.execute(f'RELEASE SAVEPOINT {sp}')
                     results[j] = (False, f"Insert failed: {db_err}")
 
         try:
-            await self._execute_with_retry(batch_insert)
-            await self._execute_with_retry(self.conn.commit)
+            async with self._savepoint_lock:
+                await self._execute_with_retry(batch_insert)
+                await self._execute_with_retry(self.conn.commit)
 
             stored = sum(1 for r in results if r and r[0])
             logger.info(f"Batch stored {stored}/{len(memories)} memories in single transaction")
@@ -1533,8 +1570,10 @@ SOLUTIONS:
                 return []
 
             # First, check if embeddings table has data
-            cursor = self.conn.execute('SELECT COUNT(*) FROM memory_embeddings')
-            embedding_count = cursor.fetchone()[0]
+            def _count_embeddings():
+                cursor = self.conn.execute('SELECT COUNT(*) FROM memory_embeddings')
+                return cursor.fetchone()[0]
+            embedding_count = await self._execute_with_retry(_count_embeddings)
 
             if embedding_count == 0:
                 logger.warning("No embeddings found in database. Memories may have been stored without embeddings.")
@@ -1950,24 +1989,28 @@ SOLUTIONS:
                 where_clause += " AND created_at >= ?"
                 tag_params.append(time_start)
 
-            cursor = self.conn.execute(f'''
-                SELECT content_hash, content, tags, memory_type, metadata,
-                       created_at, updated_at, created_at_iso, updated_at_iso
-                FROM memories
-                {where_clause}
-                ORDER BY created_at DESC
-            ''', tag_params)
-            
+            def _search_by_tag(wc=where_clause, tp=tag_params):
+                cursor = self.conn.execute(f'''
+                    SELECT content_hash, content, tags, memory_type, metadata,
+                           created_at, updated_at, created_at_iso, updated_at_iso
+                    FROM memories
+                    {wc}
+                    ORDER BY created_at DESC
+                ''', tp)
+                return cursor.fetchall()
+
+            rows = await self._execute_with_retry(_search_by_tag)
+
             results = []
-            for row in cursor.fetchall():
+            for row in rows:
                 try:
                     content_hash, content, tags_str, memory_type, metadata_str = row[:5]
                     created_at, updated_at, created_at_iso, updated_at_iso = row[5:]
-                    
+
                     # Parse tags and metadata
                     memory_tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()] if tags_str else []
                     metadata = self._safe_json_loads(metadata_str, "memory_metadata")
-                    
+
                     memory = Memory(
                         content=content,
                         content_hash=content_hash,
@@ -1979,21 +2022,21 @@ SOLUTIONS:
                         created_at_iso=created_at_iso,
                         updated_at_iso=updated_at_iso
                     )
-                    
+
                     results.append(memory)
-                    
+
                 except Exception as parse_error:
                     logger.warning(f"Failed to parse memory result: {parse_error}")
                     continue
-            
+
             logger.info(f"Found {len(results)} memories with tags: {[_sanitize_log_value(t) for t in tags]}")
             return results
-            
+
         except Exception as e:
             logger.error(f"Failed to search by tags: {str(e)}")
             logger.error(traceback.format_exc())
             return []
-    
+
     async def search_by_tags(
         self,
         tags: List[str],
@@ -2034,24 +2077,28 @@ SOLUTIONS:
                 tag_params.append(time_end)
 
             where_clause = f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
-            
-            cursor = self.conn.execute(f'''
-                SELECT content_hash, content, tags, memory_type, metadata,
-                       created_at, updated_at, created_at_iso, updated_at_iso
-                FROM memories 
-                {where_clause}
-                ORDER BY updated_at DESC
-            ''', tag_params)
-            
+
+            def _search_by_tags(wc=where_clause, tp=tag_params):
+                cursor = self.conn.execute(f'''
+                    SELECT content_hash, content, tags, memory_type, metadata,
+                           created_at, updated_at, created_at_iso, updated_at_iso
+                    FROM memories
+                    {wc}
+                    ORDER BY updated_at DESC
+                ''', tp)
+                return cursor.fetchall()
+
+            rows = await self._execute_with_retry(_search_by_tags)
+
             results = []
-            for row in cursor.fetchall():
+            for row in rows:
                 try:
                     content_hash, content, tags_str, memory_type, metadata_str, created_at, updated_at, created_at_iso, updated_at_iso = row
-                    
+
                     # Parse tags and metadata
                     memory_tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()] if tags_str else []
                     metadata = self._safe_json_loads(metadata_str, "memory_metadata")
-                    
+
                     memory = Memory(
                         content=content,
                         content_hash=content_hash,
@@ -2063,13 +2110,13 @@ SOLUTIONS:
                         created_at_iso=created_at_iso,
                         updated_at_iso=updated_at_iso
                     )
-                    
+
                     results.append(memory)
-                    
+
                 except Exception as parse_error:
                     logger.warning(f"Failed to parse memory result: {parse_error}")
                     continue
-            
+
             logger.info(f"Found {len(results)} memories with tags: {tags} (operation: {operation})")
             return results
 
@@ -2125,10 +2172,14 @@ SOLUTIONS:
                 query += " OFFSET ?"
                 tag_params.append(int(offset))
 
-            cursor = self.conn.execute(query, tag_params)
+            def _search_chronological(q=query, tp=tag_params):
+                cursor = self.conn.execute(q, tp)
+                return cursor.fetchall()
+
+            rows = await self._execute_with_retry(_search_chronological)
             results = []
 
-            for row in cursor.fetchall():
+            for row in rows:
                 try:
                     content_hash, content, tags_str, memory_type, metadata_str, created_at, updated_at, created_at_iso, updated_at_iso = row
 
@@ -2173,14 +2224,15 @@ SOLUTIONS:
             if not self.conn:
                 return False, "Database not initialized"
 
-            # Get the id first to delete corresponding embedding
-            cursor = self.conn.execute(
-                'SELECT id FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
-                (content_hash,)
-            )
-            row = cursor.fetchone()
-
-            if row:
+            def _delete_memory():
+                # Get the id first to delete corresponding embedding
+                cursor = self.conn.execute(
+                    'SELECT id FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
+                    (content_hash,)
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return None
                 memory_id = row[0]
                 # Delete embedding (won't be needed for search)
                 self.conn.execute('DELETE FROM memory_embeddings WHERE rowid = ?', (memory_id,))
@@ -2195,10 +2247,12 @@ SOLUTIONS:
                     (time.time(), content_hash)
                 )
                 self.conn.commit()
-            else:
-                return False, f"Memory with hash {content_hash} not found"
+                return cursor.rowcount
 
-            if cursor.rowcount > 0:
+            rowcount = await self._execute_with_retry(_delete_memory)
+            if rowcount is None:
+                return False, f"Memory with hash {content_hash} not found"
+            if rowcount > 0:
                 logger.info(f"Soft-deleted memory: {content_hash}")
                 return True, f"Successfully deleted memory {content_hash}"
             else:
@@ -2225,11 +2279,13 @@ SOLUTIONS:
             if not self.conn:
                 return False
 
-            cursor = self.conn.execute(
-                'SELECT deleted_at FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL',
-                (content_hash,)
-            )
-            return cursor.fetchone() is not None
+            def _check_deleted():
+                cursor = self.conn.execute(
+                    'SELECT deleted_at FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL',
+                    (content_hash,)
+                )
+                return cursor.fetchone() is not None
+            return await self._execute_with_retry(_check_deleted)
 
         except Exception as e:
             logger.error(f"Failed to check if memory is deleted: {str(e)}")
@@ -2247,13 +2303,16 @@ SOLUTIONS:
                 return 0
 
             cutoff = time.time() - (older_than_days * 86400)
-            cursor = self.conn.execute(
-                'DELETE FROM memories WHERE deleted_at IS NOT NULL AND deleted_at < ?',
-                (cutoff,)
-            )
-            self.conn.commit()
 
-            count = cursor.rowcount
+            def _purge():
+                cursor = self.conn.execute(
+                    'DELETE FROM memories WHERE deleted_at IS NOT NULL AND deleted_at < ?',
+                    (cutoff,)
+                )
+                self.conn.commit()
+                return cursor.rowcount
+
+            count = await self._execute_with_retry(_purge)
             if count > 0:
                 logger.info(f"Purged {count} tombstones older than {older_than_days} days")
             return count
@@ -2268,16 +2327,18 @@ SOLUTIONS:
             if not self.conn:
                 return None
             
-            cursor = self.conn.execute('''
-                SELECT content_hash, content, tags, memory_type, metadata,
-                       created_at, updated_at, created_at_iso, updated_at_iso
-                FROM memories WHERE content_hash = ? AND deleted_at IS NULL
-            ''', (content_hash,))
-            
-            row = cursor.fetchone()
+            def _get_by_hash():
+                cursor = self.conn.execute('''
+                    SELECT content_hash, content, tags, memory_type, metadata,
+                           created_at, updated_at, created_at_iso, updated_at_iso
+                    FROM memories WHERE content_hash = ? AND deleted_at IS NULL
+                ''', (content_hash,))
+                return cursor.fetchone()
+
+            row = await self._execute_with_retry(_get_by_hash)
             if not row:
                 return None
-            
+
             content_hash, content, tags_str, memory_type, metadata_str = row[:5]
             created_at, updated_at, created_at_iso, updated_at_iso = row[5:]
             
@@ -2320,11 +2381,15 @@ SOLUTIONS:
             if not self.conn:
                 return set()
 
-            if include_deleted:
-                cursor = self.conn.execute('SELECT content_hash FROM memories')
-            else:
-                cursor = self.conn.execute('SELECT content_hash FROM memories WHERE deleted_at IS NULL')
-            return {row[0] for row in cursor.fetchall()}
+            def _get_hashes():
+                if include_deleted:
+                    cursor = self.conn.execute('SELECT content_hash FROM memories')
+                else:
+                    cursor = self.conn.execute('SELECT content_hash FROM memories WHERE deleted_at IS NULL')
+                return cursor.fetchall()
+
+            rows = await self._execute_with_retry(_get_hashes)
+            return {row[0] for row in rows}
 
         except Exception as e:
             logger.error(f"Failed to get all content hashes: {str(e)}")
@@ -2342,34 +2407,36 @@ SOLUTIONS:
             stripped_tag = tag.strip()
             exact_match_pattern = f"*,{_escape_glob(stripped_tag)},*"
 
-            # Get the ids and hashes first to delete corresponding embeddings and graph edges (only non-deleted)
-            cursor = self.conn.execute(
-                "SELECT id, content_hash FROM memories WHERE (',' || REPLACE(tags, ' ', '') || ',') GLOB ? AND deleted_at IS NULL",
-                (exact_match_pattern,)
-            )
-            rows = cursor.fetchall()
-            memory_ids = [row[0] for row in rows]
-            content_hashes = [row[1] for row in rows]
-
-            # Delete embeddings (won't be needed for search)
-            for memory_id in memory_ids:
-                self.conn.execute('DELETE FROM memory_embeddings WHERE rowid = ?', (memory_id,))
-
-            # Remove associated graph edges to prevent orphans (#632)
-            for ch in content_hashes:
-                self.conn.execute(
-                    'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
-                    (ch, ch)
+            def _delete_by_tag():
+                # Get the ids and hashes first to delete corresponding embeddings and graph edges (only non-deleted)
+                cursor = self.conn.execute(
+                    "SELECT id, content_hash FROM memories WHERE (',' || REPLACE(tags, ' ', '') || ',') GLOB ? AND deleted_at IS NULL",
+                    (exact_match_pattern,)
                 )
+                rows = cursor.fetchall()
+                memory_ids = [row[0] for row in rows]
+                content_hashes = [row[1] for row in rows]
 
-            # Soft-delete: set deleted_at timestamp instead of DELETE
-            cursor = self.conn.execute(
-                "UPDATE memories SET deleted_at = ? WHERE (',' || REPLACE(tags, ' ', '') || ',') GLOB ? AND deleted_at IS NULL",
-                (time.time(), exact_match_pattern)
-            )
-            self.conn.commit()
+                # Delete embeddings (won't be needed for search)
+                for memory_id in memory_ids:
+                    self.conn.execute('DELETE FROM memory_embeddings WHERE rowid = ?', (memory_id,))
 
-            count = cursor.rowcount
+                # Remove associated graph edges to prevent orphans (#632)
+                for ch in content_hashes:
+                    self.conn.execute(
+                        'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
+                        (ch, ch)
+                    )
+
+                # Soft-delete: set deleted_at timestamp instead of DELETE
+                cursor = self.conn.execute(
+                    "UPDATE memories SET deleted_at = ? WHERE (',' || REPLACE(tags, ' ', '') || ',') GLOB ? AND deleted_at IS NULL",
+                    (time.time(), exact_match_pattern)
+                )
+                self.conn.commit()
+                return cursor.rowcount
+
+            count = await self._execute_with_retry(_delete_by_tag)
             logger.info(f"Soft-deleted {count} memories with tag: {_sanitize_log_value(tag)}")
 
             if count > 0:
@@ -2405,31 +2472,34 @@ SOLUTIONS:
             conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') GLOB ?" for _ in stripped_tags])
             params = [f"*,{_escape_glob(tag)},*" for tag in stripped_tags]
 
-            # Get the ids and content_hashes first to delete corresponding embeddings (only non-deleted)
-            query = f'SELECT id, content_hash FROM memories WHERE ({conditions}) AND deleted_at IS NULL'
-            cursor = self.conn.execute(query, params)
-            rows = cursor.fetchall()
-            memory_ids = [row[0] for row in rows]
-            deleted_hashes = [row[1] for row in rows]
-
-            # Delete from embeddings table using single query with IN clause
-            if memory_ids:
-                placeholders = ','.join('?' for _ in memory_ids)
-                self.conn.execute(f'DELETE FROM memory_embeddings WHERE rowid IN ({placeholders})', memory_ids)
-
-            # Remove associated graph edges to prevent orphans (#632)
-            for ch in deleted_hashes:
-                self.conn.execute(
-                    'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
-                    (ch, ch)
-                )
-
-            # Soft-delete: set deleted_at timestamp instead of DELETE
+            select_query = f'SELECT id, content_hash FROM memories WHERE ({conditions}) AND deleted_at IS NULL'
             update_query = f'UPDATE memories SET deleted_at = ? WHERE ({conditions}) AND deleted_at IS NULL'
-            cursor = self.conn.execute(update_query, [time.time()] + params)
-            self.conn.commit()
 
-            count = cursor.rowcount
+            def _delete_by_tags():
+                # Get the ids and content_hashes first to delete corresponding embeddings (only non-deleted)
+                cursor = self.conn.execute(select_query, params)
+                rows = cursor.fetchall()
+                memory_ids = [row[0] for row in rows]
+                hashes = [row[1] for row in rows]
+
+                # Delete from embeddings table using single query with IN clause
+                if memory_ids:
+                    placeholders = ','.join('?' for _ in memory_ids)
+                    self.conn.execute(f'DELETE FROM memory_embeddings WHERE rowid IN ({placeholders})', memory_ids)
+
+                # Remove associated graph edges to prevent orphans (#632)
+                for ch in hashes:
+                    self.conn.execute(
+                        'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
+                        (ch, ch)
+                    )
+
+                # Soft-delete: set deleted_at timestamp instead of DELETE
+                cursor = self.conn.execute(update_query, [time.time()] + params)
+                self.conn.commit()
+                return cursor.rowcount, hashes
+
+            count, deleted_hashes = await self._execute_with_retry(_delete_by_tags)
             logger.info(f"Soft-deleted {count} memories matching tags: {tags}")
 
             if count > 0:
@@ -2452,27 +2522,29 @@ SOLUTIONS:
             start_ts = datetime.combine(start_date, datetime.min.time()).timestamp()
             end_ts = datetime.combine(end_date, datetime.max.time()).timestamp()
 
-            if tag:
-                # Delete with tag filter (GLOB for exact tag match in CSV column)
-                stripped_tag = tag.strip()
-                cursor = self.conn.execute(
-                    """
-                    SELECT content_hash FROM memories
-                    WHERE created_at >= ? AND created_at <= ?
-                    AND (',' || REPLACE(tags, ' ', '') || ',') GLOB ?
-                    AND deleted_at IS NULL
-                """,
-                    (start_ts, end_ts, f"*,{_escape_glob(stripped_tag)},*"),
-                )
-            else:
-                # Delete all in timeframe
-                cursor = self.conn.execute('''
-                    SELECT content_hash FROM memories
-                    WHERE created_at >= ? AND created_at <= ?
-                    AND deleted_at IS NULL
-                ''', (start_ts, end_ts))
+            def _select_timeframe():
+                if tag:
+                    # Delete with tag filter (GLOB for exact tag match in CSV column)
+                    stripped_tag = tag.strip()
+                    cursor = self.conn.execute(
+                        """
+                        SELECT content_hash FROM memories
+                        WHERE created_at >= ? AND created_at <= ?
+                        AND (',' || REPLACE(tags, ' ', '') || ',') GLOB ?
+                        AND deleted_at IS NULL
+                    """,
+                        (start_ts, end_ts, f"*,{_escape_glob(stripped_tag)},*"),
+                    )
+                else:
+                    # Delete all in timeframe
+                    cursor = self.conn.execute('''
+                        SELECT content_hash FROM memories
+                        WHERE created_at >= ? AND created_at <= ?
+                        AND deleted_at IS NULL
+                    ''', (start_ts, end_ts))
+                return cursor.fetchall()
 
-            hashes = [row[0] for row in cursor.fetchall()]
+            hashes = [row[0] for row in await self._execute_with_retry(_select_timeframe)]
 
             # Use soft-delete for each hash
             deleted_count = 0
@@ -2496,27 +2568,29 @@ SOLUTIONS:
             # Convert date to timestamp
             before_ts = datetime.combine(before_date, datetime.min.time()).timestamp()
 
-            if tag:
-                # Delete with tag filter (GLOB for exact tag match in CSV column)
-                stripped_tag = tag.strip()
-                cursor = self.conn.execute(
-                    """
-                    SELECT content_hash FROM memories
-                    WHERE created_at < ?
-                    AND (',' || REPLACE(tags, ' ', '') || ',') GLOB ?
-                    AND deleted_at IS NULL
-                """,
-                    (before_ts, f"*,{_escape_glob(stripped_tag)},*"),
-                )
-            else:
-                # Delete all before date
-                cursor = self.conn.execute('''
-                    SELECT content_hash FROM memories
-                    WHERE created_at < ?
-                    AND deleted_at IS NULL
-                ''', (before_ts,))
+            def _select_before_date():
+                if tag:
+                    # Delete with tag filter (GLOB for exact tag match in CSV column)
+                    stripped_tag = tag.strip()
+                    cursor = self.conn.execute(
+                        """
+                        SELECT content_hash FROM memories
+                        WHERE created_at < ?
+                        AND (',' || REPLACE(tags, ' ', '') || ',') GLOB ?
+                        AND deleted_at IS NULL
+                    """,
+                        (before_ts, f"*,{_escape_glob(stripped_tag)},*"),
+                    )
+                else:
+                    # Delete all before date
+                    cursor = self.conn.execute('''
+                        SELECT content_hash FROM memories
+                        WHERE created_at < ?
+                        AND deleted_at IS NULL
+                    ''', (before_ts,))
+                return cursor.fetchall()
 
-            hashes = [row[0] for row in cursor.fetchall()]
+            hashes = [row[0] for row in await self._execute_with_retry(_select_before_date)]
 
             # Use soft-delete for each hash
             deleted_count = 0
@@ -2538,17 +2612,19 @@ SOLUTIONS:
                 return []
 
             # Use case-insensitive substring matching (LIKE) instead of exact equality
-            cursor = self.conn.execute('''
-                SELECT content, tags, memory_type, metadata, content_hash,
-                       created_at, created_at_iso, updated_at, updated_at_iso
-                FROM memories
-                WHERE content LIKE '%' || ? || '%' COLLATE NOCASE
-                AND deleted_at IS NULL
-                ORDER BY created_at DESC
-            ''', (content,))
+            def _get_by_exact_content():
+                cursor = self.conn.execute('''
+                    SELECT content, tags, memory_type, metadata, content_hash,
+                           created_at, created_at_iso, updated_at, updated_at_iso
+                    FROM memories
+                    WHERE content LIKE '%' || ? || '%' COLLATE NOCASE
+                    AND deleted_at IS NULL
+                    ORDER BY created_at DESC
+                ''', (content,))
+                return cursor.fetchall()
 
             memories = []
-            for row in cursor.fetchall():
+            for row in await self._execute_with_retry(_get_by_exact_content):
                 content_str, tags_str, memory_type, metadata_str, content_hash, \
                     created_at, created_at_iso, updated_at, updated_at_iso = row
 
@@ -2581,20 +2657,22 @@ SOLUTIONS:
                 return 0, "Database not initialized"
 
             # Soft delete duplicates (keep the first occurrence by rowid)
-            cursor = self.conn.execute('''
-                UPDATE memories
-                SET deleted_at = ?
-                WHERE rowid NOT IN (
-                    SELECT MIN(rowid)
-                    FROM memories
-                    WHERE deleted_at IS NULL
-                    GROUP BY content_hash
-                )
-                AND deleted_at IS NULL
-            ''', (time.time(),))
-            self.conn.commit()
+            def _cleanup_dups():
+                cursor = self.conn.execute('''
+                    UPDATE memories
+                    SET deleted_at = ?
+                    WHERE rowid NOT IN (
+                        SELECT MIN(rowid)
+                        FROM memories
+                        WHERE deleted_at IS NULL
+                        GROUP BY content_hash
+                    )
+                    AND deleted_at IS NULL
+                ''', (time.time(),))
+                self.conn.commit()
+                return cursor.rowcount
 
-            count = cursor.rowcount
+            count = await self._execute_with_retry(_cleanup_dups)
             logger.info(f"Soft-deleted {count} duplicate memories")
 
             if count > 0:
@@ -2614,56 +2692,59 @@ SOLUTIONS:
                 return False, "Database not initialized"
             
             # Get current memory
-            cursor = self.conn.execute(
-                """
-                SELECT content, tags, memory_type, metadata, created_at, created_at_iso
-                FROM memories WHERE content_hash = ? AND deleted_at IS NULL
-            """,
-                (content_hash,),
-            )
+            def _read_current():
+                cursor = self.conn.execute(
+                    """
+                    SELECT content, tags, memory_type, metadata, created_at, created_at_iso,
+                           updated_at, updated_at_iso
+                    FROM memories WHERE content_hash = ? AND deleted_at IS NULL
+                """,
+                    (content_hash,),
+                )
+                return cursor.fetchone()
 
-            row = cursor.fetchone()
+            row = await self._execute_with_retry(_read_current)
             if not row:
                 return False, f"Memory with hash {content_hash} not found"
-            
-            content, current_tags, current_type, current_metadata_str, created_at, created_at_iso = row
-            
+
+            content, current_tags, current_type, current_metadata_str, created_at, created_at_iso, current_updated_at, current_updated_at_iso = row
+
             # Parse current metadata
             current_metadata = self._safe_json_loads(current_metadata_str, "update_memory_metadata")
-            
+
             # Apply updates
             new_tags = current_tags
             new_type = current_type
             new_metadata = current_metadata.copy()
-            
+
             # Handle tag updates
             if "tags" in updates:
                 if isinstance(updates["tags"], list):
                     new_tags = ",".join(updates["tags"])
                 else:
                     return False, "Tags must be provided as a list of strings"
-            
+
             # Handle memory type updates
             if "memory_type" in updates:
                 new_type = updates["memory_type"]
-            
+
             # Handle metadata updates
             if "metadata" in updates:
                 if isinstance(updates["metadata"], dict):
                     new_metadata.update(updates["metadata"])
                 else:
                     return False, "Metadata must be provided as a dictionary"
-            
+
             # Handle other custom fields
             protected_fields = {
                 "content", "content_hash", "tags", "memory_type", "metadata",
                 "embedding", "created_at", "created_at_iso", "updated_at", "updated_at_iso"
             }
-            
+
             for key, value in updates.items():
                 if key not in protected_fields:
                     new_metadata[key] = value
-            
+
             # Update timestamps
             now = time.time()
             now_iso = datetime.utcfromtimestamp(now).isoformat() + "Z"
@@ -2675,15 +2756,9 @@ SOLUTIONS:
             #   or fall back to current time for content/structural changes.
             structural_change = any(k in updates for k in ("tags", "memory_type", "content"))
             if preserve_timestamps and not structural_change:
-                # Pure metadata update — keep existing timestamps
-                # We need to read the current updated_at from the DB
-                ts_cursor = self.conn.execute(
-                    "SELECT updated_at, updated_at_iso FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
-                    (content_hash,),
-                )
-                ts_row = ts_cursor.fetchone()
-                updated_at = ts_row[0] if ts_row else now
-                updated_at_iso = ts_row[1] if ts_row else now_iso
+                # Pure metadata update — keep existing timestamps (already read above)
+                updated_at = current_updated_at if current_updated_at else now
+                updated_at_iso = current_updated_at_iso if current_updated_at_iso else now_iso
             elif not preserve_timestamps:
                 # Sync use case: use timestamps from updates dict if provided
                 created_at = updates.get('created_at', created_at)
@@ -2696,28 +2771,30 @@ SOLUTIONS:
                 updated_at_iso = now_iso
 
             # Update the memory
-            self.conn.execute(
-                """
-                UPDATE memories SET
-                    tags = ?, memory_type = ?, metadata = ?,
-                    updated_at = ?, updated_at_iso = ?,
-                    created_at = ?, created_at_iso = ?
-                WHERE content_hash = ? AND deleted_at IS NULL
-            """,
-                (
-                    new_tags,
-                    new_type,
-                    json.dumps(new_metadata),
-                    updated_at,
-                    updated_at_iso,
-                    created_at,
-                    created_at_iso,
-                    content_hash,
-                ),
-            )
+            def _do_update():
+                self.conn.execute(
+                    """
+                    UPDATE memories SET
+                        tags = ?, memory_type = ?, metadata = ?,
+                        updated_at = ?, updated_at_iso = ?,
+                        created_at = ?, created_at_iso = ?
+                    WHERE content_hash = ? AND deleted_at IS NULL
+                """,
+                    (
+                        new_tags,
+                        new_type,
+                        json.dumps(new_metadata),
+                        updated_at,
+                        updated_at_iso,
+                        created_at,
+                        created_at_iso,
+                        content_hash,
+                    ),
+                )
+                self.conn.commit()
 
-            self.conn.commit()
-            
+            await self._execute_with_retry(_do_update)
+
             # Create summary of updated fields
             updated_fields = []
             if "tags" in updates:
@@ -2726,11 +2803,11 @@ SOLUTIONS:
                 updated_fields.append("memory_type")
             if "metadata" in updates:
                 updated_fields.append("custom_metadata")
-            
+
             for key in updates.keys():
                 if key not in protected_fields and key not in ["tags", "memory_type", "metadata"]:
                     updated_fields.append(key)
-            
+
             updated_fields.append("updated_at")
 
             summary = f"Updated fields: {', '.join(updated_fields)}"
@@ -2768,83 +2845,83 @@ SOLUTIONS:
             now = time.time()
             now_iso = datetime.utcfromtimestamp(now).isoformat() + "Z"
 
-            # Start transaction (will be committed at the end)
-            # SQLite doesn't have explicit BEGIN for Python DB-API, but we can use savepoint
-            cursor = self.conn.cursor()
+            def _batch_update():
+                cursor = self.conn.cursor()
+                for idx, memory in enumerate(memories):
+                    try:
+                        # Get current memory data (includes updated_at to avoid N+1 query #610)
+                        cursor.execute(
+                            """
+                            SELECT content, tags, memory_type, metadata, created_at, created_at_iso,
+                                   updated_at, updated_at_iso
+                            FROM memories WHERE content_hash = ? AND deleted_at IS NULL
+                        """,
+                            (memory.content_hash,),
+                        )
 
-            for idx, memory in enumerate(memories):
-                try:
-                    # Get current memory data (includes updated_at to avoid N+1 query #610)
-                    cursor.execute(
-                        """
-                        SELECT content, tags, memory_type, metadata, created_at, created_at_iso,
-                               updated_at, updated_at_iso
-                        FROM memories WHERE content_hash = ? AND deleted_at IS NULL
-                    """,
-                        (memory.content_hash,),
-                    )
+                        row = cursor.fetchone()
+                        if not row:
+                            logger.warning(f"Memory {memory.content_hash} not found during batch update")
+                            continue
 
-                    row = cursor.fetchone()
-                    if not row:
-                        logger.warning(f"Memory {memory.content_hash} not found during batch update")
+                        (content, current_tags, current_type, current_metadata_str,
+                         created_at, created_at_iso, current_updated_at, current_updated_at_iso) = row
+
+                        # Parse current metadata
+                        current_metadata = self._safe_json_loads(current_metadata_str, "update_memories_batch")
+
+                        # Merge metadata (new metadata takes precedence)
+                        if memory.metadata:
+                            merged_metadata = current_metadata.copy()
+                            merged_metadata.update(memory.metadata)
+                        else:
+                            merged_metadata = current_metadata
+
+                        # Prepare new values
+                        new_tags = ",".join(memory.tags) if memory.tags else current_tags
+                        new_type = memory.memory_type if memory.memory_type else current_type
+
+                        # Determine whether to advance updated_at (#605)
+                        structural_change = (
+                            new_tags != current_tags or
+                            new_type != current_type
+                        )
+                        if preserve_timestamps and not structural_change:
+                            # Pure metadata update — reuse timestamps from initial SELECT
+                            mem_updated_at = current_updated_at if current_updated_at else now
+                            mem_updated_at_iso = current_updated_at_iso if current_updated_at_iso else now_iso
+                        else:
+                            mem_updated_at = now
+                            mem_updated_at_iso = now_iso
+
+                        # Execute update
+                        cursor.execute(
+                            """
+                            UPDATE memories SET
+                                tags = ?, memory_type = ?, metadata = ?,
+                                updated_at = ?, updated_at_iso = ?
+                            WHERE content_hash = ? AND deleted_at IS NULL
+                        """,
+                            (
+                                new_tags,
+                                new_type,
+                                json.dumps(merged_metadata),
+                                mem_updated_at,
+                                mem_updated_at_iso,
+                                memory.content_hash,
+                            ),
+                        )
+
+                        results[idx] = True
+
+                    except Exception as e:
+                        logger.warning(f"Failed to update memory {memory.content_hash} in batch: {e}")
                         continue
 
-                    (content, current_tags, current_type, current_metadata_str,
-                     created_at, created_at_iso, current_updated_at, current_updated_at_iso) = row
+                # Commit all updates in a single transaction
+                self.conn.commit()
 
-                    # Parse current metadata
-                    current_metadata = self._safe_json_loads(current_metadata_str, "update_memories_batch")
-
-                    # Merge metadata (new metadata takes precedence)
-                    if memory.metadata:
-                        merged_metadata = current_metadata.copy()
-                        merged_metadata.update(memory.metadata)
-                    else:
-                        merged_metadata = current_metadata
-
-                    # Prepare new values
-                    new_tags = ",".join(memory.tags) if memory.tags else current_tags
-                    new_type = memory.memory_type if memory.memory_type else current_type
-
-                    # Determine whether to advance updated_at (#605)
-                    structural_change = (
-                        new_tags != current_tags or
-                        new_type != current_type
-                    )
-                    if preserve_timestamps and not structural_change:
-                        # Pure metadata update — reuse timestamps from initial SELECT
-                        mem_updated_at = current_updated_at if current_updated_at else now
-                        mem_updated_at_iso = current_updated_at_iso if current_updated_at_iso else now_iso
-                    else:
-                        mem_updated_at = now
-                        mem_updated_at_iso = now_iso
-
-                    # Execute update
-                    cursor.execute(
-                        """
-                        UPDATE memories SET
-                            tags = ?, memory_type = ?, metadata = ?,
-                            updated_at = ?, updated_at_iso = ?
-                        WHERE content_hash = ? AND deleted_at IS NULL
-                    """,
-                        (
-                            new_tags,
-                            new_type,
-                            json.dumps(merged_metadata),
-                            mem_updated_at,
-                            mem_updated_at_iso,
-                            memory.content_hash,
-                        ),
-                    )
-
-                    results[idx] = True
-
-                except Exception as e:
-                    logger.warning(f"Failed to update memory {memory.content_hash} in batch: {e}")
-                    continue
-
-            # Commit all updates in a single transaction
-            self.conn.commit()
+            await self._execute_with_retry(_batch_update)
 
             success_count = sum(results)
             logger.info(f"Batch update completed: {success_count}/{len(memories)} memories updated successfully")
@@ -2866,24 +2943,30 @@ SOLUTIONS:
                 return {"error": "Database not initialized"}
 
             # Exclude soft-deleted memories from all stats
-            cursor = self.conn.execute('SELECT COUNT(*) FROM memories WHERE deleted_at IS NULL')
-            total_memories = cursor.fetchone()[0]
+            def _get_stats():
+                week_ago = time.time() - (7 * 24 * 60 * 60)
+                total = self.conn.execute(
+                    'SELECT COUNT(*) FROM memories WHERE deleted_at IS NULL'
+                ).fetchone()[0]
+                tag_rows = self.conn.execute(
+                    'SELECT tags FROM memories WHERE tags IS NOT NULL AND tags != "" AND deleted_at IS NULL'
+                ).fetchall()
+                this_week = self.conn.execute(
+                    'SELECT COUNT(*) FROM memories WHERE created_at >= ? AND deleted_at IS NULL',
+                    (week_ago,)
+                ).fetchone()[0]
+                return total, tag_rows, this_week
+
+            total_memories, tag_rows, memories_this_week = await self._execute_with_retry(_get_stats)
 
             # Count unique individual tags (not tag sets)
-            cursor = self.conn.execute('SELECT tags FROM memories WHERE tags IS NOT NULL AND tags != "" AND deleted_at IS NULL')
             unique_tags = len(set(
                 tag.strip()
-                for (tag_string,) in cursor
+                for (tag_string,) in tag_rows
                 if tag_string
                 for tag in tag_string.split(",")
                 if tag.strip()
             ))
-
-            # Count memories from this week (last 7 days)
-            import time
-            week_ago = time.time() - (7 * 24 * 60 * 60)
-            cursor = self.conn.execute('SELECT COUNT(*) FROM memories WHERE created_at >= ? AND deleted_at IS NULL', (week_ago,))
-            memories_this_week = cursor.fetchone()[0]
 
             # Get database file size
             file_size = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
@@ -2993,10 +3076,13 @@ SOLUTIONS:
                     # Prepare parameters: embedding, limit, then time filter params
                     query_params = [serialize_float32(query_embedding), n_results] + params
                     
-                    cursor = self.conn.execute(base_query, query_params)
-                    
+                    def _recall_semantic(bq=base_query, qp=query_params):
+                        cursor = self.conn.execute(bq, qp)
+                        return cursor.fetchall()
+
+                    rows = await self._execute_with_retry(_recall_semantic)
                     results = []
-                    for row in cursor.fetchall():
+                    for row in rows:
                         try:
                             # Parse row data
                             content_hash, content, tags_str, memory_type, metadata_str = row[:5]
@@ -3062,22 +3148,26 @@ SOLUTIONS:
                 base_query += " WHERE deleted_at IS NULL"
 
             base_query += " ORDER BY created_at DESC LIMIT ?"
-            
+
             # Add limit parameter
             params.append(n_results)
-            
-            cursor = self.conn.execute(base_query, params)
-            
+
+            def _recall_timebased(bq=base_query, p=params):
+                cursor = self.conn.execute(bq, p)
+                return cursor.fetchall()
+
+            time_rows = await self._execute_with_retry(_recall_timebased)
+
             results = []
-            for row in cursor.fetchall():
+            for row in time_rows:
                 try:
                     content_hash, content, tags_str, memory_type, metadata_str = row[:5]
                     created_at, updated_at, created_at_iso, updated_at_iso = row[5:]
-                    
+
                     # Parse tags and metadata
                     tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()] if tags_str else []
                     metadata = self._safe_json_loads(metadata_str, "memory_metadata")
-                    
+
                     memory = Memory(
                         content=content,
                         content_hash=content_hash,
@@ -3089,18 +3179,18 @@ SOLUTIONS:
                         created_at_iso=created_at_iso,
                         updated_at_iso=updated_at_iso
                     )
-                    
+
                     # For time-based retrieval, we don't have a relevance score
                     results.append(MemoryQueryResult(
                         memory=memory,
                         relevance_score=None,
                         debug_info={"backend": "sqlite-vec", "time_filtered": bool(time_where), "query_type": "time_based"}
                     ))
-                    
+
                 except Exception as parse_error:
                     logger.warning(f"Failed to parse memory result: {parse_error}")
                     continue
-            
+
             logger.info(f"Retrieved {len(results)} memories for time-based query")
             return results
             
@@ -3113,16 +3203,19 @@ SOLUTIONS:
         """Get memories within a specific time range."""
         try:
             await self.initialize()
-            cursor = self.conn.execute('''
-                SELECT content_hash, content, tags, memory_type, metadata,
-                       created_at, updated_at, created_at_iso, updated_at_iso
-                FROM memories
-                WHERE created_at BETWEEN ? AND ? AND deleted_at IS NULL
-                ORDER BY created_at DESC
-            ''', (start_time, end_time))
-            
+
+            def _get_by_time_range():
+                cursor = self.conn.execute('''
+                    SELECT content_hash, content, tags, memory_type, metadata,
+                           created_at, updated_at, created_at_iso, updated_at_iso
+                    FROM memories
+                    WHERE created_at BETWEEN ? AND ? AND deleted_at IS NULL
+                    ORDER BY created_at DESC
+                ''', (start_time, end_time))
+                return cursor.fetchall()
+
             results = []
-            for row in cursor.fetchall():
+            for row in await self._execute_with_retry(_get_by_time_range):
                 try:
                     content_hash, content, tags_str, memory_type, metadata_str = row[:5]
                     created_at, updated_at, created_at_iso, updated_at_iso = row[5:]
@@ -3160,16 +3253,19 @@ SOLUTIONS:
         """Get memory connection statistics."""
         try:
             await self.initialize()
+
             # For now, return basic statistics based on tags and content similarity
-            cursor = self.conn.execute("""
-                SELECT tags, COUNT(*) as count
-                FROM memories
-                WHERE tags IS NOT NULL AND tags != '' AND deleted_at IS NULL
-                GROUP BY tags
-            """)
+            def _get_connections():
+                cursor = self.conn.execute("""
+                    SELECT tags, COUNT(*) as count
+                    FROM memories
+                    WHERE tags IS NOT NULL AND tags != '' AND deleted_at IS NULL
+                    GROUP BY tags
+                """)
+                return cursor.fetchall()
 
             connections = {}
-            for row in cursor.fetchall():
+            for row in await self._execute_with_retry(_get_connections):
                 tags_str, count = row
                 if tags_str:
                     tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()]
@@ -3186,17 +3282,20 @@ SOLUTIONS:
         """Get memory access pattern statistics."""
         try:
             await self.initialize()
+
             # Return recent access patterns based on updated_at timestamps
-            cursor = self.conn.execute("""
-                SELECT content_hash, updated_at_iso
-                FROM memories
-                WHERE updated_at_iso IS NOT NULL AND deleted_at IS NULL
-                ORDER BY updated_at DESC
-                LIMIT 100
-            """)
+            def _get_access_patterns():
+                cursor = self.conn.execute("""
+                    SELECT content_hash, updated_at_iso
+                    FROM memories
+                    WHERE updated_at_iso IS NOT NULL AND deleted_at IS NULL
+                    ORDER BY updated_at DESC
+                    LIMIT 100
+                """)
+                return cursor.fetchall()
 
             patterns = {}
-            for row in cursor.fetchall():
+            for row in await self._execute_with_retry(_get_access_patterns):
                 content_hash, updated_at_iso = row
                 try:
                     patterns[content_hash] = datetime.fromisoformat(updated_at_iso.replace('Z', '+00:00'))
@@ -3306,16 +3405,18 @@ SOLUTIONS:
                 query += ' OFFSET ?'
                 params.append(offset)
             
-            cursor = self.conn.execute(query, params)
+            def _get_all(q=query, p=params):
+                cursor = self.conn.execute(q, p)
+                return cursor.fetchall()
+
             memories = []
-            
-            for row in cursor.fetchall():
+            for row in await self._execute_with_retry(_get_all):
                 memory = self._row_to_memory(row)
                 if memory:
                     memories.append(memory)
-            
+
             return memories
-            
+
         except Exception as e:
             logger.error(f"Error getting all memories: {str(e)}")
             return []
@@ -3354,9 +3455,11 @@ SOLUTIONS:
                 LIMIT ?
             """
 
-            cursor = self.conn.execute(query, (n,))
-            rows = cursor.fetchall()
+            def _get_largest(q=query, _n=n):
+                cursor = self.conn.execute(q, (_n,))
+                return cursor.fetchall()
 
+            rows = await self._execute_with_retry(_get_largest)
             memories = []
             for row in rows:
                 try:
@@ -3396,27 +3499,31 @@ SOLUTIONS:
         try:
             await self.initialize()
 
-            if days is not None:
-                cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-                cutoff_timestamp = cutoff.timestamp()
+            def _get_timestamps():
+                if days is not None:
+                    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+                    cutoff_timestamp = cutoff.timestamp()
+                    cursor = self.conn.execute(
+                        """
+                        SELECT created_at
+                        FROM memories
+                        WHERE created_at >= ? AND deleted_at IS NULL
+                        ORDER BY created_at DESC
+                        """,
+                        (cutoff_timestamp,)
+                    )
+                else:
+                    cursor = self.conn.execute(
+                        """
+                        SELECT created_at
+                        FROM memories
+                        WHERE deleted_at IS NULL
+                        ORDER BY created_at DESC
+                        """
+                    )
+                return cursor.fetchall()
 
-                query = """
-                    SELECT created_at
-                    FROM memories
-                    WHERE created_at >= ? AND deleted_at IS NULL
-                    ORDER BY created_at DESC
-                """
-                cursor = self.conn.execute(query, (cutoff_timestamp,))
-            else:
-                query = """
-                    SELECT created_at
-                    FROM memories
-                    WHERE deleted_at IS NULL
-                    ORDER BY created_at DESC
-                """
-                cursor = self.conn.execute(query)
-
-            rows = cursor.fetchall()
+            rows = await self._execute_with_retry(_get_timestamps)
             timestamps = [row[0] for row in rows if row[0] is not None]
 
             return timestamps
@@ -3461,11 +3568,15 @@ SOLUTIONS:
 
             # Build final query (always exclude soft-deleted)
             conditions.append('deleted_at IS NULL')
-            query = 'SELECT COUNT(*) FROM memories WHERE ' + ' AND '.join(conditions)
-            cursor = self.conn.execute(query, tuple(params))
+            count_query = 'SELECT COUNT(*) FROM memories WHERE ' + ' AND '.join(conditions)
+            count_params = tuple(params)
 
-            result = cursor.fetchone()
-            return result[0] if result else 0
+            def _count():
+                cursor = self.conn.execute(count_query, count_params)
+                result = cursor.fetchone()
+                return result[0] if result else 0
+
+            return await self._execute_with_retry(_count)
 
         except Exception as e:
             logger.error(f"Error counting memories: {str(e)}")
@@ -3483,14 +3594,15 @@ SOLUTIONS:
 
             # No explicit transaction needed - SQLite in WAL mode handles this automatically
             # Get all tags from the database (exclude soft-deleted)
-            cursor = self.conn.execute('''
-                SELECT tags
-                FROM memories
-                WHERE tags IS NOT NULL AND tags != '' AND deleted_at IS NULL
-            ''')
+            def _get_tags():
+                cursor = self.conn.execute('''
+                    SELECT tags
+                    FROM memories
+                    WHERE tags IS NOT NULL AND tags != '' AND deleted_at IS NULL
+                ''')
+                return cursor.fetchall()
 
-            # Fetch all rows first to avoid holding cursor during processing
-            rows = cursor.fetchall()
+            rows = await self._execute_with_retry(_get_tags)
 
             # Yield control to event loop before processing
             await asyncio.sleep(0)
@@ -3528,20 +3640,23 @@ SOLUTIONS:
                 return {}
 
             # Query memory_graph table for relationship type distribution
-            cursor = self.conn.execute("""
-                SELECT
-                    CASE
-                        WHEN relationship_type IS NULL OR relationship_type = '' THEN 'untyped'
-                        ELSE relationship_type
-                    END as rel_type,
-                    COUNT(*) as count
-                FROM memory_graph
-                GROUP BY rel_type
-                ORDER BY count DESC
-            """)
+            def _get_rel_distribution():
+                cursor = self.conn.execute("""
+                    SELECT
+                        CASE
+                            WHEN relationship_type IS NULL OR relationship_type = '' THEN 'untyped'
+                            ELSE relationship_type
+                        END as rel_type,
+                        COUNT(*) as count
+                    FROM memory_graph
+                    GROUP BY rel_type
+                    ORDER BY count DESC
+                """)
+                return cursor.fetchall()
 
+            rows = await self._execute_with_retry(_get_rel_distribution)
             # Convert to dictionary
-            distribution = {row[0]: row[1] for row in cursor.fetchall()}
+            distribution = {row[0]: row[1] for row in rows}
             return distribution
 
         except sqlite3.Error as e:
@@ -3575,30 +3690,32 @@ SOLUTIONS:
                 return {"nodes": [], "edges": []}
 
             # Step 1: Find most connected memories (nodes)
-            cursor = self.conn.execute("""
-                SELECT
-                    m.content_hash,
-                    m.content,
-                    m.memory_type,
-                    m.created_at,
-                    m.updated_at,
-                    m.tags,
-                    m.metadata,
-                    COUNT(DISTINCT mg.target_hash) as connection_count
-                FROM memories m
-                INNER JOIN memory_graph mg ON m.content_hash = mg.source_hash
-                WHERE m.deleted_at IS NULL
-                GROUP BY m.content_hash
-                HAVING connection_count >= ?
-                ORDER BY connection_count DESC
-                LIMIT ?
-            """, (min_connections, limit))
+            def _get_graph_nodes():
+                cursor = self.conn.execute("""
+                    SELECT
+                        m.content_hash,
+                        m.content,
+                        m.memory_type,
+                        m.created_at,
+                        m.updated_at,
+                        m.tags,
+                        m.metadata,
+                        COUNT(DISTINCT mg.target_hash) as connection_count
+                    FROM memories m
+                    INNER JOIN memory_graph mg ON m.content_hash = mg.source_hash
+                    WHERE m.deleted_at IS NULL
+                    GROUP BY m.content_hash
+                    HAVING connection_count >= ?
+                    ORDER BY connection_count DESC
+                    LIMIT ?
+                """, (min_connections, limit))
+                return cursor.fetchall()
 
             # Build nodes list
             nodes = []
             node_hashes = set()
 
-            for row in cursor.fetchall():
+            for row in await self._execute_with_retry(_get_graph_nodes):
                 content_hash, content, memory_type, created_at, updated_at, tags_str, metadata_str, connection_count = row
 
                 # Parse tags
@@ -3638,11 +3755,13 @@ SOLUTIONS:
                 """
 
                 # Execute with node hashes twice (for both source and target)
-                cursor = self.conn.execute(query, list(node_hashes) + list(node_hashes))
+                def _get_graph_edges(q=query, nh=node_hashes):
+                    cursor = self.conn.execute(q, list(nh) + list(nh))
+                    return cursor.fetchall()
 
                 # Build edges list
                 edges = []
-                for row in cursor.fetchall():
+                for row in await self._execute_with_retry(_get_graph_edges):
                     source, target, rel_type, similarity, conn_types = row
 
                     edges.append({
@@ -3766,41 +3885,43 @@ SOLUTIONS:
         """Tag conflicting memories and create graph edges."""
         import json as _json
 
-        for c in conflicts:
-            existing_hash = c["existing_hash"]
-            metadata = _json.dumps({
-                "similarity": c["similarity"],
-                "divergence": c["divergence"],
-                "detected_at": time.time(),
-            })
+        def _record_all_conflicts():
+            for c in conflicts:
+                existing_hash = c["existing_hash"]
+                metadata = _json.dumps({
+                    "similarity": c["similarity"],
+                    "divergence": c["divergence"],
+                    "detected_at": time.time(),
+                })
 
-            # Add conflict:unresolved tag to both memories
-            for h in (new_hash, existing_hash):
-                cursor = self.conn.execute(
-                    "SELECT tags FROM memories WHERE content_hash = ?", (h,)
-                )
-                row = cursor.fetchone()
-                if row:
-                    tags = row[0] or ""
-                    if "conflict:unresolved" not in tags:
-                        new_tags = f"{tags},conflict:unresolved" if tags else "conflict:unresolved"
-                        self.conn.execute(
-                            "UPDATE memories SET tags = ? WHERE content_hash = ?",
-                            (new_tags, h),
-                        )
+                # Add conflict:unresolved tag to both memories
+                for h in (new_hash, existing_hash):
+                    cursor = self.conn.execute(
+                        "SELECT tags FROM memories WHERE content_hash = ?", (h,)
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        tags = row[0] or ""
+                        if "conflict:unresolved" not in tags:
+                            new_tags = f"{tags},conflict:unresolved" if tags else "conflict:unresolved"
+                            self.conn.execute(
+                                "UPDATE memories SET tags = ? WHERE content_hash = ?",
+                                (new_tags, h),
+                            )
 
-            # Create bidirectional contradicts edge in memory_graph
-            now = time.time()
-            for src, tgt in ((new_hash, existing_hash), (existing_hash, new_hash)):
-                self.conn.execute(
-                    """INSERT OR REPLACE INTO memory_graph
-                       (source_hash, target_hash, similarity, connection_types,
-                        metadata, created_at, relationship_type)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (src, tgt, c["similarity"], "semantic",
-                     metadata, now, "contradicts"),
-                )
+                # Create bidirectional contradicts edge in memory_graph
+                now = time.time()
+                for src, tgt in ((new_hash, existing_hash), (existing_hash, new_hash)):
+                    self.conn.execute(
+                        """INSERT OR REPLACE INTO memory_graph
+                           (source_hash, target_hash, similarity, connection_types,
+                            metadata, created_at, relationship_type)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (src, tgt, c["similarity"], "semantic",
+                         metadata, now, "contradicts"),
+                    )
 
+        await self._execute_with_retry(_record_all_conflicts)
         logger.info(f"Recorded {len(conflicts)} conflict(s) for {new_hash[:8]}")
 
     async def get_conflicts(self) -> list:
@@ -3809,19 +3930,22 @@ SOLUTIONS:
             return []
 
         try:
-            cursor = self.conn.execute(
-                """SELECT g.source_hash, g.target_hash, g.similarity, g.metadata,
-                          m1.content AS content_a, m2.content AS content_b
-                   FROM memory_graph g
-                   JOIN memories m1 ON m1.content_hash = g.source_hash
-                   JOIN memories m2 ON m2.content_hash = g.target_hash
-                   WHERE g.relationship_type = 'contradicts'
-                   AND m1.deleted_at IS NULL AND (m1.superseded_by IS NULL OR m1.superseded_by = '')
-                   AND m2.deleted_at IS NULL AND (m2.superseded_by IS NULL OR m2.superseded_by = '')
-                   AND g.source_hash < g.target_hash"""
-            )
+            def _get_conflicts():
+                cursor = self.conn.execute(
+                    """SELECT g.source_hash, g.target_hash, g.similarity, g.metadata,
+                              m1.content AS content_a, m2.content AS content_b
+                       FROM memory_graph g
+                       JOIN memories m1 ON m1.content_hash = g.source_hash
+                       JOIN memories m2 ON m2.content_hash = g.target_hash
+                       WHERE g.relationship_type = 'contradicts'
+                       AND m1.deleted_at IS NULL AND (m1.superseded_by IS NULL OR m1.superseded_by = '')
+                       AND m2.deleted_at IS NULL AND (m2.superseded_by IS NULL OR m2.superseded_by = '')
+                       AND g.source_hash < g.target_hash"""
+                )
+                return cursor.fetchall()
+
             results = []
-            for row in cursor.fetchall():
+            for row in await self._execute_with_retry(_get_conflicts):
                 meta = self._safe_json_loads(row[3], "get_conflicts") if row[3] else {}
                 results.append({
                     "hash_a": row[0],
@@ -3844,42 +3968,52 @@ SOLUTIONS:
                 return False, "Database not initialized"
 
             # Verify both exist and are active
-            for h, label in ((winner_hash, "Winner"), (loser_hash, "Loser")):
-                cursor = self.conn.execute(
-                    "SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
-                    (h,),
-                )
-                if not cursor.fetchone():
-                    return False, f"{label} memory {h} not found or deleted"
+            def _check_both_exist():
+                for h, label in ((winner_hash, "Winner"), (loser_hash, "Loser")):
+                    cursor = self.conn.execute(
+                        "SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                        (h,),
+                    )
+                    if not cursor.fetchone():
+                        return label, h
+                return None
+
+            missing = await self._execute_with_retry(_check_both_exist)
+            if missing:
+                label, h = missing
+                return False, f"{label} memory {h} not found or deleted"
 
             now = time.time()
 
-            # Mark loser as superseded
-            self.conn.execute(
-                "UPDATE memories SET superseded_by = ? WHERE content_hash = ?",
-                (winner_hash, loser_hash),
-            )
-
-            # Boost winner: confidence = 1.0, last_accessed = now
-            self.conn.execute(
-                "UPDATE memories SET confidence = 1.0, last_accessed = ? WHERE content_hash = ?",
-                (int(now), winner_hash),
-            )
-
-            # Remove conflict:unresolved tag from both
-            for h in (winner_hash, loser_hash):
-                cursor = self.conn.execute(
-                    "SELECT tags FROM memories WHERE content_hash = ?", (h,)
+            def _do_resolve():
+                # Mark loser as superseded
+                self.conn.execute(
+                    "UPDATE memories SET superseded_by = ? WHERE content_hash = ?",
+                    (winner_hash, loser_hash),
                 )
-                row = cursor.fetchone()
-                if row and row[0]:
-                    tags = [t.strip() for t in row[0].split(",") if t.strip() != "conflict:unresolved"]
-                    self.conn.execute(
-                        "UPDATE memories SET tags = ? WHERE content_hash = ?",
-                        (",".join(tags), h),
-                    )
 
-            self.conn.commit()
+                # Boost winner: confidence = 1.0, last_accessed = now
+                self.conn.execute(
+                    "UPDATE memories SET confidence = 1.0, last_accessed = ? WHERE content_hash = ?",
+                    (int(now), winner_hash),
+                )
+
+                # Remove conflict:unresolved tag from both
+                for h in (winner_hash, loser_hash):
+                    cursor = self.conn.execute(
+                        "SELECT tags FROM memories WHERE content_hash = ?", (h,)
+                    )
+                    row = cursor.fetchone()
+                    if row and row[0]:
+                        tags = [t.strip() for t in row[0].split(",") if t.strip() != "conflict:unresolved"]
+                        self.conn.execute(
+                            "UPDATE memories SET tags = ? WHERE content_hash = ?",
+                            (",".join(tags), h),
+                        )
+
+                self.conn.commit()
+
+            await self._execute_with_retry(_do_resolve)
             logger.info(f"Conflict resolved: {winner_hash[:8]} wins over {loser_hash[:8]}")
             return True, f"Conflict resolved: {winner_hash[:8]} supersedes {loser_hash[:8]}"
 
@@ -3909,12 +4043,16 @@ SOLUTIONS:
 
         hashes = [r.memory.content_hash for r in raw]
         placeholders = ",".join("?" * len(hashes))
-        cursor = self.conn.execute(
-            f"SELECT content_hash, confidence, last_accessed, created_at "
-            f"FROM memories WHERE content_hash IN ({placeholders})",
-            hashes,
-        )
-        meta = {row[0]: row[1:] for row in cursor.fetchall()}
+
+        def _fetch_staleness_meta(ph=placeholders, h=hashes):
+            cursor = self.conn.execute(
+                f"SELECT content_hash, confidence, last_accessed, created_at "
+                f"FROM memories WHERE content_hash IN ({ph})",
+                h,
+            )
+            return cursor.fetchall()
+
+        meta = {row[0]: row[1:] for row in await self._execute_with_retry(_fetch_staleness_meta)}
 
         now = time.time()
         enriched: List[MemoryQueryResult] = []
@@ -3968,13 +4106,16 @@ SOLUTIONS:
             if not self.conn:
                 return False, "Database not initialized", None
 
-            cursor = self.conn.execute(
-                """SELECT content_hash, content, tags, memory_type, metadata, version
-                   FROM memories
-                   WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL""",
-                (content_hash,),
-            )
-            row = cursor.fetchone()
+            def _read_for_versioning():
+                cursor = self.conn.execute(
+                    """SELECT content_hash, content, tags, memory_type, metadata, version
+                       FROM memories
+                       WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL""",
+                    (content_hash,),
+                )
+                return cursor.fetchone()
+
+            row = await self._execute_with_retry(_read_for_versioning)
             if not row:
                 return False, f"Memory {content_hash} not found or already superseded", None
 
@@ -4005,8 +4146,10 @@ SOLUTIONS:
 
             # Atomic operation: insert new version + link lineage in a single SAVEPOINT.
             # Prevents orphaned nodes if any step fails (per repo rules on batch inserts).
+            # Unique name prevents collision when concurrent evolve calls share the connection.
+            _ev_sp = f"evolve_{os.urandom(4).hex()}"
             def versioned_insert():
-                self.conn.execute('SAVEPOINT evolve_memory')
+                self.conn.execute(f'SAVEPOINT {_ev_sp}')
                 try:
                     self._purge_tombstone(new_hash)
                     cursor = self.conn.execute('''
@@ -4031,14 +4174,15 @@ SOLUTIONS:
                         "UPDATE memories SET superseded_by = ? WHERE content_hash = ?",
                         (new_hash, old_hash),
                     )
-                    self.conn.execute('RELEASE SAVEPOINT evolve_memory')
+                    self.conn.execute(f'RELEASE SAVEPOINT {_ev_sp}')
                 except Exception:
-                    self.conn.execute('ROLLBACK TO SAVEPOINT evolve_memory')
-                    self.conn.execute('RELEASE SAVEPOINT evolve_memory')
+                    self.conn.execute(f'ROLLBACK TO SAVEPOINT {_ev_sp}')
+                    self.conn.execute(f'RELEASE SAVEPOINT {_ev_sp}')
                     raise
 
-            await self._execute_with_retry(versioned_insert)
-            await self._execute_with_retry(self.conn.commit)
+            async with self._savepoint_lock:
+                await self._execute_with_retry(versioned_insert)
+                await self._execute_with_retry(self.conn.commit)
             logger.info(f"Memory evolved: {old_hash[:8]} → {new_hash[:8]} (v{old_version} → v{new_ver})")
             return True, f"Memory updated (v{old_version} → v{new_ver})", new_hash
 
@@ -4065,13 +4209,18 @@ SOLUTIONS:
                 if current in visited:
                     break
                 visited.add(current)
-                cursor = self.conn.execute(
-                    """SELECT m.parent_id FROM memories m
-                       WHERE m.content_hash = ? AND m.parent_id IS NOT NULL
-                       AND EXISTS (SELECT 1 FROM memories p WHERE p.content_hash = m.parent_id)""",
-                    (current,),
-                )
-                row = cursor.fetchone()
+                _current = current
+
+                def _get_parent(c=_current):
+                    cursor = self.conn.execute(
+                        """SELECT m.parent_id FROM memories m
+                           WHERE m.content_hash = ? AND m.parent_id IS NOT NULL
+                           AND EXISTS (SELECT 1 FROM memories p WHERE p.content_hash = m.parent_id)""",
+                        (c,),
+                    )
+                    return cursor.fetchone()
+
+                row = await self._execute_with_retry(_get_parent)
                 if not row:
                     break
                 current = row[0]
@@ -4079,24 +4228,27 @@ SOLUTIONS:
             root = current
 
             # Walk lineage forward from root (exclude soft-deleted nodes)
-            cursor = self.conn.execute(
-                """
-                WITH RECURSIVE lineage(content_hash, content, version, parent_id, superseded_by, created_at) AS (
+            def _get_lineage(r=root):
+                cursor = self.conn.execute(
+                    """
+                    WITH RECURSIVE lineage(content_hash, content, version, parent_id, superseded_by, created_at) AS (
+                        SELECT content_hash, content, version, parent_id, superseded_by, created_at
+                        FROM memories WHERE content_hash = ? AND deleted_at IS NULL
+                        UNION ALL
+                        SELECT m.content_hash, m.content, m.version, m.parent_id, m.superseded_by, m.created_at
+                        FROM memories m
+                        INNER JOIN lineage l ON m.parent_id = l.content_hash
+                        WHERE m.deleted_at IS NULL
+                    )
                     SELECT content_hash, content, version, parent_id, superseded_by, created_at
-                    FROM memories WHERE content_hash = ? AND deleted_at IS NULL
-                    UNION ALL
-                    SELECT m.content_hash, m.content, m.version, m.parent_id, m.superseded_by, m.created_at
-                    FROM memories m
-                    INNER JOIN lineage l ON m.parent_id = l.content_hash
-                    WHERE m.deleted_at IS NULL
+                    FROM lineage
+                    ORDER BY COALESCE(version, 1) ASC
+                    """,
+                    (r,),
                 )
-                SELECT content_hash, content, version, parent_id, superseded_by, created_at
-                FROM lineage
-                ORDER BY COALESCE(version, 1) ASC
-                """,
-                (root,),
-            )
+                return cursor.fetchall()
 
+            lineage_rows = await self._execute_with_retry(_get_lineage)
             return [
                 {
                     "content_hash": r[0],
@@ -4107,7 +4259,7 @@ SOLUTIONS:
                     "created_at": r[5],
                     "active": r[4] is None,
                 }
-                for r in cursor.fetchall()
+                for r in lineage_rows
             ]
 
         except Exception as e:
