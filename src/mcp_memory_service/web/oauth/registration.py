@@ -18,13 +18,12 @@ OAuth 2.1 Dynamic Client Registration implementation for MCP Memory Service.
 Implements RFC 7591 - OAuth 2.0 Dynamic Client Registration Protocol.
 """
 
-import os
 import secrets
 import time
 import logging
 from typing import List, Optional
 from urllib.parse import urlparse, ParseResult
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import ValidationError
 
 from .models import (
@@ -33,6 +32,7 @@ from .models import (
     RegisteredClient
 )
 from .storage import get_oauth_storage
+from mcp_memory_service.config import DCR_REGISTRATION_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -200,41 +200,49 @@ def validate_response_types(response_types: List[str]) -> None:
             )
 
 
-def _validate_registration_key(request: Request) -> None:
+def _validate_registration_key(raw_request: Request) -> None:
     """
-    Validate the optional DCR registration key.
+    FastAPI dependency that enforces the optional DCR registration key.
 
     When MCP_DCR_REGISTRATION_KEY is set, the /oauth/register endpoint
     requires Authorization: Bearer <key>. When unset, DCR remains open
     (backward compatible with RFC 7591 default behavior).
+
+    Raises:
+        HTTPException 401: Header missing or not Bearer scheme (RFC 7235).
+        HTTPException 401: Provided key is invalid (RFC 6750 §3.1).
     """
-    registration_key = os.environ.get("MCP_DCR_REGISTRATION_KEY")
-    if not registration_key:
+    if not DCR_REGISTRATION_KEY:
         return
 
-    auth_header = request.headers.get("authorization", "")
+    auth_header = raw_request.headers.get("authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
                 "error": "invalid_token",
                 "error_description": "Registration key required. Provide Authorization: Bearer <registration-key>"
-            }
+            },
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     provided_key = auth_header[len("Bearer "):]
-    if not secrets.compare_digest(provided_key, registration_key):
+    if not secrets.compare_digest(provided_key, DCR_REGISTRATION_KEY):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
-                "error": "access_denied",
+                "error": "invalid_token",
                 "error_description": "Invalid registration key"
-            }
+            },
+            headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
         )
 
 
 @router.post("/register", response_model=ClientRegistrationResponse, status_code=status.HTTP_201_CREATED)
-async def register_client(request: ClientRegistrationRequest, raw_request: Request) -> ClientRegistrationResponse:
+async def register_client(
+    request: ClientRegistrationRequest,
+    _: None = Depends(_validate_registration_key),
+) -> ClientRegistrationResponse:
     """
     OAuth 2.1 Dynamic Client Registration endpoint.
 
@@ -247,9 +255,6 @@ async def register_client(request: ClientRegistrationRequest, raw_request: Reque
     logger.info("OAuth client registration request received")
 
     try:
-        # Validate optional registration key protection
-        _validate_registration_key(raw_request)
-
         # Validate client metadata
         if request.redirect_uris:
             validate_redirect_uris([str(uri) for uri in request.redirect_uris])

@@ -727,6 +727,15 @@ if CONSOLIDATION_ENABLED:
 # OAuth 2.1 Configuration
 OAUTH_ENABLED = safe_get_bool_env('MCP_OAUTH_ENABLED', False)
 
+# DCR Registration Key (optional endpoint protection for /oauth/register)
+# WARNING: RFC 7591 DCR is intentionally open by design to allow dynamic clients.
+# Setting this key restricts registration to callers who supply
+# Authorization: Bearer <key>. Use only for self-hosted deployments where open
+# registration is unacceptable (e.g., internet-facing instances without VPN).
+# Leave unset (default) to preserve standard RFC 7591 open-registration behavior.
+# Rotate via your secret manager; the service reads the env var on each request.
+DCR_REGISTRATION_KEY: str | None = os.getenv('MCP_DCR_REGISTRATION_KEY')
+
 # OAuth Storage Backend Configuration
 OAUTH_STORAGE_BACKEND = os.getenv("MCP_OAUTH_STORAGE_BACKEND", "memory").lower()
 """
