@@ -31,7 +31,7 @@ If you are unsure, start with **SQLite + PyPI install**. You can migrate to Hybr
 
 ### A1. Prerequisites
 
-- Python 3.10–3.13
+- Python 3.10–3.12
 - **macOS**: use Homebrew Python (`brew install python`) — the system Python on macOS lacks loadable SQLite extensions, which are required for sqlite-vec.
 - **Linux**: `sudo apt install python3-dev build-essential` (Ubuntu/Debian)
 - **Windows**: Visual Studio Build Tools (C++ workload)
@@ -276,7 +276,7 @@ The web dashboard is a separate HTTP server that runs alongside the MCP server. 
 
 ```bash
 # Start the dashboard server (requires source install or full package)
-python scripts/server/run_http_server.py
+python scripts/server/run_http_server.py  # Requires repository clone
 # Open http://localhost:8000
 ```
 
@@ -343,13 +343,13 @@ Expected response:
 Run the configuration validator for a detailed diagnostic:
 
 ```bash
-python scripts/validation/validate_configuration_complete.py
+python scripts/validation/validate_configuration_complete.py  # Requires repository clone
 ```
 
 For storage-backend specific issues:
 
 ```bash
-python scripts/validation/diagnose_backend_config.py
+python scripts/validation/diagnose_backend_config.py  # Requires repository clone
 ```
 
 ---
