@@ -45,7 +45,7 @@ Before merging or releasing:
 
 MCP Memory Service is a Model Context Protocol server providing semantic memory and persistent storage for Claude Desktop and 13+ AI applications. It uses vector embeddings for semantic search, supports multiple storage backends (SQLite-vec, Cloudflare, Hybrid), and includes advanced features like memory consolidation, quality scoring, and OAuth 2.1 team collaboration.
 
-**Current Version:** v10.31.2 - fix: consistent metadata parsing, non-JSON error handling, upload progress tracking (#648, #649, #650) — 1,521 tests — see [CHANGELOG.md](CHANGELOG.md) for details
+**Current Version:** v10.32.0 - feat: transport health endpoint, configurable timeouts, optional DCR registration key protection (community PRs #656, #657) — 1,520 tests — see [CHANGELOG.md](CHANGELOG.md) for details
 
 > **🎯 v10.0.0 Milestone**: This major release represents a complete API consolidation - 34 tools unified into 12 with enhanced capabilities. All deprecated tools continue working with warnings until v11.0. See `docs/MIGRATION.md` for migration guide.
 

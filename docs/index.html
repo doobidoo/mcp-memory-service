@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MCP Memory Service v10.30 — Persistent Memory for AI Agents</title>
+<title>MCP Memory Service v10.32 — Persistent Memory for AI Agents</title>
 <meta name="description" content="Self-hosted persistent memory for AI agents. Semantic search, knowledge graph, automatic consolidation. Now with Streamable HTTP + OAuth 2.1 for Claude.ai.">
-<meta property="og:title" content="MCP Memory Service v10.30">
-<meta property="og:description" content="Your self-hosted memory server now connects to Claude.ai. Streamable HTTP + OAuth 2.1 + PKCE.">
+<meta property="og:title" content="MCP Memory Service v10.32">
+<meta property="og:description" content="Your self-hosted memory server now connects to Claude.ai. Streamable HTTP + OAuth 2.1 + PKCE. Transport health endpoint, configurable timeouts, DCR registration key protection.">
 <meta property="og:type" content="website">
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
@@ -116,7 +116,7 @@ footer a{color:var(--cyan)}
 <!-- Hero -->
 <header class="hero">
   <img src="brain-icon.png" alt="MCP Memory Service" class="hero-logo">
-  <span class="hero-badge">v10.30 &mdash; Now Available</span>
+  <span class="hero-badge">v10.32 &mdash; Now Available</span>
   <h1>MCP Memory Service</h1>
   <p>Persistent memory for AI agents. Semantic search, knowledge graph, automatic consolidation &mdash; now accessible from Claude.ai via Streamable HTTP.</p>
   <div class="hero-buttons">
@@ -136,23 +136,23 @@ footer a{color:var(--cyan)}
 <!-- Features -->
 <section id="features">
   <div class="container">
-    <h2 class="section-title">What's New in v10.30</h2>
-    <p class="section-subtitle">Memory Evolution: non-destructive updates, lineage tracking, staleness scoring, and automatic conflict detection.</p>
+    <h2 class="section-title">What's New in v10.32</h2>
+    <p class="section-subtitle">Transport health monitoring, configurable timeouts, and optional OAuth DCR endpoint protection — all community-contributed.</p>
     <div class="features-grid">
       <div class="feature-card" data-delay="0">
-        <div class="feature-icon http">&#128257;</div>
-        <h3>Non-Destructive Versioned Updates</h3>
-        <p>Update a memory without losing its history. <code>update_memory_versioned()</code> creates a child node atomically and marks the parent as superseded &mdash; full lineage preserved, active queries see only current versions.</p>
+        <div class="feature-icon http">&#10084;</div>
+        <h3>Transport Health Endpoint</h3>
+        <p>SSE and Streamable HTTP transports now expose a <code>/health</code> endpoint on <code>MCP_SSE_PORT</code> (default 8765). Load balancers, Docker healthchecks, and Kubernetes liveness/readiness probes can now monitor transport health independently.</p>
       </div>
       <div class="feature-card" data-delay="150">
-        <div class="feature-icon oauth">&#128336;</div>
-        <h3>Staleness Scoring &amp; Decay</h3>
-        <p>Time-decayed confidence: memories grow stale automatically. Configure decay window via <code>MEMORY_DECAY_WINDOW_DAYS</code>. <code>min_confidence</code> filtering on all backends keeps retrieval results fresh.</p>
+        <div class="feature-icon oauth">&#9201;</div>
+        <h3>Configurable Transport Timeouts</h3>
+        <p>Fine-tune uvicorn timeouts for your deployment: <code>MCP_TRANSPORT_TIMEOUT_KEEP_ALIVE</code> (default 5s) and <code>MCP_TRANSPORT_TIMEOUT_GRACEFUL_SHUTDOWN</code> (default 30s). Essential for high-throughput and cloud environments.</p>
       </div>
       <div class="feature-card" data-delay="300">
-        <div class="feature-icon privacy">&#9889;</div>
-        <h3>Automatic Conflict Detection</h3>
-        <p>Every store operation checks for contradictions (cosine > 0.95 + Levenshtein divergence > 20%). New <code>memory_conflicts</code> and <code>memory_resolve</code> MCP tools. REST: <code>GET /api/conflicts</code>, <code>POST /api/conflicts/resolve</code>.</p>
+        <div class="feature-icon privacy">&#128274;</div>
+        <h3>Optional DCR Registration Key</h3>
+        <p>Set <code>MCP_DCR_REGISTRATION_KEY</code> to protect the OAuth <code>/register</code> endpoint with Bearer token auth (timing-safe via <code>secrets.compare_digest</code>). Backward-compatible &mdash; unset means open DCR per RFC 7591.</p>
       </div>
     </div>
   </div>
@@ -203,7 +203,7 @@ footer a{color:var(--cyan)}
     <p class="section-subtitle">Battle-tested with comprehensive testing and optimized for performance.</p>
     <div class="stats-grid">
       <div class="stat-card" data-delay="0">
-        <div class="stat-number" data-target="1514">0</div>
+        <div class="stat-number" data-target="1520">0</div>
         <div class="stat-label">Tests</div>
       </div>
       <div class="stat-card" data-delay="100">
@@ -242,7 +242,7 @@ footer a{color:var(--cyan)}
       <a href="blog/remote-mcp-tutorial.html" class="btn btn-secondary">
         Blog: 5-Min claude.ai Setup
       </a>
-      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v10.30.0" class="btn btn-secondary" target="_blank">
+      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v10.32.0" class="btn btn-secondary" target="_blank">
         Release Notes
       </a>
     </div>

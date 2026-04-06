@@ -376,22 +376,22 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.31.2** (April 3, 2026)
+## Latest Release: **v10.32.0** (April 6, 2026)
 
-**fix: storage consistency, error handling, and upload progress (community PRs #648, #649, #650)**
+**feat: transport health endpoint + configurable timeouts + optional DCR registration key protection (community PRs #656, #657)**
 
 **What's New:**
-- **Consistent `_safe_json_loads` usage (#648)**: Replaced remaining bare `json.loads` calls in `get_largest_memories()` and `get_graph_visualization_data()` with the `_safe_json_loads` helper for consistent error handling.
-- **Non-JSON error response handling (#649)**: HTTP client and embedding API now gracefully handle non-JSON error responses (e.g. HTML from reverse proxies) instead of crashing.
-- **Upload progress tracking (#650)**: Fixed broken single-file progress formula and added per-file batch progress updates for smooth 0→100% tracking.
-- **Repo & agent cleanup**: Moved 8 legacy docs to archive, cleaned up `.claude/` config, consolidated agents (84% size reduction: 2,507 → 412 lines).
-- **1,503 tests** passing.
+- **Transport `/health` endpoint (#656)**: SSE and Streamable HTTP transports now expose a `/health` endpoint (on `MCP_SSE_PORT`, default 8765) for load balancers, Docker healthchecks, and Kubernetes liveness/readiness probes.
+- **Configurable transport timeouts (#656)**: New `MCP_TRANSPORT_TIMEOUT_KEEP_ALIVE` (default 5s) and `MCP_TRANSPORT_TIMEOUT_GRACEFUL_SHUTDOWN` (default 30s) env vars for fine-tuning uvicorn transport instances.
+- **Optional DCR registration key protection (#657)**: Set `MCP_DCR_REGISTRATION_KEY` to protect the `/oauth/register` endpoint with Bearer token auth (timing-safe via `secrets.compare_digest`). Backward-compatible — unset means open DCR per RFC 7591.
+- **1,520 tests** passing.
 
-Thanks to @lawrence3699 for contributing PRs #648, #649, and #650!
+Thanks to @Lobster-Armlock (PR #656) and @irizzant (PR #657) for these community contributions!
 
 ---
 
 **Previous Releases**:
+- **v10.31.2** - fix: storage consistency, error handling, and upload progress — `_safe_json_loads` consistency, non-JSON error handling, upload progress tracking (community PRs #648, #649, #650, 1,503 tests)
 - **v10.31.1** - fix: tombstone blocks re-insertion after delete of same content (#644) — `_purge_tombstone()` before INSERT (1,521 tests)
 - **v10.31.0** - feat: Harvest Evolution (P4) + Sync-in-Async Refactoring — harvest dedup via `update_memory_versioned()`, `asyncio.to_thread()` in `_execute_with_retry` (1,520 tests)
 - **v10.30.0** - feat: Memory Evolution (P1+P2+P3) — non-destructive versioned updates, staleness scoring, conflict detection + resolution (1,514 tests)
