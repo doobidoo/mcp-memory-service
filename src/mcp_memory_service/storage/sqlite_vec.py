@@ -1269,7 +1269,12 @@ SOLUTIONS:
             raise RuntimeError(f"Failed to generate embedding: {str(e)}") from e
 
     def _purge_tombstone(self, content_hash: str) -> None:
-        """Remove a soft-deleted tombstone so the UNIQUE constraint allows re-insert (#644)."""
+        """Remove a soft-deleted tombstone so the UNIQUE constraint allows re-insert (#644).
+
+        IMPORTANT: Must only be called from inside a closure that runs in a worker thread
+        (e.g., a closure passed to _execute_with_retry). Calling this directly from an
+        async method would block the event loop.
+        """
         self.conn.execute(
             'DELETE FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL',
             (content_hash,)
@@ -1472,9 +1477,9 @@ SOLUTIONS:
         # Insert memories inside a single transaction with per-item error handling.
         # Dedup check and insert happen atomically within the transaction to
         # avoid TOCTOU races with concurrent store() calls.
-        results: List[Tuple[bool, str]] = [None] * len(memories)
-
+        # Returns a list of (success, message) tuples — avoids mutating outer scope.
         def batch_insert():
+            local_results: List[Tuple[bool, str]] = [None] * len(memories)
             for j, memory in enumerate(memories):
                 # Dedup check inside transaction (same connection holds the lock).
                 # Read-only, so no savepoint needed here.
@@ -1483,7 +1488,7 @@ SOLUTIONS:
                     (memory.content_hash,)
                 )
                 if cursor.fetchone():
-                    results[j] = (False, "Duplicate content detected (exact match)")
+                    local_results[j] = (False, "Duplicate content detected (exact match)")
                     continue
 
                 embedding = raw_embeddings[j]
@@ -1524,19 +1529,21 @@ SOLUTIONS:
                     ''', (rowid, serialize_float32(embedding_list)))
 
                     self.conn.execute(f'RELEASE SAVEPOINT {sp}')
-                    results[j] = (True, "Memory stored successfully")
+                    local_results[j] = (True, "Memory stored successfully")
                 except sqlite3.IntegrityError:
                     self.conn.execute(f'ROLLBACK TO SAVEPOINT {sp}')
                     self.conn.execute(f'RELEASE SAVEPOINT {sp}')
-                    results[j] = (False, "Duplicate content detected (race condition)")
+                    local_results[j] = (False, "Duplicate content detected (race condition)")
                 except sqlite3.Error as db_err:
                     self.conn.execute(f'ROLLBACK TO SAVEPOINT {sp}')
                     self.conn.execute(f'RELEASE SAVEPOINT {sp}')
-                    results[j] = (False, f"Insert failed: {db_err}")
+                    local_results[j] = (False, f"Insert failed: {db_err}")
+            return local_results
 
+        results: List[Tuple[bool, str]] = [None] * len(memories)
         try:
             async with self._savepoint_lock:
-                await self._execute_with_retry(batch_insert)
+                results = await self._execute_with_retry(batch_insert)
                 await self._execute_with_retry(self.conn.commit)
 
             stored = sum(1 for r in results if r and r[0])
@@ -3920,6 +3927,8 @@ SOLUTIONS:
                         (src, tgt, c["similarity"], "semantic",
                          metadata, now, "contradicts"),
                     )
+
+            self.conn.commit()
 
         await self._execute_with_retry(_record_all_conflicts)
         logger.info(f"Recorded {len(conflicts)} conflict(s) for {new_hash[:8]}")
