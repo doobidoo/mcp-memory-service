@@ -549,7 +549,7 @@ If you encounter issues during migration:
 
 - **[Agent Integration Guides](docs/agents/)** 🆕 – LangGraph, CrewAI, AutoGen, HTTP generic
 - **[Remote MCP Setup (claude.ai)](docs/remote-mcp-setup.md)** 🆕 – Browser integration via HTTPS + OAuth
-- **[Installation Guide](docs/installation.md)** – Detailed setup instructions
+- **[Installation Guide](docs/installation/master-guide.md)** – Complete end-to-end setup for all backends and clients
 - **[Configuration Guide](docs/mastery/configuration-guide.md)** – Backend options and customization
 - **[Architecture Overview](docs/architecture.md)** – How it works under the hood
 - **[Team Setup Guide](docs/teams.md)** – OAuth and cloud collaboration
