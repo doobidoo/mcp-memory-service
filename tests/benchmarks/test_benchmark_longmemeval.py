@@ -10,11 +10,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from longmemeval_dataset import LongMemEvalItem, LongMemEvalSession, LongMemEvalTurn
 from benchmark_longmemeval import (
+    _match_evidence,
     create_isolated_storage,
     ingest_item,
     evaluate_retrieval,
     run_ablation,
 )
+from locomo_evaluator import recall_at_k
 
 
 def _make_test_item() -> LongMemEvalItem:
@@ -109,3 +111,54 @@ class TestRunAblation:
         await storage.initialize()
         await ingest_item(storage, item)
         return await run_ablation(storage, item, top_k=[5, 10])
+
+
+class TestMatchEvidence:
+    """Tests for _match_evidence de-duplication behavior."""
+
+    class _FakeMemory:
+        def __init__(self, tags):
+            self.tags = tags
+
+    class _FakeResult:
+        def __init__(self, tags):
+            self.memory = None
+
+        @classmethod
+        def make(cls, tags):
+            obj = cls.__new__(cls)
+            obj.memory = TestMatchEvidence._FakeMemory(tags)
+            return obj
+
+    def test_multiple_hits_same_session_count_once(self):
+        """Prevents recall > 1.0 when multiple turns from same session are retrieved."""
+        results = [
+            self._FakeResult.make(["longmemeval", "q1", "session_001", "user"]),
+            self._FakeResult.make(["longmemeval", "q1", "session_001", "assistant"]),
+            self._FakeResult.make(["longmemeval", "q1", "session_002", "user"]),
+        ]
+        retrieved, relevant = _match_evidence(results, ["session_001"])
+
+        # Only 1 hit (first occurrence of session_001), despite 2 results from it
+        hits = sum(1 for label in retrieved if label in relevant)
+        assert hits == 1
+
+    def test_recall_stays_between_0_and_1(self):
+        """Recall must not exceed 1.0 regardless of how many turns are retrieved."""
+        # 5 results all from the single evidence session
+        results = [self._FakeResult.make(["session_001"]) for _ in range(5)]
+        retrieved, relevant = _match_evidence(results, ["session_001"])
+        r = recall_at_k(retrieved, relevant, k=5)
+        assert 0.0 <= r <= 1.0
+
+    def test_multiple_sessions_each_credited_once(self):
+        """When multiple evidence sessions are retrieved, each is credited at most once."""
+        results = [
+            self._FakeResult.make(["session_001"]),
+            self._FakeResult.make(["session_001"]),  # duplicate — should be ignored
+            self._FakeResult.make(["session_002"]),
+            self._FakeResult.make(["session_002"]),  # duplicate — should be ignored
+        ]
+        retrieved, relevant = _match_evidence(results, ["session_001", "session_002"])
+        hits = sum(1 for label in retrieved if label in relevant)
+        assert hits == 2  # one hit per evidence session, not four

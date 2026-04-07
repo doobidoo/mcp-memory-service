@@ -66,21 +66,25 @@ def _match_evidence(
     retrieved_results,
     answer_session_ids: List[str],
 ) -> Tuple[List[str], Set[str]]:
-    """Match retrieved memories against evidence via session_id tags.
+    """Match retrieved memories against evidence session IDs.
 
-    A retrieved memory is a hit if any answer_session_id appears in its tags.
+    Each evidence session can only be credited once (first occurrence in top-K).
+    Subsequent retrieval of the same session are counted as irrelevant to avoid
+    recall > 1.0 when multiple turns from the same session are retrieved.
 
     Returns (retrieved_labels, relevant_labels).
     """
     relevant_labels = set(answer_session_ids)
 
     retrieved_labels = []
+    already_matched: Set[str] = set()
     for i, result in enumerate(retrieved_results):
         tags = result.memory.tags or []
         matched_label = None
         for session_id in answer_session_ids:
-            if session_id in tags:
+            if session_id in tags and session_id not in already_matched:
                 matched_label = session_id
+                already_matched.add(session_id)
                 break
         if matched_label:
             retrieved_labels.append(matched_label)
