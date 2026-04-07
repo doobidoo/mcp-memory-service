@@ -9,7 +9,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,11 @@ def parse_item(raw: dict) -> LongMemEvalItem:
     """
     session_ids = raw.get("haystack_session_ids", [])
     raw_sessions = raw.get("haystack_sessions", [])
+    if len(session_ids) != len(raw_sessions):
+        logger.warning(
+            "question_id %s: haystack_session_ids length (%d) != haystack_sessions length (%d)",
+            raw.get("question_id", "unknown"), len(session_ids), len(raw_sessions),
+        )
 
     sessions: List[LongMemEvalSession] = []
     for sid, raw_session in zip(session_ids, raw_sessions):

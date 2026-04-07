@@ -3,7 +3,6 @@ import json
 import os
 import sys
 import pytest
-import tempfile
 
 # sys.path is set by conftest.py; this allows running the file standalone too
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "benchmarks"))
