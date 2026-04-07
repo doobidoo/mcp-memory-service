@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Set
@@ -33,6 +34,33 @@ def mrr(retrieved: List[str], relevant: Set[str]) -> float:
         if item in relevant:
             return 1.0 / i
     return 0.0
+
+
+def ndcg_at_k(retrieved: List[str], relevant: Set[str], k: int) -> float:
+    """Normalized Discounted Cumulative Gain @K.
+
+    Relevance is binary (1 if item in relevant set, 0 otherwise).
+    IDCG assumes all relevant items appear at top positions (ideal ranking).
+    Returns 1.0 when relevant is empty (nothing to find = perfect by convention).
+    """
+    if not relevant:
+        return 1.0
+    if k == 0:
+        return 1.0 if not relevant else 0.0
+
+    top_k = retrieved[:k]
+    dcg = sum(
+        1.0 / math.log2(i + 2)
+        for i, item in enumerate(top_k)
+        if item in relevant
+    )
+
+    ideal_hits = min(len(relevant), k)
+    idcg = sum(1.0 / math.log2(i + 2) for i in range(ideal_hits))
+
+    if idcg == 0.0:
+        return 1.0
+    return dcg / idcg
 
 
 def token_f1(predicted: str, gold: str) -> float:
