@@ -111,21 +111,25 @@ def load_dataset_from_file(path: str) -> List[LongMemEvalItem]:
 
 
 def _download_from_huggingface(target_path: str) -> None:
-    """Download the dataset from HuggingFace and save as JSON."""
+    """Download dataset via HuggingFace datasets library and save as JSON."""
     try:
-        from datasets import load_dataset as hf_load_dataset
-    except ImportError as exc:
+        from datasets import load_dataset as hf_load
+    except ImportError:
         raise ImportError(
-            "The 'datasets' package is required to auto-download from HuggingFace. "
-            "Install it with: pip install datasets"
-        ) from exc
-
-    logger.info("Downloading %s (split=longmemeval_s_cleaned) ...", HUGGINGFACE_DATASET)
+            "Install 'datasets' to auto-download LongMemEval: pip install datasets"
+        )
     os.makedirs(os.path.dirname(target_path), exist_ok=True)
-    ds = hf_load_dataset(HUGGINGFACE_DATASET, split="longmemeval_s_cleaned")
+    logger.info(
+        "Downloading LongMemEval from HuggingFace (%s, split=%s)...",
+        HUGGINGFACE_DATASET, "longmemeval_s_cleaned",
+    )
+    # streaming=True avoids building the full Arrow cache for all splits,
+    # which prevents a pyarrow int32 overflow on the large longmemeval_m_cleaned split.
+    ds = hf_load(HUGGINGFACE_DATASET, split="longmemeval_s_cleaned", streaming=True)
+    data = [dict(item) for item in ds]
     with open(target_path, "w", encoding="utf-8") as f:
-        json.dump([dict(item) for item in ds], f)
-    logger.info("Saved to %s (%d items)", target_path, len(ds))
+        json.dump(data, f)
+    logger.info("Saved %d items to %s", len(data), target_path)
 
 
 def load_dataset(
