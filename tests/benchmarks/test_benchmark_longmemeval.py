@@ -96,11 +96,12 @@ class TestRunAblation:
         try:
             results = asyncio.run(self._run_ablation(storage, item))
             assert isinstance(results, list)
-            assert len(results) >= 2
+            assert len(results) == 3
             assert all("config_name" in r for r in results)
             config_names = {r["config_name"] for r in results}
             assert "baseline" in config_names
             assert "+quality_boost" in config_names
+            assert "+quality_w0.5" in config_names
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 

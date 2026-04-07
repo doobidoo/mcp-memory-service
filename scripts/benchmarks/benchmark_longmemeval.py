@@ -11,7 +11,7 @@ import sys
 import tempfile
 from collections import defaultdict
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
@@ -65,7 +65,7 @@ async def ingest_item(storage: SqliteVecMemoryStorage, item: LongMemEvalItem) ->
 def _match_evidence(
     retrieved_results,
     answer_session_ids: List[str],
-) -> Tuple[List[str], set]:
+) -> Tuple[List[str], Set[str]]:
     """Match retrieved memories against evidence via session_id tags.
 
     A retrieved memory is a hit if any answer_session_id appears in its tags.
@@ -137,6 +137,9 @@ async def run_ablation(
     all_results: List[Dict] = []
 
     for config_name, method_name, extra_kwargs in configs:
+        if not hasattr(storage, method_name):
+            logger.warning("Storage does not support method %s, skipping config %s", method_name, config_name)
+            continue
         retrieve_fn = getattr(storage, method_name)
         results = await retrieve_fn(item.question, n_results=max_k, **extra_kwargs)
         retrieved_labels, relevant_labels = _match_evidence(results, item.answer_session_ids)
@@ -227,6 +230,7 @@ def save_results(result: BenchmarkResult, output_dir: str) -> str:
     filename = f"longmemeval_{result.mode}_{timestamp}.json"
     filepath = os.path.join(output_dir, filename)
     data = {
+        "timestamp": timestamp,
         "conversation_id": result.conversation_id,
         "mode": result.mode,
         "overall": result.overall,
