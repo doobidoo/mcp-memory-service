@@ -389,7 +389,7 @@ def main():
     if args.output_dir:
         for r in results:
             filepath = save_results(r, args.output_dir)
-        print(f"Results saved to: {filepath}")
+            print(f"Results saved to: {filepath}")
 
 
 if __name__ == "__main__":
