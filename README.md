@@ -503,7 +503,18 @@ result = storage.find_connected(
 
 ### Retrieval Benchmarks
 
-Two benchmarks measure retrieval quality (all-MiniLM-L6-v2, 384d embeddings):
+Three benchmarks measure retrieval quality (all-MiniLM-L6-v2, 384d embeddings, zero LLM API calls):
+
+**LongMemEval** ([500 questions](https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned), ~45–62 distractor sessions per question):
+
+| Question Type | R@5 | R@10 | NDCG@10 | MRR |
+|---------------|-----|------|---------|-----|
+| **Overall** | **80.4%** | **90.4%** | **82.2%** | **89.1%** |
+| single-session-assistant | 100.0% | 100.0% | 99.3% | 99.1% |
+| knowledge-update | 84.6% | 96.8% | 86.2% | 95.5% |
+| single-session-user | 91.4% | 92.9% | 86.0% | 83.8% |
+| temporal-reasoning | 72.0% | 84.1% | 75.1% | 85.7% |
+| multi-session | 70.7% | 86.0% | 77.6% | 89.4% |
 
 **DevBench** (practical developer workflow queries):
 
@@ -522,7 +533,7 @@ Two benchmarks measure retrieval quality (all-MiniLM-L6-v2, 384d embeddings):
 | multi-hop | 72.0% | 0.600 |
 | temporal | 33.5% | 0.274 |
 
-Run benchmarks: `python scripts/benchmarks/benchmark_devbench.py` and `python scripts/benchmarks/benchmark_locomo.py`
+Run benchmarks: `python scripts/benchmarks/benchmark_longmemeval.py`, `python scripts/benchmarks/benchmark_devbench.py`, `python scripts/benchmarks/benchmark_locomo.py`
 
 ### Performance Improvements
 
