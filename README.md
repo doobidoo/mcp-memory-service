@@ -4,9 +4,9 @@
 
 Open-source memory backend for multi-agent systems.
 Agents store decisions, share causal knowledge graphs, and retrieve
-context in 5ms — without cloud lock-in or API costs.
+context in 5ms â without cloud lock-in or API costs.
 
-**Works with LangGraph · CrewAI · AutoGen · any HTTP client · Claude Desktop**
+**Works with LangGraph Â· CrewAI Â· AutoGen Â· any HTTP client Â· Claude Desktop**
 
 ---
 
@@ -26,23 +26,23 @@ context in 5ms — without cloud lock-in or API costs.
 
 ---
 
-## 🎬 See It in Action
+## ð¬ See It in Action
 
 [![Watch the Dashboard Walkthrough](https://img.youtube.com/vi/W34r8VFoSdQ/maxresdefault.jpg)](https://youtu.be/W34r8VFoSdQ)
 
-**[Watch the Web Dashboard Walkthrough on YouTube](https://youtu.be/W34r8VFoSdQ)** — Semantic search, tag browser, document ingestion, analytics, quality scoring, and API docs in under 2 minutes.
+**[Watch the Web Dashboard Walkthrough on YouTube](https://youtu.be/W34r8VFoSdQ)** â Semantic search, tag browser, document ingestion, analytics, quality scoring, and API docs in under 2 minutes.
 
 ---
 
-## 🌐 Works with claude.ai (Browser)
+## ð Works with claude.ai (Browser)
 
 Unlike desktop-only MCP servers, **mcp-memory-service supports Remote MCP** for native claude.ai integration.
 
 **What this means:**
-- ✅ Use persistent memory directly in your browser (no Claude Desktop required)
-- ✅ Works on any device (laptop, tablet, phone)
-- ✅ Enterprise-ready (OAuth 2.0 + HTTPS + CORS)
-- ✅ Self-hosted OR cloud-hosted (your choice)
+- â Use persistent memory directly in your browser (no Claude Desktop required)
+- â Works on any device (laptop, tablet, phone)
+- â Enterprise-ready (OAuth 2.0 + HTTPS + CORS)
+- â Self-hosted OR cloud-hosted (your choice)
 
 **5-Minute Setup:**
 
@@ -56,9 +56,9 @@ python -m mcp_memory_service.server
 
 # 2. Expose via Cloudflare Tunnel (or your own HTTPS setup)
 cloudflared tunnel --url http://localhost:8765
-# → Outputs: https://random-name.trycloudflare.com
+# â Outputs: https://random-name.trycloudflare.com
 
-# 3. In claude.ai: Settings → Connectors → Add Connector
+# 3. In claude.ai: Settings â Connectors â Add Connector
 # Paste the URL: https://random-name.trycloudflare.com/mcp
 # OAuth flow will handle authentication automatically
 ```
@@ -79,12 +79,12 @@ cloudflared tunnel --url http://localhost:8765
 | Context window limits create amnesia | Autonomous consolidation compresses old memories |
 
 **Key capabilities for agent pipelines:**
-- **Framework-agnostic REST API** — 15 endpoints, no MCP client library needed
-- **Knowledge graph** — agents share causal chains, not just facts
-- **`X-Agent-ID` header** — auto-tag memories by agent identity for scoped retrieval
-- **`conversation_id`** — bypass deduplication for incremental conversation storage
-- **SSE events** — real-time notifications when any agent stores or deletes a memory
-- **Embeddings run locally via ONNX** — memory never leaves your infrastructure
+- **Framework-agnostic REST API** â 15 endpoints, no MCP client library needed
+- **Knowledge graph** â agents share causal chains, not just facts
+- **`X-Agent-ID` header** â auto-tag memories by agent identity for scoped retrieval
+- **`conversation_id`** â bypass deduplication for incremental conversation storage
+- **SSE events** â real-time notifications when any agent stores or deletes a memory
+- **Embeddings run locally via ONNX** â memory never leaves your infrastructure
 
 ## Agent Quick Start
 
@@ -99,7 +99,7 @@ import httpx
 
 BASE_URL = "http://localhost:8000"
 
-# Store — auto-tag with X-Agent-ID header
+# Store â auto-tag with X-Agent-ID header
 async with httpx.AsyncClient() as client:
     await client.post(f"{BASE_URL}/api/memories", json={
         "content": "API rate limit is 100 req/min",
@@ -107,7 +107,7 @@ async with httpx.AsyncClient() as client:
     }, headers={"X-Agent-ID": "researcher"})
     # Stored with tags: ["api", "limits", "agent:researcher"]
 
-# Search — scope to a specific agent
+# Search â scope to a specific agent
     results = await client.post(f"{BASE_URL}/api/memories/search", json={
         "query": "API rate limits",
         "tags": ["agent:researcher"],
@@ -119,15 +119,15 @@ async with httpx.AsyncClient() as client:
 
 ### Real-World: Multi-Agent Cluster with Shared Memory
 
-> *"After I work with one of the cluster agents on something I want my local agent to know about, the cluster agent adds a special tag to the memory entry that my local agent recognizes as a message from a cluster agent. So they end up using it as a comms bridge — and it's pretty delightful."*
-> — [@jeremykoerber](https://github.com/jeremykoerber), [issue #591](https://github.com/doobidoo/mcp-memory-service/issues/591)
+> *"After I work with one of the cluster agents on something I want my local agent to know about, the cluster agent adds a special tag to the memory entry that my local agent recognizes as a message from a cluster agent. So they end up using it as a comms bridge â and it's pretty delightful."*
+> â [@jeremykoerber](https://github.com/jeremykoerber), [issue #591](https://github.com/doobidoo/mcp-memory-service/issues/591)
 
-A 5-agent openclaw cluster uses mcp-memory-service as shared state **and** as an inter-agent messaging bus — without any custom protocol. Cluster agents tag memories with a sentinel like `msg:cluster`, and the local agent filters on that tag to receive cross-cluster signals. The memory service becomes the coordination layer with zero additional infrastructure.
+A 5-agent openclaw cluster uses mcp-memory-service as shared state **and** as an inter-agent messaging bus â without any custom protocol. Cluster agents tag memories with a sentinel like `msg:cluster`, and the local agent filters on that tag to receive cross-cluster signals. The memory service becomes the coordination layer with zero additional infrastructure.
 
 ```python
 # Cluster agent stores a learning and flags it for the local agent
 await client.post(f"{BASE_URL}/api/memories", json={
-    "content": "Rate limit on provider X is 50 RPM — switch to provider Y after 40",
+    "content": "Rate limit on provider X is 50 RPM â switch to provider Y after 40",
     "tags": ["api", "limits", "msg:cluster"],       # sentinel tag
 }, headers={"X-Agent-ID": "cluster-agent-3"})
 
@@ -138,12 +138,12 @@ results = await client.post(f"{BASE_URL}/api/memories/search", json={
 })
 ```
 
-This pattern — **tags as inter-agent signals** — emerges naturally from the tagging system and requires no additional infrastructure.
+This pattern â **tags as inter-agent signals** â emerges naturally from the tagging system and requires no additional infrastructure.
 
 ### Real-World: Self-Hosted Docker Stack with Cloudflare Tunnel
 
 > *"The quality of life that session-independent memory adds to AI workflows is immense. File-based memory demands constant discipline. Semantic recall from a live database doesn't. Storing data on my own hardware while making it remotely accessible across platforms turned out to be a feature I didn't know I needed."*
-> — [@PL-Peter](https://github.com/PL-Peter), [discussion #602](https://github.com/doobidoo/mcp-memory-service/discussions/602)
+> â [@PL-Peter](https://github.com/PL-Peter), [discussion #602](https://github.com/doobidoo/mcp-memory-service/discussions/602)
 
 A production-tested self-hosted deployment using Docker containers behind a Cloudflare tunnel, with [AuthMCP Gateway](https://github.com/loglux/authmcp-gateway) handling authentication:
 
@@ -151,11 +151,11 @@ A production-tested self-hosted deployment using Docker containers behind a Clou
 |-------|------|
 | **Cloudflare Tunnel** | Name-based routing, subnet-based access control, authentication before hitting self-hosted resources |
 | **AuthMCP Gateway** | Auth/aggregation with locally managed users, admin UI, per-user MCP server access control, bearer token auth |
-| **mcp-memory-service** | Two Docker containers sharing one SQLite backend — one for MCP, one for the web UI (document ingestion) |
+| **mcp-memory-service** | Two Docker containers sharing one SQLite backend â one for MCP, one for the web UI (document ingestion) |
 
 **Security best practices for this setup:**
 - Use Cloudflare ZeroTrust with subnet-based access control (e.g., allow Anthropic subnets + your own IPs)
-- Add **Client IP Address Filtering** to all Cloudflare API tokens (Dashboard → My Profile → API Tokens → Edit → Client IP Address Filtering) to limit abuse if a token leaks
+- Add **Client IP Address Filtering** to all Cloudflare API tokens (Dashboard â My Profile â API Tokens â Edit â Client IP Address Filtering) to limit abuse if a token leaks
 - If using IPv6, include your IPv6 /64 network in the allowlist (Python prefers IPv6 by default)
 - Set `MCP_OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES=1440` to extend OAuth tokens to 24 hours (refresh tokens not yet supported)
 - Consider an auth proxy like [AuthMCP](https://github.com/loglux/authmcp-gateway) or [mcp-auth-proxy](https://github.com/sigbit/mcp-auth-proxy) for robust session management
@@ -166,11 +166,11 @@ A production-tested self-hosted deployment using Docker containers behind a Clou
 
 | | Mem0 | Zep | DIY Redis+Pinecone | **mcp-memory-service** |
 |---|---|---|---|---|
-| License | Proprietary | Enterprise | — | **Apache 2.0** |
+| License | Proprietary | Enterprise | â | **Apache 2.0** |
 | Cost | Per-call API | Enterprise | Infra costs | **$0** |
-| **🌐 claude.ai Browser** | ❌ Desktop only | ❌ Desktop only | ❌ | **✅ Remote MCP** |
-| **OAuth 2.0 + DCR** | ❓ Unknown | ❓ Unknown | ❌ | **✅ Enterprise-ready** |
-| **Streamable HTTP** | ❌ | ❌ | ❌ | **✅ (SSE deprecated)** |
+| **ð claude.ai Browser** | â Desktop only | â Desktop only | â | **â Remote MCP** |
+| **OAuth 2.0 + DCR** | â Unknown | â Unknown | â | **â Enterprise-ready** |
+| **Streamable HTTP** | â | â | â | **â (SSE deprecated)** |
 | Framework integration | SDK | SDK | Manual | **REST API (any HTTP client)** |
 | Knowledge graph | No | Limited | No | **Yes (typed edges)** |
 | Auto consolidation | No | No | No | **Yes (decay + compression)** |
@@ -182,24 +182,24 @@ A production-tested self-hosted deployment using Docker containers behind a Clou
 
 ### vs. MCP-Native Alternatives
 
-[MemPalace](https://github.com/milla-jovovich/mempalace) (~20k ⭐) is a strong MCP-native alternative worth knowing about.
+[MemPalace](https://github.com/milla-jovovich/mempalace) (~20k â­) is a strong MCP-native alternative worth knowing about.
 
 | | **MemPalace** | **mcp-memory-service** |
 |---|---|---|
 | LongMemEval R@5 (zero LLM) | **96.6%** | 86.0% (session) / 80.4% (turn) |
-| LongMemEval R@5 (with reranking) | **100%**¹ | — |
+| LongMemEval R@5 (with reranking) | **100%**Â¹ | â |
 | Storage granularity | Session-level | **Turn-level** |
-| Team / multi-device sync | ❌ Local only | **✅ Cloudflare sync** |
-| REST API / Web dashboard | ❌ | **✅** |
-| OAuth 2.1 + multi-user | ❌ | **✅** |
-| Knowledge graph | ❌ | **✅ (typed edges)** |
-| Auto consolidation | ❌ | **✅ (decay + compression)** |
+| Team / multi-device sync | â Local only | **â Cloudflare sync** |
+| REST API / Web dashboard | â | **â** |
+| OAuth 2.1 + multi-user | â | **â** |
+| Knowledge graph | â | **â (typed edges)** |
+| Auto consolidation | â | **â (decay + compression)** |
 | Compatible AI tools | Claude-focused | **13+ tools** |
 | License | MIT | **Apache 2.0** |
 
-**Why the benchmark gap?** MemPalace stores each conversation as a single unit (session-level). LongMemEval asks "which session contains the answer?" — a question that session-level storage answers structurally. mcp-memory-service defaults to turn-level storage (one entry per message), which enables fine-grained retrieval ("what exactly did the user say about X?") but spreads a session's signal across many entries. Using `memory_store_session` (session-level ingestion, added in v10.35.0) brings our score to **86.0% R@5** — closing the gap significantly. The remaining difference is primarily due to MemPalace's larger embedding model.
+**Why the benchmark gap?** MemPalace stores each conversation as a single unit (session-level). LongMemEval asks "which session contains the answer?" â a question that session-level storage answers structurally. mcp-memory-service defaults to turn-level storage (one entry per message), which enables fine-grained retrieval ("what exactly did the user say about X?") but spreads a session's signal across many entries. Using `memory_store_session` (session-level ingestion, added in v10.35.0) brings our score to **86.0% R@5** â closing the gap significantly. The remaining difference is primarily due to MemPalace's larger embedding model.
 
-> ¹ 100% result uses optional LLM reranking (~500 API calls) and includes a partially tuned test set. Clean held-out score: **98.4% R@5**.
+> Â¹ 100% result uses optional LLM reranking (~500 API calls) and includes a partially tuned test set. Clean held-out score: **98.4% R@5**.
 
 ---
 
@@ -209,13 +209,13 @@ A production-tested self-hosted deployment using Docker containers behind a Clou
   <img width="240" alt="MCP Memory Service" src="https://github.com/user-attachments/assets/eab1f341-ca54-445c-905e-273cd9e89555" />
 </p>
 
-Your AI assistant forgets everything when you start a new chat. After 50 tool uses, context explodes to 500k+ tokens—Claude slows down, you restart, and now it remembers nothing. You spend 10 minutes re-explaining your architecture. **Again.**
+Your AI assistant forgets everything when you start a new chat. After 50 tool uses, context explodes to 500k+ tokensâClaude slows down, you restart, and now it remembers nothing. You spend 10 minutes re-explaining your architecture. **Again.**
 
 **MCP Memory Service solves this.**
 
-It automatically captures your project context, architecture decisions, and code patterns. When you start fresh sessions, your AI already knows everything—no re-explaining, no context loss, no wasted time.
+It automatically captures your project context, architecture decisions, and code patterns. When you start fresh sessions, your AI already knows everythingâno re-explaining, no context loss, no wasted time.
 
-## 🎥 2-Minute Video Demo
+## ð¥ 2-Minute Video Demo
 
 <div align="center">
   <a href="https://www.youtube.com/watch?v=veJME5qVu-A">
@@ -224,29 +224,29 @@ It automatically captures your project context, architecture decisions, and code
   <p><em>Technical showcase: Performance, Architecture, AI/ML Intelligence & Developer Experience</em></p>
 </div>
 
-### ⚡ Works With Your Favorite AI Tools
+### â¡ Works With Your Favorite AI Tools
 
-#### 🤖 Agent Frameworks (REST API)
-**LangGraph** · **CrewAI** · **AutoGen** · **Any HTTP Client** · **OpenClaw/Nanobot** · **Custom Pipelines**
+#### ð¤ Agent Frameworks (REST API)
+**LangGraph** Â· **CrewAI** Â· **AutoGen** Â· **Any HTTP Client** Â· **OpenClaw/Nanobot** Â· **Custom Pipelines**
 
-#### 🖥️ CLI & Terminal AI (MCP)
-**Claude Code** · **Gemini CLI** · **Gemini Code Assist** · **OpenCode** · **Codex CLI** · **Goose** · **Aider** · **GitHub Copilot CLI** · **Amp** · **Continue** · **Zed** · **Cody**
+#### ð¥ï¸ CLI & Terminal AI (MCP)
+**Claude Code** Â· **Gemini CLI** Â· **Gemini Code Assist** Â· **OpenCode** Â· **Codex CLI** Â· **Goose** Â· **Aider** Â· **GitHub Copilot CLI** Â· **Amp** Â· **Continue** Â· **Zed** Â· **Cody**
 
-#### 🎨 Desktop & IDE (MCP)
-**Claude Desktop** · **VS Code** · **Cursor** · **Windsurf** · **Kilo Code** · **Raycast** · **JetBrains** · **Replit** · **Sourcegraph** · **Qodo**
+#### ð¨ Desktop & IDE (MCP)
+**Claude Desktop** Â· **VS Code** Â· **Cursor** Â· **Windsurf** Â· **Kilo Code** Â· **Raycast** Â· **JetBrains** Â· **Replit** Â· **Sourcegraph** Â· **Qodo**
 
-#### 💬 Chat Interfaces (MCP)
-**ChatGPT** (Developer Mode) · **claude.ai** (Remote MCP via HTTPS)
+#### ð¬ Chat Interfaces (MCP)
+**ChatGPT** (Developer Mode) Â· **claude.ai** (Remote MCP via HTTPS)
 
 **Works seamlessly with any MCP-compatible client or HTTP client** - whether you're building agent pipelines, coding in the terminal, IDE, or browser.
 
-> **💡 NEW**: ChatGPT now supports MCP! Enable Developer Mode to connect your memory service directly. [See setup guide →](https://github.com/doobidoo/mcp-memory-service/discussions/377#discussioncomment-15605174)
+> **ð¡ NEW**: ChatGPT now supports MCP! Enable Developer Mode to connect your memory service directly. [See setup guide â](https://github.com/doobidoo/mcp-memory-service/discussions/377#discussioncomment-15605174)
 
 ---
 
-## 🚀 Get Started in 60 Seconds
+## ð Get Started in 60 Seconds
 
-> Not sure which setup fits your needs? See the **[Setup Guide](docs/setup-guide.md)** — a decision tree walks you to the right path in under a minute.
+> Not sure which setup fits your needs? See the **[Setup Guide](docs/setup-guide.md)** â a decision tree walks you to the right path in under a minute.
 
 **1. Install:**
 
@@ -254,6 +254,13 @@ It automatically captures your project context, architecture decisions, and code
 pip install mcp-memory-service
 ```
 
+**Or configure with one command via [agent-add](https://github.com/pea3nut/agent-get):**
+
+```bash
+npx -y agent-add --mcp '{"memory":{"command":"memory","args":["server"]}}'
+```
+
+> Requires [Node.js](https://nodejs.org/) 18+. Supports Claude Desktop, Cursor, Windsurf, and [15+ more](https://github.com/pea3nut/agent-get) AI clients. Skip step 2 below.
 **2. Configure your AI client:**
 
 <details open>
@@ -291,9 +298,9 @@ Restart Claude Code. Memory tools will appear automatically.
 </details>
 
 <details>
-<summary><strong>🌐 claude.ai (Browser — Remote MCP)</strong></summary>
+<summary><strong>ð claude.ai (Browser â Remote MCP)</strong></summary>
 
-No local installation required on the client — works directly in your browser:
+No local installation required on the client â works directly in your browser:
 
 ```bash
 # 1. Start server with Remote MCP
@@ -302,7 +309,7 @@ MCP_STREAMABLE_HTTP_MODE=1 python -m mcp_memory_service.server
 # 2. Expose publicly (Cloudflare Tunnel)
 cloudflared tunnel --url http://localhost:8765
 
-# 3. Add connector in claude.ai Settings → Connectors with the tunnel URL
+# 3. Add connector in claude.ai Settings â Connectors with the tunnel URL
 ```
 
 See [Remote MCP Setup Guide](docs/remote-mcp-setup.md) for production deployment with Let's Encrypt, nginx, and Docker.
@@ -310,7 +317,7 @@ See [Remote MCP Setup Guide](docs/remote-mcp-setup.md) for production deployment
 </details>
 
 <details>
-<summary><strong>🔧 Advanced: Custom Backends & Team Setup</strong></summary>
+<summary><strong>ð§ Advanced: Custom Backends & Team Setup</strong></summary>
 
 For production deployments, team collaboration, or cloud sync:
 
@@ -329,29 +336,29 @@ Choose from:
 
 ---
 
-## 💡 Why You Need This
+## ð¡ Why You Need This
 
 ### The Problem
 
 | Session 1 | Session 2 (Fresh Start) |
 |-----------|-------------------------|
-| You: "We're building a Next.js app with Prisma and tRPC" | AI: "What's your tech stack?" ❌ |
-| AI: "Got it, I see you're using App Router" | You: *Explains architecture again for 10 minutes* 😤 |
-| You: "Add authentication with NextAuth" | AI: "Should I use Pages Router or App Router?" ❌ |
+| You: "We're building a Next.js app with Prisma and tRPC" | AI: "What's your tech stack?" â |
+| AI: "Got it, I see you're using App Router" | You: *Explains architecture again for 10 minutes* ð¤ |
+| You: "Add authentication with NextAuth" | AI: "Should I use Pages Router or App Router?" â |
 
 ### The Solution
 
 | Session 1 | Session 2 (Fresh Start) |
 |-----------|-------------------------|
-| You: "We're building a Next.js app with Prisma and tRPC" | AI: "I remember—Next.js App Router with Prisma and tRPC. What should we build?" ✅ |
+| You: "We're building a Next.js app with Prisma and tRPC" | AI: "I rememberâNext.js App Router with Prisma and tRPC. What should we build?" â |
 | AI: "Got it, I see you're using App Router" | You: "Add OAuth login" |
-| You: "Add authentication with NextAuth" | AI: "I'll integrate NextAuth with your existing Prisma setup." ✅ |
+| You: "Add authentication with NextAuth" | AI: "I'll integrate NextAuth with your existing Prisma setup." â |
 
 **Result:** Zero re-explaining. Zero context loss. Just continuous, intelligent collaboration.
 
 ---
 
-## 🌐 SHODH Ecosystem Compatibility
+## ð SHODH Ecosystem Compatibility
 
 MCP Memory Service is **fully compatible** with the [SHODH Unified Memory API Specification v1.0.0](https://github.com/varun29ankuS/shodh-memory/blob/main/specs/openapi.yaml), enabling seamless interoperability across the SHODH ecosystem.
 
@@ -366,46 +373,46 @@ MCP Memory Service is **fully compatible** with the [SHODH Unified Memory API Sp
 ### Unified Schema Support
 
 All SHODH implementations share the same memory schema:
-- ✅ **Emotional Metadata**: `emotion`, `emotional_valence`, `emotional_arousal`
-- ✅ **Episodic Memory**: `episode_id`, `sequence_number`, `preceding_memory_id`
-- ✅ **Source Tracking**: `source_type`, `credibility`
-- ✅ **Quality Scoring**: `quality_score`, `access_count`, `last_accessed_at`
+- â **Emotional Metadata**: `emotion`, `emotional_valence`, `emotional_arousal`
+- â **Episodic Memory**: `episode_id`, `sequence_number`, `preceding_memory_id`
+- â **Source Tracking**: `source_type`, `credibility`
+- â **Quality Scoring**: `quality_score`, `access_count`, `last_accessed_at`
 
 **Interoperability Example:**
-Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync across devices → Full fidelity preservation of emotional_valence, episode_id, and all spec fields.
+Export memories from mcp-memory-service â Import to shodh-cloudflare â Sync across devices â Full fidelity preservation of emotional_valence, episode_id, and all spec fields.
 
 ---
 
-## ✨ Quick Start Features
+## â¨ Quick Start Features
 
-🧠 **Persistent Memory** – Context survives across sessions with semantic search
-🔍 **Smart Retrieval** – Finds relevant context automatically using AI embeddings
-⚡ **5ms Speed** – Instant context injection, no latency
-🔄 **Multi-Client** – Works across 20+ AI applications
-☁️ **Cloud Sync** – Optional Cloudflare backend for team collaboration
-🔒 **Privacy-First** – Local-first, you control your data
-📊 **Web Dashboard** – Visualize and manage memories at `http://localhost:8000`
-🧬 **Knowledge Graph** – Interactive D3.js visualization of memory relationships 🆕
+ð§  **Persistent Memory** â Context survives across sessions with semantic search
+ð **Smart Retrieval** â Finds relevant context automatically using AI embeddings
+â¡ **5ms Speed** â Instant context injection, no latency
+ð **Multi-Client** â Works across 20+ AI applications
+âï¸ **Cloud Sync** â Optional Cloudflare backend for team collaboration
+ð **Privacy-First** â Local-first, you control your data
+ð **Web Dashboard** â Visualize and manage memories at `http://localhost:8000`
+ð§¬ **Knowledge Graph** â Interactive D3.js visualization of memory relationships ð
 
-### 🖥️ Dashboard Preview (v9.3.0)
+### ð¥ï¸ Dashboard Preview (v9.3.0)
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/wiki/doobidoo/mcp-memory-service/images/dashboard/mcp-memory-dashboard-v9.3.0-tour.gif" alt="MCP Memory Dashboard Tour" width="800"/>
 </p>
 
-**8 Dashboard Tabs:** Dashboard • Search • Browse • Documents • Manage • Analytics • **Quality** (NEW) • API Docs
+**8 Dashboard Tabs:** Dashboard â¢ Search â¢ Browse â¢ Documents â¢ Manage â¢ Analytics â¢ **Quality** (NEW) â¢ API Docs
 
-📖 See [Web Dashboard Guide](https://github.com/doobidoo/mcp-memory-service/wiki/Web-Dashboard-Guide) for complete documentation.
+ð See [Web Dashboard Guide](https://github.com/doobidoo/mcp-memory-service/wiki/Web-Dashboard-Guide) for complete documentation.
 
 ---
 
 
 ## Latest Release: **v10.35.0** (April 8, 2026)
 
-**feat: session-level memory ingestion — LongMemEval R@5 86.0% (+5.6% vs turn-level)**
+**feat: session-level memory ingestion â LongMemEval R@5 86.0% (+5.6% vs turn-level)**
 
 **What's New:**
-- **`memory_store_session` MCP tool**: Stores a full conversation as a single memory unit — all turns concatenated as `[role] content`, stored with `memory_type=session` and auto-tagged `session:<id>`.
+- **`memory_store_session` MCP tool**: Stores a full conversation as a single memory unit â all turns concatenated as `[role] content`, stored with `memory_type=session` and auto-tagged `session:<id>`.
 - **`POST /api/sessions` HTTP endpoint**: REST endpoint for session-level ingestion mirroring the MCP tool.
 - **LongMemEval session-mode results**: R@5 86.0% (+5.6% vs turn-level), with biggest gains in multi-session (+15.2%) and temporal-reasoning (+10.6%) categories.
 - **`--ingestion-mode session|turn|both`** flag for LongMemEval benchmark for direct strategy comparison.
@@ -415,15 +422,15 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 **Previous Releases**:
-- **v10.34.0** - feat: LongMemEval benchmark — R@5 80.4%, R@10 90.4%, NDCG@10 82.2%, MRR 89.1% (PR #665, 1,520 tests)
+- **v10.34.0** - feat: LongMemEval benchmark â R@5 80.4%, R@10 90.4%, NDCG@10 82.2%, MRR 89.1% (PR #665, 1,520 tests)
 - **v10.33.0** - refactor: eliminate event-loop blocking + fix silent conflict data loss in SQLite storage (PR #663, 1,520 tests)
 - **v10.32.0** - feat: transport health endpoint + configurable timeouts + optional DCR registration key protection (community PRs #656, #657, 1,520 tests)
-- **v10.31.2** - fix: storage consistency, error handling, and upload progress — `_safe_json_loads` consistency, non-JSON error handling, upload progress tracking (community PRs #648, #649, #650, 1,503 tests)
-- **v10.31.1** - fix: tombstone blocks re-insertion after delete of same content (#644) — `_purge_tombstone()` before INSERT (1,521 tests)
-- **v10.31.0** - feat: Harvest Evolution (P4) + Sync-in-Async Refactoring — harvest dedup via `update_memory_versioned()`, `asyncio.to_thread()` in `_execute_with_retry` (1,520 tests)
-- **v10.30.0** - feat: Memory Evolution (P1+P2+P3) — non-destructive versioned updates, staleness scoring, conflict detection + resolution (1,514 tests)
-- **v10.29.1** - fix: clean up orphaned graph edges on memory deletion — cascade edge removal in delete/delete_by_tag/delete_by_tags + periodic orphan pruning in consolidation
-- **v10.29.0** - feat(harvest): LLM-based classification via Groq (Phase 2, #628) — `memory_harvest` supports `use_llm=true` for higher-precision category labels via _GroqClassifierBridge
+- **v10.31.2** - fix: storage consistency, error handling, and upload progress â `_safe_json_loads` consistency, non-JSON error handling, upload progress tracking (community PRs #648, #649, #650, 1,503 tests)
+- **v10.31.1** - fix: tombstone blocks re-insertion after delete of same content (#644) â `_purge_tombstone()` before INSERT (1,521 tests)
+- **v10.31.0** - feat: Harvest Evolution (P4) + Sync-in-Async Refactoring â harvest dedup via `update_memory_versioned()`, `asyncio.to_thread()` in `_execute_with_retry` (1,520 tests)
+- **v10.30.0** - feat: Memory Evolution (P1+P2+P3) â non-destructive versioned updates, staleness scoring, conflict detection + resolution (1,514 tests)
+- **v10.29.1** - fix: clean up orphaned graph edges on memory deletion â cascade edge removal in delete/delete_by_tag/delete_by_tags + periodic orphan pruning in consolidation
+- **v10.29.0** - feat(harvest): LLM-based classification via Groq (Phase 2, #628) â `memory_harvest` supports `use_llm=true` for higher-precision category labels via _GroqClassifierBridge
 - **v10.28.5** - Bug fix: MCP_ALLOW_ANONYMOUS_ACCESS=true now respected in the dashboard (anonymous users granted read+write scope)
 - **v10.28.4** - Security patch: cryptography>=46.0.6 (CVE-2026-34073), serialize-javascript>=7.0.5 (CVE-2026-34043), CodeQL cleanup
 - **v10.28.3** - HTTP MCP endpoint fix: accept 'content' as alias for 'query' so Claude Code HTTP transport returns results
@@ -443,7 +450,7 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 - **v10.25.3** - Patch release: stdio handshake timeout cap, syntax fixes, hybrid sync fix, dashboard version badge fix
 - **v10.25.2** - Patch fix: `update_and_restart.sh` health check reads `status` field instead of removed `version` field
 - **v10.25.1** - Security: CORS wildcard default changed to localhost-only, soft-delete leak in `search_by_tag_chronological()` fixed (GHSA-g9rg-8vq5-mpwm)
-- **v10.25.0** - Embedding migration script, 5 soft-delete leak fixes, cosine distance formula fix, substring tag matching fix, O(n²) association sampling fix — 23 new tests, 1,420 total
+- **v10.25.0** - Embedding migration script, 5 soft-delete leak fixes, cosine distance formula fix, substring tag matching fix, O(nÂ²) association sampling fix â 23 new tests, 1,420 total
 
 **Full version history**: [CHANGELOG.md](CHANGELOG.md) | [Older versions (v10.22.0 and earlier)](docs/archive/CHANGELOG-HISTORIC.md) | [All Releases](https://github.com/doobidoo/mcp-memory-service/releases)
 
@@ -451,10 +458,10 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 
 ## Migration to v9.0.0
 
-**⚡ TL;DR**: No manual migration needed - upgrades happen automatically!
+**â¡ TL;DR**: No manual migration needed - upgrades happen automatically!
 
 **Breaking Changes:**
-- **Memory Type Ontology**: Legacy types auto-migrate to new taxonomy (task→observation, note→observation)
+- **Memory Type Ontology**: Legacy types auto-migrate to new taxonomy (taskâobservation, noteâobservation)
 - **Asymmetric Relationships**: Directed edges only (no longer bidirectional)
 
 **Migration Process:**
@@ -462,7 +469,7 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 2. Update to latest version (`git pull` or `pip install --upgrade mcp-memory-service`)
 3. Restart server - automatic migrations run on startup:
    - Database schema migrations (009, 010)
-   - Memory type soft-validation (legacy types → observation)
+   - Memory type soft-validation (legacy types â observation)
    - No tag migration needed (backward compatible)
 
 **Safety**: Migrations are idempotent and safe to re-run
@@ -479,7 +486,7 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 - Type validation now defaults to 'observation' for invalid types (soft validation)
 
 **Migration Process:**
-✅ **Automatic** - No manual action required!
+â **Automatic** - No manual action required!
 
 When you restart the server with v9.0.0:
 - Invalid memory types are automatically soft-validated to 'observation'
@@ -494,7 +501,7 @@ When you restart the server with v9.0.0:
 - pattern: Patterns and trends
 
 **Backward Compatibility:**
-- Existing memories will be auto-migrated (task→observation, note→observation, standard→observation)
+- Existing memories will be auto-migrated (taskâobservation, noteâobservation, standardâobservation)
 - Invalid types default to 'observation' (no errors thrown)
 
 #### 2. Asymmetric Relationships
@@ -525,14 +532,14 @@ result = storage.find_connected(
 ```
 
 **Relationship Types:**
-- Asymmetric: causes, fixes, supports, follows (A→B ≠ B→A)
-- Symmetric: related, contradicts (A↔B)
+- Asymmetric: causes, fixes, supports, follows (AâB â  BâA)
+- Symmetric: related, contradicts (AâB)
 
 ### Retrieval Benchmarks
 
 Three benchmarks measure retrieval quality (all-MiniLM-L6-v2, 384d embeddings, zero LLM API calls):
 
-**LongMemEval** ([500 questions](https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned), ~45–62 distractor sessions per question):
+**LongMemEval** ([500 questions](https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned), ~45â62 distractor sessions per question):
 
 | Question Type | R@5 | R@10 | NDCG@10 | MRR |
 |---------------|-----|------|---------|-----|
@@ -583,24 +590,24 @@ If you encounter issues during migration:
 
 ---
 
-## 📚 Documentation & Resources
+## ð Documentation & Resources
 
-- **[Agent Integration Guides](docs/agents/)** 🆕 – LangGraph, CrewAI, AutoGen, HTTP generic
-- **[Remote MCP Setup (claude.ai)](docs/remote-mcp-setup.md)** 🆕 – Browser integration via HTTPS + OAuth
-- **[Setup Guide](docs/setup-guide.md)** – Decision tree + step-by-step paths for all use cases
-- **[Configuration Guide](docs/mastery/configuration-guide.md)** – Backend options and customization
-- **[Architecture Overview](docs/architecture.md)** – How it works under the hood
-- **[Team Setup Guide](docs/setup-guide.md#path-4-full-stack)** – OAuth and cloud collaboration
-- **[Knowledge Graph Dashboard](docs/features/knowledge-graph-dashboard.md)** 🆕 – Interactive graph visualization guide
-- **[Troubleshooting](docs/troubleshooting/)** – Common issues and solutions
-- **[API Reference](https://github.com/doobidoo/mcp-memory-service/wiki)** – Programmatic usage
-- **[Wiki](https://github.com/doobidoo/mcp-memory-service/wiki)** – Complete documentation
-- [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/doobidoo/mcp-memory-service) – AI-powered documentation assistant
-- **[MCP Starter Kit](https://kruppster57.gumroad.com/l/glbhd)** – Build your own MCP server using the patterns from this project
+- **[Agent Integration Guides](docs/agents/)** ð â LangGraph, CrewAI, AutoGen, HTTP generic
+- **[Remote MCP Setup (claude.ai)](docs/remote-mcp-setup.md)** ð â Browser integration via HTTPS + OAuth
+- **[Setup Guide](docs/setup-guide.md)** â Decision tree + step-by-step paths for all use cases
+- **[Configuration Guide](docs/mastery/configuration-guide.md)** â Backend options and customization
+- **[Architecture Overview](docs/architecture.md)** â How it works under the hood
+- **[Team Setup Guide](docs/setup-guide.md#path-4-full-stack)** â OAuth and cloud collaboration
+- **[Knowledge Graph Dashboard](docs/features/knowledge-graph-dashboard.md)** ð â Interactive graph visualization guide
+- **[Troubleshooting](docs/troubleshooting/)** â Common issues and solutions
+- **[API Reference](https://github.com/doobidoo/mcp-memory-service/wiki)** â Programmatic usage
+- **[Wiki](https://github.com/doobidoo/mcp-memory-service/wiki)** â Complete documentation
+- [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/doobidoo/mcp-memory-service) â AI-powered documentation assistant
+- **[MCP Starter Kit](https://kruppster57.gumroad.com/l/glbhd)** â Build your own MCP server using the patterns from this project
 
 ---
 
-## 🤝 Contributing
+## ð¤ Contributing
 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
