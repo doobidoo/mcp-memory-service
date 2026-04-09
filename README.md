@@ -429,21 +429,19 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.35.0** (April 8, 2026)
+## Latest Release: **v10.36.0** (April 9, 2026)
 
-**feat: session-level memory ingestion — LongMemEval R@5 86.0% (+5.6% vs turn-level)**
+**feat: OpenCode memory awareness integration + lite package version sync fix**
 
 **What's New:**
-- **`memory_store_session` MCP tool**: Stores a full conversation as a single memory unit — all turns concatenated as `[role] content`, stored with `memory_type=session` and auto-tagged `session:<id>`.
-- **`POST /api/sessions` HTTP endpoint**: REST endpoint for session-level ingestion mirroring the MCP tool.
-- **LongMemEval session-mode results**: R@5 86.0% (+5.6% vs turn-level), with biggest gains in multi-session (+15.2%) and temporal-reasoning (+10.6%) categories.
-- **`--ingestion-mode session|turn|both`** flag for LongMemEval benchmark for direct strategy comparison.
-- **`session` and `conversation_turn` memory types** added to the ontology.
-- **1,537 tests** passing (+17 new: 10 handler + 7 HTTP endpoint tests).
+- **OpenCode integration** (`opencode/memory-plugin.js`): New community-contributed plugin that injects memories into OpenCode sessions via the HTTP API — session-start retrieval, system-context injection, and compaction-context injection. Includes setup docs and example config. (by @irizzant)
+- **Lite package version sync fix**: `mcp-memory-service-lite` was stuck at 8.76.0 on PyPI. Synced to current version, added `pyproject-lite.toml` to release automation, and added CI fallback sync step.
+- **1,537 tests** passing.
 
 ---
 
 **Previous Releases**:
+- **v10.35.0** - feat: session-level memory ingestion — `memory_store_session` MCP tool + `POST /api/sessions` — LongMemEval R@5 86.0% (+5.6%) (PR #666, 1,537 tests)
 - **v10.34.0** - feat: LongMemEval benchmark — R@5 80.4%, R@10 90.4%, NDCG@10 82.2%, MRR 89.1% (PR #665, 1,520 tests)
 - **v10.33.0** - refactor: eliminate event-loop blocking + fix silent conflict data loss in SQLite storage (PR #663, 1,520 tests)
 - **v10.32.0** - feat: transport health endpoint + configurable timeouts + optional DCR registration key protection (community PRs #656, #657, 1,520 tests)
