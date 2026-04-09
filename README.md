@@ -248,17 +248,6 @@ It automatically captures your project context, architecture decisions, and code
 
 > Not sure which setup fits your needs? See the **[Setup Guide](docs/setup-guide.md)** — a decision tree walks you to the right path in under a minute.
 
-**0. Quick install via agent-add (optional):**
-
-Install to any supported AI host (Claude Code, Cursor, Claude Desktop, Windsurf, and [15+ more](https://github.com/pea3nut/agent-get)) with one command:
-
-```bash
-npx -y agent-add --mcp '{"memory":{"command":"memory","args":["server"]}}'
-```
-
-> Requires [Node.js](https://nodejs.org/) 18+ and [pip install mcp-memory-service](https://pypi.org/project/mcp-memory-service/). `agent-add` auto-detects your AI host and writes the config to the correct location — no need to find config file paths manually.
-
-
 **1. Install:**
 
 ```bash
@@ -266,6 +255,13 @@ pip install mcp-memory-service
 ```
 
 **2. Configure your AI client:**
+
+Or auto-configure any supported host with [agent-add](https://github.com/pea3nut/agent-get) (supports [18 AI hosts](https://github.com/pea3nut/agent-get) including Cursor, Windsurf, GitHub Copilot, and more):
+
+```bash
+npx -y agent-add --mcp '{"memory":{"command":"memory","args":["server"]}}'
+```
+
 
 <details open>
 <summary><strong>Claude Desktop</strong></summary>
