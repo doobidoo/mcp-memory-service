@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-memory-service-lite"
-version = "10.36.0"
+version = "10.36.1"
 description = "Lightweight semantic memory service with ONNX embeddings - no PyTorch required. 80% smaller install size. REST API + MCP transport."
 readme = "README.md"
 requires-python = ">=3.10"

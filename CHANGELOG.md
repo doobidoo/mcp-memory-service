@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.36.1] - 2026-04-10
+
+### Fixed
+
+- **[#678] SQLite-vec segfault under concurrent worker-thread access**: The `sqlite-vec` extension is not thread-safe; `check_same_thread=False` only disables Python's safety check. Concurrent calls to `self.conn` from multiple `asyncio.to_thread()` workers could crash inside the C extension. Added a per-storage `threading.Lock` (`_conn_lock`) and a `_run_in_thread()` helper that serializes every worker-thread DB call. Routed `_execute_with_retry`, migrations, FTS5 init, embedding-dimension probe, and conflict detection through the new helper. Observed as `Fatal Python error: Segmentation fault` in `_get_stats` on Ubuntu CI. (PR #678)
+- **[#678] SQLite-vec use-after-close segfault on hybrid shutdown**: `HybridStorage.close()` cancels background sync tasks, but cancellation only delivers `CancelledError` to the outer coroutine — an `asyncio.to_thread()` worker mid-query keeps running. The subsequent `primary.close()` then freed the connection underneath the worker, crashing sqlite3/sqlite-vec. `SqliteVecMemoryStorage.close()` now acquires `_conn_lock` before closing, so any in-flight worker finishes first. (PR #678)
+- **[#678] Corrupt `connection_types` in conflict graph edges**: `_record_conflicts` stored `connection_types` as the bare string `"semantic"` instead of a JSON-encoded list, which then crashed downstream graph readers with `JSONDecodeError`. Encoded as `json.dumps(["semantic"])` and hardened `GraphStorage.get_subgraph()` to tolerate legacy corrupt rows instead of crashing the request. (PR #678)
+
+### Tests
+
+- **[#678] Thread-safety test rewrite**: `test_execute_with_retry_does_not_block_loop` previously asserted that two DB operations run truly in parallel on a shared connection — exactly the pattern that caused the segfault. Rewritten to verify the actual property (the asyncio event loop stays responsive while a slow DB op runs in a worker thread), using a 5×50 ms `asyncio.sleep` probe. (PR #678)
+- **[#678] Stale ontology type count**: Bumped `test_total_type_count` from 75 → 77 after new burst types were added without updating the assertion. (PR #678)
+- **[#678] Semantic dedup collision in graph edge cleanup test**: `test_delete_by_tag_removes_graph_edges` stored near-duplicate content ("Tagged mem 1"/"Tagged mem 2") which dedup dropped when the embedding model was loaded by prior tests in the suite. Passed `skip_semantic_dedup=True` since the test's subject is edge cleanup, not dedup semantics. (PR #678)
+
 ## [10.36.0] - 2026-04-09
 
 ### Added
