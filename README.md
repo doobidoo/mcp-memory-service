@@ -256,19 +256,20 @@ pip install mcp-memory-service
 
 **2. Configure your AI client:**
 
-Or auto-configure any supported host with [agent-add](https://github.com/pea3nut/agent-get) (supports [18 AI hosts](https://github.com/pea3nut/agent-get) including Cursor, Windsurf, GitHub Copilot, and more):
-
 ```bash
 npx -y agent-add --mcp '{"memory":{"command":"memory","args":["server"]}}'
 ```
 
+> Requires [Node.js](https://nodejs.org/) 18+. [agent-add](https://github.com/pea3nut/agent-get) auto-detects your AI host (Cursor, Windsurf, GitHub Copilot, and [15+ more](https://github.com/pea3nut/agent-get)) and writes the config to the correct file.
 
-<details open>
+Or configure manually for your specific client:
+
+<details>
 <summary><strong>Claude Desktop</strong></summary>
 
 Add to your config file:
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Windows**: `%APPDATA%Claudeclaude_desktop_config.json`
 - **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
 ```json
@@ -333,8 +334,6 @@ Choose from:
 - **Hybrid** (best of both: 5ms local + background cloud sync)
 
 </details>
-
----
 
 ## 💡 Why You Need This
 
