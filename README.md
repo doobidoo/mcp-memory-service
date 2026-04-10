@@ -434,18 +434,18 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.36.3** (April 10, 2026)
+## Latest Release: **v10.36.4** (April 10, 2026)
 
-**fix(dashboard): restore version badge after v10.21.0 security hardening**
+**fix(windows): hotfix for Get-McpApiKey returning first char instead of full API key**
 
 **What's Fixed:**
-- **Dashboard Settings modal version row showed N/A permanently**: `SYSTEM_INFO_CONFIG.settingsVersion` pointed at the public `/api/health` endpoint, which has not exposed `version` since the v10.21.0 security hardening (GHSA-73hc-m4hx-79pj). Migrated to `/api/health/detailed`, consistent with the header badge.
-- **`manage_service.ps1 status` showed blank Version and Backend**: `Get-ServerStatus` parsed fields removed from `/api/health` since v10.21.0. Now fetches `/api/health/detailed` with Bearer auth; introduces `Get-McpApiKey` helper in `lib/server-config.ps1` that robustly parses `MCP_API_KEY` from `.env` (handles quoting, trailing comments, keys containing `#`).
-- **1,537 tests** passing. (PR #685)
+- **`Get-McpApiKey` returned first character of API key (regression from v10.36.3)**: A Gemini-suggested refactor introduced a PowerShell array-enumeration trap — `($matches[1], $matches[2], $matches[3] | Where-Object { $_ -ne $null })[0]` returned `'b'` instead of the full key. Fixed with an explicit `if/elseif` chain using `$matches.ContainsKey()` and `[string]` casts. `manage_service.ps1 status` now correctly shows Version and Backend for all Windows users.
+- **1,537 tests** passing. (PR #687)
 
 ---
 
 **Previous Releases**:
+- **v10.36.3** - fix(dashboard): restore version badge after v10.21.0 security hardening — Settings modal version row fixed, `manage_service.ps1 status` shows real Version/Backend (PR #685, 1,537 tests)
 - **v10.36.2** - fix(windows): env-aware management scripts + reliable stdout logging — hardcoded URLs eliminated, Python stdout reliably captured, log rotation per restart (PR #682, 1,537 tests)
 - **v10.36.1** - fix: SQLite-vec segfault under concurrent worker-thread access + use-after-close crash on hybrid shutdown + corrupt connection_types in conflict graph edges (PR #678, 1,537 tests)
 - **v10.36.0** - feat: OpenCode memory awareness integration (@irizzant, PR #673) + lite package version sync fix (PR #675, 1,537 tests)

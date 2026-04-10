@@ -110,8 +110,19 @@ function Get-McpApiKey {
         # Regex handles quoted values (which may contain '#') and unquoted values
         # (stripped of trailing comments). Capture groups: 1=double-quoted,
         # 2=single-quoted, 3=unquoted (no '#' or whitespace allowed).
+        # NOTE: $matches uses ContainsKey() because unmatched capture groups
+        # are absent from the hashtable, not $null. A previous implementation
+        # used ($matches[1], $matches[2], $matches[3] | Where {$_ -ne $null})[0]
+        # which collapsed a single-element string result to its first Char via
+        # PowerShell's array-enumeration behavior.
         if ($line -match '^\s*MCP_API_KEY\s*=\s*(?:"([^"]*)"|''([^'']*)''|([^#\s]*))') {
-            $apiKey = ($matches[1], $matches[2], $matches[3] | Where-Object { $_ -ne $null })[0]
+            if ($matches.ContainsKey(1) -and -not [string]::IsNullOrEmpty($matches[1])) {
+                $apiKey = [string]$matches[1]
+            } elseif ($matches.ContainsKey(2) -and -not [string]::IsNullOrEmpty($matches[2])) {
+                $apiKey = [string]$matches[2]
+            } elseif ($matches.ContainsKey(3) -and -not [string]::IsNullOrEmpty($matches[3])) {
+                $apiKey = [string]$matches[3]
+            }
             break
         }
     }
