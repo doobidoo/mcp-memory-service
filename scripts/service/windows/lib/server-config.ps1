@@ -51,7 +51,7 @@ function Get-McpServerConfig {
         Get-Content $EnvFile | ForEach-Object {
             $line = $_
             if ($line -match '^\s*#' -or $line -notmatch '=') { return }
-            if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$') {
+            if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^#\r\n]*?)\s*(?:#.*)?$') {
                 $key = $matches[1]
                 $value = $matches[2].Trim().Trim('"').Trim("'")
                 switch ($key) {
@@ -96,5 +96,5 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
 "@ -ErrorAction SilentlyContinue
     }
     [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
 }

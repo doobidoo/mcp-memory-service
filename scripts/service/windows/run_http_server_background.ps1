@@ -198,8 +198,11 @@ while ($RestartCount -lt $MaxRestarts) {
         Write-Log "Executable: $ExePath $($ExeArgs -join ' ')"
         Write-Log "Python output will be written to: $PythonLogFile"
 
-        # Rotate Python log if it gets too large (keep last 10MB)
-        if ((Test-Path $PythonLogFile) -and (Get-Item $PythonLogFile).Length -gt 10MB) {
+        # Rotate Python log unconditionally before each start so that the
+        # previous attempt's output is preserved when the server crashes and
+        # restarts. Start-Process overwrites the target file, so without this
+        # the crash log from iteration N would be silently deleted by iteration N+1.
+        if (Test-Path $PythonLogFile) {
             $OldPythonLog = "$PythonLogFile.old"
             if (Test-Path $OldPythonLog) { Remove-Item $OldPythonLog -Force }
             Rename-Item $PythonLogFile $OldPythonLog
