@@ -260,7 +260,7 @@ pip install mcp-memory-service
 npx -y agent-add --mcp '{"memory":{"command":"memory","args":["server"]}}'
 ```
 
-> Requires [Node.js](https://nodejs.org/) 18+. [agent-add](https://github.com/pea3nut/agent-get) auto-detects your AI host (Cursor, Windsurf, GitHub Copilot, and [15+ more](https://github.com/pea3nut/agent-get)) and writes the config to the correct file.
+> Requires [Node.js](https://nodejs.org/) 18+. [agent-add](https://github.com/pea3nut/agent-add) auto-detects your AI host (Cursor, Windsurf, GitHub Copilot, and [15+ more](https://github.com/pea3nut/agent-add)) and writes the config to the correct file.
 
 Or configure manually for your specific client:
 
