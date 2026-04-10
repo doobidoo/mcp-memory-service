@@ -419,9 +419,13 @@ class TestBurst20NewProjectManagementTypes:
             assert get_parent_type(subtype) == "communication"
 
     def test_total_type_count(self):
-        """Verify total type count is 75 (12 base + 63 subtypes)."""
+        """Verify total type count.
+
+        Update the expected value whenever the type ontology in
+        src/mcp_memory_service/models/ontology.py gains or loses a type.
+        """
         all_types = get_all_types()
-        assert len(all_types) == 75, f"Expected 75 types, got {len(all_types)}"
+        assert len(all_types) == 77, f"Expected 77 types, got {len(all_types)}"
 
 
 class TestBurst21CustomMemoryTypeConfiguration:

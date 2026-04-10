@@ -2168,9 +2168,12 @@ class TestGraphEdgeCleanupOnDelete:
         m1 = Memory(content="Tagged mem 1", content_hash=generate_content_hash("Tagged mem 1"), tags=["cleanup"])
         m2 = Memory(content="Tagged mem 2", content_hash=generate_content_hash("Tagged mem 2"), tags=["cleanup"])
         m3 = Memory(content="Keep this one", content_hash=generate_content_hash("Keep this one"), tags=["keep"])
-        await storage.store(m1)
-        await storage.store(m2)
-        await storage.store(m3)
+        # skip_semantic_dedup=True: "Tagged mem 1" vs "Tagged mem 2" are near-duplicates
+        # for the embedding model (>0.85 cosine similarity), which would otherwise drop m2.
+        # This test is about deletion/edge cleanup, not dedup semantics.
+        await storage.store(m1, skip_semantic_dedup=True)
+        await storage.store(m2, skip_semantic_dedup=True)
+        await storage.store(m3, skip_semantic_dedup=True)
 
         # Edges between all three
         await self._insert_edge(storage, m1.content_hash, m2.content_hash)
