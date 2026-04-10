@@ -79,6 +79,46 @@ function Get-McpServerConfig {
     return $config
 }
 
+function Get-McpApiKey {
+    <#
+    .SYNOPSIS
+        Reads MCP_API_KEY from the project's .env file.
+
+    .DESCRIPTION
+        Parses .env line-by-line and extracts MCP_API_KEY. Returns $null if
+        the key is not defined. Used by scripts that need to call
+        authenticated endpoints such as /api/server/status or
+        /api/health/detailed (required since the v10.21.0 security hardening
+        in GHSA-73hc-m4hx-79pj removed version/uptime from the public
+        /api/health response).
+
+    .OUTPUTS
+        System.String - the API key, or $null if not found.
+    #>
+    param(
+        [string]$ProjectRoot = (Get-McpProjectRoot)
+    )
+
+    $EnvFile = Join-Path $ProjectRoot ".env"
+    if (-not (Test-Path $EnvFile)) {
+        return $null
+    }
+
+    $apiKey = $null
+    Get-Content $EnvFile | ForEach-Object {
+        $line = $_
+        if ($line -match '^\s*#' -or $line -notmatch '=') { return }
+        if ($line -match '^\s*MCP_API_KEY\s*=\s*(.*?)\s*(?:#.*)?$') {
+            $apiKey = $matches[1].Trim().Trim('"').Trim("'")
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        return $null
+    }
+    return $apiKey
+}
+
 function Enable-McpSelfSignedCertBypass {
     <#
     .SYNOPSIS

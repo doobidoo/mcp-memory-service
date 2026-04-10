@@ -99,7 +99,7 @@ function Get-ServerStatus {
         }
     }
 
-    # Check HTTP health
+    # Check HTTP health (public, no auth — fast liveness check)
     $HttpHealthy = $false
     $HealthResponse = $null
     try {
@@ -118,6 +118,29 @@ function Get-ServerStatus {
         # Server not responding
     }
 
+    # Fetch version + backend from the authenticated /api/health/detailed
+    # endpoint. The public /api/health response only contains status since the
+    # v10.21.0 security hardening (GHSA-73hc-m4hx-79pj), so the human-readable
+    # status display needs the authenticated endpoint for version/backend.
+    # Degrades gracefully if MCP_API_KEY is not set in .env.
+    $DetailedHealth = $null
+    if ($HttpHealthy) {
+        $ApiKey = Get-McpApiKey
+        if ($ApiKey) {
+            try {
+                $DetailedUrl = "$($ServerConfig.BaseUrl)/api/health/detailed"
+                $DetailedResponse = Invoke-WebRequest -Uri $DetailedUrl `
+                    -Headers @{ "Authorization" = "Bearer $ApiKey" } `
+                    -TimeoutSec 3 -UseBasicParsing -ErrorAction SilentlyContinue
+                if ($DetailedResponse.StatusCode -eq 200) {
+                    $DetailedHealth = $DetailedResponse.Content | ConvertFrom-Json
+                }
+            } catch {
+                # /health/detailed unreachable — keep fields empty, don't fail status
+            }
+        }
+    }
+
     return @{
         Task = $Task
         TaskInfo = $TaskInfo
@@ -125,6 +148,7 @@ function Get-ServerStatus {
         ProcessPid = $ProcessPid
         HttpHealthy = $HttpHealthy
         HealthResponse = $HealthResponse
+        DetailedHealth = $DetailedHealth
     }
 }
 
@@ -178,9 +202,18 @@ function Show-Status {
         Write-Host "  Status:  " -NoNewline
         Write-Host "HEALTHY" -ForegroundColor Green
         Write-Host "  URL:     $DashboardUrl"
-        if ($Status.HealthResponse) {
-            Write-Host "  Version: $($Status.HealthResponse.version)"
-            Write-Host "  Backend: $($Status.HealthResponse.storage_backend)"
+        # Version + backend come from /api/health/detailed (authenticated).
+        # Public /api/health has not exposed these since v10.21.0.
+        if ($Status.DetailedHealth) {
+            $backendValue = $null
+            if ($Status.DetailedHealth.storage) {
+                $backendValue = $Status.DetailedHealth.storage.storage_backend
+            }
+            Write-Host "  Version: $($Status.DetailedHealth.version)"
+            Write-Host "  Backend: $backendValue"
+        } else {
+            Write-Host "  Version: (unavailable - set MCP_API_KEY in .env for details)" -ForegroundColor DarkGray
+            Write-Host "  Backend: (unavailable - set MCP_API_KEY in .env for details)" -ForegroundColor DarkGray
         }
     } else {
         Write-Host "  Status: " -NoNewline
