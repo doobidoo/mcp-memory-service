@@ -331,7 +331,7 @@ When adding features or making significant changes:
 
 All issues, pull requests, and discussions should be written in **English**. This keeps the project accessible to our international community of contributors and ensures problems are searchable for others hitting the same issue. If English isn't your first language, tools like DeepL or Google Translate work well — we genuinely appreciate the effort.
 
-Issues opened in other languages may be translated by a maintainer, or closed with a polite request to resubmit in English.
+Contributions opened in other languages may be translated by a maintainer, or redirected with a polite request to resubmit in English.
 
 ### Bug Reports
 
