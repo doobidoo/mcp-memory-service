@@ -8,6 +8,8 @@ body:
       value: |
         Thank you for suggesting a feature! Please provide details about your use case and proposed solution.
 
+        > 🌐 **Please write your issue in English.** This keeps the project accessible to our international community and makes problems searchable for others hitting the same issue. If English isn't your first language, tools like DeepL or Google Translate work well — we appreciate the effort!
+
   - type: textarea
     id: problem
     attributes:
