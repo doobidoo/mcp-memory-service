@@ -14,6 +14,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - Added English-language policy to issue templates (bug, feature, performance) and CONTRIBUTING.md (PR #683)
 
+## [10.36.2] - 2026-04-10
+
+### Fixed
+
+- **[#682] Hardcoded server URLs in Windows management scripts**: All 5 Windows PowerShell management scripts (`manage_service.ps1`, `run_http_server_background.ps1`, `install_scheduled_task.ps1`, `uninstall_scheduled_task.ps1`, `update_and_restart.ps1`) used a hardcoded `http://127.0.0.1:8000` URL regardless of `.env` configuration. Health checks failed silently as soon as a user enabled HTTPS (`MCP_HTTPS_ENABLED=true`) or changed the port (`MCP_HTTP_PORT`). Introduced `scripts/service/windows/lib/server-config.ps1` as a shared helper that parses `.env` for `MCP_HTTP_HOST`, `MCP_HTTP_PORT`, and `MCP_HTTPS_ENABLED` and returns a `BaseUrl`/`HealthUrl` hashtable. All scripts now dot-source this helper. Falls back to `http://127.0.0.1:8000` if `.env` is absent or variables are unset — fully backward-compatible. (PR #682)
+- **[#682] Silent Python stdout/stderr dropout in background server wrapper**: `run_http_server_background.ps1` used .NET `OutputDataReceived` event handlers that referenced `$script:LogFile`, a variable not captured in the event handler runspace. Every line of Python stdout and stderr was silently discarded. When Python crashed during initialization, no error was ever surfaced in the log. Replaced with `Start-Process -RedirectStandardOutput`/`-RedirectStandardError` which writes directly to `http-server-python.log` and a `.err` sidecar, eliminating the runspace capture problem entirely. (PR #682)
+- **[#682] Log overwrite destroys crash evidence in restart loop**: `Start-Process` overwrites the redirect target file on each invocation. The previous size-based rotation (`> 10MB`) meant that on a crash-restart cycle, the crash output from attempt N was silently destroyed by attempt N+1 before it could be inspected. Rotation is now unconditional at the start of each loop iteration: the current log is renamed to `.old` before `Start-Process` is called, preserving the most recent crash output. (PR #682, Gemini review feedback)
+
+### Changed
+
+- **[#682] `.env` regex strips trailing inline comments**: The `.env` parser in `server-config.ps1` now uses `([^#\r\n]*?)` to capture values, so `MCP_HTTP_PORT=8001 # my custom port` parses correctly as `8001` rather than failing `[int]::TryParse`. (PR #682, Gemini review feedback)
+- **[#682] TLS protocol uses additive `-bor` instead of replacement**: `Enable-McpSelfSignedCertBypass` previously replaced the session's `SecurityProtocol` with `Tls12` outright, which would have disabled TLS 1.3 if already enabled. Now uses `-bor` to add `Tls12` to the existing protocol set without removing newer protocols. (PR #682, Gemini review feedback)
+
 ## [10.36.1] - 2026-04-10
 
 ### Fixed

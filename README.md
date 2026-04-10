@@ -434,18 +434,21 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.36.0** (April 9, 2026)
+## Latest Release: **v10.36.2** (April 10, 2026)
 
-**feat: OpenCode memory awareness integration + lite package version sync fix**
+**fix(windows): env-aware management scripts + reliable stdout logging**
 
-**What's New:**
-- **OpenCode integration** (`opencode/memory-plugin.js`): New community-contributed plugin that injects memories into OpenCode sessions via the HTTP API — session-start retrieval, system-context injection, and compaction-context injection. Includes setup docs and example config. (by @irizzant)
-- **Lite package version sync fix**: `mcp-memory-service-lite` was stuck at 8.76.0 on PyPI. Synced to current version, added `pyproject-lite.toml` to release automation, and added CI fallback sync step.
-- **1,537 tests** passing.
+**What's Fixed:**
+- **Hardcoded URLs eliminated**: All 5 Windows management scripts now derive the server URL from `.env` (`MCP_HTTP_HOST`, `MCP_HTTP_PORT`, `MCP_HTTPS_ENABLED`) via a shared `lib/server-config.ps1` helper. Health checks no longer fail when HTTPS is enabled or the port is changed.
+- **Python stdout/stderr reliably captured**: `run_http_server_background.ps1` replaces broken .NET event handlers (where `$script:LogFile` was silently dropped in the handler runspace) with `Start-Process -RedirectStandardOutput`. Logs now surface immediately on startup and during crash loops.
+- **Log rotation per restart**: Previous crash output is preserved as `.old` before each restart iteration — `Start-Process` overwrites the target file, so without rotation the prior crash evidence was destroyed.
+- **1,537 tests** passing. (PR #682)
 
 ---
 
 **Previous Releases**:
+- **v10.36.1** - fix: SQLite-vec segfault under concurrent worker-thread access + use-after-close crash on hybrid shutdown + corrupt connection_types in conflict graph edges (PR #678, 1,537 tests)
+- **v10.36.0** - feat: OpenCode memory awareness integration (@irizzant, PR #673) + lite package version sync fix (PR #675, 1,537 tests)
 - **v10.35.0** - feat: session-level memory ingestion — `memory_store_session` MCP tool + `POST /api/sessions` — LongMemEval R@5 86.0% (+5.6%) (PR #666, 1,537 tests)
 - **v10.34.0** - feat: LongMemEval benchmark — R@5 80.4%, R@10 90.4%, NDCG@10 82.2%, MRR 89.1% (PR #665, 1,520 tests)
 - **v10.33.0** - refactor: eliminate event-loop blocking + fix silent conflict data loss in SQLite storage (PR #663, 1,520 tests)
