@@ -434,19 +434,19 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.36.2** (April 10, 2026)
+## Latest Release: **v10.36.3** (April 10, 2026)
 
-**fix(windows): env-aware management scripts + reliable stdout logging**
+**fix(dashboard): restore version badge after v10.21.0 security hardening**
 
 **What's Fixed:**
-- **Hardcoded URLs eliminated**: All 5 Windows management scripts now derive the server URL from `.env` (`MCP_HTTP_HOST`, `MCP_HTTP_PORT`, `MCP_HTTPS_ENABLED`) via a shared `lib/server-config.ps1` helper. Health checks no longer fail when HTTPS is enabled or the port is changed.
-- **Python stdout/stderr reliably captured**: `run_http_server_background.ps1` replaces broken .NET event handlers (where `$script:LogFile` was silently dropped in the handler runspace) with `Start-Process -RedirectStandardOutput`. Logs now surface immediately on startup and during crash loops.
-- **Log rotation per restart**: Previous crash output is preserved as `.old` before each restart iteration — `Start-Process` overwrites the target file, so without rotation the prior crash evidence was destroyed.
-- **1,537 tests** passing. (PR #682)
+- **Dashboard Settings modal version row showed N/A permanently**: `SYSTEM_INFO_CONFIG.settingsVersion` pointed at the public `/api/health` endpoint, which has not exposed `version` since the v10.21.0 security hardening (GHSA-73hc-m4hx-79pj). Migrated to `/api/health/detailed`, consistent with the header badge.
+- **`manage_service.ps1 status` showed blank Version and Backend**: `Get-ServerStatus` parsed fields removed from `/api/health` since v10.21.0. Now fetches `/api/health/detailed` with Bearer auth; introduces `Get-McpApiKey` helper in `lib/server-config.ps1` that robustly parses `MCP_API_KEY` from `.env` (handles quoting, trailing comments, keys containing `#`).
+- **1,537 tests** passing. (PR #685)
 
 ---
 
 **Previous Releases**:
+- **v10.36.2** - fix(windows): env-aware management scripts + reliable stdout logging — hardcoded URLs eliminated, Python stdout reliably captured, log rotation per restart (PR #682, 1,537 tests)
 - **v10.36.1** - fix: SQLite-vec segfault under concurrent worker-thread access + use-after-close crash on hybrid shutdown + corrupt connection_types in conflict graph edges (PR #678, 1,537 tests)
 - **v10.36.0** - feat: OpenCode memory awareness integration (@irizzant, PR #673) + lite package version sync fix (PR #675, 1,537 tests)
 - **v10.35.0** - feat: session-level memory ingestion — `memory_store_session` MCP tool + `POST /api/sessions` — LongMemEval R@5 86.0% (+5.6%) (PR #666, 1,537 tests)
