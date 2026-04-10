@@ -4315,8 +4315,26 @@ SOLUTIONS:
             return []
 
     async def close(self):
-        """Close the database connection."""
-        if self.conn:
-            self.conn.close()
-            self.conn = None
-            logger.info("SQLite-vec storage connection closed")
+        """Close the database connection.
+
+        Acquires _conn_lock before closing so that any in-flight worker thread
+        running a DB op (e.g. a hybrid sync task whose outer coroutine was
+        already cancelled) finishes first. Without this, closing the connection
+        underneath a running worker causes a sqlite3/sqlite-vec segfault.
+        """
+        if not self.conn:
+            return
+
+        # Lazy-init the lock for test paths that bypass __init__.
+        if not hasattr(self, "_conn_lock") or self._conn_lock is None:
+            self._conn_lock = threading.Lock()
+        lock = self._conn_lock
+
+        def _close_locked():
+            with lock:
+                if self.conn is not None:
+                    self.conn.close()
+
+        await asyncio.to_thread(_close_locked)
+        self.conn = None
+        logger.info("SQLite-vec storage connection closed")
