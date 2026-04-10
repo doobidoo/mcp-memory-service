@@ -264,12 +264,12 @@ npx -y agent-add --mcp '{"memory":{"command":"memory","args":["server"]}}'
 
 Or configure manually for your specific client:
 
-<details>
+<details open>
 <summary><strong>Claude Desktop</strong></summary>
 
 Add to your config file:
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%Claudeclaude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 - **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
 ```json
@@ -335,6 +335,7 @@ Choose from:
 
 </details>
 
+---
 ## 💡 Why You Need This
 
 ### The Problem
