@@ -17,6 +17,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **[#685] Dashboard Settings modal version row showed N/A permanently**: `SYSTEM_INFO_CONFIG.settingsVersion` in `app.js` was still configured to fetch from `api: 'health'` (the public endpoint). The v10.21.0 security hardening (GHSA-73hc-m4hx-79pj) removed `version`, `timestamp`, and `uptime_seconds` from `/api/health`, so the Settings modal Version row had been displaying `N/A` for ~4 months. Fixed by pointing the config entry to `'detailedHealth'`, consistent with the header version badge which was already migrated. (PR #685)
 - **[#685] `manage_service.ps1 status` showed blank Version and Backend**: `Get-ServerStatus` parsed `version` and `storage_backend` from the public `/api/health` response, fields that no longer exist since v10.21.0. Migrated to `/api/health/detailed` with Bearer auth when `MCP_API_KEY` is available; `Show-Status` now displays real version/backend values or a clear hint when the key is not configured. Introduced `Get-McpApiKey` helper in `lib/server-config.ps1` that parses `MCP_API_KEY` from `.env` with support for trailing comments, quoting, and whitespace — keys containing `#` inside quoted values are handled correctly. Falls back to `$null` gracefully when key is absent. (PR #685, regression introduced by GHSA-73hc-m4hx-79pj)
 
+### Documentation
+
+- Added English-language policy to issue templates (bug, feature, performance) and CONTRIBUTING.md (PR #683)
+
 ## [10.36.2] - 2026-04-10
 
 ### Fixed
