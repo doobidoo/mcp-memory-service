@@ -539,12 +539,27 @@ class GraphStorage:
                         continue
                     seen_edges.add(edge_key)
 
+                    # connection_types should be a JSON-encoded list, but legacy
+                    # rows may contain a bare string (e.g. "semantic") — fall back
+                    # to wrapping it as a single-element list instead of crashing.
+                    raw_ct = row['connection_types']
+                    try:
+                        connection_types = json.loads(raw_ct) if raw_ct else []
+                    except (json.JSONDecodeError, TypeError):
+                        connection_types = [raw_ct] if raw_ct else []
+
+                    raw_meta = row['metadata']
+                    try:
+                        edge_metadata = json.loads(raw_meta) if raw_meta else {}
+                    except (json.JSONDecodeError, TypeError):
+                        edge_metadata = {}
+
                     edges.append({
                         "source": source,
                         "target": target,
                         "similarity": row['similarity'],
-                        "connection_types": json.loads(row['connection_types']),
-                        "metadata": json.loads(row['metadata']) if row['metadata'] else {},
+                        "connection_types": connection_types,
+                        "metadata": edge_metadata,
                         "relationship_type": row['relationship_type']
                     })
 

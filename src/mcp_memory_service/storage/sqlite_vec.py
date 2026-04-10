@@ -35,6 +35,7 @@ from typing import List, Dict, Any, Tuple, Optional, Set, Callable
 from datetime import datetime, timezone, timedelta, date
 import asyncio
 import random
+import threading
 
 # Disable wandb BEFORE importing sentence-transformers to prevent protobuf dependency conflicts
 # wandb is not needed for mcp-memory-service (only used by accelerate for experiment tracking)
@@ -264,6 +265,13 @@ class SqliteVecMemoryStorage(MemoryStorage):
         # event loop.
         self._savepoint_lock = asyncio.Lock()
 
+        # Serializes raw connection access from worker threads. The sqlite-vec extension
+        # is NOT thread-safe — concurrent calls on the same connection from different
+        # asyncio.to_thread() workers can segfault inside the C extension (observed on
+        # Ubuntu CI during background sync + foreground stats races). This threading.Lock
+        # makes every _execute_with_retry call effectively single-threaded against self.conn.
+        self._conn_lock = threading.Lock()
+
         # Performance settings
         self.enable_cache = True
         self.batch_size = 32
@@ -295,6 +303,27 @@ class SqliteVecMemoryStorage(MemoryStorage):
             logger.error(f"JSON type error in {context}: {e}")
             return {}
 
+    async def _run_in_thread(self, operation: Callable, *args):
+        """
+        Offload a synchronous DB operation to a worker thread while holding
+        self._conn_lock. This is the ONLY safe way to touch self.conn from a
+        coroutine, because the sqlite-vec extension is not thread-safe and will
+        segfault on concurrent native calls against the same connection.
+
+        Use this in place of `asyncio.to_thread(...)` for anything that touches
+        self.conn or runs SQL.
+        """
+        # Lazy-init the lock so tests that bypass __init__
+        # (e.g. SqliteVecMemoryStorage.__new__) still work.
+        if not hasattr(self, "_conn_lock") or self._conn_lock is None:
+            self._conn_lock = threading.Lock()
+        lock = self._conn_lock
+
+        def _locked():
+            with lock:
+                return operation(*args)
+        return await asyncio.to_thread(_locked)
+
     async def _execute_with_retry(self, operation: Callable, max_retries: int = 5, initial_delay: float = 0.2):
         """
         Execute a database operation with exponential backoff retry logic.
@@ -316,10 +345,10 @@ class SqliteVecMemoryStorage(MemoryStorage):
         """
         last_exception = None
         delay = initial_delay
-        
+
         for attempt in range(max_retries + 1):
             try:
-                return await asyncio.to_thread(operation)
+                return await self._run_in_thread(operation)
             except sqlite3.OperationalError as e:
                 last_exception = e
                 error_msg = str(e).lower()
@@ -723,13 +752,13 @@ SOLUTIONS:
                         logger.warning(f"Migration check for deleted_at (non-fatal): {e}")
 
                     # Execute graph table migrations (Knowledge Graph feature v9.0.0+)
-                    await asyncio.to_thread(self._run_graph_migrations)
+                    await self._run_in_thread(self._run_graph_migrations)
 
                     # Execute Memory Evolution P1 migrations (v10.30.0+)
-                    await asyncio.to_thread(self._run_evolution_migrations)
+                    await self._run_in_thread(self._run_evolution_migrations)
 
                     # Ensure FTS5 table exists (v10.8.0+ migration for existing databases)
-                    await asyncio.to_thread(self._ensure_fts5_initialized)
+                    await self._run_in_thread(self._ensure_fts5_initialized)
 
                     await self._initialize_embedding_model()
                     self._initialized = True
@@ -898,13 +927,13 @@ SOLUTIONS:
             await self._execute_with_retry(_create_virtual_table_and_indexes)
 
             # Ensure FTS5 table exists (v10.8.0+)
-            await asyncio.to_thread(self._ensure_fts5_initialized)
+            await self._run_in_thread(self._ensure_fts5_initialized)
 
             # Execute graph table migrations (Knowledge Graph feature v9.0.0+)
-            await asyncio.to_thread(self._run_graph_migrations)
+            await self._run_in_thread(self._run_graph_migrations)
 
             # Execute Memory Evolution P1 migrations (v10.30.0+)
-            await asyncio.to_thread(self._run_evolution_migrations)
+            await self._run_in_thread(self._run_evolution_migrations)
 
             # Mark as initialized to prevent re-initialization
             self._initialized = True
@@ -1020,7 +1049,7 @@ SOLUTIONS:
                     # Issue #551: when MCP_EXTERNAL_EMBEDDING_URL is explicitly configured,
                     # silently falling back to a local model with a different dimension
                     # corrupts the database. Fail loudly instead.
-                    existing_dim = await asyncio.to_thread(self._get_existing_db_embedding_dimension)
+                    existing_dim = await self._run_in_thread(self._get_existing_db_embedding_dimension)
                     dim_detail = (
                         f" The existing database uses dimension {existing_dim}."
                         f" Falling back to a local model would cause a dimension mismatch and"
@@ -1423,7 +1452,7 @@ SOLUTIONS:
 
             # --- Conflict detection (P3) — runs after commit, outside the lock ---
             try:
-                conflict_infos = await asyncio.to_thread(
+                conflict_infos = await self._run_in_thread(
                     self._detect_conflicts, memory.content_hash, memory.content, embedding
                 )
                 if conflict_infos:
@@ -3922,7 +3951,11 @@ SOLUTIONS:
                                 (new_tags, h),
                             )
 
-                # Create bidirectional contradicts edge in memory_graph
+                # Create bidirectional contradicts edge in memory_graph.
+                # NOTE: connection_types is a JSON-encoded list (readers use
+                # json.loads on it). Storing the bare string "semantic" here
+                # corrupted rows and caused JSONDecodeError on read.
+                connection_types_json = _json.dumps(["semantic"])
                 now = time.time()
                 for src, tgt in ((new_hash, existing_hash), (existing_hash, new_hash)):
                     self.conn.execute(
@@ -3930,7 +3963,7 @@ SOLUTIONS:
                            (source_hash, target_hash, similarity, connection_types,
                             metadata, created_at, relationship_type)
                            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (src, tgt, c["similarity"], "semantic",
+                        (src, tgt, c["similarity"], connection_types_json,
                          metadata, now, "contradicts"),
                     )
 

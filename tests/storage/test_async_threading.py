@@ -11,11 +11,17 @@ class TestExecuteWithRetryThreading:
 
     @pytest.mark.asyncio
     async def test_execute_with_retry_does_not_block_loop(self, tmp_path):
-        """DB operations inside _execute_with_retry should not block the event loop.
+        """DB operations inside _execute_with_retry must not block the event loop.
 
-        Strategy: run two _execute_with_retry calls concurrently, each sleeping
-        300ms. If they block the loop sequentially, total time ≈ 600ms.
-        If they run in threads concurrently, total time ≈ 300ms.
+        NOTE: As of the sqlite-vec thread-safety fix, _execute_with_retry holds
+        a per-storage threading.Lock around the operation so that the (non-thread-safe)
+        sqlite-vec extension cannot be entered concurrently from two worker threads.
+        That means two _execute_with_retry calls now serialize against each other —
+        but the event loop must STILL stay responsive while a slow op runs.
+
+        Strategy: launch one slow (300ms) DB op in a worker thread and, from the
+        main coroutine, await asyncio.sleep(0.05) repeatedly. The sleeps must
+        complete on schedule even while the worker is sleeping inside the lock.
         """
         from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
@@ -23,27 +29,29 @@ class TestExecuteWithRetryThreading:
         storage.conn = sqlite3.connect(str(tmp_path / "test.db"), check_same_thread=False)
         storage.conn.execute("CREATE TABLE t (id INTEGER)")
 
-        def slow_op_a():
+        def slow_op():
             time.sleep(0.3)
-            return "a"
+            return "ok"
 
-        def slow_op_b():
-            time.sleep(0.3)
-            return "b"
+        async def loop_responsiveness_probe():
+            # If the event loop is blocked, these sleeps will overshoot wildly.
+            ticks = []
+            for _ in range(5):
+                t = time.monotonic()
+                await asyncio.sleep(0.05)
+                ticks.append(time.monotonic() - t)
+            return ticks
 
-        t0 = time.monotonic()
-        results = await asyncio.gather(
-            storage._execute_with_retry(slow_op_a),
-            storage._execute_with_retry(slow_op_b),
+        result, ticks = await asyncio.gather(
+            storage._execute_with_retry(slow_op),
+            loop_responsiveness_probe(),
         )
-        elapsed = time.monotonic() - t0
 
-        assert set(results) == {"a", "b"}
-        # Sequential (blocking): ~600ms. Concurrent (threaded): ~300ms.
-        # Threshold of 500ms gives generous margin for slow CI.
-        assert elapsed < 0.5, (
-            f"Two 300ms ops took {elapsed:.3f}s total — "
-            f"expected ~0.3s if concurrent, got ~0.6s if blocking sequentially"
+        assert result == "ok"
+        # Each 50ms sleep should complete in well under 200ms even on slow CI;
+        # if the loop were blocked by slow_op, at least one would balloon to ~300ms+.
+        assert max(ticks) < 0.2, (
+            f"Event loop was blocked while DB op ran — sleep ticks: {ticks}"
         )
         storage.conn.close()
 
