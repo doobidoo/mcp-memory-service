@@ -207,7 +207,12 @@ function Show-Status {
         if ($Status.DetailedHealth) {
             $backendValue = $null
             if ($Status.DetailedHealth.storage) {
-                $backendValue = $Status.DetailedHealth.storage.storage_backend
+                # 'backend' is the canonical field per DetailedHealthResponse schema.
+                # 'storage_backend' may appear in backend-specific stats as a fallback.
+                $backendValue = $Status.DetailedHealth.storage.backend
+                if (-not $backendValue) {
+                    $backendValue = $Status.DetailedHealth.storage.storage_backend
+                }
             }
             Write-Host "  Version: $($Status.DetailedHealth.version)"
             Write-Host "  Backend: $backendValue"

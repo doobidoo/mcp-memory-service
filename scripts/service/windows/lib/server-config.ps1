@@ -105,11 +105,14 @@ function Get-McpApiKey {
     }
 
     $apiKey = $null
-    Get-Content $EnvFile | ForEach-Object {
-        $line = $_
-        if ($line -match '^\s*#' -or $line -notmatch '=') { return }
-        if ($line -match '^\s*MCP_API_KEY\s*=\s*(.*?)\s*(?:#.*)?$') {
-            $apiKey = $matches[1].Trim().Trim('"').Trim("'")
+    foreach ($line in Get-Content $EnvFile -Encoding UTF8) {
+        if ($line -match '^\s*#' -or $line -notmatch '=') { continue }
+        # Regex handles quoted values (which may contain '#') and unquoted values
+        # (stripped of trailing comments). Capture groups: 1=double-quoted,
+        # 2=single-quoted, 3=unquoted (no '#' or whitespace allowed).
+        if ($line -match '^\s*MCP_API_KEY\s*=\s*(?:"([^"]*)"|''([^'']*)''|([^#\s]*))') {
+            $apiKey = ($matches[1], $matches[2], $matches[3] | Where-Object { $_ -ne $null })[0]
+            break
         }
     }
 
