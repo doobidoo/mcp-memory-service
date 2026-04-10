@@ -17,8 +17,21 @@
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Get-Item "$ScriptDir\..\..\..").FullName
+
+# Load shared server-config helper (reads host/port/https from .env)
+. "$ScriptDir\lib\server-config.ps1"
+$ServerConfig = Get-McpServerConfig -ProjectRoot $ProjectRoot
+Enable-McpSelfSignedCertBypass
+
 $LogDir = Join-Path $env:LOCALAPPDATA "mcp-memory\logs"
 $LogFile = Join-Path $LogDir "http-server.log"
+# Separate file for the Python subprocess output (stdout+stderr). The wrapper
+# log ($LogFile) holds wrapper meta info only; the Python process logs land in
+# $PythonLogFile so you can tail them live and they don't get lost through
+# broken .NET event handlers (the previous implementation silently dropped
+# all [SERVER] lines because `$script:LogFile` isn't captured in the event
+# handler runspace).
+$PythonLogFile = Join-Path $LogDir "http-server-python.log"
 $PidFile = Join-Path $env:LOCALAPPDATA "mcp-memory\http-server.pid"
 $MaxRestarts = 3
 $RestartDelaySeconds = 60
@@ -100,9 +113,9 @@ function Test-ServerRunning {
         }
     }
 
-    # Also check via HTTP health endpoint
+    # Also check via HTTP health endpoint (URL derived from .env)
     try {
-        $Response = Invoke-WebRequest -Uri "http://127.0.0.1:8000/api/health" -TimeoutSec 2 -UseBasicParsing -ErrorAction SilentlyContinue
+        $Response = Invoke-WebRequest -Uri $ServerConfig.HealthUrl -TimeoutSec 2 -UseBasicParsing -ErrorAction SilentlyContinue
         if ($Response.StatusCode -eq 200) {
             return $true
         }
@@ -139,10 +152,12 @@ while ($RestartCount -lt $MaxRestarts) {
     try {
         # Resolve executable (uv or python fallback)
         $UvPath = Find-Executable
-        $ProcessInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $ExePath = $null
+        $ExeArgs = $null
+
         if ($UvPath) {
-            $ProcessInfo.FileName = $UvPath
-            $ProcessInfo.Arguments = "run python scripts/server/run_http_server.py"
+            $ExePath = $UvPath
+            $ExeArgs = @("run", "python", "scripts/server/run_http_server.py")
         } else {
             # Fallback: run python directly (same PATH issue applies)
             $PythonPath = $null
@@ -161,8 +176,8 @@ while ($RestartCount -lt $MaxRestarts) {
                     "C:\Python3*\python.exe"
                 )
                 foreach ($Pattern in $PythonCandidates) {
-                    $Matches = Get-Item $Pattern -ErrorAction SilentlyContinue
-                    if ($Matches) { $PythonPath = ($Matches | Sort-Object DirectoryName -Descending | Select-Object -First 1).FullName; break }
+                    $PyMatches = Get-Item $Pattern -ErrorAction SilentlyContinue
+                    if ($PyMatches) { $PythonPath = ($PyMatches | Sort-Object DirectoryName -Descending | Select-Object -First 1).FullName; break }
                 }
             }
 
@@ -176,35 +191,34 @@ while ($RestartCount -lt $MaxRestarts) {
                 throw "No Python executable found"
             }
 
-            $ProcessInfo.FileName = $PythonPath
-            $ProcessInfo.Arguments = "scripts/server/run_http_server.py"
-        }
-        $ProcessInfo.WorkingDirectory = $ProjectRoot
-        $ProcessInfo.UseShellExecute = $false
-        $ProcessInfo.RedirectStandardOutput = $true
-        $ProcessInfo.RedirectStandardError = $true
-        $ProcessInfo.CreateNoWindow = $true
-
-        Write-Log "Executable: $($ProcessInfo.FileName) $($ProcessInfo.Arguments)"
-
-        $Process = New-Object System.Diagnostics.Process
-        $Process.StartInfo = $ProcessInfo
-
-        # Event handlers for output
-        # NOTE: $using: scope does NOT work in .NET event handlers (only in PS jobs/runspaces).
-        # Use $script: scope which is captured by the closure.
-        $OutputHandler = {
-            if (-not [String]::IsNullOrEmpty($EventArgs.Data)) {
-                Add-Content -Path $script:LogFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [SERVER] $($EventArgs.Data)"
-            }
+            $ExePath = $PythonPath
+            $ExeArgs = @("scripts/server/run_http_server.py")
         }
 
-        $Process.add_OutputDataReceived($OutputHandler)
-        $Process.add_ErrorDataReceived($OutputHandler)
+        Write-Log "Executable: $ExePath $($ExeArgs -join ' ')"
+        Write-Log "Python output will be written to: $PythonLogFile"
 
-        $Process.Start() | Out-Null
-        $Process.BeginOutputReadLine()
-        $Process.BeginErrorReadLine()
+        # Rotate Python log if it gets too large (keep last 10MB)
+        if ((Test-Path $PythonLogFile) -and (Get-Item $PythonLogFile).Length -gt 10MB) {
+            $OldPythonLog = "$PythonLogFile.old"
+            if (Test-Path $OldPythonLog) { Remove-Item $OldPythonLog -Force }
+            Rename-Item $PythonLogFile $OldPythonLog
+        }
+
+        # Separate file for stderr — Start-Process can't merge streams
+        $PythonErrFile = "$PythonLogFile.err"
+
+        # Start-Process is the PowerShell-idiomatic way to redirect output to a
+        # file. It avoids the .NET event handler runspace bug where
+        # `$script:LogFile` was not captured, which silently dropped every
+        # line of server output in the previous implementation.
+        $Process = Start-Process -FilePath $ExePath `
+            -ArgumentList $ExeArgs `
+            -WorkingDirectory $ProjectRoot `
+            -NoNewWindow `
+            -PassThru `
+            -RedirectStandardOutput $PythonLogFile `
+            -RedirectStandardError $PythonErrFile
 
         # Save PID
         Set-Content -Path $PidFile -Value $Process.Id
@@ -213,6 +227,15 @@ while ($RestartCount -lt $MaxRestarts) {
         # Wait for process to exit
         $Process.WaitForExit()
         $ExitCode = $Process.ExitCode
+
+        # If stderr file has content, append it to the python log with a marker
+        # so errors surface in a single place.
+        if ((Test-Path $PythonErrFile) -and (Get-Item $PythonErrFile).Length -gt 0) {
+            Add-Content -Path $PythonLogFile -Value ""
+            Add-Content -Path $PythonLogFile -Value "===== STDERR ====="
+            Get-Content $PythonErrFile | Add-Content -Path $PythonLogFile
+            Remove-Item $PythonErrFile -Force -ErrorAction SilentlyContinue
+        }
 
         Write-Log "Server exited with code $ExitCode" $(if ($ExitCode -eq 0) { "INFO" } else { "ERROR" })
 

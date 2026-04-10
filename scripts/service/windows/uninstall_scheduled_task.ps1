@@ -35,8 +35,15 @@ $ErrorActionPreference = "Stop"
 
 # Configuration
 $TaskName = "MCPMemoryHTTPServer"
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectRoot = (Get-Item "$ScriptDir\..\..\..").FullName
 $LogDir = Join-Path $env:LOCALAPPDATA "mcp-memory\logs"
 $PidFile = Join-Path $env:LOCALAPPDATA "mcp-memory\http-server.pid"
+
+# Load shared server-config helper (reads host/port/https from .env)
+. "$ScriptDir\lib\server-config.ps1"
+$ServerConfig = Get-McpServerConfig -ProjectRoot $ProjectRoot
+$ServerPort = $ServerConfig.Port
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  MCP Memory HTTP Server - Uninstaller " -ForegroundColor Cyan
@@ -78,11 +85,11 @@ if (Test-Path $PidFile) {
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
 }
 
-# Also try to stop via port
+# Also try to stop via port (from .env)
 try {
-    $Connection = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Where-Object { $_.State -eq "Listen" }
+    $Connection = Get-NetTCPConnection -LocalPort $ServerPort -ErrorAction SilentlyContinue | Where-Object { $_.State -eq "Listen" }
     if ($Connection) {
-        Write-Host "[INFO] Stopping process listening on port 8000..." -ForegroundColor Yellow
+        Write-Host "[INFO] Stopping process listening on port $ServerPort..." -ForegroundColor Yellow
         Stop-Process -Id $Connection.OwningProcess -Force -ErrorAction SilentlyContinue
     }
 } catch {

@@ -41,12 +41,19 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Load shared server-config helper (reads host/port/https from .env)
+. "$PSScriptRoot\lib\server-config.ps1"
+$ServerConfig = Get-McpServerConfig
+Enable-McpSelfSignedCertBypass
+
 # Configuration
 $TaskName = "MCPMemoryHTTPServer"
 $LogFile = Join-Path $env:LOCALAPPDATA "mcp-memory\logs\http-server.log"
 $PidFile = Join-Path $env:LOCALAPPDATA "mcp-memory\http-server.pid"
-# HTTP server (default configuration — no TLS)
-$HealthUrl = "http://127.0.0.1:8000/api/health"
+# Derived from .env — supports both HTTP and HTTPS, any port
+$HealthUrl = $ServerConfig.HealthUrl
+$DashboardUrl = $ServerConfig.DashboardUrl
+$ServerPort = $ServerConfig.Port
 
 function Show-Help {
     Write-Host ""
@@ -170,7 +177,7 @@ function Show-Status {
     if ($Status.HttpHealthy) {
         Write-Host "  Status:  " -NoNewline
         Write-Host "HEALTHY" -ForegroundColor Green
-        Write-Host "  URL:     http://127.0.0.1:8000/"
+        Write-Host "  URL:     $DashboardUrl"
         if ($Status.HealthResponse) {
             Write-Host "  Version: $($Status.HealthResponse.version)"
             Write-Host "  Backend: $($Status.HealthResponse.storage_backend)"
@@ -224,7 +231,7 @@ function Start-Server {
             $Response = Invoke-WebRequest @params
             if ($Response.StatusCode -eq 200) {
                 Write-Host "[SUCCESS] Server started successfully!" -ForegroundColor Green
-                Write-Host "Dashboard: http://127.0.0.1:8000/" -ForegroundColor Cyan
+                Write-Host "Dashboard: $DashboardUrl" -ForegroundColor Cyan
                 return
             }
         } catch {
@@ -256,9 +263,9 @@ function Stop-Server {
         Stop-Process -Id $Status.ProcessPid -Force -ErrorAction SilentlyContinue
     }
 
-    # Also try via port
+    # Also try via port (from .env)
     try {
-        $Connection = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Where-Object { $_.State -eq "Listen" }
+        $Connection = Get-NetTCPConnection -LocalPort $ServerPort -ErrorAction SilentlyContinue | Where-Object { $_.State -eq "Listen" }
         if ($Connection) {
             Stop-Process -Id $Connection.OwningProcess -Force -ErrorAction SilentlyContinue
         }

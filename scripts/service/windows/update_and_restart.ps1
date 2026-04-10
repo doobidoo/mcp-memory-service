@@ -48,8 +48,13 @@ $StartTime = Get-Date
 # Configuration
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $ManageServiceScript = Join-Path $PSScriptRoot "manage_service.ps1"
-# HTTP server (default configuration — no TLS)
-$HealthUrl = "http://127.0.0.1:8000/api/health"
+
+# Load shared server-config helper (reads host/port/https from .env)
+. "$PSScriptRoot\lib\server-config.ps1"
+$ServerConfig = Get-McpServerConfig -ProjectRoot $ProjectRoot
+Enable-McpSelfSignedCertBypass
+$HealthUrl = $ServerConfig.HealthUrl
+$DashboardUrl = $ServerConfig.DashboardUrl
 
 # Color helpers
 function Write-InfoLog { param($Message) Write-Host "[i] $Message" -ForegroundColor Cyan }
@@ -344,8 +349,8 @@ Write-Host ""
 Write-SuccessLog "Version: $CurrentVersion -> $NewVersion"
 Write-SuccessLog "Total time: ${TotalTime}s"
 Write-Host ""
-Write-InfoLog "Dashboard: http://localhost:8000"
-Write-InfoLog "API Docs:  http://localhost:8000/api/docs"
+Write-InfoLog "Dashboard: $DashboardUrl"
+Write-InfoLog "API Docs:  $($ServerConfig.BaseUrl)/api/docs"
 Write-Host ""
 
 if ($CurrentVersion -ne $NewVersion) {

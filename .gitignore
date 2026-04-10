@@ -45,6 +45,7 @@ eggs/
 lib/
 lib64/
 !scripts/pr/lib/
+!scripts/service/windows/lib/
 parts/
 sdist/
 var/

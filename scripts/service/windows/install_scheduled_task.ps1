@@ -37,6 +37,10 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Get-Item "$ScriptDir\..\..\..").FullName
 $WrapperScript = Join-Path $ScriptDir "run_http_server_background.ps1"
 
+# Load shared server-config helper (reads host/port/https from .env)
+. "$ScriptDir\lib\server-config.ps1"
+$ServerConfig = Get-McpServerConfig -ProjectRoot $ProjectRoot
+
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  MCP Memory HTTP Server - Installer   " -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
@@ -137,7 +141,7 @@ try {
         # Check if running
         $TaskInfo = Get-ScheduledTaskInfo -TaskName $TaskName
         if ($TaskInfo.LastTaskResult -eq 0 -or $TaskInfo.LastTaskResult -eq 267009) {
-            Write-Host "[SUCCESS] Server is starting. Check http://127.0.0.1:8000/ in a few seconds." -ForegroundColor Green
+            Write-Host "[SUCCESS] Server is starting. Check $($ServerConfig.DashboardUrl) in a few seconds." -ForegroundColor Green
         } else {
             Write-Host "[WARN] Server may have failed to start. Check logs with: .\manage_service.ps1 logs" -ForegroundColor Yellow
         }
