@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Documentation
+
+- Added English-language policy to issue templates (bug, feature, performance) and CONTRIBUTING.md (PR #683)
+
 ## [10.36.1] - 2026-04-10
 
 ### Fixed
