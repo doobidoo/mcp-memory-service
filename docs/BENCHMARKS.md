@@ -18,11 +18,13 @@ All results use zero LLM API calls (retrieval-only mode) unless noted.
 |--------|-----------|-----|------|---------|-----|-----------|
 | **MCP Memory Service** | **session** | **86.0%** | **93.0%** | **82.9%** | **82.8%** | 0 |
 | **MCP Memory Service** | turn (baseline) | 80.4% | 90.4% | 82.2% | 89.1% | 0 |
-| mempalace (raw) | session | 96.6% | — | — | — | 0 |
-| mempalace (hybrid v4 + Haiku) | session | 100%¹ | — | — | — | ~500 |
+| mempalace (raw ChromaDB) | session | 96.6%¹ | — | — | — | 0 |
+| mempalace (hybrid v4 + Haiku) | session | 100%² | — | — | — | ~500 |
 | Mem0 | — | ~85% | — | — | — | — |
 
-> ¹ 100% result uses optional LLM reranking on a partially tuned test set. Clean held-out score: 98.4% R@5.
+> ¹ MemPalace's "raw mode" stores plain text in ChromaDB with default embeddings. Per [MemPalace Issue #27](https://github.com/milla-jovovich/mempalace/issues/27), the Palace architecture (Wings, Rooms, Halls) is not active in this configuration — "Halls" exist only as metadata strings with no effect on ranking. The 96.6% is therefore a ChromaDB + default-embedding baseline rather than a measurement of MemPalace's structural retrieval features. Maintainers have publicly acknowledged this.
+>
+> ² 100% result uses optional LLM reranking (~500 API calls) on a partially tuned test set. Clean held-out score as reported by the maintainers: 98.4% R@5.
 
 **Ingestion modes explained:**
 - **turn**: each conversation turn stored as a separate memory (one entry per message)
