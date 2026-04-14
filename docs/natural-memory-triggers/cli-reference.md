@@ -502,7 +502,7 @@ node memory-mode-controller.js reset --force
 **Solution**:
 ```bash
 # Check memory service status
-curl -k https://localhost:8443/api/health
+curl http://localhost:8000/api/health
 
 # Start memory service
 uv run memory server
@@ -536,7 +536,7 @@ node memory-mode-controller.js status
 [DEBUG] Initializing TieredConversationMonitor
 [DEBUG] PerformanceManager initialized with profile: balanced
 [DEBUG] GitAnalyzer detecting repository context
-[DEBUG] MCP Client connecting to https://localhost:8443
+[DEBUG] MCP Client connecting to http://localhost:8000
 [DEBUG] Status command executed successfully
 ```
 

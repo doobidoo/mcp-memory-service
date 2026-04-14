@@ -43,26 +43,16 @@ For detailed information, see the [First-Time Setup Guide](../first-time-setup.m
 
 **Solutions:**
 
-1. **Automatic Fallback (v6.13.2+)**
-   - The installer now automatically tries multiple installation methods
-   - It will attempt: uv pip, standard pip, source build, and GitHub installation
-   - If all fail, you'll be prompted to switch to ChromaDB
-
-2. **Use Python 3.12 (Recommended)**
+1. **Use Python 3.12 (Recommended)**
    ```bash
    # macOS
    brew install python@3.12
    python3.12 -m venv .venv
    source .venv/bin/activate
-   python install.py
+   pip install -e .
    ```
 
-3. **Switch to ChromaDB Backend**
-   ```bash
-   python install.py --storage-backend chromadb
-   ```
-
-4. **Manual Installation Attempts**
+2. **Manual Installation Attempts**
    ```bash
    # Force source build
    pip install --no-binary :all: sqlite-vec
@@ -74,7 +64,7 @@ For detailed information, see the [First-Time Setup Guide](../first-time-setup.m
    pip install pysqlite3-binary
    ```
 
-5. **Report Issue**
+3. **Report Issue**
    - Check for updates: https://github.com/asg017/sqlite-vec/issues
    - sqlite-vec may add Python 3.13 support in future releases
 
@@ -97,7 +87,7 @@ For detailed information, see the [First-Time Setup Guide](../first-time-setup.m
    python3 --version  # Verify Homebrew version
    
    # Reinstall MCP Memory Service
-   python3 install.py
+   pip install -e .
    ```
 
 2. **Use pyenv with Extension Support**
@@ -112,17 +102,10 @@ For detailed information, see the [First-Time Setup Guide](../first-time-setup.m
    pyenv install 3.12.0
    
    pyenv local 3.12.0
-   python install.py
+   pip install -e .
    ```
 
-3. **Switch to ChromaDB Backend**
-   ```bash
-   # ChromaDB doesn't require SQLite extensions
-   export MCP_MEMORY_STORAGE_BACKEND=chromadb
-   python install.py --storage-backend chromadb
-   ```
-
-4. **Verify Extension Support**
+3. **Verify Extension Support**
    ```bash
    python3 -c "
    import sqlite3

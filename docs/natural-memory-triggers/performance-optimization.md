@@ -402,7 +402,7 @@ node memory-mode-controller.js config set performance.maxConcurrentAnalysis 3
 node memory-mode-controller.js metrics --breakdown
 
 # Test memory service directly
-curl -w "@curl-format.txt" -k https://localhost:8443/api/health
+curl -w "@curl-format.txt" http://localhost:8000/api/health
 
 # Check system resources
 top -p $(pgrep -f memory-mode-controller)
@@ -435,7 +435,7 @@ node memory-mode-controller.js cache analyze
 **Diagnosis**:
 ```bash
 # Test memory service responsiveness
-time curl -k https://localhost:8443/api/health
+time curl http://localhost:8000/api/health
 
 # Check service logs
 tail -f ~/Library/Logs/Claude/mcp-server-memory.log

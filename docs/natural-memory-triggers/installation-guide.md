@@ -8,7 +8,7 @@ Before installing Natural Memory Triggers, ensure you have:
 
 - ✅ **Claude Code CLI** installed and working (`claude --version`)
 - ✅ **Node.js 14+** for hook execution (`node --version`)
-- ✅ **MCP Memory Service** running (`curl -k https://localhost:8443/api/health`)
+- ✅ **MCP Memory Service** running (`curl http://localhost:8000/api/health`)
 - ✅ **Valid configuration** at `~/.claude/hooks/config.json`
 
 ## Installation Methods
@@ -333,7 +333,7 @@ chmod -R 644 ~/.claude/hooks/*.json
 **Diagnosis**:
 ```bash
 # Test memory service directly
-curl -k https://localhost:8443/api/health
+curl http://localhost:8000/api/health
 
 # Check configuration
 cat ~/.claude/hooks/config.json | grep -A 5 "memoryService"
@@ -342,7 +342,7 @@ cat ~/.claude/hooks/config.json | grep -A 5 "memoryService"
 **Solutions**:
 1. **Start Memory Service**: `uv run memory server`
 2. **Check API Key**: Ensure valid API key in configuration
-3. **Firewall Settings**: Verify port 8443 is accessible
+3. **Firewall Settings**: Verify port 8000 is accessible
 4. **SSL Issues**: Self-signed certificates may need special handling
 
 ### Issue 4: Configuration Conflicts

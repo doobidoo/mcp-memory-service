@@ -28,8 +28,8 @@ cd mcp-memory-service
 python -m venv venv
 source venv/bin/activate # On Windows: venv\Scripts\activate
 
-# Run the intelligent installer
-python install.py
+# Install in editable mode (use the [full] extra to get all optional dependencies)
+pip install -e ".[full]"
 ```
 
 ### Running the Server
