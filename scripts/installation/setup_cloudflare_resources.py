@@ -47,7 +47,7 @@ class CloudflareSetup:
         logger.info(f"Creating Vectorize index: {name}")
         
         # Use Vectorize v2 API
-        vectorize_base = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/vectorize/v2/indexes"
+        vectorize_base = f"{self.base_url}/vectorize/v2/indexes"
         
         # Check if index already exists
         try:
