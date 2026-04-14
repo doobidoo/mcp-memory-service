@@ -91,6 +91,11 @@ def _loopback_redirect_matches(registered_uri: str, requested_uri: str) -> bool:
     )
 
 
+def _build_redirect_url(redirect_uri: str, params: dict[str, str]) -> str:
+    """Build a redirect URL from a previously validated redirect URI."""
+    return f"{redirect_uri}?{urlencode(params)}"
+
+
 def parse_basic_auth(
     authorization_header: Optional[str],
 ) -> Tuple[Optional[str], Optional[str]]:
@@ -306,27 +311,17 @@ async def authorize_post(
             status_code=403,
         )
 
-    # Validate redirect_uri against registered client
-    validated_redirect_uri: Optional[str] = None
-    if redirect_uri:
-        try:
-            validated_redirect_uri = await validate_redirect_uri(
-                client_id, redirect_uri
-            )
-        except HTTPException:
-            raise
-
     try:
-        safe_redirect_uri = validated_redirect_uri or await validate_redirect_uri(
-            client_id, redirect_uri
-        )
+        # Validate redirect_uri against the registered client once and keep the
+        # validated value for both success and error redirects.
+        validated_redirect_uri = await validate_redirect_uri(client_id, redirect_uri)
 
         # Generate and store authorization code
         auth_code = get_oauth_storage().generate_authorization_code()
         await get_oauth_storage().store_authorization_code(
             code=auth_code,
             client_id=client_id,
-            redirect_uri=safe_redirect_uri,
+            redirect_uri=validated_redirect_uri,
             scope=scope,
             expires_in=OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES * 60,
             code_challenge=code_challenge,
@@ -338,7 +333,7 @@ async def authorize_post(
         if state:
             redirect_params["state"] = _sanitize_state(state)
 
-        redirect_url = f"{safe_redirect_uri}?{urlencode(redirect_params)}"
+        redirect_url = _build_redirect_url(validated_redirect_uri, redirect_params)
         logger.info(f"Authorization granted, redirecting to callback")
         # Use HTML meta-refresh + JS redirect for maximum popup compatibility.
         # Some OAuth clients (Claude.ai) use popups where HTTP 302 from a
@@ -363,7 +358,7 @@ async def authorize_post(
             error_params["state"] = _sanitize_state(state)
         if validated_redirect_uri:
             return RedirectResponse(
-                url=f"{validated_redirect_uri}?{urlencode(error_params)}"
+                url=_build_redirect_url(validated_redirect_uri, error_params)
             )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_params
