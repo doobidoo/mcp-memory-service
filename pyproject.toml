@@ -59,6 +59,7 @@ dependencies = [
     "sse-starlette>=2.1.0",
     "tokenizers>=0.22.2",
     "torch>=2.0.0",
+    "transformers>=4.30,<5.0.0",
     "typing-extensions>=4.0.0; python_version < '3.11'",
     "uvicorn>=0.30.0",
     "zeroconf>=0.130.0",
