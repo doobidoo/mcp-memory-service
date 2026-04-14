@@ -313,7 +313,7 @@ sudo ufw allow from 192.168.1.11 to any port 8765 proto tcp
 The SQLite database may contain personal or project-sensitive memories. The default `0644` lets any local user on the host read it:
 
 ```bash
-chmod 600 ~/.local/share/mcp-memory/sqlite_vec.db
+chmod 700 ~/.local/share/mcp-memory/
 ```
 
 **4. Never expose this service to the public internet without TLS + auth.**
