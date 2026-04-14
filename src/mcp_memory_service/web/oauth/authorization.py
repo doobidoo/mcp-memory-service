@@ -23,7 +23,7 @@ import logging
 import base64
 import secrets
 from typing import Optional, Tuple
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse, ParseResult
 from fastapi import APIRouter, HTTPException, status, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 import jwt
@@ -34,7 +34,7 @@ from ...config import (
     OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES,
     API_KEY,
     get_jwt_algorithm,
-    get_jwt_signing_key
+    get_jwt_signing_key,
 )
 from .models import TokenResponse
 from .storage import get_oauth_storage
@@ -42,6 +42,8 @@ from .storage import get_oauth_storage
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 def _sanitize_log_value(value: object) -> str:
@@ -53,10 +55,45 @@ def _sanitize_state(state: str) -> str:
     """Sanitize the OAuth state parameter to prevent log injection and open redirect abuse."""
     # Allow only alphanumeric, hyphen, underscore, and dot characters (RFC 6749 opaque value)
     import re as _re
-    return _re.sub(r'[^A-Za-z0-9\-_.]', '', state)[:128]
+
+    return _re.sub(r"[^A-Za-z0-9\-_.]", "", state)[:128]
 
 
-def parse_basic_auth(authorization_header: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+def _is_loopback_http_redirect(parsed: ParseResult) -> bool:
+    """Return True when the parsed URI is an HTTP loopback redirect."""
+    return (
+        parsed.scheme.lower() == "http"
+        and (parsed.hostname or "").lower() in _LOOPBACK_HOSTS
+    )
+
+
+def _loopback_redirect_matches(registered_uri: str, requested_uri: str) -> bool:
+    """
+    Match native-app loopback redirects while allowing runtime-assigned ports.
+
+    RFC 8252 recommends loopback redirects for native apps and requires OAuth
+    servers to tolerate ephemeral localhost ports. Keep scheme/path strict while
+    allowing host aliases inside the loopback set and any runtime port.
+    """
+    registered = urlparse(registered_uri)
+    requested = urlparse(requested_uri)
+
+    if not (
+        _is_loopback_http_redirect(registered) and _is_loopback_http_redirect(requested)
+    ):
+        return False
+
+    return (
+        registered.path == requested.path
+        and registered.params == requested.params
+        and registered.query == requested.query
+        and registered.fragment == requested.fragment
+    )
+
+
+def parse_basic_auth(
+    authorization_header: Optional[str],
+) -> Tuple[Optional[str], Optional[str]]:
     """
     Parse HTTP Basic authentication header.
 
@@ -68,18 +105,18 @@ def parse_basic_auth(authorization_header: Optional[str]) -> Tuple[Optional[str]
 
     try:
         # Check if it's Basic authentication
-        if not authorization_header.startswith('Basic '):
+        if not authorization_header.startswith("Basic "):
             return None, None
 
         # Extract and decode the credentials
         encoded_credentials = authorization_header[6:]  # Remove 'Basic ' prefix
-        decoded_credentials = base64.b64decode(encoded_credentials).decode('utf-8')
+        decoded_credentials = base64.b64decode(encoded_credentials).decode("utf-8")
 
         # Split username:password
-        if ':' not in decoded_credentials:
+        if ":" not in decoded_credentials:
             return None, None
 
-        client_id, client_secret = decoded_credentials.split(':', 1)
+        client_id, client_secret = decoded_credentials.split(":", 1)
         return client_id, client_secret
 
     except Exception:
@@ -105,7 +142,7 @@ def create_access_token(client_id: str, scope: Optional[str] = None) -> tuple[st
         "aud": "mcp-memory-service",
         "exp": expire_time,
         "iat": time.time(),
-        "scope": scope or "read write"
+        "scope": scope or "read write",
     }
 
     algorithm = get_jwt_algorithm()
@@ -124,8 +161,8 @@ async def validate_redirect_uri(client_id: str, redirect_uri: Optional[str]) -> 
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error": "invalid_client",
-                "error_description": "Invalid client_id"
-            }
+                "error_description": "Invalid client_id",
+            },
         )
 
     # If no redirect_uri provided, use the first registered one
@@ -135,8 +172,8 @@ async def validate_redirect_uri(client_id: str, redirect_uri: Optional[str]) -> 
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "error": "invalid_request",
-                    "error_description": "redirect_uri is required when client has no registered redirect URIs"
-                }
+                    "error_description": "redirect_uri is required when client has no registered redirect URIs",
+                },
             )
         return client.redirect_uris[0]
 
@@ -144,12 +181,20 @@ async def validate_redirect_uri(client_id: str, redirect_uri: Optional[str]) -> 
     for registered_uri in client.redirect_uris:
         if registered_uri == redirect_uri:
             return registered_uri  # Return the stored value, not the user-supplied one
+
+    # Native-app loopback redirects use runtime-assigned ports. After validating
+    # that the request matches a registered loopback callback path, preserve the
+    # runtime URI so the browser lands on the port the client actually opened.
+    for registered_uri in client.redirect_uris:
+        if _loopback_redirect_matches(registered_uri, redirect_uri):
+            return redirect_uri
+
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail={
             "error": "invalid_redirect_uri",
-            "error_description": "redirect_uri not registered for this client"
-        }
+            "error_description": "redirect_uri not registered for this client",
+        },
     )
 
 
@@ -201,7 +246,9 @@ async def authorize_get(
     scope: Optional[str] = Query(None, description="Requested scope"),
     state: Optional[str] = Query(None, description="Opaque value for CSRF protection"),
     code_challenge: Optional[str] = Query(None, description="PKCE code challenge"),
-    code_challenge_method: Optional[str] = Query(None, description="PKCE code challenge method (S256)")
+    code_challenge_method: Optional[str] = Query(
+        None, description="PKCE code challenge method (S256)"
+    ),
 ):
     """
     OAuth 2.1 Authorization endpoint (GET).
@@ -218,7 +265,10 @@ async def authorize_get(
     if response_type != "code":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "unsupported_response_type", "error_description": "Only 'code' response type is supported"}
+            detail={
+                "error": "unsupported_response_type",
+                "error_description": "Only 'code' response type is supported",
+            },
         )
 
     # Show login form — pass all query params through so the POST can use them
@@ -234,8 +284,10 @@ async def authorize_post(
     scope: Optional[str] = Query(None, description="Requested scope"),
     state: Optional[str] = Query(None, description="Opaque value for CSRF protection"),
     code_challenge: Optional[str] = Query(None, description="PKCE code challenge"),
-    code_challenge_method: Optional[str] = Query(None, description="PKCE code challenge method (S256)"),
-    api_key: str = Form(..., description="API key for authorization")
+    code_challenge_method: Optional[str] = Query(
+        None, description="PKCE code challenge method (S256)"
+    ),
+    api_key: str = Form(..., description="API key for authorization"),
 ):
     """
     OAuth 2.1 Authorization endpoint (POST).
@@ -248,20 +300,26 @@ async def authorize_post(
     if not API_KEY or not secrets.compare_digest(api_key.encode(), API_KEY.encode()):
         logger.warning("Authorization denied: invalid API key")
         return HTMLResponse(
-            _build_authorize_page(str(request.url.query), error="Invalid API key. Please try again."),
-            status_code=403
+            _build_authorize_page(
+                str(request.url.query), error="Invalid API key. Please try again."
+            ),
+            status_code=403,
         )
 
     # Validate redirect_uri against registered client
     validated_redirect_uri: Optional[str] = None
     if redirect_uri:
         try:
-            validated_redirect_uri = await validate_redirect_uri(client_id, redirect_uri)
+            validated_redirect_uri = await validate_redirect_uri(
+                client_id, redirect_uri
+            )
         except HTTPException:
             raise
 
     try:
-        safe_redirect_uri = validated_redirect_uri or await validate_redirect_uri(client_id, redirect_uri)
+        safe_redirect_uri = validated_redirect_uri or await validate_redirect_uri(
+            client_id, redirect_uri
+        )
 
         # Generate and store authorization code
         auth_code = get_oauth_storage().generate_authorization_code()
@@ -272,7 +330,7 @@ async def authorize_post(
             scope=scope,
             expires_in=OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES * 60,
             code_challenge=code_challenge,
-            code_challenge_method=code_challenge_method
+            code_challenge_method=code_challenge_method,
         )
 
         # Redirect with authorization code
@@ -286,6 +344,7 @@ async def authorize_post(
         # Some OAuth clients (Claude.ai) use popups where HTTP 302 from a
         # form POST can be unreliable across cross-origin boundaries.
         import json
+
         return HTMLResponse(f"""<!DOCTYPE html>
 <html><head>
 <meta http-equiv=\"refresh\" content=\"0;url={redirect_url}\">
@@ -296,12 +355,19 @@ async def authorize_post(
         raise
     except Exception:
         logger.error("Authorization error occurred", exc_info=True)
-        error_params = {"error": "server_error", "error_description": "Internal server error"}
+        error_params = {
+            "error": "server_error",
+            "error_description": "Internal server error",
+        }
         if state:
             error_params["state"] = _sanitize_state(state)
         if validated_redirect_uri:
-            return RedirectResponse(url=f"{validated_redirect_uri}?{urlencode(error_params)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_params)
+            return RedirectResponse(
+                url=f"{validated_redirect_uri}?{urlencode(error_params)}"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_params
+        )
 
 
 async def _handle_authorization_code_grant(
@@ -309,7 +375,7 @@ async def _handle_authorization_code_grant(
     final_client_secret: Optional[str],
     code: Optional[str],
     redirect_uri: Optional[str],
-    code_verifier: Optional[str] = None
+    code_verifier: Optional[str] = None,
 ) -> TokenResponse:
     """Handle OAuth authorization_code grant type."""
     if not code:
@@ -317,8 +383,8 @@ async def _handle_authorization_code_grant(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error": "invalid_request",
-                "error_description": "Missing required parameter: code"
-            }
+                "error_description": "Missing required parameter: code",
+            },
         )
 
     if not final_client_id:
@@ -326,21 +392,23 @@ async def _handle_authorization_code_grant(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error": "invalid_request",
-                "error_description": "Missing required parameter: client_id"
-            }
+                "error_description": "Missing required parameter: client_id",
+            },
         )
 
     # Authenticate client — but allow public clients using PKCE (OAuth 2.1 §2.1)
     # Public clients (e.g. claude.ai) may not send a client_secret; they prove
     # identity via PKCE code_verifier instead.
     if final_client_secret:
-        if not await get_oauth_storage().authenticate_client(final_client_id, final_client_secret):
+        if not await get_oauth_storage().authenticate_client(
+            final_client_id, final_client_secret
+        ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={
                     "error": "invalid_client",
-                    "error_description": "Client authentication failed"
-                }
+                    "error_description": "Client authentication failed",
+                },
             )
     else:
         # Public client — verify it exists and is actually a public client
@@ -350,8 +418,8 @@ async def _handle_authorization_code_grant(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={
                     "error": "invalid_client",
-                    "error_description": "Client authentication failed"
-                }
+                    "error_description": "Client authentication failed",
+                },
             )
         # PKCE is mandatory for public clients (OAuth 2.1 §7.5.2)
         if not code_verifier:
@@ -359,8 +427,8 @@ async def _handle_authorization_code_grant(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "error": "invalid_request",
-                    "error_description": "code_verifier required for public clients"
-                }
+                    "error_description": "code_verifier required for public clients",
+                },
             )
 
     # Get and consume authorization code
@@ -370,8 +438,8 @@ async def _handle_authorization_code_grant(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error": "invalid_grant",
-                "error_description": "Invalid or expired authorization code"
-            }
+                "error_description": "Invalid or expired authorization code",
+            },
         )
 
     # Validate client_id matches
@@ -380,8 +448,8 @@ async def _handle_authorization_code_grant(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error": "invalid_grant",
-                "error_description": "Authorization code was issued to a different client"
-            }
+                "error_description": "Authorization code was issued to a different client",
+            },
         )
 
     # Validate redirect_uri if provided
@@ -390,8 +458,8 @@ async def _handle_authorization_code_grant(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error": "invalid_grant",
-                "error_description": "redirect_uri does not match the one used in authorization request"
-            }
+                "error_description": "redirect_uri does not match the one used in authorization request",
+            },
         )
 
     # PKCE verification
@@ -402,20 +470,25 @@ async def _handle_authorization_code_grant(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "error": "invalid_grant",
-                    "error_description": "code_verifier required for PKCE"
-                }
+                    "error_description": "code_verifier required for PKCE",
+                },
             )
         import hashlib
-        computed = base64.urlsafe_b64encode(
-            hashlib.sha256(code_verifier.encode("ascii")).digest()
-        ).rstrip(b"=").decode("ascii")
+
+        computed = (
+            base64.urlsafe_b64encode(
+                hashlib.sha256(code_verifier.encode("ascii")).digest()
+            )
+            .rstrip(b"=")
+            .decode("ascii")
+        )
         if computed != stored_challenge:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "error": "invalid_grant",
-                    "error_description": "PKCE code_verifier does not match code_challenge"
-                }
+                    "error_description": "PKCE code_verifier does not match code_challenge",
+                },
             )
 
     # Create access token
@@ -426,7 +499,7 @@ async def _handle_authorization_code_grant(
         token=access_token,
         client_id=final_client_id,
         scope=code_data["scope"],
-        expires_in=expires_in
+        expires_in=expires_in,
     )
 
     logger.info("Access token issued")
@@ -434,12 +507,12 @@ async def _handle_authorization_code_grant(
         access_token=access_token,
         token_type="Bearer",
         expires_in=expires_in,
-        scope=code_data["scope"]
+        scope=code_data["scope"],
     )
 
+
 async def _handle_client_credentials_grant(
-    final_client_id: str,
-    final_client_secret: str
+    final_client_id: str, final_client_secret: str
 ) -> TokenResponse:
     """Handle OAuth client_credentials grant type."""
     if not final_client_id or not final_client_secret:
@@ -447,18 +520,20 @@ async def _handle_client_credentials_grant(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error": "invalid_request",
-                "error_description": "Missing required parameters: client_id and client_secret"
-            }
+                "error_description": "Missing required parameters: client_id and client_secret",
+            },
         )
 
     # Authenticate client
-    if not await get_oauth_storage().authenticate_client(final_client_id, final_client_secret):
+    if not await get_oauth_storage().authenticate_client(
+        final_client_id, final_client_secret
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
                 "error": "invalid_client",
-                "error_description": "Client authentication failed"
-            }
+                "error_description": "Client authentication failed",
+            },
         )
 
     # Create access token
@@ -469,7 +544,7 @@ async def _handle_client_credentials_grant(
         token=access_token,
         client_id=final_client_id,
         scope="read write",
-        expires_in=expires_in
+        expires_in=expires_in,
     )
 
     logger.info("Client credentials token issued")
@@ -477,8 +552,9 @@ async def _handle_client_credentials_grant(
         access_token=access_token,
         token_type="Bearer",
         expires_in=expires_in,
-        scope="read write"
+        scope="read write",
     )
+
 
 @router.post("/token", response_model=TokenResponse)
 async def token(
@@ -488,7 +564,7 @@ async def token(
     redirect_uri: Optional[str] = Form(None, description="Redirection URI"),
     client_id: Optional[str] = Form(None, description="OAuth client identifier"),
     client_secret: Optional[str] = Form(None, description="OAuth client secret"),
-    code_verifier: Optional[str] = Form(None, description="PKCE code verifier")
+    code_verifier: Optional[str] = Form(None, description="PKCE code verifier"),
 ):
     """
     OAuth 2.1 Token endpoint.
@@ -498,7 +574,7 @@ async def token(
     Supports both client_secret_post (form data) and client_secret_basic (HTTP Basic auth).
     """
     # Extract client credentials from either HTTP Basic auth or form data
-    auth_header = request.headers.get('authorization')
+    auth_header = request.headers.get("authorization")
     basic_client_id, basic_client_secret = parse_basic_auth(auth_header)
 
     # Use Basic auth credentials if available, otherwise fall back to form data
@@ -522,8 +598,8 @@ async def token(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "error": "unsupported_grant_type",
-                    "error_description": f"Grant type '{grant_type}' is not supported"
-                }
+                    "error_description": f"Grant type '{grant_type}' is not supported",
+                },
             )
 
     except HTTPException:
@@ -535,6 +611,6 @@ async def token(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "error": "server_error",
-                "error_description": "Internal server error"
-            }
+                "error_description": "Internal server error",
+            },
         )
