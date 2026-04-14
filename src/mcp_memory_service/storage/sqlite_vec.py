@@ -712,9 +712,10 @@ SOLUTIONS:
             if not extension_supported:
                 self._handle_extension_loading_failure()
 
-            # Connect to database and load extension (runs in worker thread —
-            # sqlite3.connect + extension load + pragma application all block I/O; #664)
-            await asyncio.to_thread(self._connect_and_load_extension)
+            # Connect to database and load extension (runs in worker thread under
+            # _conn_lock — sqlite3.connect + extension load + pragma application all
+            # block I/O, and the sqlite-vec extension is not thread-safe; #664)
+            await self._run_in_thread(self._connect_and_load_extension)
 
             # Check if database is already initialized by another process
             # This prevents DDL lock conflicts when multiple servers start concurrently
@@ -1233,7 +1234,7 @@ SOLUTIONS:
         The dimension lookup reads from SQLite, so it must run in a worker thread to avoid
         blocking the event loop during startup (#664).
         """
-        existing_dim = await asyncio.to_thread(self._get_existing_db_embedding_dimension)
+        existing_dim = await self._run_in_thread(self._get_existing_db_embedding_dimension)
         if existing_dim and existing_dim != self.embedding_dimension:
             logger.warning(
                 f"Adjusting hash embedding dimension from {self.embedding_dimension} to "
