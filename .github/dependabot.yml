@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      uv:
+        patterns:
+          - "*"
+    ignore:
+      # transformers 5.x is a major bump — defer until stable release and
+      # sentence-transformers compatibility is verified
+      - dependency-name: "transformers"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
