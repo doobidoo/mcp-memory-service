@@ -434,18 +434,18 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.36.5** (April 14, 2026)
+## Latest Release: **v10.36.6** (April 14, 2026)
 
-**fix: Cloudflare Vectorize API v1 to v2 + test script fixes**
+**security: Bump cryptography to 46.0.7 (CVE-2026-39892)**
 
 **What's Fixed:**
-- **Cloudflare Vectorize API v1 to v2**: Fixed error 1010 "incorrect_api_version" during Cloudflare resource setup by updating `setup_cloudflare_resources.py` to use the v2 API endpoint. (PR #689, @mychaelgo)
-- **Test script fixes**: Added required `content_hash` arg to `Memory()` and corrected `sys.path` in `test_cloudflare_backend.py`. (PR #689, @mychaelgo)
+- **CVE-2026-39892**: Bumped `cryptography` to 46.0.7 to fix a buffer overflow in non-contiguous buffer handling. (PR #690)
 - **1,537 tests** passing.
 
 ---
 
 **Previous Releases**:
+- **v10.36.5** - fix: Cloudflare Vectorize API v1 to v2 + test script fixes — fixed error 1010 "incorrect_api_version", content_hash arg, sys.path correction (PR #689, @mychaelgo, 1,537 tests)
 - **v10.36.4** - fix(windows): hotfix for Get-McpApiKey returning first char instead of full API key — PowerShell array-enumeration trap fixed (PR #687, 1,537 tests)
 - **v10.36.3** - fix(dashboard): restore version badge after v10.21.0 security hardening — Settings modal version row fixed, `manage_service.ps1 status` shows real Version/Backend (PR #685, 1,537 tests)
 - **v10.36.2** - fix(windows): env-aware management scripts + reliable stdout logging — hardcoded URLs eliminated, Python stdout reliably captured, log rotation per restart (PR #682, 1,537 tests)
