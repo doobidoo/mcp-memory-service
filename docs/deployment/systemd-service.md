@@ -283,6 +283,50 @@ For system services, consider additional hardening:
 
 **Note:** Some security directives may conflict with application requirements. Test thoroughly when adding restrictions.
 
+### Network exposure hardening
+
+If you run the service on one machine and connect to it from other devices on your LAN (common setup for sharing a single memory database across Claude Desktop, Claude Code, Codex CLI, etc.), the following hardening is recommended.
+
+**1. Bind to a specific interface, not `0.0.0.0`.**
+
+Setting `--sse-host 0.0.0.0` (or `MCP_SSE_HOST=0.0.0.0`) exposes the service on every network interface, including any VPN / guest / IoT network your host joins. Prefer binding to the single LAN interface IP:
+
+```ini
+[Service]
+Environment=MCP_SSE_HOST=192.168.1.42   # the host's LAN IP
+Environment=MCP_SSE_PORT=8765
+ExecStart=%h/.local/bin/memory server --streamable-http
+```
+
+**2. Firewall allow-list specific client IPs, not the whole subnet.**
+
+A `/24` subnet rule trusts every device on the LAN. Prefer explicit per-device rules:
+
+```bash
+# Example: allow only your two workstation IPs
+sudo ufw allow from 192.168.1.10 to any port 8765 proto tcp
+sudo ufw allow from 192.168.1.11 to any port 8765 proto tcp
+```
+
+**3. Restrict database file permissions.**
+
+The SQLite database may contain personal or project-sensitive memories. The default `0644` lets any local user on the host read it:
+
+```bash
+chmod 600 ~/.local/share/mcp-memory/sqlite_vec.db
+```
+
+**4. Never expose this service to the public internet without TLS + auth.**
+
+The streamable-HTTP / SSE transport speaks plain HTTP with no built-in authentication. For anything beyond a trusted LAN, put it behind:
+
+- a WireGuard / Tailscale overlay (easiest), or
+- a reverse proxy terminating TLS and enforcing auth (e.g. Caddy with basic-auth or OAuth2).
+
+**5. Consider the client config symlink surface.**
+
+If your MCP client config (e.g. `~/.claude.json`) lives on shared storage (D: drive symlink between WSL and Windows, NFS home on a mount, etc.), any host that reads the config will try to connect to the same URL. Make sure all such hosts are on the allow-list, or narrow the scope.
+
 ## Uninstallation
 
 ```bash
