@@ -5,9 +5,16 @@ Run this after setting up your Cloudflare resources.
 """
 
 import os
+import sys
 import asyncio
+import hashlib
 import logging
 from datetime import datetime
+from pathlib import Path
+
+# Add project root to sys.path so 'src' package is importable
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from src.mcp_memory_service.storage.cloudflare import CloudflareStorage
 from src.mcp_memory_service.models.memory import Memory
 
@@ -49,8 +56,10 @@ async def test_cloudflare_backend():
         
         # Test storing a memory
         logger.info("💾 Testing memory storage...")
+        test_content = "This is a test memory for Cloudflare backend integration."
         test_memory = Memory(
-            content="This is a test memory for Cloudflare backend integration.",
+            content=test_content,
+            content_hash=hashlib.sha256(test_content.encode()).hexdigest(),
             tags=["test", "cloudflare", "integration"],
             memory_type="test",
             metadata={"test_run": datetime.now().isoformat()}

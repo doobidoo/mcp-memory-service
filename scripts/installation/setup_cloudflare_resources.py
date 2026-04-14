@@ -46,9 +46,12 @@ class CloudflareSetup:
         """Create Vectorize index and return its ID."""
         logger.info(f"Creating Vectorize index: {name}")
         
+        # Use Vectorize v2 API
+        vectorize_base = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/vectorize/v2/indexes"
+        
         # Check if index already exists
         try:
-            url = f"{self.base_url}/vectorize/indexes/{name}"
+            url = f"{vectorize_base}/{name}"
             result = await self._make_request("GET", url)
             if result.get("success"):
                 logger.info(f"Vectorize index {name} already exists")
@@ -58,7 +61,7 @@ class CloudflareSetup:
                 raise
         
         # Create new index
-        url = f"{self.base_url}/vectorize/indexes"
+        url = vectorize_base
         payload = {
             "name": name,
             "config": {
@@ -209,7 +212,7 @@ async def main():
         print("export MCP_MEMORY_STORAGE_BACKEND=\"cloudflare\"")
         
         print("\n🧪 Test the setup:")
-        print("python test_cloudflare_backend.py")
+        print("python scripts/testing/test_cloudflare_backend.py")
         
         return True
         
