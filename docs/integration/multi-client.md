@@ -17,16 +17,18 @@ MCP Memory Service supports multi-client access through several deployment patte
 Install the package and enable the HTTP server (all MCP clients can then share the same backend):
 
 ```bash
-# Install (user) or editable dev install
-pip install mcp-memory-service        # user
-# pip install -e ".[full]"            # contributor / editable
+# Install with HTTP server support
+pip install "mcp-memory-service[full]"    # user install
+# pip install -e ".[full]"                # contributor / editable from cloned repo
 
-# Configure and start the shared HTTP server
+# Configure and start the shared HTTP server via the bundled CLI
 export MCP_HTTP_ENABLED=true
 export MCP_HTTP_PORT=8000
 export MCP_MEMORY_STORAGE_BACKEND=hybrid   # or sqlite_vec
-python scripts/server/run_http_server.py
+memory server --http
 ```
+
+> **Note:** `memory server --http` is the pip-installable CLI entry point. If you cloned the repo, `python scripts/server/run_http_server.py` works equivalently.
 
 **Benefits of the HTTP-based setup:**
 - ✅ One server process serves Claude Desktop, VS Code, Continue, Cursor, and any HTTP/MCP client

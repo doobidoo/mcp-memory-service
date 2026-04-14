@@ -84,10 +84,9 @@ cd mcp-memory-service
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install with Homebrew integration (skips bundled PyTorch so the Homebrew build is used)
+# Install with Homebrew integration (--no-deps skips bundled PyTorch so the Homebrew build is used)
 export MCP_MEMORY_USE_HOMEBREW_PYTORCH=1
 pip install -e ".[sqlite]" --no-deps
-pip install -e "."
 ```
 
 ### 3. Configure Environment Variables
