@@ -84,9 +84,12 @@ cd mcp-memory-service
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install with Homebrew integration (--no-deps skips bundled PyTorch so the Homebrew build is used)
+# Install with Homebrew integration. Normal install pulls all required deps
+# (fastapi, mcp, etc.). An unused torch wheel will also be installed, but at
+# runtime MCP_MEMORY_USE_HOMEBREW_PYTORCH=1 makes the service use Homebrew's
+# torch instead of the bundled one.
 export MCP_MEMORY_USE_HOMEBREW_PYTORCH=1
-pip install -e ".[sqlite]" --no-deps
+pip install -e ".[sqlite]"
 ```
 
 ### 3. Configure Environment Variables
