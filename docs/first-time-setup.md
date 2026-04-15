@@ -92,13 +92,13 @@ If you encounter sqlite-vec installation failures on Python 3.13:
 brew install python@3.12
 python3.12 -m venv .venv
 source .venv/bin/activate
-python install.py
+pip install mcp-memory-service
 
 # Ubuntu/Linux
 sudo apt install python3.12 python3.12-venv
 python3.12 -m venv .venv
 source .venv/bin/activate
-python install.py
+pip install mcp-memory-service
 ```
 
 **Option 2: Manual sqlite-vec Installation**
@@ -131,7 +131,7 @@ hash -r  # Refresh command cache
 python3 --version  # Verify you're using Homebrew Python
 
 # Then install MCP Memory Service
-python3 install.py
+pip install mcp-memory-service
 ```
 
 **Option 2: pyenv with Extension Support**
@@ -176,7 +176,7 @@ python3 -m venv venv
 source venv/bin/activate
 
 # Install the service
-python install.py
+pip install mcp-memory-service
 
 # Start the service
 uv run memory server

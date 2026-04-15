@@ -27,8 +27,10 @@ The Homebrew PyTorch integration allows MCP Memory Service to use system-install
 git clone https://github.com/doobidoo/mcp-memory-service.git
 cd mcp-memory-service
 
-# Install with Homebrew PyTorch integration
-python install.py --use-homebrew-pytorch --storage-backend sqlite_vec
+# Install with SQLite-vec backend; Homebrew PyTorch is picked up automatically if present
+export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
+export MCP_MEMORY_USE_HOMEBREW_PYTORCH=1
+pip install -e ".[sqlite]"
 ```
 
 ### Running the Service
@@ -82,8 +84,12 @@ cd mcp-memory-service
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install with Homebrew integration
-python install.py --use-homebrew-pytorch --skip-pytorch
+# Install with Homebrew integration. Normal install pulls all required deps
+# (fastapi, mcp, etc.). An unused torch wheel will also be installed, but at
+# runtime MCP_MEMORY_USE_HOMEBREW_PYTORCH=1 makes the service use Homebrew's
+# torch instead of the bundled one.
+export MCP_MEMORY_USE_HOMEBREW_PYTORCH=1
+pip install -e ".[sqlite]"
 ```
 
 ### 3. Configure Environment Variables
@@ -345,11 +351,15 @@ export MCP_MEMORY_ONNX_MODEL_PATH="/path/to/custom/model.onnx"
 For shared access across multiple MCP clients:
 
 ```bash
-# Install with multi-client support
-python install.py --use-homebrew-pytorch --multi-client
+# Install with Homebrew PyTorch, then run the shared HTTP server
+export MCP_MEMORY_USE_HOMEBREW_PYTORCH=1
+pip install -e ".[sqlite]"
 
-# Configure shared database location
+# Configure shared database location and HTTP server for multi-client access
 export MCP_MEMORY_SQLITE_PATH="/shared/mcp_memory/memory.db"
+export MCP_HTTP_ENABLED=true
+export MCP_HTTP_PORT=8000
+python scripts/server/run_http_server.py
 ```
 
 ## Development and Contributions

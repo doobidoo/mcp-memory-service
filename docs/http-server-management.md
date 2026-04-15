@@ -50,7 +50,7 @@ Error: [WinError 10061] No connection could be made...
 # HTTP mode (default, port 8000)
 uv run python scripts/server/run_http_server.py
 
-# HTTPS mode (port 8443)
+# HTTPS mode (same port 8000, TLS enabled)
 MCP_HTTPS_ENABLED=true uv run python scripts/server/run_http_server.py
 ```
 
@@ -106,7 +106,7 @@ cat ~/.claude/hooks/config.json | grep -A5 "http"
 
 Should match your server configuration:
 - Default HTTP: `http://localhost:8000` or `http://127.0.0.1:8000`
-- Default HTTPS: `https://localhost:8443`
+- Default HTTPS: `https://localhost:8000` (when `MCP_HTTPS_ENABLED=true`)
 
 **Important:** The HTTP server uses port **8000** by default (configured in `.env`). If your hooks are configured for a different port (e.g., 8889), you need to either:
 1. Update hooks config to match port 8000, OR

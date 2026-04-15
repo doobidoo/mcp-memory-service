@@ -66,10 +66,8 @@ if [ $FOUND -eq 0 ]; then
   exit 0
 else
   echo ""
-  echo "⚠️  These are known docs debt — tracked in GitHub issue #662."
-  echo "    New dead references in newly added files will be caught here."
+  echo "⚠️  Dead references detected in active docs."
   echo "    Fix: remove or update the references listed above."
   echo "    Note: docs/archive/, docs/legacy/, docs/plans/ and migration guides are excluded."
-  # TODO: change to exit 1 once existing dead refs in active docs are cleaned up (issue #662)
-  exit 0
+  exit 1
 fi

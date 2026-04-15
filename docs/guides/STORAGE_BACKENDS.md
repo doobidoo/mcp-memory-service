@@ -37,15 +37,17 @@
 
 ### Example Use Cases:
 ```bash
-# 2015 MacBook Pro scenario
-python install.py --legacy-hardware
-# Result: SQLite-vec + Homebrew PyTorch + ONNX
+# 2015 MacBook Pro scenario (SQLite-vec + Homebrew PyTorch + ONNX)
+export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
+export MCP_MEMORY_USE_ONNX=1
+pip install -e .
 
 # Docker deployment
 docker run -e MCP_MEMORY_STORAGE_BACKEND=sqlite_vec ...
 
 # Quick development setup
-python install.py --storage-backend sqlite_vec --dev
+export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
+pip install -e ".[sqlite]"
 ```
 
 ## When to Choose ChromaDB 📦
@@ -68,14 +70,13 @@ python install.py --storage-backend sqlite_vec --dev
 
 ### Example Use Cases:
 ```bash
-# Modern Mac with GPU
-python install.py  # ChromaDB selected automatically
+# Modern Mac with GPU — production deployment with Cloudflare sync
+export MCP_MEMORY_STORAGE_BACKEND=hybrid
+pip install -e ".[full]"
 
-# Production deployment
-python install.py --storage-backend chromadb --production
-
-# Research environment
-python install.py --storage-backend chromadb --enable-advanced-features
+# Cloud-only deployment
+export MCP_MEMORY_STORAGE_BACKEND=cloudflare
+pip install -e ".[full]"
 ```
 
 ## Hardware Compatibility Matrix
@@ -204,9 +205,6 @@ Perfect for upgrading legacy hardware or simplifying deployments:
 ```bash
 # Automated migration
 python scripts/migrate_chroma_to_sqlite.py
-
-# Manual migration with verification
-python install.py --migrate-from-chromadb --storage-backend sqlite_vec
 ```
 
 **Migration preserves:**

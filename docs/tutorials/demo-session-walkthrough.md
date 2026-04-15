@@ -26,7 +26,7 @@ Error storing memory: No module named 'aiohttp'
 **Solution Process**:
 1. **Identified the root cause**: Missing dependency not included in installer
 2. **Manual fix**: Added `aiohttp>=3.8.0` to `pyproject.toml`
-3. **Installer enhancement**: Updated `install.py` to handle aiohttp automatically
+3. **Installer enhancement**: Updated `scripts/installation/install.py` to handle aiohttp automatically
 4. **Documentation**: Added manual installation instructions
 
 **Commit**: `535c488 - fix: Add aiohttp dependency to resolve MCP server startup issues`
@@ -95,10 +95,12 @@ Error storing memory: No module named 'aiohttp'
 **Deployment Commands**:
 ```bash
 # Server setup
-python install.py --server-mode --enable-http-api
+pip install -e ".[full]"
+export MCP_HTTP_ENABLED=true
 export MCP_HTTP_HOST=0.0.0.0
+export MCP_HTTP_PORT=8000
 export MCP_API_KEY="your-secure-key"
-python scripts/run_http_server.py
+python scripts/server/run_http_server.py
 
 # Access points
 # API: http://server:8000/api/docs

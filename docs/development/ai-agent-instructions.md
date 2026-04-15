@@ -91,8 +91,7 @@ src/mcp_memory_service/
 - `src/mcp_memory_service/server.py` - Entry point and server initialization
 - `src/mcp_memory_service/storage/base.py` - Storage interface all backends must implement
 - `src/mcp_memory_service/web/app.py` - FastAPI application for HTTP mode
-- `pyproject.toml` - Project dependencies and configuration
-- `install.py` - Platform-aware installer script
+- `pyproject.toml` - Project dependencies and configuration (install via `pip install -e .`)
 
 ## Common Development Tasks
 
@@ -151,7 +150,7 @@ python scripts/validation/validate_memories.py
 export LOG_LEVEL=DEBUG
 
 # Check service health
-curl https://localhost:8443/api/health
+curl http://localhost:8000/api/health
 
 # Monitor logs
 tail -f ~/.mcp-memory-service/logs/service.log
@@ -176,7 +175,7 @@ sqlite3 ~/.mcp-memory-service/sqlite_vec.db ".tables"
 
 - **SQLite extension errors on macOS**: Use Homebrew Python or pyenv with `--enable-loadable-sqlite-extensions`
 - **Model download hangs**: Check network connectivity, models are ~25MB
-- **Import errors**: Run `python install.py` to ensure all dependencies installed
+- **Import errors**: Run `pip install -e .` (or `pip install -e ".[full]"` for all extras) to ensure dependencies are installed
 - **MCP connection fails**: Restart Claude Desktop to refresh MCP connections
 - **Memory not persisting**: Check file permissions in `~/.mcp-memory-service/`
 

@@ -27,7 +27,7 @@ This guide helps you choose the best integration method for your workflow and ne
 | **Setup Time** | 2 minutes | 5-15 minutes |
 | **Configuration** | Zero config required | Manual MCP server registration |
 | **Prerequisites** | Claude Code CLI only | Claude Code CLI + MCP knowledge |
-| **Installation** | `python install.py --install-claude-commands` | `claude mcp add memory-service spawn -- ...` |
+| **Installation** | `python scripts/installation/install.py --install-hooks` | `claude mcp add memory-service spawn -- ...` |
 | **Updates** | Automatic with installer updates | Manual server path updates |
 
 ### User Experience
@@ -139,7 +139,7 @@ claude mcp add memory-service spawn -- /path/to/memory/command
 #### From MCP Server to Commands
 ```bash
 # Install commands alongside existing setup
-python install.py --install-claude-commands
+python scripts/installation/install.py --install-hooks
 ```
 
 ### Data Compatibility

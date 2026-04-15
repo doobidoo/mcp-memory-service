@@ -14,35 +14,27 @@ MCP Memory Service supports multi-client access through several deployment patte
 
 ### During Installation
 
-The easiest way to configure multi-client access is during the initial installation:
+Install the package and enable the HTTP server (all MCP clients can then share the same backend):
 
 ```bash
-# Run the installer - you'll be prompted for multi-client setup
-python install.py
+# Install with HTTP server support
+pip install "mcp-memory-service[full]"    # user install
+# pip install -e ".[full]"                # contributor / editable from cloned repo
 
-# When prompted, choose 'y':
-# 🌐 Multi-Client Access Available!
-# Would you like to configure multi-client access? (y/N): y
+# Configure and start the shared HTTP server via the bundled CLI
+export MCP_HTTP_ENABLED=true
+export MCP_HTTP_PORT=8000
+export MCP_MEMORY_STORAGE_BACKEND=hybrid   # or sqlite_vec
+memory server --http
 ```
 
-**Benefits of integrated setup:**
-- ✅ Automatic detection of Claude Desktop, VS Code, Continue, Cursor, and other MCP clients
+> **Note:** `memory server --http` is the pip-installable CLI entry point. If you cloned the repo, `python scripts/server/run_http_server.py` works equivalently.
+
+**Benefits of the HTTP-based setup:**
+- ✅ One server process serves Claude Desktop, VS Code, Continue, Cursor, and any HTTP/MCP client
 - ✅ Universal compatibility beyond just Claude applications
-- ✅ Zero manual configuration required
+- ✅ Concurrent access without database locks (SQLite WAL mode)
 - ✅ Future-proof setup for any MCP application
-
-### Command Line Options
-
-```bash
-# Automatic multi-client setup (no prompts)
-python install.py --setup-multi-client
-
-# Skip the multi-client prompt entirely
-python install.py --skip-multi-client-prompt
-
-# Combined with other options
-python install.py --storage-backend sqlite_vec --setup-multi-client
-```
 
 ### Supported Applications
 
@@ -156,7 +148,8 @@ For Claude Desktop on each client machine:
    ```bash
    git clone https://github.com/doobidoo/mcp-memory-service.git
    cd mcp-memory-service
-   python install.py --server-mode --storage-backend sqlite_vec
+   pip install -e ".[sqlite]"
+   export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
    ```
 
 2. **Configure HTTP server:**
@@ -419,12 +412,15 @@ netstat -an | grep :8000
    python scripts/backup_memories.py
    ```
 
-2. **Run multi-client setup:**
+2. **Enable the shared HTTP server:**
    ```bash
-   python install.py --setup-multi-client --migrate-existing
+   export MCP_HTTP_ENABLED=true
+   export MCP_HTTP_PORT=8000
+   export MCP_MEMORY_STORAGE_BACKEND=hybrid   # or sqlite_vec
+   python scripts/server/run_http_server.py
    ```
 
-3. **Update client configurations** as needed.
+3. **Update client configurations** to point at `http://<host>:8000` as needed.
 
 ### Data Migration
 

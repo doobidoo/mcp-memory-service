@@ -8,7 +8,7 @@
 
 **REST API Call:**
 ```bash
-curl -X POST "https://localhost:8443/api/search/advanced" \
+curl -X POST "http://localhost:8000/api/search/advanced" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-api-key" \
   -d '{
@@ -161,7 +161,7 @@ curl -X POST "https://localhost:8443/api/search/advanced" \
 
 **REST API Call:**
 ```bash
-curl -X POST "https://localhost:8443/api/search/advanced" \
+curl -X POST "http://localhost:8000/api/search/advanced" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-api-key" \
   -d '{

@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.36.8] - 2026-04-14
+
+### Fixed
+
+- **[#664] Event-loop blocking paths in `SqliteVecMemoryStorage.initialize()`**: Pragma application in `_connect_and_load_extension` now runs in a worker thread under `_conn_lock` via `_run_in_thread` instead of executing synchronously on the event loop. `_initialize_hash_embedding_fallback` is now async and wraps `_get_existing_db_embedding_dimension` in `_run_in_thread`. The sqlite-vec extension is not thread-safe so `asyncio.to_thread` (used in an earlier iteration) was replaced with `_run_in_thread` to ensure proper `_conn_lock` protection. (PR #700)
+
 ## [10.36.7] - 2026-04-14
 
 ### Security
