@@ -16,7 +16,7 @@
 | **Offline operation** | Yes | No | Yes (syncs when online) |
 | **Multi-device sync** | No (file-based) | Yes (via Cloudflare) | Yes (via Cloudflare background sync) |
 | **Scale ceiling** | ~100K+ memories | Vectorize-limited (millions) | Same as Cloudflare |
-| **External embedding APIs** | Supported (Ollama, vLLM, TEI, OpenAI) | Not supported | Not supported |
+| **External embedding APIs** | Supported (Ollama, vLLM, TEI, OpenAI-compatible) | Not supported | Not supported |
 
 All three backends implement the same `BaseStorage` interface and expose identical MCP tools and REST endpoints. The choice is about where data lives, not what you can do with it.
 
@@ -168,27 +168,30 @@ All three backends expose identical capabilities via the `BaseStorage` interface
 
 ## Migration Between Backends
 
-The supported migration pattern is **export-import via the `migrate_storage.py` script** in `scripts/migration/`. There are also direct-path scripts for common pairs.
+Migration scripts live in `scripts/migration/`. Not every direction has a dedicated script — the supported paths are below.
 
 ### SQLite-vec → Cloudflare
 ```bash
-python scripts/migration/migrate_to_cloudflare.py
+python scripts/migration/migrate_to_cloudflare.py migrate \
+  --source sqlite_vec \
+  --source-path /path/to/your/sqlite_vec.db
 ```
-Reads from your local `.db`, writes to D1 + Vectorize. Preserves content, embeddings, tags, timestamps, and metadata.
+Reads from your local `.db`, writes to D1 + Vectorize. Preserves content, embeddings, tags, timestamps, and metadata. Use the `export` / `import` subcommands instead of `migrate` if you want an intermediate JSON file (useful for backup before cutting over).
 
 ### Cloudflare → SQLite-vec
+**No dedicated script exists.** The workaround is to run the service in `hybrid` mode temporarily: set `MCP_MEMORY_STORAGE_BACKEND=hybrid` and let the background sync populate a local SQLite-vec database from Cloudflare. Then switch `MCP_MEMORY_STORAGE_BACKEND=sqlite_vec` once the local file is populated.
+
+If you need a fully offline migration, export memories via the REST API (`GET /api/memories`) and re-import with [`mcp-migration.py`](https://github.com/doobidoo/mcp-memory-service/blob/main/scripts/migration/mcp-migration.py) or a small custom script. Open an issue if this is a blocker — a dedicated Cloudflare → SQLite-vec script is a reasonable feature request.
+
+### SQLite-vec → Hybrid / Cloudflare → Hybrid
+Set `MCP_MEMORY_STORAGE_BACKEND=hybrid` and restart. Hybrid initialization reconciles the local SQLite-vec store and the Cloudflare mirror on startup — it picks whichever side is populated and syncs the other direction on the next interval. For a clean cutover from SQLite-vec, run the SQLite-vec → Cloudflare migration above first, then switch to `hybrid`.
+
+### ChromaDB → SQLite-vec (historical)
+ChromaDB is no longer a supported backend. If you have a legacy ChromaDB store, use:
 ```bash
 python scripts/migration/migrate_to_sqlite_vec.py
 ```
-Pulls the full Cloudflare store down into a local SQLite-vec database.
-
-### SQLite-vec → Hybrid / Cloudflare → Hybrid
-Set `MCP_MEMORY_STORAGE_BACKEND=hybrid` and restart. Hybrid initialization reconciles the local SQLite-vec store and the Cloudflare mirror on startup — it picks whichever side is populated and syncs the other direction on the next interval. If you want a clean state, run the SQLite-vec → Cloudflare migration first, then switch to `hybrid`.
-
-### Generic backend-to-backend
-```bash
-python scripts/migration/migrate_storage.py --source <from> --target <to>
-```
+See [`chromadb-migration.md`](chromadb-migration.md) for the full legacy migration guide.
 
 See [`docs/guides/migration.md`](migration.md) for operational details and [`docs/troubleshooting/database-transfer-migration.md`](../troubleshooting/database-transfer-migration.md) for recovery scenarios.
 
