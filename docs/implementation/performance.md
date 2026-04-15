@@ -1,4 +1,6 @@
-# ChromaDB Performance Optimization Implementation Summary
+# ChromaDB Performance Optimization Implementation Summary (Historical)
+
+> **Historical document.** ChromaDB was removed in v8.0.0. This page is retained as a record of the performance work that was done on that legacy backend. For current performance guidance see [sqlite-vec-backend.md](../sqlite-vec-backend.md) and [natural-memory-triggers/performance-optimization.md](../natural-memory-triggers/performance-optimization.md). For migrating legacy ChromaDB data see [../guides/chromadb-migration.md](../guides/chromadb-migration.md).
 
 ## 🚀 Successfully Implemented Optimizations
 

@@ -308,9 +308,9 @@ node memory-mode-controller.js config set memoryService.timeout 8000
 node memory-mode-controller.js config set memoryService.retryAttempts 2
 ```
 
-#### ChromaDB Backend
+#### Hybrid Backend
 ```bash
-# Optimize for multi-client access
+# Optimize for local-first reads with background Cloudflare sync
 node memory-mode-controller.js config set memoryService.timeout 6000
 node memory-mode-controller.js config set memoryService.batchRequests true
 ```

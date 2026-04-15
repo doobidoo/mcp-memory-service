@@ -34,7 +34,6 @@ graph TB
         CLOUDFLARE[Cloudflare Backend]
         SQLITE[SQLite-vec Backend]
         REMOTE[HTTP Client Backend]
-        CHROMA[ChromaDB ⚠️ DEPRECATED]
     end
 
     subgraph "Infrastructure"
@@ -155,15 +154,7 @@ class MemoryStorage(ABC):
 - Automatic retry logic with exponential backoff
 - **Use cases**: Multi-client shared memory, remote MCP servers, load balancing
 
-#### ChromaDB Backend (`storage/chroma.py`) ⚠️ **DEPRECATED**
-- **Status**: Deprecated since v5.x, removal planned for v6.0.0
-- **Migration path**: Switch to Hybrid backend for production
-- Original vector database backend with sentence transformer embeddings
-- Heavy dependencies (PyTorch, sentence-transformers, ~2GB download)
-- Slower performance (15ms vs 5ms for SQLite-vec)
-- Higher memory footprint and complexity
-- **Why deprecated**: Hybrid backend provides better performance with cloud sync
-- **Historical only**: Not recommended for new deployments
+> **Historical note:** Earlier releases supported a ChromaDB backend. It was removed in v8.0.0. See [guides/chromadb-migration.md](guides/chromadb-migration.md) if you still have legacy data to migrate.
 
 ### 3. Models Layer (`src/mcp_memory_service/models/`)
 
@@ -375,12 +366,6 @@ Automatic detection and optimization for different platforms:
 - **Use cases**: Team collaboration, shared organizational memory
 - **Setup**: Enable HTTP server with `MCP_HTTP_ENABLED=true`, clients use HTTP Client backend
 
-### Legacy (ChromaDB Backend) ⚠️ **NOT RECOMMENDED**
-- **Deprecated**: Removal planned for v6.0.0
-- **Migration required**: Switch to Hybrid backend
-- Heavy dependencies, slower performance (15ms vs 5ms)
-- Only for existing deployments with migration path to Hybrid
-
 ## Extension Points
 
 ### Custom Storage Backends
@@ -443,6 +428,7 @@ types.Tool(
 ## References
 
 - [MCP Protocol Specification](https://modelcontextprotocol.io/docs)
-- [ChromaDB Documentation](https://docs.trychroma.com/)
 - [SQLite Vec Extension](https://github.com/asg017/sqlite-vec)
+- [Cloudflare Vectorize](https://developers.cloudflare.com/vectorize/)
+- [Cloudflare D1](https://developers.cloudflare.com/d1/)
 - [Sentence Transformers](https://www.sbert.net/)

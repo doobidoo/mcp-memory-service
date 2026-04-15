@@ -53,10 +53,11 @@ services:
     stdin_open: true
     tty: true
     volumes:
-      - ./data/chroma_db:/app/chroma_db
+      - ./data/sqlite_data:/app/sqlite_data
       - ./data/backups:/app/backups
     environment:
-      - MCP_MEMORY_STORAGE_BACKEND=chromadb
+      - MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
+      - MCP_MEMORY_SQLITE_PATH=/app/sqlite_data/memory.db
     restart: unless-stopped
 ```
 
@@ -79,7 +80,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./data/chroma_db:/app/chroma_db
+      - ./data/sqlite_data:/app/sqlite_data
       - ./data/backups:/app/backups
     environment:
       - MCP_STANDALONE_MODE=1
@@ -110,7 +111,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./data/chroma_db:/app/chroma_db
+      - ./data/sqlite_data:/app/sqlite_data
       - ./data/backups:/app/backups
     environment:
       - UV_ACTIVE=1
@@ -136,19 +137,20 @@ docker-compose -f docker-compose.pythonpath.yml up -d
 docker build -t mcp-memory-service .
 
 # Create directories for persistent storage
-mkdir -p ./data/chroma_db ./data/backups
+mkdir -p ./data/sqlite_data ./data/backups
 
 # Run in standard mode (for MCP clients)
 docker run -d --name memory-service \
-  -v $(pwd)/data/chroma_db:/app/chroma_db \
+  -v $(pwd)/data/sqlite_data:/app/sqlite_data \
   -v $(pwd)/data/backups:/app/backups \
-  -e MCP_MEMORY_STORAGE_BACKEND=chromadb \
+  -e MCP_MEMORY_STORAGE_BACKEND=sqlite_vec \
+  -e MCP_MEMORY_SQLITE_PATH=/app/sqlite_data/memory.db \
   --stdin --tty \
   mcp-memory-service
 
 # Run in standalone/HTTP mode
 docker run -d -p 8000:8000 --name memory-service \
-  -v $(pwd)/data/chroma_db:/app/chroma_db \
+  -v $(pwd)/data/sqlite_data:/app/sqlite_data \
   -v $(pwd)/data/backups:/app/backups \
   -e MCP_STANDALONE_MODE=1 \
   -e MCP_HTTP_HOST=0.0.0.0 \
@@ -181,7 +183,7 @@ docker run -d -p 8000:8000 \
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MCP_MEMORY_STORAGE_BACKEND` | `chromadb` | Storage backend (chromadb, sqlite_vec) |
+| `MCP_MEMORY_STORAGE_BACKEND` | `sqlite_vec` | Storage backend (`sqlite_vec`, `cloudflare`, `hybrid`) |
 | `MCP_HTTP_HOST` | `0.0.0.0` | HTTP server bind address |
 | `MCP_HTTP_PORT` | `8000` | HTTP server port |
 | `MCP_STANDALONE_MODE` | `false` | Enable standalone HTTP mode |
@@ -198,17 +200,21 @@ docker run -d -p 8000:8000 \
 ### Storage Configuration
 
 ```bash
-# ChromaDB backend
-docker run -d \
-  -e MCP_MEMORY_STORAGE_BACKEND=chromadb \
-  -e MCP_MEMORY_CHROMA_PATH=/app/chroma_db \
-  -v $(pwd)/data/chroma_db:/app/chroma_db \
-  mcp-memory-service
-
-# SQLite-vec backend (recommended for containers)
+# SQLite-vec backend (default, recommended for single-container deployments)
 docker run -d \
   -e MCP_MEMORY_STORAGE_BACKEND=sqlite_vec \
   -e MCP_MEMORY_SQLITE_PATH=/app/sqlite_data/memory.db \
+  -v $(pwd)/data/sqlite_data:/app/sqlite_data \
+  mcp-memory-service
+
+# Hybrid backend (recommended for production — local SQLite + Cloudflare sync)
+docker run -d \
+  -e MCP_MEMORY_STORAGE_BACKEND=hybrid \
+  -e MCP_MEMORY_SQLITE_PATH=/app/sqlite_data/memory.db \
+  -e CLOUDFLARE_API_TOKEN=... \
+  -e CLOUDFLARE_ACCOUNT_ID=... \
+  -e CLOUDFLARE_D1_DATABASE_ID=... \
+  -e CLOUDFLARE_VECTORIZE_INDEX=mcp-memory-index \
   -v $(pwd)/data/sqlite_data:/app/sqlite_data \
   mcp-memory-service
 ```
@@ -496,8 +502,9 @@ python -c "from sentence_transformers import SentenceTransformer; \
 # Step 2: Run container with model cache mounted
 docker run -d --name memory-service \
   -v ~/.cache/huggingface:/root/.cache/huggingface \
-  -v $(pwd)/data/chroma_db:/app/chroma_db \
-  -e MCP_MEMORY_STORAGE_BACKEND=chromadb \
+  -v $(pwd)/data/sqlite_data:/app/sqlite_data \
+  -e MCP_MEMORY_STORAGE_BACKEND=sqlite_vec \
+  -e MCP_MEMORY_SQLITE_PATH=/app/sqlite_data/memory.db \
   mcp-memory-service
 ```
 
@@ -537,10 +544,11 @@ services:
     volumes:
       # Mount model cache from host
       - ${HOME}/.cache/huggingface:/root/.cache/huggingface
-      - ./data/chroma_db:/app/chroma_db
+      - ./data/sqlite_data:/app/sqlite_data
       - ./data/backups:/app/backups
     environment:
-      - MCP_MEMORY_STORAGE_BACKEND=chromadb
+      - MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
+      - MCP_MEMORY_SQLITE_PATH=/app/sqlite_data/memory.db
       # Optional: force offline mode if models are pre-cached
       # - HF_HUB_OFFLINE=1
       # - TRANSFORMERS_OFFLINE=1

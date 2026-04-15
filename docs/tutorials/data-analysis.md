@@ -244,7 +244,7 @@ function categorizeTagsByType(tags) {
   // Define patterns for each category
   const patterns = {
     projects: /^(mcp-memory-service|memory-dashboard|github-integration)/,
-    technologies: /^(python|react|typescript|chromadb|git|docker)/,
+    technologies: /^(python|react|typescript|sqlite-vec|cloudflare|git|docker)/,
     activities: /^(testing|debugging|development|documentation|deployment)/,
     status: /^(resolved|in-progress|blocked|verified|completed)/,
     content: /^(concept|architecture|tutorial|reference|example)/,

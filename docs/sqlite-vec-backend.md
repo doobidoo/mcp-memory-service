@@ -2,13 +2,13 @@
 
 ## Overview
 
-The MCP Memory Service now supports SQLite-vec as an alternative storage backend. SQLite-vec provides a lightweight, high-performance vector database solution that offers several advantages over ChromaDB:
+SQLite-vec is the default storage backend for MCP Memory Service. It provides a lightweight, high-performance vector database solution:
 
 - **Lightweight**: Single file database with no external dependencies
-- **Fast**: Optimized vector operations with efficient indexing
+- **Fast**: Optimized vector operations with efficient indexing (~5 ms reads)
 - **Portable**: Easy to backup, copy, and share memory databases
 - **Reliable**: Built on SQLite's proven reliability and ACID compliance
-- **Memory Efficient**: Lower memory footprint for smaller memory collections
+- **Memory Efficient**: Low memory footprint suited to single-user deployments
 
 ## Installation
 
@@ -97,49 +97,15 @@ Update your Claude Desktop MCP configuration:
 }
 ```
 
-## Migration from ChromaDB
+## Migrating Legacy ChromaDB Data
 
-### Automatic Migration
+ChromaDB was removed as a supported backend in v8.0.0. If you still have data from a ChromaDB install, see the dedicated guide: **[guides/chromadb-migration.md](guides/chromadb-migration.md)**. The script is preserved on the [`chromadb-legacy`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy) branch.
 
-Use the provided migration script for easy migration:
+After migration, set the environment variable and restart Claude Desktop:
 
 ```bash
-# Simple migration with default paths
-python migrate_to_sqlite_vec.py
-
-# Custom migration
-python scripts/migrate_storage.py \
-  --from chroma \
-  --to sqlite_vec \
-  --source-path /path/to/chroma_db \
-  --target-path /path/to/sqlite_vec.db \
-  --backup
+export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
 ```
-
-### Manual Migration Steps
-
-1. **Stop the MCP Memory Service**
-   ```bash
-   # Stop Claude Desktop or any running instances
-   ```
-
-2. **Create a backup** (recommended)
-   ```bash
-   python scripts/migrate_storage.py \
-     --from chroma \
-     --to sqlite_vec \
-     --source-path ~/.local/share/mcp-memory/chroma_db \
-     --target-path ~/.local/share/mcp-memory/sqlite_vec.db \
-     --backup \
-     --backup-path memory_backup.json
-   ```
-
-3. **Set environment variables**
-   ```bash
-   export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
-   ```
-
-4. **Restart Claude Desktop**
 
 ### Migration Verification
 
@@ -170,24 +136,23 @@ asyncio.run(check_stats())
 
 ### Memory Usage
 
-| Collection Size | ChromaDB RAM | SQLite-vec RAM | Difference |
-|----------------|--------------|----------------|------------|
-| 1,000 memories | ~200 MB | ~50 MB | -75% |
-| 10,000 memories | ~800 MB | ~200 MB | -75% |
-| 100,000 memories | ~4 GB | ~1 GB | -75% |
+| Collection Size | SQLite-vec RAM |
+|-----------------|----------------|
+| 1,000 memories  | ~50 MB         |
+| 10,000 memories | ~200 MB        |
+| 100,000 memories| ~1 GB          |
 
 ### Query Performance
 
-- **Semantic Search**: Similar performance to ChromaDB for most use cases
-- **Tag Search**: Faster due to SQL indexing
-- **Metadata Queries**: Significantly faster with SQL WHERE clauses
-- **Startup Time**: 2-3x faster initialization
+- **Semantic Search**: ~5 ms local reads for typical collections
+- **Tag Search**: Fast SQL-indexed lookups
+- **Metadata Queries**: Efficient SQL WHERE clauses
+- **Startup Time**: Single-file database loads in <1 second
 
 ### Storage Characteristics
 
 - **Database File**: Single `.db` file (easy backup/restore)
-- **Disk Usage**: ~30% smaller than ChromaDB for same data
-- **Concurrent Access**: SQLite-level locking (single writer, multiple readers)
+- **Concurrent Access**: SQLite-level locking (single writer, multiple readers) — enable WAL via `MCP_MEMORY_SQLITE_PRAGMAS=journal_mode=WAL,busy_timeout=15000`
 
 ## Advanced Configuration
 
@@ -542,41 +507,31 @@ async def health_check():
 asyncio.run(health_check())
 ```
 
-## Comparison: ChromaDB vs SQLite-vec
+## Comparison: SQLite-vec vs Cloudflare vs Hybrid
 
-| Feature | ChromaDB | SQLite-vec | Winner |
-|---------|----------|------------|--------|
-| Setup Complexity | Medium | Low | SQLite-vec |
-| Memory Usage | High | Low | SQLite-vec |
-| Query Performance | Excellent | Very Good | ChromaDB |
-| Portability | Poor | Excellent | SQLite-vec |
-| Backup/Restore | Complex | Simple | SQLite-vec |
-| Concurrent Access | Good | Excellent (HTTP + WAL) | SQLite-vec |
-| Multi-Client Support | Good | Excellent (HTTP + WAL) | SQLite-vec |
-| Ecosystem | Rich | Growing | ChromaDB |
-| Reliability | Good | Excellent | SQLite-vec |
+| Feature | SQLite-vec | Cloudflare | Hybrid |
+|---------|------------|------------|--------|
+| Read latency | ~5 ms (local) | Network-dependent | ~5 ms (local) |
+| Setup complexity | Low | Medium (API tokens, D1 + Vectorize) | Medium |
+| Multi-device sync | ❌ | ✅ | ✅ (background sync) |
+| Offline access | ✅ | ❌ | ✅ |
+| External dependencies | None | Cloudflare account | Cloudflare account |
+| Recommended for | Single-user / dev | Edge / cloud-only | **Production** |
+
+See [guides/STORAGE_BACKENDS.md](guides/STORAGE_BACKENDS.md) for the full comparison.
 
 ## Best Practices
 
 ### When to Use SQLite-vec
 
 ✅ **Use SQLite-vec when:**
-- Memory collections < 100,000 entries
-- Multi-client access needed (Claude Desktop + Claude Code + others)
-- Seamless setup and coordination required (auto-detection)
+- Single-user or development setup
+- Multi-client access on the same machine (Claude Desktop + Claude Code)
+- Offline / air-gapped environments
 - Portability and backup simplicity are important
 - Limited system resources
-- Simple deployment requirements
-- Want both HTTP and direct access capabilities
 
-### When to Use ChromaDB
-
-✅ **Use ChromaDB when:**
-- Memory collections > 100,000 entries
-- Heavy concurrent usage
-- Maximum query performance is critical
-- Rich ecosystem features needed
-- Distributed setups
+For production with multi-device sync, use the **Hybrid** backend instead (local SQLite-vec for reads + background Cloudflare sync).
 
 ### Multi-Client Coordination Tips
 
@@ -634,7 +589,7 @@ asyncio.run(health_check())
 
 ## API Reference
 
-The sqlite-vec backend implements the same `MemoryStorage` interface as ChromaDB:
+The sqlite-vec backend implements the standard `BaseStorage` interface shared by all backends:
 
 ```python
 # All standard operations work identically

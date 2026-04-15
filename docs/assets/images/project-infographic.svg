@@ -90,7 +90,7 @@
       <text x="250" y="150" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="white" text-anchor="middle">Python Server + Sentence Transformers</text>
       
       <rect x="0" y="180" width="500" height="50" rx="5" fill="#d9534f" stroke="#c9302c" stroke-width="2"/>
-      <text x="250" y="210" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="white" text-anchor="middle">ChromaDB Vector Storage</text>
+      <text x="250" y="210" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="white" text-anchor="middle">SQLite-vec / Cloudflare / Hybrid Storage</text>
     </g>
   </g>
   

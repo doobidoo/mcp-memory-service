@@ -22,7 +22,7 @@ Fixes:
   - Install dev headers: `apt install python3-dev sqlite3` and ensure Python was built with `--enable-loadable-sqlite-extensions`.
 - Windows:
   - Prefer official python.org installer or conda distribution.
-- Alternative: switch backend: `export MCP_MEMORY_STORAGE_BACKEND=chromadb` (see migration notes).
+- Alternative: switch backend to `cloudflare` (cloud-only, no local SQLite extension required): `export MCP_MEMORY_STORAGE_BACKEND=cloudflare` and set the `CLOUDFLARE_*` variables from [../cloudflare-setup.md](../cloudflare-setup.md).
 
 ## `sentence-transformers`/`torch` Not Available
 

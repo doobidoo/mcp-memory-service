@@ -285,6 +285,6 @@ Failed to initialize D1 schema
 3. **Smart Architecture**: Efficient use of Vectorize, D1, and R2
 4. **Zero Breaking Changes**: Drop-in replacement for existing backends
 5. **Comprehensive Testing**: 26+ tests covering all functionality
-6. **Easy Migration**: Tools to migrate from SQLite-vec or ChromaDB
+6. **Easy Migration**: Tools to migrate from SQLite-vec (or legacy ChromaDB — see [guides/chromadb-migration.md](guides/chromadb-migration.md))
 
 The Cloudflare backend is ready for production use and provides a scalable, globally distributed memory service for AI applications! 🚀

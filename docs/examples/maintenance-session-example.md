@@ -278,7 +278,7 @@ store_memory({
 
 **Tag Categories Successfully Applied**:
 1. **Projects**: `mcp-memory-service` (8/8 memories)
-2. **Technologies**: `chromadb`, `sentence-transformers` (where relevant)
+2. **Technologies**: `sqlite-vec`, `sentence-transformers` (where relevant)
 3. **Activities**: `testing`, `debugging`, `verification`, `development`
 4. **Content Types**: `concept`, `documentation`, `framework`
 5. **Status**: `verification`, `quality-assurance`, `research`

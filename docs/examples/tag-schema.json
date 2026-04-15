@@ -79,7 +79,7 @@
               "tag": "database",
               "description": "Data storage and management",
               "usage_count": 22,
-              "examples": ["ChromaDB", "Data models", "Database optimization"]
+              "examples": ["SQLite-vec", "Data models", "Database optimization"]
             },
             {
               "tag": "infrastructure",
@@ -141,10 +141,16 @@
               "examples": ["API development", "Web services", "Backend frameworks"]
             },
             {
-              "tag": "chromadb",
-              "description": "ChromaDB vector database",
+              "tag": "sqlite-vec",
+              "description": "SQLite-vec vector database (default backend)",
               "usage_count": 28,
               "examples": ["Vector storage", "Embedding operations", "Similarity search"]
+            },
+            {
+              "tag": "cloudflare",
+              "description": "Cloudflare D1 + Vectorize backend",
+              "usage_count": 14,
+              "examples": ["Cloud storage", "Edge deployment", "Multi-device sync"]
             },
             {
               "tag": "sentence-transformers",
@@ -658,7 +664,7 @@
         },
         {
           "pattern": "Content Type + Domain + Technology + Context",
-          "example": ["documentation", "backend", "chromadb", "production"],
+          "example": ["documentation", "backend", "sqlite-vec", "production"],
           "usage": "Documentation and reference materials"
         },
         {

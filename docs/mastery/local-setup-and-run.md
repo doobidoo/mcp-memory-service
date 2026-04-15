@@ -36,13 +36,6 @@ export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
 export MCP_MEMORY_SQLITE_PATH="$HOME/.local/share/mcp-memory/sqlite_vec.db"
 ```
 
-ChromaDB (deprecated):
-
-```
-export MCP_MEMORY_STORAGE_BACKEND=chroma
-export MCP_MEMORY_CHROMA_PATH="$HOME/.local/share/mcp-memory/chroma_db"
-```
-
 Cloudflare:
 
 ```
@@ -51,6 +44,14 @@ export CLOUDFLARE_API_TOKEN=...
 export CLOUDFLARE_ACCOUNT_ID=...
 export CLOUDFLARE_VECTORIZE_INDEX=...
 export CLOUDFLARE_D1_DATABASE_ID=...
+```
+
+Hybrid (recommended for production — local SQLite-vec reads plus background Cloudflare sync):
+
+```
+export MCP_MEMORY_STORAGE_BACKEND=hybrid
+# plus all CLOUDFLARE_* vars above
+export MCP_HYBRID_SYNC_OWNER=http   # only the HTTP server syncs when running alongside an MCP server
 ```
 
 ## 3) Run the Server

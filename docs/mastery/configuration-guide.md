@@ -6,32 +6,24 @@ All configuration is driven via environment variables and sensible defaults reso
 
 - `MCP_MEMORY_BASE_DIR`: Root directory for service data. Defaults per-OS to an app-data directory and is created if missing.
 - Derived paths (auto-created):
-  - Chroma path: `${BASE_DIR}/chroma_db` unless overridden.
+  - SQLite database: `${BASE_DIR}/sqlite_vec.db` unless overridden.
   - Backups path: `${BASE_DIR}/backups` unless overridden.
 
 Overrides:
 
-- `MCP_MEMORY_CHROMA_PATH` or `mcpMemoryChromaPath`: ChromaDB directory path.
+- `MCP_MEMORY_SQLITE_PATH`: SQLite-vec database file path.
 - `MCP_MEMORY_BACKUPS_PATH` or `mcpMemoryBackupsPath`: Backups directory path.
 
 ## Storage Backend Selection
 
-- `MCP_MEMORY_STORAGE_BACKEND`: `sqlite_vec` (default), `chroma`, or `cloudflare`.
+- `MCP_MEMORY_STORAGE_BACKEND`: `sqlite_vec` (default), `cloudflare`, or `hybrid`.
   - `sqlite-vec` aliases to `sqlite_vec`.
   - Unknown values default to `sqlite_vec` with a warning.
 
 SQLite-vec options:
 
 - `MCP_MEMORY_SQLITE_PATH` or `MCP_MEMORY_SQLITEVEC_PATH`: Path to `.db` file. Default `${BASE_DIR}/sqlite_vec.db`.
-- `MCP_MEMORY_SQLITE_PRAGMAS`: CSV list of custom pragmas e.g. `busy_timeout=15000,cache_size=20000` (v8.9.0+ recommended values for concurrent access).
-
-Chroma options:
-
-- `MCP_MEMORY_CHROMADB_HOST`: Hostname for remote Chroma.
-- `MCP_MEMORY_CHROMADB_PORT`: Port (default 8000).
-- `MCP_MEMORY_CHROMADB_SSL`: `true|false` for HTTPS.
-- `MCP_MEMORY_CHROMADB_API_KEY`: API key when remote.
-- `MCP_MEMORY_COLLECTION_NAME`: Collection name (default `memory_collection`).
+- `MCP_MEMORY_SQLITE_PRAGMAS`: CSV list of custom pragmas e.g. `journal_mode=WAL,busy_timeout=15000,cache_size=20000` (recommended for concurrent access).
 
 Cloudflare options (required unless otherwise noted):
 
@@ -92,15 +84,15 @@ TLS:
 ## Logging and Performance
 
 - `LOG_LEVEL`: Root logging level (default `WARNING`).
-- `DEBUG_MODE`: When unset, the service raises log levels for performance-critical libs (`chromadb`, `sentence_transformers`, `transformers`, `torch`, `numpy`).
+- `DEBUG_MODE`: When unset, the service raises log levels for performance-critical libs (`sentence_transformers`, `transformers`, `torch`, `numpy`, `onnxruntime`).
 
 ## Recommended Defaults by Backend
 
 - SQLite-vec:
   - Defaults enable WAL, busy timeout, optimized cache; customize with `MCP_MEMORY_SQLITE_PRAGMAS`.
   - For multi-client setups, the service auto-detects and may start/use an HTTP coordinator.
-- ChromaDB:
-  - HNSW space/ef/M values tuned for balanced accuracy and speed; migration messaging warns of deprecation and recommends moving to SQLite-vec.
 - Cloudflare:
   - Ensure required variables are set or the process exits with a clear error and checklist.
+- Hybrid (recommended for production):
+  - Uses SQLite-vec for 5 ms local reads with background Cloudflare sync. Requires all `CLOUDFLARE_*` variables. Set `MCP_HYBRID_SYNC_OWNER=http` when running alongside an MCP server so only the HTTP server syncs.
 

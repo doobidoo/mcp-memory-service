@@ -6,10 +6,11 @@ This project is a sophisticated and feature-rich MCP (Memory Component Protocol)
 
 The core of the project is the `MemoryServer` class, which handles all MCP tool calls. It features a "dream-inspired" memory consolidation system that autonomously organizes and compresses memories over time. The server is built on top of FastAPI, providing a modern and asynchronous API.
 
-The project offers two distinct storage backends, allowing users to choose the best fit for their needs:
+The project offers three distinct storage backends, allowing users to choose the best fit for their needs:
 
-*   **ChromaDB:** A feature-rich vector database that provides advanced search capabilities and is well-suited for large memory collections.
-*   **SQLite-vec:** A lightweight, file-based backend that uses the `sqlite-vec` extension for vector similarity search. This is a great option for resource-constrained environments.
+*   **SQLite-vec:** A lightweight, file-based backend that uses the `sqlite-vec` extension for vector similarity search. Default for development and single-user setups (~5 ms reads).
+*   **Cloudflare:** Cloud-native backend using D1 (SQL) + Vectorize (vector index) for edge deployment and global distribution.
+*   **Hybrid (recommended for production):** Local SQLite-vec for 5 ms reads plus a background Cloudflare sync for durability and multi-device access.
 
 The project also includes a comprehensive suite of scripts for installation, testing, and maintenance, as well as detailed documentation.
 

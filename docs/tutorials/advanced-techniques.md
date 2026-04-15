@@ -79,7 +79,7 @@ Our standardized tag system uses six primary categories:
 #### **Projects & Technologies**
 ```
 Projects: mcp-memory-service, memory-dashboard, github-integration
-Technologies: python, typescript, react, chromadb, git, sentence-transformers
+Technologies: python, typescript, react, sqlite-vec, cloudflare, git, sentence-transformers
 ```
 
 #### **Activities & Processes**

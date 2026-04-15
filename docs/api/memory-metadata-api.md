@@ -139,14 +139,14 @@ The API is implemented in the storage abstraction layer:
    - Abstract method definition
    - Consistent interface across storage backends
 
-2. **ChromaDB Implementation** (`storage/chroma.py`)
+2. **SQLite-vec Implementation** (`storage/sqlite_vec.py`)
    - Efficient upsert operation preserving embeddings
    - Metadata merging with validation
    - Timestamp synchronization
 
-3. **Future Storage Backends**
-   - sqlite-vec implementation will follow same interface
-   - Other storage backends can implement consistently
+3. **Cloudflare and Hybrid Implementations** (`storage/cloudflare.py`, `storage/hybrid.py`)
+   - Same `BaseStorage` contract
+   - Hybrid mirrors writes from local SQLite-vec to Cloudflare via background sync
 
 ### MCP Protocol Integration
 

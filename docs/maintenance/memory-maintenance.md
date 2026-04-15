@@ -118,7 +118,7 @@ Apply tags from multiple categories for comprehensive organization:
 {
   "tags": [
     "mcp-memory-service",     // Project
-    "python", "chromadb",     // Technologies
+    "python", "sqlite-vec",   // Technologies
     "debugging", "testing",   // Activities
     "resolved",               // Status
     "backend",               // Domain
@@ -260,7 +260,7 @@ Meeting notes: ["meeting", "project-name", "date", "decisions", "action-items"]
 
 **Example organization:**
 ```
-["troubleshooting", "python", "chromadb", "connection-issues", "resolved", "backend"]
+["troubleshooting", "python", "sqlite-vec", "connection-issues", "resolved", "backend"]
 ```
 
 ## 🛠️ Maintenance Tools and Scripts

@@ -14,10 +14,11 @@ This document summarizes the Memory Service architecture, components, data flow,
 - Storage Abstraction:
   - Interface: `src/mcp_memory_service/storage/base.py` (`MemoryStorage` ABC).
   - Backends:
-    - SQLite-vec: `src/mcp_memory_service/storage/sqlite_vec.py` (recommended default).
-    - ChromaDB: `src/mcp_memory_service/storage/chroma.py` (deprecated; migration path provided).
+    - SQLite-vec: `src/mcp_memory_service/storage/sqlite_vec.py` (default for dev / single-user).
     - Cloudflare: `src/mcp_memory_service/storage/cloudflare.py` (Vectorize + D1 + optional R2).
+    - Hybrid: `src/mcp_memory_service/storage/hybrid.py` (local SQLite-vec reads + background Cloudflare sync — recommended for production).
     - HTTP client: `src/mcp_memory_service/storage/http_client.py` (multi-client coordination).
+  - Historical: ChromaDB was supported prior to v8.0.0; see [guides/chromadb-migration.md](../guides/chromadb-migration.md).
 - CLI:
   - Entry points: `memory`, `memory-server`, `mcp-memory-server` (pyproject scripts).
   - Implementation: `src/mcp_memory_service/cli/main.py` (server, status, ingestion commands).
@@ -32,8 +33,8 @@ This document summarizes the Memory Service architecture, components, data flow,
 3. For SQLite-vec:
    - Embeddings generated via `sentence-transformers` (or ONNX disabled path) and stored alongside content and metadata in SQLite; vector search via `vec0` virtual table.
    - WAL mode + busy timeouts for concurrent access; optional HTTP coordination for multi-client scenarios.
-4. For ChromaDB: uses DuckDB+Parquet persistence and HNSW settings (deprecated path; migration messaging built-in).
-5. For Cloudflare: Vectorize (vectors), D1 (metadata), R2 (large content); HTTPx for API calls.
+4. For Cloudflare: Vectorize (vectors), D1 (metadata), R2 (large content); HTTPx for API calls.
+5. For Hybrid: reads served from local SQLite-vec; writes mirror to Cloudflare via a background sync task (see `MCP_HYBRID_SYNC_OWNER`).
 6. Results map back to `Memory`/`MemoryQueryResult` and are returned to the MCP client.
 
 ## MCP Integration Patterns
@@ -55,7 +56,7 @@ This document summarizes the Memory Service architecture, components, data flow,
 ## Configuration Management
 
 - Paths: base dir and per-backend storage paths (auto-created, validated for writability).
-- Backend selection: `MCP_MEMORY_STORAGE_BACKEND` ∈ `{sqlite_vec, chroma, cloudflare}` (normalized).
+- Backend selection: `MCP_MEMORY_STORAGE_BACKEND` ∈ `{sqlite_vec, cloudflare, hybrid}` (normalized).
 - HTTP/HTTPS server, CORS, API key, SSE heartbeat.
 - mDNS discovery toggles and timeouts.
 - Consolidation: enabled flag, archive path, decay/association/clustering/compression/forgetting knobs; schedules for APScheduler.
@@ -66,8 +67,7 @@ This document summarizes the Memory Service architecture, components, data flow,
 
 - `mcp`: MCP protocol server/runtime.
 - `sqlite-vec`: vector index for SQLite; provides `vec0` virtual table.
-- `sentence-transformers`, `torch`: embedding generation; can be disabled.
-- `chromadb`: legacy backend (DuckDB+Parquet).
+- `sentence-transformers`, `torch`: embedding generation (optional; ONNX runtime is the lightweight default).
 - `fastapi`, `uvicorn`, `sse-starlette`, `aiofiles`, `aiohttp/httpx`: HTTP transports and Cloudflare/API.
 - `psutil`, `zeroconf`: client detection and mDNS discovery.
 

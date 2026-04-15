@@ -53,7 +53,7 @@ infrastructure        # Deployment and DevOps
 **Usage Example:**
 ```javascript
 {
-  "tags": ["mcp-memory-service", "backend", "database", "chromadb"]
+  "tags": ["mcp-memory-service", "backend", "database", "sqlite-vec"]
 }
 ```
 
@@ -72,7 +72,8 @@ sql                   # Database queries
 ```
 react                 # React development
 fastapi               # FastAPI framework
-chromadb              # ChromaDB vector database
+sqlite-vec            # SQLite-vec vector database (default)
+cloudflare            # Cloudflare D1 + Vectorize (cloud/edge)
 sentence-transformers # Embedding models
 pytest                # Testing framework
 ```
@@ -89,7 +90,7 @@ npm                   # Node package management
 **Usage Example:**
 ```javascript
 {
-  "tags": ["python", "chromadb", "sentence-transformers", "pytest"]
+  "tags": ["python", "sqlite-vec", "sentence-transformers", "pytest"]
 }
 ```
 
@@ -292,7 +293,7 @@ issue → bug → critical-bug → data-corruption
 {"tags": ["testing", "unit-testing", "python", "pytest"]}
 
 // Very specific test
-{"tags": ["testing", "unit-testing", "memory-storage", "chromadb", "pytest"]}
+{"tags": ["testing", "unit-testing", "memory-storage", "sqlite-vec", "pytest"]}
 ```
 
 ## 📊 Tag Application Patterns
@@ -309,7 +310,7 @@ Apply tags from 3-6 categories for comprehensive organization:
     "mcp-memory-service", "backend",
     
     // Technology (1-3 tags)
-    "python", "chromadb",
+    "python", "sqlite-vec",
     
     // Activity (1-2 tags)
     "debugging", "troubleshooting",
@@ -336,7 +337,7 @@ Apply tags from 3-6 categories for comprehensive organization:
     "timestamp-corruption",       // Problem description
     "critical-bug",              // Severity
     "mcp-memory-service",        // Project
-    "chromadb",                  // Technology
+    "sqlite-vec",                // Technology
     "resolved"                   // Status
   ]
 }
@@ -416,11 +417,11 @@ Apply tags from 3-6 categories for comprehensive organization:
 
 **Example 1: Debug Session Memory**
 
-Content: "Fixed issue with ChromaDB connection timeout in production"
+Content: "Fixed issue with Cloudflare D1 connection timeout in production"
 
 **Analysis:**
 - Primary Context: MCP Memory Service, backend
-- Technical: ChromaDB, connection issues, production
+- Technical: Cloudflare, connection issues, production
 - Activity: Debugging, troubleshooting, problem resolution
 - Content: Troubleshooting solution, fix documentation
 - Status: Resolved, production issue
@@ -431,7 +432,7 @@ Content: "Fixed issue with ChromaDB connection timeout in production"
 {
   "tags": [
     "mcp-memory-service", "backend",
-    "chromadb", "connection-timeout", "production",
+    "cloudflare", "connection-timeout", "production",
     "debugging", "troubleshooting",
     "solution", "hotfix",
     "resolved", "critical"

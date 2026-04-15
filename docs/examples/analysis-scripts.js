@@ -182,7 +182,7 @@ function analyzeTagUsage(memories) {
 function categorizeTag(tag) {
   const patterns = {
     'projects': /^(mcp-memory-service|memory-dashboard|github-integration|mcp-protocol)/,
-    'technologies': /^(python|react|typescript|chromadb|git|docker|aws|npm)/,
+    'technologies': /^(python|react|typescript|sqlite-vec|cloudflare|git|docker|aws|npm)/,
     'activities': /^(testing|debugging|development|documentation|deployment|maintenance)/,
     'status': /^(resolved|in-progress|blocked|verified|completed|experimental)/,
     'content-types': /^(concept|architecture|tutorial|reference|example|guide)/,
@@ -383,7 +383,7 @@ function categorizeContentLength(length) {
  */
 function extractThemes(topWords) {
   const themeCategories = {
-    technology: ['python', 'react', 'typescript', 'chromadb', 'git', 'docker', 'api', 'database'],
+    technology: ['python', 'react', 'typescript', 'sqlite-vec', 'cloudflare', 'git', 'docker', 'api', 'database'],
     development: ['development', 'implementation', 'code', 'programming', 'build', 'deploy'],
     testing: ['test', 'testing', 'debug', 'debugging', 'verification', 'quality'],
     project: ['project', 'service', 'system', 'application', 'platform', 'tool'],

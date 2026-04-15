@@ -38,7 +38,8 @@ Add to `.cursor/mcp.json` in your project or global Cursor config:
         "memory"
       ],
       "env": {
-        "MCP_MEMORY_CHROMA_PATH": "/path/to/chroma_db",
+        "MCP_MEMORY_STORAGE_BACKEND": "sqlite_vec",
+        "MCP_MEMORY_SQLITE_PATH": "/path/to/sqlite_vec.db",
         "MCP_MEMORY_BACKUPS_PATH": "/path/to/backups"
       }
     }
@@ -56,7 +57,8 @@ WindSurf offers the easiest setup with built-in server management. Add to your W
       "command": "uv",
       "args": ["--directory", "/path/to/mcp-memory-service", "run", "memory"],
       "env": {
-        "MCP_MEMORY_CHROMA_PATH": "/path/to/chroma_db",
+        "MCP_MEMORY_STORAGE_BACKEND": "sqlite_vec",
+        "MCP_MEMORY_SQLITE_PATH": "/path/to/sqlite_vec.db",
         "MCP_MEMORY_BACKUPS_PATH": "/path/to/backups"
       }
     }

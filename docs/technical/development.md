@@ -37,9 +37,9 @@
 - `install.py` - Cross-platform installation script
 
 ## Dependencies
-- ChromaDB (0.5.23) for vector database
-- sentence-transformers (>=2.2.2) for embeddings
-- PyTorch (platform-specific installation)
+- sqlite-vec for local vector storage (default)
+- Cloudflare D1 + Vectorize for cloud storage (optional)
+- ONNX runtime + sentence-transformers (>=2.2.2) for embeddings
 - MCP protocol (>=1.0.0, <2.0.0) for client-server communication
 
 ## Troubleshooting
@@ -78,8 +78,9 @@ The `http_server_manager.py` module handles multi-client coordination. If missin
 
 **Diagnosis:**
 1. Test each backend independently:
-   - ChromaDB: `python scripts/run_memory_server.py --debug`
-   - SQLite-vec: `MCP_MEMORY_STORAGE_BACKEND=sqlite_vec python -m src.mcp_memory_service.server --debug`
+   - SQLite-vec: `MCP_MEMORY_STORAGE_BACKEND=sqlite_vec python -m mcp_memory_service.server --debug`
+   - Hybrid: `MCP_MEMORY_STORAGE_BACKEND=hybrid python -m mcp_memory_service.server --debug`
+   - Cloudflare: `MCP_MEMORY_STORAGE_BACKEND=cloudflare python -m mcp_memory_service.server --debug`
 2. Check database health: Use MCP tools to call `check_database_health`
 
 **Solution:**
@@ -98,8 +99,9 @@ When multiple servers conflict or fail:
 2. **Remove failing servers** from `.mcp.json` while keeping working ones
 
 3. **Test each backend separately:**
-   - ChromaDB backend: Uses `scripts/run_memory_server.py`
-   - SQLite-vec backend: Uses `python -m src.mcp_memory_service.server` with `MCP_MEMORY_STORAGE_BACKEND=sqlite_vec`
+   - SQLite-vec backend: `MCP_MEMORY_STORAGE_BACKEND=sqlite_vec python -m mcp_memory_service.server`
+   - Hybrid backend: `MCP_MEMORY_STORAGE_BACKEND=hybrid python -m mcp_memory_service.server`
+   - Cloudflare backend: `MCP_MEMORY_STORAGE_BACKEND=cloudflare python -m mcp_memory_service.server`
 
 4. **Verify functionality** through MCP tools before re-enabling servers
 
@@ -156,17 +158,17 @@ This collaborative model leverages Claude Code's systematic analysis capabilitie
 To debug the MCP-MEMORY-SERVICE using the [MCP-Inspector](https://modelcontextprotocol.io/docs/tools/inspector) tool, you can use the following command pattern:
 
 ```bash
-MCP_MEMORY_CHROMA_PATH="/path/to/your/chroma_db" MCP_MEMORY_BACKUPS_PATH="/path/to/your/backups" npx @modelcontextprotocol/inspector uv --directory /path/to/mcp-memory-service run memory
+MCP_MEMORY_SQLITE_PATH="/path/to/your/sqlite_vec.db" MCP_MEMORY_BACKUPS_PATH="/path/to/your/backups" npx @modelcontextprotocol/inspector uv --directory /path/to/mcp-memory-service run memory
 ```
 
 Replace the paths with your specific directories:
-- `/path/to/your/chroma_db`: Location where Chroma database files are stored
+- `/path/to/your/sqlite_vec.db`: Location of the SQLite-vec database file
 - `/path/to/your/backups`: Location for memory backups
 - `/path/to/mcp-memory-service`: Directory containing the MCP-MEMORY-SERVICE code
 
 For example:
 ```bash
-MCP_MEMORY_CHROMA_PATH="~/Library/Mobile Documents/com~apple~CloudDocs/AI/claude-memory/chroma_db" MCP_MEMORY_BACKUPS_PATH="~/Library/Mobile Documents/com~apple~CloudDocs/AI/claude-memory/backups" npx @modelcontextprotocol/inspector uv --directory ~/Documents/GitHub/mcp-memory-service run memory
+MCP_MEMORY_SQLITE_PATH="~/Library/Mobile Documents/com~apple~CloudDocs/AI/claude-memory/sqlite_vec.db" MCP_MEMORY_BACKUPS_PATH="~/Library/Mobile Documents/com~apple~CloudDocs/AI/claude-memory/backups" npx @modelcontextprotocol/inspector uv --directory ~/Documents/GitHub/mcp-memory-service run memory
 ```
 
 This command sets the required environment variables and runs the memory service through the inspector tool for debugging purposes.

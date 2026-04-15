@@ -20,7 +20,7 @@ The repository includes an optimized Dockerfile specifically for Glama deploymen
 
 1. **Multi-platform Support**: Works on x86_64 and ARM64 architectures
 2. **Health Checks**: Built-in health monitoring for container status
-3. **Data Persistence**: Proper volume configuration for ChromaDB and backups
+3. **Data Persistence**: Proper volume configuration for SQLite-vec database and backups
 4. **Environment Configuration**: Pre-configured for optimal performance
 5. **Security**: Minimal attack surface with slim Python base image
 
@@ -31,7 +31,7 @@ Users can deploy the service using:
 ```bash
 # Using the Glama-provided configuration
 docker run -d -p 8000:8000 \
-  -v $(pwd)/data/chroma_db:/app/chroma_db \
+  -v $(pwd)/data/sqlite_data:/app/sqlite_data \
   -v $(pwd)/data/backups:/app/backups \
   doobidoo/mcp-memory-service:latest
 ```
@@ -42,10 +42,10 @@ The following environment variables are pre-configured:
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `MCP_MEMORY_CHROMA_PATH` | `/app/chroma_db` | ChromaDB storage location |
+| `MCP_MEMORY_STORAGE_BACKEND` | `sqlite_vec` | Storage backend |
+| `MCP_MEMORY_SQLITE_PATH` | `/app/sqlite_data/memory.db` | SQLite-vec database location |
 | `MCP_MEMORY_BACKUPS_PATH` | `/app/backups` | Backup storage location |
 | `DOCKER_CONTAINER` | `1` | Indicates Docker environment |
-| `CHROMA_TELEMETRY_IMPL` | `none` | Disables ChromaDB telemetry |
 | `PYTORCH_ENABLE_MPS_FALLBACK` | `1` | Enables MPS fallback for Apple Silicon |
 
 ### Standalone Mode

@@ -4,7 +4,7 @@ AI coding agent instructions for MCP Memory Service - a universal memory service
 
 ## Project Overview
 
-MCP Memory Service implements the Model Context Protocol (MCP) to provide semantic memory capabilities for AI assistants. It supports multiple storage backends (SQLite-vec, ChromaDB, Cloudflare) and works with 13+ AI applications including Claude Desktop, VS Code, Cursor, and Continue.
+MCP Memory Service implements the Model Context Protocol (MCP) to provide semantic memory capabilities for AI assistants. It supports multiple storage backends (SQLite-vec, Cloudflare, Hybrid) and works with 13+ AI applications including Claude Desktop, VS Code, Cursor, and Continue.
 
 ## Setup Commands
 
@@ -78,9 +78,9 @@ src/mcp_memory_service/
 ├── mcp_server.py       # MCP protocol handler
 ├── storage/            # Storage backend implementations
 │   ├── base.py        # Abstract base class
-│   ├── sqlite_vec.py  # SQLite-vec backend (default)
-│   ├── chroma.py      # ChromaDB backend
-│   └── cloudflare.py  # Cloudflare D1/Vectorize backend
+│   ├── sqlite_vec.py  # SQLite-vec backend (default for dev)
+│   ├── cloudflare.py  # Cloudflare D1/Vectorize backend
+│   └── hybrid.py      # Hybrid backend (local + cloud sync; recommended for production)
 ├── embeddings/         # Embedding model implementations
 ├── consolidation/      # Memory consolidation algorithms
 └── web/               # FastAPI dashboard and REST API
@@ -119,7 +119,8 @@ src/mcp_memory_service/
 # Check for needed migrations
 python scripts/migration/verify_mcp_timestamps.py
 
-# Migrate from ChromaDB to SQLite-vec
+# Migrate legacy ChromaDB data (from the chromadb-legacy branch — see docs/guides/chromadb-migration.md)
+git checkout chromadb-legacy
 python scripts/migration/migrate_chroma_to_sqlite.py
 
 # Validate existing memories

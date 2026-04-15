@@ -91,8 +91,8 @@ async def get_related_memories(
 
 **Implementation by Backend:**
 - **SQLite-Vec**: FTS5 full-text search + BM25 scoring
-- **ChromaDB**: Native hybrid search capabilities
 - **Cloudflare**: Vectorize + D1 full-text search combination
+- **Hybrid**: SQLite-Vec FTS5 locally + background Cloudflare sync
 
 ### 3. API Enhancement
 
@@ -303,7 +303,7 @@ POST /api/search/intelligence      # Query analysis and enhancement
 
 ### Compatibility
 - **Backward Compatibility**: All existing APIs remain functional
-- **Storage Backend**: All three backends (SQLite-Vec, ChromaDB, Cloudflare)
+- **Storage Backend**: All three backends (SQLite-Vec, Cloudflare, Hybrid)
 - **Client Support**: Web dashboard, MCP tools, Claude Code hooks
 
 ## Quality Assurance

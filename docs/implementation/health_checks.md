@@ -7,7 +7,7 @@ The memory system health check was failing with the error:
 "'NoneType' object has no attribute 'count'"
 ```
 
-This indicated that the ChromaDB collection was `None` when the health check tried to access it.
+This indicated that the storage collection was `None` when the health check tried to access it. (Historical note: this bug was first observed on the ChromaDB backend, which was removed in v8.0.0. The same defensive pattern now applies to all backends.)
 
 ## 🔧 **Root Cause Analysis**
 

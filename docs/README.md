@@ -29,7 +29,7 @@ Welcome to the comprehensive documentation for MCP Memory Service - a Model Cont
 ### 📚 User Guides
 
 - **[MCP Protocol Enhancements](guides/mcp-enhancements.md)** - Resources, Prompts, and Progress Tracking (v4.1.0)
-- **[Storage Backends](guides/STORAGE_BACKENDS.md)** - ChromaDB vs SQLite-vec comparison and configuration
+- **[Storage Backends](guides/STORAGE_BACKENDS.md)** - SQLite-vec / Cloudflare / Hybrid comparison and configuration
 - **[Migration Guide](guides/migration.md)** - Migrate between storage backends and versions
 - **[Scripts Reference](guides/scripts.md)** - Available utility scripts
 
@@ -70,7 +70,7 @@ Welcome to the comprehensive documentation for MCP Memory Service - a Model Cont
 MCP Memory Service enables persistent, semantic memory for AI applications through the Model Context Protocol. It provides:
 
 - **Semantic Search**: Vector-based memory retrieval using sentence transformers
-- **Multiple Storage Backends**: ChromaDB for full features, SQLite-vec for lightweight deployments
+- **Multiple Storage Backends**: SQLite-vec (local), Cloudflare (cloud/edge), and Hybrid (recommended for production)
 - **Multi-Client Support**: Shared memory across multiple applications
 - **Cross-Platform**: Support for macOS, Windows, and Linux
 - **Flexible Deployment**: Local installation, Docker containers, or cloud deployment
@@ -79,7 +79,7 @@ MCP Memory Service enables persistent, semantic memory for AI applications throu
 
 - ✅ **Semantic Memory Storage**: Store and retrieve memories using natural language
 - ✅ **Multi-Client Access**: Share memories across Claude Desktop, VS Code, and other MCP clients
-- ✅ **Flexible Storage**: Choose between ChromaDB (full-featured) or SQLite-vec (lightweight)
+- ✅ **Flexible Storage**: Choose SQLite-vec (local/dev), Cloudflare (cloud/edge), or Hybrid (production)
 - ✅ **Cross-Platform**: Native support for macOS (Intel & Apple Silicon), Windows, and Linux
 - ✅ **Docker Ready**: Complete containerization support with multiple deployment options
 - ✅ **Hardware Optimized**: Automatic detection and optimization for available hardware (CUDA, MPS, DirectML)
@@ -88,7 +88,7 @@ MCP Memory Service enables persistent, semantic memory for AI applications throu
 ### Recent Updates
 
 - **v0.2.2+**: Enhanced multi-client support with automatic MCP application detection
-- **SQLite-vec Backend**: Lightweight alternative to ChromaDB for resource-constrained systems
+- **SQLite-vec Backend**: Lightweight local backend with ~5 ms reads — default for development and single-user setups
 - **Homebrew Integration**: Native support for Homebrew-installed PyTorch on macOS
 - **Docker Improvements**: Fixed boot loops, added multiple deployment configurations
 - **HTTP/SSE API**: Real-time multi-client communication with Server-Sent Events
