@@ -62,6 +62,7 @@ from .api.server import router as server_router
 from .api.configuration import router as configuration_router
 from .api.oauth_status import router as oauth_status_router
 from .api.conflicts import router as conflicts_router
+from .api.harvest import router as harvest_router
 from .sse import sse_manager
 
 logger = logging.getLogger(__name__)
@@ -333,6 +334,10 @@ def create_app() -> FastAPI:
     # Include conflicts router (P3 conflict detection)
     app.include_router(conflicts_router, prefix="/api", tags=["conflicts"])
     logger.info(f"✓ Included conflicts router with {len(conflicts_router.routes)} routes")
+
+    # Include session harvest router (Issue #630)
+    app.include_router(harvest_router, tags=["harvest"])
+    logger.info(f"✓ Included harvest router with {len(harvest_router.routes)} routes")
 
     # Include MCP protocol router
     app.include_router(mcp_router, tags=["mcp-protocol"])
