@@ -1,8 +1,8 @@
 # Session End Auto-Harvest Hook
 
 Lightweight Claude Code SessionEnd hook that calls `POST /api/harvest` on
-session end to extract learnings (decisions, bugs, conventions, learnings,
-context) from the session transcript.
+session end to extract key information (decisions, bugs, conventions,
+learnings, context) from the session transcript.
 
 Implements issue #631. Requires the harvest endpoint from PR #710
 (mcp-memory-service v10.37.0+).

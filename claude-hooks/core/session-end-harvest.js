@@ -36,8 +36,9 @@ async function loadConfig() {
 /**
  * Build the Claude Code project directory name from a working directory.
  * Matches the Python side: str(Path.cwd()).replace(os.sep, '-')
- * Returns only the final segment (project name), which is what
- * /api/harvest expects as a *relative name* under ~/.claude/projects/.
+ * Returns the full path identifier (project directory name used by Claude
+ * Code under ~/.claude/projects/), with separators replaced by dashes —
+ * e.g. "/Users/hkr/foo" -> "-Users-hkr-foo". Not a basename.
  */
 function deriveProjectName(cwd) {
     if (!cwd) return null;
@@ -211,13 +212,13 @@ async function sessionEndHarvest(context) {
 
         // Resolve endpoint + api key.
         const endpoint = cfg.endpoint
-            || (config.memoryService && (config.memoryService.http && config.memoryService.http.endpoint))
-            || (config.memoryService && config.memoryService.endpoint)
+            || config.memoryService?.http?.endpoint
+            || config.memoryService?.endpoint
             || 'http://127.0.0.1:8000';
-        const apiKey = (context && context.apiKey)
+        const apiKey = context?.apiKey
             || cfg.apiKey
-            || (config.memoryService && (config.memoryService.http && config.memoryService.http.apiKey))
-            || (config.memoryService && config.memoryService.apiKey)
+            || config.memoryService?.http?.apiKey
+            || config.memoryService?.apiKey
             || process.env.MCP_API_KEY
             || null;
 
