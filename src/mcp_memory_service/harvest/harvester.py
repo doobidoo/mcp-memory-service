@@ -1,5 +1,6 @@
 """Orchestrator for session harvest operations."""
 
+import asyncio
 import logging
 from collections import Counter
 from datetime import datetime, timezone
@@ -55,7 +56,9 @@ class SessionHarvester:
 
         results = []
         for filepath in session_files:
-            result = self._harvest_file(filepath, config)
+            # _harvest_file does synchronous file I/O — offload so the event
+            # loop stays responsive when harvest_and_store is called from HTTP.
+            result = await asyncio.to_thread(self._harvest_file, filepath, config)
 
             if not config.dry_run and self.memory_service and result.candidates:
                 stored = 0

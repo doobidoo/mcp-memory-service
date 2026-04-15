@@ -186,6 +186,13 @@ def test_harvest_missing_project_dir_returns_404(authed_client, tmp_path, monkey
     assert response.status_code == 404
 
 
+def test_harvest_requires_project_path(authed_client):
+    """HTTP endpoint requires explicit project_path (no CWD fallback)."""
+    response = authed_client.post("/api/harvest", json={"dry_run": True})
+    assert response.status_code == 400
+    assert "project_path is required" in response.json()["detail"]
+
+
 @pytest.mark.parametrize("bad_path", ["../evil", "/abs/path", "../../etc", "foo/../../bar"])
 def test_harvest_rejects_traversal_attempts(authed_client, tmp_path, monkeypatch, bad_path):
     """Absolute paths and parent-dir traversal are rejected with 400 (CodeQL #383/#384)."""

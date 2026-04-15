@@ -83,26 +83,32 @@ _INVALID_PROJECT_PATH = (
 
 
 def _resolve_project_path(override: Optional[str]) -> Path:
-    """Resolve the Claude project directory, mirroring the MCP handler.
+    """Resolve the Claude project directory.
 
-    When ``override`` is provided it is treated as a *relative name* under
-    ``~/.claude/projects/``. Absolute paths, parent-directory traversal
-    (``..``), and escape via symlinks are rejected with HTTP 400
-    (CodeQL #383/#384).
+    Unlike the MCP tool (which can infer the project from CWD because it
+    runs inside the Claude Code process), the HTTP endpoint runs in a
+    long-lived web server whose CWD is typically the repo root or ``/``.
+    CWD-based inference there would silently point at the wrong directory,
+    so ``project_path`` is required.
+
+    ``project_path`` is treated as a *relative name* under
+    ``~/.claude/projects/``. Absolute paths, ``..`` components, and
+    escape via symlinks are rejected with HTTP 400 (CodeQL #383/#384).
     """
+    if not override:
+        raise HTTPException(
+            status_code=400,
+            detail="project_path is required for HTTP harvest (CWD inference only works in MCP context)",
+        )
     claude_projects = (Path.home() / ".claude" / "projects").resolve()
-    if override:
-        relative = override.strip()
-        pure = PurePosixPath(relative.replace(os.sep, "/"))
-        if pure.is_absolute() or ".." in pure.parts or not pure.parts:
-            raise HTTPException(status_code=400, detail=_INVALID_PROJECT_PATH)
-        candidate = (claude_projects / Path(*pure.parts)).resolve()
-        if not candidate.is_relative_to(claude_projects):
-            raise HTTPException(status_code=400, detail=_INVALID_PROJECT_PATH)
-        return candidate
-    cwd = Path.cwd()
-    project_dir_name = str(cwd).replace(os.sep, "-")
-    return claude_projects / project_dir_name
+    relative = override.strip()
+    pure = PurePosixPath(relative.replace(os.sep, "/"))
+    if pure.is_absolute() or ".." in pure.parts or not pure.parts:
+        raise HTTPException(status_code=400, detail=_INVALID_PROJECT_PATH)
+    candidate = (claude_projects / Path(*pure.parts)).resolve()
+    if not candidate.is_relative_to(claude_projects):
+        raise HTTPException(status_code=400, detail=_INVALID_PROJECT_PATH)
+    return candidate
 
 
 @router.post("", response_model=HarvestResponse)
