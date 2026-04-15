@@ -85,7 +85,8 @@
     "types": ["decision", "bug", "convention", "learning", "context"],
     "endpoint": "http://127.0.0.1:8000",
     "apiKey": null,
-    "timeoutMs": 5000
+    "timeoutMs": 5000,
+    "allowSelfSignedCerts": false
   },
   "permissionRequest": {
     "enabled": false,

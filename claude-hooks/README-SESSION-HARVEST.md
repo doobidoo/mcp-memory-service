@@ -84,6 +84,7 @@ for how to register multiple SessionEnd hooks alongside the existing
 | `endpoint`           | `http://127.0.0.1:8000`                                   | Memory service HTTP endpoint (port 8000).                                     |
 | `apiKey`             | `null`                                                    | Bearer token. Falls back to `MCP_API_KEY` env var.                            |
 | `timeoutMs`          | `5000`                                                    | Hard timeout. On timeout the hook logs a warning and exits cleanly.           |
+| `allowSelfSignedCerts` | `false`                                                 | **HTTPS only.** When `true`, disables TLS certificate validation (vulnerable to MITM). Use **only** for local dev with self-signed certs. |
 
 ## API key precedence
 

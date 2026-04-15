@@ -82,7 +82,7 @@ async function writeFirstRunFlag() {
  * POST to /api/harvest with a hard timeout. Never throws.
  * Returns an object: { ok, status, body, error }.
  */
-function postHarvest(endpoint, apiKey, payload, timeoutMs) {
+function postHarvest(endpoint, apiKey, payload, timeoutMs, options = {}) {
     return new Promise((resolve) => {
         let url;
         try {
@@ -103,7 +103,7 @@ function postHarvest(endpoint, apiKey, payload, timeoutMs) {
             headers['Authorization'] = `Bearer ${apiKey}`;
         }
 
-        const options = {
+        const requestOptions = {
             hostname: url.hostname,
             port: url.port || (isHttps ? 443 : 80),
             path: url.pathname,
@@ -111,11 +111,16 @@ function postHarvest(endpoint, apiKey, payload, timeoutMs) {
             headers,
             timeout: timeoutMs
         };
-        if (isHttps) {
-            options.rejectUnauthorized = false;
+        if (isHttps && options.allowSelfSignedCerts === true) {
+            requestOptions.rejectUnauthorized = false;
+            console.warn(
+                '[Memory Hook] Harvest: TLS certificate validation DISABLED ' +
+                '(allowSelfSignedCerts=true). This leaves the hook vulnerable to MITM — ' +
+                'use only for local development with self-signed certs.'
+            );
         }
 
-        const req = requestModule.request(options, (res) => {
+        const req = requestModule.request(requestOptions, (res) => {
             let data = '';
             res.on('data', (chunk) => { data += chunk; });
             res.on('end', () => {
@@ -231,7 +236,9 @@ async function sessionEndHarvest(context) {
 
         console.log(`[Memory Hook] Harvest: POST ${endpoint}/api/harvest (project=${projectName}, dry_run=${dryRun})`);
 
-        const resp = await postHarvest(endpoint, apiKey, payload, timeoutMs);
+        const resp = await postHarvest(endpoint, apiKey, payload, timeoutMs, {
+            allowSelfSignedCerts: cfg.allowSelfSignedCerts === true
+        });
 
         if (!resp.ok) {
             const detail = resp.error
@@ -268,6 +275,63 @@ module.exports._internal = {
     DEFAULT_MIN_MESSAGES
 };
 
+/**
+ * Read JSON context from stdin (Claude Code provides this to hook processes).
+ * Resolves to null if stdin is empty within 100ms (manual test / no pipe).
+ */
+function readStdinContext() {
+    return new Promise((resolve, reject) => {
+        let data = '';
+        const timeout = setTimeout(() => resolve(null), 100);
+        process.stdin.setEncoding('utf8');
+        process.stdin.on('readable', () => {
+            let chunk;
+            while ((chunk = process.stdin.read()) !== null) {
+                data += chunk;
+            }
+        });
+        process.stdin.on('end', () => {
+            clearTimeout(timeout);
+            if (!data.trim()) return resolve(null);
+            try {
+                resolve(JSON.parse(data));
+            } catch (error) {
+                console.error('[Memory Hook] Failed to parse stdin JSON:', error.message);
+                reject(error);
+            }
+        });
+        process.stdin.on('error', (error) => {
+            clearTimeout(timeout);
+            reject(error);
+        });
+    });
+}
+
+/**
+ * Count messages in a Claude Code transcript JSONL file.
+ * Errors are non-fatal — returns 0 so the hook gracefully degrades.
+ */
+async function countTranscriptMessages(transcriptPath) {
+    try {
+        const content = await fsp.readFile(transcriptPath, 'utf8');
+        return content.split('\n').filter((line) => {
+            if (!line.trim()) return false;
+            try {
+                const parsed = JSON.parse(line);
+                return parsed && parsed.type && parsed.message;
+            } catch (_) {
+                return false;
+            }
+        }).length;
+    } catch (error) {
+        console.warn('[Memory Hook] Harvest: could not read transcript (non-fatal):', error.message);
+        return 0;
+    }
+}
+
+module.exports._internal.readStdinContext = readStdinContext;
+module.exports._internal.countTranscriptMessages = countTranscriptMessages;
+
 // Hook metadata (mirrors session-end.js shape for discovery tools).
 module.exports.metadata = {
     name: 'memory-awareness-session-end-harvest',
@@ -281,3 +345,40 @@ module.exports.metadata = {
         priority: 'low'
     }
 };
+
+// Standalone CLI entry point. Claude Code invokes hooks as child processes and
+// passes session context via stdin (see docs/hooks). When run without stdin
+// this reduces to a no-op (useful for local troubleshooting).
+if (require.main === module) {
+    (async () => {
+        try {
+            const stdinContext = await readStdinContext();
+            let context;
+            if (stdinContext && stdinContext.transcript_path) {
+                const messageCount = await countTranscriptMessages(stdinContext.transcript_path);
+                console.log(`[Memory Hook] Harvest: read ${messageCount} messages from ${stdinContext.transcript_path}`);
+                context = {
+                    workingDirectory: stdinContext.cwd || process.cwd(),
+                    sessionId: stdinContext.session_id || 'unknown',
+                    reason: stdinContext.reason,
+                    conversation: {
+                        messages: Array.from({ length: messageCount }, () => ({}))
+                    }
+                };
+            } else {
+                console.log('[Memory Hook] Harvest: no stdin context (manual run) — using cwd only');
+                context = {
+                    workingDirectory: process.cwd(),
+                    sessionId: 'manual',
+                    conversation: { messages: [] }
+                };
+            }
+            await sessionEndHarvest(context);
+            console.log('[Memory Hook] Harvest: hook completed');
+        } catch (error) {
+            console.error('[Memory Hook] Harvest: hook failed:', error.message);
+            // Do not exit non-zero — a hook failure must not abort the session.
+            process.exit(0);
+        }
+    })();
+}

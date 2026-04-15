@@ -289,6 +289,75 @@ async function main() {
         }
     }));
 
+    results.push(await runTest('tls_validation_default_and_opt_in', async () => {
+        // The default for allowSelfSignedCerts must be undefined/false — we
+        // verify by calling postHarvest directly. https.request receives the
+        // options object; we intercept it by substituting a fake request fn.
+        const fresh = freshHook();
+        const { postHarvest } = fresh._internal;
+
+        const capturedByRun = [];
+        const originalHttps = require('https').request;
+
+        // Monkey-patch https.request to record the options it was handed.
+        require('https').request = function (opts, cb) {
+            capturedByRun.push(opts);
+            const fakeReq = {
+                on: () => fakeReq,
+                write: () => {},
+                end: () => {
+                    // Simulate an immediate non-network error so postHarvest resolves fast.
+                    setImmediate(() => fakeReq.listeners.error && fakeReq.listeners.error({ message: 'mocked' }));
+                }
+            };
+            fakeReq.listeners = {};
+            const on = fakeReq.on;
+            fakeReq.on = (event, handler) => { fakeReq.listeners[event] = handler; return fakeReq; };
+            return fakeReq;
+        };
+
+        try {
+            // Case A: allowSelfSignedCerts omitted → TLS validation stays enabled.
+            await postHarvest('https://example.invalid', null, { sessions: 1 }, 500, {});
+            const optA = capturedByRun[0];
+            assert.strictEqual(optA.rejectUnauthorized, undefined,
+                'TLS validation must stay enabled by default');
+
+            // Case B: explicit allowSelfSignedCerts=true → rejectUnauthorized=false.
+            await postHarvest('https://example.invalid', null, { sessions: 1 }, 500,
+                { allowSelfSignedCerts: true });
+            const optB = capturedByRun[1];
+            assert.strictEqual(optB.rejectUnauthorized, false,
+                'allowSelfSignedCerts=true must disable TLS validation');
+        } finally {
+            require('https').request = originalHttps;
+        }
+    }));
+
+    results.push(await runTest('count_transcript_messages', async () => {
+        const { countTranscriptMessages } = freshHook()._internal;
+        const fs = require('fs');
+        const os = require('os');
+        const path = require('path');
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'harvest-test-'));
+        const transcript = path.join(tmp, 'session.jsonl');
+        fs.writeFileSync(transcript, [
+            JSON.stringify({ type: 'user', message: { content: 'hi' } }),
+            JSON.stringify({ type: 'assistant', message: { content: 'hello' } }),
+            '',  // empty line — must be skipped
+            'not json',  // malformed — must be skipped
+            JSON.stringify({ type: 'user', message: { content: 'third' } })
+        ].join('\n'));
+        const count = await countTranscriptMessages(transcript);
+        assert.strictEqual(count, 3, 'must count valid JSONL lines only');
+
+        // Missing file is non-fatal → returns 0.
+        const missing = await countTranscriptMessages(path.join(tmp, 'does-not-exist.jsonl'));
+        assert.strictEqual(missing, 0, 'missing file must return 0 (non-fatal)');
+
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }));
+
     const passed = results.filter(Boolean).length;
     const total = results.length;
     console.log(`\n${passed}/${total} tests passed`);
