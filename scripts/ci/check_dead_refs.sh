@@ -39,7 +39,6 @@ EXCLUDE_PATHS=(
   "docs/plans"
   "docs/guides/chromadb-migration"
   "docs/guides/migration"
-  "docs/guides/STORAGE_BACKENDS"
   "docs/DOCUMENTATION_AUDIT"
   "docs/IMPLEMENTATION_PLAN"
   "CHANGELOG"
@@ -61,6 +60,7 @@ SOFT_REF_ALLOWLIST=(
   "docs/mastery/architecture-overview.md"
   "docs/implementation/performance.md"
   "docs/implementation/health_checks.md"
+  "docs/guides/STORAGE_BACKENDS.md"
 )
 
 SCAN_TARGETS=("docs/" "README.md")
