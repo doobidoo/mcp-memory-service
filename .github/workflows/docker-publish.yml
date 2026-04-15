@@ -47,7 +47,7 @@ jobs:
 
     - name: Extract metadata (Standard)
       id: meta
-      uses: docker/metadata-action@v5
+      uses: docker/metadata-action@v6
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
@@ -60,7 +60,7 @@ jobs:
 
     - name: Extract metadata (Slim)
       id: meta-slim
-      uses: docker/metadata-action@v5
+      uses: docker/metadata-action@v6
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
