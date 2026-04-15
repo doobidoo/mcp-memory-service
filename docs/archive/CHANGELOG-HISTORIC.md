@@ -1,6 +1,6 @@
 # Historic Changelog Archive
 
-Older changelog entries for MCP Memory Service (v10.24.0 and earlier).
+Older changelog entries for MCP Memory Service (v10.36.3 and earlier).
 
 For current versions (v10.36.4+), see [CHANGELOG.md](../../CHANGELOG.md).
 

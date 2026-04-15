@@ -456,7 +456,7 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 - **v10.36.5** - fix: Cloudflare Vectorize API v1 to v2 + test script fixes — fixed error 1010 "incorrect_api_version", content_hash arg, sys.path correction (PR #689, @mychaelgo, 1,537 tests)
 - **v10.36.4** - fix(windows): hotfix for Get-McpApiKey returning first char instead of full API key — PowerShell array-enumeration trap fixed (PR #687, 1,537 tests)
 
-**Full version history**: [CHANGELOG.md](CHANGELOG.md) | [Older versions (v10.22.0 and earlier)](docs/archive/CHANGELOG-HISTORIC.md) | [All Releases](https://github.com/doobidoo/mcp-memory-service/releases)
+**Full version history**: [CHANGELOG.md](CHANGELOG.md) | [Older versions (v10.36.3 and earlier)](docs/archive/CHANGELOG-HISTORIC.md) | [All Releases](https://github.com/doobidoo/mcp-memory-service/releases)
 
 ---
 
