@@ -83,6 +83,33 @@ def test_update_readme_footer_boundary_inserts_when_missing(housekeeping):
     assert "[Older versions (v10.36.3 and earlier)](docs/archive/CHANGELOG-HISTORIC.md)" in updated
 
 
+def test_update_archive_header_boundary_handles_prerelease(housekeeping):
+    """Pre-release versions like 1.0.0-beta must be matched and replaced cleanly."""
+    original = "Older changelog entries for MCP Memory Service (v1.0.0-beta and earlier).\n"
+    updated = housekeeping.update_archive_header_boundary(original, "10.36.3")
+    assert "(v10.36.3 and earlier)" in updated
+    assert "v1.0.0-beta" not in updated
+    # No double-version
+    assert updated.count("and earlier") == 1
+
+
+def test_update_readme_footer_boundary_handles_prerelease(housekeeping):
+    original = (
+        "[Older versions (v1.0.0-rc.1 and earlier)](docs/archive/CHANGELOG-HISTORIC.md)"
+    )
+    updated = housekeeping.update_readme_footer_boundary(original, "10.36.3")
+    assert "[Older versions (v10.36.3 and earlier)](docs/archive/CHANGELOG-HISTORIC.md)" in updated
+    assert "v1.0.0-rc.1" not in updated
+
+
+def test_update_archive_header_boundary_no_double_version_when_unknown_format(housekeeping):
+    """If the existing boundary has an unparseable version, the period-anchored
+    regex still requires a period — so no match means no-op (not duplicate)."""
+    # Hypothetical corrupted boundary without period at end → no match, no-op
+    weird = "Older changelog entries for MCP Memory Service (v???) somewhere in the middle\n"
+    assert housekeeping.update_archive_header_boundary(weird, "10.36.3") == weird
+
+
 def test_update_header_range_still_works_after_refactor(housekeeping):
     """Regression: the two new helpers must not shadow the bolded-header pattern."""
     header = (

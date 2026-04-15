@@ -135,12 +135,18 @@ def update_archive_header_boundary(archive_header: str, newest_archived: str) ->
     this helper covers the prose variant in the archive file (#717).
     """
     # Boundary suffix is optional so the helper can also insert it when missing
-    # (e.g. a recreated fallback header without the version range).
+    # (e.g. a recreated fallback header without the version range). The trailing
+    # period acts as a required anchor — without it, matching the prefix without
+    # the optional version group would sit *before* an existing boundary and
+    # produce a duplicate "(vX and earlier) (vY and earlier)." chain.
+    # [\w.-]+ in the version group accepts pre-release/metadata identifiers
+    # like 1.0.0-beta, 1.0.0-rc.1, or 1.0.0+build.5.
     pattern = re.compile(
-        r"(Older changelog entries for MCP Memory Service)(?:\s*\(v[\d.]+ and earlier\))?"
+        r"(Older changelog entries for MCP Memory Service)"
+        r"(?:\s*\(v[\w.+-]+ and earlier\))?(\.)"
     )
     return pattern.sub(
-        rf"\1 (v{newest_archived} and earlier)",
+        rf"\1 (v{newest_archived} and earlier)\2",
         archive_header,
     )
 
@@ -157,9 +163,13 @@ def update_readme_footer_boundary(text: str, newest_archived: str) -> str:
     """
     # Boundary suffix is optional so the helper can also insert it into the
     # fallback footer that trim_readme_previous_releases recreates when the
-    # "Previous Releases" section ends up bare.
+    # "Previous Releases" section ends up bare. The trailing `\]\([^)]+\)`
+    # anchor (the markdown link URL part) prevents the prefix from matching
+    # *before* an existing boundary and producing a duplicate.
+    # [\w.-]+ in the version group accepts pre-release/metadata identifiers
+    # like 1.0.0-beta, 1.0.0-rc.1, or 1.0.0+build.5.
     pattern = re.compile(
-        r"(\[Older versions)(?:\s*\(v[\d.]+ and earlier\))?(\]\([^)]+\))"
+        r"(\[Older versions)(?:\s*\(v[\w.+-]+ and earlier\))?(\]\([^)]+\))"
     )
     return pattern.sub(
         rf"\1 (v{newest_archived} and earlier)\2",
