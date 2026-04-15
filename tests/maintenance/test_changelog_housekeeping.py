@@ -64,6 +64,25 @@ def test_update_archive_header_boundary_no_match_is_noop(housekeeping):
     assert housekeeping.update_archive_header_boundary(prose, "10.36.3") == prose
 
 
+def test_update_archive_header_boundary_inserts_when_missing(housekeeping):
+    """When the boundary suffix is absent (e.g. recreated fallback), insert it."""
+    bare = "Older changelog entries for MCP Memory Service.\n"
+    updated = housekeeping.update_archive_header_boundary(bare, "10.36.3")
+    assert "(v10.36.3 and earlier)" in updated
+
+
+def test_update_readme_footer_boundary_inserts_when_missing(housekeeping):
+    """Fallback footer from trim_readme_previous_releases omits the boundary;
+    helper must still inject the correct one (#717 Gemini feedback)."""
+    fallback = (
+        "**Full version history**: [CHANGELOG.md](CHANGELOG.md) "
+        "| [Older versions](docs/archive/CHANGELOG-HISTORIC.md) "
+        "| [All Releases](https://github.com/doobidoo/mcp-memory-service/releases)\n"
+    )
+    updated = housekeeping.update_readme_footer_boundary(fallback, "10.36.3")
+    assert "[Older versions (v10.36.3 and earlier)](docs/archive/CHANGELOG-HISTORIC.md)" in updated
+
+
 def test_update_header_range_still_works_after_refactor(housekeeping):
     """Regression: the two new helpers must not shadow the bolded-header pattern."""
     header = (

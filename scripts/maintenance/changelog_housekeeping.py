@@ -134,11 +134,13 @@ def update_archive_header_boundary(archive_header: str, newest_archived: str) ->
     The `update_header_range()` family matches bolded CHANGELOG headers;
     this helper covers the prose variant in the archive file (#717).
     """
+    # Boundary suffix is optional so the helper can also insert it when missing
+    # (e.g. a recreated fallback header without the version range).
     pattern = re.compile(
-        r"(Older changelog entries for MCP Memory Service )\(v[\d.]+ and earlier\)"
+        r"(Older changelog entries for MCP Memory Service)(?:\s*\(v[\d.]+ and earlier\))?"
     )
     return pattern.sub(
-        rf"\1(v{newest_archived} and earlier)",
+        rf"\1 (v{newest_archived} and earlier)",
         archive_header,
     )
 
@@ -153,11 +155,14 @@ def update_readme_footer_boundary(text: str, newest_archived: str) -> str:
     newest version that just got archived), so readers following the link
     land at a file whose first entry matches what the footer promises (#717).
     """
+    # Boundary suffix is optional so the helper can also insert it into the
+    # fallback footer that trim_readme_previous_releases recreates when the
+    # "Previous Releases" section ends up bare.
     pattern = re.compile(
-        r"(\[Older versions )\(v[\d.]+ and earlier\)(\]\([^)]+\))"
+        r"(\[Older versions)(?:\s*\(v[\d.]+ and earlier\))?(\]\([^)]+\))"
     )
     return pattern.sub(
-        rf"\1(v{newest_archived} and earlier)\2",
+        rf"\1 (v{newest_archived} and earlier)\2",
         text,
     )
 
