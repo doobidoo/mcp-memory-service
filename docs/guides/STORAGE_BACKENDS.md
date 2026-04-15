@@ -1,271 +1,221 @@
 # Storage Backend Comparison and Selection Guide
 
-**MCP Memory Service** supports two storage backends, each optimized for different use cases and hardware configurations.
+**MCP Memory Service** supports three storage backends, each optimized for different deployment patterns — single-user development, cloud-only edge deployments, and production use with local reads and cloud durability.
+
+> **Looking for the legacy backend?** The previous vector-database backend was removed in v7.x. See the historical migration guide under `docs/guides/` for the upgrade path.
 
 ## Quick Comparison
 
-| Feature | SQLite-vec 🪶 | ChromaDB 📦 |
-|---------|---------------|-------------|
-| **Setup Complexity** | ⭐⭐⭐⭐⭐ Simple | ⭐⭐⭐ Moderate |
-| **Startup Time** | ⭐⭐⭐⭐⭐ < 3 seconds | ⭐⭐ 15-30 seconds |
-| **Memory Usage** | ⭐⭐⭐⭐⭐ < 150MB | ⭐⭐ 500-800MB |
-| **Performance** | ⭐⭐⭐⭐ Very fast | ⭐⭐⭐⭐ Fast |
-| **Features** | ⭐⭐⭐ Core features | ⭐⭐⭐⭐⭐ Full-featured |
-| **Scalability** | ⭐⭐⭐⭐ Up to 100K items | ⭐⭐⭐⭐⭐ Unlimited |
-| **Legacy Hardware** | ⭐⭐⭐⭐⭐ Excellent | ⭐ Poor |
-| **Production Ready** | ⭐⭐⭐⭐ Yes | ⭐⭐⭐⭐⭐ Yes |
+| Feature | SQLite-vec | Cloudflare | Hybrid |
+|---------|------------|------------|--------|
+| **Read latency** | ~5ms (local) | Network-dependent | ~5ms (local reads) |
+| **Write latency** | Local disk | Network round-trip | Local disk + async cloud sync |
+| **Persistence** | Single file on disk | D1 + Vectorize + optional R2 | Local SQLite + Cloudflare mirror |
+| **Setup complexity** | Minimal — no credentials | Requires Cloudflare account + API token | Requires Cloudflare credentials |
+| **Best for** | Development, single-user | Edge / cloud-only deployments | **Production (recommended default)** |
+| **Offline operation** | Yes | No | Yes (syncs when online) |
+| **Multi-device sync** | No (file-based) | Yes (via Cloudflare) | Yes (via Cloudflare background sync) |
+| **Scale ceiling** | ~100K+ memories | Vectorize-limited (millions) | Same as Cloudflare |
+| **External embedding APIs** | Supported (Ollama, vLLM, TEI, OpenAI) | Not supported | Not supported |
 
-## When to Choose SQLite-vec 🪶
+All three backends implement the same `BaseStorage` interface and expose identical MCP tools and REST endpoints. The choice is about where data lives, not what you can do with it.
+
+## When to Choose SQLite-vec
 
 ### Ideal For:
-- **Legacy Hardware**: 2015 MacBook Pro, older Intel Macs
-- **Resource-Constrained Systems**: < 4GB RAM, limited CPU
-- **Quick Setup**: Want to get started immediately
-- **Single-File Portability**: Easy backup and sharing
-- **Docker/Serverless**: Lightweight deployments
-- **Development/Testing**: Rapid prototyping
-- **HTTP/SSE API**: New web interface users
+- **Local development** and rapid iteration
+- **Single-user deployments** where cloud sync isn't needed
+- **Air-gapped or offline** environments
+- **External embedding APIs** — the only backend compatible with `MCP_EXTERNAL_EMBEDDING_URL` (Ollama, vLLM, TEI, OpenAI-compatible endpoints)
+- **Portable deployments** — the entire store is a single `.db` file you can copy, back up, or move
 
-### Technical Advantages:
-- **Lightning Fast Startup**: Database ready in 2-3 seconds
-- **Minimal Dependencies**: Just SQLite and sqlite-vec extension
-- **Low Memory Footprint**: Typically uses < 150MB RAM
-- **Single File Database**: Easy to backup, move, and share
-- **ACID Compliance**: SQLite's proven reliability
-- **Zero Configuration**: Works out of the box
-- **ONNX Compatible**: Runs without PyTorch if needed
+### Technical Characteristics:
+- Uses the `sqlite-vec` extension for KNN semantic search
+- ONNX embeddings (sentence-transformers/all-MiniLM-L6-v2) by default — no PyTorch required
+- ACID transactions via SQLite
+- ~5ms read latency on typical hardware
+- Supports WAL mode for concurrent HTTP + MCP server access
 
-### Example Use Cases:
+### Example:
 ```bash
-# 2015 MacBook Pro scenario (SQLite-vec + Homebrew PyTorch + ONNX)
-export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
-export MCP_MEMORY_USE_ONNX=1
-pip install -e .
-
-# Docker deployment
-docker run -e MCP_MEMORY_STORAGE_BACKEND=sqlite_vec ...
-
-# Quick development setup
 export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
 pip install -e ".[sqlite]"
 ```
 
-## When to Choose ChromaDB 📦
+## When to Choose Cloudflare
 
 ### Ideal For:
-- **Modern Hardware**: M1/M2/M3 Macs, modern Intel systems
-- **GPU-Accelerated Systems**: CUDA, MPS, DirectML available
-- **Large-Scale Deployments**: > 10,000 memories
-- **Advanced Features**: Complex filtering, metadata queries
-- **Production Systems**: Established, battle-tested platform
-- **Research/ML**: Advanced vector search capabilities
+- **Cloud-only deployments** where no local storage is available (Workers, serverless runtimes)
+- **Edge-deployed agents** running close to Cloudflare infrastructure
+- **Shared team stores** where multiple clients read/write the same source of truth without a local cache
 
-### Technical Advantages:
-- **Advanced Vector Search**: Multiple distance metrics, filtering
-- **Rich Metadata Support**: Complex query capabilities
-- **Proven Scalability**: Handles millions of vectors
-- **Extensive Ecosystem**: Wide tool integration
-- **Advanced Indexing**: HNSW and other optimized indices
-- **Multi-Modal Support**: Text, images, and more
+### Technical Characteristics:
+- **D1** (Cloudflare's managed SQLite) stores memory rows and metadata
+- **Vectorize** stores and queries embeddings (KNN)
+- **R2** (optional) for large content payloads above the configured threshold
+- Cloudflare-hosted embedding models (e.g. `@cf/baai/bge-base-en-v1.5`)
+- Performance is network-dependent — every read is a round-trip
 
-### Example Use Cases:
+### Example:
 ```bash
-# Modern Mac with GPU — production deployment with Cloudflare sync
-export MCP_MEMORY_STORAGE_BACKEND=hybrid
-pip install -e ".[full]"
-
-# Cloud-only deployment
 export MCP_MEMORY_STORAGE_BACKEND=cloudflare
 pip install -e ".[full]"
 ```
 
-## Hardware Compatibility Matrix
+## When to Choose Hybrid (Recommended)
 
-### macOS Intel (2013-2017) - Legacy Hardware
-```
-Recommended: SQLite-vec + Homebrew PyTorch + ONNX
-Alternative: ChromaDB (may have installation issues)
+### Ideal For:
+- **Production deployments** — this is the recommended default
+- **Multi-device setups** — Claude Desktop on laptop, HTTP dashboard on a server, all reading consistent state
+- **Any use case that wants local-read speed + cloud durability**
 
-Configuration:
-- MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
-- MCP_MEMORY_USE_ONNX=1
-- MCP_MEMORY_USE_HOMEBREW_PYTORCH=1
-```
+### Technical Characteristics:
+- Local SQLite-vec handles all reads → ~5ms latency, same as pure SQLite-vec
+- Background worker syncs writes to Cloudflare (D1 + Vectorize) on a configurable interval
+- Survives Cloudflare outages (keeps serving local reads) and local disk loss (can restore from Cloudflare)
+- Default configuration: sync every 5 minutes, batch size 50
 
-### macOS Intel (2018+) - Modern Hardware
-```
-Recommended: ChromaDB (default) or SQLite-vec (lightweight)
-Choice: User preference
+### Recommended Configuration:
+Set `MCP_HYBRID_SYNC_OWNER=http` so that **only the HTTP server** performs Cloudflare sync. The MCP server (Claude Desktop) then runs in pure SQLite-vec mode and doesn't need Cloudflare credentials in `claude_desktop_config.json`. This is the correct separation of concerns: Claude Desktop = memory access, HTTP server = sync infrastructure.
 
-Configuration:
-- MCP_MEMORY_STORAGE_BACKEND=chromadb (default)
-- Hardware acceleration: CPU/MPS
-```
-
-### macOS Apple Silicon (M1/M2/M3)
-```
-Recommended: ChromaDB with MPS acceleration
-Alternative: SQLite-vec for minimal resource usage
-
-Configuration:
-- MCP_MEMORY_STORAGE_BACKEND=chromadb
-- PYTORCH_ENABLE_MPS_FALLBACK=1
-- Hardware acceleration: MPS
+### Example:
+```bash
+export MCP_MEMORY_STORAGE_BACKEND=hybrid
+export MCP_HYBRID_SYNC_OWNER=http
+pip install -e ".[full]"
 ```
 
-### Windows with CUDA GPU
-```
-Recommended: ChromaDB with CUDA acceleration
-Alternative: SQLite-vec for lighter deployments
+## Deployment Compatibility Matrix
 
-Configuration:
-- MCP_MEMORY_STORAGE_BACKEND=chromadb
-- CUDA optimization enabled
-```
+The right backend is driven by connectivity, privacy, and scale — not by hardware. Use this matrix to pick based on deployment pattern:
 
-### Windows CPU-only
+### Single-user laptop, offline-capable
 ```
-Recommended: SQLite-vec
-Alternative: ChromaDB (higher resource usage)
-
-Configuration:
-- MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
-- MCP_MEMORY_USE_ONNX=1 (optional)
+Recommended: sqlite_vec (or hybrid if you also want cloud backup)
+Why:         No network dependency; single-file portability.
+Config:
+  MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
 ```
 
-### Linux Server/Headless
+### Production workstation with cloud backup
 ```
-Recommended: SQLite-vec (easier deployment)
-Alternative: ChromaDB (if resources available)
-
-Configuration:
-- MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
-- Optimized for headless operation
-```
-
-## Performance Comparison
-
-### Startup Time
-```
-SQLite-vec:  2-3 seconds     ████████████████████████████████
-ChromaDB:    15-30 seconds   ████████
+Recommended: hybrid
+Why:         Local 5ms reads + Cloudflare durability. Best of both.
+Config:
+  MCP_MEMORY_STORAGE_BACKEND=hybrid
+  MCP_HYBRID_SYNC_OWNER=http
 ```
 
-### Memory Usage (Idle)
+### Team collaboration (multiple clients, shared state)
 ```
-SQLite-vec:  ~150MB    ██████
-ChromaDB:    ~600MB    ████████████████████████
-```
-
-### Search Performance (1,000 items)
-```
-SQLite-vec:  50-200ms    ███████████████████████████
-ChromaDB:    100-300ms   ██████████████████
+Recommended: hybrid (on each client) OR cloudflare (if no local disk)
+Why:         Hybrid keeps each client fast; Cloudflare is the shared ground truth.
 ```
 
-### Storage Efficiency
+### Serverless / edge (Cloudflare Workers, no local FS)
 ```
-SQLite-vec:  Single .db file, ~50% smaller
-ChromaDB:    Directory structure, full metadata
+Recommended: cloudflare
+Why:         Only backend that doesn't require persistent local storage.
+Config:
+  MCP_MEMORY_STORAGE_BACKEND=cloudflare
 ```
 
-## Feature Comparison
+### Air-gapped / high-privacy environment
+```
+Recommended: sqlite_vec
+Why:         No network egress; all data stays on-host.
+Config:
+  MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
+```
 
-### Core Features (Both Backends)
-- ✅ Semantic memory storage and retrieval
-- ✅ Tag-based organization
-- ✅ Natural language time-based recall
-- ✅ Full-text search capabilities
-- ✅ Automatic backups
-- ✅ Health monitoring
-- ✅ Duplicate detection
+### Using an external embedding server (Ollama, vLLM, TEI)
+```
+Recommended: sqlite_vec (required)
+Why:         External embedding APIs are only supported with the sqlite_vec backend.
+Config:
+  MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
+  MCP_EXTERNAL_EMBEDDING_URL=http://localhost:8890/v1/embeddings
+  MCP_EXTERNAL_EMBEDDING_MODEL=nomic-embed-text
+```
 
-### SQLite-vec Specific Features
-- ✅ Single-file portability
-- ✅ HTTP/SSE API support
-- ✅ ONNX runtime compatibility
-- ✅ Homebrew PyTorch integration
-- ✅ Ultra-fast startup
-- ✅ Minimal resource usage
+## Performance Notes
 
-### ChromaDB Specific Features
-- ✅ Advanced metadata filtering
-- ✅ Multiple distance metrics
-- ✅ Collection management
-- ✅ Persistent client support
-- ✅ Advanced indexing options
-- ✅ Rich ecosystem integration
+**Concrete numbers** (from production and CLAUDE.md):
+- **~5ms reads** on SQLite-vec local storage
+- **~600MB** resident memory for a warmed service with embedding model loaded
+- **534,628× speedup** from global singleton caching introduced in v8.26.0 — prevents redundant storage re-initialization across MCP tool calls
+
+**Qualitative characteristics:**
+- **SQLite-vec**: disk-bound; performance scales with SSD speed and memory-mapped cache size (`cache_size` pragma)
+- **Cloudflare**: network-bound; latency tracks your connection RTT to the nearest Cloudflare PoP. Expect 10× higher read latency than local
+- **Hybrid**: reads match SQLite-vec; writes return as soon as the local commit lands (cloud sync is asynchronous and batched)
+
+**Storage footprint:**
+- SQLite-vec: single `.db` file (memories + embeddings + FTS5 + graph tables in one database)
+- Cloudflare: D1 rows + Vectorize index + optional R2 for large payloads
+- Hybrid: local `.db` file **plus** Cloudflare footprint
+
+## Feature Parity
+
+All three backends expose identical capabilities via the `BaseStorage` interface:
+- Semantic search (KNN over embeddings)
+- Tag-based filtering
+- Natural-language time queries ("yesterday", "last week")
+- Full-text search (SQLite-vec and Hybrid use FTS5; Cloudflare uses D1's SQL LIKE with indexes)
+- Duplicate detection via content hashes
+- Memory consolidation and quality scoring
+- Knowledge graph associations (v9.0.0+)
 
 ## Migration Between Backends
 
-### ChromaDB → SQLite-vec Migration
+The supported migration pattern is **export-import via the `migrate_storage.py` script** in `scripts/migration/`. There are also direct-path scripts for common pairs.
 
-Perfect for upgrading legacy hardware or simplifying deployments:
-
+### SQLite-vec → Cloudflare
 ```bash
-# Automated migration
-python scripts/migrate_chroma_to_sqlite.py
+python scripts/migration/migrate_to_cloudflare.py
+```
+Reads from your local `.db`, writes to D1 + Vectorize. Preserves content, embeddings, tags, timestamps, and metadata.
+
+### Cloudflare → SQLite-vec
+```bash
+python scripts/migration/migrate_to_sqlite_vec.py
+```
+Pulls the full Cloudflare store down into a local SQLite-vec database.
+
+### SQLite-vec → Hybrid / Cloudflare → Hybrid
+Set `MCP_MEMORY_STORAGE_BACKEND=hybrid` and restart. Hybrid initialization reconciles the local SQLite-vec store and the Cloudflare mirror on startup — it picks whichever side is populated and syncs the other direction on the next interval. If you want a clean state, run the SQLite-vec → Cloudflare migration first, then switch to `hybrid`.
+
+### Generic backend-to-backend
+```bash
+python scripts/migration/migrate_storage.py --source <from> --target <to>
 ```
 
-**Migration preserves:**
-- All memory content and embeddings
-- Tags and metadata
-- Timestamps and relationships
-- Search functionality
+See [`docs/guides/migration.md`](migration.md) for operational details and [`docs/troubleshooting/database-transfer-migration.md`](../troubleshooting/database-transfer-migration.md) for recovery scenarios.
 
-### SQLite-vec → ChromaDB Migration
+## Configuration Reference
 
-For scaling up to advanced features:
+Full environment variable list: see [`.env.example`](../../.env.example).
 
+### SQLite-vec
 ```bash
-# Export from SQLite-vec
-python scripts/export_sqlite_memories.py
-
-# Import to ChromaDB
-python scripts/import_to_chromadb.py
-```
-
-## Intelligent Selection Algorithm
-
-The installer uses this logic to recommend backends:
-
-```python
-def recommend_backend(system_info, hardware_info):
-    # Legacy hardware gets SQLite-vec
-    if is_legacy_mac(system_info):
-        return "sqlite_vec"
-    
-    # Low-memory systems get SQLite-vec
-    if hardware_info.memory_gb < 4:
-        return "sqlite_vec"
-    
-    # ChromaDB installation problems on macOS Intel
-    if system_info.is_macos_intel_problematic:
-        return "sqlite_vec"
-    
-    # Modern hardware with GPU gets ChromaDB
-    if hardware_info.has_gpu and hardware_info.memory_gb >= 8:
-        return "chromadb"
-    
-    # Default to ChromaDB for feature completeness
-    return "chromadb"
-```
-
-## Configuration Examples
-
-### SQLite-vec Configuration
-```bash
-# Environment variables
 export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
 export MCP_MEMORY_SQLITE_PATH="$HOME/.mcp-memory/memory.db"
-export MCP_MEMORY_USE_ONNX=1  # Optional: CPU-only inference
 
-# Claude Desktop config
+# CRITICAL when running HTTP + MCP servers concurrently
+export MCP_MEMORY_SQLITE_PRAGMAS="journal_mode=WAL,busy_timeout=15000,cache_size=20000"
+
+# Optional: use an external embedding API (sqlite_vec only)
+# export MCP_EXTERNAL_EMBEDDING_URL=http://localhost:8890/v1/embeddings
+# export MCP_EXTERNAL_EMBEDDING_MODEL=nomic-embed-text
+```
+
+**Claude Desktop config:**
+```json
 {
   "mcpServers": {
     "memory": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/mcp-memory-service", "run", "memory"],
+      "command": "python",
+      "args": ["-m", "mcp_memory_service.server"],
       "env": {
         "MCP_MEMORY_STORAGE_BACKEND": "sqlite_vec",
         "MCP_MEMORY_SQLITE_PATH": "/path/to/memory.db"
@@ -275,126 +225,96 @@ export MCP_MEMORY_USE_ONNX=1  # Optional: CPU-only inference
 }
 ```
 
-### ChromaDB Configuration
-
-#### Local ChromaDB (Deprecated)
-⚠️ **Note**: Local ChromaDB is deprecated. Consider migrating to SQLite-vec for better performance.
-
+### Cloudflare
 ```bash
-# Environment variables
-export MCP_MEMORY_STORAGE_BACKEND=chromadb
-export MCP_MEMORY_CHROMA_PATH="$HOME/.mcp-memory/chroma_db"
+export MCP_MEMORY_STORAGE_BACKEND=cloudflare
+export CLOUDFLARE_API_TOKEN="your-token"
+export CLOUDFLARE_ACCOUNT_ID="your-account-id"
+export CLOUDFLARE_D1_DATABASE_ID="your-d1-db-id"
+export CLOUDFLARE_VECTORIZE_INDEX="mcp-memory-index"
 
-# Claude Desktop config
+# Optional: R2 for large content (>1MB)
+# export CLOUDFLARE_R2_BUCKET=mcp-memory-content
+# export CLOUDFLARE_LARGE_CONTENT_THRESHOLD=1048576
+
+# Optional: override embedding model
+# export CLOUDFLARE_EMBEDDING_MODEL=@cf/baai/bge-base-en-v1.5
+```
+
+Setup details: [`docs/troubleshooting/cloudflare-api-token-setup.md`](../troubleshooting/cloudflare-api-token-setup.md).
+
+### Hybrid
+```bash
+export MCP_MEMORY_STORAGE_BACKEND=hybrid
+
+# All Cloudflare vars from above are required
+export CLOUDFLARE_API_TOKEN="your-token"
+export CLOUDFLARE_ACCOUNT_ID="your-account-id"
+export CLOUDFLARE_D1_DATABASE_ID="your-d1-db-id"
+export CLOUDFLARE_VECTORIZE_INDEX="mcp-memory-index"
+
+# Recommended: only the HTTP server syncs to Cloudflare
+export MCP_HYBRID_SYNC_OWNER=http
+
+# Optional sync tuning
+# export MCP_HYBRID_SYNC_INTERVAL=300     # seconds
+# export MCP_HYBRID_BATCH_SIZE=50
+# export MCP_HYBRID_SYNC_ON_STARTUP=true
+```
+
+**Claude Desktop config (hybrid with `MCP_HYBRID_SYNC_OWNER=http` on the HTTP server):**
+```json
 {
   "mcpServers": {
     "memory": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/mcp-memory-service", "run", "memory"],
+      "command": "python",
+      "args": ["-m", "mcp_memory_service.server"],
       "env": {
-        "MCP_MEMORY_STORAGE_BACKEND": "chromadb",
-        "MCP_MEMORY_CHROMA_PATH": "/path/to/chroma_db"
+        "MCP_MEMORY_STORAGE_BACKEND": "hybrid"
       }
     }
   }
 }
 ```
-
-#### Remote ChromaDB (Hosted/Enterprise)
-🌐 **New**: Connect to remote ChromaDB servers, Chroma Cloud, or self-hosted instances.
-
-```bash
-# Environment variables for remote ChromaDB
-export MCP_MEMORY_STORAGE_BACKEND=chromadb
-export MCP_MEMORY_CHROMADB_HOST="chroma.example.com"
-export MCP_MEMORY_CHROMADB_PORT="8000"
-export MCP_MEMORY_CHROMADB_SSL="true"
-export MCP_MEMORY_CHROMADB_API_KEY="your-api-key-here"
-export MCP_MEMORY_COLLECTION_NAME="my-collection"
-
-# Claude Desktop config for remote ChromaDB
-{
-  "mcpServers": {
-    "memory": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/mcp-memory-service", "run", "memory"],
-      "env": {
-        "MCP_MEMORY_STORAGE_BACKEND": "chromadb",
-        "MCP_MEMORY_CHROMADB_HOST": "chroma.example.com",
-        "MCP_MEMORY_CHROMADB_PORT": "8000",
-        "MCP_MEMORY_CHROMADB_SSL": "true",
-        "MCP_MEMORY_CHROMADB_API_KEY": "your-api-key-here",
-        "MCP_MEMORY_COLLECTION_NAME": "my-collection"
-      }
-    }
-  }
-}
-```
-
-#### Remote ChromaDB Hosting Options
-
-**Chroma Cloud (Early Access)**
-- Official hosted service by ChromaDB
-- Early access available, full launch Q1 2025
-- $5 free credits to start
-- Visit: [trychroma.com](https://trychroma.com)
-
-**Self-Hosted Options**
-- **Elest.io**: Fully managed ChromaDB deployment
-- **AWS**: Use CloudFormation template (requires 2GB+ RAM)
-- **Google Cloud Run**: Container-based deployment
-- **Docker**: Self-hosted with authentication
-
-**Example Docker Configuration**
-```bash
-# Start ChromaDB server with authentication
-docker run -p 8000:8000 \
-  -e CHROMA_SERVER_AUTH_CREDENTIALS_PROVIDER="chromadb.auth.token.TokenConfigServerAuthCredentialsProvider" \
-  -e CHROMA_SERVER_AUTH_PROVIDER="chromadb.auth.token.TokenAuthServerProvider" \
-  -e CHROMA_SERVER_AUTH_TOKEN_TRANSPORT_HEADER="X_CHROMA_TOKEN" \
-  -e CHROMA_SERVER_AUTH_CREDENTIALS="test-token" \
-  -v /path/to/chroma-data:/chroma/chroma \
-  chromadb/chroma
-```
+No Cloudflare token needed in the MCP server's env when the HTTP server owns sync — the MCP server reads directly from SQLite-vec and the HTTP server (with the `.env` file) handles all Cloudflare I/O.
 
 ## Decision Flowchart
 
 ```
 Start: Choose Storage Backend
-├── Do you have legacy hardware (2013-2017 Mac)?
-│   ├── Yes → SQLite-vec (optimized path)
-│   └── No → Continue
-├── Do you have < 4GB RAM?
-│   ├── Yes → SQLite-vec (resource efficient)
-│   └── No → Continue
-├── Do you need HTTP/SSE API?
-│   ├── Yes → SQLite-vec (first-class support)
-│   └── No → Continue
-├── Do you want minimal setup?
-│   ├── Yes → SQLite-vec (zero config)
-│   └── No → Continue
-├── Do you need advanced vector search features?
-│   ├── Yes → ChromaDB (full-featured)
-│   └── No → Continue
-├── Do you have modern hardware with GPU?
-│   ├── Yes → ChromaDB (hardware acceleration)
-│   └── No → Continue
-└── Default → ChromaDB (established platform)
+│
+├── Do you have no local disk (serverless / edge)?
+│   └── Yes → cloudflare
+│
+├── Do you need offline operation / no network egress?
+│   └── Yes → sqlite_vec
+│
+├── Do you need external embedding APIs (Ollama, vLLM, TEI)?
+│   └── Yes → sqlite_vec (the only compatible backend)
+│
+├── Single-user development / local prototyping?
+│   └── Yes → sqlite_vec
+│
+└── Production / multi-device / want durability + local speed?
+    └── hybrid (recommended default)
 ```
 
-## Getting Help
+## Troubleshooting
 
-### Backend-Specific Support
-- **SQLite-vec issues**: Tag with `sqlite-vec` label
-- **ChromaDB issues**: Tag with `chromadb` label
-- **Migration issues**: Use `migration` label
+| Issue | Backend | Fix |
+|-------|---------|-----|
+| `database is locked` under concurrent HTTP + MCP access | sqlite_vec, hybrid | Add `journal_mode=WAL` to `MCP_MEMORY_SQLITE_PRAGMAS`, restart both servers |
+| Cloudflare 401 on MCP server startup | hybrid | Set `MCP_HYBRID_SYNC_OWNER=http` so MCP server skips Cloudflare init entirely |
+| Cloudflare 403 / sync stopped working | cloudflare, hybrid | IPv6 token allowlist mismatch — see [cloudflare-ipv6-issue](../troubleshooting/cloudflare-authentication.md) |
+| Token rotation didn't take effect | cloudflare, hybrid | Rotating the token in the Cloudflare dashboard does **not** update local `.env` — update `CLOUDFLARE_API_TOKEN` manually and restart |
+| Wrong backend reported on startup | any | Run `python scripts/validation/diagnose_backend_config.py` |
+| Sync not running in hybrid mode | hybrid | Check the HTTP server logs; verify `MCP_HYBRID_SYNC_ON_STARTUP` and that the HTTP server (not just MCP) is running |
 
-### Community Resources
-- **Backend comparison discussions**: GitHub Discussions
-- **Performance benchmarks**: Community wiki
-- **Hardware compatibility**: Hardware compatibility matrix
+Full troubleshooting index: [`docs/troubleshooting/`](../troubleshooting/).
 
-### Documentation Links
-- [SQLite-vec Backend Guide](../sqlite-vec-backend.md)
+## Documentation Links
+- [SQLite-vec Backend Deep Dive](../sqlite-vec-backend.md)
 - [Migration Guide](migration.md)
 - [Setup Guide](../setup-guide.md)
+- [Cloudflare API Token Setup](../troubleshooting/cloudflare-api-token-setup.md)
+- [Sync Issues Troubleshooting](../troubleshooting/sync-issues.md)
