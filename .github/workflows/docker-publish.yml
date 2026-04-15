@@ -73,7 +73,7 @@ jobs:
 
     - name: Build and push Standard Docker image
       id: build-and-push
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v7
       with:
         context: .
         file: ./tools/docker/Dockerfile
@@ -89,7 +89,7 @@ jobs:
 
     - name: Build and push Slim Docker image
       id: build-and-push-slim
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v7
       with:
         context: .
         file: ./tools/docker/Dockerfile.slim
