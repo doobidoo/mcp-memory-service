@@ -21,15 +21,22 @@ from mcp_memory_service.harvest.models import HarvestCandidate, HarvestResult
 
 
 @pytest.fixture
-def project_dir():
-    """Create a temporary Claude-projects-style session directory with one jsonl."""
-    with tempfile.TemporaryDirectory() as tmp:
-        p = Path(tmp)
-        session = p / "session-abc123.jsonl"
-        session.write_text(
-            json.dumps({"type": "user", "message": {"content": "hello world"}}) + "\n"
-        )
-        yield p
+def project_dir(tmp_path, monkeypatch):
+    """Create a Claude-projects-style session directory under a redirected HOME.
+
+    The endpoint constrains project_path to ``~/.claude/projects/`` to prevent
+    path traversal (CodeQL #383). Tests therefore redirect ``Path.home()`` to
+    ``tmp_path`` so the fake project dir lives inside the allowed tree.
+    """
+    projects_root = tmp_path / ".claude" / "projects"
+    project = projects_root / "test-project"
+    project.mkdir(parents=True)
+    session = project / "session-abc123.jsonl"
+    session.write_text(
+        json.dumps({"type": "user", "message": {"content": "hello world"}}) + "\n"
+    )
+    monkeypatch.setenv("HOME", str(tmp_path))
+    yield project
 
 
 @pytest.fixture
@@ -168,14 +175,28 @@ def test_harvest_rejects_negative_sessions(authed_client, project_dir):
     assert response.status_code == 422
 
 
-def test_harvest_missing_project_dir_returns_404(authed_client, tmp_path):
-    """Non-existent project path returns 404."""
-    missing = tmp_path / "does-not-exist"
+def test_harvest_missing_project_dir_returns_404(authed_client, tmp_path, monkeypatch):
+    """Non-existent project path (inside the allowed tree) returns 404."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".claude" / "projects").mkdir(parents=True)
+    missing = tmp_path / ".claude" / "projects" / "does-not-exist"
     response = authed_client.post(
         "/api/harvest",
         json={"dry_run": True, "project_path": str(missing)},
     )
     assert response.status_code == 404
+
+
+def test_harvest_rejects_path_outside_allowed_tree(authed_client, tmp_path):
+    """project_path outside ~/.claude/projects/ is rejected with 400 (CodeQL #383)."""
+    outside = tmp_path / "evil"
+    outside.mkdir()
+    response = authed_client.post(
+        "/api/harvest",
+        json={"dry_run": True, "project_path": str(outside)},
+    )
+    assert response.status_code == 400
+    assert ".claude/projects" in response.json()["detail"]
 
 
 @pytest.mark.integration

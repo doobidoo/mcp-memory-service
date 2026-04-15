@@ -76,11 +76,23 @@ class HarvestResponse(BaseModel):
 
 
 def _resolve_project_path(override: Optional[str]) -> Path:
-    """Resolve the Claude project directory, mirroring the MCP handler."""
+    """Resolve the Claude project directory, mirroring the MCP handler.
+
+    When ``override`` is provided, the resolved path is constrained to the
+    ``~/.claude/projects/`` tree to prevent path-traversal via the HTTP API.
+    """
+    claude_projects = (Path.home() / ".claude" / "projects").resolve()
     if override:
-        return Path(override)
+        candidate = Path(override).resolve()
+        try:
+            candidate.relative_to(claude_projects)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="project_path must be within ~/.claude/projects/",
+            ) from exc
+        return candidate
     cwd = Path.cwd()
-    claude_projects = Path.home() / ".claude" / "projects"
     project_dir_name = str(cwd).replace(os.sep, "-")
     return claude_projects / project_dir_name
 
