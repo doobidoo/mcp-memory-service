@@ -123,7 +123,7 @@ def test_harvest_dry_run_happy_path(authed_client, project_dir):
                 "use_llm": False,
                 "dry_run": True,
                 "min_confidence": 0.6,
-                "project_path": str(project_dir),
+                "project_path": project_dir.name,
             },
         )
 
@@ -145,7 +145,7 @@ def test_harvest_requires_auth(unauth_client, project_dir):
     """Without credentials the endpoint returns 401."""
     response = unauth_client.post(
         "/api/harvest",
-        json={"dry_run": True, "project_path": str(project_dir)},
+        json={"dry_run": True, "project_path": project_dir.name},
     )
     assert response.status_code == 401
 
@@ -157,7 +157,7 @@ def test_harvest_rejects_invalid_types(authed_client, project_dir):
         "/api/harvest",
         json={
             "dry_run": True,
-            "project_path": str(project_dir),
+            "project_path": project_dir.name,
             "types": ["decision", "not-a-real-type"],
         },
     )
@@ -170,33 +170,33 @@ def test_harvest_rejects_negative_sessions(authed_client, project_dir):
     """Pydantic validation rejects sessions < 1."""
     response = authed_client.post(
         "/api/harvest",
-        json={"sessions": -1, "dry_run": True, "project_path": str(project_dir)},
+        json={"sessions": -1, "dry_run": True, "project_path": project_dir.name},
     )
     assert response.status_code == 422
 
 
 def test_harvest_missing_project_dir_returns_404(authed_client, tmp_path, monkeypatch):
-    """Non-existent project path (inside the allowed tree) returns 404."""
+    """Non-existent project name under the allowed tree returns 404."""
     monkeypatch.setenv("HOME", str(tmp_path))
     (tmp_path / ".claude" / "projects").mkdir(parents=True)
-    missing = tmp_path / ".claude" / "projects" / "does-not-exist"
     response = authed_client.post(
         "/api/harvest",
-        json={"dry_run": True, "project_path": str(missing)},
+        json={"dry_run": True, "project_path": "does-not-exist"},
     )
     assert response.status_code == 404
 
 
-def test_harvest_rejects_path_outside_allowed_tree(authed_client, tmp_path):
-    """project_path outside ~/.claude/projects/ is rejected with 400 (CodeQL #383)."""
-    outside = tmp_path / "evil"
-    outside.mkdir()
+@pytest.mark.parametrize("bad_path", ["../evil", "/abs/path", "../../etc", "foo/../../bar"])
+def test_harvest_rejects_traversal_attempts(authed_client, tmp_path, monkeypatch, bad_path):
+    """Absolute paths and parent-dir traversal are rejected with 400 (CodeQL #383/#384)."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".claude" / "projects").mkdir(parents=True)
     response = authed_client.post(
         "/api/harvest",
-        json={"dry_run": True, "project_path": str(outside)},
+        json={"dry_run": True, "project_path": bad_path},
     )
     assert response.status_code == 400
-    assert ".claude/projects" in response.json()["detail"]
+    assert "claude/projects" in response.json()["detail"]
 
 
 @pytest.mark.integration
@@ -208,7 +208,7 @@ def test_harvest_propagates_harvester_failure_as_500(authed_client, project_dir)
         mock_cls.return_value.harvest.side_effect = RuntimeError("boom")
         response = authed_client.post(
             "/api/harvest",
-            json={"dry_run": True, "project_path": str(project_dir)},
+            json={"dry_run": True, "project_path": project_dir.name},
         )
     assert response.status_code == 500
     assert response.json()["detail"] == "Harvest failed"

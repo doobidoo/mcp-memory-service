@@ -20,9 +20,10 @@ Claude Code session transcripts. Wraps :class:`SessionHarvester` to mirror
 the ``memory_harvest`` MCP tool over HTTP.
 """
 
+import asyncio
 import logging
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -75,22 +76,29 @@ class HarvestResponse(BaseModel):
     results: List[HarvestSessionResult]
 
 
+_INVALID_PROJECT_PATH = (
+    "project_path must be a directory name under ~/.claude/projects/ "
+    "(no '..', no absolute paths, no path separators beyond nested project dirs)"
+)
+
+
 def _resolve_project_path(override: Optional[str]) -> Path:
     """Resolve the Claude project directory, mirroring the MCP handler.
 
-    When ``override`` is provided, the resolved path is constrained to the
-    ``~/.claude/projects/`` tree to prevent path-traversal via the HTTP API.
+    When ``override`` is provided it is treated as a *relative name* under
+    ``~/.claude/projects/``. Absolute paths, parent-directory traversal
+    (``..``), and escape via symlinks are rejected with HTTP 400
+    (CodeQL #383/#384).
     """
     claude_projects = (Path.home() / ".claude" / "projects").resolve()
     if override:
-        candidate = Path(override).resolve()
-        try:
-            candidate.relative_to(claude_projects)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail="project_path must be within ~/.claude/projects/",
-            ) from exc
+        relative = override.strip()
+        pure = PurePosixPath(relative.replace(os.sep, "/"))
+        if pure.is_absolute() or ".." in pure.parts or not pure.parts:
+            raise HTTPException(status_code=400, detail=_INVALID_PROJECT_PATH)
+        candidate = (claude_projects / Path(*pure.parts)).resolve()
+        if not candidate.is_relative_to(claude_projects):
+            raise HTTPException(status_code=400, detail=_INVALID_PROJECT_PATH)
         return candidate
     cwd = Path.cwd()
     project_dir_name = str(cwd).replace(os.sep, "-")
@@ -152,7 +160,8 @@ async def harvest_sessions(
 
     try:
         if config.dry_run:
-            results = harvester.harvest(config)
+            # harvest() does synchronous file I/O — offload to avoid blocking the event loop.
+            results = await asyncio.to_thread(harvester.harvest, config)
         else:
             results = await harvester.harvest_and_store(config)
     except Exception:
