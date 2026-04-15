@@ -50,6 +50,11 @@
       "timeout": 15000,
       "priority": "normal"
     },
+    "sessionEndHarvest": {
+      "enabled": false,
+      "timeout": 7000,
+      "priority": "low"
+    },
     "topicChange": {
       "enabled": false,
       "timeout": 5000,
@@ -68,6 +73,19 @@
     "enableDebug": false,
     "logToFile": false,
     "logFilePath": "./claude-hooks.log"
+  },
+  "sessionHarvest": {
+    "enabled": false,
+    "dryRun": true,
+    "dryRunOnFirstUse": true,
+    "minSessionMessages": 10,
+    "sessions": 1,
+    "useLlm": false,
+    "minConfidence": 0.6,
+    "types": ["decision", "bug", "convention", "learning", "context"],
+    "endpoint": "http://127.0.0.1:8000",
+    "apiKey": null,
+    "timeoutMs": 5000
   },
   "permissionRequest": {
     "enabled": false,
