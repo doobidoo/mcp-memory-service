@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Documentation
+
+- **[#662] Dead-reference cleanup across active docs**: Removed stale references to port 8443 (current default is 8000), the removed `python install.py` bootstrap, and the retired ChromaDB backend from 15 active documentation files. Rewrote the Homebrew and multi-client integration guides around the current `memory server --http` CLI entry point and `MCP_HTTP_ENABLED=true` + `MCP_MEMORY_USE_HOMEBREW_PYTORCH=1` env patterns (old installer flags no longer exist). Switched `scripts/ci/check_dead_refs.sh` from warning-only to `exit 1` on findings. (PR #702)
+- **[#703] Rewrote `docs/guides/STORAGE_BACKENDS.md` for the current 3-backend model**: Previous guide compared SQLite-vec vs ChromaDB throughout — actively misleading since ChromaDB was removed from `SUPPORTED_BACKENDS` in v7.x. New guide covers SQLite-vec / Cloudflare / Hybrid with a 3-column comparison, backend-specific "When to Choose X" sections, a deployment matrix reframed around connectivity/privacy/scale, performance numbers sourced from CLAUDE.md, and per-backend configuration blocks sourced from `.env.example`. Net −80 lines. Migration section now points to the real scripts in `scripts/migration/` (with correct subcommand/argument syntax) and flags Cloudflare → SQLite-vec as the one direction without a dedicated script (hybrid-mode workaround documented). (PR #712)
+- **[#713] Eliminated all current-tense ChromaDB references from active docs**: Swept 31 files to remove ChromaDB as a current backend option — config examples (`MCP_MEMORY_STORAGE_BACKEND=chromadb`), docker compose/run templates (`chromadb` → `sqlite_vec`, `chroma_db` → `sqlite_data`), `.[chromadb]` pip extras, `--with-chromadb` installer flag, comparison tables, architecture diagrams, and visible SVG text. Historical references preserved where they link users to `docs/guides/chromadb-migration.md`. (PR #714, net −159 lines)
+- **[#713] CI hardening against ChromaDB regressions**: `scripts/ci/check_dead_refs.sh` now also blocks `MCP_MEMORY_CHROMA_PATH` and `MCP_MEMORY_CHROMADB_{HOST,PORT,SSL,API_KEY}` env vars as hard dead refs, plus `chromadb` as a soft dead ref with an explicit `SOFT_REF_ALLOWLIST` for the 13 files that legitimately carry historical/migration pointers or external-project (MemPalace) benchmark context. Script refactored to support per-ref exclusions. (PR #714)
+
 ## [10.38.1] - 2026-04-15
 
 ### Fixed
