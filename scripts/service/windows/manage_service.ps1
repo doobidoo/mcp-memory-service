@@ -45,6 +45,9 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\lib\server-config.ps1"
 $ServerConfig = Get-McpServerConfig
 Enable-McpSelfSignedCertBypass
+# Per-call extras (adds -SkipCertificateCheck on PS 7+ with HTTPS) because
+# Invoke-WebRequest on PS 7+ uses HttpClient which ignores ServicePointManager.
+$McpWebExtras = Get-McpWebRequestExtraParams -HttpsEnabled $ServerConfig.HttpsEnabled
 
 # Configuration
 $TaskName = "MCPMemoryHTTPServer"
@@ -108,7 +111,7 @@ function Get-ServerStatus {
             TimeoutSec = 3
             UseBasicParsing = $true
             ErrorAction = 'SilentlyContinue'
-        }
+        } + $McpWebExtras
         $Response = Invoke-WebRequest @params
         if ($Response.StatusCode -eq 200) {
             $HttpHealthy = $true
@@ -129,9 +132,14 @@ function Get-ServerStatus {
         if ($ApiKey) {
             try {
                 $DetailedUrl = "$($ServerConfig.BaseUrl)/api/health/detailed"
-                $DetailedResponse = Invoke-WebRequest -Uri $DetailedUrl `
-                    -Headers @{ "Authorization" = "Bearer $ApiKey" } `
-                    -TimeoutSec 3 -UseBasicParsing -ErrorAction SilentlyContinue
+                $detailedParams = @{
+                    Uri = $DetailedUrl
+                    Headers = @{ "Authorization" = "Bearer $ApiKey" }
+                    TimeoutSec = 3
+                    UseBasicParsing = $true
+                    ErrorAction = 'SilentlyContinue'
+                } + $McpWebExtras
+                $DetailedResponse = Invoke-WebRequest @detailedParams
                 if ($DetailedResponse.StatusCode -eq 200) {
                     $DetailedHealth = $DetailedResponse.Content | ConvertFrom-Json
                 }
@@ -265,7 +273,7 @@ function Start-Server {
                 TimeoutSec = 2
                 UseBasicParsing = $true
                 ErrorAction = 'SilentlyContinue'
-            }
+            } + $McpWebExtras
             $Response = Invoke-WebRequest @params
             if ($Response.StatusCode -eq 200) {
                 Write-Host "[SUCCESS] Server started successfully!" -ForegroundColor Green
@@ -344,7 +352,7 @@ function Check-Health {
             Uri = $HealthUrl
             TimeoutSec = 5
             UseBasicParsing = $true
-        }
+        } + $McpWebExtras
         $Response = Invoke-WebRequest @params
         Write-Host "[SUCCESS] Server is healthy!" -ForegroundColor Green
         Write-Host ""

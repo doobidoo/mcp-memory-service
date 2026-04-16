@@ -22,6 +22,7 @@ $ProjectRoot = (Get-Item "$ScriptDir\..\..\..").FullName
 . "$ScriptDir\lib\server-config.ps1"
 $ServerConfig = Get-McpServerConfig -ProjectRoot $ProjectRoot
 Enable-McpSelfSignedCertBypass
+$McpWebExtras = Get-McpWebRequestExtraParams -HttpsEnabled $ServerConfig.HttpsEnabled
 
 $LogDir = Join-Path $env:LOCALAPPDATA "mcp-memory\logs"
 $LogFile = Join-Path $LogDir "http-server.log"
@@ -115,7 +116,13 @@ function Test-ServerRunning {
 
     # Also check via HTTP health endpoint (URL derived from .env)
     try {
-        $Response = Invoke-WebRequest -Uri $ServerConfig.HealthUrl -TimeoutSec 2 -UseBasicParsing -ErrorAction SilentlyContinue
+        $healthParams = @{
+            Uri = $ServerConfig.HealthUrl
+            TimeoutSec = 2
+            UseBasicParsing = $true
+            ErrorAction = 'SilentlyContinue'
+        } + $McpWebExtras
+        $Response = Invoke-WebRequest @healthParams
         if ($Response.StatusCode -eq 200) {
             return $true
         }

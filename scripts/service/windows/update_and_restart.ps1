@@ -89,6 +89,7 @@ function Get-ServerVersion {
             TimeoutSec = 3
             ErrorAction = 'SilentlyContinue'
         }
+        if ($McpWebExtras) { $params = $params + $McpWebExtras }
         $Response = Invoke-RestMethod @params
         return $Response.version
     } catch {
@@ -280,6 +281,7 @@ try {
 . "$PSScriptRoot\lib\server-config.ps1"
 $ServerConfig = Get-McpServerConfig -ProjectRoot $ProjectRoot
 Enable-McpSelfSignedCertBypass
+$McpWebExtras = Get-McpWebRequestExtraParams -HttpsEnabled $ServerConfig.HttpsEnabled
 $HealthUrl = $ServerConfig.HealthUrl
 $DashboardUrl = $ServerConfig.DashboardUrl
 
@@ -324,7 +326,7 @@ if ($NoRestart) {
                 Uri = $HealthUrl
                 TimeoutSec = 2
                 ErrorAction = 'SilentlyContinue'
-            }
+            } + $McpWebExtras
             $HealthResponse = Invoke-RestMethod @params
             $ServerVersion = $HealthResponse.version
 
