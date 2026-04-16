@@ -21,9 +21,9 @@ Environment=MCP_SERVER_HOST=0.0.0.0
 Environment=MCP_SERVER_PORT=8000
 Environment=MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
 # Security: API key should be stored in a separate environment file
-# Create /etc/mcp-memory/environment with: MCP_API_KEY=your-key-here
+# Create %h/repositories/mcp-memory-service/.env with: MCP_API_KEY=your-key-here
 # Then uncomment the line below and set proper permissions (chmod 600)
-# EnvironmentFile=-/etc/mcp-memory/environment
+# EnvironmentFile=-%h/repositories/mcp-memory-service/.env
 ExecStart=%h/repositories/mcp-memory-service/venv/bin/python -m mcp_memory_service.mcp_server
 Restart=always
 RestartSec=10
@@ -32,4 +32,4 @@ StandardError=journal
 SyslogIdentifier=mcp-memory-service
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
