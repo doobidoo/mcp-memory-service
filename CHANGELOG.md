@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **`scripts/service/mcp-memory.service` portability cleanup**: Replaced hardcoded `/home/hkr/` paths with the `%h` systemd specifier across `WorkingDirectory`, `PATH`, `PYTHONPATH`, and `ExecStart`, and removed the `User=hkr` / `Group=hkr` directives (user services run as the invoking user by default). Matches the convention already used in `scripts/service/mcp-memory-http.service`. Closes the follow-up flagged in PR #706 / #719.
+
 ### Documentation
 
 - **[#662] Dead-reference cleanup across active docs**: Removed stale references to port 8443 (current default is 8000), the removed `python install.py` bootstrap, and the retired ChromaDB backend from 15 active documentation files. Rewrote the Homebrew and multi-client integration guides around the current `memory server --http` CLI entry point and `MCP_HTTP_ENABLED=true` + `MCP_MEMORY_USE_HOMEBREW_PYTORCH=1` env patterns (old installer flags no longer exist). Switched `scripts/ci/check_dead_refs.sh` from warning-only to `exit 1` on findings. (PR #702)

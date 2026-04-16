@@ -6,11 +6,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=hkr
-Group=hkr
-WorkingDirectory=/home/hkr/repositories/mcp-memory-service
-Environment=PATH=/home/hkr/repositories/mcp-memory-service/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-Environment=PYTHONPATH=/home/hkr/repositories/mcp-memory-service/src
+# NOTE: User= and Group= should NOT be set for user services
+# They are only for system services. User services automatically run as the user.
+WorkingDirectory=%h/repositories/mcp-memory-service
+Environment=PATH=%h/repositories/mcp-memory-service/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONPATH=%h/repositories/mcp-memory-service/src
 Environment=MCP_CONSOLIDATION_ENABLED=true
 Environment=MCP_MDNS_ENABLED=true
 Environment=MCP_HTTPS_ENABLED=true
@@ -24,7 +24,7 @@ Environment=MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
 # Create /etc/mcp-memory/environment with: MCP_API_KEY=your-key-here
 # Then uncomment the line below and set proper permissions (chmod 600)
 # EnvironmentFile=-/etc/mcp-memory/environment
-ExecStart=/home/hkr/repositories/mcp-memory-service/venv/bin/python -m mcp_memory_service.mcp_server
+ExecStart=%h/repositories/mcp-memory-service/venv/bin/python -m mcp_memory_service.mcp_server
 Restart=always
 RestartSec=10
 StandardOutput=journal
