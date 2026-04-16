@@ -133,11 +133,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/hkr/repositories/mcp-memory-service
-Environment=PATH=/home/hkr/repositories/mcp-memory-service/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-Environment=PYTHONPATH=/home/hkr/repositories/mcp-memory-service/src
-EnvironmentFile=/home/hkr/repositories/mcp-memory-service/.env
-ExecStart=/home/hkr/repositories/mcp-memory-service/venv/bin/python /home/hkr/repositories/mcp-memory-service/scripts/server/run_http_server.py
+WorkingDirectory=%h/repositories/mcp-memory-service
+Environment=PATH=%h/repositories/mcp-memory-service/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONPATH=%h/repositories/mcp-memory-service/src
+EnvironmentFile=%h/repositories/mcp-memory-service/.env
+ExecStart=%h/repositories/mcp-memory-service/venv/bin/python %h/repositories/mcp-memory-service/scripts/server/run_http_server.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -295,7 +295,7 @@ Setting `--sse-host 0.0.0.0` (or `MCP_SSE_HOST=0.0.0.0`) exposes the service on 
 [Service]
 Environment=MCP_SSE_HOST=192.168.1.42
 Environment=MCP_SSE_PORT=8765
-ExecStart=/home/hkr/repositories/mcp-memory-service/venv/bin/python /home/hkr/repositories/mcp-memory-service/scripts/server/run_http_server.py
+ExecStart=%h/repositories/mcp-memory-service/venv/bin/python %h/repositories/mcp-memory-service/scripts/server/run_http_server.py
 ```
 
 **2. Firewall allow-list specific client IPs, not the whole subnet.**
