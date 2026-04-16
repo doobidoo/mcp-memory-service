@@ -106,6 +106,19 @@ async def validate_database(storage) -> Tuple[bool, str]:
             except Exception as e:
                 return False, f"Cloudflare storage access error: {str(e)}"
 
+        elif storage_type == "MilvusMemoryStorage":
+            try:
+                if not hasattr(storage, 'client') or storage.client is None:
+                    return False, "Milvus client is not initialized"
+
+                stats = await storage.get_stats()
+                memory_count = stats.get("total_memories", 0)
+                logger.info(f"Milvus storage contains {memory_count} memories")
+                return True, "Milvus storage validation successful"
+
+            except Exception as e:
+                return False, f"Milvus storage access error: {str(e)}"
+
         else:
             return False, f"Unknown storage type: {storage_type}"
             
@@ -233,6 +246,21 @@ async def get_database_stats(storage) -> Dict[str, Any]:
                     "backend": "cloudflare"
                 }
 
+        elif storage_type == "MilvusMemoryStorage":
+            try:
+                storage_stats = await storage.get_stats()
+                return {
+                    **storage_stats,
+                    "backend": "milvus",
+                    "status": "healthy",
+                }
+            except Exception as stats_error:
+                return {
+                    "status": "error",
+                    "error": f"Error getting Milvus stats: {str(stats_error)}",
+                    "backend": "milvus",
+                }
+
         else:
             return {
                 "status": "error",
@@ -326,6 +354,20 @@ async def repair_database(storage) -> Tuple[bool, str]:
 
             except Exception as repair_error:
                 return False, f"Cloudflare storage repair failed: {str(repair_error)}"
+
+        elif storage_type == "MilvusMemoryStorage":
+            # We intentionally do NOT reconnect here. Milvus Lite ties its
+            # embedded daemon's lifecycle to the MilvusClient instance, so
+            # recreating the client in the same process would either spawn a
+            # new daemon (orphaning previously-stored data) or latch onto a
+            # stale unix-domain-socket path in milvus-lite's process-wide
+            # server_manager — both modes cause silent data loss. If the
+            # client/channel is genuinely broken, the server must be
+            # restarted so initialization runs from scratch.
+            return False, (
+                "Milvus storage repair not supported — restart the process so "
+                "MilvusMemoryStorage.initialize() runs cleanly again"
+            )
 
         else:
             return False, f"Unknown storage type: {storage_type}, cannot repair"

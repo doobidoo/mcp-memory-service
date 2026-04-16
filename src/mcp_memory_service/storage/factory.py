@@ -67,6 +67,13 @@ def get_storage_backend_class() -> Type[MemoryStorage]:
         except ImportError as e:
             logger.error(f"Failed to import Hybrid storage: {e}")
             return _fallback_to_sqlite_vec()
+    elif backend == "milvus":
+        try:
+            from .milvus import MilvusMemoryStorage
+            return MilvusMemoryStorage
+        except ImportError as e:
+            logger.error(f"Failed to import Milvus storage: {e}")
+            raise
     else:
         logger.warning(f"Unknown storage backend '{backend}', defaulting to SQLite-vec")
         from .sqlite_vec import SqliteVecMemoryStorage
@@ -91,7 +98,8 @@ async def create_storage_instance(sqlite_path: str, server_type: str = None) -> 
         CLOUDFLARE_R2_BUCKET, CLOUDFLARE_EMBEDDING_MODEL,
         CLOUDFLARE_LARGE_CONTENT_THRESHOLD, CLOUDFLARE_MAX_RETRIES,
         CLOUDFLARE_BASE_DELAY,
-        HYBRID_SYNC_INTERVAL, HYBRID_BATCH_SIZE, HYBRID_SYNC_OWNER
+        HYBRID_SYNC_INTERVAL, HYBRID_BATCH_SIZE, HYBRID_SYNC_OWNER,
+        MILVUS_URI, MILVUS_TOKEN, MILVUS_COLLECTION_NAME
     )
 
     logger.info(f"Creating storage backend instance (sqlite_path: {sqlite_path}, server_type: {server_type})...")
@@ -136,6 +144,17 @@ async def create_storage_instance(sqlite_path: str, server_type: str = None) -> 
             base_delay=CLOUDFLARE_BASE_DELAY
         )
         logger.info(f"Initialized Cloudflare storage with vectorize index: {CLOUDFLARE_VECTORIZE_INDEX}")
+
+    elif StorageClass.__name__ == "MilvusMemoryStorage":
+        storage = StorageClass(
+            uri=MILVUS_URI,
+            token=MILVUS_TOKEN,
+            collection_name=MILVUS_COLLECTION_NAME,
+            embedding_model=EMBEDDING_MODEL_NAME,
+        )
+        logger.info(
+            f"Initialized Milvus storage (uri={MILVUS_URI}, collection={MILVUS_COLLECTION_NAME})"
+        )
 
     elif StorageClass.__name__ == "HybridMemoryStorage":
         # Prepare Cloudflare configuration dict

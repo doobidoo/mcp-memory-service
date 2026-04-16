@@ -67,7 +67,7 @@ class EnvironmentConfigResponse(BaseModel):
 # Parameter descriptions
 PARAM_DESCRIPTIONS = {
     # Core Configuration
-    "MCP_MEMORY_STORAGE_BACKEND": "Storage backend to use: sqlite_vec (local), cloudflare (cloud), or hybrid (best of both)",
+    "MCP_MEMORY_STORAGE_BACKEND": "Storage backend to use: sqlite_vec (local), cloudflare (cloud), hybrid (best of both), or milvus (Milvus Lite / self-hosted / Zilliz Cloud)",
     "MCP_HTTP_PORT": "Port for the HTTP server (default: 8000)",
     "MCP_HTTP_HOST": "Host address for HTTP server (default: 127.0.0.1; set to 0.0.0.0 for network access)",
     "MCP_HTTP_ENABLED": "Enable the HTTP/HTTPS web interface",
@@ -105,6 +105,11 @@ PARAM_DESCRIPTIONS = {
     "MCP_HYBRID_MIN_CHECK_COUNT": "Minimum memories to check before early stop",
     "MCP_HYBRID_FALLBACK_TO_PRIMARY": "Fallback to primary on secondary failure",
     "MCP_HYBRID_WARN_ON_SECONDARY_FAILURE": "Warn on secondary backend failures",
+
+    # Milvus Backend
+    "MCP_MILVUS_URI": "Milvus endpoint: ./milvus.db (Milvus Lite), http://host:19530 (self-hosted), or https://xxx.zillizcloud.com (Zilliz Cloud)",
+    "MCP_MILVUS_TOKEN": "Auth token for Zilliz Cloud or authenticated Milvus servers (leave blank for Milvus Lite)",
+    "MCP_MILVUS_COLLECTION_NAME": "Milvus collection name (default: mcp_memory)",
 
     # Quality System
     "MCP_QUALITY_SYSTEM_ENABLED": "Enable AI-powered quality scoring system",
@@ -227,7 +232,7 @@ ENV_CATEGORIES = {
         "name": "Core Configuration",
         "description": "Essential server and storage settings",
         "params": [
-            ("MCP_MEMORY_STORAGE_BACKEND", "choice", ["sqlite_vec", "cloudflare", "hybrid"], False),
+            ("MCP_MEMORY_STORAGE_BACKEND", "choice", ["sqlite_vec", "cloudflare", "hybrid", "milvus"], False),
             ("MCP_HTTP_ENABLED", "boolean", None, False),
             ("MCP_HTTP_PORT", "integer", None, False),
             ("MCP_HTTP_HOST", "string", None, False),
@@ -273,6 +278,15 @@ ENV_CATEGORIES = {
             ("MCP_HYBRID_MIN_CHECK_COUNT", "integer", None, False),
             ("MCP_HYBRID_FALLBACK_TO_PRIMARY", "boolean", None, False),
             ("MCP_HYBRID_WARN_ON_SECONDARY_FAILURE", "boolean", None, False),
+        ]
+    },
+    "milvus": {
+        "name": "Milvus Backend",
+        "description": "Configuration for the Milvus backend (Milvus Lite, self-hosted, or Zilliz Cloud)",
+        "params": [
+            ("MCP_MILVUS_URI", "string", None, False),
+            ("MCP_MILVUS_TOKEN", "string", None, True),
+            ("MCP_MILVUS_COLLECTION_NAME", "string", None, False),
         ]
     },
     "quality": {

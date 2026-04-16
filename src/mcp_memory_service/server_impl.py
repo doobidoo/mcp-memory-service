@@ -86,6 +86,10 @@ from .config import (
     # Hybrid backend configuration
     HYBRID_SYNC_INTERVAL,
     HYBRID_BATCH_SIZE,
+    # Milvus backend configuration
+    MILVUS_URI,
+    MILVUS_TOKEN,
+    MILVUS_COLLECTION_NAME,
     # Integrity monitoring
     INTEGRITY_CHECK_ENABLED,
 )
@@ -363,6 +367,21 @@ class MemoryServer:
                     batch_size=HYBRID_BATCH_SIZE or 50
                 )
                 logger.info(f"✅ EAGER INIT: HybridMemoryStorage instance created")
+            elif STORAGE_BACKEND == 'milvus':
+                # Initialize Milvus storage (Milvus Lite / server / Zilliz Cloud)
+                logger.info(f"🧬 EAGER INIT: Importing MilvusMemoryStorage...")
+                from .storage.milvus import MilvusMemoryStorage
+                logger.info(
+                    f"🧬 EAGER INIT: Creating MilvusMemoryStorage (uri={MILVUS_URI}, "
+                    f"collection={MILVUS_COLLECTION_NAME}, auth={'yes' if MILVUS_TOKEN else 'no'})"
+                )
+                self.storage = MilvusMemoryStorage(
+                    uri=MILVUS_URI,
+                    token=MILVUS_TOKEN,
+                    collection_name=MILVUS_COLLECTION_NAME,
+                    embedding_model=EMBEDDING_MODEL_NAME,
+                )
+                logger.info(f"✅ EAGER INIT: MilvusMemoryStorage instance created")
             else:
                 # Unknown backend - should not reach here due to factory validation
                 logger.error(f"❌ EAGER INIT: Unknown storage backend: {STORAGE_BACKEND}")
@@ -542,6 +561,21 @@ class MemoryServer:
                         batch_size=HYBRID_BATCH_SIZE or 50
                     )
                     logger.info(f"✅ LAZY INIT: Created Hybrid storage at: {SQLITE_VEC_PATH} with Cloudflare sync")
+                elif STORAGE_BACKEND == 'milvus':
+                    # Milvus backend — Milvus Lite (file) / self-hosted server / Zilliz Cloud
+                    logger.info(f"🧬 LAZY INIT: Importing MilvusMemoryStorage...")
+                    from .storage.milvus import MilvusMemoryStorage
+                    logger.info(
+                        f"🧬 LAZY INIT: Creating MilvusMemoryStorage (uri={MILVUS_URI}, "
+                        f"collection={MILVUS_COLLECTION_NAME}, auth={'yes' if MILVUS_TOKEN else 'no'})"
+                    )
+                    self.storage = MilvusMemoryStorage(
+                        uri=MILVUS_URI,
+                        token=MILVUS_TOKEN,
+                        collection_name=MILVUS_COLLECTION_NAME,
+                        embedding_model=EMBEDDING_MODEL_NAME,
+                    )
+                    logger.info(f"✅ LAZY INIT: MilvusMemoryStorage instance created")
                 else:
                     # Unknown/unsupported backend
                     logger.error("=" * 70)
@@ -551,10 +585,11 @@ class MemoryServer:
                     logger.error("  - sqlite_vec (recommended for single-device use)")
                     logger.error("  - cloudflare (cloud storage)")
                     logger.error("  - hybrid (recommended for multi-device use)")
+                    logger.error("  - milvus (Milvus Lite / self-hosted / Zilliz Cloud)")
                     logger.error("=" * 70)
                     raise ValueError(
                         f"Unsupported storage backend: {STORAGE_BACKEND}. "
-                        "Use 'sqlite_vec', 'cloudflare', or 'hybrid'."
+                        "Use 'sqlite_vec', 'cloudflare', 'hybrid', or 'milvus'."
                     )
                 
                 # Initialize the storage backend
