@@ -295,7 +295,7 @@ Setting `--sse-host 0.0.0.0` (or `MCP_SSE_HOST=0.0.0.0`) exposes the service on 
 [Service]
 Environment=MCP_SSE_HOST=192.168.1.42
 Environment=MCP_SSE_PORT=8765
-ExecStart=%h/repositories/mcp-memory-service/venv/bin/python %h/repositories/mcp-memory-service/scripts/server/run_http_server.py --streamable-http
+ExecStart=/home/hkr/repositories/mcp-memory-service/venv/bin/python /home/hkr/repositories/mcp-memory-service/scripts/server/run_http_server.py
 ```
 
 **2. Firewall allow-list specific client IPs, not the whole subnet.**
