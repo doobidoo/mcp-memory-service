@@ -27,7 +27,7 @@ async def get_storage(backend: Optional[str] = None) -> MemoryStorage:
     Get storage backend for CLI operations.
 
     Args:
-        backend: Storage backend name ('sqlite_vec', 'cloudflare', or 'hybrid')
+        backend: Storage backend name ('sqlite_vec', 'cloudflare', 'hybrid', or 'milvus')
 
     Returns:
         Initialized storage backend
@@ -63,6 +63,19 @@ async def get_storage(backend: Optional[str] = None) -> MemoryStorage:
             large_content_threshold=CLOUDFLARE_LARGE_CONTENT_THRESHOLD,
             max_retries=CLOUDFLARE_MAX_RETRIES,
             base_delay=CLOUDFLARE_BASE_DELAY
+        )
+        await storage.initialize()
+        return storage
+    elif backend == 'milvus':
+        from ..storage.milvus import MilvusMemoryStorage
+        from ..config import (
+            MILVUS_URI, MILVUS_TOKEN, MILVUS_COLLECTION_NAME, EMBEDDING_MODEL_NAME
+        )
+        storage = MilvusMemoryStorage(
+            uri=MILVUS_URI,
+            token=MILVUS_TOKEN,
+            collection_name=MILVUS_COLLECTION_NAME,
+            embedding_model=EMBEDDING_MODEL_NAME,
         )
         await storage.initialize()
         return storage

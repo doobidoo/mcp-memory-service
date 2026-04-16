@@ -16,7 +16,7 @@
 MCP Memory Service Configuration
 
 Environment Variables:
-- MCP_MEMORY_STORAGE_BACKEND: Storage backend ('sqlite_vec', 'cloudflare', or 'hybrid')
+- MCP_MEMORY_STORAGE_BACKEND: Storage backend ('sqlite_vec', 'cloudflare', 'hybrid', or 'milvus')
 - MCP_MEMORY_SQLITE_PATH: SQLite-vec database file path
 - MCP_MEMORY_USE_ONNX: Use ONNX embeddings ('true'/'false')
 
@@ -303,7 +303,7 @@ except (ImportError, AttributeError):
         logger.debug("Could not determine server version from _version.py; using default")
 
 # Storage backend configuration
-SUPPORTED_BACKENDS = ['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid']
+SUPPORTED_BACKENDS = ['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid', 'milvus']
 STORAGE_BACKEND = os.getenv('MCP_MEMORY_STORAGE_BACKEND', 'sqlite_vec').lower()
 
 # Normalize backend names (sqlite-vec -> sqlite_vec)
@@ -538,6 +538,34 @@ else:
     CLOUDFLARE_BATCH_INSERT_LIMIT = None
     CLOUDFLARE_WARNING_THRESHOLD_PERCENT = None
     CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT = None
+
+# Milvus backend configuration
+# Supports three deployment modes with the same settings:
+#   * Milvus Lite (default):    MCP_MILVUS_URI=./milvus.db  (single local file)
+#   * Self-hosted Milvus:       MCP_MILVUS_URI=http://localhost:19530
+#   * Zilliz Cloud:             MCP_MILVUS_URI=https://xxx.zillizcloud.com + MCP_MILVUS_TOKEN=...
+# NOTE: We use MCP_MILVUS_* rather than MILVUS_* because pymilvus's ORM layer
+# reserves MILVUS_URI and validates it at import time — a local file path
+# in that env var would raise ConnectionConfigException before our code runs.
+if STORAGE_BACKEND == 'milvus':
+    MILVUS_URI = os.getenv('MCP_MILVUS_URI', os.path.join(BASE_DIR, 'milvus.db'))
+    MILVUS_TOKEN = os.getenv('MCP_MILVUS_TOKEN') or None
+    MILVUS_COLLECTION_NAME = os.getenv('MCP_MILVUS_COLLECTION_NAME', 'mcp_memory')
+
+    # Ensure the parent directory exists for Milvus Lite file URIs.
+    if not MILVUS_URI.startswith(('http://', 'https://')):
+        parent = os.path.dirname(MILVUS_URI)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+
+    logger.info(
+        f"Using Milvus backend (uri={MILVUS_URI}, collection={MILVUS_COLLECTION_NAME}, "
+        f"auth={'yes' if MILVUS_TOKEN else 'no'})"
+    )
+else:
+    MILVUS_URI = None
+    MILVUS_TOKEN = None
+    MILVUS_COLLECTION_NAME = None
 
 # =============================================================================
 # MCP SSE Transport Configuration

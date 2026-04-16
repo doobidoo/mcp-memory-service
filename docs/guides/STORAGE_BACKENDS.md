@@ -1,24 +1,24 @@
 # Storage Backend Comparison and Selection Guide
 
-**MCP Memory Service** supports three storage backends, each optimized for different deployment patterns — single-user development, cloud-only edge deployments, and production use with local reads and cloud durability.
+**MCP Memory Service** supports four storage backends, each optimized for different deployment patterns — single-user development, cloud-only edge deployments, production use with local reads and cloud durability, and dedicated vector-database deployments that scale from a local file up to a managed cloud service.
 
 > **Looking for the legacy backend?** The previous vector-database backend was removed in v7.x. See the historical migration guide under `docs/guides/` for the upgrade path.
 
 ## Quick Comparison
 
-| Feature | SQLite-vec | Cloudflare | Hybrid |
-|---------|------------|------------|--------|
-| **Read latency** | ~5ms (local) | Network-dependent | ~5ms (local reads) |
-| **Write latency** | Local disk | Network round-trip | Local disk + async cloud sync |
-| **Persistence** | Single file on disk | D1 + Vectorize + optional R2 | Local SQLite + Cloudflare mirror |
-| **Setup complexity** | Minimal — no credentials | Requires Cloudflare account + API token | Requires Cloudflare credentials |
-| **Best for** | Development, single-user | Edge / cloud-only deployments | **Production (recommended default)** |
-| **Offline operation** | Yes | No | Yes (syncs when online) |
-| **Multi-device sync** | No (file-based) | Yes (via Cloudflare) | Yes (via Cloudflare background sync) |
-| **Scale ceiling** | ~100K+ memories | Vectorize-limited (millions) | Same as Cloudflare |
-| **External embedding APIs** | Supported (Ollama, vLLM, TEI, OpenAI-compatible) | Not supported | Not supported |
+| Feature | SQLite-vec | Cloudflare | Hybrid | Milvus |
+|---------|------------|------------|--------|--------|
+| **Read latency** | ~5ms (local) | Network-dependent | ~5ms (local reads) | ~5ms (Milvus Lite local) / network (server, cloud) |
+| **Write latency** | Local disk | Network round-trip | Local disk + async cloud sync | Milvus Lite file / server round-trip |
+| **Persistence** | Single file on disk | D1 + Vectorize + optional R2 | Local SQLite + Cloudflare mirror | Single file (Lite) or external Milvus / Zilliz Cloud |
+| **Setup complexity** | Minimal — no credentials | Requires Cloudflare account + API token | Requires Cloudflare credentials | Minimal for Lite; token required for Zilliz Cloud |
+| **Best for** | Development, single-user | Edge / cloud-only deployments | **Production (recommended default)** | Dedicated vector DB deployments, scaling to millions+ |
+| **Offline operation** | Yes | No | Yes (syncs when online) | Yes (Lite) / depends on server location |
+| **Multi-device sync** | No (file-based) | Yes (via Cloudflare) | Yes (via Cloudflare background sync) | Yes (Milvus server / Zilliz Cloud shared) |
+| **Scale ceiling** | ~100K+ memories | Vectorize-limited (millions) | Same as Cloudflare | ~1M (Lite) / billions (server, Zilliz Cloud) |
+| **External embedding APIs** | Supported (Ollama, vLLM, TEI, OpenAI-compatible) | Not supported | Not supported | Not supported (uses local sentence-transformers) |
 
-All three backends implement the same `BaseStorage` interface and expose identical MCP tools and REST endpoints. The choice is about where data lives, not what you can do with it.
+All four backends implement the same `BaseStorage` interface and expose identical MCP tools and REST endpoints. The choice is about where data lives, not what you can do with it.
 
 ## When to Choose SQLite-vec
 
@@ -85,6 +85,39 @@ export MCP_HYBRID_SYNC_OWNER=http
 pip install -e ".[full]"
 ```
 
+## When to Choose Milvus
+
+### Ideal For:
+- **Dedicated vector-database deployments** — you already run Milvus (self-hosted or Zilliz Cloud) for other workloads and want memories in the same store
+- **Scaling beyond SQLite-vec** — collections that grow past the ~100K–1M comfort zone of SQLite-vec
+- **Shared team stores without Cloudflare** — a self-hosted Milvus or Zilliz Cloud endpoint as the source of truth
+- **Quick local iteration** — Milvus Lite is a single local file with zero external dependencies, like SQLite-vec
+
+### Technical Characteristics:
+- One codebase, three deployment modes — all use the same `pymilvus` MilvusClient API:
+  - **Milvus Lite**: single file on disk (`milvus.db`), no daemon required
+  - **Self-hosted Milvus**: HTTP/gRPC endpoint (e.g. Docker)
+  - **Zilliz Cloud**: managed endpoint with a token
+- AUTOINDEX + COSINE metric — works identically across all three modes
+- Embeddings generated locally via sentence-transformers (same model used by SQLite-vec)
+- Hard delete semantics — no tombstone overhead during vector search
+
+### Example:
+```bash
+export MCP_MEMORY_STORAGE_BACKEND=milvus
+# Milvus Lite (default) — just works:
+export MCP_MILVUS_URI=./milvus.db
+
+# Or point at a Milvus server / Zilliz Cloud:
+# export MCP_MILVUS_URI=http://localhost:19530
+# export MCP_MILVUS_URI=https://xxx.zillizcloud.com
+# export MCP_MILVUS_TOKEN=your-zilliz-token
+
+pip install -e ".[milvus]"
+```
+
+Deep dive: [Milvus Backend Guide](../milvus-backend.md).
+
 ## Deployment Compatibility Matrix
 
 The right backend is driven by connectivity, privacy, and scale — not by hardware. Use this matrix to pick based on deployment pattern:
@@ -136,6 +169,25 @@ Config:
   MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
   MCP_EXTERNAL_EMBEDDING_URL=http://localhost:8890/v1/embeddings
   MCP_EXTERNAL_EMBEDDING_MODEL=nomic-embed-text
+```
+
+### Using Milvus as your vector database
+```
+Recommended: milvus
+Why:         Scale to millions+ of memories on a dedicated Milvus server or
+             Zilliz Cloud endpoint; or run Milvus Lite locally as a single file.
+Config (Milvus Lite — local file):
+  MCP_MEMORY_STORAGE_BACKEND=milvus
+  MCP_MILVUS_URI=./milvus.db
+
+Config (self-hosted Milvus server):
+  MCP_MEMORY_STORAGE_BACKEND=milvus
+  MCP_MILVUS_URI=http://localhost:19530
+
+Config (Zilliz Cloud):
+  MCP_MEMORY_STORAGE_BACKEND=milvus
+  MCP_MILVUS_URI=https://xxx.zillizcloud.com
+  MCP_MILVUS_TOKEN=your-zilliz-token
 ```
 
 ## Performance Notes
@@ -281,6 +333,45 @@ export MCP_HYBRID_SYNC_OWNER=http
 ```
 No Cloudflare token needed in the MCP server's env when the HTTP server owns sync — the MCP server reads directly from SQLite-vec and the HTTP server (with the `.env` file) handles all Cloudflare I/O.
 
+### Milvus
+```bash
+export MCP_MEMORY_STORAGE_BACKEND=milvus
+
+# Milvus Lite (default): a single local file, no external service required
+export MCP_MILVUS_URI=./milvus.db
+
+# Or self-hosted Milvus server:
+# export MCP_MILVUS_URI=http://localhost:19530
+
+# Or Zilliz Cloud (token required):
+# export MCP_MILVUS_URI=https://xxx.zillizcloud.com
+# export MCP_MILVUS_TOKEN=your-zilliz-token
+
+# Optional: override the collection name (default: mcp_memory)
+# export MCP_MILVUS_COLLECTION_NAME=mcp_memory
+```
+
+> **Why `MCP_MILVUS_*` instead of `MILVUS_*`?**
+> pymilvus reserves the `MILVUS_URI` env var and validates it (requires `http(s)://`) at import time, so a local file path in that variable would error before our code runs. Using the `MCP_` prefix avoids that clash.
+
+**Claude Desktop config:**
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "python",
+      "args": ["-m", "mcp_memory_service.server"],
+      "env": {
+        "MCP_MEMORY_STORAGE_BACKEND": "milvus",
+        "MCP_MILVUS_URI": "/path/to/milvus.db"
+      }
+    }
+  }
+}
+```
+
+Deep dive: [Milvus Backend Guide](../milvus-backend.md).
+
 ## Decision Flowchart
 
 ```
@@ -297,6 +388,12 @@ Start: Choose Storage Backend
 │
 ├── Single-user development / local prototyping?
 │   └── Yes → sqlite_vec
+│
+├── Already run Milvus or Zilliz Cloud for other workloads?
+│   └── Yes → milvus
+│
+├── Need to scale past ~1M memories in a dedicated vector DB?
+│   └── Yes → milvus (self-hosted server or Zilliz Cloud)
 │
 └── Production / multi-device / want durability + local speed?
     └── hybrid (recommended default)
