@@ -139,16 +139,17 @@ function Enable-McpSelfSignedCertBypass {
         Bypasses self-signed certificate validation for the current PowerShell
         session, so Invoke-WebRequest can talk to the HTTPS health endpoint.
         No-op on HTTP-only setups. Safe to call multiple times.
+
+    .DESCRIPTION
+        PowerShell 5.1 (.NET Framework) and PowerShell 7+ (.NET Core/5+)
+        differ in cert-validation APIs:
+          - .NET Framework has System.Net.ICertificatePolicy (now obsolete).
+          - .NET Core/5+ REMOVED ICertificatePolicy entirely — Add-Type with
+            that interface fails with "Cannot add type. Compilation errors".
+
+        ServerCertificateValidationCallback is supported on both runtimes,
+        so we use it exclusively. No Add-Type / C# compile step needed.
     #>
-    if (-not ('TrustAllCertsPolicy' -as [type])) {
-        Add-Type -TypeDefinition @"
-using System.Net;
-using System.Security.Cryptography.X509Certificates;
-public class TrustAllCertsPolicy : ICertificatePolicy {
-    public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int problem) { return true; }
-}
-"@ -ErrorAction SilentlyContinue
-    }
-    [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
     [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
 }

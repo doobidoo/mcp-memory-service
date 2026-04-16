@@ -49,12 +49,16 @@ $StartTime = Get-Date
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $ManageServiceScript = Join-Path $PSScriptRoot "manage_service.ps1"
 
-# Load shared server-config helper (reads host/port/https from .env)
-. "$PSScriptRoot\lib\server-config.ps1"
-$ServerConfig = Get-McpServerConfig -ProjectRoot $ProjectRoot
-Enable-McpSelfSignedCertBypass
-$HealthUrl = $ServerConfig.HealthUrl
-$DashboardUrl = $ServerConfig.DashboardUrl
+# NOTE: Do NOT dot-source lib/server-config.ps1 here!
+#
+# Chicken-egg problem: if the currently checked-out lib has a bug
+# (e.g., ICertificatePolicy incompatible with PowerShell 7+), sourcing
+# it at script start would fail *before* `git pull` can deliver the fix.
+# We defer sourcing to AFTER the pull+install steps, so the freshly
+# pulled lib version is loaded. Steps 1-4 (status/pull/install) don't
+# need any lib functions.
+$HealthUrl = $null
+$DashboardUrl = $null
 
 # Color helpers
 function Write-InfoLog { param($Message) Write-Host "[i] $Message" -ForegroundColor Cyan }
@@ -269,6 +273,15 @@ try {
 } catch {
     Write-WarningLog "Could not verify installation version"
 }
+
+# Source shared server-config lib AFTER pull+install so we get the freshly
+# pulled version (see note at top). Needed for URL resolution and HTTPS
+# cert bypass during restart + health check.
+. "$PSScriptRoot\lib\server-config.ps1"
+$ServerConfig = Get-McpServerConfig -ProjectRoot $ProjectRoot
+Enable-McpSelfSignedCertBypass
+$HealthUrl = $ServerConfig.HealthUrl
+$DashboardUrl = $ServerConfig.DashboardUrl
 
 # Step 6: Restart server (if requested)
 if ($NoRestart) {
