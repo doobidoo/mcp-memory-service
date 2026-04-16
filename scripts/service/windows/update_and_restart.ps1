@@ -59,6 +59,7 @@ $ManageServiceScript = Join-Path $PSScriptRoot "manage_service.ps1"
 # need any lib functions.
 $HealthUrl = $null
 $DashboardUrl = $null
+$McpWebExtras = @{}
 
 # Color helpers
 function Write-InfoLog { param($Message) Write-Host "[i] $Message" -ForegroundColor Cyan }
@@ -88,8 +89,7 @@ function Get-ServerVersion {
             Uri = $HealthUrl
             TimeoutSec = 3
             ErrorAction = 'SilentlyContinue'
-        }
-        if ($McpWebExtras) { $params = $params + $McpWebExtras }
+        } + $McpWebExtras
         $Response = Invoke-RestMethod @params
         return $Response.version
     } catch {

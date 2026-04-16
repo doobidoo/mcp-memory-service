@@ -157,9 +157,18 @@ function Enable-McpSelfSignedCertBypass {
         The old Add-Type / ICertificatePolicy approach was removed because
         ICertificatePolicy does not exist in .NET Core/5+, so Add-Type
         failed with "Cannot add type. Compilation errors occurred".
+
+        Safety: on PS 7+ we skip the global callback assignment entirely.
+        The callback is process-wide and would affect other .NET components
+        (e.g. System.Net.WebClient, third-party libs) in the same session.
+        PS 7+ callers use per-request `-SkipCertificateCheck` via
+        `Get-McpWebRequestExtraParams`, so the global is pure liability there.
     #>
-    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+    if ($PSVersionTable.PSVersion.Major -lt 6) {
+        # PS 5.1 only: HttpWebRequest / WebClient honour these globals.
+        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+    }
 }
 
 function Get-McpWebRequestExtraParams {
