@@ -5026,7 +5026,7 @@ body.dark-mode .quality-tier-low,
 }
 
 .graph-link {
-    stroke: var(--text-tertiary);
+    stroke: var(--text-tertiary, var(--neutral-400));
     stroke-opacity: 0.6;
     stroke-width: 1.5px;
     fill: none;
