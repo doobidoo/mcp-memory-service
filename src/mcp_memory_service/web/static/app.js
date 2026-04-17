@@ -4394,6 +4394,16 @@ class MemoryDashboard {
         if (tabName === 'credentials') {
             this.loadCredentials();
         }
+
+        // Load server status + auto-check for updates when switching to server tab
+        // (runs once per modal open to avoid repeated git fetches)
+        if (tabName === 'server') {
+            this.loadServerStatus();
+            if (!this._serverUpdateChecked) {
+                this._serverUpdateChecked = true;
+                this.checkForUpdates();
+            }
+        }
     }
 
     /**
