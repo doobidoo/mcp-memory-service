@@ -39,8 +39,10 @@ import json
 import logging
 import math
 import os
+import threading
 import time
 import traceback
+from collections import OrderedDict
 from datetime import datetime, timezone, timedelta, date
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -80,7 +82,41 @@ logger = logging.getLogger(__name__)
 # don't reload a multi-hundred-MB model.
 _MODEL_CACHE: Dict[str, Any] = {}
 _DIMENSION_CACHE: Dict[str, int] = {}
-_EMBEDDING_CACHE: Dict[int, List[float]] = {}
+
+# Bounded LRU embedding cache. Keyed by ``f"{model_name}::{text}"`` so different
+# models don't collide, and the full text is stored rather than ``hash(text)``
+# (Python's 64-bit hash can collide and silently return a wrong embedding,
+# corrupting retrieval). The cache is capped to prevent unbounded growth in
+# long-lived processes. asyncio is single-threaded, but the underlying
+# embedding call runs via ``asyncio.to_thread`` so we guard with a Lock.
+_EMBEDDING_CACHE_MAX = 1024
+_EMBEDDING_CACHE: "OrderedDict[str, List[float]]" = OrderedDict()
+_EMBEDDING_CACHE_LOCK = threading.Lock()
+
+
+def _embedding_cache_get(key: str) -> Optional[List[float]]:
+    with _EMBEDDING_CACHE_LOCK:
+        value = _EMBEDDING_CACHE.get(key)
+        if value is None:
+            return None
+        _EMBEDDING_CACHE.move_to_end(key)
+        return value
+
+
+def _embedding_cache_put(key: str, value: List[float]) -> None:
+    with _EMBEDDING_CACHE_LOCK:
+        if key in _EMBEDDING_CACHE:
+            _EMBEDDING_CACHE.move_to_end(key)
+            _EMBEDDING_CACHE[key] = value
+            return
+        _EMBEDDING_CACHE[key] = value
+        while len(_EMBEDDING_CACHE) > _EMBEDDING_CACHE_MAX:
+            _EMBEDDING_CACHE.popitem(last=False)
+
+
+def _embedding_cache_size() -> int:
+    with _EMBEDDING_CACHE_LOCK:
+        return len(_EMBEDDING_CACHE)
 
 # Milvus VARCHAR hard cap. We leave a small safety margin so overhead fields
 # (metadata JSON keys etc.) don't push past the Milvus-side limit.
@@ -205,6 +241,12 @@ class MilvusMemoryStorage(MemoryStorage):
         self.embedding_dimension = 384  # default for all-MiniLM-L6-v2
         self._initialized = False
 
+        # Whether the live collection has a ``content_lower`` field. New
+        # collections always do; pre-existing collections from older versions
+        # may not. ``get_by_exact_content`` falls back to a client-side scan
+        # when this is False. Set in ``_ensure_collection``.
+        self._has_content_lower = False
+
         # Whether this storage is backed by Milvus Lite (embedded daemon) as
         # opposed to a remote Milvus server or Zilliz Cloud endpoint. We
         # mirror pymilvus's own heuristic (``uri.endswith('.db')``) — see
@@ -300,6 +342,16 @@ class MilvusMemoryStorage(MemoryStorage):
             datatype=DataType.VARCHAR,
             max_length=_MILVUS_VARCHAR_MAX,
         )
+        # Lower-cased mirror of ``content``. Populated on every insert/upsert
+        # so that ``get_by_exact_content`` can push a case-insensitive
+        # substring filter down to Milvus (its ``like`` operator is
+        # case-sensitive and has no escape syntax, so we match against the
+        # pre-lowered mirror instead of scanning rows in Python).
+        schema.add_field(
+            field_name="content_lower",
+            datatype=DataType.VARCHAR,
+            max_length=_MILVUS_VARCHAR_MAX,
+        )
         schema.add_field(
             field_name="tags",
             datatype=DataType.VARCHAR,
@@ -340,6 +392,7 @@ class MilvusMemoryStorage(MemoryStorage):
             schema=schema,
             index_params=index_params,
         )
+        self._has_content_lower = True
         logger.info(
             "Created Milvus collection '%s' (dim=%s)",
             self.collection_name, self.embedding_dimension,
@@ -360,7 +413,13 @@ class MilvusMemoryStorage(MemoryStorage):
         return None
 
     def _validate_existing_collection(self) -> None:
-        """Warn if the on-disk collection's vector dim disagrees with our model."""
+        """Warn if the on-disk collection's vector dim disagrees with our model.
+
+        Also detects whether the collection has the ``content_lower`` field
+        that ``get_by_exact_content`` relies on for server-side filtering.
+        Collections created before this field was introduced fall back to a
+        client-side scan; a warning is logged once on connection.
+        """
         assert self.client is not None
         try:
             info = self.client.describe_collection(collection_name=self.collection_name)
@@ -375,6 +434,16 @@ class MilvusMemoryStorage(MemoryStorage):
                 "embedding model produces dim=%s. Retrieval will fail until the "
                 "dimensions match. Drop the collection or switch embedding models.",
                 self.collection_name, dim, self.embedding_dimension,
+            )
+
+        field_names = {f.get("name") for f in info.get("fields", [])}
+        self._has_content_lower = "content_lower" in field_names
+        if not self._has_content_lower:
+            logger.warning(
+                "Collection '%s' lacks the 'content_lower' field — "
+                "get_by_exact_content will fall back to a slower client-side "
+                "scan. Recreate the collection to pick up server-side filtering.",
+                self.collection_name,
             )
 
     async def _initialize_embedding_model(self) -> None:
@@ -464,19 +533,24 @@ class MilvusMemoryStorage(MemoryStorage):
             raise ValueError("Embedding contains NaN or infinity")
 
     def _generate_embedding(self, text: str) -> List[float]:
-        """Generate an embedding for a single piece of text (sync)."""
+        """Generate an embedding for a single piece of text (sync).
+
+        Results are memoized in a bounded LRU keyed by ``(model_name, text)``
+        — keying by the full string avoids the silent-wrong-embedding risk of
+        ``hash(text)`` collisions.
+        """
         if not self.embedding_model:
             raise RuntimeError("Embedding model not loaded. Call initialize() first.")
 
-        cache_key = hash(text)
-        cached = _EMBEDDING_CACHE.get(cache_key)
+        cache_key = f"{self.embedding_model_name}::{text}"
+        cached = _embedding_cache_get(cache_key)
         if cached is not None:
             return cached
 
         raw = self.embedding_model.encode([text], convert_to_numpy=True)[0]
         embedding = raw.tolist() if hasattr(raw, "tolist") else list(raw)
         self._validate_embedding(embedding)
-        _EMBEDDING_CACHE[cache_key] = embedding
+        _embedding_cache_put(cache_key, embedding)
         return embedding
 
     # -- Helpers -------------------------------------------------------------
@@ -573,19 +647,46 @@ class MilvusMemoryStorage(MemoryStorage):
             logger.exception("Milvus RPC failed on %s: %s", method_name, exc)
             raise
 
+    @staticmethod
+    def _iso_from_epoch(epoch: float) -> str:
+        """Render an epoch second value as an ISO-8601 UTC string."""
+        return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
+
+    def _resolve_timestamps(
+        self, memory: Memory
+    ) -> Tuple[float, str, float, str]:
+        """Return ``(created_at, created_at_iso, updated_at, updated_at_iso)``.
+
+        Derives both epoch and ISO values from the same ``now`` when a field
+        is missing, guaranteeing the two representations refer to the same
+        moment (previously ``created_at`` and ``created_at_iso`` could be
+        produced from different clock reads).
+        """
+        now = time.time()
+        created_at = float(memory.created_at) if memory.created_at is not None else now
+        created_iso = memory.created_at_iso or self._iso_from_epoch(created_at)
+        updated_at = float(memory.updated_at) if memory.updated_at is not None else now
+        updated_iso = memory.updated_at_iso or self._iso_from_epoch(updated_at)
+        return created_at, created_iso, updated_at, updated_iso
+
     def _memory_to_entity(self, memory: Memory, embedding: List[float]) -> Dict[str, Any]:
-        return {
+        created_at, created_iso, updated_at, updated_iso = self._resolve_timestamps(memory)
+        content = memory.content or ""
+        entity: Dict[str, Any] = {
             "id": memory.content_hash,
             "vector": embedding,
-            "content": memory.content or "",
+            "content": content,
             "tags": _tags_to_string(memory.tags),
             "memory_type": memory.memory_type or "",
             "metadata": json.dumps(memory.metadata) if memory.metadata else "{}",
-            "created_at": float(memory.created_at) if memory.created_at is not None else time.time(),
-            "updated_at": float(memory.updated_at) if memory.updated_at is not None else time.time(),
-            "created_at_iso": memory.created_at_iso or "",
-            "updated_at_iso": memory.updated_at_iso or "",
+            "created_at": created_at,
+            "updated_at": updated_at,
+            "created_at_iso": created_iso,
+            "updated_at_iso": updated_iso,
         }
+        if self._has_content_lower:
+            entity["content_lower"] = content.lower()
+        return entity
 
     def _entity_to_memory(self, row: Dict[str, Any]) -> Optional[Memory]:
         try:
@@ -877,8 +978,9 @@ class MilvusMemoryStorage(MemoryStorage):
 
     @staticmethod
     def _retrieve_fetch_limit(n_results: int, tag_filter: str) -> int:
-        # Over-fetch when a tag filter is active — Milvus applies filters during
-        # search but effective selectivity can vary.
+        # Filtered ANN under HNSW can return fewer than `limit` results when
+        # the selectivity filter eliminates candidates; over-fetch 3× to
+        # compensate so the caller still gets the requested number of hits.
         base = n_results * 3 if tag_filter else n_results
         return max(1, min(base, _MILVUS_MAX_LIMIT))
 
@@ -1156,15 +1258,31 @@ class MilvusMemoryStorage(MemoryStorage):
     async def get_by_exact_content(self, content: str) -> List[Memory]:
         """Case-insensitive substring match on content.
 
-        Matches sqlite_vec's semantics (which uses ``LIKE '%...%' COLLATE NOCASE``).
-        Milvus ``like`` is case-sensitive, so we scan candidates and filter in
-        Python.  For expected collection sizes (thousands to low millions) this
-        is acceptable; production users with huge collections should prefer
-        full-text search on a dedicated field instead.
+        Matches sqlite_vec's semantics (``LIKE '%...%' COLLATE NOCASE``
+        ordered by ``created_at DESC``). The filter is pushed down to Milvus
+        via the mirrored ``content_lower`` field so we don't fetch every row
+        into Python. On legacy collections that predate ``content_lower``,
+        falls back to a bounded client-side scan.
         """
         if not self._ensure_initialized():
             return []
 
+        if not self._has_content_lower:
+            return await self._get_by_exact_content_fallback(content)
+
+        needle = _escape_like(content.lower())
+        if not needle:
+            return []
+        safe = needle.replace('"', '\\"')
+        filter_expr = f'content_lower like "%{safe}%"'
+        return await self._query_memories(
+            filter_expr=filter_expr,
+            limit=_MILVUS_MAX_LIMIT,
+            sort_desc_key="created_at",
+        )
+
+    async def _get_by_exact_content_fallback(self, content: str) -> List[Memory]:
+        """Client-side scan for collections without ``content_lower`` field."""
         memories = await self.get_all_memories()
         needle = content.lower()
         return [m for m in memories if needle in (m.content or "").lower()]
@@ -1222,9 +1340,13 @@ class MilvusMemoryStorage(MemoryStorage):
     def _compute_update_timestamps(
         self, existing: Memory, updates: Dict[str, Any], preserve_timestamps: bool
     ) -> Tuple[Optional[float], Optional[str], float, str]:
-        """Pick the (created_at, created_at_iso, updated_at, updated_at_iso) tuple for an upsert."""
+        """Pick the (created_at, created_at_iso, updated_at, updated_at_iso) tuple for an upsert.
+
+        Both ``now`` and its ISO rendering come from the same ``time.time()``
+        reading, so the two representations never refer to different moments.
+        """
         now = time.time()
-        now_iso = datetime.utcfromtimestamp(now).isoformat() + "Z"
+        now_iso = self._iso_from_epoch(now)
         structural = any(k in updates for k in ("tags", "memory_type", "content"))
 
         if preserve_timestamps and not structural:
@@ -1268,19 +1390,31 @@ class MilvusMemoryStorage(MemoryStorage):
     ) -> Dict[str, Any]:
         new_tags, new_type, new_metadata = merged
         created_at, created_at_iso, updated_at, updated_at_iso = timestamps
+        # Derive a single fallback instant so missing created_at and missing
+        # created_at_iso both reference the same moment.
         now = time.time()
-        return {
+        if created_at is None:
+            created_at = now
+            created_at_iso = created_at_iso or self._iso_from_epoch(now)
+        else:
+            created_at = float(created_at)
+            created_at_iso = created_at_iso or self._iso_from_epoch(created_at)
+        content = existing.content or ""
+        entity: Dict[str, Any] = {
             "id": existing.content_hash,
             "vector": embedding,
-            "content": existing.content or "",
+            "content": content,
             "tags": _tags_to_string(new_tags),
             "memory_type": new_type or "",
             "metadata": json.dumps(new_metadata),
-            "created_at": float(created_at) if created_at is not None else now,
+            "created_at": created_at,
             "updated_at": float(updated_at),
-            "created_at_iso": created_at_iso or "",
+            "created_at_iso": created_at_iso,
             "updated_at_iso": updated_at_iso,
         }
+        if self._has_content_lower:
+            entity["content_lower"] = content.lower()
+        return entity
 
     async def update_memory_metadata(
         self,
@@ -1496,6 +1630,8 @@ class MilvusMemoryStorage(MemoryStorage):
         timestamps = [row["created_at"] for row in rows if row.get("created_at") is not None]
         return sorted(timestamps, reverse=True)
 
+    _QUERY_ITER_BATCH = 1000
+
     async def _query_memories(
         self,
         filter_expr: str,
@@ -1503,23 +1639,19 @@ class MilvusMemoryStorage(MemoryStorage):
         offset: int = 0,
         sort_desc_key: Optional[str] = None,
     ) -> List[Memory]:
-        """Run a scalar ``query`` and return Memory objects, sorted client-side."""
-        limit = max(1, min(limit, _MILVUS_MAX_LIMIT))
-        # Milvus has a limit on offset (~16384), but total rows < offset+limit still works.
-        fetch_limit = min(offset + limit, _MILVUS_MAX_LIMIT)
+        """Stream rows via ``QueryIterator`` and return sorted, sliced ``Memory``
+        objects.
 
-        try:
-            rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=filter_expr or "",
-                output_fields=list(self._OUTPUT_FIELDS),
-                limit=fetch_limit,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Milvus query failed (filter=%r): %s", filter_expr, exc)
+        Iterating avoids the silent 16384-row truncation that a plain
+        ``client.query(limit=...)`` imposes: the cap only applies per RPC, not
+        per scan, so a filter that selects more than 16384 matching rows used
+        to return an arbitrary window. Sorting is still done client-side
+        (Milvus Lite has no server-side ``order_by``), but it is now applied
+        to the full matching set rather than to a random subset.
+        """
+        if limit <= 0:
             return []
-
+        rows = await self._iterate_all_rows(filter_expr)
         memories: List[Memory] = []
         for row in rows:
             mem = self._entity_to_memory(row)
@@ -1532,6 +1664,40 @@ class MilvusMemoryStorage(MemoryStorage):
         if offset:
             memories = memories[offset:]
         return memories[:limit]
+
+    async def _iterate_all_rows(self, filter_expr: str) -> List[Dict[str, Any]]:
+        """Collect every row matching ``filter_expr`` using ``QueryIterator``.
+
+        One lock-acquisition covers the full iteration so other coroutines
+        can't interleave RPCs on the shared pymilvus channel.
+        """
+        async with self._write_lock:
+            if self.client is None:
+                raise RuntimeError("MilvusMemoryStorage was not initialized")
+            return await asyncio.to_thread(self._drain_query_iterator, filter_expr)
+
+    def _drain_query_iterator(self, filter_expr: str) -> List[Dict[str, Any]]:
+        """Sync helper that drains a ``QueryIterator`` into a plain list."""
+        assert self.client is not None
+        iterator = self.client.query_iterator(
+            collection_name=self.collection_name,
+            filter=filter_expr or "",
+            output_fields=list(self._OUTPUT_FIELDS),
+            batch_size=self._QUERY_ITER_BATCH,
+        )
+        rows: List[Dict[str, Any]] = []
+        try:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                rows.extend(batch)
+        finally:
+            try:
+                iterator.close()
+            except Exception:  # noqa: BLE001 — teardown must not raise
+                pass
+        return rows
 
     # -- Teardown ------------------------------------------------------------
 
