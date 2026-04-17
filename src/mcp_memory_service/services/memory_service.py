@@ -8,6 +8,7 @@ all memory operations, eliminating the DRY violation and ensuring consistent beh
 
 import json
 import logging
+import math
 import sys
 from typing import Dict, List, Optional, Any, Union
 
@@ -313,11 +314,14 @@ class MemoryService:
             for memory in memories:
                 results.append(self._format_memory_response(memory))
 
+            total_pages = math.ceil(total / page_size) if page_size > 0 else 0
+
             return {
                 "memories": results,
                 "page": page,
                 "page_size": page_size,
                 "total": total,
+                "total_pages": total_pages,
                 "has_more": offset + page_size < total
             }
 
@@ -328,7 +332,10 @@ class MemoryService:
                 "error": f"Failed to list memories: {str(e)}",
                 "memories": [],
                 "page": page,
-                "page_size": page_size
+                "page_size": page_size,
+                "total": 0,
+                "total_pages": 0,
+                "has_more": False
             }
 
     async def store_memory(

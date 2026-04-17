@@ -650,6 +650,7 @@ RETURNS:
 - page: Current page number
 - page_size: Results per page
 - total_pages: Total pages available
+- has_more: True if additional pages follow the current one
 
 Examples:
 {

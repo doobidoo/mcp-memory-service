@@ -155,6 +155,27 @@ async def test_list_memories_has_more_false(memory_service, mock_storage, sample
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("total,page_size,expected_pages", [
+    (0, 10, 0),     # empty dataset
+    (5, 2, 3),      # partial last page (ceil)
+    (10, 10, 1),    # exact fit
+    (11, 10, 2),    # one extra item rolls to next page
+    (100, 25, 4),   # clean division
+])
+async def test_list_memories_total_pages_calculation(
+    memory_service, mock_storage, sample_memories, total, page_size, expected_pages
+):
+    """Test total_pages is computed correctly for various total/page_size combinations."""
+    mock_storage.get_all_memories.return_value = sample_memories[:min(total, page_size)]
+    mock_storage.count_all_memories.return_value = total
+
+    result = await memory_service.list_memories(page=1, page_size=page_size)
+
+    assert result["total"] == total
+    assert result["total_pages"] == expected_pages
+
+
+@pytest.mark.asyncio
 async def test_list_memories_error_handling(memory_service, mock_storage):
     """Test error handling in list_memories."""
     mock_storage.get_all_memories.side_effect = Exception("Database error")
@@ -165,6 +186,10 @@ async def test_list_memories_error_handling(memory_service, mock_storage):
     assert "error" in result
     assert "Database error" in result["error"]
     assert result["memories"] == []
+    # Error path must still expose pagination fields per documented contract
+    assert result["total"] == 0
+    assert result["total_pages"] == 0
+    assert result["has_more"] is False
 
 
 # Test store_memory method
