@@ -91,6 +91,18 @@ sqlite = [
 sqlite-ml = [
     "mcp-memory-service[sqlite,ml]"
 ]
+# Milvus backend — Milvus Lite (single file), self-hosted Milvus, or Zilliz Cloud.
+# Shipped with the ML extras so sentence-transformers embeddings are available.
+milvus = [
+    "pymilvus>=2.5.0",
+    "milvus-lite>=2.4.10",
+    # milvus-lite 2.5.x still imports `pkg_resources` from setuptools; that API
+    # was removed in setuptools 81. Pin setuptools below 81 on newer Pythons
+    # where the default wheels are affected. Safe no-op on Pythons that resolve
+    # older setuptools naturally.
+    "setuptools<81; python_version >= '3.13'",
+    "mcp-memory-service[ml]",
+]
 # Full installation including all optional dependencies
 full = [
     "mcp-memory-service[sqlite,ml,dev]"

@@ -358,6 +358,9 @@ Choose from:
 - **SQLite** (local, fast, single-user)
 - **Cloudflare** (cloud, multi-device sync)
 - **Hybrid** (best of both: 5ms local + background cloud sync)
+- **Milvus** (dedicated vector DB — Milvus Lite file, self-hosted, or Zilliz Cloud)
+
+> ℹ️ For long-lived services (MCP servers, web backends, notebook sessions), prefer Docker Milvus or Zilliz Cloud over Milvus Lite. See [docs/milvus-backend.md](docs/milvus-backend.md#which-uri-to-use) for why.
 
 </details>
 

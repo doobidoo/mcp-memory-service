@@ -259,9 +259,42 @@ class HealthCheckFactory:
             return SqliteHealthChecker()
         elif storage_type == "CloudflareStorage":
             return CloudflareHealthChecker()
+        elif storage_type == "MilvusMemoryStorage":
+            return MilvusHealthChecker()
         else:
             # Default to a simple unknown strategy
             return UnknownStorageChecker()
+
+
+class MilvusHealthChecker(HealthCheckStrategy):
+    """Health check strategy for Milvus storage (Lite / server / Zilliz Cloud)."""
+
+    async def check_health(self, storage: Any) -> Tuple[bool, str, Dict[str, Any]]:
+        """Check Milvus storage health by verifying the client and collection are live."""
+        client = getattr(storage, "client", None)
+        if client is None:
+            return False, "Milvus client is not initialized", {
+                "status": "error",
+                "backend": "milvus",
+                "error": "Milvus client is not initialized",
+            }
+
+        collection_name = getattr(storage, "collection_name", "mcp_memory")
+        try:
+            stats = await storage.get_stats()
+        except Exception as exc:
+            logger.error("Milvus health check error: %s", exc)
+            return False, f"Milvus storage validation error: {exc}", {
+                "status": "error",
+                "backend": "milvus",
+                "error": str(exc),
+                "collection": collection_name,
+            }
+
+        stats.setdefault("status", "healthy")
+        stats.setdefault("backend", "milvus")
+        stats.setdefault("collection", collection_name)
+        return True, "Milvus storage validation successful", stats
 
 
 class UnknownStorageChecker(HealthCheckStrategy):

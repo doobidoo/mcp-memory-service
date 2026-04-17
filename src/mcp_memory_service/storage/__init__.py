@@ -34,3 +34,9 @@ try:
     __all__.append('HybridMemoryStorage')
 except ImportError:
     HybridMemoryStorage = None
+
+try:
+    from .milvus import MilvusMemoryStorage
+    __all__.append('MilvusMemoryStorage')
+except ImportError:
+    MilvusMemoryStorage = None
