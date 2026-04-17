@@ -796,3 +796,199 @@ async def test_remote_does_not_reconnect_on_channel_error():
     assert fake.call_count == 1, "remote path must invoke the client exactly once (no retry)"
     assert storage.client is fake, "remote path must not swap self.client"
     assert id(storage.client) == stable_id
+
+
+# -- Review-follow-up tests (PR #721 review fixes) --------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_by_exact_content_server_side_filter(storage, monkeypatch):
+    """get_by_exact_content must push the filter down to Milvus rather than
+    materialize every row into Python (previously it fetched up to 16384 rows
+    and did substring matching in a loop).
+    """
+    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+
+    # 20 distinct memories, one of which we'll search for by unique substring.
+    for i in range(20):
+        content = f"noise memory number {i} about unrelated subject"
+        m = Memory(content=content, content_hash=_ch(content), tags=["noise"])
+        await storage.store(m, skip_semantic_dedup=True)
+    target_text = "unique needle memory — zxqvbn"
+    target = Memory(
+        content=target_text,
+        content_hash=_ch(target_text),
+        tags=["needle"],
+    )
+    await storage.store(target, skip_semantic_dedup=True)
+
+    # Spy on _query_memories: the call must pass a filter that mentions
+    # content_lower and narrows the scan at the Milvus layer.
+    captured: dict = {}
+    original = storage._query_memories
+
+    async def _spy(*args, **kwargs):
+        filter_expr = kwargs.get("filter_expr") or (args[0] if args else "")
+        captured["filter_expr"] = filter_expr
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(storage, "_query_memories", _spy)
+
+    hits = await storage.get_by_exact_content("zxqvbn")
+
+    assert len(hits) == 1
+    assert hits[0].content_hash == target.content_hash
+    assert "content_lower" in captured["filter_expr"]
+    assert "zxqvbn" in captured["filter_expr"]
+
+
+@pytest.mark.asyncio
+async def test_get_by_exact_content_case_insensitive(storage):
+    """Matches sqlite_vec's LIKE … COLLATE NOCASE semantics."""
+    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+
+    content = "Hello World case-sensitivity probe"
+    m = Memory(content=content, content_hash=_ch(content), tags=["case"])
+    await storage.store(m, skip_semantic_dedup=True)
+
+    hits = await storage.get_by_exact_content("hello world")
+    assert len(hits) == 1
+    assert hits[0].content_hash == m.content_hash
+
+
+@pytest.mark.asyncio
+async def test_query_memories_returns_most_recent_first(storage):
+    """Sorted pagination must work on the FULL matching set, not on whichever
+    window Milvus happens to return first. Regression for the 16384-cap bug.
+    """
+    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+
+    stored = []
+    for i in range(5):
+        content = f"ordering-test memory {i} unique-{uuid.uuid4().hex[:8]}"
+        m = Memory(content=content, content_hash=_ch(content), tags=["order"])
+        ok, _ = await storage.store(m, skip_semantic_dedup=True)
+        assert ok
+        stored.append(m.content_hash)
+        # Distinct timestamps — created_at is a float so 100ms is enough.
+        await asyncio.sleep(0.1)
+
+    results = await storage.search_by_tag(["order"])
+    assert len(results) == 5
+    # Most recent stored first (search_by_tag sorts by created_at DESC).
+    returned = [m.content_hash for m in results]
+    assert returned == list(reversed(stored))
+
+    # Now apply a tighter limit via get_all_memories and verify we still get
+    # the two most recent, in correct order.
+    top2 = await storage.get_all_memories(limit=2)
+    assert [m.content_hash for m in top2] == list(reversed(stored))[:2]
+
+
+@pytest.mark.asyncio
+async def test_query_memories_pagination(storage):
+    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+
+    hashes = []
+    for i in range(10):
+        content = f"pagination memory {i} {uuid.uuid4().hex[:6]}"
+        m = Memory(content=content, content_hash=_ch(content), tags=["page"])
+        await storage.store(m, skip_semantic_dedup=True)
+        hashes.append(m.content_hash)
+        await asyncio.sleep(0.05)
+
+    page1 = await storage.get_all_memories(limit=3, offset=0)
+    page2 = await storage.get_all_memories(limit=3, offset=3)
+
+    assert len(page1) == 3
+    assert len(page2) == 3
+    # No overlap between pages.
+    assert set(m.content_hash for m in page1).isdisjoint(
+        m.content_hash for m in page2
+    )
+    # Ordering consistent across pages — most recent first.
+    expected_desc = list(reversed(hashes))
+    assert [m.content_hash for m in page1] == expected_desc[:3]
+    assert [m.content_hash for m in page2] == expected_desc[3:6]
+
+
+def test_memory_to_entity_timestamps_consistent(milvus_db_path):
+    """When created_at / created_at_iso are unset, the entity's epoch and ISO
+    timestamps must reference the same instant. Regression for the bug where
+    they were derived from two separate clock reads.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+
+    storage = MilvusMemoryStorage(
+        uri=str(milvus_db_path),
+        collection_name=f"ts_{uuid.uuid4().hex[:8]}",
+    )
+    # We don't call initialize() — _memory_to_entity is pure and just needs an
+    # embedding to be supplied.
+
+    content = "timestamp-consistency probe"
+    mem = Memory(content=content, content_hash=_ch(content), tags=["ts"])
+    # Memory.__post_init__ auto-populates timestamps — null them out so we
+    # exercise the "both fields missing" fallback path in _resolve_timestamps.
+    mem.created_at = None
+    mem.created_at_iso = None
+    mem.updated_at = None
+    mem.updated_at_iso = None
+
+    entity = storage._memory_to_entity(mem, embedding=[0.0] * 4)
+
+    created_epoch = float(entity["created_at"])
+    created_iso = entity["created_at_iso"]
+    parsed = _dt.fromisoformat(created_iso).astimezone(_tz.utc).timestamp()
+    assert abs(parsed - created_epoch) < 1.0, (
+        f"created_at and created_at_iso refer to different moments "
+        f"(epoch={created_epoch}, iso->epoch={parsed})"
+    )
+
+    updated_epoch = float(entity["updated_at"])
+    updated_iso = entity["updated_at_iso"]
+    parsed_u = _dt.fromisoformat(updated_iso).astimezone(_tz.utc).timestamp()
+    assert abs(parsed_u - updated_epoch) < 1.0
+
+
+def test_embedding_cache_does_not_collide():
+    """Cache must key on the full text, not ``hash(text)``. Different strings
+    must produce (and return) different embeddings — covers the silent-wrong-
+    embedding risk of 64-bit hash collisions.
+    """
+    from src.mcp_memory_service.storage import milvus as milvus_mod
+
+    # Reset cache to isolate this test from others in the session.
+    with milvus_mod._EMBEDDING_CACHE_LOCK:
+        milvus_mod._EMBEDDING_CACHE.clear()
+
+    key_a = "model::hello"
+    key_b = "model::world"
+    milvus_mod._embedding_cache_put(key_a, [1.0, 2.0, 3.0])
+    milvus_mod._embedding_cache_put(key_b, [4.0, 5.0, 6.0])
+
+    assert milvus_mod._embedding_cache_get(key_a) == [1.0, 2.0, 3.0]
+    assert milvus_mod._embedding_cache_get(key_b) == [4.0, 5.0, 6.0]
+    # Distinct keys → distinct embeddings, not shared cells.
+    assert milvus_mod._embedding_cache_get(key_a) is not milvus_mod._embedding_cache_get(key_b)
+
+
+def test_embedding_cache_bounded():
+    """Inserting 2000 unique entries must not push the cache past its max
+    size — the LRU evicts the oldest.
+    """
+    from src.mcp_memory_service.storage import milvus as milvus_mod
+
+    with milvus_mod._EMBEDDING_CACHE_LOCK:
+        milvus_mod._EMBEDDING_CACHE.clear()
+
+    max_size = milvus_mod._EMBEDDING_CACHE_MAX
+    for i in range(2000):
+        milvus_mod._embedding_cache_put(f"model::entry-{i}", [float(i)])
+
+    assert milvus_mod._embedding_cache_size() <= max_size
+    # Oldest entries should have been evicted.
+    assert milvus_mod._embedding_cache_get("model::entry-0") is None
+    # Newest entries should still be resident.
+    assert milvus_mod._embedding_cache_get("model::entry-1999") == [1999.0]
