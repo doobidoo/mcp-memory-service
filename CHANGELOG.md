@@ -18,7 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
-- **Knowledge graph dashboard: edges invisible for non-canonical `relationship_type` values**: `.graph-link` in `src/mcp_memory_service/web/static/style.css` used `stroke: var(--text-tertiary)`, but `--text-tertiary` is not declared anywhere in the stylesheet. Relationships whose type was not one of the six canonical values (`causes`, `fixes`, `contradicts`, `supports`, `follows`, `related`) — e.g. consolidation-generated types such as `uses`, `routes-to`, `documents`, `calls`, `part-of`, `contains`, `feeds-into` — had no typed `.link-*` override and therefore fell back to `stroke: none` (CSS `stroke` initial value when a `var()` resolves to nothing), rendering the edges invisible on `/api/analytics/graph-visualization` regardless of `limit` or `min_connections`. Added a `--neutral-400` fallback to the `var()` call so all edges now render in a neutral gray when no typed color applies. Data from `/api/analytics/graph-visualization` was always correct; the regression was purely CSS.
+- **Knowledge graph dashboard**: Fixed invisible edges for non-canonical relationship types by providing a fallback color for undefined CSS variables.
 - **Flaky concurrent test**: Relaxed strict write-count assertions in `test_concurrent_clients.py` from `== 10` to `>= 9` (and `== 5` to `>= 4`). SQLite WAL lock contention under CI runner load can legitimately drop 1 of N concurrent writes.
 
 ## [10.38.2] - 2026-04-16
