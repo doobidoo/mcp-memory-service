@@ -8,7 +8,7 @@ to directly access memory operations using the MCP standard.
 import json
 import logging
 from typing import Dict, Any, Optional, Union
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
@@ -151,6 +151,13 @@ async def mcp_endpoint(
 ):
     """Main MCP protocol endpoint for processing MCP requests."""
     try:
+        # JSON-RPC 2.0: a message without `id` is a Notification; the server
+        # MUST NOT reply. MCP Streamable HTTP requires HTTP 202 Accepted with
+        # no body in that case. Returning an error here breaks strict clients
+        # (e.g. Codex's rmcp) during the `notifications/initialized` handshake.
+        if request.id is None:
+            return Response(status_code=202)
+
         storage = get_storage()
 
         if request.method == "initialize":
