@@ -306,7 +306,7 @@ async function main() {
 
         if (config.autoCapture.debugMode) {
             console.log(`[auto-capture] Stored successfully in ${elapsed}ms`);
-            console.log(`[auto-capture] Hash: ${result.content_hash || 'unknown'}`);
+            console.log(`[auto-capture] Hash: ${result.content_hash || result.contentHash || 'unknown'}`);
         }
 
         process.exit(0);
