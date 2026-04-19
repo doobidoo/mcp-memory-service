@@ -7,6 +7,10 @@ const https = require('https');
 const http = require('http');
 const { MCPClient } = require('./mcp-client');
 
+// TODO: Follow-up — extract shared HTTP helper. _attemptHealthCheck, _performApiPost,
+// storeMemoryHTTP, and queryMemoriesHTTP duplicate request construction. See Gemini
+// review on PR #735.
+
 class MemoryClient {
     constructor(config) {
         this.config = config;
@@ -163,7 +167,7 @@ class MemoryClient {
 
                 const requestOptions = {
                     hostname: url.hostname,
-                    port: url.port || (url.protocol === 'https:' ? 8443 : 8889),
+                    port: url.port || (url.protocol === 'https:' ? 8443 : 8000),
                     path: url.pathname,
                     method: 'GET',
                     headers: {
@@ -355,7 +359,7 @@ class MemoryClient {
 
             const options = {
                 hostname: url.hostname,
-                port: url.port || (url.protocol === 'https:' ? 8443 : 8889),
+                port: url.port || (url.protocol === 'https:' ? 8443 : 8000),
                 path: url.pathname,
                 method: 'POST',
                 headers: {
