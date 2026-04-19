@@ -241,6 +241,110 @@ class MemoryClient {
     }
 
     /**
+     * Store a memory using the active protocol.
+     * @param {string} content - Memory content
+     * @param {object} opts - { tags, memoryType, metadata }
+     * @returns {Promise<{success: boolean, contentHash?: string, error?: string}>}
+     */
+    async storeMemory(content, opts = {}) {
+        const { tags = [], memoryType = null, metadata = {} } = opts;
+        if (this.activeProtocol === 'mcp' && this.mcpClient) {
+            return this.storeMemoryMCP(content, { tags, memoryType, metadata });
+        } else if (this.activeProtocol === 'http') {
+            return this.storeMemoryHTTP(content, { tags, memoryType, metadata });
+        } else {
+            throw new Error('No active connection available');
+        }
+    }
+
+    /**
+     * Store memory via HTTP REST API.
+     * @private
+     */
+    storeMemoryHTTP(content, { tags, memoryType, metadata }) {
+        return new Promise((resolve) => {
+            const url = new URL('/api/memories', this.httpConfig.endpoint);
+            const isHttps = url.protocol === 'https:';
+            const payload = JSON.stringify({
+                content,
+                tags,
+                memory_type: memoryType,
+                metadata,
+            });
+
+            const options = {
+                hostname: url.hostname,
+                port: url.port || (isHttps ? 8443 : 8000),
+                path: url.pathname,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(payload),
+                    'X-API-Key': this.httpConfig.apiKey,
+                },
+                timeout: 5000,
+            };
+
+            if (isHttps) {
+                options.rejectUnauthorized = false;
+            }
+
+            const requestModule = isHttps ? https : http;
+            const req = requestModule.request(options, (res) => {
+                let data = '';
+                res.on('data', (chunk) => (data += chunk));
+                res.on('end', () => {
+                    if (res.statusCode >= 200 && res.statusCode < 300) {
+                        try {
+                            const parsed = JSON.parse(data);
+                            resolve({
+                                success: parsed.success !== false,
+                                contentHash: parsed.content_hash || parsed.contentHash,
+                            });
+                        } catch (err) {
+                            resolve({ success: false, error: `Parse error: ${err.message}` });
+                        }
+                    } else {
+                        resolve({ success: false, error: `HTTP ${res.statusCode}: ${data}` });
+                    }
+                });
+            });
+
+            req.on('error', (error) => {
+                resolve({ success: false, error: error.message });
+            });
+
+            req.on('timeout', () => {
+                req.destroy();
+                resolve({ success: false, error: 'Request timeout' });
+            });
+
+            req.write(payload);
+            req.end();
+        });
+    }
+
+    /**
+     * Store memory via MCP protocol.
+     * @private
+     */
+    async storeMemoryMCP(content, { tags, memoryType, metadata }) {
+        try {
+            const result = await this.mcpClient.storeMemory(content, {
+                tags,
+                memoryType,
+                metadata,
+            });
+            return {
+                success: result?.success !== false,
+                contentHash: result?.content_hash || result?.contentHash,
+            };
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
+    }
+
+    /**
      * Private helper: Perform HTTP POST request to API
      * @private
      */
