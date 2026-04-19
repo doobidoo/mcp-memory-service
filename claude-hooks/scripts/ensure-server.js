@@ -101,14 +101,14 @@ function spawnServer() {
         // Strategy 2 & 3: python-based fallbacks
         const pythonCandidates = [
             process.env.MCP_MEMORY_PYTHON,
-            path.join(process.cwd(), '.venv', 'bin', 'python'),
+            path.join(__dirname, '..', '..', '.venv', 'bin', 'python'),
             'python3',
             'python',
         ].filter(Boolean);
 
         const pythonInvocations = [
             ['-m', 'mcp_memory_service.cli.main', 'server', '--http'],
-            [path.join('scripts', 'server', 'run_http_server.py')],
+            [path.join(__dirname, '..', '..', 'scripts', 'server', 'run_http_server.py')],
         ];
 
         for (const python of pythonCandidates) {
@@ -131,7 +131,7 @@ function spawnServer() {
         log('could not spawn HTTP server — install mcp-memory-service or set MCP_MEMORY_PYTHON');
         return false;
     } finally {
-        try { fs.closeSync(logFd); } catch (_) {}
+        if (typeof logFd === 'number') { try { fs.closeSync(logFd); } catch (_) {} }
     }
 }
 
@@ -164,10 +164,12 @@ async function main() {
     }
 }
 
-main()
-    .catch((err) => {
-        log(`unexpected error: ${err.message}`);
-    })
-    .finally(() => {
-        process.exit(0); // never block
-    });
+if (require.main === module) {
+    main()
+        .catch((err) => {
+            log(`unexpected error: ${err.message}`);
+        })
+        .finally(() => {
+            process.exit(0); // never block
+        });
+}
