@@ -10,6 +10,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+- **plugin**: Claude Code plugin packaging for the claude-hooks suite. Install via `/plugin marketplace add doobidoo/mcp-memory-service` + `/plugin install mcp-memory-service`. Ships with `.mcp.json`, hook wiring, and self-healing `ensure-server.js`. Coexists with the legacy `install_hooks.py` installer — see [claude-hooks/PLUGIN.md](claude-hooks/PLUGIN.md). Closes #530 (plugin packaging track).
+
 ### Changed
 - **hooks**: Route memory writes through `MemoryClient.storeMemory()` — enables MCP protocol fallback for `session-end` and `auto-capture` hooks. Closes silent write-failure path documented in #530 (Option B).
 
