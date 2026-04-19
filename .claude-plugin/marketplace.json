@@ -1,0 +1,11 @@
+{
+  "name": "mcp-memory-service",
+  "owner": { "name": "doobidoo", "url": "https://github.com/doobidoo" },
+  "plugins": [
+    {
+      "name": "mcp-memory-service",
+      "source": "./claude-hooks",
+      "description": "Semantic memory for Claude Code sessions"
+    }
+  ]
+}
