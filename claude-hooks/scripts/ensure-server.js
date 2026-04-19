@@ -74,33 +74,65 @@ function resolveLogPath() {
 }
 
 function spawnServer() {
-    const pythonCandidates = [
-        process.env.MCP_MEMORY_PYTHON,
-        path.join(process.cwd(), '.venv', 'bin', 'python'),
-        'python3',
-        'python',
-    ].filter(Boolean);
-
-    const scriptPath = path.join('scripts', 'server', 'run_http_server.py');
     const logPath = resolveLogPath();
-    const logFd = fs.openSync(logPath, 'a');
+    let logFd;
+    try {
+        logFd = fs.openSync(logPath, 'a');
+    } catch (err) {
+        log(`could not open log file at ${logPath}: ${err.message}`);
+        return false;
+    }
 
-    for (const python of pythonCandidates) {
+    try {
+        // Strategy 1: memory CLI entry point (installed by pip install mcp-memory-service)
         try {
-            const child = spawn(python, [scriptPath], {
+            const child = spawn('memory', ['server', '--http'], {
                 detached: true,
                 stdio: ['ignore', logFd, logFd],
                 env: process.env,
             });
             child.unref();
-            log(`spawned HTTP server via ${python} (log: ${logPath})`);
+            log(`spawned HTTP server via 'memory server --http' (log: ${logPath})`);
             return true;
         } catch (err) {
-            log(`spawn with ${python} failed: ${err.message}`);
+            log(`'memory' CLI unavailable: ${err.message}`);
         }
+
+        // Strategy 2 & 3: python-based fallbacks
+        const pythonCandidates = [
+            process.env.MCP_MEMORY_PYTHON,
+            path.join(process.cwd(), '.venv', 'bin', 'python'),
+            'python3',
+            'python',
+        ].filter(Boolean);
+
+        const pythonInvocations = [
+            ['-m', 'mcp_memory_service.cli.main', 'server', '--http'],
+            [path.join('scripts', 'server', 'run_http_server.py')],
+        ];
+
+        for (const python of pythonCandidates) {
+            for (const args of pythonInvocations) {
+                try {
+                    const child = spawn(python, args, {
+                        detached: true,
+                        stdio: ['ignore', logFd, logFd],
+                        env: process.env,
+                    });
+                    child.unref();
+                    log(`spawned HTTP server via ${python} ${args.join(' ')} (log: ${logPath})`);
+                    return true;
+                } catch (err) {
+                    log(`spawn with ${python} ${args.join(' ')} failed: ${err.message}`);
+                }
+            }
+        }
+
+        log('could not spawn HTTP server — install mcp-memory-service or set MCP_MEMORY_PYTHON');
+        return false;
+    } finally {
+        try { fs.closeSync(logFd); } catch (_) {}
     }
-    log('could not spawn python — install python3 or set MCP_MEMORY_PYTHON');
-    return false;
 }
 
 async function pollUntilHealthy(endpoint, deadlineMs) {
