@@ -434,19 +434,19 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.38.3** (April 17, 2026)
+## Latest Release: **v10.38.4** (April 19, 2026)
 
-**fix: Server tab auto-check, list_memories total_pages, knowledge graph edge rendering**
+**fix(mcp): return HTTP 202 for JSON-RPC notifications — fixes Codex / strict-client handshake**
 
 **What's New:**
-- **Server tab auto-check**: Dashboard now auto-checks for updates on Server tab open and shows an accurate initial label before the first check completes. (PR #728)
-- **`list_memories` total_pages**: REST API `list_memories` response now includes `total_pages` field for correct pagination. (PR #731)
-- **Knowledge graph edge rendering**: Fixed invisible edges for non-canonical relationship types by providing fallback colors for undefined CSS variables. (PR #730)
+- **Strict-client compatibility**: The `/mcp` endpoint now returns HTTP 202 Accepted with an empty body for JSON-RPC notifications (messages without `id`), per JSON-RPC 2.0 §4.1 and MCP Streamable HTTP spec. Previously returned `-32601 Method not found` for `notifications/initialized`. (PR #733)
+- **Codex / rmcp fix**: Strict MCP clients like Codex's `rmcp` library treated the old error response as a handshake failure and refused to start. This release fixes that.
 - **1,547 Python tests** passing.
 
 ---
 
 **Previous Releases**:
+- **v10.38.3** - fix: Server tab auto-check, list_memories total_pages, knowledge graph edge rendering (PRs #728, #731, #730)
 - **v10.38.2** - fix(windows): PS 7+ cert bypass, per-call SkipCertificateCheck, chicken-egg lib sourcing (PR #723)
 - **v10.38.1** - fix: OAuth loopback ports (RFC 8252), CLI ingestion NameError, SSE CLI flags, Docker CI bumps (PRs #697, #704, #705, #707-709)
 - **v10.38.0** - feat: opt-in Claude Code SessionEnd auto-harvest hook — safe-by-default, zero npm deps, 5s timeout, TLS opt-in (PR #711, 1,547 tests)
