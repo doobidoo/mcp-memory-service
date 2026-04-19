@@ -269,91 +269,61 @@ function triggerQualityEvaluation(endpoint, apiKey, contentHash) {
 /**
  * Store session consolidation to memory service
  */
-function storeSessionMemory(endpoint, apiKey, content, projectContext, analysis) {
-    return new Promise((resolve, reject) => {
-        const url = new URL('/api/memories', endpoint);
-        const isHttps = url.protocol === 'https:';
-        const requestModule = isHttps ? https : http;
+async function storeSessionMemory(endpoint, apiKey, content, projectContext, analysis) {
+    const { MemoryClient } = require('../utilities/memory-client');
 
-        // Generate and normalize tags
-        const tags = [
-            'claude-code-session',
-            'session-consolidation',
-            projectContext.name,
-            projectContext.language ? `language:${projectContext.language}` : null,
-            ...analysis.topics.slice(0, 3),
-            ...projectContext.frameworks.slice(0, 2),
-            `confidence:${Math.round(analysis.confidence * 100)}`
-        ]
-        .filter(Boolean) // Remove any null/undefined values
-        .map(tag => String(tag).toLowerCase()); // Normalize all to lowercase strings
+    // Generate and normalize tags
+    const tags = [
+        'claude-code-session',
+        'session-consolidation',
+        projectContext.name,
+        projectContext.language ? `language:${projectContext.language}` : null,
+        ...analysis.topics.slice(0, 3),
+        ...projectContext.frameworks.slice(0, 2),
+        `confidence:${Math.round(analysis.confidence * 100)}`,
+    ]
+        .filter(Boolean)
+        .map((tag) => String(tag).toLowerCase());
 
-        // Deduplicate tags case-insensitively
-        const uniqueTags = [...new Set(tags)];
+    const uniqueTags = [...new Set(tags)];
 
-        const postData = JSON.stringify({
-            content: content,
-            tags: uniqueTags,
-            memory_type: 'session-summary',
-            metadata: {
-                session_analysis: {
-                    topics: analysis.topics,
-                    decisions_count: analysis.decisions.length,
-                    insights_count: analysis.insights.length,
-                    code_changes_count: analysis.codeChanges.length,
-                    next_steps_count: analysis.nextSteps.length,
-                    session_length: analysis.sessionLength,
-                    confidence: analysis.confidence
-                },
-                project_context: {
-                    name: projectContext.name,
-                    language: projectContext.language,
-                    frameworks: projectContext.frameworks
-                },
-                generated_by: 'claude-code-session-end-hook',
-                generated_at: new Date().toISOString()
-            }
-        });
-
-        const options = {
-            hostname: url.hostname,
-            port: url.port || (isHttps ? 8443 : 8000),
-            path: url.pathname,
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(postData),
-                'Authorization': `Bearer ${apiKey}`
-            }
-        };
-
-        // Only set rejectUnauthorized for HTTPS
-        if (isHttps) {
-            options.rejectUnauthorized = false; // For self-signed certificates
-        }
-
-        const req = requestModule.request(options, (res) => {
-            let data = '';
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-            res.on('end', () => {
-                try {
-                    const response = JSON.parse(data);
-                    resolve(response);
-                } catch (parseError) {
-                    resolve({ success: false, error: 'Parse error', data });
-                }
-            });
-        });
-
-        req.on('error', (error) => {
-            resolve({ success: false, error: error.message });
-        });
-
-        req.write(postData);
-        req.end();
+    const client = new MemoryClient({
+        protocol: 'auto',
+        preferredProtocol: 'http',
+        http: { endpoint, apiKey },
     });
+
+    try {
+        await client.connect();
+    } catch (err) {
+        return { success: false, error: `Connect failed: ${err.message}` };
+    }
+
+    const result = await client.storeMemory(content, {
+        tags: uniqueTags,
+        memoryType: 'session-summary',
+        metadata: {
+            session_analysis: {
+                topics: analysis.topics,
+                decisions_count: analysis.decisions.length,
+                insights_count: analysis.insights.length,
+                code_changes_count: analysis.codeChanges.length,
+                next_steps_count: analysis.nextSteps.length,
+                session_length: analysis.sessionLength,
+                confidence: analysis.confidence,
+            },
+            project_context: {
+                name: projectContext.name,
+                language: projectContext.language,
+                frameworks: projectContext.frameworks,
+            },
+            generated_by: 'claude-code-session-end-hook',
+            generated_at: new Date().toISOString(),
+        },
+    });
+
+    await client.disconnect();
+    return result;
 }
 
 /**
