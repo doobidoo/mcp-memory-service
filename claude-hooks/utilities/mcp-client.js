@@ -303,11 +303,11 @@ class MCPClient extends EventEmitter {
                 ? result.content.map((c) => c.text || '').join('\n')
                 : '';
 
-            // Match common success patterns; treat "saved", "stored", "success" as positive
-            const success = /success|stored|saved/i.test(text) && !/error|failed/i.test(text);
-
-            // Extract content_hash if present in the response text
+            // Success is defined by hash presence — the server always emits
+            // "(hash: ...)" or "(original hash: ...)" on success and never on failure.
+            // This avoids brittle keyword matching on the response text.
             const hashMatch = text.match(/\((?:original )?hash:\s*([a-f0-9]+)\)/i);
+            const success = hashMatch !== null;
 
             return {
                 success,
