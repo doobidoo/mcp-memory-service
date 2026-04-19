@@ -2,6 +2,14 @@
 
 Automatic memory awareness and intelligent context injection for Claude Code using the MCP Memory Service.
 
+## Installation (quick start)
+
+**Recommended (experimental):** Install as a Claude Code plugin — see [PLUGIN.md](./PLUGIN.md).
+
+**Legacy:** The Python installer (`install_hooks.py`) continues to work and is documented in the sections below. Both setups are mutually exclusive.
+
+---
+
 ## Quick Start
 
 ```bash
