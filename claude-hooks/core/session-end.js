@@ -12,6 +12,7 @@ const http = require('http');
 const { detectProjectContext } = require('../utilities/project-detector');
 const { formatSessionConsolidation } = require('../utilities/context-formatter');
 const { detectUserOverrides, logOverride } = require('../utilities/user-override-detector');
+const { MemoryClient } = require('../utilities/memory-client');
 
 /**
  * Load hook configuration
@@ -270,8 +271,6 @@ function triggerQualityEvaluation(endpoint, apiKey, contentHash) {
  * Store session consolidation to memory service
  */
 async function storeSessionMemory(endpoint, apiKey, content, projectContext, analysis) {
-    const { MemoryClient } = require('../utilities/memory-client');
-
     // Generate and normalize tags
     const tags = [
         'claude-code-session',
@@ -299,30 +298,33 @@ async function storeSessionMemory(endpoint, apiKey, content, projectContext, ana
         return { success: false, error: `Connect failed: ${err.message}` };
     }
 
-    const result = await client.storeMemory(content, {
-        tags: uniqueTags,
-        memoryType: 'session-summary',
-        metadata: {
-            session_analysis: {
-                topics: analysis.topics,
-                decisions_count: analysis.decisions.length,
-                insights_count: analysis.insights.length,
-                code_changes_count: analysis.codeChanges.length,
-                next_steps_count: analysis.nextSteps.length,
-                session_length: analysis.sessionLength,
-                confidence: analysis.confidence,
+    let result;
+    try {
+        result = await client.storeMemory(content, {
+            tags: uniqueTags,
+            memoryType: 'session-summary',
+            metadata: {
+                session_analysis: {
+                    topics: analysis.topics,
+                    decisions_count: analysis.decisions.length,
+                    insights_count: analysis.insights.length,
+                    code_changes_count: analysis.codeChanges.length,
+                    next_steps_count: analysis.nextSteps.length,
+                    session_length: analysis.sessionLength,
+                    confidence: analysis.confidence,
+                },
+                project_context: {
+                    name: projectContext.name,
+                    language: projectContext.language,
+                    frameworks: projectContext.frameworks,
+                },
+                generated_by: 'claude-code-session-end-hook',
+                generated_at: new Date().toISOString(),
             },
-            project_context: {
-                name: projectContext.name,
-                language: projectContext.language,
-                frameworks: projectContext.frameworks,
-            },
-            generated_by: 'claude-code-session-end-hook',
-            generated_at: new Date().toISOString(),
-        },
-    });
-
-    await client.disconnect();
+        });
+    } finally {
+        await client.disconnect();
+    }
     return result;
 }
 
@@ -406,13 +408,14 @@ async function onSessionEnd(context) {
             analysis
         );
         
-        if (result.success || result.content_hash) {
+        const hash = result.content_hash || result.contentHash;
+        if (result.success || hash) {
             console.log(`[Memory Hook] Session consolidation stored successfully`);
-            if (result.content_hash) {
-                console.log(`[Memory Hook] Memory hash: ${result.content_hash.substring(0, 8)}...`);
+            if (hash) {
+                console.log(`[Memory Hook] Memory hash: ${hash.substring(0, 8)}...`);
 
                 // Trigger async quality evaluation (non-blocking)
-                triggerQualityEvaluation(endpoint, apiKey, result.content_hash)
+                triggerQualityEvaluation(endpoint, apiKey, hash)
                     .then(evalResult => {
                         if (evalResult.success) {
                             console.log(`[Memory Hook] Quality evaluated: ${evalResult.quality_score?.toFixed(3)} (${evalResult.quality_provider})`);
