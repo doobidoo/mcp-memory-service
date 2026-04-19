@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **[#733] MCP: return HTTP 202 for JSON-RPC notifications on `/mcp`**: JSON-RPC 2.0 §4.1 forbids servers from replying to notifications (messages without `id`), and MCP Streamable HTTP requires HTTP 202 Accepted with an empty body in that case. The `/mcp` handler previously fell through to method dispatch and returned a `-32601 Method not found` error for `notifications/initialized`. Tolerant clients (Claude Code) ignored it; strict clients (Codex's `rmcp`) treated the response as a handshake failure and refused to start the MCP server. Fixed by short-circuiting to `Response(status_code=202)` at the top of `mcp_endpoint` whenever `request.id is None`. Added regression tests for the 202/empty-body path and the `initialize` happy path. (PR #733)
+
 ## [10.38.3] - 2026-04-17
 
 ### Fixed
