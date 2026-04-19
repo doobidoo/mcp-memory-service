@@ -16,8 +16,7 @@
 
 const fs = require('fs').promises;
 const path = require('path');
-const http = require('http');
-const https = require('https');
+const { MemoryClient } = require('../utilities/memory-client');
 
 // Import pattern detection
 const {
@@ -157,66 +156,43 @@ function extractTextContent(content) {
 }
 
 /**
- * Store memory via HTTP API
+ * Store memory via MemoryClient
  */
 async function storeMemory(config, content, memoryType, tags) {
-    const endpoint = config.memoryService.http.endpoint;
-    const apiKey = config.memoryService.http.apiKey;
-
-    const url = new URL('/api/memories', endpoint);
-    const isHttps = url.protocol === 'https:';
-
-    const payload = JSON.stringify({
-        content: content,
-        memory_type: memoryType,
-        tags: tags,
-        metadata: {
-            source: 'auto-capture',
-            hook: 'PostToolUse',
-            captured_at: new Date().toISOString()
-        }
-    });
-
-    const options = {
-        hostname: url.hostname,
-        port: url.port || (isHttps ? 443 : 80),
-        path: url.pathname,
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(payload),
-            ...(apiKey ? { 'X-API-Key': apiKey } : {})
+    const client = new MemoryClient({
+        protocol: 'auto',
+        preferredProtocol: 'http',
+        http: {
+            endpoint: config.memoryService.http.endpoint,
+            apiKey: config.memoryService.http.apiKey,
         },
-        timeout: 5000
-    };
-
-    return new Promise((resolve, reject) => {
-        const client = isHttps ? https : http;
-        const req = client.request(options, res => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
-                if (res.statusCode >= 200 && res.statusCode < 300) {
-                    try {
-                        resolve(JSON.parse(data));
-                    } catch {
-                        resolve({ success: true, raw: data });
-                    }
-                } else {
-                    reject(new Error(`HTTP ${res.statusCode}: ${data}`));
-                }
-            });
-        });
-
-        req.on('error', reject);
-        req.on('timeout', () => {
-            req.destroy();
-            reject(new Error('Request timeout'));
-        });
-
-        req.write(payload);
-        req.end();
     });
+
+    try {
+        await client.connect();
+    } catch (err) {
+        throw new Error(`Connect failed: ${err.message}`);
+    }
+
+    let result;
+    try {
+        result = await client.storeMemory(content, {
+            tags,
+            memoryType,
+            metadata: {
+                source: 'auto-capture',
+                hook: 'PostToolUse',
+                captured_at: new Date().toISOString(),
+            },
+        });
+    } finally {
+        await client.disconnect();
+    }
+
+    if (!result.success) {
+        throw new Error(result.error || 'storeMemory returned success=false');
+    }
+    return result;
 }
 
 /**
