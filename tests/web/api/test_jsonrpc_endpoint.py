@@ -35,15 +35,14 @@ async def initialized_storage(temp_db, monkeypatch):
 
 @pytest.fixture
 def test_app(initialized_storage, monkeypatch):
-    monkeypatch.setenv("MCP_API_KEY", "")
-    monkeypatch.setenv("MCP_OAUTH_ENABLED", "false")
-    monkeypatch.setenv("MCP_ALLOW_ANONYMOUS_ACCESS", "true")
-
-    import sys
-    import importlib
-    for mod in ("mcp_memory_service.config", "mcp_memory_service.web.oauth.middleware"):
-        if mod in sys.modules:
-            importlib.reload(sys.modules[mod])
+    # Patch module-level auth config directly instead of reloading modules.
+    # Reloading (importlib.reload) creates new function objects, which
+    # desynchronizes FastAPI dependency_overrides keys from the references
+    # the app was initialized with, and causes cross-test state pollution.
+    from mcp_memory_service.web.oauth import middleware
+    monkeypatch.setattr(middleware, "API_KEY", None)
+    monkeypatch.setattr(middleware, "OAUTH_ENABLED", False)
+    monkeypatch.setattr(middleware, "ALLOW_ANONYMOUS_ACCESS", True)
 
     from mcp_memory_service.web.app import app
     from mcp_memory_service.web.oauth.middleware import (
