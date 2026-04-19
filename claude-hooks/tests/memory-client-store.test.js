@@ -74,9 +74,47 @@ async function testHttpStoreSuccess() {
     }
 }
 
+async function testMcpStoreSuccess() {
+    const calls = [];
+    const fakeMcpClient = {
+        storeMemory: async (content, opts) => {
+            calls.push({ content, opts });
+            return { success: true, content_hash: 'mcp-hash-xyz' };
+        },
+    };
+
+    const client = new MemoryClient({ protocol: 'mcp' });
+    client.activeProtocol = 'mcp';
+    client.mcpClient = fakeMcpClient;
+
+    const result = await client.storeMemory('via mcp', {
+        tags: ['mcp'],
+        memoryType: 'note',
+        metadata: {},
+    });
+
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.contentHash, 'mcp-hash-xyz');
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0].content, 'via mcp');
+    assert.deepStrictEqual(calls[0].opts.tags, ['mcp']);
+}
+
+async function testStoreNoActiveProtocol() {
+    const client = new MemoryClient({ protocol: 'auto' });
+    // activeProtocol is null — not connected
+
+    await assert.rejects(
+        () => client.storeMemory('x', {}),
+        /No active connection available/,
+    );
+}
+
 async function run() {
     const results = [];
     results.push(await runTest('testHttpStoreSuccess', testHttpStoreSuccess));
+    results.push(await runTest('testMcpStoreSuccess', testMcpStoreSuccess));
+    results.push(await runTest('testStoreNoActiveProtocol', testStoreNoActiveProtocol));
 
     const passed = results.filter(Boolean).length;
     const total = results.length;
