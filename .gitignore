@@ -153,7 +153,9 @@ claude_config/claude_desktop_config.json
 
 # Personalized setup guides (generated locally)
 YOUR_PERSONALIZED_SETUP_GUIDE.md
-.mcp.json
+# Only ignore the root-level .mcp.json (local dev config).
+# Plugin-level claude-hooks/.mcp.json is tracked.
+/.mcp.json
 
 # Local memory service configuration (contains private endpoints/keys)
 CLAUDE_MEMORY.md
