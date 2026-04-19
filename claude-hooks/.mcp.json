@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "memory": {
+      "command": "python",
+      "args": ["-m", "mcp_memory_service.server"],
+      "env": {
+        "MCP_MEMORY_STORAGE_BACKEND": "hybrid",
+        "MCP_HYBRID_SYNC_OWNER": "http"
+      }
+    }
+  }
+}
