@@ -8,6 +8,7 @@
 const assert = require('assert');
 const http = require('http');
 const { MemoryClient } = require('../utilities/memory-client');
+const { MCPClient } = require('../utilities/mcp-client');
 
 function startMockServer(handler) {
     return new Promise((resolve) => {
@@ -98,6 +99,7 @@ async function testMcpStoreSuccess() {
     assert.strictEqual(calls.length, 1);
     assert.strictEqual(calls[0].content, 'via mcp');
     assert.deepStrictEqual(calls[0].opts.tags, ['mcp']);
+    assert.strictEqual(calls[0].opts.memoryType, 'note');
 }
 
 async function testStoreNoActiveProtocol() {
@@ -110,11 +112,35 @@ async function testStoreNoActiveProtocol() {
     );
 }
 
+async function testMcpClientMetadataPrecedence() {
+    // Regression test: structured opts (tags, type) must win over caller-supplied metadata.
+    const mcp = new MCPClient(['node', '--version']);
+    let capturedArgs = null;
+    mcp.callTool = async (toolName, args) => {
+        capturedArgs = { toolName, args };
+        return { content: [{ text: 'Memory stored successfully (hash: deadbeef)' }] };
+    };
+
+    const result = await mcp.storeMemory('hello', {
+        tags: ['correct'],
+        memoryType: 'note',
+        metadata: { tags: ['should-not-win'], type: 'should-not-win', source: 'caller' },
+    });
+
+    assert.strictEqual(capturedArgs.toolName, 'store_memory');
+    assert.deepStrictEqual(capturedArgs.args.metadata.tags, ['correct'], 'structured tags must win over metadata.tags');
+    assert.strictEqual(capturedArgs.args.metadata.type, 'note', 'structured type must win over metadata.type');
+    assert.strictEqual(capturedArgs.args.metadata.source, 'caller', 'other custom metadata keys should be preserved');
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.content_hash, 'deadbeef', 'hash regex must match "(hash: ...)" format');
+}
+
 async function run() {
     const results = [];
     results.push(await runTest('testHttpStoreSuccess', testHttpStoreSuccess));
     results.push(await runTest('testMcpStoreSuccess', testMcpStoreSuccess));
     results.push(await runTest('testStoreNoActiveProtocol', testStoreNoActiveProtocol));
+    results.push(await runTest('testMcpClientMetadataPrecedence', testMcpClientMetadataPrecedence));
 
     const passed = results.filter(Boolean).length;
     const total = results.length;

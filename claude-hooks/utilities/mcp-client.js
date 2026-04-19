@@ -292,9 +292,9 @@ class MCPClient extends EventEmitter {
             const result = await this.callTool('store_memory', {
                 content,
                 metadata: {
+                    ...metadata,
                     tags,
                     type: memoryType,
-                    ...metadata,
                 },
             });
 
@@ -307,7 +307,7 @@ class MCPClient extends EventEmitter {
             const success = /success|stored|saved/i.test(text) && !/error|failed/i.test(text);
 
             // Extract content_hash if present in the response text
-            const hashMatch = text.match(/content[_-]?hash[:\s=]+([a-f0-9]+)/i);
+            const hashMatch = text.match(/\((?:original )?hash:\s*([a-f0-9]+)\)/i);
 
             return {
                 success,
