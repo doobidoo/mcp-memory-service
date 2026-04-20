@@ -366,6 +366,32 @@ Choose from:
 
 ---
 
+## 🛠️ CLI Server Lifecycle Commands
+
+In addition to `memory server --http` (foreground mode), the CLI now includes
+server lifecycle commands for background HTTP management:
+
+```bash
+# Start HTTP server in background (default host=127.0.0.1, port=8000)
+memory launch
+
+# Start on a custom port
+memory launch --port 8192
+
+# Check status and health
+memory info --port 8192
+memory health --port 8192
+
+# View recent logs and stop server
+memory logs --lines 50
+memory stop --port 8192
+```
+
+These commands are optimized for fast startup and avoid loading heavy ML
+dependencies unless needed.
+
+---
+
 ## 💡 Why You Need This
 
 ### The Problem

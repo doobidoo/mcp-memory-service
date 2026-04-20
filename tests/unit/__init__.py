@@ -13,5 +13,5 @@
 # limitations under the License.
 
 """
-Tests for MCP Memory Service.
+Unit tests for MCP Memory Service.
 """
