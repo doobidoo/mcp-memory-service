@@ -9,25 +9,11 @@ REPO_ROOT="$(cd "$PLUGIN_ROOT/.." && pwd)"
 fail() { echo "FAIL: $1" >&2; exit 1; }
 ok() { echo "OK: $1"; }
 
-# 1. plugin.json must parse
-node -e "JSON.parse(require('fs').readFileSync('$PLUGIN_ROOT/.claude-plugin/plugin.json'))" \
-  || fail "plugin.json invalid"
-ok "plugin.json parseable"
-
-# 2. hooks.json must parse
-node -e "JSON.parse(require('fs').readFileSync('$PLUGIN_ROOT/.claude-plugin/hooks.json'))" \
-  || fail "hooks.json invalid"
-ok "hooks.json parseable"
-
-# 3. .mcp.json must parse
-node -e "JSON.parse(require('fs').readFileSync('$PLUGIN_ROOT/.mcp.json'))" \
-  || fail ".mcp.json invalid"
-ok ".mcp.json parseable"
-
-# 4. marketplace.json (repo root) must parse
-node -e "JSON.parse(require('fs').readFileSync('$REPO_ROOT/.claude-plugin/marketplace.json'))" \
-  || fail "marketplace.json invalid"
-ok "marketplace.json parseable"
+# 1-4. All four manifests parse AND match Claude Code plugin schema.
+# Guards against spec-drift bugs like v10.39.0's string "author" field
+# (valid JSON, invalid spec) that JSON.parse alone won't catch.
+node "$PLUGIN_ROOT/scripts/validate-plugin-schema.js" || fail "plugin schema validation failed"
+ok "all four manifests pass JSON + schema validation"
 
 # 5. Every script referenced in hooks.json must exist
 node -e "
