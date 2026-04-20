@@ -13,11 +13,17 @@
 # limitations under the License.
 
 """
-Command Line Interface for MCP Memory Service
+Command Line Interface for MCP Memory Service.
 
-Provides CLI commands for document ingestion, memory management, and database operations.
+NOTE: This package uses lazy imports to avoid loading torch/transformers
+at import time. Use ``from mcp_memory_service.cli.main import cli`` directly,
+or call ``mcp_memory_service.cli.add_ingestion_commands()`` when needed.
 """
 
-from .ingestion import add_ingestion_commands
-
 __all__ = ['add_ingestion_commands']
+
+
+def add_ingestion_commands(cli_group):
+    """Lazily import and register ingestion commands."""
+    from .ingestion import add_ingestion_commands as _add
+    _add(cli_group)

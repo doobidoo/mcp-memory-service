@@ -10,6 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+- **CLI lifecycle commands**: Added `launch`, `stop`, `restart`, `info`, `health`, `logs` commands for background HTTP server management. These commands use the new `cli/lifecycle.py` module with cross-platform PID tracking and health polling.
+- **Lazy CLI command loading**: Ingestion commands (`ingest-document`, `ingest-directory`, `list-formats`) are now lazy-loaded — imported only when invoked, not at CLI startup.
+- **Lazy package imports**: Heavy dependencies (torch, transformers, sentence-transformers) are imported only when lazy-loaded attributes like `Memory`, `MemoryQueryResult`, or `MemoryStorage` are accessed.
+- **Unit tests for lazy loading**: Added targeted unit tests covering package lazy imports, CLI lazy command availability, and lifecycle command registration.
+
+### Changed
+- **CLI startup performance**: `memory --help` and lifecycle commands now start quickly by avoiding eager ML imports at module load time.
+- **HTTP host/port ergonomics**: `memory server --http` now supports `--http-host` and `--http-port`; lifecycle commands use `--host` and `--port` with environment fallbacks.
+- **Test conftest cleanup**: Removed Unicode emoji characters from `tests/conftest.py` to avoid `UnicodeEncodeError` on Windows cp1252 consoles.
+
 ## [10.39.0] - 2026-04-19
 
 ### Added
