@@ -82,6 +82,38 @@ async function testRejectsMissingNameOrVersion() {
     assertHasError(r2, '"version" must be a non-empty string');
 }
 
+async function testRejectsInlineMcpServersWithBadShape() {
+    // Inline mcpServers in plugin.json should be validated recursively —
+    // missing "command" must be caught just like it is in .mcp.json.
+    const result = validatePluginJson({
+        name: 'x',
+        version: '1.0.0',
+        mcpServers: {
+            myServer: { args: ['foo'] }, // missing required "command"
+        },
+    });
+    assertHasError(result, 'command');
+}
+
+async function testRejectsInlineHooksWithBadShape() {
+    // Inline hooks in plugin.json should be validated recursively —
+    // missing "type" must be caught just like it is in hooks.json.
+    const result = validatePluginJson({
+        name: 'x',
+        version: '1.0.0',
+        hooks: {
+            SessionStart: [
+                {
+                    hooks: [
+                        { command: 'node foo' }, // missing required "type"
+                    ],
+                },
+            ],
+        },
+    });
+    assertHasError(result, 'type');
+}
+
 // --- .mcp.json --------------------------------------------------------------
 
 async function testRejectsMissingMcpServers() {
@@ -173,6 +205,8 @@ async function run() {
     results.push(await runTest('testAcceptsObjectAuthor', testAcceptsObjectAuthor));
     results.push(await runTest('testRejectsAuthorObjectMissingName', testRejectsAuthorObjectMissingName));
     results.push(await runTest('testRejectsMissingNameOrVersion', testRejectsMissingNameOrVersion));
+    results.push(await runTest('testRejectsInlineMcpServersWithBadShape', testRejectsInlineMcpServersWithBadShape));
+    results.push(await runTest('testRejectsInlineHooksWithBadShape', testRejectsInlineHooksWithBadShape));
     results.push(await runTest('testRejectsMissingMcpServers', testRejectsMissingMcpServers));
     results.push(await runTest('testRejectsMcpServerWithoutCommand', testRejectsMcpServerWithoutCommand));
     results.push(await runTest('testRejectsMcpArgsNotArray', testRejectsMcpArgsNotArray));

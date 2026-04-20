@@ -110,7 +110,15 @@ function validatePluginJson(obj, fileLabel = 'plugin.json') {
 
     if ('mcpServers' in obj) {
         const v = obj.mcpServers;
-        if (typeof v !== 'string' && !isPlainObject(v)) {
+        if (typeof v === 'string') {
+            // string path — external file, shape is validated when loaded
+        } else if (isPlainObject(v)) {
+            // inline object — same shape as the inner `mcpServers` value of
+            // a .mcp.json file. Reuse validateMcpJson by wrapping.
+            const nested = validateMcpJson({ mcpServers: v }, fileLabel);
+            errors.push(...nested.errors);
+            warnings.push(...nested.warnings);
+        } else {
             errors.push(
                 `${fileLabel}: "mcpServers" must be a string (path) or object (got ${typeName(v)})`,
             );
@@ -119,7 +127,15 @@ function validatePluginJson(obj, fileLabel = 'plugin.json') {
 
     if ('hooks' in obj) {
         const v = obj.hooks;
-        if (typeof v !== 'string' && !isPlainObject(v)) {
+        if (typeof v === 'string') {
+            // string path — external file, shape is validated when loaded
+        } else if (isPlainObject(v)) {
+            // inline object — same shape as a full hooks.json (which has a
+            // top-level `hooks` key). Reuse validateHooksJson by wrapping.
+            const nested = validateHooksJson({ hooks: v }, fileLabel);
+            errors.push(...nested.errors);
+            warnings.push(...nested.warnings);
+        } else {
             errors.push(
                 `${fileLabel}: "hooks" must be a string (path) or object (got ${typeName(v)})`,
             );
