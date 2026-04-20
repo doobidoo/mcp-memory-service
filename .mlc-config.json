@@ -35,6 +35,12 @@
     },
     {
       "pattern": "^https://www\\.remotion\\.dev"
+    },
+    {
+      "pattern": "^https://milvus\\.io"
+    },
+    {
+      "pattern": "^https://docs\\.zilliz\\.com"
     }
   ],
   "aliveStatusCodes": [200, 206]
