@@ -54,8 +54,7 @@ async function testRejectsStringAuthor() {
         version: '1.0.0',
         author: 'doobidoo',
     });
-    assertHasError({ ...result, errors: result.errors },
-        '"author" must be an object with a "name" field');
+    assertHasError(result, '"author" must be an object with a "name" field');
 }
 
 async function testAcceptsObjectAuthor() {

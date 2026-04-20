@@ -367,7 +367,8 @@ function validateAll({ pluginRoot = PLUGIN_ROOT, repoRoot = REPO_ROOT } = {}) {
         try {
             parsed = readJson(filePath);
         } catch (err) {
-            allErrors.push(`${label}: ${err.message}`);
+            const msg = err.code === 'ENOENT' ? 'file not found' : err.message;
+            allErrors.push(`${label}: ${msg}`);
             continue;
         }
         const { errors, warnings } = validator(parsed, label);
