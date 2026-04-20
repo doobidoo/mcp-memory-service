@@ -268,6 +268,127 @@ jobs:
         # Test that the server can show help (disable OAuth to avoid JWT key requirement)
         docker run --rm -e MCP_OAUTH_ENABLED=false mcp-memory-service:test --help > /dev/null && echo "✓ Server help works"
 
+  # Milvus storage backend integration tests against a real Milvus standalone server.
+  # Runs on main-branch pushes and on PRs labeled `backend:milvus` to avoid burning
+  # CI minutes on unrelated changes. Uses `docker run` (not service containers) to
+  # match the existing test-docker-build pattern in this workflow.
+  test-milvus-docker:
+    runs-on: ubuntu-latest
+    name: Test Milvus (Docker)
+    if: >-
+      github.event_name == 'push' ||
+      contains(github.event.pull_request.labels.*.name, 'backend:milvus')
+    timeout-minutes: 25
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Cache HuggingFace models
+      uses: actions/cache@v5
+      with:
+        path: ~/.cache/huggingface
+        key: ${{ runner.os }}-huggingface-models-v2-${{ hashFiles('pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-huggingface-models-v2-
+          ${{ runner.os }}-huggingface-models-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev,milvus]"
+
+    - name: Pre-download embedding model
+      run: |
+        timeout 300 python scripts/ci/download_model_with_timeout.py || {
+          echo "⚠️ Model download timed out; continuing with offline flags set"
+        }
+
+    - name: Start Milvus standalone
+      run: |
+        docker run -d --name milvus \
+          -p 19530:19530 -p 9091:9091 \
+          milvusdb/milvus:v2.5-latest \
+          milvus run standalone
+        echo "Waiting for Milvus to be healthy..."
+        for i in $(seq 1 60); do
+          if curl -sf http://localhost:9091/healthz > /dev/null 2>&1; then
+            echo "Milvus ready after ~$((i*2))s"
+            break
+          fi
+          if [ $i -eq 60 ]; then
+            echo "Milvus failed to start within 120s"
+            docker logs milvus
+            exit 1
+          fi
+          sleep 2
+        done
+
+    - name: Run Milvus integration tests
+      env:
+        MCP_MEMORY_STORAGE_BACKEND: milvus
+        MCP_MILVUS_URI: http://localhost:19530
+        MCP_MILVUS_COLLECTION_NAME: ci_test
+        HF_HUB_OFFLINE: "1"
+        TRANSFORMERS_OFFLINE: "1"
+      run: |
+        python -m pytest tests/storage/test_milvus.py -v \
+          --timeout=120 \
+          -k "not lite" \
+          --tb=short
+
+    - name: Milvus Docker smoke test (health + store + search)
+      env:
+        MCP_MILVUS_URI: http://localhost:19530
+        HF_HUB_OFFLINE: "1"
+        TRANSFORMERS_OFFLINE: "1"
+      run: |
+        python - <<'PY'
+        import asyncio, hashlib
+        from mcp_memory_service.storage.milvus import MilvusMemoryStorage
+        from mcp_memory_service.models.memory import Memory
+
+        async def main():
+            s = MilvusMemoryStorage(
+                uri="http://localhost:19530",
+                collection_name="ci_smoke",
+            )
+            await s.initialize()
+            content = "CI smoke test content"
+            h = hashlib.sha256(content.encode()).hexdigest()
+            m = Memory(
+                content=content,
+                content_hash=h,
+                tags=["ci"],
+                memory_type="note",
+            )
+            ok, msg = await s.store(m)
+            assert ok, f"Store failed: {msg}"
+            results = await s.retrieve("smoke test", n_results=3)
+            assert len(results) >= 1, f"Expected >=1 result, got {len(results)}"
+            count = await s.count_all_memories()
+            assert count >= 1, f"Expected count>=1, got {count}"
+            print(
+                f"Milvus Docker smoke test passed: "
+                f"stored=True, retrieved={len(results)}, count={count}"
+            )
+
+        asyncio.run(main())
+        PY
+
+    - name: Dump Milvus logs on failure
+      if: failure()
+      run: docker logs milvus || true
+
+    - name: Cleanup
+      if: always()
+      run: docker rm -f milvus 2>/dev/null || true
+
   # Publish to Docker Hub (only after release)
   publish-docker-hub:
     needs: [release, test-docker-build]

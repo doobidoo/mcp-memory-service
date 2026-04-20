@@ -1,0 +1,4 @@
+# Milvus storage backend
+src/mcp_memory_service/storage/milvus.py @zc277584121
+tests/storage/test_milvus.py @zc277584121
+docs/milvus-backend.md @zc277584121
