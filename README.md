@@ -460,18 +460,18 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.39.0** (April 19, 2026)
+## Latest Release: **v10.39.1** (April 19, 2026)
 
-**feat: Claude Code plugin install + MemoryClient.storeMemory() protocol-native writes**
+**hotfix: plugin.json author field format — unblocks `/plugin install mcp-memory-service`**
 
 **What's New:**
-- **New: Install as a Claude Code plugin** — two commands replace the bash wrapper, API-key generation, and manual MCP-config-editing ceremony. `/plugin marketplace add doobidoo/mcp-memory-service` + `/plugin install mcp-memory-service`. v1.0.0 plugin is experimental. See `claude-hooks/PLUGIN.md` for install, config, and migration from the legacy `install_hooks.py` installer. Closes #530. (PR #736)
-- **MemoryClient.storeMemory()**: Routes memory writes through HTTP-primary + MCP-fallback, closing the silent write-failure path for all hook users (not just plugin adopters). (PR #735)
+- **Hotfix for v10.39.0 plugin install**: `plugin.json` `author` field now uses the required object format (`{"name": "..."}`) instead of a string. Users who hit `Validation errors: author: Invalid input: expected object, received string` on `/plugin install mcp-memory-service` should upgrade to v10.39.1. Thanks @yingzhi0808 for the report (#738) and fix (#739).
 - **1,547 Python tests** passing.
 
 ---
 
 **Previous Releases**:
+- **v10.39.0** - feat: Claude Code plugin install (`/plugin marketplace add doobidoo/mcp-memory-service`) + MemoryClient.storeMemory() protocol-native writes (PRs #736, #735)
 - **v10.38.4** - fix(mcp): return HTTP 202 for JSON-RPC notifications — fixes Codex/strict-client handshake (PR #733)
 - **v10.38.3** - fix: Server tab auto-check, list_memories total_pages, knowledge graph edge rendering (PRs #728, #731, #730)
 - **v10.38.2** - fix(windows): PS 7+ cert bypass, per-call SkipCertificateCheck, chicken-egg lib sourcing (PR #723)
