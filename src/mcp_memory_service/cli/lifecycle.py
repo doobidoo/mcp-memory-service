@@ -244,7 +244,7 @@ def launch(ctx, http_host, http_port, detach, storage_backend, debug):
     cmd = [sys.executable, "-c",
            "from mcp_memory_service.web.app import app; "
            "import uvicorn, os; "
-           f"uvicorn.run(app, host='{host}', port={port}, "
+           f"uvicorn.run(app, host={repr(host)}, port={port}, "
            "log_level='info')"]
 
     popen_kwargs = {
