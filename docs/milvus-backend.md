@@ -175,6 +175,16 @@ For a Zilliz Cloud setup, also add `"MCP_MILVUS_TOKEN": "your-token"`.
 | First `initialize()` takes a long time | The sentence-transformers model is downloading from Hugging Face. Once cached, later runs are fast (the backend automatically enables `HF_HUB_OFFLINE` when the cache is present). |
 | `pkg_resources is deprecated` warning on Python 3.13 | Harmless deprecation warning from `milvus-lite`; our `milvus` extra pins `setuptools<81` on Python 3.13+ to silence it. |
 
+## Support
+
+The Milvus backend is maintained by [@zc277584121](https://github.com/zc277584121). For Milvus-specific issues:
+
+1. File a GitHub issue with the `backend:milvus` label.
+2. Include: deployment mode (Lite / self-hosted / Zilliz Cloud), `pymilvus` version, and the relevant section of your server logs.
+3. First responder SLA: best-effort, typically within a few business days (through ~October 2026).
+
+For questions about `pymilvus` itself or Milvus server behavior, the upstream [Milvus community channels](https://milvus.io/community) are usually faster than this repo.
+
 ## See also
 
 - [Storage Backend Comparison](guides/STORAGE_BACKENDS.md) — picking between `sqlite_vec`, `cloudflare`, `hybrid`, and `milvus`
