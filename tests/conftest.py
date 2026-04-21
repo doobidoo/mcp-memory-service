@@ -126,8 +126,7 @@ def pytest_sessionfinish(session, exitstatus):
             return
 
         # SAFETY CHECK 2: Must NOT contain production indicators
-        # Note: On Windows, temp dirs contain "C:\Users\" so we only check for
-        # Linux-style paths and absolute paths that are clearly not temp dirs
+        # Full list of production path indicators (all platforms)
         production_indicators = [
             "Library/Application Support/mcp-memory",
             ".mcp-memory",
@@ -135,7 +134,9 @@ def pytest_sessionfinish(session, exitstatus):
             "/home/",   # Linux home directories
         ]
         
-        # Only check /Users/ on non-Windows platforms
+        # On non-Windows: /Users/ is a production indicator (macOS home)
+        # On Windows: C:\Users\ is the temp dir prefix, so we skip this check
+        # but require a positive allowlist (safety check 3) instead
         if sys.platform != "win32":
             production_indicators.append("/Users/")
 
@@ -147,16 +148,25 @@ def pytest_sessionfinish(session, exitstatus):
                 print(f"[Test Cleanup] Tests MUST use temp_db_path fixture for isolation.")
                 return
 
-        # SAFETY CHECK 3: Must contain test-specific markers
+        # SAFETY CHECK 3: Must contain a test-specific marker (positive allowlist)
+        # On Windows, temp dirs live under C:\Users\...\AppData\Local\Temp which
+        # doesn't contain the same markers as Unix. We use a positive allowlist:
+        # the path must match the temp prefix recorded at session start,
+        # OR contain an explicit test marker.
         test_markers = [
-            'mcp-test-',  # Our custom test prefix
+            'mcp-test-',  # Our custom test prefix (from tempfile.mkdtemp)
             'pytest-',    # pytest temp directories
             '/tmp/',      # Unix temp
             '/var/tmp/',  # Unix alternative temp
             'Temp\\',     # Windows temp
+            'AppData\\Local\\Temp',  # Windows temp (under C:\Users\...)
         ]
-
-        has_test_marker = any(marker in db_path for marker in test_markers)
+        
+        # Also allow if path starts with the session's own temp prefix
+        has_test_marker = (
+            any(marker in db_path for marker in test_markers) or
+            db_path.startswith(temp_prefix)  # Matches session temp dir
+        )
         if not has_test_marker:
             print(f"\n[Test Cleanup] SAFETY ABORT: No test marker found in database path!")
             print(f"[Test Cleanup] Database path: {db_path}")
@@ -232,13 +242,14 @@ def pytest_sessionstart(session):
                 print(f"   Expected prefix: {temp_prefix}")
                 print(f"   Tests may affect production data!")
 
-                # Check for production indicators
+                # Check for production indicators (full list, all platforms)
                 production_indicators = [
                     "Library/Application Support/mcp-memory",
                     ".mcp-memory",
                     "mcp-memory-service/data",
                 ]
-                # Only check /Users/ on non-Windows platforms
+                # On non-Windows: /Users/ is a production indicator (macOS home)
+                # On Windows: C:\Users\ is temp dir prefix — skip but require allowlist
                 if sys.platform != "win32":
                     production_indicators.append("/Users/")
 

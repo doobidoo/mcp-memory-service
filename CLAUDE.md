@@ -54,6 +54,30 @@ MCP Memory Service is a semantic memory layer for AI applications, accessible vi
 ## Essential Commands
 
 ### Development Server
+
+**Recommended (lifecycle CLI):**
+```bash
+# Start HTTP server in background with PID tracking, logs, health check
+memory launch                              # Background (default)
+memory launch --foreground                 # Foreground (same as server --http)
+memory launch --storage-backend hybrid     # With specific backend
+memory launch --debug                      # With debug logging
+
+# Check if server is running
+memory info
+
+# Stop server
+memory stop
+
+# Restart (preserves --storage-backend and --debug from running server)
+memory restart
+
+# View logs
+memory logs
+memory logs -n 50
+```
+
+**Legacy shell scripts (still available, but CLI is preferred):**
 ```bash
 # MCP server (for Claude Desktop integration)
 python -m mcp_memory_service.server
@@ -64,9 +88,14 @@ python scripts/server/run_http_server.py
 # Both servers simultaneously
 ./start_all_servers.sh
 
-# Quick update after git pull (RECOMMENDED)
+# Quick update after git pull
 ./scripts/update_and_restart.sh
 ```
+
+> **Note:** The `memory launch/stop/restart/info/logs` CLI commands are the
+> preferred way to manage the server going forward. The shell scripts
+> (`start_all_servers.sh`, `update_and_restart.sh`) still work but may be
+> deprecated in a future release. For new deployments, use the CLI.
 
 ### Testing
 ```bash
@@ -316,7 +345,7 @@ export MCP_MEMORY_SQLITE_PRAGMAS=journal_mode=WAL,busy_timeout=15000,cache_size=
 
 **Configuration Precedence:** Environment variables > .env file > Global Claude Config > defaults
 
-**Important:** After updating `.env`, always restart servers. Use `./scripts/update_and_restart.sh` for automated workflow.
+**Important:** After updating `.env`, always restart servers. Use `memory restart` (preferred CLI) or `./scripts/update_and_restart.sh` (legacy) for automated workflow.
 
 **CRITICAL:** `MCP_MEMORY_SQLITE_PRAGMAS` must include `journal_mode=WAL` for concurrent access. Omitting WAL disables concurrent reads/writes and causes "database is locked" errors when HTTP server and MCP server run simultaneously.
 
@@ -508,7 +537,7 @@ memory.memory_type or ''
 | Port mismatch (hooks timeout) | Verify same port in `~/.claude/hooks/config.json` and server (default: 8000) |
 | Schema validation errors after PR merge | Run `/mcp` in Claude Code to reconnect with new schema |
 | Database lock errors | Add `journal_mode=WAL` to `MCP_MEMORY_SQLITE_PRAGMAS` in `.env`, restart servers |
-| Tests failing after git pull | Run `./scripts/update_and_restart.sh` (installs deps, restarts server) |
+| Tests failing after git pull | Run `memory restart` or `./scripts/update_and_restart.sh` (installs deps, restarts server) |
 | MCP fails on every session (Windows) | Set `MCP_INIT_TIMEOUT=120` in your MCP server env config (issue #474) |
 | Cloudflare 401 on MCP server startup (hybrid mode) | Set `MCP_HYBRID_SYNC_OWNER=http` in `.env` — MCP server then uses SQLite-Vec only, no Cloudflare token needed in Claude Desktop config |
 | Cloudflare 403 / sync not running (IPv6) | Python prefers IPv6 but token IP allowlist may only have IPv4. Add your IPv6 /64 network to token's Client IP Address Filtering, or remove IP filtering entirely |

@@ -27,7 +27,17 @@ import os
 
 
 def _get_version():
-    """Lazy version getter using importlib.metadata (avoids package __init__)."""
+    """Lazy version getter using _version.py (single source of truth).
+    
+    Uses importlib.metadata only as fallback for non-editable installs.
+    This avoids stale metadata on editable installs between commits
+    (see .claude/directives/version-management.md).
+    """
+    try:
+        from mcp_memory_service._version import __version__
+        return __version__
+    except ImportError:
+        pass
     try:
         from importlib.metadata import version
         return version("mcp-memory-service")
@@ -212,6 +222,10 @@ def status(storage_backend):
 def launch(http_host, http_port, detach, storage_backend, debug):
     """Start the HTTP memory server in background (with PID tracking).
 
+    SECURITY WARNING: Binding to non-loopback hosts (e.g., 0.0.0.0) exposes
+    the API to your network. Use authentication and/or firewall rules in
+    production. Intended for development or trusted networks only.
+
     Manages the server lifecycle: PID file, log redirection, health-check
     polling, and automatic port conflict resolution.
 
@@ -248,15 +262,28 @@ def stop(http_host, http_port):
 @cli.command()
 @click.option("--host", "http_host", default=None, help="Host to check")
 @click.option("--port", "http_port", default=None, type=int, help="Port to check")
+@click.option("--storage-backend", "-s", default=None,
+              type=click.Choice(["sqlite_vec", "sqlite-vec", "cloudflare", "hybrid"]),
+              help="Storage backend to use (reads from running server if omitted)")
+@click.option("--debug", is_flag=True, help="Enable debug logging")
 @click.pass_context
-def restart(ctx, http_host, http_port):
-    """Restart the memory server (stop + launch)."""
+def restart(ctx, http_host, http_port, storage_backend, debug):
+    """Restart the memory server (stop + launch).
+    
+    Preserves --storage-backend and --debug flags. If --storage-backend is
+    not provided, attempts to read the current backend from the running
+    server's health endpoint before restarting.
+    """
     from .lifecycle import restart as _restart
     args = []
     if http_host is not None:
         args.extend(["--host", str(http_host)])
     if http_port is not None:
         args.extend(["--port", str(http_port)])
+    if storage_backend is not None:
+        args.extend(["--storage-backend", str(storage_backend)])
+    if debug:
+        args.append("--debug")
     _restart.main(args=args, prog_name="memory restart", standalone_mode=False)
 
 
