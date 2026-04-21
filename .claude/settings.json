@@ -1,6 +1,12 @@
 {
-  "enabledPlugins": {
-    "superpowers@claude-plugins-official": true
+  "permissions": {
+    "allow": [
+      "Bash(chmod +x /Users/hkr/Repositories/mcp-memory-service/claude-hooks/scripts/ensure-server.js)",
+      "Bash(/bin/ls -la /Users/hkr/Repositories/mcp-memory-service/claude-hooks/scripts/ensure-server.js)",
+      "Bash(chmod +x /Users/hkr/Repositories/mcp-memory-service/claude-hooks/scripts/test-plugin-install.sh)",
+      "Bash(~/.agents/skills/here-now/scripts/publish.sh /Users/hkr/Repositories/mcp-memory-service/docs --slug merry-realm-j835)",
+      "Bash(GIT_COMMITTER_NAME=\"Henry\" GIT_COMMITTER_EMAIL=\"5000709+doobidoo@users.noreply.github.com\" git commit --amend --author=\"Henry <5000709+doobidoo@users.noreply.github.com>\" --no-edit)"
+    ]
   },
   "hooks": {
     "PostToolUse": [
@@ -16,5 +22,8 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true
   }
 }

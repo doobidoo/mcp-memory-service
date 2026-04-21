@@ -92,22 +92,36 @@ def _loopback_redirect_matches(registered_uri: str, requested_uri: str) -> bool:
     )
 
 
+_DANGEROUS_REDIRECT_SCHEMES = frozenset({
+    "javascript",
+    "data",
+    "vbscript",
+    "file",
+    "about",
+    "blob",
+})
+
+
 def _build_redirect_url(redirect_uri: str, params: dict[str, str]) -> str:
     """Build a redirect URL from a previously validated redirect URI.
 
     Callers must pass a URI that has already been allowlisted by
-    ``validate_redirect_uri``. This function adds a belt-and-braces scheme
-    check so that a bug in the validation layer cannot turn into an
-    open-redirect: OAuth redirects are always http(s), never ``javascript:``
-    or ``data:``.
+    ``validate_redirect_uri``. This function adds a belt-and-braces check
+    that rejects browser-executable or script-capable schemes (``javascript:``,
+    ``data:``, ``vbscript:``, ``file:``, ``about:``, ``blob:``), even if one
+    somehow slipped past the allowlist.
+
+    Per RFC 8252 §7.1, native apps may legitimately register custom URI
+    schemes (e.g. ``myapp://callback``), so we **denylist** dangerous schemes
+    rather than allowlisting http(s) only.
     """
     scheme = urlparse(redirect_uri).scheme.lower()
-    if scheme not in ("http", "https"):
+    if scheme in _DANGEROUS_REDIRECT_SCHEMES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error": "invalid_redirect_uri",
-                "error_description": "redirect_uri must use http or https scheme",
+                "error_description": "redirect_uri uses a disallowed scheme",
             },
         )
     return f"{redirect_uri}?{urlencode(params)}"
@@ -357,15 +371,20 @@ async def authorize_post(
         # form POST can be unreliable across cross-origin boundaries.
         import json
 
-        # HTML-attribute-escape the URL for the meta refresh tag. json.dumps
-        # already produces a safe JS string literal for the <script> context.
-        # ``validate_redirect_uri`` allowlists the URI, but escape here as
-        # defense-in-depth against any future regression in validation.
+        # HTML-attribute-escape the URL for the meta refresh tag.
+        # For the <script> context, json.dumps() produces a valid JS string
+        # literal but does NOT escape the ``</script>`` sequence, which would
+        # close the script element in HTML parsing before JS parsing begins.
+        # Replace ``</`` with ``<\/`` so the redirect URL cannot break out of
+        # the script element even if the allowlist regresses.
+        # ``validate_redirect_uri`` already allowlists the URI; both escapes
+        # are defense-in-depth.
         safe_url_attr = html.escape(redirect_url, quote=True)
+        safe_url_js = json.dumps(redirect_url).replace("</", "<\\/")
         return HTMLResponse(f"""<!DOCTYPE html>
 <html><head>
 <meta http-equiv=\"refresh\" content=\"0;url={safe_url_attr}\">
-<script>window.location.href = {json.dumps(redirect_url)};</script>
+<script>window.location.href = {safe_url_js};</script>
 </head><body>Redirecting...</body></html>""")
 
     except HTTPException:
