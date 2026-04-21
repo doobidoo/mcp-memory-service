@@ -15,7 +15,9 @@ import json
 import signal
 import time
 import logging
+import subprocess
 from pathlib import Path
+from collections import deque
 
 import click
 
@@ -56,10 +58,20 @@ def _read_pid() -> int | None:
     if not pid_path.exists():
         return None
     try:
-        pid = int(pid_path.read_text().strip())
+        content = pid_path.read_text().strip()
+        # Support both old format (just an int) and new format (JSON with metadata)
+        try:
+            pid_info = json.loads(content)
+            pid = pid_info.get("pid", int(content)) if isinstance(pid_info, dict) else int(pid_info)
+        except (ValueError, TypeError):
+            pid = int(content)
     except (ValueError, OSError):
         return None
     if _is_process_alive(pid):
+        # Validate against stale PID files (PID reuse after reboot)
+        if _is_stale_pid(pid_path):
+            pid_path.unlink(missing_ok=True)
+            return None
         return pid
     pid_path.unlink(missing_ok=True)
     return None
@@ -67,11 +79,64 @@ def _read_pid() -> int | None:
 
 def _write_pid(pid: int) -> None:
     _ensure_dirs()
-    _pid_file().write_text(str(pid))
+    # Record PID alongside process creation time and cmdline hint to detect
+    # stale PID files after reboot or PID reuse.
+    pid_info = {"pid": pid}
+    try:
+        import psutil
+        proc = psutil.Process(pid)
+        pid_info["create_time"] = proc.create_time()
+        pid_info["cmdline_hint"] = " ".join(proc.cmdline()[:3]) if proc.cmdline() else ""
+    except Exception:
+        pass  # psutil not available — fall back to PID-only (less safe)
+    _pid_file().write_text(json.dumps(pid_info))
 
 
 def _remove_pid() -> None:
     _pid_file().unlink(missing_ok=True)
+
+
+def _is_stale_pid(pid_path: Path) -> bool:
+    """Check if the PID file points to a different process than the original.
+    
+    Handles PID reuse after reboot or counter rollover by comparing
+    the recorded create_time and cmdline hint against the current process.
+    Returns True if the PID is stale (different process).
+    """
+    try:
+        pid_info = json.loads(pid_path.read_text().strip())
+    except (ValueError, OSError):
+        return True  # Can't parse — treat as stale
+    
+    if isinstance(pid_info, int):
+        return False  # Old format (just an int) — can't validate, assume valid
+    
+    pid = pid_info.get("pid")
+    if pid is None:
+        return True
+    
+    recorded_create_time = pid_info.get("create_time")
+    recorded_cmdline = pid_info.get("cmdline_hint", "")
+    
+    if recorded_create_time is not None:
+        try:
+            import psutil
+            proc = psutil.Process(pid)
+            current_create_time = proc.create_time()
+            # If create times differ by more than 1 second, it's a different process
+            if abs(current_create_time - recorded_create_time) > 1.0:
+                return True  # Stale — PID was reused by a different process
+            # Extra check: cmdline hint should match
+            if recorded_cmdline:
+                current_cmdline = " ".join(proc.cmdline()[:3]) if proc.cmdline() else ""
+                if recorded_cmdline != current_cmdline:
+                    return True  # Stale — different command
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return True  # Process doesn't exist — stale
+        except Exception:
+            pass  # psutil failed — can't validate, assume valid (benign)
+    
+    return False  # Not stale, or can't determine (psutil unavailable)
 
 
 def _is_process_alive(pid: int) -> bool:
@@ -104,7 +169,6 @@ def _is_process_alive(pid: int) -> bool:
 
 def _find_process_on_port(port: int) -> int | None:
     """Find PID of the process listening on the given port (cross-platform)."""
-    import subprocess
     if sys.platform == "win32":
         try:
             result = subprocess.run(
@@ -133,7 +197,6 @@ def _find_process_on_port(port: int) -> int | None:
 
 def _kill_process(pid: int) -> bool:
     """Terminate a process gracefully, then forcefully if needed."""
-    import subprocess
     try:
         if sys.platform == "win32":
             subprocess.run(
@@ -163,6 +226,26 @@ def _http_get_json(url: str, timeout: int = 3) -> dict | None:
         return None
 
 
+# ─── Log reading with streaming tail (no full-file load) ──────────────────────
+
+def _read_log_tail(lines: int = 30) -> list[str]:
+    """Read the last N lines of log file using streaming tail (deque).
+    
+    Uses collections.deque with maxlen to efficiently read only the last N lines
+    without loading the entire file into memory.
+    """
+    log_path = _log_file()
+    if not log_path.exists():
+        return []
+    
+    try:
+        with open(log_path, 'r', errors='replace') as f:
+            # Stream through file, keeping only last N lines in deque
+            return list(deque(f, maxlen=lines))
+    except Exception:
+        return []
+
+
 # ─── Click commands ───────────────────────────────────────────────────────────
 
 @click.command()
@@ -179,10 +262,14 @@ def _http_get_json(url: str, timeout: int = 3) -> dict | None:
 @click.pass_context
 def launch(ctx, http_host, http_port, detach, storage_backend, debug):
     """Start the HTTP memory server (background by default).
-
+    
+    ⚠️  SECURITY WARNING: Binding to non-loopback hosts (e.g., 0.0.0.0)
+    exposes the API to your network. Use authentication and/or firewall
+    rules in production. Intended for development or trusted networks only.
+    
     Equivalent to 'memory server --http' but with lifecycle management:
     PID tracking, log redirection, and automatic health-check polling.
-
+    
     Use --foreground to run attached (same as 'memory server --http').
     """
     # Resolve host and port
@@ -193,9 +280,10 @@ def launch(ctx, http_host, http_port, detach, storage_backend, debug):
     # Apply env overrides
     os.environ["MCP_HTTP_HOST"] = host
     os.environ["MCP_HTTP_PORT"] = str(port)
-    os.environ["MCP_ALLOW_ANONYMOUS_ACCESS"] = os.environ.get(
-        "MCP_ALLOW_ANONYMOUS_ACCESS", "true"
-    )
+    # Pass through MCP_ALLOW_ANONYMOUS_ACCESS unchanged — do NOT force a default.
+    # If the user set it explicitly (or via .env), respect that.
+    # If unset, the server's own default applies (which does NOT set it at all,
+    # requiring authentication). This is consistent with `memory server --http`.
     if storage_backend:
         os.environ["MCP_MEMORY_STORAGE_BACKEND"] = storage_backend
     if debug:
@@ -233,35 +321,53 @@ def launch(ctx, http_host, http_port, detach, storage_backend, debug):
 
     click.echo(f"Starting memory server on port {port}...")
 
-    import subprocess
+    # Build safe command arguments (no string interpolation of user-controlled host)
+    # Use sys.executable -m uvicorn directly with separate args
+    cmd = [
+        sys.executable,
+        "-m", "uvicorn",
+        "mcp_memory_service.web.app:app",
+        "--host", host,
+        "--port", str(port),
+        "--log-level", "info"
+    ]
 
-    env = {**os.environ, "MCP_HTTP_PORT": str(port),
-           "MCP_HTTP_HOST": host,
-           "MCP_ALLOW_ANONYMOUS_ACCESS": "true"}
+    # Open log files for the child process
+    log_out_handle = open(log_out, "a")
+    log_err_handle = open(log_err, "a")
+    
+    # Build child env: pass through current env with host/port overrides.
+    # Do NOT force MCP_ALLOW_ANONYMOUS_ACCESS — respect user's explicit setting.
+    child_env = {**os.environ, "MCP_HTTP_PORT": str(port), "MCP_HTTP_HOST": host}
 
-    # Run the server as a subprocess using the entry point script
-    # This avoids needing to import the heavy package in the launcher
-    cmd = [sys.executable, "-c",
-           "from mcp_memory_service.web.app import app; "
-           "import uvicorn, os; "
-           f"uvicorn.run(app, host={repr(host)}, port={port}, "
-           "log_level='info')"]
+    # Close handles immediately in parent after spawning child (fixes file handle leak)
+    try:
+        popen_kwargs = {
+            "stdout": log_out_handle,
+            "stderr": log_err_handle,
+            "stdin": subprocess.DEVNULL,
+            "env": child_env,
+        }
 
-    popen_kwargs = {
-        "stdout": open(log_out, "a"),
-        "stderr": open(log_err, "a"),
-        "stdin": subprocess.DEVNULL,
-        "env": env,
-    }
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = getattr(
+                subprocess, "CREATE_NO_WINDOW", 0x08000000
+            )
+        else:
+            popen_kwargs["start_new_session"] = True
 
-    if sys.platform == "win32":
-        popen_kwargs["creationflags"] = getattr(
-            subprocess, "CREATE_NO_WINDOW", 0x08000000
-        )
-    else:
-        popen_kwargs["start_new_session"] = True
-
-    proc = subprocess.Popen(cmd, **popen_kwargs)
+        proc = subprocess.Popen(cmd, **popen_kwargs)
+        
+        # Close the parent's file handles immediately after spawn
+        # (child process has its own copy via dup2)
+        log_out_handle.close()
+        log_err_handle.close()
+        
+    except Exception:
+        # If Popen fails, make sure to close handles
+        log_out_handle.close()
+        log_err_handle.close()
+        raise
 
     _write_pid(proc.pid)
 
@@ -333,14 +439,36 @@ def stop(http_host, http_port):
 @click.command()
 @click.option("--host", "http_host", default=None, help="Host to check")
 @click.option("--port", "http_port", default=None, type=int, help="Port to check")
+@click.option("--storage-backend", "-s", default=None,
+              type=click.Choice(["sqlite_vec", "sqlite-vec", "cloudflare", "hybrid"]),
+              help="Storage backend to use (reads from running server if omitted)")
+@click.option("--debug", is_flag=True, help="Enable debug logging")
 @click.pass_context
-def restart(ctx, http_host, http_port):
-    """Restart the memory server (stop + launch)."""
+def restart(ctx, http_host, http_port, storage_backend, debug):
+    """Restart the memory server (stop + launch).
+    
+    Preserves --storage-backend and --debug flags. If --storage-backend is
+    not provided, attempts to read the current backend from the running
+    server's health endpoint before restarting.
+    """
+    host = http_host or os.environ.get("MCP_HTTP_HOST", "127.0.0.1")
+    port = http_port or int(os.environ.get("MCP_HTTP_PORT", "8000"))
+    base_url = f"http://{host}:{port}"
+    
+    # If storage_backend not specified, try to read it from the running server
+    if storage_backend is None:
+        health = _http_get_json(f"{base_url}/api/health")
+        if health and health.get("storage_backend"):
+            storage_backend = health["storage_backend"]
+            # Normalize: server may return "sqlite_vec" or "sqlite-vec"
+            if storage_backend not in ("sqlite_vec", "sqlite-vec", "cloudflare", "hybrid"):
+                storage_backend = None  # Unknown backend, let launch use its default
+    
     click.echo("Restarting server...")
     ctx.invoke(stop, http_host=http_host, http_port=http_port)
     time.sleep(1)
     ctx.invoke(launch, http_host=http_host, http_port=http_port,
-               detach=True, storage_backend=None, debug=False)
+               detach=True, storage_backend=storage_backend, debug=debug)
 
 
 @click.command()
@@ -409,15 +537,16 @@ def health_cmd(http_host, http_port):
 @click.command()
 @click.option("--lines", "-n", default=30, type=int, help="Number of lines to show")
 def logs(lines):
-    """Show recent server log entries."""
-    log_path = _log_file()
-    if not log_path.exists():
+    """Show recent server log entries.
+    
+    Reads only the last N lines from the log file using streaming tail,
+    avoiding loading the entire file into memory.
+    """
+    log_lines = _read_log_tail(lines)
+    if not log_lines:
         click.echo("No log file found.")
-        click.echo(f"Expected at: {log_path}")
+        click.echo(f"Expected at: {_log_file()}")
         return
-
-    from collections import deque
-    with open(log_path, "r", encoding="utf-8", errors="replace") as f:
-        log_lines = deque(f, maxlen=lines)
+        
     for line in log_lines:
-        click.echo(line.rstrip())
+        click.echo(line.rstrip('\n\r'))
