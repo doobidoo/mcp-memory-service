@@ -387,6 +387,13 @@ memory stop --port 8192
 These commands are optimized for fast startup and avoid loading heavy ML
 dependencies unless needed.
 
+⚠️  **Security Note**: By default, the server binds to `127.0.0.1` (localhost only).
+To expose the server on your network or allow remote access, you can use
+`--host 0.0.0.0` or set `MCP_HTTP_HOST=0.0.0.0`. However, **this exposes the
+API to your network** and should be done only in trusted environments with
+proper authentication and firewall rules in production. For untrusted networks,
+use TLS termination (reverse proxy with HTTPS) or VPN overlays.
+
 ---
 
 ## 💡 Why You Need This
