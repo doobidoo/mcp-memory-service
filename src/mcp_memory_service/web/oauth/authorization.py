@@ -18,6 +18,7 @@ OAuth 2.1 Authorization Server implementation for MCP Memory Service.
 Implements OAuth 2.1 authorization code flow and token endpoints.
 """
 
+import html
 import time
 import logging
 import base64
@@ -92,7 +93,23 @@ def _loopback_redirect_matches(registered_uri: str, requested_uri: str) -> bool:
 
 
 def _build_redirect_url(redirect_uri: str, params: dict[str, str]) -> str:
-    """Build a redirect URL from a previously validated redirect URI."""
+    """Build a redirect URL from a previously validated redirect URI.
+
+    Callers must pass a URI that has already been allowlisted by
+    ``validate_redirect_uri``. This function adds a belt-and-braces scheme
+    check so that a bug in the validation layer cannot turn into an
+    open-redirect: OAuth redirects are always http(s), never ``javascript:``
+    or ``data:``.
+    """
+    scheme = urlparse(redirect_uri).scheme.lower()
+    if scheme not in ("http", "https"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_redirect_uri",
+                "error_description": "redirect_uri must use http or https scheme",
+            },
+        )
     return f"{redirect_uri}?{urlencode(params)}"
 
 
@@ -340,9 +357,14 @@ async def authorize_post(
         # form POST can be unreliable across cross-origin boundaries.
         import json
 
+        # HTML-attribute-escape the URL for the meta refresh tag. json.dumps
+        # already produces a safe JS string literal for the <script> context.
+        # ``validate_redirect_uri`` allowlists the URI, but escape here as
+        # defense-in-depth against any future regression in validation.
+        safe_url_attr = html.escape(redirect_url, quote=True)
         return HTMLResponse(f"""<!DOCTYPE html>
 <html><head>
-<meta http-equiv=\"refresh\" content=\"0;url={redirect_url}\">
+<meta http-equiv=\"refresh\" content=\"0;url={safe_url_attr}\">
 <script>window.location.href = {json.dumps(redirect_url)};</script>
 </head><body>Redirecting...</body></html>""")
 

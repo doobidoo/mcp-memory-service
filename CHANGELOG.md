@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Security
+
+- **oauth**: Harden the authorization-code redirect response against CodeQL alerts `py/reflective-xss` (#385) and `py/url-redirection` (#382). `_build_redirect_url` now rejects any `redirect_uri` whose scheme is not `http`/`https`, and the meta-refresh URL is HTML-attribute-escaped. `validate_redirect_uri` already allowlists the URI against the registered client; these are defense-in-depth guards for the two code-scanning findings.
+
 ## [10.39.1] - 2026-04-19
 
 ### Fixed
