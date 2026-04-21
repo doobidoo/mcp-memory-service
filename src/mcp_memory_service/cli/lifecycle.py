@@ -416,6 +416,8 @@ def logs(lines):
         click.echo(f"Expected at: {log_path}")
         return
 
-    log_lines = log_path.read_text(errors="replace").splitlines()
-    for line in log_lines[-lines:]:
-        click.echo(line)
+    from collections import deque
+    with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+        log_lines = deque(f, maxlen=lines)
+    for line in log_lines:
+        click.echo(line.rstrip())
