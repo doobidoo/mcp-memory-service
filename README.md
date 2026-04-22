@@ -437,17 +437,20 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.39.1** (April 19, 2026)
+## Latest Release: **v10.40.0** (April 22, 2026)
 
-**hotfix: plugin.json author field format — unblocks `/plugin install mcp-memory-service`**
+**feat: Milvus storage backend — Lite / self-hosted / Zilliz Cloud**
 
 **What's New:**
-- **Hotfix for v10.39.0 plugin install**: `plugin.json` `author` field now uses the required object format (`{"name": "..."}`) instead of a string. Users who hit `Validation errors: author: Invalid input: expected object, received string` on `/plugin install mcp-memory-service` should upgrade to v10.39.1. Thanks @yingzhi0808 for the report (#738) and fix (#739).
-- **1,547 Python tests** passing.
+- **New Milvus storage backend** (`MCP_MEMORY_STORAGE_BACKEND=milvus`): Three deployment modes from one code path — Milvus Lite (zero-dep local file), self-hosted Docker, and Zilliz Cloud. ~1,750 lines, 39 tests, `@zc277584121` committed to 6-month SLA on `backend:milvus` issues. See `docs/milvus-backend.md`. (PR #721)
+- **OAuth security hardening**: Defense-in-depth guards against CodeQL `py/reflective-xss` and `py/url-redirection` in the authorization-code redirect flow. (PR #745)
+- **Plugin manifest shape validation**: CI now validates `plugin.json` structure against the Claude Code plugin spec. (PR #740)
+- **1,675 Python tests** passing.
 
 ---
 
 **Previous Releases**:
+- **v10.39.1** - hotfix: plugin.json author field object format — unblocks `/plugin install mcp-memory-service` (#738, #739)
 - **v10.39.0** - feat: Claude Code plugin install (`/plugin marketplace add doobidoo/mcp-memory-service`) + MemoryClient.storeMemory() protocol-native writes (PRs #736, #735)
 - **v10.38.4** - fix(mcp): return HTTP 202 for JSON-RPC notifications — fixes Codex/strict-client handshake (PR #733)
 - **v10.38.3** - fix: Server tab auto-check, list_memories total_pages, knowledge graph edge rendering (PRs #728, #731, #730)

@@ -10,9 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.40.0] - 2026-04-22
+
+### Added
+
+- **[#721] Milvus storage backend (Lite / self-hosted / Zilliz Cloud)**: New fourth storage backend implementing the full `MemoryStorage` interface against Milvus. Supports three deployment modes from the same code path — Milvus Lite (zero-dep local `.db` file, ideal for scripts and tests), self-hosted Milvus via Docker (recommended for MCP servers and single-tenant deployments), and Zilliz Cloud (managed service for team/production use). ~1,750 lines of new code, 39 Milvus-specific tests. Activate with `MCP_MEMORY_STORAGE_BACKEND=milvus`. See `docs/milvus-backend.md` for full deployment guide. (PR #721, @zc277584121)
+- **[#721] `backend:milvus` label + `.github/CODEOWNERS` + `test-milvus-docker` CI job**: Issue tracker label for routing Milvus bug reports; `@zc277584121` added to CODEOWNERS for `src/mcp_memory_service/storage/milvus.py` with a 6-month SLA commitment; dedicated Docker-based Milvus smoke-test job in Main CI/CD Pipeline. (PR #721)
+- **[#740] Claude Code plugin manifest shape validation**: CI smoke test now validates `plugin.json` against the full Claude Code plugin spec (author object, tools array, schema fields) using structured JSON shape checks — catches regressions that `JSON.parse` alone misses. (PR #740)
+
 ### Security
 
-- **oauth**: Harden the authorization-code redirect response against CodeQL
+- **[#745] oauth**: Harden the authorization-code redirect response against CodeQL
   alerts `py/reflective-xss` (#385) and `py/url-redirection` (#382).
   `_build_redirect_url` now rejects `javascript:`, `data:`, `vbscript:`,
   `file:`, `about:`, and `blob:` schemes (RFC 8252 custom schemes like
@@ -20,7 +28,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   HTML-attribute-escaped and the JS redirect string has `</` escaped to
   `<\/` so it cannot break out of the `<script>` element.
   `validate_redirect_uri` already allowlists the URI against the registered
-  client; these are defense-in-depth guards for the code-scanning findings.
+  client; these are defense-in-depth guards for the code-scanning findings. (PR #745)
+
+### CI
+
+- **[#741] Docs link-check: ignore milvus.io and docs.zilliz.com**: Unblocks the link-checker on all Milvus documentation. (PR #741)
+- **[#721] Milvus CI hardening**: Docker image tag pinned for reproducibility, `docker-compose` standalone manifest added for older Docker versions, segment-sealing wait added to smoke test to prevent intermittent failures. (PR #721)
 
 ## [10.39.1] - 2026-04-19
 
