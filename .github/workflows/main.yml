@@ -313,7 +313,7 @@ jobs:
       run: |
         docker run -d --name milvus \
           -p 19530:19530 -p 9091:9091 \
-          milvusdb/milvus:v2.5-latest \
+          milvusdb/milvus:v2.5.27 \
           milvus run standalone
         echo "Waiting for Milvus to be healthy..."
         for i in $(seq 1 60); do
