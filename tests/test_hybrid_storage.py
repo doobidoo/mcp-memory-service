@@ -18,7 +18,7 @@ import os
 import sys
 import logging
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from typing import Dict, Any
 
 # Add src to path for imports
@@ -455,6 +455,90 @@ class TestBackgroundSyncService:
         assert 'cloudflare_available' in status
 
         await sync_service.stop()
+
+    @pytest.mark.asyncio
+    async def test_force_sync_dedupes_against_secondary(self, temp_sqlite_db):
+        """force_sync skips items already on the secondary to avoid burning the
+        Cloudflare Workers AI embedding quota on duplicates (regression guard for
+        issue #750 Phase 2)."""
+        primary = SqliteVecMemoryStorage(temp_sqlite_db)
+        await primary.initialize()
+
+        # Secondary that mimics CloudflareStorage enough to expose bulk hash fetch.
+        class DedupeMockCloudflareStorage(MockCloudflareStorage):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.base_url = "https://mock"
+                self.d1_database_id = "mock-db"
+                self.store_call_count = 0
+                # Pretend these hashes are already on secondary
+                self.existing_hashes = set()
+
+            async def _retry_request(self, method, url, **kwargs):
+                resp = Mock()
+                resp.json = Mock(return_value={
+                    "success": True,
+                    "result": [{"results": [
+                        {"content_hash": h} for h in self.existing_hashes
+                    ]}]
+                })
+                return resp
+
+            async def store(self, memory):
+                self.store_call_count += 1
+                return await super().store(memory)
+
+        secondary = DedupeMockCloudflareStorage()
+        await secondary.initialize()
+
+        # Seed primary with 3 memories; secondary already has 2 of them
+        memories = []
+        for i, content in enumerate(["alpha", "beta", "gamma"]):
+            m = Memory(
+                content=content,
+                content_hash=generate_content_hash(content),
+                tags=["test"],
+                memory_type="test",
+            )
+            memories.append(m)
+            await primary.store(m)
+
+        secondary.existing_hashes = {memories[0].content_hash, memories[1].content_hash}
+
+        sync_service = BackgroundSyncService(primary, secondary, sync_interval=1, batch_size=5)
+        result = await sync_service.force_sync()
+
+        assert result['status'] == 'completed'
+        assert result['primary_memories'] == 3
+        # Only the non-duplicate 'gamma' should be pushed → 1 store call
+        assert secondary.store_call_count == 1, (
+            f"Expected 1 store call (only new memories), got {secondary.store_call_count}. "
+            f"Dedupe regression — see issue #750."
+        )
+        assert result.get('skipped_already_present') == 2
+
+    @pytest.mark.asyncio
+    async def test_force_sync_falls_back_when_dedupe_unavailable(self, sync_service_components):
+        """If the secondary doesn't expose a bulk hash fetch (no _retry_request /
+        d1_database_id attrs), force_sync must still work — pushing all items (old
+        behavior, preserved for non-Cloudflare secondaries)."""
+        primary, secondary, sync_service = sync_service_components
+
+        # Seed primary
+        for content in ("one", "two"):
+            m = Memory(
+                content=content,
+                content_hash=generate_content_hash(content),
+                tags=["test"],
+                memory_type="test",
+            )
+            await primary.store(m)
+
+        # MockCloudflareStorage intentionally lacks _retry_request
+        result = await sync_service.force_sync()
+        assert result['status'] == 'completed'
+        # Fallback path doesn't populate skipped_already_present
+        assert result.get('skipped_already_present', 0) == 0
 
 
 class TestPerformanceCharacteristics:

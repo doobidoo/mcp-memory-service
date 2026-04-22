@@ -170,11 +170,15 @@ async def force_sync(
 
         # Step 2: Push FROM local TO Cloudflare (existing behavior)
         push_result = await storage.force_sync()
-        operations_synced = push_result.get('operations_synced', 0)
+        # BackgroundSyncService.force_sync returns 'synced_to_secondary'; fall back to
+        # 'operations_synced' for compatibility with other implementations.
+        operations_synced = push_result.get('synced_to_secondary', push_result.get('operations_synced', 0))
+        skipped_already_present = push_result.get('skipped_already_present', 0)
 
-        # Check success flags from both operations
+        # Check success flags from both operations. `status == 'completed'` means push
+        # finished (may still have item-level failures, reported via failed_operations).
         pull_success = pull_result.get('success', True) if pull_result else True
-        push_success = push_result.get('success', False)
+        push_success = push_result.get('status') == 'completed' if 'status' in push_result else push_result.get('success', False)
         overall_success = pull_success and push_success
 
         time_taken = time.time() - start_time
@@ -186,6 +190,8 @@ async def force_sync(
             combined_message = f"Pulled {memories_pulled} from Cloudflare"
         elif operations_synced > 0:
             combined_message = f"Pushed {operations_synced} to Cloudflare"
+        elif skipped_already_present > 0:
+            combined_message = f"No changes to sync ({skipped_already_present} already synchronized)"
         else:
             combined_message = "No changes to sync (already synchronized)"
 

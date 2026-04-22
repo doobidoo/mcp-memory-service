@@ -272,6 +272,53 @@ class BackgroundSyncService:
             logger.warning("Sync queue full, processing operation immediately")
             await self._process_single_operation(operation)
 
+    async def _fetch_secondary_hashes(self) -> Optional[set]:
+        """
+        Fetch all content_hash values from secondary storage (Cloudflare D1).
+
+        Returns None if the secondary does not support efficient bulk hash fetch,
+        which signals the caller to fall back to per-item pushing (every item embeds,
+        previous behavior). Returns an empty set if the secondary is reachable but
+        has no memories.
+
+        Used by force_sync to skip pushing items that already exist on the secondary,
+        which prevents burning the Cloudflare Workers AI embedding quota on duplicates
+        (see issue #750). Without this check, every force_sync retries ~8000+ pushes
+        that each fail at the embedding call, locking the system out of Workers AI
+        until the rate window resets.
+        """
+        secondary = getattr(self, 'secondary', None) or self
+        # Only CloudflareStorage has D1 access + a _retry_request method
+        if not hasattr(secondary, '_retry_request') or not hasattr(secondary, 'd1_database_id'):
+            return None
+
+        hashes: set = set()
+        limit = 1000
+        offset = 0
+        while True:
+            try:
+                resp = await secondary._retry_request(
+                    "POST",
+                    f"{secondary.base_url}/d1/database/{secondary.d1_database_id}/query",
+                    json={
+                        "sql": "SELECT content_hash FROM memories WHERE deleted_at IS NULL LIMIT ? OFFSET ?",
+                        "params": [limit, offset],
+                    },
+                )
+                data = resp.json()
+                if not data.get("success"):
+                    logger.warning(f"Secondary hash fetch failed: {data.get('errors')}")
+                    return None
+                batch = data["result"][0].get("results", [])
+                hashes.update(r["content_hash"] for r in batch)
+                if len(batch) < limit:
+                    break
+                offset += limit
+            except Exception as e:
+                logger.warning(f"Could not fetch secondary hashes for dedupe: {e}")
+                return None
+        return hashes
+
     async def force_sync(self) -> Dict[str, Any]:
         """Force an immediate full synchronization between backends."""
         logger.info("Starting forced sync between primary and secondary storage")
@@ -296,6 +343,23 @@ class BackgroundSyncService:
                     'duration': time.time() - sync_start_time
                 }
 
+            # Dedupe: skip memories that already exist on the secondary. Without this,
+            # force_sync calls embed+upsert for every local memory and burns the CF
+            # Workers AI quota on duplicates — the root cause of `0 synced / N failed`
+            # reported in issue #750.
+            secondary_hashes = await self._fetch_secondary_hashes()
+            if secondary_hashes is not None:
+                new_memories = [m for m in primary_memories if m.content_hash not in secondary_hashes]
+                skipped_count = len(primary_memories) - len(new_memories)
+                logger.info(
+                    f"Dedupe: {skipped_count} of {len(primary_memories)} memories already on secondary, "
+                    f"pushing {len(new_memories)}"
+                )
+            else:
+                new_memories = primary_memories
+                skipped_count = 0
+                logger.debug("Secondary hash fetch unavailable — pushing all memories")
+
             # Sync from primary to secondary using concurrent operations
             async def sync_memory(memory):
                 try:
@@ -315,8 +379,8 @@ class BackgroundSyncService:
 
             # Process in batches to avoid overwhelming the system
             batch_size = self.batch_size  # Use configured batch size
-            for i in range(0, len(primary_memories), batch_size):
-                batch = primary_memories[i:i + batch_size]
+            for i in range(0, len(new_memories), batch_size):
+                batch = new_memories[i:i + batch_size]
                 results = await asyncio.gather(*[sync_memory(m) for m in batch], return_exceptions=True)
 
                 for result in results:
@@ -334,7 +398,10 @@ class BackgroundSyncService:
             self.sync_stats['last_sync_duration'] = sync_duration
             self.sync_stats['cloudflare_available'] = cloudflare_available
 
-            logger.info(f"Force sync completed: {synced_count} synced, {failed_count} failed in {sync_duration:.2f}s")
+            logger.info(
+                f"Force sync completed: {synced_count} synced, {failed_count} failed, "
+                f"{skipped_count} skipped (already on secondary) in {sync_duration:.2f}s"
+            )
 
             return {
                 'status': 'completed',
@@ -342,6 +409,7 @@ class BackgroundSyncService:
                 'primary_memories': len(primary_memories),
                 'synced_to_secondary': synced_count,
                 'failed_operations': failed_count,
+                'skipped_already_present': skipped_count,
                 'duration': sync_duration
             }
 
