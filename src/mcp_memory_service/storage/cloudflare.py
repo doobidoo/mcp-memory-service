@@ -1446,20 +1446,21 @@ class CloudflareStorage(MemoryStorage):
             # consistent with SqliteVecMemoryStorage — otherwise hybrid health reports
             # show CF counts inflated by soft-deleted rows, which looks like sync drift
             # but is just an unfiltered stats query (see issue #750 follow-up).
-            sql = f"""
+            # COALESCE guards against NULL when the filtered set is empty.
+            sql = """
             SELECT
                 COUNT(*) as total_memories,
-                SUM(content_size) as total_content_size,
+                COALESCE(SUM(content_size), 0) as total_content_size,
                 COUNT(DISTINCT vector_id) as total_vectors,
                 COUNT(r2_key) as r2_stored_count,
                 (SELECT COUNT(*) FROM tags) as unique_tags,
-                (SELECT COUNT(*) FROM memories WHERE created_at >= {week_ago} AND deleted_at IS NULL) as memories_this_week,
+                (SELECT COUNT(*) FROM memories WHERE created_at >= ? AND deleted_at IS NULL) as memories_this_week,
                 (SELECT COUNT(*) FROM memories WHERE deleted_at IS NOT NULL) as tombstone_count
             FROM memories
             WHERE deleted_at IS NULL
             """
 
-            payload = {"sql": sql}
+            payload = {"sql": sql, "params": [week_ago]}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
 
