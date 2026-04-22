@@ -475,13 +475,25 @@ class TestBackgroundSyncService:
                 self.existing_hashes = set()
 
             async def _retry_request(self, method, url, **kwargs):
+                # Single-page response: return all hashes once, empty thereafter to
+                # satisfy the cursor-based pagination loop (id > last_id; break when
+                # batch size < limit).
+                params = kwargs.get("json", {}).get("params", [])
+                last_id = params[0] if params else 0
                 resp = Mock()
-                resp.json = Mock(return_value={
-                    "success": True,
-                    "result": [{"results": [
-                        {"content_hash": h} for h in self.existing_hashes
-                    ]}]
-                })
+                if last_id == 0:
+                    resp.json = Mock(return_value={
+                        "success": True,
+                        "result": [{"results": [
+                            {"id": i, "content_hash": h}
+                            for i, h in enumerate(self.existing_hashes, start=1)
+                        ]}]
+                    })
+                else:
+                    resp.json = Mock(return_value={
+                        "success": True,
+                        "result": [{"results": []}]
+                    })
                 return resp
 
             async def store(self, memory):

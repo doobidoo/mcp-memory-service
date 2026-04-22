@@ -286,23 +286,27 @@ class BackgroundSyncService:
         (see issue #750). Without this check, every force_sync retries ~8000+ pushes
         that each fail at the embedding call, locking the system out of Workers AI
         until the rate window resets.
+
+        Uses id-based cursor pagination rather than LIMIT/OFFSET — see
+        `get_all_memories_cursor` at cloudflare.py:1938, which documents D1's OFFSET
+        limitations (400 Bad Request at large offsets) and uses the same pattern.
         """
-        secondary = getattr(self, 'secondary', None) or self
+        secondary = getattr(self, 'secondary', None)
         # Only CloudflareStorage has D1 access + a _retry_request method
-        if not hasattr(secondary, '_retry_request') or not hasattr(secondary, 'd1_database_id'):
+        if not secondary or not hasattr(secondary, '_retry_request') or not hasattr(secondary, 'd1_database_id'):
             return None
 
         hashes: set = set()
         limit = 1000
-        offset = 0
+        last_id = 0
         while True:
             try:
                 resp = await secondary._retry_request(
                     "POST",
                     f"{secondary.base_url}/d1/database/{secondary.d1_database_id}/query",
                     json={
-                        "sql": "SELECT content_hash FROM memories WHERE deleted_at IS NULL LIMIT ? OFFSET ?",
-                        "params": [limit, offset],
+                        "sql": "SELECT id, content_hash FROM memories WHERE deleted_at IS NULL AND id > ? ORDER BY id ASC LIMIT ?",
+                        "params": [last_id, limit],
                     },
                 )
                 data = resp.json()
@@ -310,10 +314,12 @@ class BackgroundSyncService:
                     logger.warning(f"Secondary hash fetch failed: {data.get('errors')}")
                     return None
                 batch = data["result"][0].get("results", [])
+                if not batch:
+                    break
                 hashes.update(r["content_hash"] for r in batch)
+                last_id = batch[-1]["id"]
                 if len(batch) < limit:
                     break
-                offset += limit
             except Exception as e:
                 logger.warning(f"Could not fetch secondary hashes for dedupe: {e}")
                 return None
