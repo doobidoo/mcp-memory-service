@@ -14,10 +14,13 @@
 
 """Tests for Cloudflare storage backend."""
 
-import pytest
 import asyncio
-from unittest.mock import Mock, AsyncMock, patch
+from datetime import date
 from typing import List
+from unittest.mock import Mock, AsyncMock, patch
+
+import httpx
+import pytest
 
 from src.mcp_memory_service.storage.cloudflare import CloudflareStorage
 from src.mcp_memory_service.models.memory import Memory
@@ -117,7 +120,6 @@ class TestCloudflareStorage:
     @pytest.mark.asyncio
     async def test_retry_logic(self, cloudflare_storage):
         """Test retry logic with rate limiting."""
-        import httpx
         
         # Mock rate limited response followed by success
         responses = [
@@ -486,20 +488,54 @@ class TestCloudflareStorage:
                     "total_memories": 10,
                     "total_content_size": 1024,
                     "total_vectors": 10,
-                    "r2_stored_count": 2
+                    "r2_stored_count": 2,
+                    "tombstone_count": 0
                 }]
             }]
         }
-        
+
         with patch.object(cloudflare_storage, '_retry_request', return_value=mock_response):
             stats = await cloudflare_storage.get_stats()
-            
+
             assert stats["total_memories"] == 10
             assert stats["total_content_size_bytes"] == 1024
             assert stats["storage_backend"] == "cloudflare"
             assert stats["vectorize_index"] == "test-index"
             assert stats["status"] == "operational"
-    
+
+    @pytest.mark.asyncio
+    async def test_get_stats_filters_tombstones(self, cloudflare_storage):
+        """Stats query must filter tombstones (deleted_at IS NULL) so total_memories
+        aligns with SqliteVecMemoryStorage. Regression guard for issue #750."""
+        captured_sql = {}
+
+        async def capture(method, url, **kwargs):
+            captured_sql["sql"] = kwargs.get("json", {}).get("sql", "")
+            resp = Mock()
+            resp.json.return_value = {
+                "success": True,
+                "result": [{"results": [{
+                    "total_memories": 8265,   # active count (what callers expect)
+                    "total_content_size": 100,
+                    "total_vectors": 8265,
+                    "r2_stored_count": 0,
+                    "unique_tags": 42,
+                    "memories_this_week": 5,
+                    "tombstone_count": 602,   # soft-deleted, excluded from total
+                }]}]
+            }
+            return resp
+
+        with patch.object(cloudflare_storage, '_retry_request', side_effect=capture):
+            stats = await cloudflare_storage.get_stats()
+
+        assert "deleted_at IS NULL" in captured_sql["sql"], (
+            "get_stats SQL must filter tombstones (see issue #750)"
+        )
+        assert stats["total_memories"] == 8265
+        assert stats["tombstone_count"] == 602
+
+
     @pytest.mark.asyncio
     async def test_cleanup_duplicates(self, cloudflare_storage):
         """Test cleaning up duplicate memories."""
@@ -571,7 +607,6 @@ class TestCloudflareTimeBasedDeletion:
     @pytest.mark.asyncio
     async def test_delete_by_timeframe_d1_query(self, cloudflare_storage):
         """Test delete_by_timeframe constructs correct D1 SQL query."""
-        from datetime import date
 
         # Mock response with content hashes to delete
         mock_find_response = Mock()
@@ -615,7 +650,6 @@ class TestCloudflareTimeBasedDeletion:
     @pytest.mark.asyncio
     async def test_delete_by_timeframe_with_tag(self, cloudflare_storage):
         """Test delete_by_timeframe includes tag filter in SQL."""
-        from datetime import date
 
         mock_find_response = Mock()
         mock_find_response.json.return_value = {
@@ -650,7 +684,6 @@ class TestCloudflareTimeBasedDeletion:
     @pytest.mark.asyncio
     async def test_delete_by_timeframe_api_error(self, cloudflare_storage):
         """Test delete_by_timeframe handles API errors gracefully."""
-        from datetime import date
 
         start = date(2025, 1, 1)
         end = date(2025, 1, 31)
@@ -667,7 +700,6 @@ class TestCloudflareTimeBasedDeletion:
     @pytest.mark.asyncio
     async def test_delete_before_date_d1_query(self, cloudflare_storage):
         """Test delete_before_date constructs correct D1 SQL query."""
-        from datetime import date
 
         mock_find_response = Mock()
         mock_find_response.json.return_value = {
@@ -701,7 +733,6 @@ class TestCloudflareTimeBasedDeletion:
     @pytest.mark.asyncio
     async def test_delete_before_date_with_tag(self, cloudflare_storage):
         """Test delete_before_date includes tag filter in SQL."""
-        from datetime import date
 
         mock_find_response = Mock()
         mock_find_response.json.return_value = {

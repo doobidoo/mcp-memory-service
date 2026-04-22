@@ -18,6 +18,7 @@ Sync management endpoints for hybrid backend.
 Provides status monitoring and manual sync triggering for hybrid storage mode.
 """
 
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -40,12 +41,13 @@ class SyncStatusResponse(BaseModel):
     is_paused: bool
     last_sync_time: float
     operations_pending: int
-    operations_processed: int
-    operations_failed: int
+    operations_processed: int  # lifetime success count
+    operations_failed: int  # lifetime failure count (does not indicate current health)
+    consecutive_failures: int = 0  # resets on any success — use this for current health
     sync_interval_seconds: int
     time_since_last_sync_seconds: float
     next_sync_eta_seconds: float
-    status: str  # 'synced', 'syncing', 'pending', 'error'
+    status: str  # 'synced', 'syncing', 'pending', 'error' — reflects current health only
 
 
 class SyncForceResponse(BaseModel):
@@ -90,7 +92,6 @@ async def get_sync_status(
         sync_status = await storage.get_sync_status()
 
         # Calculate time since last sync
-        import time
         current_time = time.time()
         last_sync = sync_status.get('last_sync_time', 0)
         time_since_sync = current_time - last_sync if last_sync > 0 else 0
@@ -99,16 +100,19 @@ async def get_sync_status(
         sync_interval = sync_status.get('sync_interval', 300)
         next_sync_eta = max(0, sync_interval - time_since_sync)
 
-        # Determine status
+        # Determine status — reflects CURRENT health only. Lifetime `operations_failed`
+        # is not used here because a single historical failure would then pin `status`
+        # to 'error' forever, masking real-time sync health (see issue #750).
         is_running = sync_status.get('is_running', False)
         pending_ops = sync_status.get('pending_operations', 0)
         actively_syncing = sync_status.get('actively_syncing', False)  # True only during active sync
+        consecutive_failures = sync_status.get('consecutive_failures', 0)
 
         if actively_syncing:
             status = 'syncing'
         elif pending_ops > 0:
             status = 'pending'
-        elif sync_status.get('operations_failed', 0) > 0:
+        elif consecutive_failures > 0:
             status = 'error'
         else:
             status = 'synced'
@@ -121,6 +125,7 @@ async def get_sync_status(
             operations_pending=pending_ops,
             operations_processed=sync_status.get('operations_processed', 0),
             operations_failed=sync_status.get('operations_failed', 0),
+            consecutive_failures=consecutive_failures,
             sync_interval_seconds=sync_interval,
             time_since_last_sync_seconds=time_since_sync,
             next_sync_eta_seconds=next_sync_eta,
@@ -154,7 +159,6 @@ async def force_sync(
         )
 
     try:
-        import time
         start_time = time.time()
 
         # Step 1: Pull FROM Cloudflare TO local (if method exists)

@@ -147,7 +147,10 @@ class Memory:
                 time_diff = abs(created_at - iso_ts)
                 # Allow up to 1 second difference for rounding, but reject obvious timezone mismatches
                 if time_diff > 1.0 and time_diff < 86400:  # Between 1 second and 24 hours suggests timezone issue
-                    logger.info(f"Timezone mismatch detected (diff: {time_diff}s), preferring float timestamp")
+                    # DEBUG rather than INFO: rows stored with local-TZ ISO strings
+                    # (pre-UTC-normalization) trigger this on every read — was flooding
+                    # the log and masking real errors. See issue #750.
+                    logger.debug(f"Timezone mismatch detected (diff: {time_diff}s), preferring float timestamp")
                     # Use the float timestamp as authoritative and regenerate ISO
                     self.created_at = created_at
                     self.created_at_iso = float_to_iso(created_at)
@@ -186,7 +189,7 @@ class Memory:
                 time_diff = abs(updated_at - iso_ts)
                 # Allow up to 1 second difference for rounding, but reject obvious timezone mismatches
                 if time_diff > 1.0 and time_diff < 86400:  # Between 1 second and 24 hours suggests timezone issue
-                    logger.info(f"Timezone mismatch detected in updated_at (diff: {time_diff}s), preferring float timestamp")
+                    logger.debug(f"Timezone mismatch detected in updated_at (diff: {time_diff}s), preferring float timestamp")
                     # Use the float timestamp as authoritative and regenerate ISO
                     self.updated_at = updated_at
                     self.updated_at_iso = float_to_iso(updated_at)

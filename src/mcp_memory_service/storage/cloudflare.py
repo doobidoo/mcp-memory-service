@@ -568,9 +568,9 @@ class CloudflareStorage(MemoryStorage):
                 "content_hash": memory.content_hash,
                 "memory_type": memory.memory_type or "standard",
                 "tags": ",".join(memory.tags) if memory.tags else "",
-                "created_at": memory.created_at_iso or datetime.now().isoformat()
+                "created_at": memory.created_at_iso or datetime.now(timezone.utc).isoformat()
             }
-            
+
             await self._store_vectorize_vector(vector_id, embedding, vector_metadata)
             
             # Store metadata in D1
@@ -650,7 +650,10 @@ class CloudflareStorage(MemoryStorage):
         """
 
         now = time.time()
-        now_iso = datetime.now().isoformat()
+        # Use UTC ISO to keep `updated_at_iso` aligned with the float `updated_at`
+        # (which is already UTC epoch). Local-TZ ISO strings cause a 1h/2h offset
+        # on read that floods logs with "Timezone mismatch detected" warnings.
+        now_iso = datetime.now(timezone.utc).isoformat()
 
         params = [
             memory.content_hash,
@@ -1355,7 +1358,7 @@ class CloudflareStorage(MemoryStorage):
 
             # Handle timestamp updates based on preserve_timestamps flag
             now = time.time()
-            now_iso = datetime.now().isoformat()
+            now_iso = datetime.now(timezone.utc).isoformat()  # match float UTC epoch
 
             if not preserve_timestamps:
                 # When preserve_timestamps=False, use timestamps from updates dict if provided
@@ -1439,7 +1442,10 @@ class CloudflareStorage(MemoryStorage):
             # Calculate timestamp for memories from last 7 days
             week_ago = time.time() - (7 * 24 * 60 * 60)
 
-            # Get memory count and size from D1
+            # Filter tombstones (deleted_at IS NOT NULL) so `total_memories` is
+            # consistent with SqliteVecMemoryStorage — otherwise hybrid health reports
+            # show CF counts inflated by soft-deleted rows, which looks like sync drift
+            # but is just an unfiltered stats query (see issue #750 follow-up).
             sql = f"""
             SELECT
                 COUNT(*) as total_memories,
@@ -1447,8 +1453,10 @@ class CloudflareStorage(MemoryStorage):
                 COUNT(DISTINCT vector_id) as total_vectors,
                 COUNT(r2_key) as r2_stored_count,
                 (SELECT COUNT(*) FROM tags) as unique_tags,
-                (SELECT COUNT(*) FROM memories WHERE created_at >= {week_ago}) as memories_this_week
+                (SELECT COUNT(*) FROM memories WHERE created_at >= {week_ago} AND deleted_at IS NULL) as memories_this_week,
+                (SELECT COUNT(*) FROM memories WHERE deleted_at IS NOT NULL) as tombstone_count
             FROM memories
+            WHERE deleted_at IS NULL
             """
 
             payload = {"sql": sql}
@@ -1464,6 +1472,7 @@ class CloudflareStorage(MemoryStorage):
                     "memories_this_week": stats.get("memories_this_week", 0),
                     "total_content_size_bytes": stats.get("total_content_size", 0),
                     "total_vectors": stats.get("total_vectors", 0),
+                    "tombstone_count": stats.get("tombstone_count", 0),
                     "r2_stored_count": stats.get("r2_stored_count", 0),
                     "storage_backend": "cloudflare",
                     "vectorize_index": self.vectorize_index,
