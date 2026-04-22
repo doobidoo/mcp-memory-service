@@ -371,6 +371,10 @@ jobs:
             )
             ok, msg = await s.store(m)
             assert ok, f"Store failed: {msg}"
+            # Milvus standalone uses Bounded consistency by default; allow a
+            # short window for the growing segment to become searchable via
+            # AUTOINDEX before the first KNN query.
+            await asyncio.sleep(3)
             results = await s.retrieve("smoke test", n_results=3)
             assert len(results) >= 1, f"Expected >=1 result, got {len(results)}"
             count = await s.count_all_memories()
