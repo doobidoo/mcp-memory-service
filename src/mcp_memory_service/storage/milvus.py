@@ -44,7 +44,7 @@ import time
 import traceback
 from collections import OrderedDict
 from datetime import datetime, timezone, timedelta, date
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # Disable wandb BEFORE importing sentence-transformers — same rationale as
 # sqlite_vec.py (Issue #311). Safe to set even when transformers is unused.
@@ -122,7 +122,6 @@ def _embedding_cache_size() -> int:
 # (metadata JSON keys etc.) don't push past the Milvus-side limit.
 _MILVUS_VARCHAR_MAX = 65535
 _CONTENT_MAX_LEN = _MILVUS_VARCHAR_MAX - 256
-_METADATA_MAX_LEN = _MILVUS_VARCHAR_MAX - 256
 _TAGS_MAX_LEN = 8192
 _ISO_MAX_LEN = 64
 _MEMORY_TYPE_MAX_LEN = 128
