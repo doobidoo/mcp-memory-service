@@ -70,13 +70,8 @@ RUN if [ "$FORCE_CPU_PYTORCH" = "true" ] || [ "$INSTALL_EXTRA" = "[sqlite]" ]; t
 # Conditionally pre-download ONNX models for lightweight embedding
 RUN if [ "$SKIP_MODEL_DOWNLOAD" != "true" ]; then \
         echo "Pre-downloading ONNX embedding models..." && \
-        python -c "try:\
-            import onnxruntime as ort; \
-            print('ONNX runtime available for lightweight embeddings'); \
-            print('ONNX models will be downloaded at runtime as needed')\
-        except Exception as e:\
-            print(f'Warning: ONNX runtime not available: {e}'); \
-            print('Embedding functionality may be limited')" || echo "ONNX check failed, continuing..."; \
+        python -c "import onnxruntime as ort; print('ONNX runtime available for lightweight embeddings'); print('ONNX models will be downloaded at runtime as needed')" \
+            || echo "ONNX check failed, continuing..."; \
     else \
         echo "Skipping model download (SKIP_MODEL_DOWNLOAD=true)"; \
     fi
