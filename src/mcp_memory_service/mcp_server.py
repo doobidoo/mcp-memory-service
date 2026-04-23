@@ -71,6 +71,8 @@ from .config import (
 )
 from .storage.base import MemoryStorage
 from .services.memory_service import MemoryService
+from .services.graph_service import GraphService
+from .storage.graph import GraphStorage
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Default to INFO level
@@ -168,6 +170,7 @@ class MCPServerContext:
     """Application context for the MCP server with all required components."""
     storage: MemoryStorage
     memory_service: MemoryService
+    graph_service: GraphService
 
 @asynccontextmanager
 async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext]:
@@ -221,10 +224,21 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
         memory_service = _get_or_create_memory_service(storage)
         _log_cache_performance(start_time)
 
+    # Initialize graph service (only for SQLite-based backends)
+    graph_storage = None
+    if STORAGE_BACKEND in ('sqlite_vec', 'hybrid'):
+        try:
+            graph_storage = GraphStorage(SQLITE_VEC_PATH)
+            logger.info("GraphStorage initialized for %s backend", STORAGE_BACKEND)
+        except Exception as e:
+            logger.warning("GraphStorage initialization failed (graph tools disabled): %s", e)
+    graph_service = GraphService(graph_storage)
+
     try:
         yield MCPServerContext(
             storage=storage,
-            memory_service=memory_service
+            memory_service=memory_service,
+            graph_service=graph_service,
         )
     finally:
         # IMPORTANT: Do NOT close cached storage instances here!
@@ -678,6 +692,71 @@ Examples:
         tag=tag,
         memory_type=memory_type
     )
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Memory Graph",
+        readOnlyHint=True,
+    ),
+)
+async def memory_graph(
+    action: str,
+    ctx: Context,
+    hash: Optional[str] = None,
+    hash1: Optional[str] = None,
+    hash2: Optional[str] = None,
+    max_hops: int = 2,
+    max_depth: int = 5,
+    radius: int = 2,
+) -> Dict[str, Any]:
+    """Knowledge graph operations - explore connections between memories.
+
+USE THIS WHEN:
+- User asks "what's related to X", "how are these memories connected"
+- Investigating cause-and-effect chains between memories
+- Visualizing memory relationships for debugging or understanding
+- Finding the path between two related memories
+
+ACTIONS:
+- connected: Find memories connected to a given memory (BFS traversal up to max_hops)
+- path: Find shortest path between two memories
+- subgraph: Extract subgraph around a memory (nodes + edges for visualization)
+
+REQUIRES: SQLite-vec or Hybrid storage backend. Returns error for Milvus/Cloudflare.
+
+RETURNS:
+- connected: {success, connected: [{hash, distance}], count}
+- path: {success, path: [hash1, ..., hash2], length}
+- subgraph: {success, nodes: [...], edges: [{source, target, similarity, ...}], node_count, edge_count}
+
+Examples:
+{"action": "connected", "hash": "abc123def456...", "max_hops": 2}
+{"action": "path", "hash1": "abc123...", "hash2": "def456..."}
+{"action": "subgraph", "hash": "abc123...", "radius": 3}
+    """
+    graph_service = ctx.request_context.lifespan_context.graph_service
+
+    if action == "connected":
+        if not hash:
+            return {"success": False, "error": "hash is required for 'connected' action"}
+        return await graph_service.find_connected(hash, max_hops=max_hops)
+
+    elif action == "path":
+        if not hash1 or not hash2:
+            return {"success": False, "error": "hash1 and hash2 are required for 'path' action"}
+        return await graph_service.find_shortest_path(hash1, hash2, max_depth=max_depth)
+
+    elif action == "subgraph":
+        if not hash:
+            return {"success": False, "error": "hash is required for 'subgraph' action"}
+        return await graph_service.get_subgraph(hash, radius=radius)
+
+    else:
+        return {
+            "success": False,
+            "error": f"Invalid action '{action}'. Must be one of: connected, path, subgraph"
+        }
+
 
 @mcp.tool(
     annotations=ToolAnnotations(
