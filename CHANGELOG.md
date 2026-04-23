@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.40.2] - 2026-04-23
+
+### Fixed
+
+- **[#756] Docker: ONNX model pre-download now actually executes at build time**: The `python -c "..."` one-liner in `tools/docker/Dockerfile.slim` used `try/except` compound statements with backslash continuations — a construct Python rejects with `SyntaxError`. The shell `|| echo` fallback was silently swallowing the error, so the model cache was never populated. Replaced with a simple expression chain (`import; call; print`) and let the shell `||` fallback handle genuine download failures as originally intended. Cold-start time on `Dockerfile.slim` drops from ~30s to ~3s; prevents Fly.io 40s health-check grace-period timeouts. `Dockerfile` (non-slim) gets the same fix for its `onnxruntime` availability check. Thanks to @netizen1119 for the report, root-cause analysis, and verified fix. (PR #757)
+
 ## [10.40.1] - 2026-04-21
 
 ### Fixed
