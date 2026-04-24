@@ -37,6 +37,12 @@ class GraphService:
     formatting. All methods return Dict with a ``success`` field
     and operation-specific data, matching the response format used
     by the stdio mode graph handlers.
+
+    Graph operations are only available for SQLite-based storage backends
+    (sqlite_vec and hybrid). For other backends (milvus, cloudflare),
+    ``graph_storage`` will be None and all operations return a structured
+    error. Callers should check :meth:`is_available` before assuming
+    graph features are present.
     """
 
     def __init__(self, graph_storage: Optional[GraphStorage] = None):

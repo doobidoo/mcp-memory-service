@@ -98,6 +98,8 @@ logger = logging.getLogger(__name__)
 
 _STORAGE_CACHE: Dict[str, MemoryStorage] = {}
 _MEMORY_SERVICE_CACHE: Dict[int, MemoryService] = {}
+_GRAPH_STORAGE_CACHE: Dict[str, GraphStorage] = {}
+_GRAPH_SERVICE_CACHE: Dict[int, GraphService] = {}
 _CACHE_LOCK: Optional[asyncio.Lock] = None  # Initialized on first use
 _CACHE_STATS = {
     "storage_hits": 0,
@@ -224,15 +226,37 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
         memory_service = _get_or_create_memory_service(storage)
         _log_cache_performance(start_time)
 
-    # Initialize graph service (only for SQLite-based backends)
-    graph_storage = None
+    # Initialize graph service with caching (only for SQLite-based backends)
+    graph_service = None
     if STORAGE_BACKEND in ('sqlite_vec', 'hybrid'):
-        try:
-            graph_storage = GraphStorage(SQLITE_VEC_PATH)
-            logger.info("GraphStorage initialized for %s backend", STORAGE_BACKEND)
-        except Exception as e:
-            logger.warning("GraphStorage initialization failed (graph tools disabled): %s", e)
-    graph_service = GraphService(graph_storage)
+        async with cache_lock:
+            if SQLITE_VEC_PATH in _GRAPH_STORAGE_CACHE:
+                graph_storage = _GRAPH_STORAGE_CACHE[SQLITE_VEC_PATH]
+                logger.info("✅ GraphStorage Cache HIT — reusing instance")
+            else:
+                try:
+                    # Offload blocking SQLite I/O to a separate thread
+                    graph_storage = await asyncio.to_thread(GraphStorage, SQLITE_VEC_PATH)
+                    _GRAPH_STORAGE_CACHE[SQLITE_VEC_PATH] = graph_storage
+                    logger.info("GraphStorage initialized and cached for %s backend", STORAGE_BACKEND)
+                except Exception as e:
+                    logger.warning("GraphStorage initialization failed (graph tools disabled): %s", e)
+                    graph_storage = None
+
+            if graph_storage is not None:
+                gs_id = id(graph_storage)
+                if gs_id in _GRAPH_SERVICE_CACHE:
+                    graph_service = _GRAPH_SERVICE_CACHE[gs_id]
+                    logger.info("✅ GraphService Cache HIT — reusing instance")
+                else:
+                    graph_service = GraphService(graph_storage)
+                    _GRAPH_SERVICE_CACHE[gs_id] = graph_service
+                    logger.info("💾 Cached GraphService instance")
+    else:
+        logger.info("Graph tools not available for %s backend (expected)", STORAGE_BACKEND)
+
+    if graph_service is None:
+        graph_service = GraphService(None)
 
     try:
         yield MCPServerContext(
