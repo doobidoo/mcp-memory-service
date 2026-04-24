@@ -372,6 +372,10 @@ class MemoryClient {
                     'X-API-Key': this.httpConfig.apiKey,
                     'Connection': 'close'
                 },
+                // 10s covers cold-cache semantic search on /api/search, /api/search/by-time,
+                // /api/search/by-tag. Larger than storeMemoryHTTP (5s) and _attemptHealthCheck (3s)
+                // because search queries run embedding + vector scan, not a simple write/ping.
+                timeout: 10000,
                 rejectUnauthorized: false,  // Allow self-signed certificates
                 agent: false  // Disable keepAlive — hook is one-shot, reused sockets race uvicorn close (ECONNRESET / socket hang up)
             };
@@ -423,6 +427,12 @@ class MemoryClient {
 
             req.on('error', (error) => {
                 console.warn('[Memory Client] HTTP network error:', error.message);
+                resolve([]);
+            });
+
+            req.on('timeout', () => {
+                req.destroy();
+                console.warn('[Memory Client] HTTP request timeout');
                 resolve([]);
             });
 
