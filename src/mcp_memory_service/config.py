@@ -914,6 +914,11 @@ def validate_oauth_configuration() -> None:
     elif OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES > 60:  # 1 hour
         warnings.append(f"OAuth authorization code expiry is longer than recommended: {OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES} minutes")
 
+    if OAUTH_REFRESH_TOKEN_EXPIRE_DAYS <= 0:
+        errors.append(f"OAuth refresh token expiry must be positive: {OAUTH_REFRESH_TOKEN_EXPIRE_DAYS}")
+    elif OAUTH_REFRESH_TOKEN_EXPIRE_DAYS > 365:
+        warnings.append(f"OAuth refresh token expiry is very long: {OAUTH_REFRESH_TOKEN_EXPIRE_DAYS} days")
+
     # Validate security settings
     if "localhost" in OAUTH_ISSUER or "127.0.0.1" in OAUTH_ISSUER:
         if not os.getenv('MCP_OAUTH_ISSUER'):
@@ -970,6 +975,7 @@ OAUTH_ISSUER = os.getenv('MCP_OAUTH_ISSUER') or get_oauth_issuer()
 # OAuth token configuration
 OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES = safe_get_int_env('MCP_OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES', 60, min_value=1, max_value=1440)  # 1 minute to 24 hours
 OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES = safe_get_int_env('MCP_OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES', 10, min_value=1, max_value=60)  # 1 minute to 1 hour
+OAUTH_REFRESH_TOKEN_EXPIRE_DAYS = safe_get_int_env('MCP_OAUTH_REFRESH_TOKEN_EXPIRE_DAYS', 30, min_value=1, max_value=365)  # 1 day to 1 year
 
 # OAuth security configuration
 ALLOW_ANONYMOUS_ACCESS = safe_get_bool_env('MCP_ALLOW_ANONYMOUS_ACCESS', False)

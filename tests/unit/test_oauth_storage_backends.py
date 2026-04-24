@@ -256,6 +256,9 @@ class TestOAuthStorageBackends:
         await storage.store_access_token(
             token="valid_token", client_id="client_1", expires_in=3600
         )
+        await storage.store_refresh_token(
+            token="valid_refresh", client_id="client_1", expires_in=3600
+        )
 
         # Store expired code and token
         await storage.store_authorization_code(
@@ -263,6 +266,9 @@ class TestOAuthStorageBackends:
         )
         await storage.store_access_token(
             token="expired_token", client_id="client_1", expires_in=1
+        )
+        await storage.store_refresh_token(
+            token="expired_refresh", client_id="client_1", expires_in=1
         )
 
         # Wait for expiration
@@ -274,8 +280,10 @@ class TestOAuthStorageBackends:
         # Verify cleanup results
         assert "expired_codes_cleaned" in result
         assert "expired_tokens_cleaned" in result
+        assert "expired_refresh_tokens_cleaned" in result
         assert result["expired_codes_cleaned"] >= 1
         assert result["expired_tokens_cleaned"] >= 1
+        assert result["expired_refresh_tokens_cleaned"] >= 1
 
         # Verify valid items still exist
         valid_code = await storage.get_authorization_code("valid_code")
@@ -284,12 +292,18 @@ class TestOAuthStorageBackends:
         valid_token = await storage.get_access_token("valid_token")
         assert valid_token is not None
 
+        valid_refresh = await storage.get_refresh_token("valid_refresh")
+        assert valid_refresh is not None
+
         # Verify expired items were cleaned
         expired_code = await storage.get_authorization_code("expired_code")
         assert expired_code is None
 
         expired_token = await storage.get_access_token("expired_token")
         assert expired_token is None
+
+        expired_refresh = await storage.get_refresh_token("expired_refresh")
+        assert expired_refresh is None
 
     @pytest.mark.asyncio
     async def test_get_client_not_found(self, storage):
@@ -364,6 +378,99 @@ class TestOAuthStorageBackends:
         assert len(failed) == 9, f"Expected 9 failures, got {len(failed)}"
         assert successful[0]["client_id"] == "client_1"
 
+    # -------------------- refresh token storage --------------------
+
+    @pytest.mark.asyncio
+    async def test_store_and_get_refresh_token(self, storage):
+        """Refresh tokens round-trip through storage with all fields preserved."""
+        await storage.store_refresh_token(
+            token="rt_basic",
+            client_id="client_1",
+            scope="read write offline_access",
+            expires_in=3600,
+        )
+
+        data = await storage.get_refresh_token("rt_basic")
+        assert data is not None
+        assert data["client_id"] == "client_1"
+        assert data["scope"] == "read write offline_access"
+        assert data["expires_at"] > time.time()
+        assert data["parent_token"] is None
+
+    @pytest.mark.asyncio
+    async def test_refresh_token_expiration(self, storage):
+        """Expired refresh tokens must not be returned."""
+        await storage.store_refresh_token(
+            token="rt_expired", client_id="client_1", expires_in=1
+        )
+        await asyncio.sleep(1.1)
+        assert await storage.get_refresh_token("rt_expired") is None
+
+    @pytest.mark.asyncio
+    async def test_revoke_refresh_token(self, storage):
+        """Revocation must block subsequent lookups and idempotently return False."""
+        await storage.store_refresh_token(
+            token="rt_rev", client_id="client_1", expires_in=3600
+        )
+        assert await storage.get_refresh_token("rt_rev") is not None
+
+        assert await storage.revoke_refresh_token("rt_rev") is True
+        assert await storage.get_refresh_token("rt_rev") is None
+
+        # Re-revocation: already revoked, so returns False (not a live token)
+        assert await storage.revoke_refresh_token("rt_rev") is False
+
+        # Unknown token
+        assert await storage.revoke_refresh_token("rt_unknown") is False
+
+    @pytest.mark.asyncio
+    async def test_delete_refresh_token(self, storage):
+        """Delete removes the record outright (no audit trail retained)."""
+        await storage.store_refresh_token(
+            token="rt_del", client_id="client_1", expires_in=3600
+        )
+        assert await storage.delete_refresh_token("rt_del") is True
+        assert await storage.delete_refresh_token("rt_del") is False
+        assert await storage.get_refresh_token("rt_del") is None
+
+    @pytest.mark.asyncio
+    async def test_refresh_token_rotation_chain(self, storage):
+        """parent_token records the rotation predecessor."""
+        await storage.store_refresh_token(
+            token="rt_v1", client_id="client_1", expires_in=3600
+        )
+        await storage.store_refresh_token(
+            token="rt_v2",
+            client_id="client_1",
+            expires_in=3600,
+            parent_token="rt_v1",
+        )
+
+        data = await storage.get_refresh_token("rt_v2")
+        assert data is not None
+        assert data["parent_token"] == "rt_v1"
+
+    @pytest.mark.asyncio
+    async def test_concurrent_refresh_token_revocation(self, storage):
+        """
+        Concurrent revocations of the same refresh token yield exactly one winner.
+
+        Mirrors the authorization-code replay guard: rotation must be serialized
+        so that two refresh requests cannot both succeed against the same token.
+        """
+        if isinstance(storage, MemoryOAuthStorage):
+            pytest.skip("Memory backend has a single-asyncio-lock; no race exposure")
+
+        await storage.store_refresh_token(
+            token="rt_race", client_id="client_1", expires_in=3600
+        )
+
+        tasks = [storage.revoke_refresh_token("rt_race") for _ in range(10)]
+        results = await asyncio.gather(*tasks)
+
+        assert sum(1 for r in results if r is True) == 1
+        assert sum(1 for r in results if r is False) == 9
+
 
 class TestSQLiteSpecific:
     """SQLite-specific tests (persistence, multi-process)."""
@@ -412,8 +519,23 @@ class TestSQLiteSpecific:
             assert retrieved_token is not None
             assert retrieved_token["client_id"] == "persist_test"
 
-            # Cleanup
+            # Store a refresh token, reopen, verify persistence
+            await storage2.store_refresh_token(
+                token="persist_refresh",
+                client_id="persist_test",
+                scope="offline_access",
+                expires_in=3600,
+            )
             await storage2.close()
+
+            storage3 = create_oauth_storage("sqlite", db_path=db_path)
+            retrieved_refresh = await storage3.get_refresh_token("persist_refresh")
+            assert retrieved_refresh is not None
+            assert retrieved_refresh["client_id"] == "persist_test"
+            assert retrieved_refresh["scope"] == "offline_access"
+
+            # Cleanup
+            await storage3.close()
 
         finally:
             if os.path.exists(db_path):

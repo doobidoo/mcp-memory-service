@@ -26,7 +26,11 @@ import asyncio
 from typing import Dict, Optional
 from .base import OAuthStorage
 from ..models import RegisteredClient
-from ....config import OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES, OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES
+from ....config import (
+    OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES,
+    OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES,
+    OAUTH_REFRESH_TOKEN_EXPIRE_DAYS,
+)
 
 
 class MemoryOAuthStorage(OAuthStorage):
@@ -53,6 +57,9 @@ class MemoryOAuthStorage(OAuthStorage):
 
         # Active access tokens (token -> {client_id, expires_at, scope})
         self._access_tokens: Dict[str, Dict] = {}
+
+        # Refresh tokens (token -> {client_id, scope, expires_at, revoked, parent_token})
+        self._refresh_tokens: Dict[str, Dict] = {}
 
         # Thread safety lock for concurrent access
         self._lock = asyncio.Lock()
@@ -214,12 +221,60 @@ class MemoryOAuthStorage(OAuthStorage):
                 return True
             return False
 
+    async def store_refresh_token(
+        self,
+        token: str,
+        client_id: str,
+        scope: Optional[str] = None,
+        expires_in: Optional[int] = None,
+        parent_token: Optional[str] = None,
+    ) -> None:
+        """Store a refresh token."""
+        if expires_in is None:
+            expires_in = OAUTH_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+        async with self._lock:
+            self._refresh_tokens[token] = {
+                "client_id": client_id,
+                "scope": scope,
+                "expires_at": time.time() + expires_in,
+                "revoked": False,
+                "parent_token": parent_token,
+            }
+
+    async def get_refresh_token(self, token: str) -> Optional[Dict]:
+        """Return refresh token data if live (not expired, not revoked)."""
+        async with self._lock:
+            data = self._refresh_tokens.get(token)
+            if not data:
+                return None
+            if data["revoked"]:
+                return None
+            if data["expires_at"] <= time.time():
+                return None
+            # Return a copy to prevent external mutation
+            return dict(data)
+
+    async def revoke_refresh_token(self, token: str) -> bool:
+        """Mark refresh token as revoked (keep record for rotation audit)."""
+        async with self._lock:
+            data = self._refresh_tokens.get(token)
+            if not data or data["revoked"]:
+                return False
+            data["revoked"] = True
+            return True
+
+    async def delete_refresh_token(self, token: str) -> bool:
+        """Remove refresh token record entirely."""
+        async with self._lock:
+            return self._refresh_tokens.pop(token, None) is not None
+
     async def cleanup_expired(self) -> Dict[str, int]:
         """
-        Clean up expired authorization codes and access tokens.
+        Clean up expired authorization codes, access tokens, and refresh tokens.
 
         Returns:
-            Dict with keys: expired_codes_cleaned, expired_tokens_cleaned
+            Dict with keys: expired_codes_cleaned, expired_tokens_cleaned,
+            expired_refresh_tokens_cleaned
         """
         async with self._lock:
             current_time = time.time()
@@ -240,9 +295,19 @@ class MemoryOAuthStorage(OAuthStorage):
             for token in expired_tokens:
                 self._access_tokens.pop(token, None)
 
+            # Clean up expired refresh tokens (revoked tokens are kept until expiry
+            # so rotated values cannot be re-used during the lifetime of the chain)
+            expired_refresh = [
+                token for token, data in self._refresh_tokens.items()
+                if data["expires_at"] <= current_time
+            ]
+            for token in expired_refresh:
+                self._refresh_tokens.pop(token, None)
+
             return {
                 "expired_codes_cleaned": len(expired_codes),
-                "expired_tokens_cleaned": len(expired_tokens)
+                "expired_tokens_cleaned": len(expired_tokens),
+                "expired_refresh_tokens_cleaned": len(expired_refresh),
             }
 
     async def close(self) -> None:
@@ -262,8 +327,14 @@ class MemoryOAuthStorage(OAuthStorage):
             Dict with counts of registered clients, active codes, and active tokens
         """
         async with self._lock:
+            now = time.time()
+            active_refresh = sum(
+                1 for data in self._refresh_tokens.values()
+                if not data["revoked"] and data["expires_at"] > now
+            )
             return {
                 "registered_clients": len(self._clients),
                 "active_authorization_codes": len(self._authorization_codes),
-                "active_access_tokens": len(self._access_tokens)
+                "active_access_tokens": len(self._access_tokens),
+                "active_refresh_tokens": active_refresh,
             }

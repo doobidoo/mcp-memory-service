@@ -184,14 +184,89 @@ class OAuthStorage(ABC):
         pass
 
     @abstractmethod
+    async def store_refresh_token(
+        self,
+        token: str,
+        client_id: str,
+        scope: Optional[str] = None,
+        expires_in: Optional[int] = None,
+        parent_token: Optional[str] = None,
+    ) -> None:
+        """
+        Store a refresh token.
+
+        Args:
+            token: Refresh token value
+            client_id: OAuth client identifier
+            scope: Space-separated list of granted scopes
+            expires_in: Expiration time in seconds (None uses default)
+            parent_token: Previous refresh token this one replaces (rotation chain)
+
+        Raises:
+            Exception: If storage operation fails
+        """
+        pass
+
+    @abstractmethod
+    async def get_refresh_token(self, token: str) -> Optional[Dict]:
+        """
+        Retrieve refresh token information if valid.
+
+        Returns None when the token is unknown, expired, or revoked. Does NOT
+        consume the token; rotation is performed by the caller via
+        :meth:`revoke_refresh_token` once a replacement has been issued.
+
+        Args:
+            token: Refresh token value
+
+        Returns:
+            Dict with keys: client_id, scope, expires_at, parent_token
+            None if token not found, expired, or revoked
+        """
+        pass
+
+    @abstractmethod
+    async def revoke_refresh_token(self, token: str) -> bool:
+        """
+        Revoke a refresh token (mark as unusable, keep record for audit).
+
+        Used for OAuth 2.1 §4.3.1 rotation: the caller invalidates the
+        previously-presented refresh token after issuing its replacement.
+
+        Args:
+            token: Refresh token value to revoke
+
+        Returns:
+            True if a live token was revoked, False if unknown/already revoked
+        """
+        pass
+
+    @abstractmethod
+    async def delete_refresh_token(self, token: str) -> bool:
+        """
+        Delete a refresh token record outright.
+
+        Intended for explicit logout / client deregistration flows where
+        audit history is not required.
+
+        Args:
+            token: Refresh token value
+
+        Returns:
+            True if a record was removed, False otherwise
+        """
+        pass
+
+    @abstractmethod
     async def cleanup_expired(self) -> Dict[str, int]:
         """
-        Clean up expired authorization codes and access tokens.
+        Clean up expired authorization codes, access tokens, and refresh tokens.
 
         This method should be called periodically to prevent storage bloat.
 
         Returns:
-            Dict with keys: expired_codes_cleaned, expired_tokens_cleaned
+            Dict with keys: expired_codes_cleaned, expired_tokens_cleaned,
+            expired_refresh_tokens_cleaned
 
         Raises:
             Exception: If cleanup operation fails
@@ -250,6 +325,19 @@ class OAuthStorage(ABC):
         """
         import secrets
         return secrets.token_urlsafe(32)
+
+    def generate_refresh_token(self) -> str:
+        """
+        Generate a secure refresh token.
+
+        Refresh tokens use more entropy than access tokens because they are
+        long-lived (days/weeks), DB-backed, and a key target for replay.
+
+        Returns:
+            Secure random refresh token string
+        """
+        import secrets
+        return secrets.token_urlsafe(48)
 
     # Optional statistics method
     async def get_stats(self) -> Dict:
