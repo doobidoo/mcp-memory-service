@@ -28,52 +28,50 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 # ---------------------------------------------------------------------------
-# Lightweight import of GraphService without triggering the full project
-# dependency chain (numpy, torch, sentence-transformers, etc.).
-#
-# Strategy: pre-populate sys.modules with a stub for the storage.graph
-# package so that graph_service.py's relative import resolves without
-# actually loading the real GraphStorage (which only needs sqlite3 but
-# the package __init__ chain pulls in heavy deps).
+# Import GraphService. Prefer the real module when project dependencies are
+# available (e.g., CI with full install). Fall back to an isolated stub setup
+# only when the heavy dependency chain (numpy, torch, sentence-transformers)
+# can't be loaded — this keeps the test file usable in lightweight dev envs
+# without polluting sys.modules for other test files that need the real
+# GraphStorage (e.g., tests/test_graph_traversal.py).
 # ---------------------------------------------------------------------------
 
-# Create stub parent packages so relative imports work
-for _pkg in [
-    'mcp_memory_service',
-    'mcp_memory_service.services',
-    'mcp_memory_service.storage',
-]:
-    if _pkg not in sys.modules:
-        _m = _types.ModuleType(_pkg)
-        _m.__path__ = []  # make it a package
-        sys.modules[_pkg] = _m
+try:
+    from mcp_memory_service.services.graph_service import GraphService
+except ImportError:
+    # Dependencies missing — build an isolated stub environment for this file.
+    for _pkg in [
+        'mcp_memory_service',
+        'mcp_memory_service.services',
+        'mcp_memory_service.storage',
+    ]:
+        if _pkg not in sys.modules:
+            _m = _types.ModuleType(_pkg)
+            _m.__path__ = []  # make it a package
+            sys.modules[_pkg] = _m
 
-# Create a stub GraphStorage class (tests only use mocks anyway)
-_graph_stub = _types.ModuleType('mcp_memory_service.storage.graph')
+    _graph_stub = _types.ModuleType('mcp_memory_service.storage.graph')
 
+    class _StubGraphStorage:
+        """Stub for import resolution — tests use MagicMock, never this class."""
+        pass
 
-class _StubGraphStorage:
-    """Stub for import resolution — tests use MagicMock, never this class."""
-    pass
+    _graph_stub.GraphStorage = _StubGraphStorage
+    sys.modules['mcp_memory_service.storage.graph'] = _graph_stub
 
+    _src = os.path.join(os.path.dirname(__file__), '..', 'src')
+    sys.path.insert(0, _src)
 
-_graph_stub.GraphStorage = _StubGraphStorage
-sys.modules['mcp_memory_service.storage.graph'] = _graph_stub
+    import importlib.util
+    _gs_spec = importlib.util.spec_from_file_location(
+        'mcp_memory_service.services.graph_service',
+        os.path.join(_src, 'mcp_memory_service', 'services', 'graph_service.py'),
+    )
+    _gs_mod = importlib.util.module_from_spec(_gs_spec)
+    sys.modules['mcp_memory_service.services.graph_service'] = _gs_mod
+    _gs_spec.loader.exec_module(_gs_mod)
 
-# Now we can safely import graph_service
-_src = os.path.join(os.path.dirname(__file__), '..', 'src')
-sys.path.insert(0, _src)
-
-import importlib
-_gs_spec = importlib.util.spec_from_file_location(
-    'mcp_memory_service.services.graph_service',
-    os.path.join(_src, 'mcp_memory_service', 'services', 'graph_service.py'),
-)
-_gs_mod = importlib.util.module_from_spec(_gs_spec)
-sys.modules['mcp_memory_service.services.graph_service'] = _gs_mod
-_gs_spec.loader.exec_module(_gs_mod)
-
-GraphService = _gs_mod.GraphService
+    GraphService = _gs_mod.GraphService
 
 
 # ---------------------------------------------------------------------------

@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **[#759] `memory_graph` tool for streamable-http MCP server**: Knowledge graph operations (find connected memories, shortest path, subgraph extraction) are now available in the FastMCP streamable-http server, matching the capabilities already present in stdio mode. Introduces a shared `GraphService` business-logic layer under `src/mcp_memory_service/services/graph_service.py` so both server variants reuse the same traversal + error-handling code paths. Graph operations require `sqlite_vec` or `hybrid` storage backends; `milvus` and `cloudflare` backends return a structured unavailability error instead of crashing. 14 unit tests for `GraphService`. Thanks to @henry201605 for the contribution. (PR #759)
+
+### Fixed
+
+- **[#759] Test isolation: `test_graph_service.py` no longer pollutes `sys.modules`**: The lightweight stub used to import `GraphService` without heavy dependencies previously replaced `mcp_memory_service.storage.graph` unconditionally at module-import time. This caused cascading `TypeError: _StubGraphStorage() takes no arguments` failures in `tests/test_graph_traversal.py` and `tests/web/api/test_analytics_graph.py` whenever `test_graph_service.py` was collected first. The stub is now only installed if the real module fails to import, preserving isolation in CI where dependencies are available.
+- **[#759] Removed unused `List` import in `graph_service.py`**: CodeQL alert #391 (unused import).
+
 ## [10.40.3] - 2026-04-24
 
 ### Fixed
