@@ -594,10 +594,12 @@ async function withRetry(fn, maxAttempts = 4, initialDelayMs = 2000, verbose = t
  * Main session start hook function with enhanced visual output
  */
 async function onSessionStart(context) {
-    // Global timeout wrapper to prevent hook from hanging
-    // Config specifies 10s, we use 9.5s to leave 0.5s buffer for cleanup
-    // With 1 git query + 1 recent query, expect ~9.5s total (4.5s each due to Python cold-start)
-    const HOOK_TIMEOUT = 9500; // 9.5 seconds (reduced Phase 0 from 2 to 1 query)
+    // Global timeout wrapper to prevent hook from hanging.
+    // Hook command timeout in ~/.claude/settings.json should be 30s; we use 28s internal
+    // to leave 2s buffer for cleanup + stdout flush. Phase 0+1+2 with cold cache can
+    // take 12-15s; the old 9.5s budget was timing out before formatMemoriesForContext()
+    // ran, so memories were retrieved but never injected.
+    const HOOK_TIMEOUT = 28000; // 28 seconds (was 9.5s — caused silent injection failures)
     const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('Hook timeout - completing early')), HOOK_TIMEOUT);
     });

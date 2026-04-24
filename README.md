@@ -437,20 +437,20 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.40.2** (April 23, 2026)
+## Latest Release: **v10.40.3** (April 24, 2026)
 
-**fix(docker): correct invalid Python one-liner in ONNX pre-download**
+**fix(claude-hooks): eliminate socket hang-up and raise hook timeout**
 
 **What's New:**
-- **Docker cold-start drops from ~30s to ~3s** (`Dockerfile.slim`): ONNX model cache is now actually populated at build time — the previous `try/except` one-liner was rejected by Python with `SyntaxError` and silently swallowed by the shell fallback.
-- **Fly.io health-check timeouts resolved**: Prevents deployments from failing the 40s grace-period timeout caused by the missing model cache.
-- **`Dockerfile` (non-slim) fix**: `onnxruntime` availability check now runs correctly (was previously silently skipped).
-- Thanks to @netizen1119 for the report, root-cause analysis, and verified fix. (PR #757)
+- **Socket hang-up eliminated**: Node.js HTTPS agent `keepAlive` caused dead-socket reuse across multi-phase retrieval — hook silently dropped memories. Fixed with `agent: false` + `Connection: close` on all HTTP paths.
+- **Hook timeout raised 9.5 s → 28 s**: Multi-phase retrieval (git + recent + tagged) takes 12–15 s cold; old budget expired before the injection block was written. Claude Code VSCode extension now reliably shows the memory-context block.
+- **Installer outer timeout raised 10 s → 30 s**: `~/.claude/settings.json` kill limit now matches the new internal budget.
 - **1,675 Python tests** passing.
 
 ---
 
 **Previous Releases**:
+- **v10.40.2** - fix(docker): correct invalid Python one-liner in ONNX pre-download (PR #757)
 - **v10.40.1** - fix(sync): CF hybrid sync reliability + reporting accuracy (PRs #751, #753)
 - **v10.40.0** - feat: Milvus storage backend (Lite / self-hosted / Zilliz Cloud), OAuth XSS hardening, plugin shape validation (PRs #721, #745, #740)
 - **v10.39.1** - hotfix: plugin.json author field object format — unblocks `/plugin install mcp-memory-service` (#738, #739)

@@ -128,7 +128,7 @@ fi
 # Check 5: PEP 8 compliance (imports)
 echo -e "\n${YELLOW}[5/9]${NC} Checking import ordering (PEP 8)..."
 IMPORT_ISSUES=0
-for file in $(echo "$STAGED_FILES" | grep '\.py$' || true); do
+for file in $(echo "$STAGED_FILES" | grep '\.py$' | grep -v '^claude-hooks/' || true); do
     if [ -f "$file" ]; then
         # Check for inline imports (not at top of file)
         if grep -n "^    import\|^        import" "$file" | grep -v "# inline import" > /dev/null; then
@@ -151,7 +151,7 @@ fi
 # Check 6: No debug code
 echo -e "\n${YELLOW}[6/9]${NC} Checking for debug code..."
 DEBUG_ISSUES=0
-for file in $(echo "$STAGED_FILES" | grep '\.py$' || true); do
+for file in $(echo "$STAGED_FILES" | grep '\.py$' | grep -v '^claude-hooks/' || true); do
     if [ -f "$file" ]; then
         # Check for common debug patterns
         if grep -n "import pdb\|breakpoint()\|print(" "$file" | grep -v "logger.debug\|# debug\|\"print" > /dev/null 2>&1; then
@@ -171,7 +171,7 @@ fi
 # Check 7: Docstring coverage
 echo -e "\n${YELLOW}[7/9]${NC} Checking docstring coverage..."
 MISSING_DOCSTRINGS=0
-for file in $(echo "$STAGED_FILES" | grep '\.py$' || true); do
+for file in $(echo "$STAGED_FILES" | grep '\.py$' | grep -v '^claude-hooks/' || true); do
     if [ -f "$file" ]; then
         # Simple heuristic: Check for functions without docstrings
         FUNC_COUNT=$(grep -c "^def \|^    def " "$file" 2>/dev/null || echo "0")

@@ -1120,7 +1120,7 @@ class HookInstaller:
                             {
                                 "type": "command",
                                 "command": f'node "{self.claude_hooks_dir}/core/session-start.js"',
-                                "timeout": 10
+                                "timeout": 30
                             }
                         ]
                     }
