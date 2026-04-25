@@ -199,6 +199,9 @@ omit = [
     "src/mcp_memory_service/utils/db_utils.py",
     "src/mcp_memory_service/utils/content_splitter.py",
     "src/mcp_memory_service/utils/debug.py",
+    # Milvus storage - requires pymilvus (not installed in CI)
+    "src/mcp_memory_service/storage/milvus.py",
+    "src/mcp_memory_service/storage/milvus_graph.py",
     # HTTP client - minimal usage
     "src/mcp_memory_service/storage/http_client.py",
     # CLI utilities
