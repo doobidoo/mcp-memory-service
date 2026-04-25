@@ -62,6 +62,25 @@ except ImportError:
         "pymilvus not available. Install with: pip install pymilvus milvus-lite"
     )
 
+# BM25 full-text search support (Milvus 2.5+).
+# Function / FunctionType were added in pymilvus ≥ 2.5; older versions lack them.
+try:
+    from pymilvus import Function, FunctionType  # type: ignore[attr-defined]
+    _BM25_IMPORTS_AVAILABLE = True
+except ImportError:
+    _BM25_IMPORTS_AVAILABLE = False
+    Function = None  # type: ignore
+    FunctionType = None  # type: ignore
+
+# Hybrid search helpers (also Milvus 2.5+).
+try:
+    from pymilvus import AnnSearchRequest, RRFRanker  # type: ignore[attr-defined]
+    _HYBRID_SEARCH_AVAILABLE = True
+except ImportError:
+    _HYBRID_SEARCH_AVAILABLE = False
+    AnnSearchRequest = None  # type: ignore
+    RRFRanker = None  # type: ignore
+
 try:
     from sentence_transformers import SentenceTransformer
     SENTENCE_TRANSFORMERS_AVAILABLE = True
@@ -246,6 +265,11 @@ class MilvusMemoryStorage(MemoryStorage):
         # when this is False. Set in ``_ensure_collection``.
         self._has_content_lower = False
 
+        # Whether the collection has a BM25 function index on ``content``.
+        # New collections get one automatically; pre-existing collections
+        # without the ``sparse_vector`` field fall back to vector-only search.
+        self._has_bm25 = False
+
         # Whether this storage is backed by Milvus Lite (embedded daemon) as
         # opposed to a remote Milvus server or Zilliz Cloud endpoint. We
         # mirror pymilvus's own heuristic (``uri.endswith('.db')``) — see
@@ -386,6 +410,36 @@ class MilvusMemoryStorage(MemoryStorage):
             metric_type="COSINE",
         )
 
+        # BM25 full-text search: add sparse vector field + BM25 function
+        # for new collections when pymilvus supports it (≥ 2.5).
+        if _BM25_IMPORTS_AVAILABLE:
+            try:
+                schema.add_field(
+                    field_name="sparse_vector",
+                    datatype=DataType.SPARSE_FLOAT_VECTOR,
+                )
+                bm25_function = Function(
+                    name="bm25_fn",
+                    input_field_names=["content"],
+                    output_field_names=["sparse_vector"],
+                    function_type=FunctionType.BM25,
+                )
+                schema.add_function(bm25_function)
+                index_params.add_index(
+                    field_name="sparse_vector",
+                    index_type="SPARSE_INVERTED_INDEX",
+                    metric_type="BM25",
+                )
+                self._has_bm25 = True
+                logger.info("BM25 full-text search enabled for new collection '%s'", self.collection_name)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to add BM25 function to collection '%s' — "
+                    "using vector-only search: %s",
+                    self.collection_name, exc,
+                )
+                self._has_bm25 = False
+
         self.client.create_collection(
             collection_name=self.collection_name,
             schema=schema,
@@ -442,6 +496,15 @@ class MilvusMemoryStorage(MemoryStorage):
                 "Collection '%s' lacks the 'content_lower' field — "
                 "get_by_exact_content will fall back to a slower client-side "
                 "scan. Recreate the collection to pick up server-side filtering.",
+                self.collection_name,
+            )
+
+        # Detect BM25 capability by checking for sparse_vector field
+        self._has_bm25 = "sparse_vector" in field_names
+        if not self._has_bm25:
+            logger.warning(
+                "BM25 full-text search unavailable for collection '%s' — "
+                "using vector-only search",
                 self.collection_name,
             )
 
@@ -967,6 +1030,69 @@ class MilvusMemoryStorage(MemoryStorage):
             return []
         return list(search_results[0])
 
+    async def _run_hybrid_search(
+        self,
+        query: str,
+        query_embedding: List[float],
+        tag_filter: str,
+        fetch_n: int,
+    ) -> List[Dict[str, Any]]:
+        """Execute hybrid vector + BM25 search with RRF merging.
+
+        Falls back to vector-only search if hybrid_search fails.
+        """
+        if not _HYBRID_SEARCH_AVAILABLE:
+            return await self._run_search(query_embedding, tag_filter, fetch_n)
+
+        try:
+            # Dense vector ANN request
+            vector_req = AnnSearchRequest(
+                data=[query_embedding],
+                anns_field="vector",
+                param={"metric_type": "COSINE"},
+                limit=fetch_n,
+                expr=tag_filter if tag_filter else None,
+            )
+
+            # BM25 sparse vector request
+            bm25_req = AnnSearchRequest(
+                data=[query],
+                anns_field="sparse_vector",
+                param={"metric_type": "BM25"},
+                limit=fetch_n,
+                expr=tag_filter if tag_filter else None,
+            )
+
+            search_results = await self._call_client(
+                "hybrid_search",
+                collection_name=self.collection_name,
+                reqs=[vector_req, bm25_req],
+                ranker=RRFRanker(k=60),
+                limit=fetch_n,
+                output_fields=list(self._OUTPUT_FIELDS),
+            )
+
+            if not search_results or not search_results[0]:
+                return []
+
+            # Deduplicate by content_hash (id field), keeping higher-ranked entry
+            seen: set = set()
+            deduped: List[Dict[str, Any]] = []
+            for hit in search_results[0]:
+                hit_id = hit.get("id") or hit.get("entity", {}).get("id")
+                if hit_id and hit_id in seen:
+                    continue
+                if hit_id:
+                    seen.add(hit_id)
+                deduped.append(hit)
+            return deduped
+
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Hybrid search failed, falling back to vector-only: %s", exc,
+            )
+            return await self._run_search(query_embedding, tag_filter, fetch_n)
+
     def _embed_query(self, query: str) -> Optional[List[float]]:
         """Return an embedding for ``query`` or ``None`` on failure (logged)."""
         try:
@@ -1021,7 +1147,10 @@ class MilvusMemoryStorage(MemoryStorage):
             return []
 
         fetch_n = self._retrieve_fetch_limit(n_results, tag_filter)
-        hits = await self._run_search(query_embedding, tag_filter, fetch_n)
+        if self._has_bm25:
+            hits = await self._run_hybrid_search(query, query_embedding, tag_filter, fetch_n)
+        else:
+            hits = await self._run_search(query_embedding, tag_filter, fetch_n)
         return self._rank_and_trim(hits, query, n_results, min_confidence)
 
     # -- Tag-based search ----------------------------------------------------

@@ -190,7 +190,11 @@ class DreamInspiredConsolidator:
         }
 
     def _init_graph_storage(self) -> None:
-        """Initialize GraphStorage with appropriate db_path from storage backend."""
+        """Initialize graph storage with appropriate backend.
+
+        Supports SQLite-vec, Hybrid (via SQLite primary), and Milvus backends.
+        Cloudflare-only backend does not support graph storage.
+        """
         try:
             # Try to get db_path from storage backend
             # Hybrid backend: storage.primary.db_path
@@ -200,28 +204,51 @@ class DreamInspiredConsolidator:
             ):
                 # Hybrid backend
                 db_path = self.storage.primary.db_path
+                self.graph_storage = GraphStorage(db_path)
                 self.logger.info(
                     f"Initialized GraphStorage with hybrid backend: {db_path}"
                 )
             elif hasattr(self.storage, "db_path"):
                 # SQLite-vec backend
                 db_path = self.storage.db_path
+                self.graph_storage = GraphStorage(db_path)
                 self.logger.info(
                     f"Initialized GraphStorage with SQLite backend: {db_path}"
                 )
+            elif hasattr(self.storage, "uri") and hasattr(self.storage, "collection_name"):
+                # Milvus backend — use MilvusGraphStorage
+                try:
+                    from ..storage.milvus_graph import MilvusGraphStorage
+                    self.graph_storage = MilvusGraphStorage(
+                        uri=self.storage.uri,
+                        token=getattr(self.storage, "token", None),
+                        collection_name=self.storage.collection_name,
+                    )
+                    # Synchronous init (blocking but lightweight)
+                    self.graph_storage._connect_client()
+                    self.graph_storage._ensure_collection()
+                    self.logger.info(
+                        f"Initialized MilvusGraphStorage for consolidation "
+                        f"(uri={self.storage.uri}, collection={self.graph_storage.collection_name})"
+                    )
+                except ImportError:
+                    self.logger.warning(
+                        "pymilvus not available, graph storage disabled for Milvus backend"
+                    )
+                    self.graph_storage = None
+                    return
             else:
                 # Cloudflare-only or unsupported backend
                 self.logger.warning(
-                    "Storage backend does not support graph storage (no db_path)"
+                    "Storage backend does not support graph storage (no db_path or uri)"
                 )
                 self.graph_storage = None
                 return
 
-            self.graph_storage = GraphStorage(db_path)
             self.logger.info(f"Graph storage mode: {GRAPH_STORAGE_MODE}")
 
         except Exception as e:
-            self.logger.warning(f"Failed to initialize GraphStorage: {e}")
+            self.logger.warning(f"Failed to initialize graph storage: {e}")
             self.graph_storage = None
 
     async def consolidate(self, time_horizon: str, **kwargs) -> ConsolidationReport:

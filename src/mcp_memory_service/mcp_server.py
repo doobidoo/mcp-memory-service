@@ -226,7 +226,7 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
         memory_service = _get_or_create_memory_service(storage)
         _log_cache_performance(start_time)
 
-    # Initialize graph service with caching (only for SQLite-based backends)
+    # Initialize graph service with caching (supports SQLite-based and Milvus backends)
     graph_service = None
     if STORAGE_BACKEND in ('sqlite_vec', 'hybrid'):
         async with cache_lock:
@@ -252,6 +252,37 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
                     graph_service = GraphService(graph_storage)
                     _GRAPH_SERVICE_CACHE[gs_id] = graph_service
                     logger.info("💾 Cached GraphService instance")
+    elif STORAGE_BACKEND == 'milvus':
+        from .config import MILVUS_URI, MILVUS_TOKEN, MILVUS_COLLECTION_NAME
+        milvus_graph_cache_key = f"milvus_graph:{MILVUS_URI}:{MILVUS_COLLECTION_NAME}"
+        async with cache_lock:
+            if milvus_graph_cache_key in _GRAPH_STORAGE_CACHE:
+                graph_storage = _GRAPH_STORAGE_CACHE[milvus_graph_cache_key]
+                logger.info("✅ MilvusGraphStorage Cache HIT — reusing instance")
+            else:
+                try:
+                    from .storage.milvus_graph import MilvusGraphStorage
+                    graph_storage = MilvusGraphStorage(
+                        uri=MILVUS_URI,
+                        token=MILVUS_TOKEN,
+                        collection_name=MILVUS_COLLECTION_NAME,
+                    )
+                    await graph_storage.initialize()
+                    _GRAPH_STORAGE_CACHE[milvus_graph_cache_key] = graph_storage
+                    logger.info("MilvusGraphStorage initialized and cached for milvus backend")
+                except Exception as e:
+                    logger.warning("MilvusGraphStorage initialization failed (graph tools disabled): %s", e)
+                    graph_storage = None
+
+            if graph_storage is not None:
+                gs_id = id(graph_storage)
+                if gs_id in _GRAPH_SERVICE_CACHE:
+                    graph_service = _GRAPH_SERVICE_CACHE[gs_id]
+                    logger.info("✅ GraphService Cache HIT — reusing instance")
+                else:
+                    graph_service = GraphService(graph_storage)
+                    _GRAPH_SERVICE_CACHE[gs_id] = graph_service
+                    logger.info("💾 Cached GraphService instance (milvus)")
     else:
         logger.info("Graph tools not available for %s backend (expected)", STORAGE_BACKEND)
 
@@ -746,7 +777,7 @@ ACTIONS:
 - path: Find shortest path between two memories
 - subgraph: Extract subgraph around a memory (nodes + edges for visualization)
 
-REQUIRES: SQLite-vec or Hybrid storage backend. Returns error for Milvus/Cloudflare.
+REQUIRES: SQLite-vec, Hybrid, or Milvus storage backend. Returns error for Cloudflare.
 
 RETURNS:
 - connected: {success, connected: [{hash, distance}], count}

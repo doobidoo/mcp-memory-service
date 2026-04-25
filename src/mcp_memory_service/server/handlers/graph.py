@@ -36,18 +36,35 @@ def get_graph_storage() -> Optional[GraphStorage]:
     """
     Get graph storage instance if available.
 
-    Graph operations are only available for SQLite-based backends
-    (sqlite_vec and hybrid). Cloudflare backend does not support
-    graph traversal.
+    Graph operations are available for SQLite-based backends
+    (sqlite_vec and hybrid) and Milvus backend. Cloudflare backend
+    does not support graph traversal.
 
     Returns:
-        GraphStorage instance if backend supports it, None otherwise
+        GraphStorage or MilvusGraphStorage instance if backend supports it, None otherwise
     """
     if STORAGE_BACKEND in ['sqlite_vec', 'hybrid']:
         try:
             return GraphStorage(SQLITE_VEC_PATH)
         except Exception as e:
             logger.error(f"Failed to initialize GraphStorage: {e}")
+            return None
+    elif STORAGE_BACKEND == 'milvus':
+        try:
+            from ...storage.milvus_graph import MilvusGraphStorage
+            from ...config import MILVUS_URI, MILVUS_TOKEN, MILVUS_COLLECTION_NAME
+            gs = MilvusGraphStorage(
+                uri=MILVUS_URI,
+                token=MILVUS_TOKEN,
+                collection_name=MILVUS_COLLECTION_NAME,
+            )
+            # Synchronous init — _connect_client and _ensure_collection
+            # are blocking but lightweight (no embedding model loading).
+            gs._connect_client()
+            gs._ensure_collection()
+            return gs
+        except Exception as e:
+            logger.error(f"Failed to initialize MilvusGraphStorage: {e}")
             return None
     return None
 

@@ -13,6 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Added
 
 - **[#759] `memory_graph` tool for streamable-http MCP server**: Knowledge graph operations (find connected memories, shortest path, subgraph extraction) are now available in the FastMCP streamable-http server, matching the capabilities already present in stdio mode. Introduces a shared `GraphService` business-logic layer under `src/mcp_memory_service/services/graph_service.py` so both server variants reuse the same traversal + error-handling code paths. Graph operations require `sqlite_vec` or `hybrid` storage backends; `milvus` and `cloudflare` backends return a structured unavailability error instead of crashing. 14 unit tests for `GraphService`. Thanks to @henry201605 for the contribution. (PR #759)
+- **MilvusGraphStorage: graph operations for Milvus backend**: New `MilvusGraphStorage` class (`storage/milvus_graph.py`) implements the same graph interface as SQLite `GraphStorage` using a dedicated Milvus scalar collection (`{collection}_graph`) and application-layer BFS. Supports symmetric/asymmetric edges, find_connected, shortest_path, get_subgraph, upsert semantics, and all CRUD operations. Backend detection in `mcp_server.py` and `handlers/graph.py` automatically selects the correct implementation. 25 unit tests.
+- **BM25 full-text search for Milvus backend**: `MilvusMemoryStorage.retrieve()` now runs hybrid vector + BM25 search using `RRFRanker` when Milvus 2.5+ BM25 function index is available. Graceful fallback to vector-only search for pre-existing collections without BM25. New collections automatically get `sparse_vector` field + BM25 function.
 
 ### Fixed
 
