@@ -174,8 +174,10 @@ class DreamInspiredConsolidator:
         # Initialize health monitoring
         self.health_monitor = ConsolidationHealthMonitor(config)
 
-        # Initialize graph storage for associations
-        self._init_graph_storage()
+        # Graph storage initialized lazily in consolidate() to avoid
+        # blocking I/O in __init__ (Milvus backend needs async init).
+        self.graph_storage = None
+        self._graph_storage_initialized = False
 
         # Performance tracking
         self.last_consolidation_times = {}
@@ -189,7 +191,7 @@ class DreamInspiredConsolidator:
             "total_memories_archived": 0,
         }
 
-    def _init_graph_storage(self) -> None:
+    async def _init_graph_storage(self) -> None:
         """Initialize graph storage with appropriate backend.
 
         Supports SQLite-vec, Hybrid (via SQLite primary), and Milvus backends.
@@ -216,7 +218,7 @@ class DreamInspiredConsolidator:
                     f"Initialized GraphStorage with SQLite backend: {db_path}"
                 )
             elif hasattr(self.storage, "uri") and hasattr(self.storage, "collection_name"):
-                # Milvus backend — use MilvusGraphStorage
+                # Milvus backend — use MilvusGraphStorage with async init
                 try:
                     from ..storage.milvus_graph import MilvusGraphStorage
                     self.graph_storage = MilvusGraphStorage(
@@ -224,9 +226,7 @@ class DreamInspiredConsolidator:
                         token=getattr(self.storage, "token", None),
                         collection_name=self.storage.collection_name,
                     )
-                    # Synchronous init (blocking but lightweight)
-                    self.graph_storage._connect_client()
-                    self.graph_storage._ensure_collection()
+                    await self.graph_storage.initialize()
                     self.logger.info(
                         f"Initialized MilvusGraphStorage for consolidation "
                         f"(uri={self.storage.uri}, collection={self.graph_storage.collection_name})"
@@ -274,6 +274,11 @@ class DreamInspiredConsolidator:
             self.logger.info(
                 f"Starting {time_horizon} consolidation - this may take several minutes depending on memory count..."
             )
+
+            # Lazy graph storage init (avoids blocking I/O in __init__)
+            if not self._graph_storage_initialized:
+                await self._init_graph_storage()
+                self._graph_storage_initialized = True
 
             # Use context manager for sync pause/resume
             async with SyncPauseContext(self.storage, self.logger):

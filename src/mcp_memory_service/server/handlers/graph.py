@@ -32,7 +32,7 @@ from ...config import SQLITE_VEC_PATH, STORAGE_BACKEND
 logger = logging.getLogger(__name__)
 
 
-def get_graph_storage() -> Optional[GraphStorage]:
+async def get_graph_storage():
     """
     Get graph storage instance if available.
 
@@ -58,10 +58,8 @@ def get_graph_storage() -> Optional[GraphStorage]:
                 token=MILVUS_TOKEN,
                 collection_name=MILVUS_COLLECTION_NAME,
             )
-            # Synchronous init — _connect_client and _ensure_collection
-            # are blocking but lightweight (no embedding model loading).
-            gs._connect_client()
-            gs._ensure_collection()
+            # Async init to avoid blocking the event loop.
+            await gs.initialize()
             return gs
         except Exception as e:
             logger.error(f"Failed to initialize MilvusGraphStorage: {e}")
@@ -164,7 +162,7 @@ async def handle_find_connected_memories(
     logger.info("=== EXECUTING FIND_CONNECTED_MEMORIES ===")
 
     # Get graph storage
-    graph = get_graph_storage()
+    graph = await get_graph_storage()
     if graph is None:
         result = {
             "success": False,
@@ -258,7 +256,7 @@ async def handle_find_shortest_path(
     logger.info("=== EXECUTING FIND_SHORTEST_PATH ===")
 
     # Get graph storage
-    graph = get_graph_storage()
+    graph = await get_graph_storage()
     if graph is None:
         result = {
             "success": False,
@@ -368,7 +366,7 @@ async def handle_get_memory_subgraph(
     logger.info("=== EXECUTING GET_MEMORY_SUBGRAPH ===")
 
     # Get graph storage
-    graph = get_graph_storage()
+    graph = await get_graph_storage()
     if graph is None:
         result = {
             "success": False,

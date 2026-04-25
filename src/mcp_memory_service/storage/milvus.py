@@ -149,6 +149,10 @@ _ID_MAX_LEN = 128
 # Milvus per-call limit ceiling.
 _MILVUS_MAX_LIMIT = 16384
 
+# Reciprocal Rank Fusion smoothing constant for hybrid search.
+# k=60 is the standard default from the RRF paper (Cormack et al., 2009).
+RRF_RANKER_K = 60
+
 # Defensive caps — mirror sqlite_vec semantics to prevent DoS-style large requests.
 _MAX_TAGS_FOR_SEARCH = 100
 
@@ -1067,7 +1071,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 "hybrid_search",
                 collection_name=self.collection_name,
                 reqs=[vector_req, bm25_req],
-                ranker=RRFRanker(k=60),
+                ranker=RRFRanker(k=RRF_RANKER_K),
                 limit=fetch_n,
                 output_fields=list(self._OUTPUT_FIELDS),
             )

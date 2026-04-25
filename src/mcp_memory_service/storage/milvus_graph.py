@@ -47,6 +47,9 @@ from ..models.ontology import is_symmetric_relationship, validate_relationship
 
 logger = logging.getLogger(__name__)
 
+# Milvus per-call result limit ceiling.
+_MILVUS_MAX_LIMIT = 16384
+
 
 class MilvusGraphStorage:
     """Graph storage backed by a Milvus scalar collection for edges.
@@ -269,7 +272,7 @@ class MilvusGraphStorage:
         self,
         field: str,
         hashes: Set[str],
-        relationship_type: Optional[str] = None,
+        relationship_types: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Query edges where ``field`` IN ``hashes``, with optional relationship filter."""
         if not hashes:
@@ -278,9 +281,16 @@ class MilvusGraphStorage:
         escaped = [h.replace('"', '\\"') for h in hashes]
         in_clause = ", ".join(f'"{h}"' for h in escaped)
         expr = f'{field} in [{in_clause}]'
-        if relationship_type is not None:
-            safe_rt = relationship_type.replace('"', '\\"')
-            expr += f' and relationship_type == "{safe_rt}"'
+        if relationship_types is not None:
+            if len(relationship_types) == 1:
+                safe_rt = relationship_types[0].replace('"', '\\"')
+                expr += f' and relationship_type == "{safe_rt}"'
+            else:
+                safe_rts = ", ".join(
+                    f'"{rt.replace(chr(34), chr(92) + chr(34))}"'
+                    for rt in relationship_types
+                )
+                expr += f' and relationship_type in [{safe_rts}]'
 
         try:
             results = await self._call_client(
@@ -292,11 +302,55 @@ class MilvusGraphStorage:
                     "connection_types", "metadata", "relationship_type",
                     "created_at",
                 ],
-                limit=16384,
+                limit=_MILVUS_MAX_LIMIT,
             )
             return results or []
         except Exception as exc:
             logger.error("Edge query failed (%s IN ...): %s", field, exc)
+            return []
+
+    async def _query_edges_both(
+        self,
+        hashes: Set[str],
+        relationship_types: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Query edges where source OR target IN ``hashes`` (single round-trip)."""
+        if not hashes:
+            return []
+
+        escaped = [h.replace('"', '\\"') for h in hashes]
+        in_clause = ", ".join(f'"{h}"' for h in escaped)
+        expr = (
+            f'(source_hash in [{in_clause}]) or '
+            f'(target_hash in [{in_clause}])'
+        )
+        if relationship_types is not None:
+            if len(relationship_types) == 1:
+                safe_rt = relationship_types[0].replace('"', '\\"')
+                rt_filter = f'relationship_type == "{safe_rt}"'
+            else:
+                safe_rts = ", ".join(
+                    f'"{rt.replace(chr(34), chr(92) + chr(34))}"'
+                    for rt in relationship_types
+                )
+                rt_filter = f'relationship_type in [{safe_rts}]'
+            expr = f'({expr}) and {rt_filter}'
+
+        try:
+            results = await self._call_client(
+                "query",
+                collection_name=self.collection_name,
+                filter=expr,
+                output_fields=[
+                    "source_hash", "target_hash", "similarity",
+                    "connection_types", "metadata", "relationship_type",
+                    "created_at",
+                ],
+                limit=_MILVUS_MAX_LIMIT,
+            )
+            return results or []
+        except Exception as exc:
+            logger.error("Edge query (both directions) failed: %s", exc)
             return []
 
     async def _bfs(
@@ -304,7 +358,7 @@ class MilvusGraphStorage:
         start_hash: str,
         max_hops: int,
         direction: str = "both",
-        relationship_type: Optional[str] = None,
+        relationship_types: Optional[List[str]] = None,
         stop_at: Optional[str] = None,
     ) -> Tuple[List[Tuple[str, int]], Optional[Dict[str, str]]]:
         """Application-layer BFS over the association collection.
@@ -323,25 +377,43 @@ class MilvusGraphStorage:
         for depth in range(1, max_hops + 1):
             next_frontier: Set[str] = set()
 
-            if direction in ("outgoing", "both"):
-                rows = await self._query_edges("source_hash", frontier, relationship_type)
+            if direction == "both":
+                # Single query for both directions — halves network round-trips
+                rows = await self._query_edges_both(frontier, relationship_types)
                 for row in rows:
+                    source = row["source_hash"]
                     target = row["target_hash"]
-                    if target not in visited:
+                    # Determine which end is the new neighbor
+                    if source in frontier and target not in visited:
                         visited.add(target)
                         next_frontier.add(target)
                         if parents is not None:
-                            parents[target] = row["source_hash"]
-
-            if direction in ("incoming", "both"):
-                rows = await self._query_edges("target_hash", frontier, relationship_type)
-                for row in rows:
-                    source = row["source_hash"]
-                    if source not in visited:
+                            parents[target] = source
+                    elif target in frontier and source not in visited:
                         visited.add(source)
                         next_frontier.add(source)
                         if parents is not None:
-                            parents[source] = row["target_hash"]
+                            parents[source] = target
+            else:
+                if direction == "outgoing":
+                    rows = await self._query_edges("source_hash", frontier, relationship_types)
+                    for row in rows:
+                        target = row["target_hash"]
+                        if target not in visited:
+                            visited.add(target)
+                            next_frontier.add(target)
+                            if parents is not None:
+                                parents[target] = row["source_hash"]
+
+                elif direction == "incoming":
+                    rows = await self._query_edges("target_hash", frontier, relationship_types)
+                    for row in rows:
+                        source = row["source_hash"]
+                        if source not in visited:
+                            visited.add(source)
+                            next_frontier.add(source)
+                            if parents is not None:
+                                parents[source] = row["target_hash"]
 
             for h in next_frontier:
                 result.append((h, depth))
@@ -378,11 +450,12 @@ class MilvusGraphStorage:
             return []
 
         try:
+            rt_list = [relationship_type] if relationship_type else None
             result, _ = await self._bfs(
                 memory_hash,
                 max_hops,
                 direction=direction,
-                relationship_type=relationship_type,
+                relationship_types=rt_list,
             )
             result.sort(key=lambda x: (x[1], x[0]))
             return result
@@ -409,19 +482,11 @@ class MilvusGraphStorage:
             return [hash1]
 
         try:
-            # BFS uses "both" direction and the first relationship type if
-            # a filter list is provided (matching GraphStorage semantics).
-            rt_filter = None
-            if relationship_types and len(relationship_types) > 0:
-                # For simplicity, filter by first type. Multi-type filtering
-                # would require OR queries per level — acceptable trade-off.
-                rt_filter = relationship_types[0] if len(relationship_types) == 1 else None
-
             result, parents = await self._bfs(
                 hash1,
                 max_depth,
                 direction="both",
-                relationship_type=rt_filter,
+                relationship_types=relationship_types,
                 stop_at=hash2,
             )
 
@@ -477,8 +542,9 @@ class MilvusGraphStorage:
             nodes.update(h for h, _ in connected)
 
             # Fetch all edges between nodes in the subgraph
+            rt_list = [relationship_type] if relationship_type else None
             rows = await self._query_edges(
-                "source_hash", nodes, relationship_type,
+                "source_hash", nodes, rt_list,
             )
 
             edges: List[Dict[str, Any]] = []
@@ -643,7 +709,7 @@ class MilvusGraphStorage:
                 collection_name=self.collection_name,
                 filter=expr,
                 output_fields=["id"],
-                limit=16384,
+                limit=_MILVUS_MAX_LIMIT,
             )
             return len(results) if results else 0
 
@@ -668,7 +734,7 @@ class MilvusGraphStorage:
                 collection_name=self.collection_name,
                 filter=expr,
                 output_fields=["relationship_type"],
-                limit=16384,
+                limit=_MILVUS_MAX_LIMIT,
             )
             if not results:
                 return {}
@@ -688,7 +754,7 @@ class MilvusGraphStorage:
         if self.client is not None:
             try:
                 self.client.close()
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 — best-effort cleanup
+                logger.debug("Ignoring error during MilvusGraphStorage close")
             self.client = None
             logger.info("Closed MilvusGraphStorage connection")
