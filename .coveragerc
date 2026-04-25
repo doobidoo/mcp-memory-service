@@ -39,6 +39,9 @@ omit =
     */utils/debug.py
     # HTTP client - minimal usage
     */storage/http_client.py
+    # Milvus backend - tested in dedicated test-milvus-docker CI job
+    */storage/milvus.py
+    */storage/milvus_graph.py
     # CLI utilities
     */cli/utils.py
     # CLI entry points
