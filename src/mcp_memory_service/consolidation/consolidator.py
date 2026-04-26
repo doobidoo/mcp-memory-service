@@ -16,6 +16,7 @@
 
 from typing import List, Dict, Any, Optional, Protocol, Tuple
 from datetime import datetime, timedelta, timezone
+import asyncio
 import logging
 import time
 
@@ -178,6 +179,7 @@ class DreamInspiredConsolidator:
         # blocking I/O in __init__ (Milvus backend needs async init).
         self.graph_storage = None
         self._graph_storage_initialized = False
+        self._graph_storage_lock = asyncio.Lock()
 
         # Performance tracking
         self.last_consolidation_times = {}
@@ -275,10 +277,12 @@ class DreamInspiredConsolidator:
                 f"Starting {time_horizon} consolidation - this may take several minutes depending on memory count..."
             )
 
-            # Lazy graph storage init (avoids blocking I/O in __init__)
-            if not self._graph_storage_initialized:
-                await self._init_graph_storage()
-                self._graph_storage_initialized = True
+            # Lazy graph storage init (avoids blocking I/O in __init__).
+            # Lock prevents double-init when two consolidate() calls race.
+            async with self._graph_storage_lock:
+                if not self._graph_storage_initialized:
+                    await self._init_graph_storage()
+                    self._graph_storage_initialized = True
 
             # Use context manager for sync pause/resume
             async with SyncPauseContext(self.storage, self.logger):

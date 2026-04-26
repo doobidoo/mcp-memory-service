@@ -32,7 +32,7 @@ from ...config import SQLITE_VEC_PATH, STORAGE_BACKEND
 logger = logging.getLogger(__name__)
 
 
-async def get_graph_storage():
+async def get_graph_storage() -> Optional[GraphStorage]:
     """
     Get graph storage instance if available.
 
