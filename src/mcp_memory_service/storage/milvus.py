@@ -368,6 +368,7 @@ class MilvusMemoryStorage(MemoryStorage):
             field_name="content",
             datatype=DataType.VARCHAR,
             max_length=_MILVUS_VARCHAR_MAX,
+            enable_analyzer=True,
         )
         # Lower-cased mirror of ``content``. Populated on every insert/upsert
         # so that ``get_by_exact_content`` can push a case-insensitive

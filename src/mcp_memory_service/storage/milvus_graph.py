@@ -20,9 +20,11 @@ but stores edges in a dedicated Milvus scalar collection and uses
 application-layer BFS instead of SQLite recursive CTEs.
 
 Design notes:
-  * The association collection uses a deterministic primary key
-    ``f"{source_hash}:{target_hash}"`` so that re-storing the same edge
-    pair overwrites the previous record (upsert semantics).
+  * The association collection uses a deterministic primary key derived
+    from ``sha256(f"{source_hash}:{target_hash}")`` so that re-storing
+    the same edge pair overwrites the previous record (upsert semantics).
+    The SHA-256 hex digest is always 64 characters, avoiding VARCHAR
+    max_length issues on Zilliz Cloud.
   * Symmetric relationships (related, contradicts) store two records
     (A:B and B:A); asymmetric relationships store only the forward edge.
   * Graph traversal (find_connected, shortest_path, get_subgraph) is
@@ -30,6 +32,7 @@ Design notes:
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 from datetime import datetime, timezone
@@ -49,6 +52,21 @@ logger = logging.getLogger(__name__)
 
 # Milvus per-call result limit ceiling.
 _MILVUS_MAX_LIMIT = 16384
+
+# Dimension for the dummy vector field required by Zilliz Cloud / remote Milvus.
+# Zilliz Cloud rejects collections without at least one vector field.
+_DUMMY_VEC_DIM = 1
+_DUMMY_VEC_VALUE = [0.0]
+
+
+def _edge_id(source_hash: str, target_hash: str) -> str:
+    """Derive a fixed-length (64-char) deterministic edge ID via SHA-256.
+
+    Using ``sha256(f"{source}:{target}")`` instead of raw concatenation
+    avoids the VARCHAR max_length issue on Zilliz Cloud where real 64-char
+    SHA-256 content hashes would produce 129-char IDs (64 + ':' + 64).
+    """
+    return hashlib.sha256(f"{source_hash}:{target_hash}".encode()).hexdigest()
 
 
 class MilvusGraphStorage:
@@ -113,7 +131,7 @@ class MilvusGraphStorage:
             field_name="id",
             datatype=DataType.VARCHAR,
             is_primary=True,
-            max_length=128,
+            max_length=64,
         )
         schema.add_field(
             field_name="source_hash",
@@ -148,10 +166,23 @@ class MilvusGraphStorage:
             field_name="created_at",
             datatype=DataType.DOUBLE,
         )
+        # Zilliz Cloud / remote Milvus requires at least one vector field.
+        # We add a 1-dim dummy vector that is never searched — only the
+        # scalar indexes on source_hash / target_hash are used for queries.
+        schema.add_field(
+            field_name="_dummy_vec",
+            datatype=DataType.FLOAT_VECTOR,
+            dim=_DUMMY_VEC_DIM,
+        )
 
         index_params = self.client.prepare_index_params()
         index_params.add_index(field_name="source_hash", index_type="Trie")
         index_params.add_index(field_name="target_hash", index_type="Trie")
+        index_params.add_index(
+            field_name="_dummy_vec",
+            index_type="AUTOINDEX",
+            metric_type="L2",
+        )
 
         self.client.create_collection(
             collection_name=self.collection_name,
@@ -221,7 +252,7 @@ class MilvusGraphStorage:
 
             rows = [
                 {
-                    "id": f"{source_hash}:{target_hash}",
+                    "id": _edge_id(source_hash, target_hash),
                     "source_hash": source_hash,
                     "target_hash": target_hash,
                     "similarity": float(similarity),
@@ -229,13 +260,14 @@ class MilvusGraphStorage:
                     "metadata": meta_json,
                     "relationship_type": relationship_type,
                     "created_at": float(created_at),
+                    "_dummy_vec": _DUMMY_VEC_VALUE,
                 }
             ]
 
             if is_symmetric_relationship(relationship_type):
                 rows.append(
                     {
-                        "id": f"{target_hash}:{source_hash}",
+                        "id": _edge_id(target_hash, source_hash),
                         "source_hash": target_hash,
                         "target_hash": source_hash,
                         "similarity": float(similarity),
@@ -243,6 +275,7 @@ class MilvusGraphStorage:
                         "metadata": meta_json,
                         "relationship_type": relationship_type,
                         "created_at": float(created_at),
+                        "_dummy_vec": _DUMMY_VEC_VALUE,
                     }
                 )
                 logger.debug(
@@ -676,8 +709,8 @@ class MilvusGraphStorage:
         try:
             # Delete both directions (matches GraphStorage behavior)
             ids_to_delete = [
-                f"{source_hash}:{target_hash}",
-                f"{target_hash}:{source_hash}",
+                _edge_id(source_hash, target_hash),
+                _edge_id(target_hash, source_hash),
             ]
             await self._call_client(
                 "delete",

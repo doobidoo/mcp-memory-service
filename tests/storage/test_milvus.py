@@ -992,3 +992,54 @@ def test_embedding_cache_bounded():
     assert milvus_mod._embedding_cache_get("model::entry-0") is None
     # Newest entries should still be resident.
     assert milvus_mod._embedding_cache_get("model::entry-1999") == [1999.0]
+
+
+# -- BM25 / enable_analyzer schema validation (PR #762 review) -------------
+
+
+@pytest.mark.asyncio
+async def test_bm25_content_field_has_enable_analyzer(milvus_db_path):
+    """The ``content`` field must have ``enable_analyzer=True`` so that the
+    BM25 function works on Zilliz Cloud / remote Milvus.
+
+    Without this flag, Zilliz Cloud rejects collection creation with:
+        ``BM25 function input field must set enable_analyzer to true``
+
+    This test inspects the schema of a freshly-created collection to verify
+    the flag is present.
+    """
+    name = f"bm25_analyzer_{uuid.uuid4().hex[:8]}"
+    storage = MilvusMemoryStorage(uri=str(milvus_db_path), collection_name=name)
+    try:
+        await storage.initialize()
+        assert storage.client is not None
+
+        info = storage.client.describe_collection(collection_name=name)
+        content_field = None
+        for field in info.get("fields", []):
+            if field.get("name") == "content":
+                content_field = field
+                break
+
+        assert content_field is not None, "content field not found in schema"
+
+        # The enable_analyzer flag should be set in the field params.
+        # pymilvus exposes it differently depending on version, so we check
+        # both the params dict and the field-level attribute.
+        params = content_field.get("params", {})
+        has_analyzer = (
+            params.get("enable_analyzer") is True
+            or content_field.get("enable_analyzer") is True
+            or str(params.get("enable_analyzer", "")).lower() == "true"
+        )
+        assert has_analyzer, (
+            f"content field missing enable_analyzer=True; "
+            f"field params: {params}, field: {content_field}"
+        )
+    finally:
+        try:
+            if storage.client is not None and storage.client.has_collection(name):
+                storage.client.drop_collection(name)
+        except Exception:
+            pass
+        await storage.close()

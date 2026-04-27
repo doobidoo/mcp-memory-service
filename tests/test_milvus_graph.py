@@ -337,3 +337,172 @@ class TestErrorHandling:
         assert await gs.delete_association("A", "B") is False
         assert await gs.get_association_count("A") == 0
         assert await gs.get_relationship_types("A") == {}
+
+
+# ---------------------------------------------------------------------------
+# Real SHA-256 content hashes (Zilliz Cloud compatibility)
+# ---------------------------------------------------------------------------
+
+class TestRealContentHashes:
+    """Verify that store/retrieve/delete work with real 64-character SHA-256
+    content hashes — the actual format used in production.
+
+    Milvus Lite silently accepts oversized VARCHAR values, but Zilliz Cloud
+    and self-hosted Milvus enforce ``max_length`` strictly. These tests
+    ensure the edge ID derivation (``sha256(f"{src}:{tgt}")``) produces
+    IDs that fit within the schema limits.
+    """
+
+    @staticmethod
+    def _sha256(text: str) -> str:
+        import hashlib
+        return hashlib.sha256(text.encode()).hexdigest()
+
+    @pytest.mark.asyncio
+    async def test_store_with_real_hashes(self, graph):
+        """store_association with 64-char SHA-256 hashes must succeed."""
+        h1 = self._sha256("memory content alpha")
+        h2 = self._sha256("memory content beta")
+        assert len(h1) == 64
+        assert len(h2) == 64
+
+        ok = await graph.store_association(
+            h1, h2, 0.85, ["semantic"],
+            relationship_type="related",
+        )
+        assert ok is True
+
+    @pytest.mark.asyncio
+    async def test_retrieve_with_real_hashes(self, graph):
+        """get_association must find edges stored with real hashes."""
+        h1 = self._sha256("retrieve source content")
+        h2 = self._sha256("retrieve target content")
+
+        await graph.store_association(
+            h1, h2, 0.75, ["semantic"],
+            relationship_type="related",
+        )
+
+        assoc = await graph.get_association(h1, h2)
+        assert assoc is not None
+        assert assoc["source_hash"] in (h1, h2)
+        assert assoc["similarity"] == pytest.approx(0.75, abs=0.01)
+
+    @pytest.mark.asyncio
+    async def test_delete_with_real_hashes(self, graph):
+        """delete_association must work with real 64-char hashes."""
+        h1 = self._sha256("delete source content")
+        h2 = self._sha256("delete target content")
+
+        await graph.store_association(
+            h1, h2, 0.6, ["temporal"],
+            relationship_type="related",
+        )
+        ok = await graph.delete_association(h1, h2)
+        assert ok is True
+        assert await graph.get_association(h1, h2) is None
+
+    @pytest.mark.asyncio
+    async def test_find_connected_with_real_hashes(self, graph):
+        """BFS traversal must work with real 64-char hashes."""
+        h1 = self._sha256("node A")
+        h2 = self._sha256("node B")
+        h3 = self._sha256("node C")
+
+        await graph.store_association(h1, h2, 0.8, ["s"], relationship_type="related")
+        await graph.store_association(h2, h3, 0.7, ["s"], relationship_type="related")
+
+        connected = await graph.find_connected(h1, max_hops=2)
+        hashes = {h for h, _ in connected}
+        assert h2 in hashes
+        assert h3 in hashes
+
+    @pytest.mark.asyncio
+    async def test_edge_id_length_fits_schema(self, graph):
+        """Edge IDs derived from real hashes must be exactly 64 chars
+        (SHA-256 hex digest), fitting the VARCHAR(64) primary key."""
+        from mcp_memory_service.storage.milvus_graph import _edge_id
+
+        h1 = self._sha256("edge id length source")
+        h2 = self._sha256("edge id length target")
+        eid = _edge_id(h1, h2)
+        assert len(eid) == 64, f"Edge ID length {len(eid)} != 64"
+
+        # Directionality: sha256(A:B) != sha256(B:A)
+        eid_rev = _edge_id(h2, h1)
+        assert eid != eid_rev
+
+
+# ---------------------------------------------------------------------------
+# Remote Milvus / Zilliz Cloud compatibility
+# ---------------------------------------------------------------------------
+
+class TestRemoteMilvusCompat:
+    """Tests that validate schema compatibility with remote Milvus / Zilliz
+    Cloud. These require a running Milvus server and are skipped when
+    ``MILVUS_TEST_URI`` is not set.
+
+    Run locally with:
+        MILVUS_TEST_URI=http://localhost:19530 pytest tests/test_milvus_graph.py -k Remote -v
+
+    Or against Zilliz Cloud:
+        MILVUS_TEST_URI=https://xxx.zillizcloud.com \\
+        MILVUS_TEST_TOKEN=your_token \\
+        pytest tests/test_milvus_graph.py -k Remote -v
+    """
+
+    @staticmethod
+    def _get_remote_config():
+        uri = os.environ.get("MILVUS_TEST_URI")
+        token = os.environ.get("MILVUS_TEST_TOKEN")
+        return uri, token
+
+    @pytest.fixture()
+    async def remote_graph(self):
+        """Provide a MilvusGraphStorage connected to a remote Milvus server."""
+        uri, token = self._get_remote_config()
+        if not uri:
+            pytest.skip("MILVUS_TEST_URI not set — skipping remote Milvus test")
+
+        import uuid
+        collection = f"ci_graph_test_{uuid.uuid4().hex[:8]}"
+        gs = MilvusGraphStorage(uri=uri, token=token, collection_name=collection)
+        await gs.initialize()
+        yield gs
+        # Cleanup: drop the test collection and close
+        try:
+            if gs.client is not None:
+                gs.client.drop_collection(gs.collection_name)
+        except Exception:
+            pass
+        await gs.close()
+
+    @pytest.mark.asyncio
+    async def test_initialize_creates_collection_on_remote(self, remote_graph):
+        """MilvusGraphStorage.initialize() must succeed on remote Milvus.
+
+        This validates that the schema (including the dummy vector field)
+        is accepted by the remote server — pure scalar collections are
+        rejected by Zilliz Cloud.
+        """
+        assert remote_graph.client is not None
+        assert remote_graph.client.has_collection(
+            collection_name=remote_graph.collection_name,
+        )
+
+    @pytest.mark.asyncio
+    async def test_store_and_retrieve_on_remote(self, remote_graph):
+        """Full round-trip: store with real hashes, then retrieve."""
+        import hashlib
+        h1 = hashlib.sha256(b"remote test source").hexdigest()
+        h2 = hashlib.sha256(b"remote test target").hexdigest()
+
+        ok = await remote_graph.store_association(
+            h1, h2, 0.9, ["semantic"],
+            relationship_type="related",
+        )
+        assert ok is True
+
+        assoc = await remote_graph.get_association(h1, h2)
+        assert assoc is not None
+        assert assoc["similarity"] == pytest.approx(0.9, abs=0.01)
