@@ -1918,12 +1918,11 @@ SOLUTIONS:
         scores = {}
         for rank, ch in enumerate(vector_hashes, start=1):
             scores[ch] = scores.get(ch, 0.0) + 1.0 / (k + rank)
-            if ch in consensus:
-                scores[ch] += boost
         for rank, ch in enumerate(bm25_hashes, start=1):
             scores[ch] = scores.get(ch, 0.0) + 1.0 / (k + rank)
-            if ch in consensus:
-                scores[ch] += boost
+        # Apply consensus boost once for items appearing in both lists
+        for ch in consensus:
+            scores[ch] += boost
 
         vector_memories = {r.memory.content_hash: r.memory for r in vector_results}
 
