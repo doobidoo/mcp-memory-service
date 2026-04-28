@@ -39,7 +39,11 @@ import aiosqlite
 
 from .base import OAuthStorage
 from ..models import RegisteredClient
-from ....config import OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES, OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES
+from ....config import (
+    OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES,
+    OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES,
+    OAUTH_REFRESH_TOKEN_EXPIRE_DAYS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +218,33 @@ class SQLiteOAuthStorage(OAuthStorage):
         )
         await self._execute(
             "CREATE INDEX IF NOT EXISTS idx_access_tokens_client ON oauth_access_tokens(client_id)"
+        )
+
+        # Create oauth_refresh_tokens table.
+        # Additive schema change: CREATE IF NOT EXISTS only — existing deployments
+        # pick the table up on next startup without ALTER migrations.
+        await self._execute("""
+            CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+                token TEXT PRIMARY KEY,
+                client_id TEXT NOT NULL,
+                scope TEXT,
+                expires_at REAL NOT NULL,
+                revoked INTEGER NOT NULL DEFAULT 0,
+                parent_token TEXT,
+                created_at REAL NOT NULL,
+                FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id) ON DELETE CASCADE
+            )
+        """)
+
+        # Create indexes for refresh tokens
+        await self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON oauth_refresh_tokens(expires_at)"
+        )
+        await self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_refresh_tokens_client ON oauth_refresh_tokens(client_id)"
+        )
+        await self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_refresh_tokens_parent ON oauth_refresh_tokens(parent_token)"
         )
 
         await self._commit()
@@ -524,14 +555,155 @@ class SQLiteOAuthStorage(OAuthStorage):
                 logger.debug(f"Revoked access token")
             return revoked
 
+    async def store_refresh_token(
+        self,
+        token: str,
+        client_id: str,
+        scope: Optional[str] = None,
+        expires_in: Optional[int] = None,
+        parent_token: Optional[str] = None,
+    ) -> None:
+        """Store a refresh token."""
+        if expires_in is None:
+            expires_in = OAUTH_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+
+        async with self._lock:
+            now = time.time()
+            await self._execute(
+                """
+                INSERT INTO oauth_refresh_tokens
+                (token, client_id, scope, expires_at, revoked, parent_token, created_at)
+                VALUES (?, ?, ?, ?, 0, ?, ?)
+                """,
+                (token, client_id, scope, now + expires_in, parent_token, now),
+            )
+            await self._commit()
+            logger.debug(f"Stored refresh token for client: {_sanitize_log_value(client_id)}")
+
+    async def get_refresh_token(self, token: str) -> Optional[Dict]:
+        """Return refresh token data if live (not revoked, not expired)."""
+        async with self._lock:
+            now = time.time()
+            cursor = await self._execute(
+                """
+                SELECT * FROM oauth_refresh_tokens
+                WHERE token = ? AND revoked = 0 AND expires_at > ?
+                """,
+                (token, now),
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            return {
+                "client_id": row["client_id"],
+                "scope": row["scope"],
+                "expires_at": row["expires_at"],
+                "parent_token": row["parent_token"],
+            }
+
+    async def revoke_refresh_token(self, token: str) -> bool:
+        """
+        Atomically mark a refresh token as revoked.
+
+        Uses UPDATE...WHERE revoked=0 + rowcount check to serialize rotation
+        under concurrent refresh requests (same pattern as authorization code
+        consumption).
+        """
+        async with self._lock:
+            cursor = await self._execute(
+                "UPDATE oauth_refresh_tokens SET revoked = 1 WHERE token = ? AND revoked = 0",
+                (token,),
+            )
+            await self._commit()
+            revoked = cursor.rowcount > 0
+            if revoked:
+                logger.debug("Revoked refresh token")
+            return revoked
+
+    async def revoke_refresh_token_chain(self, token: str) -> int:
+        """
+        Revoke the entire rotation chain that ``token`` belongs to.
+
+        Walks parent_token pointers up to the chain root, then BFS-walks
+        descendants, then issues a single bulk UPDATE under the storage
+        lock so the operation is atomic with respect to concurrent
+        rotations.
+        """
+        async with self._lock:
+            # Walk up to find the chain root.
+            current = token
+            seen: set[str] = set()
+            root = current
+            while current and current not in seen:
+                seen.add(current)
+                cur = await self._execute(
+                    "SELECT parent_token FROM oauth_refresh_tokens WHERE token = ?",
+                    (current,),
+                )
+                row = await cur.fetchone()
+                if not row:
+                    # token unknown to us — treat the supplied value as the root
+                    root = current
+                    break
+                parent = row["parent_token"]
+                if not parent:
+                    root = current
+                    break
+                root = parent
+                current = parent
+
+            # BFS descendants from the root.
+            members: set[str] = {root}
+            frontier = [root]
+            while frontier:
+                placeholders = ",".join("?" * len(frontier))
+                cur = await self._execute(
+                    f"SELECT token FROM oauth_refresh_tokens "
+                    f"WHERE parent_token IN ({placeholders})",
+                    frontier,
+                )
+                rows = await cur.fetchall()
+                children = [r["token"] for r in rows if r["token"] not in members]
+                members.update(children)
+                frontier = children
+
+            if not members:
+                return 0
+
+            placeholders = ",".join("?" * len(members))
+            cur = await self._execute(
+                f"UPDATE oauth_refresh_tokens SET revoked = 1 "
+                f"WHERE token IN ({placeholders}) AND revoked = 0",
+                list(members),
+            )
+            await self._commit()
+            count = cur.rowcount or 0
+            if count:
+                logger.warning(
+                    "Revoked %d refresh token(s) in chain (replay mitigation)",
+                    count,
+                )
+            return count
+
+    async def delete_refresh_token(self, token: str) -> bool:
+        """Remove refresh token record outright."""
+        async with self._lock:
+            cursor = await self._execute(
+                "DELETE FROM oauth_refresh_tokens WHERE token = ?",
+                (token,),
+            )
+            await self._commit()
+            return cursor.rowcount > 0
+
     async def cleanup_expired(self) -> Dict[str, int]:
         """
-        Clean up expired authorization codes and access tokens.
+        Clean up expired authorization codes, access tokens, and refresh tokens.
 
         This method should be called periodically to prevent storage bloat.
 
         Returns:
-            Dict with keys: expired_codes_cleaned, expired_tokens_cleaned
+            Dict with keys: expired_codes_cleaned, expired_tokens_cleaned,
+            expired_refresh_tokens_cleaned
 
         Raises:
             Exception: If cleanup operation fails
@@ -553,17 +725,26 @@ class SQLiteOAuthStorage(OAuthStorage):
             )
             tokens_cleaned = cursor2.rowcount
 
+            # Clean up expired refresh tokens
+            cursor3 = await self._execute(
+                "DELETE FROM oauth_refresh_tokens WHERE expires_at < ?",
+                (now,)
+            )
+            refresh_cleaned = cursor3.rowcount
+
             await self._commit()
 
-            if codes_cleaned > 0 or tokens_cleaned > 0:
+            if codes_cleaned > 0 or tokens_cleaned > 0 or refresh_cleaned > 0:
                 logger.info(
-                    f"Cleaned up {codes_cleaned} expired authorization codes "
-                    f"and {tokens_cleaned} expired access tokens"
+                    f"Cleaned up {codes_cleaned} expired authorization codes, "
+                    f"{tokens_cleaned} expired access tokens, and "
+                    f"{refresh_cleaned} expired refresh tokens"
                 )
 
             return {
                 "expired_codes_cleaned": codes_cleaned,
-                "expired_tokens_cleaned": tokens_cleaned
+                "expired_tokens_cleaned": tokens_cleaned,
+                "expired_refresh_tokens_cleaned": refresh_cleaned,
             }
 
     async def close(self) -> None:
@@ -610,10 +791,19 @@ class SQLiteOAuthStorage(OAuthStorage):
             row3 = await cursor3.fetchone()
             token_count = row3[0] if row3 else 0
 
+            # Count active (non-revoked, non-expired) refresh tokens
+            cursor4 = await self._execute(
+                "SELECT COUNT(*) FROM oauth_refresh_tokens WHERE revoked = 0 AND expires_at > ?",
+                (time.time(),)
+            )
+            row4 = await cursor4.fetchone()
+            refresh_count = row4[0] if row4 else 0
+
             return {
                 "backend": "sqlite",
                 "db_path": self.db_path,
                 "registered_clients": client_count,
                 "active_authorization_codes": code_count,
-                "active_access_tokens": token_count
+                "active_access_tokens": token_count,
+                "active_refresh_tokens": refresh_count,
             }

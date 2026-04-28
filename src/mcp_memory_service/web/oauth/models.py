@@ -29,7 +29,7 @@ class OAuthServerMetadata(BaseModel):
     registration_endpoint: str = Field(..., description="Dynamic registration endpoint URL")
 
     grant_types_supported: List[str] = Field(
-        default=["authorization_code", "client_credentials"],
+        default=["authorization_code", "client_credentials", "refresh_token"],
         description="Supported OAuth 2.1 grant types"
     )
     response_types_supported: List[str] = Field(
@@ -162,12 +162,32 @@ class TokenRequest(BaseModel):
     client_secret: Optional[str] = Field(default=None, description="OAuth client secret")
 
 
+class RefreshTokenRequest(BaseModel):
+    """OAuth 2.1 Refresh Token Request parameters (RFC 6749 §6)."""
+
+    grant_type: str = Field(default="refresh_token", description="Must be 'refresh_token'")
+    refresh_token: str = Field(..., description="The refresh token issued to the client")
+    scope: Optional[str] = Field(
+        default=None,
+        description="Optional subset of the originally granted scope to downscope the access token",
+    )
+    client_id: Optional[str] = Field(default=None, description="OAuth client identifier")
+    client_secret: Optional[str] = Field(default=None, description="OAuth client secret")
+
+
 class TokenResponse(BaseModel):
     """OAuth 2.1 Token Response."""
 
     access_token: str = Field(..., description="OAuth 2.0 access token")
     token_type: str = Field(default="Bearer", description="Token type")
     expires_in: Optional[int] = Field(default=3600, description="Access token lifetime in seconds")
+    refresh_token: Optional[str] = Field(
+        default=None,
+        description=(
+            "Refresh token for obtaining new access tokens. Only issued when the "
+            "client requested the 'offline_access' scope on authorization."
+        ),
+    )
     scope: Optional[str] = Field(default=None, description="Granted scope")
 
 

@@ -33,12 +33,15 @@ from ...config import (
     OAUTH_ISSUER,
     OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES,
     OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES,
+    OAUTH_REFRESH_TOKEN_EXPIRE_DAYS,
     API_KEY,
     get_jwt_algorithm,
     get_jwt_signing_key,
 )
 from .models import TokenResponse
 from .storage import get_oauth_storage
+
+OFFLINE_ACCESS_SCOPE = "offline_access"
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +189,66 @@ def create_access_token(client_id: str, scope: Optional[str] = None) -> tuple[st
 
     logger.debug("Creating JWT token")
     token = jwt.encode(payload, signing_key, algorithm=algorithm)
+    return token, expires_in
+
+
+def _scope_has_offline_access(scope: Optional[str]) -> bool:
+    """Return True if the scope string explicitly requests offline_access.
+
+    Per OIDC convention (also adopted by MCP SEP-2207), refresh tokens are
+    only issued when the client asks for them via the ``offline_access``
+    scope. Clients that don't opt in keep their existing single-token flow.
+    """
+    if not scope:
+        return False
+    return OFFLINE_ACCESS_SCOPE in scope.split()
+
+
+def _is_scope_subset(requested: Optional[str], original: Optional[str]) -> bool:
+    """Return True if every token in ``requested`` appears in ``original``.
+
+    Used by the refresh grant to enforce RFC 6749 §6: clients may narrow
+    the granted scope on refresh but must not broaden it.
+    """
+    if not requested:
+        return True
+    if not original:
+        return False
+    original_set = set(original.split())
+    return set(requested.split()).issubset(original_set)
+
+
+async def create_refresh_token(
+    client_id: str,
+    scope: Optional[str] = None,
+    parent_token: Optional[str] = None,
+) -> tuple[str, int]:
+    """
+    Create and persist an opaque refresh token for the given client.
+
+    Refresh tokens are DB-backed (not JWT) so they can be revoked on
+    rotation or logout — a property JWTs cannot provide without an
+    additional blocklist.
+
+    Args:
+        client_id: Authenticated client the token is bound to.
+        scope: Space-separated granted scope (preserved from the original
+            authorization for rotation parity).
+        parent_token: The refresh token this one supersedes, recorded
+            on the row for rotation-chain audit.
+
+    Returns:
+        Tuple of (token, expires_in_seconds).
+    """
+    expires_in = OAUTH_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+    token = get_oauth_storage().generate_refresh_token()
+    await get_oauth_storage().store_refresh_token(
+        token=token,
+        client_id=client_id,
+        scope=scope,
+        expires_in=expires_in,
+        parent_token=parent_token,
+    )
     return token, expires_in
 
 
@@ -538,12 +601,181 @@ async def _handle_authorization_code_grant(
         expires_in=expires_in,
     )
 
-    logger.info("Access token issued")
+    # Issue a refresh token only when the client explicitly requested it
+    # via the "offline_access" scope (OIDC convention / MCP SEP-2207).
+    # Clients that don't opt in keep their current single-token behavior,
+    # so this change is non-breaking.
+    refresh_token: Optional[str] = None
+    if _scope_has_offline_access(code_data["scope"]):
+        refresh_token, _ = await create_refresh_token(
+            client_id=final_client_id,
+            scope=code_data["scope"],
+        )
+        logger.info("Access + refresh tokens issued (offline_access requested)")
+    else:
+        logger.info("Access token issued")
+
     return TokenResponse(
         access_token=access_token,
         token_type="Bearer",
         expires_in=expires_in,
+        refresh_token=refresh_token,
         scope=code_data["scope"],
+    )
+
+
+async def _handle_refresh_token_grant(
+    final_client_id: Optional[str],
+    final_client_secret: Optional[str],
+    refresh_token_value: Optional[str],
+    requested_scope: Optional[str],
+) -> TokenResponse:
+    """
+    Handle the OAuth 2.1 refresh_token grant (RFC 6749 §6).
+
+    Implements the OAuth 2.1 rotation requirement (§4.3.1): every successful
+    refresh issues a new refresh token AND revokes the one that was presented,
+    so a stolen refresh token is single-use.
+    """
+    if not refresh_token_value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_request",
+                "error_description": "Missing required parameter: refresh_token",
+            },
+        )
+
+    token_data = await get_oauth_storage().get_refresh_token(refresh_token_value)
+    if not token_data:
+        # Unknown, expired, or already-rotated token. If it was previously
+        # rotated (revoked), this looks like a replay — the legitimate client
+        # would not present a stale token. We cannot distinguish replay from
+        # the attacker case, so per OAuth 2.1 §4.3.1 we also revoke every
+        # other live token in the same rotation chain (compromise mitigation).
+        # `revoke_refresh_token_chain` is a no-op (returns 0) for genuinely
+        # unknown tokens, so this is safe to call unconditionally here.
+        chain_revoked = await get_oauth_storage().revoke_refresh_token_chain(
+            refresh_token_value
+        )
+        if chain_revoked:
+            logger.warning(
+                "Refresh token replay detected; revoked %d additional "
+                "token(s) in the rotation chain",
+                chain_revoked,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_grant",
+                "error_description": "Refresh token is invalid, expired, or revoked",
+            },
+        )
+
+    bound_client_id = token_data["client_id"]
+
+    # If the client authenticated, it must match the refresh token binding.
+    # Public clients may omit client_id in the request body (the token itself
+    # is the binding), but any supplied client_id must match.
+    if final_client_id and final_client_id != bound_client_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_grant",
+                "error_description": "Refresh token was issued to a different client",
+            },
+        )
+
+    client = await get_oauth_storage().get_client(bound_client_id)
+    if not client:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_grant",
+                "error_description": "Client no longer registered",
+            },
+        )
+
+    # Public clients still MUST send client_id (RFC 6749 §6) — the token's
+    # internal binding is not a substitute for the explicit parameter.
+    if client.token_endpoint_auth_method == "none" and not final_client_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_request",
+                "error_description": "Missing required parameter: client_id",
+            },
+        )
+
+    # Confidential clients must authenticate on refresh (RFC 6749 §6).
+    # Public clients (token_endpoint_auth_method=none) do not present a secret;
+    # the rotated refresh token itself is the binding.
+    if client.token_endpoint_auth_method != "none":
+        if not final_client_secret:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "error": "invalid_client",
+                    "error_description": "Client authentication required",
+                },
+            )
+        if not await get_oauth_storage().authenticate_client(
+            bound_client_id, final_client_secret
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "error": "invalid_client",
+                    "error_description": "Client authentication failed",
+                },
+            )
+
+    original_scope = token_data["scope"]
+
+    # RFC 6749 §6: scope may be narrowed on refresh but not broadened.
+    if requested_scope is not None and not _is_scope_subset(requested_scope, original_scope):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_scope",
+                "error_description": "Requested scope exceeds originally granted scope",
+            },
+        )
+    granted_scope = requested_scope if requested_scope else original_scope
+
+    # Rotation: atomically revoke the presented refresh token. If we lose the
+    # race (another refresh already consumed it), fail the grant — defense in
+    # depth on top of the unknown-token check above.
+    if not await get_oauth_storage().revoke_refresh_token(refresh_token_value):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_grant",
+                "error_description": "Refresh token is invalid, expired, or revoked",
+            },
+        )
+
+    access_token, expires_in = create_access_token(bound_client_id, granted_scope)
+    await get_oauth_storage().store_access_token(
+        token=access_token,
+        client_id=bound_client_id,
+        scope=granted_scope,
+        expires_in=expires_in,
+    )
+
+    new_refresh_token, _ = await create_refresh_token(
+        client_id=bound_client_id,
+        scope=granted_scope,
+        parent_token=refresh_token_value,
+    )
+
+    logger.info("Access + refresh tokens issued via refresh_token grant (rotated)")
+    return TokenResponse(
+        access_token=access_token,
+        token_type="Bearer",
+        expires_in=expires_in,
+        refresh_token=new_refresh_token,
+        scope=granted_scope,
     )
 
 
@@ -601,13 +833,16 @@ async def token(
     client_id: Optional[str] = Form(None, description="OAuth client identifier"),
     client_secret: Optional[str] = Form(None, description="OAuth client secret"),
     code_verifier: Optional[str] = Form(None, description="PKCE code verifier"),
+    refresh_token: Optional[str] = Form(None, description="Refresh token (refresh_token grant)"),
+    scope: Optional[str] = Form(None, description="Requested scope on refresh"),
 ):
     """
     OAuth 2.1 Token endpoint.
 
-    Exchanges authorization codes for access tokens.
-    Supports both authorization_code and client_credentials grant types.
-    Supports both client_secret_post (form data) and client_secret_basic (HTTP Basic auth).
+    Exchanges authorization codes for access tokens and rotates refresh
+    tokens. Supports authorization_code, client_credentials, and
+    refresh_token grant types. Accepts both client_secret_post (form data)
+    and client_secret_basic (HTTP Basic auth).
     """
     # Extract client credentials from either HTTP Basic auth or form data
     auth_header = request.headers.get("authorization")
@@ -627,6 +862,10 @@ async def token(
         elif grant_type == "client_credentials":
             return await _handle_client_credentials_grant(
                 final_client_id, final_client_secret
+            )
+        elif grant_type == "refresh_token":
+            return await _handle_refresh_token_grant(
+                final_client_id, final_client_secret, refresh_token, scope
             )
 
         else:

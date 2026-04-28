@@ -157,7 +157,7 @@ A production-tested self-hosted deployment using Docker containers behind a Clou
 - Use Cloudflare ZeroTrust with subnet-based access control (e.g., allow Anthropic subnets + your own IPs)
 - Add **Client IP Address Filtering** to all Cloudflare API tokens (Dashboard → My Profile → API Tokens → Edit → Client IP Address Filtering) to limit abuse if a token leaks
 - If using IPv6, include your IPv6 /64 network in the allowlist (Python prefers IPv6 by default)
-- Set `MCP_OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES=1440` to extend OAuth tokens to 24 hours (refresh tokens not yet supported)
+- For long-running browser sessions, request the `offline_access` scope during authorization to receive a rotating `refresh_token` (lifetime via `MCP_OAUTH_REFRESH_TOKEN_EXPIRE_DAYS`, default 30 days). Without this scope, access tokens are the only credential — extend `MCP_OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES` up to `1440` (24h) if you need longer single-shot sessions.
 - Consider an auth proxy like [AuthMCP](https://github.com/loglux/authmcp-gateway) or [mcp-auth-proxy](https://github.com/sigbit/mcp-auth-proxy) for robust session management
 
 ## Comparison with Alternatives
@@ -437,19 +437,19 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.40.3** (April 24, 2026)
+## Latest Release: **v10.40.4** (April 28, 2026)
 
-**fix(claude-hooks): eliminate socket hang-up and raise hook timeout**
+**fix(quality): handle shape (1, 1) cross-encoder logits in ONNX ranker**
 
 **What's New:**
-- **Socket hang-up eliminated**: Node.js HTTPS agent `keepAlive` caused dead-socket reuse across multi-phase retrieval — hook silently dropped memories. Fixed with `agent: false` + `Connection: close` on all HTTP paths.
-- **Hook timeout raised 9.5 s → 28 s**: Multi-phase retrieval (git + recent + tagged) takes 12–15 s cold; old budget expired before the injection block was written. Claude Code VSCode extension now reliably shows the memory-context block.
-- **Installer outer timeout raised 10 s → 30 s**: `~/.claude/settings.json` kill limit now matches the new internal budget.
+- **Quality scorer shape-agnostic**: ONNX cross-encoder outputs `(1, 1)` logits for single-pair inputs, causing a `TypeError` silently caught by the outer handler — every result returned 0.5 quality score, breaking quality-boosted search ranking. Fixed by squeezing logit tensor to 1-D before indexing.
 - **1,675 Python tests** passing.
+- Thanks to @thewusman2025 for root-cause analysis and the patch.
 
 ---
 
 **Previous Releases**:
+- **v10.40.3** - fix(claude-hooks): eliminate socket hang-up and raise hook timeout (PR #761)
 - **v10.40.2** - fix(docker): correct invalid Python one-liner in ONNX pre-download (PR #757)
 - **v10.40.1** - fix(sync): CF hybrid sync reliability + reporting accuracy (PRs #751, #753)
 - **v10.40.0** - feat: Milvus storage backend (Lite / self-hosted / Zilliz Cloud), OAuth XSS hardening, plugin shape validation (PRs #721, #745, #740)

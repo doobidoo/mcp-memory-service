@@ -52,6 +52,7 @@ python tests/integration/test_oauth_flow.py http://localhost:8000
 | `MCP_OAUTH_ISSUER` | Auto-detected | OAuth issuer URL |
 | `MCP_OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access token lifetime |
 | `MCP_OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES` | `10` | Authorization code lifetime |
+| `MCP_OAUTH_REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime (issued only when `offline_access` scope is requested) |
 
 ### Example Configuration
 
@@ -132,11 +133,54 @@ curl -H "Authorization: Bearer $ACCESS_TOKEN" \
 
 ### Scope-Based Authorization
 
-The OAuth system supports three scopes:
+The OAuth system supports four scopes:
 
 - **`read`**: Access to read-only endpoints
 - **`write`**: Access to create/update endpoints
 - **`admin`**: Access to administrative endpoints
+- **`offline_access`**: Opt-in signal that the client wants a `refresh_token` alongside the access token (see below). Does not grant additional permissions on its own.
+
+### Refresh Tokens
+
+The token endpoint supports the `refresh_token` grant so long-lived sessions can renew an access token without re-driving the authorization flow.
+
+**To receive a `refresh_token`, include `offline_access` in the `scope` parameter of the authorization request.** Clients that don't request it keep the existing single-token response — this behavior is opt-in to stay compatible with existing integrations.
+
+```bash
+# Authorization request — note offline_access in scope
+GET /oauth/authorize?response_type=code
+    &client_id=...
+    &redirect_uri=...
+    &scope=read%20write%20offline_access
+    &code_challenge=...&code_challenge_method=S256
+```
+
+The token response then includes `refresh_token`:
+
+```json
+{
+  "access_token": "eyJhbGc...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "refresh_token": "q8Oj...48-byte-opaque...",
+  "scope": "read write offline_access"
+}
+```
+
+**Renewing an access token:**
+
+```bash
+curl -X POST http://localhost:8000/oauth/token \
+     -u "<client_id>:<client_secret>" \
+     -d "grant_type=refresh_token" \
+     -d "refresh_token=q8Oj..."
+```
+
+Public clients (registered with `token_endpoint_auth_method=none`) omit the `-u` credentials; the refresh token itself is the binding.
+
+**Rotation (OAuth 2.1 §4.3.1):** every successful refresh issues a new `refresh_token` AND revokes the one that was presented. A stolen refresh token is therefore single-use — if both the legitimate client and an attacker try to use it, one succeeds and the other gets `invalid_grant`. Always store the latest `refresh_token` from each response.
+
+**Scope on refresh:** the `scope` parameter is optional and may only be a subset of the originally granted scope; requesting a broader scope returns `invalid_scope`.
 
 ### API Key Authentication (OAuth-Free)
 

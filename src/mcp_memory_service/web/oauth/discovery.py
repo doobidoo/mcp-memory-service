@@ -42,7 +42,7 @@ async def oauth_protected_resource_metadata() -> OAuthProtectedResourceMetadata:
     return OAuthProtectedResourceMetadata(
         resource=OAUTH_ISSUER,
         authorization_servers=[OAUTH_ISSUER],
-        scopes_supported=["read", "write", "admin"],
+        scopes_supported=["read", "write", "admin", "offline_access"],
         bearer_methods_supported=["header"],
         resource_documentation=f"{OAUTH_ISSUER}/docs",
     )
@@ -66,10 +66,10 @@ async def oauth_authorization_server_metadata() -> OAuthServerMetadata:
         authorization_endpoint=f"{OAUTH_ISSUER}/oauth/authorize",
         token_endpoint=f"{OAUTH_ISSUER}/oauth/token",
         registration_endpoint=f"{OAUTH_ISSUER}/oauth/register",
-        grant_types_supported=["authorization_code", "client_credentials"],
+        grant_types_supported=["authorization_code", "client_credentials", "refresh_token"],
         response_types_supported=["code"],
         token_endpoint_auth_methods_supported=["client_secret_basic", "client_secret_post", "none"],
-        scopes_supported=["read", "write", "admin"],
+        scopes_supported=["read", "write", "admin", "offline_access"],
         id_token_signing_alg_values_supported=[algorithm],
         code_challenge_methods_supported=["S256"]
     )
