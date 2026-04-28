@@ -1,3 +1,7 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 # Copyright 2024 Heinrich Krupp
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -262,6 +266,50 @@ class MemoryOAuthStorage(OAuthStorage):
                 return False
             data["revoked"] = True
             return True
+
+    async def revoke_refresh_token_chain(self, token: str) -> int:
+        """Revoke the entire rotation chain (in-memory equivalent)."""
+        async with self._lock:
+            # Walk up to find the chain root.
+            current = token
+            seen: set[str] = set()
+            root = current
+            while current and current not in seen:
+                seen.add(current)
+                data = self._refresh_tokens.get(current)
+                if not data:
+                    root = current
+                    break
+                parent = data.get("parent_token")
+                if not parent:
+                    root = current
+                    break
+                root = parent
+                current = parent
+
+            # BFS descendants.
+            members: set[str] = {root}
+            frontier = [root]
+            while frontier:
+                children = [
+                    t for t, d in self._refresh_tokens.items()
+                    if d.get("parent_token") in frontier and t not in members
+                ]
+                members.update(children)
+                frontier = children
+
+            count = 0
+            for t in members:
+                d = self._refresh_tokens.get(t)
+                if d and not d["revoked"]:
+                    d["revoked"] = True
+                    count += 1
+            if count:
+                logger.warning(
+                    "Revoked %d refresh token(s) in chain (replay mitigation)",
+                    count,
+                )
+            return count
 
     async def delete_refresh_token(self, token: str) -> bool:
         """Remove refresh token record entirely."""

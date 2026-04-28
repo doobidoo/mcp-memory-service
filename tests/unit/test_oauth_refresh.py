@@ -401,7 +401,7 @@ async def test_public_client_refresh_without_secret():
             scope="read offline_access",
         )
         refreshed = await _handle_refresh_token_grant(
-            final_client_id=None,
+            final_client_id=PUBLIC_CLIENT_ID,
             final_client_secret=None,
             refresh_token_value=rt,
             requested_scope=None,
@@ -447,3 +447,103 @@ def test_protected_resource_metadata_advertises_offline_access():
     assert response.status_code == 200
     body = response.json()
     assert "offline_access" in body["scopes_supported"]
+
+
+# ===========================================================================
+# Review feedback regression — chain revoke + public client client_id
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_replay_revokes_chain():
+    """
+    OAuth 2.1 §4.3.1: replay of an already-revoked refresh token signals
+    possible compromise. The server cannot tell the legitimate client from
+    an attacker, so it MUST revoke every other live token in the rotation
+    chain (compromise mitigation).
+    """
+    storage = MemoryOAuthStorage()
+    await _register_confidential_client(storage)
+
+    with patch(
+        "mcp_memory_service.web.oauth.authorization.get_oauth_storage",
+        return_value=storage,
+    ):
+        # Issue an initial refresh token (R0).
+        first = await _issue_via_auth_code(storage, scope="read offline_access")
+        r0 = first.refresh_token
+        assert r0 is not None
+
+        # Rotate once (R0 -> R1).
+        second = await _handle_refresh_token_grant(
+            final_client_id=CONFIDENTIAL_CLIENT_ID,
+            final_client_secret=CONFIDENTIAL_CLIENT_SECRET,
+            refresh_token_value=r0,
+            requested_scope=None,
+        )
+        r1 = second.refresh_token
+        assert r1 is not None and r1 != r0
+
+        # Rotate again (R1 -> R2). R2 is the only live token at this point.
+        third = await _handle_refresh_token_grant(
+            final_client_id=CONFIDENTIAL_CLIENT_ID,
+            final_client_secret=CONFIDENTIAL_CLIENT_SECRET,
+            refresh_token_value=r1,
+            requested_scope=None,
+        )
+        r2 = third.refresh_token
+        assert r2 is not None
+
+        # Sanity: R2 should still be live before the replay.
+        assert await storage.get_refresh_token(r2) is not None
+
+        # Replay R0 (already revoked by the first rotation).
+        with pytest.raises(HTTPException) as exc_info:
+            await _handle_refresh_token_grant(
+                final_client_id=CONFIDENTIAL_CLIENT_ID,
+                final_client_secret=CONFIDENTIAL_CLIENT_SECRET,
+                refresh_token_value=r0,
+                requested_scope=None,
+            )
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["error"] == "invalid_grant"
+
+        # The live descendant R2 must now also be revoked
+        # (chain-wide revocation triggered by the replay).
+        assert await storage.get_refresh_token(r2) is None
+
+
+@pytest.mark.asyncio
+async def test_public_client_must_send_client_id():
+    """
+    RFC 6749 §6: refresh requests MUST include client_id when the client
+    is not authenticating (public clients). The token's internal binding
+    is not a substitute for the explicit parameter.
+    """
+    storage = MemoryOAuthStorage()
+    await _register_public_client(storage)
+
+    with patch(
+        "mcp_memory_service.web.oauth.authorization.get_oauth_storage",
+        return_value=storage,
+    ):
+        # Bypass PKCE on issuance — we are testing the refresh grant surface.
+        refresh_token, _ = await create_refresh_token(
+            client_id=PUBLIC_CLIENT_ID,
+            scope="read offline_access",
+        )
+        assert refresh_token is not None
+
+        # Public client omitting client_id — should be rejected with
+        # invalid_request / 400.
+        with pytest.raises(HTTPException) as exc_info:
+            await _handle_refresh_token_grant(
+                final_client_id=None,
+                final_client_secret=None,
+                refresh_token_value=refresh_token,
+                requested_scope=None,
+            )
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["error"] == "invalid_request"
+        assert "client_id" in exc_info.value.detail["error_description"]
+

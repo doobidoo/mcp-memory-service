@@ -620,6 +620,71 @@ class SQLiteOAuthStorage(OAuthStorage):
                 logger.debug("Revoked refresh token")
             return revoked
 
+    async def revoke_refresh_token_chain(self, token: str) -> int:
+        """
+        Revoke the entire rotation chain that ``token`` belongs to.
+
+        Walks parent_token pointers up to the chain root, then BFS-walks
+        descendants, then issues a single bulk UPDATE under the storage
+        lock so the operation is atomic with respect to concurrent
+        rotations.
+        """
+        async with self._lock:
+            # Walk up to find the chain root.
+            current = token
+            seen: set[str] = set()
+            root = current
+            while current and current not in seen:
+                seen.add(current)
+                cur = await self._execute(
+                    "SELECT parent_token FROM oauth_refresh_tokens WHERE token = ?",
+                    (current,),
+                )
+                row = await cur.fetchone()
+                if not row:
+                    # token unknown to us — treat the supplied value as the root
+                    root = current
+                    break
+                parent = row["parent_token"]
+                if not parent:
+                    root = current
+                    break
+                root = parent
+                current = parent
+
+            # BFS descendants from the root.
+            members: set[str] = {root}
+            frontier = [root]
+            while frontier:
+                placeholders = ",".join("?" * len(frontier))
+                cur = await self._execute(
+                    f"SELECT token FROM oauth_refresh_tokens "
+                    f"WHERE parent_token IN ({placeholders})",
+                    frontier,
+                )
+                rows = await cur.fetchall()
+                children = [r["token"] for r in rows if r["token"] not in members]
+                members.update(children)
+                frontier = children
+
+            if not members:
+                return 0
+
+            placeholders = ",".join("?" * len(members))
+            cur = await self._execute(
+                f"UPDATE oauth_refresh_tokens SET revoked = 1 "
+                f"WHERE token IN ({placeholders}) AND revoked = 0",
+                list(members),
+            )
+            await self._commit()
+            count = cur.rowcount or 0
+            if count:
+                logger.warning(
+                    "Revoked %d refresh token(s) in chain (replay mitigation)",
+                    count,
+                )
+            return count
+
     async def delete_refresh_token(self, token: str) -> bool:
         """Remove refresh token record outright."""
         async with self._lock:

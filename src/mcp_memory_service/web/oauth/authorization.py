@@ -648,7 +648,22 @@ async def _handle_refresh_token_grant(
 
     token_data = await get_oauth_storage().get_refresh_token(refresh_token_value)
     if not token_data:
-        # Unknown, expired, or already-rotated token — do not disclose which.
+        # Unknown, expired, or already-rotated token. If it was previously
+        # rotated (revoked), this looks like a replay — the legitimate client
+        # would not present a stale token. We cannot distinguish replay from
+        # the attacker case, so per OAuth 2.1 §4.3.1 we also revoke every
+        # other live token in the same rotation chain (compromise mitigation).
+        # `revoke_refresh_token_chain` is a no-op (returns 0) for genuinely
+        # unknown tokens, so this is safe to call unconditionally here.
+        chain_revoked = await get_oauth_storage().revoke_refresh_token_chain(
+            refresh_token_value
+        )
+        if chain_revoked:
+            logger.warning(
+                "Refresh token replay detected; revoked %d additional "
+                "token(s) in the rotation chain",
+                chain_revoked,
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -678,6 +693,17 @@ async def _handle_refresh_token_grant(
             detail={
                 "error": "invalid_grant",
                 "error_description": "Client no longer registered",
+            },
+        )
+
+    # Public clients still MUST send client_id (RFC 6749 §6) — the token's
+    # internal binding is not a substitute for the explicit parameter.
+    if client.token_endpoint_auth_method == "none" and not final_client_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_request",
+                "error_description": "Missing required parameter: client_id",
             },
         )
 
@@ -718,8 +744,8 @@ async def _handle_refresh_token_grant(
     granted_scope = requested_scope if requested_scope else original_scope
 
     # Rotation: atomically revoke the presented refresh token. If we lose the
-    # race (another refresh already consumed it), fail the grant — this is the
-    # replay detection guarantee from OAuth 2.1 §4.3.1.
+    # race (another refresh already consumed it), fail the grant — defense in
+    # depth on top of the unknown-token check above.
     if not await get_oauth_storage().revoke_refresh_token(refresh_token_value):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

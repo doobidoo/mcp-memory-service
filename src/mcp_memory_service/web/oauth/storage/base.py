@@ -258,6 +258,26 @@ class OAuthStorage(ABC):
         pass
 
     @abstractmethod
+    async def revoke_refresh_token_chain(self, token: str) -> int:
+        """
+        Revoke every refresh token in the same rotation chain.
+
+        Compromise mitigation per OAuth 2.1 §4.3.1: when a replay of an
+        already-revoked refresh token is detected, the authorization
+        server cannot tell whether the legitimate client or an attacker
+        presented the stale token, so it revokes the entire family rooted
+        at the same initial issuance.
+
+        Args:
+            token: Any refresh token in the chain (typically the replayed one)
+
+        Returns:
+            Number of previously-live tokens revoked by this call.
+            Already-revoked or unknown tokens do not count.
+        """
+        pass
+
+    @abstractmethod
     async def cleanup_expired(self) -> Dict[str, int]:
         """
         Clean up expired authorization codes, access tokens, and refresh tokens.
