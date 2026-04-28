@@ -404,8 +404,11 @@ class ONNXRankerModel:
                 score = float(np.dot(probs, class_values))
 
             elif self.model_config['type'] == 'cross-encoder':
-                # MS-MARCO: Binary classification with sigmoid
-                logit = float(logits[0] if len(logits.shape) > 0 and logits.shape[0] > 1 else logits)
+                # MS-MARCO: Binary classification with sigmoid.
+                # ORT may return shape (1,), (1, 1), or scalar — flatten to be shape-agnostic
+                # (issue #764: shape (1, 1) previously raised TypeError, swallowed to 0.5 placeholder).
+                logits_arr = np.asarray(logits)
+                logit = float(logits_arr.reshape(-1)[0])
                 score = 1.0 / (1.0 + np.exp(-logit))
 
             return np.clip(score, 0.0, 1.0)

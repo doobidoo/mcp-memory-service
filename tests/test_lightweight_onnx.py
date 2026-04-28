@@ -263,6 +263,58 @@ class TestLightweightONNXSetup:
                 call_args = mock_tokenizer.encode.call_args
                 assert call_args is not None, "Tokenizer should have been called"
 
+    @pytest.mark.parametrize("logits_output,expected_logit", [
+        (np.array([[1.5]]), 1.5),       # Shape (1, 1) — the bug from issue #764
+        (np.array([1.5]), 1.5),         # Shape (1,) — historical path
+        (np.array([[-0.7]]), -0.7),     # Shape (1, 1), negative logit
+        (np.array([[[2.0]]]), 2.0),     # Shape (1, 1, 1), defensive
+    ])
+    def test_cross_encoder_scalar_extraction_shape_agnostic(self, logits_output, expected_logit):
+        """Regression test for issue #764: cross-encoder must handle (1, 1) logits.
+
+        Previously, ``float(logits)`` on a non-zero-dim ndarray raised TypeError, which
+        was swallowed by the outer handler and pinned every score to 0.5. This test
+        exercises the scalar extraction path directly with multiple shapes.
+        """
+        from mcp_memory_service.quality.onnx_ranker import ONNXRankerModel
+
+        # Bypass heavy __init__; we only need to drive score_quality()
+        ranker = ONNXRankerModel.__new__(ONNXRankerModel)
+        ranker.model_name = 'ms-marco-cross-encoder'
+        ranker.model_config = {
+            'name': 'ms-marco-cross-encoder',
+            'type': 'cross-encoder',
+            'repo': 'cross-encoder/ms-marco-MiniLM-L-6-v2',
+            'onnx_file': 'model.onnx',
+        }
+        ranker._use_fast_tokenizer = True
+
+        # Tokenizer mock for cross-encoder pair encoding
+        mock_encoded = Mock()
+        mock_encoded.ids = [0] * 8
+        mock_encoded.attention_mask = [1] * 8
+        mock_encoded.type_ids = [0] * 8
+        mock_tokenizer = Mock()
+        mock_tokenizer.encode.return_value = mock_encoded
+        mock_tokenizer.enable_truncation = Mock()
+        mock_tokenizer.enable_padding = Mock()
+        ranker._tokenizer = mock_tokenizer
+
+        # ORT session returns the parametrized shape
+        mock_model = Mock()
+        mock_model.run.return_value = [logits_output]
+        ranker._model = mock_model
+
+        score = ranker.score_quality(query="q", memory_content="doc")
+
+        # Score must be the sigmoid of the embedded logit, NOT the 0.5 placeholder
+        expected_score = 1.0 / (1.0 + np.exp(-expected_logit))
+        assert 0.0 <= score <= 1.0
+        assert abs(score - expected_score) < 1e-6, (
+            f"Expected sigmoid({expected_logit})={expected_score:.4f}, got {score:.4f}. "
+            "If this is 0.5, the (1,1) shape regression has returned."
+        )
+
     @pytest.mark.xfail(reason="Needs refactoring: mock storage doesn't properly simulate real storage behavior. Rewrite to use actual test storage.")
     @pytest.mark.asyncio
     async def test_auto_quality_scoring_after_store(self):
