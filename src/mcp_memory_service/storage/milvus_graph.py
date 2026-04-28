@@ -55,8 +55,8 @@ _MILVUS_MAX_LIMIT = 16384
 
 # Dimension for the dummy vector field required by Zilliz Cloud / remote Milvus.
 # Zilliz Cloud rejects collections without at least one vector field.
-_DUMMY_VEC_DIM = 1
-_DUMMY_VEC_VALUE = [0.0]
+_DUMMY_VEC_DIM = 2
+_DUMMY_VEC_VALUE = [0.0, 0.0]
 
 
 def _edge_id(source_hash: str, target_hash: str) -> str:
