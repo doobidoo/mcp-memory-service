@@ -1044,6 +1044,16 @@ if MCP_QUALITY_SYSTEM_ENABLED:
 # Enable hybrid BM25 + Vector search
 MCP_HYBRID_SEARCH_ENABLED = safe_get_bool_env('MCP_HYBRID_SEARCH_ENABLED', True)
 
+# Fusion method: 'weighted_average' (default, legacy) or 'rrf' (Reciprocal Rank Fusion)
+MCP_HYBRID_FUSION_METHOD = os.getenv('MCP_HYBRID_FUSION_METHOD', 'weighted_average').lower()
+if MCP_HYBRID_FUSION_METHOD not in ('weighted_average', 'rrf'):
+    logger.warning(f"Invalid fusion method: {MCP_HYBRID_FUSION_METHOD}. Using 'weighted_average'")
+    MCP_HYBRID_FUSION_METHOD = 'weighted_average'
+
+# RRF parameters (only used when fusion_method='rrf')
+MCP_HYBRID_RRF_K = safe_get_int_env('MCP_HYBRID_RRF_K', 60, min_value=1, max_value=1000)
+MCP_HYBRID_RRF_CONSENSUS_BOOST = float(os.getenv('MCP_HYBRID_RRF_CONSENSUS_BOOST', '0.1'))
+
 # Score fusion weights (must sum to 1.0)
 MCP_HYBRID_KEYWORD_WEIGHT = float(os.getenv('MCP_HYBRID_KEYWORD_WEIGHT', '0.3'))
 MCP_HYBRID_SEMANTIC_WEIGHT = float(os.getenv('MCP_HYBRID_SEMANTIC_WEIGHT', '0.7'))
@@ -1066,8 +1076,10 @@ if abs(weight_sum - 1.0) > 0.01:
     MCP_HYBRID_SEMANTIC_WEIGHT /= total
 
 logger.info(f"Hybrid Search: enabled={MCP_HYBRID_SEARCH_ENABLED}, "
+            f"fusion={MCP_HYBRID_FUSION_METHOD}, "
             f"keyword_weight={MCP_HYBRID_KEYWORD_WEIGHT:.2f}, "
-            f"semantic_weight={MCP_HYBRID_SEMANTIC_WEIGHT:.2f}")
+            f"semantic_weight={MCP_HYBRID_SEMANTIC_WEIGHT:.2f}"
+            + (f", rrf_k={MCP_HYBRID_RRF_K}, consensus_boost={MCP_HYBRID_RRF_CONSENSUS_BOOST}" if MCP_HYBRID_FUSION_METHOD == 'rrf' else ''))
 
 # =============================================================================
 # End Hybrid Search Configuration

@@ -1889,6 +1889,87 @@ SOLUTIONS:
 
         return (keyword_score * kw_weight) + (semantic_score * sem_weight)
 
+
+    async def _fuse_rrf(
+        self,
+        bm25_results,
+        vector_results,
+        n_results: int
+    ):
+        """Fuse results using Reciprocal Rank Fusion (RRF).
+
+        RRF operates on rank positions rather than raw scores, making it
+        robust to scale incompatibility between BM25 and vector similarity.
+
+        Formula: RRF_score(d) = sum(1/(k + rank_i(d))) + consensus_boost
+        Reference: Cormack, Clarke & Buettcher (2009)
+        """
+        from ..config import MCP_HYBRID_RRF_K, MCP_HYBRID_RRF_CONSENSUS_BOOST
+
+        k = MCP_HYBRID_RRF_K
+        boost = MCP_HYBRID_RRF_CONSENSUS_BOOST
+
+        bm25_hashes = [ch for ch, _ in bm25_results]
+        vector_hashes = [r.memory.content_hash for r in vector_results]
+        bm25_set = set(bm25_hashes)
+        vector_set = set(vector_hashes)
+        consensus = bm25_set & vector_set
+
+        scores = {}
+        for rank, ch in enumerate(vector_hashes, start=1):
+            scores[ch] = scores.get(ch, 0.0) + 1.0 / (k + rank)
+            if ch in consensus:
+                scores[ch] += boost
+        for rank, ch in enumerate(bm25_hashes, start=1):
+            scores[ch] = scores.get(ch, 0.0) + 1.0 / (k + rank)
+            if ch in consensus:
+                scores[ch] += boost
+
+        vector_memories = {r.memory.content_hash: r.memory for r in vector_results}
+
+        bm25_only = [h for h in scores if h not in vector_memories]
+        fetched = {}
+        if bm25_only:
+            try:
+                for i in range(0, len(bm25_only), 999):
+                    batch = bm25_only[i:i+999]
+                    ph = ",".join("?" for _ in batch)
+                    def fetch_batch(ph=ph, b=batch):
+                        cur = self.conn.execute(
+                            f"SELECT content_hash, content, tags, memory_type, metadata, "
+                            f"created_at, updated_at, created_at_iso, updated_at_iso "
+                            f"FROM memories WHERE content_hash IN ({ph}) AND deleted_at IS NULL", b)
+                        return cur.fetchall()
+                    rows = await self._execute_with_retry(fetch_batch)
+                    for row in rows:
+                        m = self._row_to_memory(row)
+                        if m:
+                            fetched[m.content_hash] = m
+            except Exception as e:
+                logger.warning(f"RRF batch fetch failed: {e}")
+
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        results = []
+        for ch, rrf_score in ranked[:n_results]:
+            memory = vector_memories.get(ch) or fetched.get(ch)
+            if memory:
+                results.append(MemoryQueryResult(
+                    memory=memory,
+                    relevance_score=rrf_score,
+                    debug_info={
+                        "rrf_score": rrf_score,
+                        "in_semantic": ch in vector_set,
+                        "in_keyword": ch in bm25_set,
+                        "consensus": ch in consensus,
+                        "backend": "hybrid-rrf",
+                    },
+                ))
+
+        logger.info(f"RRF hybrid: {len(results)} results "
+                    f"(BM25: {len(bm25_results)}, Vec: {len(vector_results)}, "
+                    f"Consensus: {len(consensus)})")
+        return results
+
     async def retrieve_hybrid(
         self,
         query: str,
@@ -1917,6 +1998,11 @@ SOLUTIONS:
             vector_task = asyncio.create_task(self.retrieve(query, n_results * 2))
 
             bm25_results, vector_results = await asyncio.gather(bm25_task, vector_task)
+
+            # Check fusion method
+            from ..config import MCP_HYBRID_FUSION_METHOD
+            if MCP_HYBRID_FUSION_METHOD == 'rrf':
+                return await self._fuse_rrf(bm25_results, vector_results, n_results)
 
             # Build lookup maps
             bm25_scores = {}
