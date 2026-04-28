@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.40.4] - 2026-04-28
+
+### Fixed
+
+- **[#764] quality: ONNX cross-encoder scalar logits no longer silently return 0.5 placeholder score**: The cross-encoder scoring path in `ONNXRankerModel.rerank()` assumed logits always had shape `(N,)`, but the ONNX model can output shape `(1, 1)` for a single-pair input, causing a `TypeError` when indexing with `[i]`. The outer `except Exception` handler swallowed the error and fell back to a neutral 0.5, making quality-boosted search silently rank all results equal. The fix squeezes the logit tensor to 1-D before indexing, making the scorer shape-agnostic. Thanks to @thewusman2025 for the root-cause analysis and patch. (PR #765)
+
 ## [10.40.3] - 2026-04-24
 
 ### Fixed
