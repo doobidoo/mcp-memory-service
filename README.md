@@ -437,18 +437,21 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.40.4** (April 28, 2026)
+## Latest Release: **v10.41.0** (April 28, 2026)
 
-**fix(quality): handle shape (1, 1) cross-encoder logits in ONNX ranker**
+**feat(oauth): OAuth 2.1 refresh_token grant with rotation (MCP SEP-2207)**
 
 **What's New:**
-- **Quality scorer shape-agnostic**: ONNX cross-encoder outputs `(1, 1)` logits for single-pair inputs, causing a `TypeError` silently caught by the outer handler — every result returned 0.5 quality score, breaking quality-boosted search ranking. Fixed by squeezing logit tensor to 1-D before indexing.
-- **1,675 Python tests** passing.
-- Thanks to @thewusman2025 for root-cause analysis and the patch.
+- **OAuth refresh tokens**: Clients requesting `offline_access` scope receive a refresh token with atomic rotation — every refresh issues a new token and revokes the old one, with full chain revocation on replay detection. (PR #766, @netizen1119)
+- **`memory_graph` tool on streamable-http server**: Knowledge graph queries (connected memories, shortest path, subgraph) now work in the FastMCP streamable-http transport, matching stdio parity. (PR #759, @henry201605)
+- **New env var**: `MCP_OAUTH_REFRESH_TOKEN_EXPIRE_DAYS` (default 30, range 1–365). Zero breaking changes.
+- **1,692 Python tests** passing.
+- Special thanks to @netizen1119 for the OAuth refresh token implementation.
 
 ---
 
 **Previous Releases**:
+- **v10.40.4** - fix(quality): handle shape (1, 1) cross-encoder logits in ONNX ranker (PR #765)
 - **v10.40.3** - fix(claude-hooks): eliminate socket hang-up and raise hook timeout (PR #761)
 - **v10.40.2** - fix(docker): correct invalid Python one-liner in ONNX pre-download (PR #757)
 - **v10.40.1** - fix(sync): CF hybrid sync reliability + reporting accuracy (PRs #751, #753)
