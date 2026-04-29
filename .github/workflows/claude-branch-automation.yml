@@ -41,7 +41,7 @@ jobs:
           echo "✅ Security check passed - Claude-generated branch confirmed"
 
       - name: Checkout branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0  # Full history for proper git operations
