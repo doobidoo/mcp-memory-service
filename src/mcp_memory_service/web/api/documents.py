@@ -45,6 +45,25 @@ router = APIRouter()
 # Constants
 MAX_TAG_LENGTH = 100
 
+# Prefix for the system tag that ties every chunk back to its upload.
+# Inner separator is '=' because parse_tag() splits on the first ':' to
+# extract the namespace; the value side must stay free of ':'.
+SYS_UPLOAD_ID_TAG_PREFIX = "sys:upload_id="
+
+
+def _build_system_tags(filename: str, file_path_obj: Path, upload_id: str) -> List[str]:
+    """Build the namespaced sys: tags applied to every chunk of an uploaded file.
+
+    These tags let the dashboard filter out service-managed metadata,
+    look up all chunks of an upload by id, and group document search
+    results by source file.
+    """
+    return [
+        f"sys:source_file={filename}",
+        f"sys:file_type={file_path_obj.suffix.lstrip('.')}",
+        f"{SYS_UPLOAD_ID_TAG_PREFIX}{upload_id}",
+    ]
+
 
 def _sanitize_log_value(value: object) -> str:
     """Sanitize a user-provided value for safe inclusion in log messages."""
@@ -417,13 +436,8 @@ async def process_single_file_upload(
             chunks_processed += 1
 
             try:
-                # Add file-specific tags using the sys: namespace.
-                # Inner separator is '=' because parse_tag() splits on the
-                # first ':' to extract the namespace.
                 all_tags = tags.copy()
-                all_tags.append(f"sys:source_file={filename}")
-                all_tags.append(f"sys:file_type={file_path_obj.suffix.lstrip('.')}")
-                all_tags.append(f"sys:upload_id={upload_id}")
+                all_tags.extend(_build_system_tags(filename, file_path_obj, upload_id))
 
                 if chunk.metadata.get('tags'):
                     # Handle tags from chunk metadata (can be string or list)
@@ -643,7 +657,7 @@ async def remove_document(upload_id: str, remove_from_memory: bool = True):
             storage = get_storage()
 
             # Search by tag pattern: sys:upload_id={upload_id}
-            upload_tag = f"sys:upload_id={upload_id}"
+            upload_tag = f"{SYS_UPLOAD_ID_TAG_PREFIX}{upload_id}"
             logger.info("Searching for memories by upload tag")
 
             try:
@@ -754,7 +768,7 @@ async def search_document_content(upload_id: str, limit: int = 1000):
         storage = get_storage()
 
         # Search for memories with sys:upload_id tag
-        upload_tag = f"sys:upload_id={upload_id}"
+        upload_tag = f"{SYS_UPLOAD_ID_TAG_PREFIX}{upload_id}"
         logger.info("Searching for memories by upload tag")
 
         # Use tag search (search_by_tags doesn't support limit parameter)
