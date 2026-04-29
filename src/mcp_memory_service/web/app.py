@@ -29,6 +29,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 
+
+class _HealthAccessLogFilter(logging.Filter):
+    """Drop uvicorn access-log entries for /api/health probes (docker healthcheck spam)."""
+
+    _NOISE_PATHS = ("/api/health", "/api/health/detailed")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(f"{p} HTTP/" in msg for p in self._NOISE_PATHS)
+
+
+logging.getLogger("uvicorn.access").addFilter(_HealthAccessLogFilter())
+
 try:
     from .. import __version__
 except (ImportError, AttributeError):
