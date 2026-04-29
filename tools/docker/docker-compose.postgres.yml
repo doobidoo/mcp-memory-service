@@ -51,6 +51,11 @@ services:
       - mcp_memory_internal
 
   mcp-memory-service:
+    build:
+      # Override the base [sqlite] extras so asyncpg + pgvector ship in the image.
+      args:
+        INSTALL_EXTRA: "[sqlite,pgvector]"
+
     environment:
       # Switch backend; the application reads these on startup.
       MCP_MEMORY_STORAGE_BACKEND: pgvector

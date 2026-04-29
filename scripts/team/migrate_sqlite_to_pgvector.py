@@ -90,6 +90,32 @@ def _epoch_to_tombstone(ts: Optional[float]) -> Optional[datetime]:
 
 # --------------------------------------------------------------------- reader
 
+def _open_sqlite_with_vec(sqlite_path: Path) -> sqlite3.Connection:
+    """Open the source DB read-only and load the sqlite-vec extension.
+
+    `memory_embeddings` is a sqlite-vec virtual table (`USING vec0(...)`)
+    so the extension must be loaded on the connection or every SELECT
+    against that table errors with `no such module: vec0`.
+    """
+    if not sqlite_path.exists():
+        raise FileNotFoundError(f"sqlite source not found: {sqlite_path}")
+
+    con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    try:
+        import sqlite_vec  # type: ignore
+    except ImportError as e:
+        con.close()
+        raise RuntimeError(
+            "sqlite-vec is required to read the source database. "
+            "Install with: pip install sqlite-vec"
+        ) from e
+    con.enable_load_extension(True)
+    sqlite_vec.load(con)
+    con.enable_load_extension(False)
+    con.row_factory = sqlite3.Row
+    return con
+
+
 def _read_source(sqlite_path: Path, batch_size: int) -> Iterable[List[Dict[str, Any]]]:
     """Yield batches of source rows from sqlite_vec.
 
@@ -98,11 +124,7 @@ def _read_source(sqlite_path: Path, batch_size: int) -> Iterable[List[Dict[str, 
     memory rows that lack an embedding — they wouldn't be searchable in
     pgvector either, and re-running the live service would re-embed them.
     """
-    if not sqlite_path.exists():
-        raise FileNotFoundError(f"sqlite source not found: {sqlite_path}")
-
-    con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
-    con.row_factory = sqlite3.Row
+    con = _open_sqlite_with_vec(sqlite_path)
     try:
         cur = con.execute(
             """
@@ -215,7 +237,7 @@ async def _write_batch(conn, schema: str, batch: List[Dict[str, Any]]) -> Tuple[
 
 async def _migrate(sqlite_path: Path, dsn: str, schema: str, batch_size: int, dry_run: bool) -> None:
     # Peek at the source to learn the embedding dimension before touching pg.
-    con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    con = _open_sqlite_with_vec(sqlite_path)
     try:
         cur = con.execute("SELECT content_embedding FROM memory_embeddings LIMIT 1")
         first = cur.fetchone()

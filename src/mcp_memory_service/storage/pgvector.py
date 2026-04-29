@@ -210,9 +210,14 @@ class PgVectorMemoryStorage(MemoryStorage):
 
         from ..embeddings.external_api import get_external_embedding_model
 
+        # When MCP_EXTERNAL_EMBEDDING_URL is set, the external env var must
+        # win over the local-model hint the factory passes in — otherwise
+        # the constructor's default (a sentence-transformers name) gets
+        # logged as the active model even though llama.cpp / Ollama are
+        # actually serving the request.
         model_name = (
-            self.requested_embedding_model_name
-            or os.environ.get("MCP_EXTERNAL_EMBEDDING_MODEL")
+            os.environ.get("MCP_EXTERNAL_EMBEDDING_MODEL")
+            or self.requested_embedding_model_name
             or "nomic-embed-text"
         )
         try:
