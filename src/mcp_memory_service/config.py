@@ -303,7 +303,7 @@ except (ImportError, AttributeError):
         logger.debug("Could not determine server version from _version.py; using default")
 
 # Storage backend configuration
-SUPPORTED_BACKENDS = ['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid', 'milvus']
+SUPPORTED_BACKENDS = ['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid', 'milvus', 'pgvector']
 STORAGE_BACKEND = os.getenv('MCP_MEMORY_STORAGE_BACKEND', 'sqlite_vec').lower()
 
 # Normalize backend names (sqlite-vec -> sqlite_vec)
@@ -566,6 +566,26 @@ else:
     MILVUS_URI = None
     MILVUS_TOKEN = None
     MILVUS_COLLECTION_NAME = None
+
+# pgvector backend configuration
+#   MCP_PGVECTOR_DSN     — postgresql://user:pass@host:5432/dbname (required)
+#   MCP_PGVECTOR_SCHEMA  — schema name (default: public)
+if STORAGE_BACKEND == 'pgvector':
+    PGVECTOR_DSN = os.getenv('MCP_PGVECTOR_DSN') or None
+    PGVECTOR_SCHEMA = os.getenv('MCP_PGVECTOR_SCHEMA', 'public')
+
+    if not PGVECTOR_DSN:
+        logger.warning(
+            "MCP_PGVECTOR_DSN is not set — the pgvector backend will fail to "
+            "initialize. Set it to a postgres:// URL pointing at a database "
+            "with the `vector` extension available."
+        )
+    else:
+        # Don't log the DSN itself — it carries the password.
+        logger.info(f"Using pgvector backend (schema={PGVECTOR_SCHEMA})")
+else:
+    PGVECTOR_DSN = None
+    PGVECTOR_SCHEMA = 'public'
 
 # =============================================================================
 # MCP SSE Transport Configuration

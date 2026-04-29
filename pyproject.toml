@@ -107,9 +107,14 @@ milvus = [
 markitdown = [
     "markitdown[pdf,docx,pptx,xlsx]>=0.0.1a3"
 ]
+# PostgreSQL + pgvector storage backend (asyncpg + pgvector helpers)
+pgvector = [
+    "asyncpg>=0.29",
+    "pgvector>=0.3",
+]
 # Full installation including all optional dependencies
 full = [
-    "mcp-memory-service[sqlite,ml,dev,markitdown]"
+    "mcp-memory-service[sqlite,ml,dev,markitdown,pgvector]"
 ]
 
 [project.scripts]

@@ -74,6 +74,13 @@ def get_storage_backend_class() -> Type[MemoryStorage]:
         except ImportError as e:
             logger.error(f"Failed to import Milvus storage: {e}")
             raise
+    elif backend == "pgvector":
+        try:
+            from .pgvector import PgVectorMemoryStorage
+            return PgVectorMemoryStorage
+        except ImportError as e:
+            logger.error(f"Failed to import pgvector storage: {e}")
+            raise
     else:
         logger.warning(f"Unknown storage backend '{backend}', defaulting to SQLite-vec")
         from .sqlite_vec import SqliteVecMemoryStorage
@@ -99,7 +106,8 @@ async def create_storage_instance(sqlite_path: str, server_type: str = None) -> 
         CLOUDFLARE_LARGE_CONTENT_THRESHOLD, CLOUDFLARE_MAX_RETRIES,
         CLOUDFLARE_BASE_DELAY,
         HYBRID_SYNC_INTERVAL, HYBRID_BATCH_SIZE, HYBRID_SYNC_OWNER,
-        MILVUS_URI, MILVUS_TOKEN, MILVUS_COLLECTION_NAME
+        MILVUS_URI, MILVUS_TOKEN, MILVUS_COLLECTION_NAME,
+        PGVECTOR_DSN, PGVECTOR_SCHEMA,
     )
 
     logger.info(f"Creating storage backend instance (sqlite_path: {sqlite_path}, server_type: {server_type})...")
@@ -155,6 +163,20 @@ async def create_storage_instance(sqlite_path: str, server_type: str = None) -> 
         logger.info(
             f"Initialized Milvus storage (uri={MILVUS_URI}, collection={MILVUS_COLLECTION_NAME})"
         )
+
+    elif StorageClass.__name__ == "PgVectorMemoryStorage":
+        if not PGVECTOR_DSN:
+            raise ValueError(
+                "MCP_PGVECTOR_DSN must be set when using the pgvector backend "
+                "(e.g. postgresql://user:pass@host:5432/dbname)."
+            )
+        storage = StorageClass(
+            dsn=PGVECTOR_DSN,
+            schema=PGVECTOR_SCHEMA,
+            embedding_model=EMBEDDING_MODEL_NAME,
+        )
+        # Don't log the DSN — it carries the password.
+        logger.info(f"Initialized pgvector storage (schema={PGVECTOR_SCHEMA})")
 
     elif StorageClass.__name__ == "HybridMemoryStorage":
         # Prepare Cloudflare configuration dict
