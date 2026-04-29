@@ -399,7 +399,7 @@ class SqliteVecMemoryStorage(MemoryStorage):
 
         def batch_update():
             self.conn.executemany(
-                "UPDATE memories SET metadata = ? WHERE content_hash = ?",
+                "UPDATE memories SET metadata = ? WHERE content_hash = ? AND deleted_at IS NULL",
                 [(json.dumps(m.metadata), m.content_hash) for m in memories],
             )
             self.conn.commit()
@@ -3953,7 +3953,7 @@ SOLUTIONS:
                         if "conflict:unresolved" not in tags:
                             new_tags = f"{tags},conflict:unresolved" if tags else "conflict:unresolved"
                             self.conn.execute(
-                                "UPDATE memories SET tags = ? WHERE content_hash = ?",
+                                "UPDATE memories SET tags = ? WHERE content_hash = ? AND deleted_at IS NULL",
                                 (new_tags, h),
                             )
 
@@ -4042,13 +4042,13 @@ SOLUTIONS:
             def _do_resolve():
                 # Mark loser as superseded
                 self.conn.execute(
-                    "UPDATE memories SET superseded_by = ? WHERE content_hash = ?",
+                    "UPDATE memories SET superseded_by = ? WHERE content_hash = ? AND deleted_at IS NULL",
                     (winner_hash, loser_hash),
                 )
 
                 # Boost winner: confidence = 1.0, last_accessed = now
                 self.conn.execute(
-                    "UPDATE memories SET confidence = 1.0, last_accessed = ? WHERE content_hash = ?",
+                    "UPDATE memories SET confidence = 1.0, last_accessed = ? WHERE content_hash = ? AND deleted_at IS NULL",
                     (int(now), winner_hash),
                 )
 
@@ -4061,7 +4061,7 @@ SOLUTIONS:
                     if row and row[0]:
                         tags = [t.strip() for t in row[0].split(",") if t.strip() != "conflict:unresolved"]
                         self.conn.execute(
-                            "UPDATE memories SET tags = ? WHERE content_hash = ?",
+                            "UPDATE memories SET tags = ? WHERE content_hash = ? AND deleted_at IS NULL",
                             (",".join(tags), h),
                         )
 
@@ -4132,7 +4132,7 @@ SOLUTIONS:
         if hashes_to_touch:
             def _touch(hashes=hashes_to_touch, ts=now):
                 self.conn.executemany(
-                    "UPDATE memories SET last_accessed = ? WHERE content_hash = ?",
+                    "UPDATE memories SET last_accessed = ? WHERE content_hash = ? AND deleted_at IS NULL",
                     [(int(ts), h) for h in hashes],
                 )
                 self.conn.commit()
@@ -4225,7 +4225,7 @@ SOLUTIONS:
                     ''', (memory_rowid, serialize_float32(embedding)))
 
                     self.conn.execute(
-                        "UPDATE memories SET superseded_by = ? WHERE content_hash = ?",
+                        "UPDATE memories SET superseded_by = ? WHERE content_hash = ? AND deleted_at IS NULL",
                         (new_hash, old_hash),
                     )
                     self.conn.execute(f'RELEASE SAVEPOINT {_ev_sp}')
