@@ -50,7 +50,7 @@ class MarkItDownLoader(DocumentLoader):
         self._available = _MARKITDOWN_AVAILABLE
         if not self._available:
             logger.debug(
-                "markitdown not installed — install with: pip install 'markitdown[docx,pptx,xlsx]'"
+                "markitdown not installed — install with: pip install 'markitdown[pdf,docx,pptx,xlsx]'"
             )
 
     def can_handle(self, file_path: Path) -> bool:
@@ -71,7 +71,7 @@ class MarkItDownLoader(DocumentLoader):
         if not self._available:
             raise ValueError(
                 "markitdown is not installed. "
-                "Install with: pip install 'markitdown[docx,pptx,xlsx]'"
+                "Install with: pip install 'markitdown[pdf,docx,pptx,xlsx]'"
             )
 
         ext = file_path.suffix.lower().lstrip('.')
@@ -137,7 +137,7 @@ def _register_markitdown_loader() -> None:
     if not _MARKITDOWN_AVAILABLE:
         logger.debug(
             "markitdown not installed — skipping registration; "
-            "install with: pip install 'markitdown[docx,pptx,xlsx]'"
+            "install with: pip install 'markitdown[pdf,docx,pptx,xlsx]'"
         )
         return
     try:
