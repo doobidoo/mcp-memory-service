@@ -138,7 +138,10 @@ def upsert_triage_issue(repo: str, body: str, dry_run: bool) -> None:
 
     if existing:
         subprocess.run(
-            ["gh", "issue", "edit", str(existing), "--repo", repo, "--body", body],
+        subprocess.run(
+            ["gh", "issue", "edit", str(existing), "--repo", repo, "--body-file", "-"],
+            input=body,
+            text=True,
             check=True,
         )
         print(f"updated triage issue #{existing}")
