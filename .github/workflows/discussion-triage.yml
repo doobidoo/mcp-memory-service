@@ -1,0 +1,38 @@
+name: Discussion Triage
+
+on:
+  schedule:
+    # Every Monday at 09:00 UTC
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Print to logs only, do not update issue"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+  discussions: read
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts/maintenance/triage_discussions.py
+
+      - name: Run triage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          set -euo pipefail
+          ARGS=("--repo" "$REPO" "--issue")
+          if [ "${DRY_RUN:-false}" = "true" ]; then
+            ARGS+=("--dry-run")
+          fi
+          python3 scripts/maintenance/triage_discussions.py "${ARGS[@]}"
