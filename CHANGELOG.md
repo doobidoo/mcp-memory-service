@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **[#771] Reciprocal Rank Fusion (RRF) as hybrid search fusion method**: Alternative to weighted average for combining BM25 and vector search results. RRF operates on rank positions rather than raw scores, making it robust to scale incompatibility between BM25 (negative log scores) and cosine similarity (0–1 range). New env vars: `MCP_HYBRID_FUSION_METHOD` (`weighted_average` | `rrf`), `MCP_HYBRID_RRF_K` (default 60), `MCP_HYBRID_RRF_CONSENSUS_BOOST` (default 0.1). Documents found by both retrievers get a configurable consensus boost. Backward compatible — default behavior unchanged. Comprehensive test suite in `tests/storage/test_rrf_fusion.py`. (PR #773)
+
 ## [10.41.0] - 2026-04-28
 
 ### Added
