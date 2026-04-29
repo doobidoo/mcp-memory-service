@@ -44,6 +44,9 @@
     },
     {
       "pattern": "^https://docs\\.zilliz\\.com"
+    },
+    {
+      "pattern": "^https://glama\\.ai"
     }
   ],
   "aliveStatusCodes": [200, 206, 429]
