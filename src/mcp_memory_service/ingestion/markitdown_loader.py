@@ -7,17 +7,19 @@
 ##     http://www.apache.org/licenses/LICENSE-2.0
 
 """
-MarkItDown document loader — converts Office formats (docx, pptx, xlsx, etc.)
-to markdown using Microsoft's `markitdown` library, then chunks the result.
+MarkItDown document loader — converts Office formats (docx, pptx, xlsx) and
+PDFs to markdown using Microsoft's `markitdown` library, then chunks the
+result.
 
 Pure-Python alternative to `semtools_loader` for teams that don't want a
-LlamaParse API key. Registers as the primary loader for docx/doc/pptx/xlsx
-when `markitdown` is installed; transparently falls back to semtools (or
-any other registered loader) when not available.
+LlamaParse API key. When `markitdown` is installed, it registers as the
+primary loader for docx/doc/pptx/xlsx AND pdf. When not installed, it
+skips registration entirely so PDFLoader / semtools remain the fallback.
 """
 
 import logging
 import asyncio
+import time
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -39,7 +41,7 @@ class MarkItDownLoader(DocumentLoader):
 
     def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
         super().__init__(chunk_size, chunk_overlap)
-        self.supported_extensions = ['docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls']
+        self.supported_extensions = ['pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls']
         self.chunker = TextChunker(ChunkingStrategy(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
@@ -72,8 +74,10 @@ class MarkItDownLoader(DocumentLoader):
                 "Install with: pip install 'markitdown[docx,pptx,xlsx]'"
             )
 
+        ext = file_path.suffix.lower().lstrip('.')
         logger.info(f"Extracting chunks from {file_path} using markitdown")
 
+        start = time.monotonic()
         markdown_content = await self._convert_with_markitdown(file_path)
 
         base_metadata = self.get_base_metadata(file_path)
@@ -84,13 +88,25 @@ class MarkItDownLoader(DocumentLoader):
         })
 
         chunks = self.chunker.chunk_text(markdown_content, base_metadata)
+        chunk_count = 0
         for idx, (chunk_text, chunk_metadata) in enumerate(chunks):
+            chunk_count += 1
             yield DocumentChunk(
                 content=chunk_text,
                 metadata=chunk_metadata,
                 chunk_index=idx,
                 source_file=file_path,
             )
+
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        logger.info(
+            "[ingestion] markitdown processed file=%s ext=%s chars=%d chunks=%d took=%dms",
+            file_path.name,
+            ext,
+            len(markdown_content),
+            chunk_count,
+            elapsed_ms,
+        )
 
     async def _convert_with_markitdown(self, file_path: Path) -> str:
         """Run markitdown in a thread to avoid blocking the event loop."""
@@ -118,13 +134,21 @@ class MarkItDownLoader(DocumentLoader):
 
 
 def _register_markitdown_loader() -> None:
+    if not _MARKITDOWN_AVAILABLE:
+        logger.debug(
+            "markitdown not installed — skipping registration; "
+            "install with: pip install 'markitdown[docx,pptx,xlsx]'"
+        )
+        return
     try:
         from .registry import register_loader
         register_loader(
             MarkItDownLoader,
-            ['docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls'],
+            ['pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls'],
         )
-        logger.debug("MarkItDown loader registered")
+        logger.info(
+            "[ingestion] markitdown registered for: pdf, docx, doc, pptx, ppt, xlsx, xls"
+        )
     except ImportError:
         logger.debug("Registry not available during import")
 

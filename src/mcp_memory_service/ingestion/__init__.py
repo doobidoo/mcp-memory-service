@@ -31,8 +31,11 @@ from .registry import get_loader_for_file, register_loader, SUPPORTED_FORMATS, i
 # This allows specialized loaders to override if semtools is unavailable
 from . import text_loader
 from . import semtools_loader
-from . import markitdown_loader
 from . import pdf_loader
+# markitdown imported last among office/pdf loaders so its registrations
+# win when the package is installed; if not installed, registration is
+# skipped and pdf_loader / semtools_loader remain the active handlers.
+from . import markitdown_loader
 from . import json_loader
 from . import csv_loader
 

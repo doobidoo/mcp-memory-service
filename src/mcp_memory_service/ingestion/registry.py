@@ -30,7 +30,7 @@ _LOADER_REGISTRY: Dict[str, Type[DocumentLoader]] = {}
 
 # Supported file formats
 SUPPORTED_FORMATS = {
-    'pdf': 'PDF documents',
+    'pdf': 'PDF documents (markitdown if installed, else pypdf/pdfplumber)',
     'docx': 'Word documents (requires markitdown or semtools)',
     'doc': 'Word documents (requires markitdown or semtools)',
     'pptx': 'PowerPoint presentations (requires markitdown or semtools)',
@@ -71,29 +71,41 @@ def get_loader_for_file(file_path: Path) -> Optional[DocumentLoader]:
     if not file_path.exists():
         logger.warning(f"File does not exist: {file_path}")
         return None
-    
-    # Try by file extension first
+
     extension = file_path.suffix.lower().lstrip('.')
+
+    # Try by file extension first
     if extension in _LOADER_REGISTRY:
         loader_class = _LOADER_REGISTRY[extension]
         loader = loader_class()
         if loader.can_handle(file_path):
+            logger.info(
+                "[ingestion] dispatch file=%s ext=%s loader=%s match=extension",
+                file_path.name, extension, loader_class.__name__,
+            )
             return loader
-    
+
     # Try by MIME type detection
     mime_type, _ = mimetypes.guess_type(str(file_path))
     if mime_type:
         loader = _get_loader_by_mime_type(mime_type)
         if loader and loader.can_handle(file_path):
+            logger.info(
+                "[ingestion] dispatch file=%s ext=%s loader=%s match=mime(%s)",
+                file_path.name, extension, loader.__class__.__name__, mime_type,
+            )
             return loader
-    
+
     # Try all registered loaders as fallback
     for loader_class in _LOADER_REGISTRY.values():
         loader = loader_class()
         if loader.can_handle(file_path):
-            logger.debug(f"Found fallback loader {loader_class.__name__} for {file_path}")
+            logger.info(
+                "[ingestion] dispatch file=%s ext=%s loader=%s match=fallback",
+                file_path.name, extension, loader_class.__name__,
+            )
             return loader
-    
+
     logger.warning(f"No suitable loader found for file: {file_path}")
     return None
 
