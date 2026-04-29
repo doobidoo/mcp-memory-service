@@ -1058,6 +1058,9 @@ MCP_HYBRID_RRF_CONSENSUS_BOOST = float(os.getenv('MCP_HYBRID_RRF_CONSENSUS_BOOST
 MCP_HYBRID_KEYWORD_WEIGHT = float(os.getenv('MCP_HYBRID_KEYWORD_WEIGHT', '0.3'))
 MCP_HYBRID_SEMANTIC_WEIGHT = float(os.getenv('MCP_HYBRID_SEMANTIC_WEIGHT', '0.7'))
 
+# Mistake Notes configuration
+MCP_MISTAKE_NOTE_DEDUP_THRESHOLD = float(os.getenv('MCP_MISTAKE_NOTE_DEDUP_THRESHOLD', '0.85'))
+
 # Validate weights
 if not 0.0 <= MCP_HYBRID_KEYWORD_WEIGHT <= 1.0:
     logger.warning(f"Invalid keyword weight: {MCP_HYBRID_KEYWORD_WEIGHT}. Using default 0.3")

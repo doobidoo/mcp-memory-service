@@ -739,3 +739,136 @@ class MemoryService:
             "created_at_iso": memory.created_at_iso,
             "updated_at_iso": memory.updated_at_iso
         }
+
+    # ─── Mistake Notes ────────────────────────────────────────────────
+
+    async def mistake_note_add(
+        self,
+        error_pattern: str,
+        context_signature: str,
+        incorrect_action: str,
+        correct_action: str,
+    ) -> Dict[str, Any]:
+        """
+        Record a mistake pattern for error replay.
+
+        Stores as a regular memory with memory_type='mistake'. If a similar
+        pattern already exists (above dedup threshold), increments failure_count
+        instead of creating a duplicate.
+
+        Args:
+            error_pattern: The error pattern or message
+            context_signature: Context where the error occurred
+            incorrect_action: What was done incorrectly
+            correct_action: What should have been done instead
+
+        Returns:
+            Dictionary with operation result
+        """
+        from ..config import MCP_MISTAKE_NOTE_DEDUP_THRESHOLD
+
+        content = (
+            f"Pattern: {error_pattern}\n"
+            f"Context: {context_signature}\n"
+            f"Wrong: {incorrect_action}\n"
+            f"Right: {correct_action}"
+        )
+
+        try:
+            # Check for existing similar mistake note
+            existing = await self.retrieve_memories(
+                query=f"{error_pattern} {context_signature}",
+                n_results=3,
+                memory_type="error",
+            )
+
+            if existing.get("memories"):
+                for mem in existing["memories"]:
+                    score = mem.get("similarity", 0)
+                    if score >= MCP_MISTAKE_NOTE_DEDUP_THRESHOLD:
+                        # Increment failure_count on existing note
+                        content_hash = mem["content_hash"]
+                        old_meta = mem.get("metadata") or {}
+                        if isinstance(old_meta, str):
+                            import json
+                            old_meta = json.loads(old_meta) if old_meta else {}
+                        count = old_meta.get("failure_count", 1) + 1
+                        old_meta["failure_count"] = count
+
+                        await self.storage.update_memory_metadata(
+                            content_hash=content_hash,
+                            updates={"metadata": old_meta},
+                            preserve_timestamps=False,
+                        )
+                        return {
+                            "status": "updated",
+                            "content_hash": content_hash,
+                            "failure_count": count,
+                            "message": f"Existing mistake note updated (seen {count} times)",
+                        }
+
+            # No match — store new mistake note
+            result = await self.store_memory(
+                content=content,
+                tags="mistake-note,error-replay",
+                memory_type="error",
+                metadata={"failure_count": 1},
+            )
+
+            content_hash = ""
+            if isinstance(result, dict):
+                mem = result.get("memory", {})
+                if isinstance(mem, dict):
+                    content_hash = mem.get("content_hash", "")
+                elif not content_hash:
+                    content_hash = result.get("content_hash", "")
+            return {
+                "status": "created",
+                "content_hash": content_hash,
+                "failure_count": 1,
+                "message": "New mistake note recorded",
+            }
+
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    async def mistake_note_search(
+        self,
+        query: str,
+        limit: int = 5,
+    ) -> Dict[str, Any]:
+        """
+        Search mistake notes by semantic similarity.
+
+        Args:
+            query: Search query (error message, context, or task description)
+            limit: Maximum number of results
+
+        Returns:
+            Dictionary with matching mistake notes
+        """
+        try:
+            result = await self.retrieve_memories(
+                query=query,
+                n_results=limit,
+                memory_type="error",
+            )
+
+            notes = []
+            for mem in result.get("memories", []):
+                meta = mem.get("metadata") or {}
+                if isinstance(meta, str):
+                    import json
+                    meta = json.loads(meta) if meta else {}
+                notes.append({
+                    "content_hash": mem["content_hash"],
+                    "content": mem["content"],
+                    "similarity": mem.get("similarity", 0),
+                    "failure_count": meta.get("failure_count", 1),
+                    "updated_at": mem.get("updated_at"),
+                })
+
+            return {"notes": notes, "count": len(notes)}
+
+        except Exception as e:
+            return {"notes": [], "count": 0, "error": str(e)}

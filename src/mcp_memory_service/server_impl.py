@@ -2184,6 +2184,38 @@ Examples:
                 tools.extend(conflict_tools)
                 logger.info(f"Added {len(conflict_tools)} conflict detection tools")
 
+                # Mistake Notes tools
+                mistake_tools = [
+                    types.Tool(
+                        name="mistake_note_add",
+                        description="Record a mistake pattern for error replay. Tracks what went wrong and the correct action. Auto-increments failure_count for repeated patterns.",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "error_pattern": {"type": "string", "description": "The error pattern or message"},
+                                "context_signature": {"type": "string", "description": "Context where the error occurred (file, function, task type)"},
+                                "incorrect_action": {"type": "string", "description": "What was done incorrectly"},
+                                "correct_action": {"type": "string", "description": "What should have been done instead"},
+                            },
+                            "required": ["error_pattern", "context_signature", "incorrect_action", "correct_action"],
+                        },
+                    ),
+                    types.Tool(
+                        name="mistake_note_search",
+                        description="Search mistake notes by semantic similarity. Use before starting a task to check for known pitfalls and past errors.",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "query": {"type": "string", "description": "Search query (error message, context, or task description)"},
+                                "limit": {"type": "integer", "default": 5, "description": "Max results (default: 5)"},
+                            },
+                            "required": ["query"],
+                        },
+                    ),
+                ]
+                tools.extend(mistake_tools)
+                logger.info(f"Added {len(mistake_tools)} mistake note tools")
+
                 logger.info(f"Returning {len(tools)} tools")
                 return tools
             except Exception as e:
@@ -2257,6 +2289,13 @@ Examples:
                 elif name == "memory_resolve":
                     logger.info("Calling handle_memory_resolve")
                     return await self.handle_memory_resolve(arguments)
+
+                elif name == "mistake_note_add":
+                    logger.info("Calling handle_mistake_note_add")
+                    return await self.handle_mistake_note_add(arguments)
+                elif name == "mistake_note_search":
+                    logger.info("Calling handle_mistake_note_search")
+                    return await self.handle_mistake_note_search(arguments)
 
                 # Legacy handlers (for tools that haven't been fully migrated yet)
                 # These will be removed once all old tool definitions are removed
@@ -2657,6 +2696,30 @@ Examples:
 
         ok, msg = await self.storage.resolve_conflict(winner, loser)
         return [types.TextContent(type="text", text=msg)]
+
+    # ─── Mistake Notes Handlers ───────────────────────────────────
+
+    async def handle_mistake_note_add(self, arguments: dict) -> List[types.TextContent]:
+        """Record a mistake pattern for error replay."""
+        await self._ensure_storage_initialized()
+        result = await self.memory_service.mistake_note_add(
+            error_pattern=arguments.get("error_pattern", ""),
+            context_signature=arguments.get("context_signature", ""),
+            incorrect_action=arguments.get("incorrect_action", ""),
+            correct_action=arguments.get("correct_action", ""),
+        )
+        import json
+        return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
+
+    async def handle_mistake_note_search(self, arguments: dict) -> List[types.TextContent]:
+        """Search mistake notes by semantic similarity."""
+        await self._ensure_storage_initialized()
+        result = await self.memory_service.mistake_note_search(
+            query=arguments.get("query", ""),
+            limit=arguments.get("limit", 5),
+        )
+        import json
+        return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
 
     # ============================================================
     # Test Compatibility Wrapper Methods
