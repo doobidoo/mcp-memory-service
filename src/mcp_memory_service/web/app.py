@@ -31,9 +31,14 @@ from fastapi.responses import HTMLResponse
 
 
 class _HealthAccessLogFilter(logging.Filter):
-    """Drop uvicorn access-log entries for /api/health probes (docker healthcheck spam)."""
+    """Drop uvicorn access-log entries for noisy polling endpoints
+    (docker healthchecks, dashboard sync polling)."""
 
-    _NOISE_PATHS = ("/api/health", "/api/health/detailed")
+    _NOISE_PATHS = (
+        "/api/health",
+        "/api/health/detailed",
+        "/api/sync/status",
+    )
 
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
