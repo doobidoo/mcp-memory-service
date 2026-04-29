@@ -171,7 +171,7 @@ def main() -> int:
         if ok:
             needing.append((d, reason))
 
-    body = render_markdown(needing)
+    body = render_markdown(needing, now)
 
     if args.issue:
         upsert_triage_issue(args.repo, body, args.dry_run)
