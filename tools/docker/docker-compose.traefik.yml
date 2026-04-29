@@ -1,0 +1,115 @@
+## Production deployment for the agentic-developer team.
+## Matches the existing Traefik convention used by hermes-dashboard,
+## takwin-portal, takwin-forgejo, etc. on this host:
+##   - network: "web" (external)
+##   - entrypoint: "web" (HTTP/80) — TLS is terminated upstream of this Traefik
+##                                   for *.hive.letzdoo.com (letsencrypt at the edge)
+##   - no certresolver / no tls labels on the container itself
+##
+## Usage:
+##   cp tools/docker/.env.team.example tools/docker/.env
+##   # edit tools/docker/.env (set MCP_API_KEY at minimum)
+##   docker compose -f tools/docker/docker-compose.traefik.yml --env-file tools/docker/.env up -d --build
+
+services:
+  mcp-memory-service:
+    build:
+      context: ../..
+      dockerfile: tools/docker/Dockerfile
+      args:
+        # Lean install: SQLite-Vec + ONNX embeddings (CPU only)
+        INSTALL_EXTRA: "[sqlite]"
+        FORCE_CPU_PYTORCH: "true"
+        # Install Microsoft markitdown so docx/pptx/xlsx are accepted by /api/documents/*
+        INCLUDE_MARKITDOWN: "true"
+    image: mcp-memory-service:team
+    container_name: mcp-memory-service
+    restart: unless-stopped
+
+    # No published ports — Traefik handles ingress on the shared 'web' network
+    expose:
+      - "8000"
+
+    volumes:
+      - mcp_memory_data:/app/data
+      # Persist HuggingFace ONNX cache so the embedding model survives restarts
+      - mcp_memory_hf_cache:/root/.cache/huggingface
+
+    environment:
+      MCP_MODE: http
+
+      # Storage — SQLite-Vec inside the container, persisted via the volume above
+      MCP_MEMORY_STORAGE_BACKEND: sqlite_vec
+      MCP_MEMORY_SQLITE_PATH: /app/data/sqlite_vec.db
+      MCP_MEMORY_BACKUPS_PATH: /app/data/backups
+      # Required for concurrent reads/writes (REST + /mcp transport simultaneously)
+      MCP_MEMORY_SQLITE_PRAGMAS: "journal_mode=WAL,busy_timeout=15000,cache_size=20000"
+
+      # HTTP server — plain HTTP. TLS is terminated upstream (do NOT enable HTTPS here).
+      MCP_HTTP_HOST: 0.0.0.0
+      MCP_HTTP_PORT: 8000
+      MCP_HTTP_ENABLED: "true"
+      MCP_HTTPS_ENABLED: "false"
+      # Single shared API key for all 10 devs — clients send Authorization: Bearer <key>
+      MCP_API_KEY: ${MCP_API_KEY:?MCP_API_KEY is required}
+
+      # Quality + consolidation — safe defaults for a team
+      MCP_QUALITY_SYSTEM_ENABLED: "true"
+      MCP_CONSOLIDATION_ENABLED: "true"
+
+      # External embeddings — llama.cpp (llama-server) on the docker host
+      # Serving nomic-embed-text-v1.5-f16.gguf at 768 dim
+      MCP_EXTERNAL_EMBEDDING_URL: ${MCP_EXTERNAL_EMBEDDING_URL:-http://host.docker.internal:11435/v1/embeddings}
+      MCP_EXTERNAL_EMBEDDING_MODEL: ${MCP_EXTERNAL_EMBEDDING_MODEL:-nomic-embed-text-v1.5-f16.gguf}
+      # llama.cpp ignores API keys but the env var must be unset if absent
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /app/src
+
+    # Map host.docker.internal to the host gateway (needed on Linux Docker)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+    networks:
+      - web
+
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: web
+      traefik.http.routers.mcp-memory.entrypoints: web
+      traefik.http.routers.mcp-memory.rule: "Host(`${MCP_PUBLIC_HOST:-benites-memory.hive.letzdoo.com}`)"
+      traefik.http.routers.mcp-memory.service: mcp-memory
+      traefik.http.services.mcp-memory.loadbalancer.server.port: "8000"
+      # Reuse the existing security-headers middleware defined in
+      # /etc/traefik/dynamic/middleware.yaml on the Traefik host
+      traefik.http.routers.mcp-memory.middlewares: "security-headers@file"
+
+volumes:
+  mcp_memory_data:
+    name: mcp_memory_data
+  mcp_memory_hf_cache:
+    name: mcp_memory_hf_cache
+
+networks:
+  # Existing external Traefik network on this host
+  web:
+    external: true
+    name: web
