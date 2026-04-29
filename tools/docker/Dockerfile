@@ -6,6 +6,8 @@ FROM python:3.12-slim
 ARG SKIP_MODEL_DOWNLOAD=false
 ARG INSTALL_EXTRA="[sqlite]"
 ARG FORCE_CPU_PYTORCH=false
+# Set to "true" to install Microsoft markitdown for docx/pptx/xlsx ingestion
+ARG INCLUDE_MARKITDOWN=false
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -65,6 +67,10 @@ RUN if [ "$FORCE_CPU_PYTORCH" = "true" ] || [ "$INSTALL_EXTRA" = "[sqlite]" ]; t
     if [ -n "$INSTALL_EXTRA" ] && [ "$INSTALL_EXTRA" != "[]" ]; then \
         echo "Installing optional dependencies: ${INSTALL_EXTRA}..." && \
         python -m uv pip install -e ".${INSTALL_EXTRA}"; \
+    fi && \
+    if [ "$INCLUDE_MARKITDOWN" = "true" ]; then \
+        echo "Installing markitdown for office document ingestion..." && \
+        python -m uv pip install -e ".[markitdown]"; \
     fi
 
 # Conditionally pre-download ONNX models for lightweight embedding

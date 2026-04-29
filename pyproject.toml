@@ -103,9 +103,13 @@ milvus = [
     "setuptools<81; python_version >= '3.13'",
     "mcp-memory-service[ml]",
 ]
+# Office document ingestion via Microsoft markitdown (docx, pptx, xlsx)
+markitdown = [
+    "markitdown[docx,pptx,xlsx]>=0.0.1a3"
+]
 # Full installation including all optional dependencies
 full = [
-    "mcp-memory-service[sqlite,ml,dev]"
+    "mcp-memory-service[sqlite,ml,dev,markitdown]"
 ]
 
 [project.scripts]
