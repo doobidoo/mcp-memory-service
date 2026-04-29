@@ -417,11 +417,13 @@ async def process_single_file_upload(
             chunks_processed += 1
 
             try:
-                # Add file-specific tags
+                # Add file-specific tags using the sys: namespace.
+                # Inner separator is '=' because parse_tag() splits on the
+                # first ':' to extract the namespace.
                 all_tags = tags.copy()
-                all_tags.append(f"source_file:{filename}")
-                all_tags.append(f"file_type:{file_path_obj.suffix.lstrip('.')}")
-                all_tags.append(f"upload_id:{upload_id}")
+                all_tags.append(f"sys:source_file={filename}")
+                all_tags.append(f"sys:file_type={file_path_obj.suffix.lstrip('.')}")
+                all_tags.append(f"sys:upload_id={upload_id}")
 
                 if chunk.metadata.get('tags'):
                     # Handle tags from chunk metadata (can be string or list)
@@ -640,8 +642,8 @@ async def remove_document(upload_id: str, remove_from_memory: bool = True):
             # Get storage
             storage = get_storage()
 
-            # Search by tag pattern: upload_id:{upload_id}
-            upload_tag = f"upload_id:{upload_id}"
+            # Search by tag pattern: sys:upload_id={upload_id}
+            upload_tag = f"sys:upload_id={upload_id}"
             logger.info("Searching for memories by upload tag")
 
             try:
@@ -751,8 +753,8 @@ async def search_document_content(upload_id: str, limit: int = 1000):
         # Get storage
         storage = get_storage()
 
-        # Search for memories with upload_id tag
-        upload_tag = f"upload_id:{upload_id}"
+        # Search for memories with sys:upload_id tag
+        upload_tag = f"sys:upload_id={upload_id}"
         logger.info("Searching for memories by upload tag")
 
         # Use tag search (search_by_tags doesn't support limit parameter)

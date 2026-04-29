@@ -3003,11 +3003,9 @@ class MemoryDashboard {
         const createdDate = new Date(group.created_at * 1000).toLocaleDateString();
         const fileName = this.escapeHtml(group.source_file);
         const chunkCount = group.memories.length;
-        // Filter out metadata tags AND tags that are too long (likely corrupted/malformed)
+        // Filter out system metadata tags AND tags that are too long (likely corrupted/malformed)
         const uniqueTags = [...new Set(group.tags.filter(tag =>
-            !tag.startsWith('upload_id:') &&
-            !tag.startsWith('source_file:') &&
-            !tag.startsWith('file_type:') &&
+            !tag.startsWith('sys:') &&
             tag.length < 100  // Reject tags longer than 100 chars (likely corrupted metadata)
         ))];
 
@@ -3998,7 +3996,7 @@ class MemoryDashboard {
             if (response.results) {
                 // Filter results to only show document-type memories
                 const documentResults = response.results.filter(r =>
-                    r.memory?.memory_type === 'document' || (r.memory?.tags && r.memory.tags.some(tag => tag.startsWith('upload_id:')))
+                    r.memory?.memory_type === 'document' || (r.memory?.tags && r.memory.tags.some(tag => tag.startsWith('sys:upload_id=')))
                 );
 
                 // Limit display to top 20 most relevant document results
@@ -4014,7 +4012,7 @@ class MemoryDashboard {
                 if (displayResults.length > 0) {
                     const resultsHtml = displayResults.map(result => {
                         const mem = result.memory;
-                        const uploadIdTag = mem.tags?.find(tag => tag.startsWith('upload_id:'));
+                        const uploadIdTag = mem.tags?.find(tag => tag.startsWith('sys:upload_id='));
                         const sourceFile = mem.metadata?.source_file || 'Unknown file';
                         const contentPreview = mem.content.length > 200
                             ? mem.content.substring(0, 200) + '...'
