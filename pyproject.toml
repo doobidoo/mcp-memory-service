@@ -100,7 +100,7 @@ milvus = [
     # was removed in setuptools 81. Pin setuptools below 81 on newer Pythons
     # where the default wheels are affected. Safe no-op on Pythons that resolve
     # older setuptools naturally.
-    "setuptools<81; python_version >= '3.13'",
+    "setuptools<83; python_version >= '3.13'",
     "mcp-memory-service[ml]",
 ]
 # Full installation including all optional dependencies
