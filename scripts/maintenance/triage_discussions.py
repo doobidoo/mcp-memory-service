@@ -95,17 +95,17 @@ def needs_response(d: dict, now: dt.datetime) -> tuple[bool, str]:
     return False, "recently active"
 
 
-def render_markdown(items: list[dict]) -> str:
+def render_markdown(items: list[tuple[dict, str]], now: dt.datetime) -> str:
     if not items:
         return (
             "_No discussions currently need a response._ Last triage: "
-            f"{dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}\n"
+            f"{now.strftime('%Y-%m-%d %H:%M UTC')}\n"
         )
 
     lines = [
         f"# Discussions needing a response ({len(items)})",
         "",
-        f"_Last triage: {dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}_",
+        f"_Last triage: {now.strftime('%Y-%m-%d %H:%M UTC')}_",
         "",
         "| # | Title | Category | Status |",
         "|---|-------|----------|--------|",
