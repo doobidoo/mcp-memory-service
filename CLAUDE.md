@@ -41,6 +41,24 @@ Before merging or releasing:
 3. Clean up merged branches after release (`git branch -d`, `git push origin --delete`)
 4. Use `github-release-manager` agent — never manually bump versions
 
+### Way of Working — Deploy Workflow
+
+For any change that will land on the team's deployed `mcp-memory-service` (anything in `src/`, `pyproject.toml`, or `tools/docker/`), the order is **always**:
+
+1. **pytest on host** (or in an ephemeral build-time container) — green before continuing
+2. **`docker compose build`** — only after tests pass
+3. **`docker compose up -d`** — swap the container
+
+**Never run tests inside the running production container.** The deployed image is intentionally lean (no pytest, no test deps), and copying test files into `/app` conflates testing with the production runtime. If the host is missing deps, create a venv with `pip install -e '.[sqlite,dev]'` from the repo root — that mirrors the test extras declared in `pyproject.toml`.
+
+Team deploy command (compose project must be `mcp-memory` so existing volumes/container are adopted, not duplicated):
+```bash
+docker compose -p mcp-memory \
+  -f tools/docker/docker-compose.traefik.yml \
+  --env-file tools/docker/.env \
+  up -d --build
+```
+
 ## Overview
 
 MCP Memory Service is a semantic memory layer for AI applications, accessible via REST API and MCP transport. It provides persistent storage for 14+ AI clients including Claude Desktop, OpenCode, LangGraph, CrewAI, and any HTTP client. It uses vector embeddings for semantic search, supports multiple storage backends (SQLite-vec, Cloudflare, Hybrid), and includes advanced features like memory consolidation, quality scoring, and OAuth 2.1 team collaboration.
