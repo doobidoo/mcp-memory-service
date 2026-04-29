@@ -22,7 +22,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
     
     - name: Setup Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@v6
@@ -74,7 +74,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
     
     - name: Setup Node.js
       uses: actions/setup-node@v6
@@ -103,7 +103,7 @@ jobs:
         echo "- ✅ Status codes: Handles HTTP 200 correctly" >> contract-report.md
     
     - name: Upload contract report
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: api-contract-report
@@ -114,7 +114,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       
     - name: Setup Node.js
       uses: actions/setup-node@v6

@@ -15,7 +15,7 @@ jobs:
       repository-projects: write
 
     steps:
-    - uses: actions/checkout@v3 # would probably be better to use v4
+    - uses: actions/checkout@v6 # would probably be better to use v4
       with:
         fetch-depth: 0
         token: ${{ secrets.GITHUB_TOKEN }}

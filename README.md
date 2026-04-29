@@ -437,20 +437,19 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 ---
 
 
-## Latest Release: **v10.41.0** (April 28, 2026)
+## Latest Release: **v10.42.1** (April 29, 2026)
 
-**feat(oauth): OAuth 2.1 refresh_token grant with rotation (MCP SEP-2207)**
+**fix(milvus): add missing `anns_field` to search calls for BM25-enabled collections**
 
-**What's New:**
-- **OAuth refresh tokens**: Clients requesting `offline_access` scope receive a refresh token with atomic rotation — every refresh issues a new token and revokes the old one, with full chain revocation on replay detection. (PR #766, @netizen1119)
-- **`memory_graph` tool on streamable-http server**: Knowledge graph queries (connected memories, shortest path, subgraph) now work in the FastMCP streamable-http transport, matching stdio parity. (PR #759, @henry201605)
-- **New env var**: `MCP_OAUTH_REFRESH_TOKEN_EXPIRE_DAYS` (default 30, range 1–365). Zero breaking changes.
-- **1,692 Python tests** passing.
-- Special thanks to @netizen1119 for the OAuth refresh token implementation.
+**What's Fixed:**
+- **Silent deduplication bypass**: `_check_semantic_duplicate` was missing `anns_field="vector"`, causing Milvus to reject search calls silently on collections with BM25 enabled (pymilvus >= 2.5, two vector fields). Duplicate memories were stored without error. (PR #775, @henry201605)
+- **Empty vector-search fallback**: `_run_search` had the same omission, causing the pure vector-search fallback paths (`_has_bm25=False`, `_HYBRID_SEARCH_AVAILABLE=False`, error-fallback) to return empty results silently. The hybrid search happy path was not affected. (PR #775)
 
 ---
 
 **Previous Releases**:
+- **v10.42.0** - feat(milvus): MilvusGraphStorage, BM25 hybrid search, and consolidation integration (PR #762, @henry201605)
+- **v10.41.0** - feat(oauth): OAuth 2.1 refresh_token grant with rotation, memory_graph on streamable-http (PRs #766, #759)
 - **v10.40.4** - fix(quality): handle shape (1, 1) cross-encoder logits in ONNX ranker (PR #765)
 - **v10.40.3** - fix(claude-hooks): eliminate socket hang-up and raise hook timeout (PR #761)
 - **v10.40.2** - fix(docker): correct invalid Python one-liner in ONNX pre-download (PR #757)

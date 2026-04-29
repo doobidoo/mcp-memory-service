@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-memory-service"
-version = "10.41.0"
+version = "10.42.1"
 description = "Semantic memory layer for AI applications. REST API + MCP transport + knowledge graph + autonomous consolidation. Works with 14+ AI clients. Self-host, zero cloud cost."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -100,7 +100,7 @@ milvus = [
     # was removed in setuptools 81. Pin setuptools below 81 on newer Pythons
     # where the default wheels are affected. Safe no-op on Pythons that resolve
     # older setuptools naturally.
-    "setuptools<81; python_version >= '3.13'",
+    "setuptools<83; python_version >= '3.13'",
     "mcp-memory-service[ml]",
 ]
 # Full installation including all optional dependencies

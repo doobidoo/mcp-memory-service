@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MCP Memory Service v10.41 — Semantic Memory Layer for AI Applications</title>
+<title>MCP Memory Service v10.42 — Semantic Memory Layer for AI Applications</title>
 <meta name="description" content="Semantic memory layer for AI applications. REST API + MCP transport. 14+ client integrations, knowledge graph, automatic consolidation. LongMemEval R@5 86%, session ingestion, self-hosted, zero cloud cost.">
-<meta property="og:title" content="MCP Memory Service v10.41">
-<meta property="og:description" content="OAuth 2.1 refresh_token grant with rotation (MCP SEP-2207): offline_access scope, atomic token rotation, replay detection with chain revocation. Streamable HTTP + OAuth 2.1 + PKCE. Verified with LongMemEval benchmark: R@5 80.4%, R@10 90.4% on 500 questions, zero LLM API calls.">
+<meta property="og:title" content="MCP Memory Service v10.42">
+<meta property="og:description" content="Milvus backend reaches feature parity with SQLite-vec: MilvusGraphStorage, BM25 hybrid search (RRFRanker), consolidation integration, and Zilliz Cloud-compatible schema. Streamable HTTP + OAuth 2.1 + PKCE. Verified with LongMemEval benchmark: R@5 80.4%, R@10 90.4% on 500 questions, zero LLM API calls.">
 <meta property="og:type" content="website">
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
@@ -116,7 +116,7 @@ footer a{color:var(--cyan)}
 <!-- Hero -->
 <header class="hero">
   <img src="brain-icon.png" alt="MCP Memory Service" class="hero-logo">
-  <span class="hero-badge">v10.41 &mdash; Now Available</span>
+  <span class="hero-badge">v10.42 &mdash; Now Available</span>
   <h1>MCP Memory Service</h1>
   <p>Persistent memory for AI agents. Semantic search, knowledge graph, automatic consolidation &mdash; now accessible from Claude.ai via Streamable HTTP.</p>
   <div class="hero-buttons">
@@ -136,23 +136,23 @@ footer a{color:var(--cyan)}
 <!-- Features -->
 <section id="features">
   <div class="container">
-    <h2 class="section-title">What's New in v10.41</h2>
-    <p class="section-subtitle">OAuth 2.1 refresh_token grant with atomic rotation (MCP SEP-2207) — plus knowledge graph on streamable-http. 1,692 tests.</p>
+    <h2 class="section-title">What's New in v10.42</h2>
+    <p class="section-subtitle">Milvus backend reaches feature parity with SQLite-vec: graph storage, BM25 hybrid search, and consolidation integration. ~1,722 tests.</p>
     <div class="features-grid">
       <div class="feature-card" data-delay="0">
-        <div class="feature-icon oauth">&#128260;</div>
-        <h3>OAuth Refresh Tokens (SEP-2207)</h3>
-        <p>Clients requesting <code>offline_access</code> scope receive a refresh token with atomic rotation. Every refresh issues a new token and revokes the old one. Replay detection walks the full token chain and bulk-revokes descendants. (PR #766, @netizen1119)</p>
+        <div class="feature-icon graph">&#128202;</div>
+        <h3>MilvusGraphStorage</h3>
+        <p>Full knowledge-graph support for Milvus deployments: BFS traversal, shortest path, subgraph extraction — stored in a dedicated scalar collection with deterministic SHA-256 edge IDs. Zilliz Cloud-compatible schema (dim=2 dummy vector). (PR #762, @henry201605)</p>
       </div>
       <div class="feature-card" data-delay="150">
-        <div class="feature-icon http">&#128268;</div>
-        <h3>Knowledge Graph on Streamable-HTTP</h3>
-        <p>The <code>memory_graph</code> tool (connected memories, shortest path, subgraph extraction) now works in the FastMCP streamable-http transport, matching stdio parity. Shared <code>GraphService</code> layer for both server variants. (PR #759, @henry201605)</p>
+        <div class="feature-icon search">&#128269;</div>
+        <h3>BM25 Hybrid Search</h3>
+        <p>Milvus 2.5+ deployments get combined vector + keyword search via RRFRanker and a BM25 function index on the content field (<code>enable_analyzer=True</code> for Zilliz Cloud). Pre-2.5 collections fall back to vector-only automatically. (PR #762)</p>
       </div>
       <div class="feature-card" data-delay="300">
-        <div class="feature-icon privacy">&#128274;</div>
-        <h3>OAuth Security Hardening</h3>
-        <p>Defense-in-depth guards against CodeQL <code>py/reflective-xss</code> and <code>py/url-redirection</code> in the authorization-code redirect flow. Dangerous schemes rejected; meta-refresh and JS redirect strings properly escaped. (PR #745)</p>
+        <div class="feature-icon consolidation">&#9881;</div>
+        <h3>Consolidation Integration</h3>
+        <p>DreamInspiredConsolidator now initialises MilvusGraphStorage for Milvus backends via lazy async init with asyncio.Lock, enabling automatic relationship inference during consolidation cycles. (PR #762, @henry201605)</p>
       </div>
     </div>
   </div>
@@ -203,7 +203,7 @@ footer a{color:var(--cyan)}
     <p class="section-subtitle">Battle-tested with comprehensive testing and optimized for performance.</p>
     <div class="stats-grid">
       <div class="stat-card" data-delay="0">
-        <div class="stat-number" data-target="1692">0</div>
+        <div class="stat-number" data-target="1722">0</div>
         <div class="stat-label">Tests</div>
       </div>
       <div class="stat-card" data-delay="100">
@@ -242,7 +242,7 @@ footer a{color:var(--cyan)}
       <a href="blog/remote-mcp-tutorial.html" class="btn btn-secondary">
         Blog: 5-Min claude.ai Setup
       </a>
-      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v10.41.0" class="btn btn-secondary" target="_blank">
+      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v10.42.0" class="btn btn-secondary" target="_blank">
         Release Notes
       </a>
     </div>
