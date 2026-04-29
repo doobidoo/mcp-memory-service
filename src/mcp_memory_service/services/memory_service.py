@@ -784,7 +784,7 @@ class MemoryService:
 
             if existing.get("memories"):
                 for mem in existing["memories"]:
-                    score = mem.get("similarity", 0)
+                    score = mem.get("similarity_score", 0)
                     if score >= MCP_MISTAKE_NOTE_DEDUP_THRESHOLD:
                         # Increment failure_count on existing note
                         content_hash = mem["content_hash"]
@@ -814,6 +814,9 @@ class MemoryService:
                 memory_type="error",
                 metadata={"failure_count": 1},
             )
+
+            if not result.get("success"):
+                return {"status": "error", "message": f"Failed to store: {result}"}
 
             content_hash = ""
             if isinstance(result, dict):
@@ -858,12 +861,11 @@ class MemoryService:
             for mem in result.get("memories", []):
                 meta = mem.get("metadata") or {}
                 if isinstance(meta, str):
-                    import json
                     meta = json.loads(meta) if meta else {}
                 notes.append({
                     "content_hash": mem["content_hash"],
                     "content": mem["content"],
-                    "similarity": mem.get("similarity", 0),
+                    "similarity": mem.get("similarity_score", 0),
                     "failure_count": meta.get("failure_count", 1),
                     "updated_at": mem.get("updated_at"),
                 })

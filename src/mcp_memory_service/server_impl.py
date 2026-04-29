@@ -2708,7 +2708,6 @@ Examples:
             incorrect_action=arguments.get("incorrect_action", ""),
             correct_action=arguments.get("correct_action", ""),
         )
-        import json
         return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
 
     async def handle_mistake_note_search(self, arguments: dict) -> List[types.TextContent]:
@@ -2718,7 +2717,6 @@ Examples:
             query=arguments.get("query", ""),
             limit=arguments.get("limit", 5),
         )
-        import json
         return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
 
     # ============================================================
