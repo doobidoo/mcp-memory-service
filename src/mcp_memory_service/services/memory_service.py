@@ -779,7 +779,7 @@ class MemoryService:
             existing = await self.retrieve_memories(
                 query=f"{error_pattern} {context_signature}",
                 n_results=3,
-                memory_type="error",
+                memory_type="mistake",
             )
 
             if existing.get("memories"):
@@ -811,7 +811,7 @@ class MemoryService:
             result = await self.store_memory(
                 content=content,
                 tags="mistake-note,error-replay",
-                memory_type="error",
+                memory_type="mistake",
                 metadata={"failure_count": 1},
             )
 
@@ -854,7 +854,7 @@ class MemoryService:
             result = await self.retrieve_memories(
                 query=query,
                 n_results=limit,
-                memory_type="error",
+                memory_type="mistake",
             )
 
             notes = []

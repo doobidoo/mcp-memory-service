@@ -93,7 +93,8 @@ TAXONOMY: Final[Dict[str, List[str]]] = {
         "bug",
         "failure",
         "exception",
-        "timeout"
+        "timeout",
+        "mistake"
     ],
     "pattern": [
         "recurring_issue",
