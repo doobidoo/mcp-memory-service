@@ -1,0 +1,76 @@
+## pgvector backend for mcp-memory-service.
+##
+## Layers on top of docker-compose.traefik.yml — start by combining both:
+##
+##   docker compose -p mcp-memory \
+##     -f tools/docker/docker-compose.traefik.yml \
+##     -f tools/docker/docker-compose.postgres.yml \
+##     --env-file tools/docker/.env \
+##     up -d --build
+##
+## What this file does:
+##   - Adds an `mcp-memory-postgres` service running pgvector/pgvector:pg16
+##     on a private internal network (no host port published).
+##   - Switches the memory service backend to `pgvector` and points it at
+##     the new database via MCP_PGVECTOR_DSN.
+##   - Joins the memory service to the same internal network so it can
+##     reach Postgres by container DNS.
+##
+## Required env (in tools/docker/.env, see .env.team.example):
+##   POSTGRES_PASSWORD          — superuser password for the pgvector container
+##   MCP_PGVECTOR_DSN           — defaults to the in-network DSN below; override
+##                                only if pointing at an external Postgres
+
+services:
+  mcp-memory-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: mcp-memory-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: mcp_memory
+      POSTGRES_USER: mcp_memory
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # Initdb args — UTF8 + en_US.UTF-8 for predictable text sort/match
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+
+    volumes:
+      - mcp_memory_pg_data:/var/lib/postgresql/data
+
+    # No published port — only reachable from the mcp_memory_internal network.
+    # Add `ports: ["5432:5432"]` locally if you need psql access from the host.
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcp_memory -d mcp_memory"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+    networks:
+      - mcp_memory_internal
+
+  mcp-memory-service:
+    environment:
+      # Switch backend; the application reads these on startup.
+      MCP_MEMORY_STORAGE_BACKEND: pgvector
+      MCP_PGVECTOR_DSN: ${MCP_PGVECTOR_DSN:-postgresql://mcp_memory:${POSTGRES_PASSWORD}@mcp-memory-postgres:5432/mcp_memory}
+      MCP_PGVECTOR_SCHEMA: ${MCP_PGVECTOR_SCHEMA:-public}
+
+    depends_on:
+      mcp-memory-postgres:
+        condition: service_healthy
+
+    networks:
+      # Inherit `web` from docker-compose.traefik.yml and add the internal net.
+      - web
+      - mcp_memory_internal
+
+volumes:
+  mcp_memory_pg_data:
+    name: mcp_memory_pg_data
+
+networks:
+  mcp_memory_internal:
+    name: mcp_memory_internal
+    driver: bridge

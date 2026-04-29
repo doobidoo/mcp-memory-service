@@ -53,10 +53,26 @@ For any change that will land on the team's deployed `mcp-memory-service` (anyth
 
 Team deploy command (compose project must be `mcp-memory` so existing volumes/container are adopted, not duplicated):
 ```bash
+# sqlite-vec backend (current default for the live deployment)
 docker compose -p mcp-memory \
   -f tools/docker/docker-compose.traefik.yml \
   --env-file tools/docker/.env \
   up -d --build
+
+# pgvector backend (layer the postgres compose on top — opt-in)
+docker compose -p mcp-memory \
+  -f tools/docker/docker-compose.traefik.yml \
+  -f tools/docker/docker-compose.postgres.yml \
+  --env-file tools/docker/.env \
+  up -d --build
+```
+
+**One-shot migration sqlite-vec → pgvector** (idempotent — safe to re-run):
+```bash
+python scripts/team/migrate_sqlite_to_pgvector.py \
+  --sqlite /var/lib/docker/volumes/mcp_memory_data/_data/sqlite_vec.db \
+  --dsn "$MCP_PGVECTOR_DSN" \
+  --dry-run        # remove --dry-run once counts look right
 ```
 
 ## Overview
