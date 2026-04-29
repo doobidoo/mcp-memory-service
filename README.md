@@ -423,6 +423,18 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 🔒 **Privacy-First** – Local-first, you control your data
 📊 **Web Dashboard** – Visualize and manage memories at `http://localhost:8000`
 🧬 **Knowledge Graph** – Interactive D3.js visualization of memory relationships 🆕
+🏠 **Homelab Quality Scoring** – Point scoring at any OpenAI-compatible endpoint (Ollama, LiteLLM, vLLM) 🆕
+
+**Homelab / self-hosted quality scoring** (v10.45.0+): set `MCP_QUALITY_AI_PROVIDER=openai-compatible` to score memories with your local LLM instead of ONNX or a cloud API:
+
+```bash
+MCP_QUALITY_AI_PROVIDER=openai-compatible
+MCP_QUALITY_AI_BASE_URL=http://localhost:11434/v1   # Ollama
+MCP_QUALITY_AI_MODEL=qwen2.5:7b-instruct
+# MCP_QUALITY_AI_API_KEY=ollama                     # optional
+```
+
+Recommended models: `qwen2.5:7b-instruct` (Ollama), `mlx-community/Qwen2.5-7B-Instruct-4bit` (MLX), or any instruct model via LiteLLM proxy. On endpoint failure, scoring falls back to implicit signals automatically.
 
 ### 🖥️ Dashboard Preview (v9.3.0)
 

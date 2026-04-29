@@ -7,9 +7,15 @@
 ```bash
 # Quality System (Local-First Defaults)
 MCP_QUALITY_SYSTEM_ENABLED=true         # Default: enabled
-MCP_QUALITY_AI_PROVIDER=local           # local|groq|gemini|auto|none
+MCP_QUALITY_AI_PROVIDER=local           # local|openai-compatible|groq|gemini|auto|none
 MCP_QUALITY_LOCAL_MODEL=nvidia-quality-classifier-deberta  # Default v8.49.0+
 MCP_QUALITY_LOCAL_DEVICE=auto           # auto|cpu|cuda|mps|directml
+
+# OpenAI-compatible provider (homelab / self-hosted LLM — no cloud key required)
+# MCP_QUALITY_AI_PROVIDER=openai-compatible
+# MCP_QUALITY_AI_BASE_URL=http://localhost:11434/v1   # required
+# MCP_QUALITY_AI_MODEL=qwen2.5:7b-instruct            # required
+# MCP_QUALITY_AI_API_KEY=ollama                       # optional
 
 # Legacy model (backward compatible, not recommended)
 # MCP_QUALITY_LOCAL_MODEL=ms-marco-MiniLM-L-6-v2

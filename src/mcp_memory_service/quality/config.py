@@ -12,7 +12,8 @@ class QualityConfig:
     enabled: bool = True
 
     # AI provider selection
-    # Options: 'local' (ONNX only), 'groq', 'gemini', 'auto' (try all), 'none' (implicit only)
+    # Options: 'local' (ONNX only), 'openai-compatible', 'groq', 'gemini',
+    #          'auto' (try all), 'none' (implicit only)
     ai_provider: str = 'local'
 
     # Local ONNX model settings
@@ -22,6 +23,11 @@ class QualityConfig:
     # Cloud API settings (optional, user opt-in)
     groq_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
+
+    # OpenAI-compatible endpoint settings (LiteLLM proxy, Ollama, vLLM, MLX-LM, etc.)
+    openai_compat_base_url: Optional[str] = None   # e.g. http://localhost:11434/v1
+    openai_compat_model: Optional[str] = None      # e.g. qwen2.5:7b-instruct
+    openai_compat_api_key: Optional[str] = None    # optional; use "ollama" for Ollama
 
     # Quality boost (AI + implicit signals combination)
     boost_enabled: bool = False
@@ -43,6 +49,9 @@ class QualityConfig:
             local_device=os.getenv('MCP_QUALITY_LOCAL_DEVICE', 'auto'),
             groq_api_key=os.getenv('GROQ_API_KEY'),
             gemini_api_key=os.getenv('GEMINI_API_KEY'),
+            openai_compat_base_url=os.getenv('MCP_QUALITY_AI_BASE_URL'),
+            openai_compat_model=os.getenv('MCP_QUALITY_AI_MODEL'),
+            openai_compat_api_key=os.getenv('MCP_QUALITY_AI_API_KEY'),
             boost_enabled=os.getenv('MCP_QUALITY_BOOST_ENABLED', 'false').lower() == 'true',
             boost_weight=float(os.getenv('MCP_QUALITY_BOOST_WEIGHT', '0.3')),
             fallback_enabled=os.getenv('MCP_QUALITY_FALLBACK_ENABLED', 'false').lower() == 'true',
@@ -52,7 +61,8 @@ class QualityConfig:
 
     def validate(self) -> bool:
         """Validate configuration settings."""
-        if self.ai_provider not in ['local', 'groq', 'gemini', 'auto', 'none']:
+        valid_providers = ['local', 'openai-compatible', 'groq', 'gemini', 'auto', 'none']
+        if self.ai_provider not in valid_providers:
             raise ValueError(f"Invalid ai_provider: {self.ai_provider}")
 
         if self.local_device not in ['auto', 'cpu', 'cuda', 'mps', 'directml']:
@@ -91,12 +101,32 @@ class QualityConfig:
         if self.ai_provider == 'gemini' and not self.gemini_api_key:
             raise ValueError("Gemini provider selected but GEMINI_API_KEY not set")
 
+        # openai-compatible requires base_url and model
+        if self.ai_provider == 'openai-compatible':
+            if not self.openai_compat_base_url:
+                raise ValueError(
+                    "openai-compatible provider selected but MCP_QUALITY_AI_BASE_URL is not set"
+                )
+            if not self.openai_compat_model:
+                raise ValueError(
+                    "openai-compatible provider selected but MCP_QUALITY_AI_MODEL is not set"
+                )
+
         return True
 
     @property
     def use_local_only(self) -> bool:
         """Check if using local-only scoring."""
         return self.ai_provider in ['local', 'none']
+
+    @property
+    def can_use_openai_compatible(self) -> bool:
+        """Check if an OpenAI-compatible endpoint is configured."""
+        return (
+            self.ai_provider == 'openai-compatible'
+            and bool(self.openai_compat_base_url)
+            and bool(self.openai_compat_model)
+        )
 
     @property
     def can_use_groq(self) -> bool:

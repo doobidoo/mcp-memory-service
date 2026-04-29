@@ -6,6 +6,7 @@ Coordinates between local SLM, Groq, Gemini, and implicit signals.
 import asyncio
 import logging
 from typing import List, Optional
+import httpx
 from .config import QualityConfig
 from .onnx_ranker import get_onnx_ranker_model, ONNXRankerModel
 from .implicit_signals import ImplicitSignalsEvaluator
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 class QualityEvaluator:
     """
     Multi-tier AI quality evaluator with fallback chain.
-    Tries: Local ONNX → Groq → Gemini → Implicit Signals
+    Tries: Local ONNX → OpenAI-compatible → Groq → Gemini → Implicit Signals
     """
 
     def __init__(self, config: Optional[QualityConfig] = None):
@@ -161,7 +162,17 @@ class QualityEvaluator:
             else:
                 score = None
 
-        # Tier 2: Groq API (if available and ONNX failed or in auto mode)
+        # Tier 2: OpenAI-compatible endpoint (if configured)
+        if score is None and self.config.can_use_openai_compatible:
+            try:
+                score = await self._score_with_openai_compatible(query, memory)
+                provider_used = 'openai_compatible'
+                logger.debug(f"OpenAI-compatible score: {score:.3f}")
+            except Exception as e:
+                logger.warning(f"OpenAI-compatible scoring failed: {e}")
+                score = None
+
+        # Tier 3: Groq API (if available and ONNX failed or in auto mode)
         if score is None and self.config.can_use_groq and self._groq_bridge:
             try:
                 score = await self._score_with_groq(query, memory)
@@ -171,7 +182,7 @@ class QualityEvaluator:
                 logger.warning(f"Groq scoring failed: {e}")
                 score = None
 
-        # Tier 3: Gemini API (if available and previous tiers failed)
+        # Tier 4: Gemini API (if available and previous tiers failed)
         if score is None and self.config.can_use_gemini:
             try:
                 score = await self._score_with_gemini(query, memory)
@@ -181,7 +192,7 @@ class QualityEvaluator:
                 logger.warning(f"Gemini scoring failed: {e}")
                 score = None
 
-        # Tier 4: Implicit signals (always available as fallback)
+        # Tier 5: Implicit signals (always available as fallback)
         if score is None:
             score = self._implicit_evaluator.evaluate_quality(memory, query)
             provider_used = 'implicit_signals'
@@ -288,6 +299,77 @@ class QualityEvaluator:
             memory.metadata['quality_provider'] = 'fallback_deberta-msmarco'
 
         return final_scores
+
+    async def _score_with_openai_compatible(self, query: str, memory: Memory) -> float:
+        """
+        Score quality using any OpenAI-compatible /v1/chat/completions endpoint.
+
+        Works with LiteLLM proxy, Ollama, vLLM, MLX-LM server, or any server
+        that implements the OpenAI chat completions API shape.
+
+        Args:
+            query: Search query
+            memory: Memory to score
+
+        Returns:
+            Quality score between 0.0 and 1.0
+
+        Raises:
+            RuntimeError: On HTTP errors or unparseable responses (caller falls through to next tier)
+        """
+        base_url = (self.config.openai_compat_base_url or "").rstrip("/")
+        model = self.config.openai_compat_model
+        api_key = self.config.openai_compat_api_key or "none"
+
+        prompt = self._create_scoring_prompt(query, memory.content)
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        }
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a quality scorer. Respond only with a number between 0.0 and 1.0.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "max_tokens": 50,
+            "temperature": 0.1,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"OpenAI-compatible endpoint returned HTTP {exc.response.status_code}: {exc.response.text[:200]}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise RuntimeError(f"OpenAI-compatible endpoint request failed: {exc}") from exc
+
+        # Extract text from standard OpenAI response shape
+        try:
+            response_text = data["choices"][0]["message"]["content"].strip()
+        except (KeyError, IndexError, TypeError) as exc:
+            raise RuntimeError(f"Unexpected response shape from endpoint: {data}") from exc
+
+        # Parse float and clamp to [0, 1]
+        try:
+            score = float(response_text)
+            return max(0.0, min(1.0, score))
+        except ValueError:
+            raise RuntimeError(
+                f"Could not parse score from openai-compatible response: {response_text!r}"
+            )
 
     async def _score_with_groq(self, query: str, memory: Memory) -> float:
         """
