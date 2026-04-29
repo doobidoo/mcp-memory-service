@@ -19,7 +19,7 @@ import subprocess
 import sys
 from typing import Any
 
-REPO = "doobidoo/mcp-memory-service"
+REPO = os.getenv("GITHUB_REPOSITORY", "doobidoo/mcp-memory-service")
 MAINTAINERS = {"doobidoo", "henkr", "github-actions", "github-actions[bot]"}
 SKIP_CATEGORIES = {"Announcements"}
 STALE_DAYS = 7
