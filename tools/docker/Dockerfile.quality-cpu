@@ -52,6 +52,7 @@ RUN python -m uv pip install \
     "huggingface_hub>=0.20.0" \
     "onnx>=1.14.0" \
     "onnxscript>=0.1.0" \
+    "onnxconverter-common>=1.14.0" \
     "safetensors>=0.4.0" \
     "onnxruntime>=1.15.0" \
     "tokenizers>=0.20.0" \
@@ -63,6 +64,17 @@ RUN python -m uv pip install \
 # Copy and run the export script
 COPY tools/docker/scripts/export_quality_models.py /build/export_quality_models.py
 RUN python /build/export_quality_models.py
+
+# Quantize the deberta classifier in-place (fp16 / int8) to shrink the runtime image.
+# Picks the smallest variant with Pearson correlation >= 0.98 vs fp32 baseline,
+# falls back to fp32 if no variant meets the threshold (build does not fail).
+# Override behavior with build args (e.g. --build-arg QUANTIZE_MODE=fp16).
+ARG QUANTIZE_MODE=best
+ARG QUANTIZE_MIN_CORR=0.98
+COPY tools/docker/scripts/quantize_quality_models.py /build/quantize_quality_models.py
+RUN python /build/quantize_quality_models.py \
+        --mode "${QUANTIZE_MODE}" \
+        --min-correlation "${QUANTIZE_MIN_CORR}"
 
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime: slim image with baked ONNX artifacts

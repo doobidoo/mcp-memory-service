@@ -6,7 +6,7 @@
 |-----|-------------|------------------------|
 | `:latest` | Standard image, full feature set | baseline |
 | `:slim` | CPU-only, no PyTorch/CUDA | ~90% smaller |
-| `:quality-cpu` | Slim + pre-exported ONNX quality models, no runtime PyTorch | ~250-300 MB larger than `:slim` |
+| `:quality-cpu` | Slim + pre-exported ONNX quality models, no runtime PyTorch | ~600 MB larger than `:slim` (deberta classifier quantized to fp16/int8 at build) |
 
 ### `:quality-cpu` — local quality scoring without runtime PyTorch
 
@@ -34,6 +34,35 @@ artifacts at `/root/.cache/mcp_memory/onnx_models/`.
 
 **Homelab use case:** ideal for Raspberry Pi, NAS, or any always-on box where
 you want quality scoring without pulling a 2 GB PyTorch wheel every restart.
+
+#### Build-time quantization
+
+The `nvidia-quality-classifier-deberta` ONNX model ships ~702 MB of fp32 external
+weights, which dominates the image size. The build pipeline runs
+`tools/docker/scripts/quantize_quality_models.py` after export to:
+
+1. Convert fp32 → fp16 (via `onnxconverter-common`)
+2. Apply dynamic int8 to MatMul + Gather (via `onnxruntime.quantization`)
+3. Benchmark each variant: file size, mean inference latency, and Pearson
+   correlation against the fp32 baseline on 100 sample texts
+4. Replace fp32 with the smallest variant whose correlation is ≥ 0.98
+5. Fall back to fp32 (no failure) if no variant meets the threshold
+
+Override the strategy at build time:
+
+```bash
+# Force fp16 only (safer on ARM)
+docker build --build-arg QUANTIZE_MODE=fp16 -f tools/docker/Dockerfile.quality-cpu .
+
+# Tighten the correlation gate
+docker build --build-arg QUANTIZE_MIN_CORR=0.99 -f tools/docker/Dockerfile.quality-cpu .
+
+# Skip quantization entirely (set mode to fp16 with an unreachable corr; falls back to fp32)
+docker build --build-arg QUANTIZE_MIN_CORR=1.01 -f tools/docker/Dockerfile.quality-cpu .
+```
+
+`ms-marco-MiniLM-L-6-v2` is intentionally not quantized — it's already ~80 MB
+and not worth the engineering risk.
 
 ## 🚀 Quick Start
 
