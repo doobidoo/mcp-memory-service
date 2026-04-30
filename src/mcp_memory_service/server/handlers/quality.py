@@ -22,9 +22,17 @@ Extracted from server_impl.py Phase 2.5 refactoring.
 import logging
 import traceback
 import json
-from typing import List
+import time as _time
+from datetime import datetime, timezone
+from typing import Any, Dict, List
 
 from mcp import types
+
+from ...config import (
+    MAINTAIN_STALE_DAYS,
+    MAINTAIN_AUTO_RESOLVE,
+    MAINTAIN_AUTO_RESOLVE_THRESHOLD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -326,16 +334,6 @@ async def handle_analyze_quality_distribution(server, arguments: dict) -> List[t
 # Maintenance orchestrator (memory_quality action="maintain")
 # =============================================================================
 
-import time as _time
-from datetime import datetime, timezone
-from typing import Any, Dict
-
-from ...config import (
-    MAINTAIN_STALE_DAYS,
-    MAINTAIN_AUTO_RESOLVE,
-    MAINTAIN_AUTO_RESOLVE_THRESHOLD,
-)
-
 _last_maintain_run: Dict[str, Any] = {}
 
 
@@ -437,19 +435,15 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
     try:
         all_memories = await storage.get_all_memories()
         if all_memories:
-            scores = [
-                m.metadata.get("quality_score", 0.5)
-                for m in all_memories
-                if hasattr(m, "metadata") and isinstance(m.metadata, dict)
-            ]
+            scores = [m.quality_score for m in all_memories]
             if scores:
                 avg = sum(scores) / len(scores)
                 report["steps"]["quality"] = {
                     "total_scored": len(scores),
                     "average_score": round(avg, 3),
                     "high_quality": sum(1 for s in scores if s >= 0.7),
-                    "medium_quality": sum(1 for s in scores if 0.3 <= s < 0.7),
-                    "low_quality": sum(1 for s in scores if s < 0.3),
+                    "medium_quality": sum(1 for s in scores if 0.5 <= s < 0.7),
+                    "low_quality": sum(1 for s in scores if s < 0.5),
                 }
             else:
                 report["steps"]["quality"] = {"total_scored": 0, "message": "no quality scores available"}

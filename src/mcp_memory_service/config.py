@@ -1193,8 +1193,14 @@ else:
 # Maintenance Configuration (memory_quality action="maintain")
 # =============================================================================
 MAINTAIN_STALE_DAYS = safe_get_int_env('MCP_MAINTAIN_STALE_DAYS', 30, min_value=1, max_value=3650)
-MAINTAIN_AUTO_RESOLVE = os.getenv('MCP_MAINTAIN_AUTO_RESOLVE', 'false').lower() in ('true', '1', 'yes')
-MAINTAIN_AUTO_RESOLVE_THRESHOLD = float(os.getenv('MCP_MAINTAIN_AUTO_RESOLVE_THRESHOLD', '0.95'))
+# WARNING: auto_resolve=true enables automatic conflict resolution — memories above
+# the similarity threshold will be silently merged. Use with caution at scale.
+MAINTAIN_AUTO_RESOLVE = safe_get_bool_env('MCP_MAINTAIN_AUTO_RESOLVE', False)
+try:
+    MAINTAIN_AUTO_RESOLVE_THRESHOLD = float(os.getenv('MCP_MAINTAIN_AUTO_RESOLVE_THRESHOLD', '0.95'))
+except (ValueError, TypeError):
+    logger.error("Invalid value for MCP_MAINTAIN_AUTO_RESOLVE_THRESHOLD, using default 0.95")
+    MAINTAIN_AUTO_RESOLVE_THRESHOLD = 0.95
 
 # =============================================================================
 # Configuration Validation
