@@ -10,6 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.45.1] - 2026-04-30
+
+### Fixed
+
+- **[#794] Remove redundant `import json` inside `mistake_note_add()`**: The `json` module was already imported at the top of `memory_service.py`; the duplicate import inside the function body was flagged by CodeQL alert #393. One-line cleanup with no behavioral change. Thanks to @filhocf. (PR #794)
+
+### Tests
+
+- **[#795] Regression coverage for soft-delete UPDATE guards** (`tests/storage/test_soft_delete_guards.py`): 6 new tests verifying that the `AND deleted_at IS NULL` guards added in PR #783 silently skip tombstoned rows. Covers `_persist_access_metadata_batch`, `_record_conflicts`, `resolve_conflict` (deleted winner and deleted loser), `_touch`, and `update_memory_versioned`. Closes #791. Thanks to @filhocf. (PR #795)
+
 ## [10.45.0] - 2026-04-30
 
 ### Added

@@ -457,18 +457,18 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.45.0** (April 30, 2026)
+## Latest Release: **v10.45.1** (April 30, 2026)
 
-**feat(quality): OpenAI-compatible provider for homelab quality scoring**
+**fix: CodeQL cleanup + soft-delete regression tests**
 
 **What's New:**
-- **OpenAI-compatible quality provider**: Set `MCP_QUALITY_AI_PROVIDER=openai-compatible` to score memories with any OpenAI `/v1/chat/completions`-compatible endpoint — Ollama, LiteLLM, MLX-LM server, or vLLM. No cloud API key required. (PR #790)
-- **New fallback tier**: Local ONNX → openai-compatible → Groq → Gemini → implicit signals. Endpoint failures fall through silently.
-- **Soft-delete UPDATE guards**: 7 remaining `UPDATE` statements in `sqlite_vec.py` now include `AND deleted_at IS NULL`, preventing operations on tombstoned rows. (PR #783, @filhocf)
+- **CodeQL fix**: Remove redundant `import json` inside `mistake_note_add()` — module-level import already present. Addresses CodeQL alert #393. (PR #794, @filhocf)
+- **Regression tests**: 6 new tests in `tests/storage/test_soft_delete_guards.py` verifying `AND deleted_at IS NULL` guards silently skip tombstoned rows across all 6 affected call sites. Closes #791. (PR #795, @filhocf)
 
 ---
 
 **Previous Releases**:
+- **v10.45.0** - feat(quality): OpenAI-compatible provider for LiteLLM/Ollama/MLX + soft-delete UPDATE guards (PRs #790, #783, @filhocf)
 - **v10.44.0** - feat: Mistake Notes — structured error replay (`mistake_note_add`, `mistake_note_search`, PR #786, @filhocf)
 - **v10.43.0** - feat(search): Reciprocal Rank Fusion (RRF) for SQLite-vec hybrid search (PR #773, @filhocf)
 - **v10.42.1** - fix(milvus): add missing `anns_field` to search calls for BM25-enabled collections (PR #775, @henry201605)
