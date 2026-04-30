@@ -436,6 +436,14 @@ MCP_QUALITY_AI_MODEL=qwen2.5:7b-instruct
 
 Recommended models: `qwen2.5:7b-instruct` (Ollama), `mlx-community/Qwen2.5-7B-Instruct-4bit` (MLX), or any instruct model via LiteLLM proxy. On endpoint failure, scoring falls back to implicit signals automatically.
 
+**Docker `:quality-cpu` tag** — for users who want the built-in local ONNX quality scoring (`ms-marco-MiniLM-L-6-v2` and `nvidia-quality-classifier-deberta`) without managing the one-time ONNX export themselves, and without shipping `torch`/`transformers` in their container:
+
+```bash
+docker pull doobidoo/mcp-memory-service:quality-cpu
+```
+
+The `:quality-cpu` image pre-exports both models at build time and ships only `onnxruntime` at runtime — no PyTorch dependency at deploy time. See [`tools/docker/README.md`](tools/docker/README.md) for details.
+
 ### 🖥️ Dashboard Preview (v9.3.0)
 
 <p align="center">

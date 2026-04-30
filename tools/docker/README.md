@@ -1,5 +1,40 @@
 # Docker Setup for MCP Memory Service
 
+## Tags
+
+| Tag | Description | Size delta vs `:latest` |
+|-----|-------------|------------------------|
+| `:latest` | Standard image, full feature set | baseline |
+| `:slim` | CPU-only, no PyTorch/CUDA | ~90% smaller |
+| `:quality-cpu` | Slim + pre-exported ONNX quality models, no runtime PyTorch | ~250-300 MB larger than `:slim` |
+
+### `:quality-cpu` — local quality scoring without runtime PyTorch
+
+Pull this tag to get local ONNX quality scoring (`ms-marco-MiniLM-L-6-v2` and
+`nvidia-quality-classifier-deberta`) out-of-the-box, without managing the ONNX
+export yourself and without shipping `torch`/`transformers` in your deployment
+container.
+
+```bash
+docker pull doobidoo/mcp-memory-service:quality-cpu
+
+# Verify both quality models load from baked cache (no export triggered):
+docker run --rm doobidoo/mcp-memory-service:quality-cpu \
+  python -c "
+from mcp_memory_service.quality.onnx_ranker import get_onnx_ranker_model
+print(get_onnx_ranker_model('ms-marco-MiniLM-L-6-v2'))
+print(get_onnx_ranker_model('nvidia-quality-classifier-deberta'))
+print('Both quality models loaded from baked ONNX cache')
+"
+```
+
+The image sets `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` at runtime, so
+no live model download can occur. Quality scoring uses only the pre-baked
+artifacts at `/root/.cache/mcp_memory/onnx_models/`.
+
+**Homelab use case:** ideal for Raspberry Pi, NAS, or any always-on box where
+you want quality scoring without pulling a 2 GB PyTorch wheel every restart.
+
 ## 🚀 Quick Start
 
 Choose your mode:
