@@ -1190,6 +1190,13 @@ else:
 # End Memory Type Ontology Configuration
 
 # =============================================================================
+# Maintenance Configuration (memory_quality action="maintain")
+# =============================================================================
+MAINTAIN_STALE_DAYS = safe_get_int_env('MCP_MAINTAIN_STALE_DAYS', 30, min_value=1, max_value=3650)
+MAINTAIN_AUTO_RESOLVE = os.getenv('MCP_MAINTAIN_AUTO_RESOLVE', 'false').lower() in ('true', '1', 'yes')
+MAINTAIN_AUTO_RESOLVE_THRESHOLD = float(os.getenv('MCP_MAINTAIN_AUTO_RESOLVE_THRESHOLD', '0.95'))
+
+# =============================================================================
 # Configuration Validation
 # =============================================================================
 

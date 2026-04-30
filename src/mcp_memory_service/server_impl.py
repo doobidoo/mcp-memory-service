@@ -2048,19 +2048,24 @@ ACTIONS:
 - rate: Manually rate a memory's quality (thumbs up/down)
 - get: Get quality metrics for a specific memory
 - analyze: Analyze quality distribution across all memories
+- maintain: Run maintenance cycle (cleanup + conflicts + stale + quality)
+- maintain_status: Get stats from last maintenance run
 
 Examples:
 {"action": "rate", "content_hash": "abc123", "rating": 1, "feedback": "Very useful"}
 {"action": "get", "content_hash": "abc123"}
 {"action": "analyze"}
 {"action": "analyze", "min_quality": 0.5, "max_quality": 1.0}
+{"action": "maintain"}
+{"action": "maintain", "dry_run": false}
+{"action": "maintain_status"}
 """,
                         inputSchema={
                             "type": "object",
                             "properties": {
                                 "action": {
                                     "type": "string",
-                                    "enum": ["rate", "get", "analyze"],
+                                    "enum": ["rate", "get", "analyze", "maintain", "maintain_status"],
                                     "description": "Quality action to perform"
                                 },
                                 "content_hash": {
@@ -2085,6 +2090,11 @@ Examples:
                                     "type": "number",
                                     "default": 1.0,
                                     "description": "For 'analyze': maximum quality threshold"
+                                },
+                                "dry_run": {
+                                    "type": "boolean",
+                                    "default": True,
+                                    "description": "For 'maintain': preview mode — no modifications (default: true)"
                                 }
                             },
                             "required": ["action"]

@@ -37,7 +37,7 @@ async def handle_memory_quality(server, arguments: dict) -> List[types.TextConte
         return [types.TextContent(type="text", text="Error: action parameter is required")]
 
     # Validate action
-    valid_actions = ["rate", "get", "analyze"]
+    valid_actions = ["rate", "get", "analyze", "maintain", "maintain_status"]
     if action not in valid_actions:
         return [types.TextContent(
             type="text",
@@ -72,6 +72,12 @@ async def handle_memory_quality(server, arguments: dict) -> List[types.TextConte
                 "min_quality": arguments.get("min_quality", 0.0),
                 "max_quality": arguments.get("max_quality", 1.0)
             })
+
+        elif action == "maintain":
+            return await handle_maintain(server, arguments)
+
+        elif action == "maintain_status":
+            return await handle_maintain_status()
 
         else:
             # Should never reach here due to validation above
@@ -314,3 +320,149 @@ async def handle_analyze_quality_distribution(server, arguments: dict) -> List[t
     except Exception as e:
         logger.error(f"Error in analyze_quality_distribution: {str(e)}\n{traceback.format_exc()}")
         return [types.TextContent(type="text", text=f"Error analyzing quality distribution: {str(e)}")]
+
+
+# =============================================================================
+# Maintenance orchestrator (memory_quality action="maintain")
+# =============================================================================
+
+import time as _time
+from datetime import datetime, timezone
+from typing import Any, Dict
+
+from ...config import (
+    MAINTAIN_STALE_DAYS,
+    MAINTAIN_AUTO_RESOLVE,
+    MAINTAIN_AUTO_RESOLVE_THRESHOLD,
+)
+
+_last_maintain_run: Dict[str, Any] = {}
+
+
+async def handle_maintain_status() -> List[types.TextContent]:
+    """Return stats from the last maintain run."""
+    if not _last_maintain_run:
+        return [types.TextContent(type="text", text=json.dumps({"status": "never_run"}))]
+    return [types.TextContent(type="text", text=json.dumps(_last_maintain_run, indent=2, default=str))]
+
+
+async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
+    """
+    One-shot maintenance cycle: cleanup → conflicts → stale → quality.
+
+    dry_run=true (default): report only, no mutations.
+    """
+    global _last_maintain_run
+    dry_run = arguments.get("dry_run", True)
+
+    storage = await server._ensure_storage_initialized()
+    config = {
+        "stale_days": MAINTAIN_STALE_DAYS,
+        "auto_resolve": MAINTAIN_AUTO_RESOLVE,
+        "auto_resolve_threshold": MAINTAIN_AUTO_RESOLVE_THRESHOLD,
+    }
+    start = _time.time()
+    report: Dict[str, Any] = {
+        "action": "maintain",
+        "dry_run": dry_run,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "config": config,
+        "steps": {},
+        "errors": [],
+    }
+
+    # Step 1: Cleanup duplicates
+    try:
+        if dry_run:
+            stats = await storage.get_stats()
+            report["steps"]["cleanup"] = {"skipped_dry_run": True, "current_total": stats.get("total_memories", 0)}
+        else:
+            count_removed, msg = await storage.cleanup_duplicates()
+            report["steps"]["cleanup"] = {"duplicates_removed": count_removed, "message": msg}
+    except Exception as e:
+        report["errors"].append(f"cleanup: {e}")
+        report["steps"]["cleanup"] = {"error": str(e)}
+
+    # Step 2: Conflict detection + optional auto-resolve
+    try:
+        conflicts = await storage.get_conflicts()
+        resolved = 0
+        skipped = 0
+        conflict_details = []
+        for c in conflicts:
+            detail = {
+                "hash_a": c["hash_a"][:12],
+                "hash_b": c["hash_b"][:12],
+                "similarity": round(c.get("similarity", 0), 3),
+            }
+            can_resolve = (
+                config["auto_resolve"]
+                and not dry_run
+                and c.get("similarity", 0) >= config["auto_resolve_threshold"]
+            )
+            if can_resolve:
+                ok, msg = await storage.resolve_conflict(c["hash_a"], c["hash_b"])
+                if ok:
+                    resolved += 1
+                    detail["action"] = "auto_resolved"
+                else:
+                    skipped += 1
+                    detail["action"] = f"resolve_failed: {msg}"
+            else:
+                skipped += 1
+                detail["action"] = "skipped" if dry_run else "below_threshold"
+            conflict_details.append(detail)
+        report["steps"]["conflicts"] = {
+            "total": len(conflicts),
+            "auto_resolved": resolved,
+            "skipped": skipped,
+            "details": conflict_details[:20],
+        }
+    except Exception as e:
+        report["errors"].append(f"conflicts: {e}")
+        report["steps"]["conflicts"] = {"error": str(e)}
+
+    # Step 3: Stale memory detection
+    try:
+        stale_count = await storage.count_all_memories(stale_days=config["stale_days"])
+        report["steps"]["stale"] = {
+            "stale_days_threshold": config["stale_days"],
+            "stale_count": stale_count,
+        }
+    except Exception as e:
+        report["errors"].append(f"stale: {e}")
+        report["steps"]["stale"] = {"error": str(e)}
+
+    # Step 4: Quality snapshot
+    try:
+        all_memories = await storage.get_all_memories()
+        if all_memories:
+            scores = [
+                m.metadata.get("quality_score", 0.5)
+                for m in all_memories
+                if hasattr(m, "metadata") and isinstance(m.metadata, dict)
+            ]
+            if scores:
+                avg = sum(scores) / len(scores)
+                report["steps"]["quality"] = {
+                    "total_scored": len(scores),
+                    "average_score": round(avg, 3),
+                    "high_quality": sum(1 for s in scores if s >= 0.7),
+                    "medium_quality": sum(1 for s in scores if 0.3 <= s < 0.7),
+                    "low_quality": sum(1 for s in scores if s < 0.3),
+                }
+            else:
+                report["steps"]["quality"] = {"total_scored": 0, "message": "no quality scores available"}
+        else:
+            report["steps"]["quality"] = {"total_scored": 0, "message": "no memories"}
+    except Exception as e:
+        report["errors"].append(f"quality: {e}")
+        report["steps"]["quality"] = {"error": str(e)}
+
+    elapsed = round(_time.time() - start, 2)
+    report["elapsed_seconds"] = elapsed
+    report["completed_at"] = datetime.now(timezone.utc).isoformat()
+    report["success"] = len(report["errors"]) == 0
+
+    _last_maintain_run = report
+    return [types.TextContent(type="text", text=json.dumps(report, indent=2, default=str))]
