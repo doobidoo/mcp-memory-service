@@ -130,90 +130,57 @@ class TestScoreWithOpenAICompatible:
         ev._implicit_evaluator = ImplicitSignalsEvaluator()
         return ev
 
+    def _install_mock_post(self, ev, *, return_value=None, side_effect=None):
+        """Install a mock httpx client on the evaluator and return it."""
+        mock_client = AsyncMock()
+        if side_effect is not None:
+            mock_client.post = AsyncMock(side_effect=side_effect)
+        else:
+            mock_client.post = AsyncMock(return_value=return_value)
+        ev._httpx_client = mock_client
+        return mock_client
+
     @pytest.mark.asyncio
     async def test_successful_score_parse(self):
         ev = self._make_evaluator()
-        mock_resp = _mock_httpx_response("0.85")
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_resp)
-            mock_client_cls.return_value = mock_client
-
-            score = await ev._score_with_openai_compatible("python", _make_memory())
+        self._install_mock_post(ev, return_value=_mock_httpx_response("0.85"))
+        score = await ev._score_with_openai_compatible("python", _make_memory())
         assert score == pytest.approx(0.85)
 
     @pytest.mark.asyncio
     async def test_score_clamped_above_1(self):
         ev = self._make_evaluator()
-        mock_resp = _mock_httpx_response("1.5")
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_resp)
-            mock_client_cls.return_value = mock_client
-
-            score = await ev._score_with_openai_compatible("python", _make_memory())
+        self._install_mock_post(ev, return_value=_mock_httpx_response("1.5"))
+        score = await ev._score_with_openai_compatible("python", _make_memory())
         assert score == pytest.approx(1.0)
 
     @pytest.mark.asyncio
     async def test_score_clamped_below_0(self):
         ev = self._make_evaluator()
-        mock_resp = _mock_httpx_response("-0.3")
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_resp)
-            mock_client_cls.return_value = mock_client
-
-            score = await ev._score_with_openai_compatible("python", _make_memory())
+        self._install_mock_post(ev, return_value=_mock_httpx_response("-0.3"))
+        score = await ev._score_with_openai_compatible("python", _make_memory())
         assert score == pytest.approx(0.0)
 
     @pytest.mark.asyncio
     async def test_unparseable_response_raises_runtime_error(self):
         ev = self._make_evaluator()
-        mock_resp = _mock_httpx_response("I cannot score this.")
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_resp)
-            mock_client_cls.return_value = mock_client
-
-            with pytest.raises(RuntimeError, match="Could not parse score"):
-                await ev._score_with_openai_compatible("python", _make_memory())
+        self._install_mock_post(ev, return_value=_mock_httpx_response("I cannot score this."))
+        with pytest.raises(RuntimeError, match="Could not parse score"):
+            await ev._score_with_openai_compatible("python", _make_memory())
 
     @pytest.mark.asyncio
     async def test_http_error_raises_runtime_error(self):
         ev = self._make_evaluator()
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_resp = _mock_httpx_response("", status_code=500)
-            mock_client.post = AsyncMock(return_value=mock_resp)
-            mock_client_cls.return_value = mock_client
-
-            with pytest.raises(RuntimeError, match="HTTP 500"):
-                await ev._score_with_openai_compatible("python", _make_memory())
+        self._install_mock_post(ev, return_value=_mock_httpx_response("", status_code=500))
+        with pytest.raises(RuntimeError, match="HTTP 500"):
+            await ev._score_with_openai_compatible("python", _make_memory())
 
     @pytest.mark.asyncio
     async def test_request_error_raises_runtime_error(self):
         ev = self._make_evaluator()
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(
-                side_effect=httpx.ConnectError("Connection refused")
-            )
-            mock_client_cls.return_value = mock_client
-
-            with pytest.raises(RuntimeError, match="request failed"):
-                await ev._score_with_openai_compatible("python", _make_memory())
+        self._install_mock_post(ev, side_effect=httpx.ConnectError("Connection refused"))
+        with pytest.raises(RuntimeError, match="request failed"):
+            await ev._score_with_openai_compatible("python", _make_memory())
 
     @pytest.mark.asyncio
     async def test_trailing_slash_stripped_from_base_url(self):
@@ -226,14 +193,8 @@ class TestScoreWithOpenAICompatible:
             posted_urls.append(url)
             return mock_resp
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(side_effect=capture_post)
-            mock_client_cls.return_value = mock_client
-
-            score = await ev._score_with_openai_compatible("python", _make_memory())
+        self._install_mock_post(ev, side_effect=capture_post)
+        score = await ev._score_with_openai_compatible("python", _make_memory())
 
         assert score == pytest.approx(0.7)
         assert posted_urls[0] == "http://localhost:11434/v1/chat/completions"
@@ -249,14 +210,8 @@ class TestScoreWithOpenAICompatible:
             captured_headers.update(headers or {})
             return mock_resp
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(side_effect=capture_post)
-            mock_client_cls.return_value = mock_client
-
-            await ev._score_with_openai_compatible("python", _make_memory())
+        self._install_mock_post(ev, side_effect=capture_post)
+        await ev._score_with_openai_compatible("python", _make_memory())
 
         assert captured_headers.get("Authorization") == "Bearer none"
 

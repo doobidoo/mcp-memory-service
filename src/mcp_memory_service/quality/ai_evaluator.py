@@ -36,6 +36,7 @@ class QualityEvaluator:
         self._onnx_models: dict = {}  # For fallback mode (multiple models)
         self._implicit_evaluator = ImplicitSignalsEvaluator()
         self._groq_bridge = None
+        self._httpx_client: Optional[httpx.AsyncClient] = None
         self._initialized = False
 
     def _ensure_initialized(self):
@@ -300,6 +301,22 @@ class QualityEvaluator:
 
         return final_scores
 
+    def _get_httpx_client(self) -> httpx.AsyncClient:
+        """Lazy-init a shared httpx.AsyncClient with a connection pool.
+
+        Reused across scoring calls so batches don't pay TCP/TLS handshake cost
+        per request. Closed via `aclose()`.
+        """
+        if self._httpx_client is None:
+            self._httpx_client = httpx.AsyncClient(timeout=30.0)
+        return self._httpx_client
+
+    async def aclose(self) -> None:
+        """Close the shared httpx client. Safe to call multiple times."""
+        if self._httpx_client is not None:
+            await self._httpx_client.aclose()
+            self._httpx_client = None
+
     async def _score_with_openai_compatible(self, query: str, memory: Memory) -> float:
         """
         Score quality using any OpenAI-compatible /v1/chat/completions endpoint.
@@ -340,15 +357,15 @@ class QualityEvaluator:
             "temperature": 0.1,
         }
 
+        client = self._get_httpx_client()
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"{base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                )
-                response.raise_for_status()
-                data = response.json()
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
         except httpx.HTTPStatusError as exc:
             raise RuntimeError(
                 f"OpenAI-compatible endpoint returned HTTP {exc.response.status_code}: {exc.response.text[:200]}"
