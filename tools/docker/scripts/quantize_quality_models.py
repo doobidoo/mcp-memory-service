@@ -78,10 +78,13 @@ def _ensure_quantization_deps() -> None:
     try:
         import onnx  # noqa: F401
         import onnxruntime  # noqa: F401
+        import onnxconverter_common  # noqa: F401
+        import tokenizers  # noqa: F401
         from onnxruntime.quantization import quantize_dynamic, QuantType  # noqa: F401
     except ImportError as exc:
         raise SystemExit(
-            f"Missing quantization dependency ({exc}). Install onnx + onnxruntime in the builder stage."
+            f"Missing quantization dependency ({exc}). Install onnx, onnxruntime, "
+            "onnxconverter-common, and tokenizers in the builder stage."
         )
 
 
@@ -90,15 +93,38 @@ def _model_dir(model_name: str) -> Path:
 
 
 def _model_size_bytes(model_path: Path) -> int:
-    """Total size of the .onnx file plus any external-data sidecar files in the same dir."""
+    """Total size of the .onnx file plus its external-data sidecars.
+
+    Sidecars must share the same stem prefix as the model file (e.g.
+    `model.fp16.onnx` -> `model.fp16.onnx_data` / `model.fp16.onnx_data_*`).
+    Files belonging to other variants in the same directory are ignored, which
+    is what allows variants to coexist for benchmarking without polluting each
+    other's measured size.
+    """
     total = model_path.stat().st_size
+    prefix = model_path.name + "_"  # e.g. "model.fp16.onnx_"
     for sibling in model_path.parent.iterdir():
         if sibling == model_path or not sibling.is_file():
             continue
-        # External weights for ONNX models (e.g. weights, model.onnx_data) live alongside.
-        if sibling.name.endswith(".onnx_data") or sibling.suffix in {".weight", ".bin"}:
+        if sibling.name.startswith(prefix):
             total += sibling.stat().st_size
     return total
+
+
+def _onnx_artifact_files(model_path: Path) -> list[Path]:
+    """All files that belong to a given ONNX artifact (.onnx + sidecars).
+
+    Used for cleanup after a variant is rejected or replaced. Mirrors the
+    sibling-detection rule in `_model_size_bytes` to stay consistent.
+    """
+    files = [model_path]
+    prefix = model_path.name + "_"
+    for sibling in model_path.parent.iterdir():
+        if sibling == model_path or not sibling.is_file():
+            continue
+        if sibling.name.startswith(prefix):
+            files.append(sibling)
+    return files
 
 
 def _quantize_fp16(src: Path, dst: Path) -> None:
@@ -211,13 +237,24 @@ def _benchmark(
 
 
 def _to_scalar(logits: np.ndarray) -> np.ndarray:
-    """Reduce per-sample logits to a single scalar score for correlation."""
+    """Reduce per-sample logits to the same scalar score the production code uses.
+
+    Mirrors `quality/onnx_ranker.py::score_quality` for the DeBERTa classifier:
+    softmax over 3 classes (label order: 0=High, 1=Medium, 2=Low) and dot
+    product with [1.0, 0.5, 0.0]. Using the same reduction here means the
+    correlation we measure is the correlation that actually matters at runtime.
+    """
     if logits.ndim == 1:
-        return logits
-    # Softmax-then-take-positive-class is a stable reduction for binary/3-class classifiers.
+        # Already scalar (binary / cross-encoder). Apply sigmoid to match runtime.
+        return 1.0 / (1.0 + np.exp(-logits))
     exp = np.exp(logits - logits.max(axis=-1, keepdims=True))
     probs = exp / exp.sum(axis=-1, keepdims=True)
-    return probs[..., -1]
+    class_values = np.array([1.0, 0.5, 0.0], dtype=np.float64)
+    if probs.shape[-1] != class_values.shape[0]:
+        # Defensive: unknown classifier shape — fall back to top-class probability
+        # so we still produce a usable correlation rather than crashing the build.
+        return probs.max(axis=-1)
+    return probs @ class_values
 
 
 def _pick_winner(variants: list[Variant], min_corr: float) -> Optional[Variant]:
@@ -280,21 +317,29 @@ def quantize_model(model_name: str, mode: str, min_correlation: float, strict: b
             logger.error(msg + " (--strict): failing build.")
             return 2
         logger.warning(msg)
-        # Clean up rejected artifacts.
+        # Clean up rejected variants (file + their sidecars).
         for v in candidates:
-            v.path.unlink(missing_ok=True)
+            for f in _onnx_artifact_files(v.path):
+                f.unlink(missing_ok=True)
         return 0
 
     logger.info(f"Winner: {winner.name} (size {winner.size_bytes / 1e6:.1f} MB, corr {winner.correlation:.4f}).")
 
-    # Replace fp32 with winner; remove other variants.
-    backup = fp32_path.with_suffix(".fp32.onnx.bak")
-    shutil.move(str(fp32_path), str(backup))
-    shutil.move(str(winner.path), str(fp32_path))
-    backup.unlink(missing_ok=True)
+    # Delete the fp32 artifact set (model.onnx + every sidecar like model.onnx_data).
+    # This is the critical step: without it the ~700 MB external-weights file
+    # would remain in the image even though model.onnx itself was replaced.
+    for f in _onnx_artifact_files(fp32_path):
+        f.unlink(missing_ok=True)
+
+    # Delete losing variants (file + their sidecars).
     for v in candidates:
         if v.name != winner.name:
-            v.path.unlink(missing_ok=True)
+            for f in _onnx_artifact_files(v.path):
+                f.unlink(missing_ok=True)
+
+    # Promote the winner into model.onnx. fp16/int8 variants are single-file,
+    # so a plain rename is sufficient — there are no sidecars to move.
+    shutil.move(str(winner.path), str(fp32_path))
 
     final_size = _model_size_bytes(fp32_path)
     logger.info(f"Final model.onnx: {final_size / 1e6:.1f} MB")
