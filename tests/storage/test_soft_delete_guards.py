@@ -24,9 +24,6 @@ Methods covered:
 import hashlib
 import pytest
 import pytest_asyncio
-import tempfile
-import os
-import shutil
 import time
 
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
@@ -34,18 +31,15 @@ from mcp_memory_service.models.memory import Memory
 
 
 @pytest_asyncio.fixture
-async def storage():
+async def storage(tmp_path):
     """Create a temporary SqliteVecMemoryStorage instance."""
-    temp_dir = tempfile.mkdtemp()
-    db_path = os.path.join(temp_dir, "test_soft_delete.db")
+    db_path = tmp_path / "test_soft_delete.db"
+    s = SqliteVecMemoryStorage(str(db_path))
+    await s.initialize()
     try:
-        s = SqliteVecMemoryStorage(db_path)
-        await s.initialize()
         yield s
     finally:
-        if hasattr(s, "conn") and s.conn:
-            s.conn.close()
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        await s.close()
 
 
 def _make_memory(content: str, tags=None, memory_type=None) -> Memory:
@@ -58,14 +52,17 @@ def _make_memory(content: str, tags=None, memory_type=None) -> Memory:
     )
 
 
-def _get_row(storage, content_hash: str):
+async def _get_row(storage, content_hash: str):
     """Read raw row from DB (including tombstoned rows)."""
-    cursor = storage.conn.execute(
-        "SELECT content_hash, tags, metadata, last_accessed, superseded_by, deleted_at "
-        "FROM memories WHERE content_hash = ?",
-        (content_hash,),
-    )
-    return cursor.fetchone()
+    def _query():
+        cursor = storage.conn.execute(
+            "SELECT content_hash, tags, metadata, last_accessed, superseded_by, deleted_at "
+            "FROM memories WHERE content_hash = ?",
+            (content_hash,),
+        )
+        return cursor.fetchone()
+
+    return await storage._execute_with_retry(_query)
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +74,7 @@ async def test_persist_access_metadata_batch_skips_deleted(storage):
     """Batch metadata update must not mutate a soft-deleted row."""
     mem = _make_memory("batch metadata test content")
     await storage.store(mem)
-    row_before = _get_row(storage, mem.content_hash)
+    row_before = await _get_row(storage, mem.content_hash)
     assert row_before is not None
 
     # Soft-delete
@@ -85,7 +82,7 @@ async def test_persist_access_metadata_batch_skips_deleted(storage):
     assert ok
 
     # Capture state after delete
-    row_deleted = _get_row(storage, mem.content_hash)
+    row_deleted = await _get_row(storage, mem.content_hash)
     assert row_deleted[5] is not None  # deleted_at set
 
     # Attempt batch metadata update on deleted row
@@ -93,7 +90,7 @@ async def test_persist_access_metadata_batch_skips_deleted(storage):
     await storage._persist_access_metadata_batch([mem])
 
     # Assert row unchanged
-    row_after = _get_row(storage, mem.content_hash)
+    row_after = await _get_row(storage, mem.content_hash)
     assert row_after[2] == row_deleted[2], "metadata should not change on deleted row"
 
 
@@ -111,7 +108,7 @@ async def test_record_conflicts_skips_deleted(storage):
 
     # Soft-delete mem_a
     await storage.delete(mem_a.content_hash)
-    row_deleted = _get_row(storage, mem_a.content_hash)
+    row_deleted = await _get_row(storage, mem_a.content_hash)
     tags_before = row_deleted[1] or ""
 
     # Record conflict between new hash (mem_b) and deleted hash (mem_a)
@@ -123,14 +120,14 @@ async def test_record_conflicts_skips_deleted(storage):
     await storage._record_conflicts(mem_b.content_hash, conflicts)
 
     # Deleted row should NOT have conflict:unresolved tag
-    row_after = _get_row(storage, mem_a.content_hash)
+    row_after = await _get_row(storage, mem_a.content_hash)
     tags_after = row_after[1] or ""
     assert "conflict:unresolved" not in tags_after, (
         "conflict:unresolved should not be added to deleted row"
     )
 
     # But the live row (mem_b) SHOULD have the tag
-    row_b = _get_row(storage, mem_b.content_hash)
+    row_b = await _get_row(storage, mem_b.content_hash)
     assert "conflict:unresolved" in (row_b[1] or ""), (
         "conflict:unresolved should be added to live row"
     )
@@ -184,12 +181,12 @@ async def test_touch_skips_deleted(storage):
     await storage.store(mem)
 
     # Record initial last_accessed
-    row_before = _get_row(storage, mem.content_hash)
+    row_before = await _get_row(storage, mem.content_hash)
     la_before = row_before[3]
 
     # Soft-delete
     await storage.delete(mem.content_hash)
-    row_deleted = _get_row(storage, mem.content_hash)
+    row_deleted = await _get_row(storage, mem.content_hash)
     la_deleted = row_deleted[3]
 
     # Directly invoke _touch on the deleted hash
@@ -205,7 +202,7 @@ async def test_touch_skips_deleted(storage):
     await storage._execute_with_retry(_touch)
 
     # last_accessed should be unchanged
-    row_after = _get_row(storage, mem.content_hash)
+    row_after = await _get_row(storage, mem.content_hash)
     assert row_after[3] == la_deleted, "last_accessed should not change on deleted row"
 
 
