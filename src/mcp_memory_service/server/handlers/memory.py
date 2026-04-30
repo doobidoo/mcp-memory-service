@@ -467,6 +467,7 @@ async def handle_memory_list(server, arguments: dict) -> List[types.TextContent]
         page_size = arguments.get("page_size", 20)
         tags = arguments.get("tags")
         memory_type = arguments.get("memory_type")
+        stale_days = arguments.get("stale_days")
 
         # Normalize tags if provided
         if tags:
@@ -482,7 +483,8 @@ async def handle_memory_list(server, arguments: dict) -> List[types.TextContent]
             page=page,
             page_size=page_size,
             tag=tag,
-            memory_type=memory_type
+            memory_type=memory_type,
+            stale_days=stale_days,
         )
 
         # Check for errors

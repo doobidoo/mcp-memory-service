@@ -273,7 +273,8 @@ class MemoryService:
         page: int = 1,
         page_size: int = 10,
         tag: Optional[str] = None,
-        memory_type: Optional[str] = None
+        memory_type: Optional[str] = None,
+        stale_days: Optional[int] = None,
     ) -> Union[ListMemoriesSuccess, ListMemoriesError]:
         """
         List memories with pagination and optional filtering.
@@ -286,6 +287,8 @@ class MemoryService:
             page_size: Number of memories per page
             tag: Filter by specific tag
             memory_type: Filter by memory type
+            stale_days: Filter to memories not accessed in the last N days.
+                Uses COALESCE(last_accessed, created_at) for memories never read.
 
         Returns:
             Dictionary with memories and pagination info
@@ -300,13 +303,15 @@ class MemoryService:
                 limit=page_size,
                 offset=offset,
                 memory_type=memory_type,
-                tags=tags_list
+                tags=tags_list,
+                stale_days=stale_days,
             )
 
             # Get accurate total count for pagination
             total = await self.storage.count_all_memories(
                 memory_type=memory_type,
-                tags=tags_list
+                tags=tags_list,
+                stale_days=stale_days,
             )
 
             # Format results for API response

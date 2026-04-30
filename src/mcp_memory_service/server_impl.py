@@ -1530,6 +1530,7 @@ PAGINATION:
 FILTERS (combine with AND logic):
 - tags: Filter to memories with ANY of these tags
 - memory_type: Filter by type (note, reference, decision, etc.)
+- stale_days: Filter to memories not accessed in the last N days
 
 Examples:
 {}  // List first 20 memories
@@ -1537,6 +1538,8 @@ Examples:
 {"tags": ["python", "reference"]}
 {"memory_type": "decision", "page_size": 10}
 {"tags": ["important"], "memory_type": "note"}
+{"stale_days": 30}  // Memories not accessed in 30 days
+{"stale_days": 7, "tags": ["archived"]}  // Stale archived memories
 """,
                         inputSchema={
                             "type": "object",
@@ -1562,6 +1565,11 @@ Examples:
                                 "memory_type": {
                                     "type": "string",
                                     "description": "Filter by memory type"
+                                },
+                                "stale_days": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "description": "Filter to memories not accessed in the last N days. Uses COALESCE(last_accessed, created_at) for memories never read. Currently supported on sqlite-vec backend only."
                                 }
                             }
                         },
