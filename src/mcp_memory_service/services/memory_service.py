@@ -790,7 +790,6 @@ class MemoryService:
                         content_hash = mem["content_hash"]
                         old_meta = mem.get("metadata") or {}
                         if isinstance(old_meta, str):
-                            import json
                             old_meta = json.loads(old_meta) if old_meta else {}
                         count = old_meta.get("failure_count", 1) + 1
                         old_meta["failure_count"] = count
