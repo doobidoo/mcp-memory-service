@@ -1674,6 +1674,7 @@ class MilvusMemoryStorage(MemoryStorage):
         offset: int = 0,
         memory_type: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        stale_days: Optional[int] = None,
     ) -> List[Memory]:
         if not self._ensure_initialized():
             return []

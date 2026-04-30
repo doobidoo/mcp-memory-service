@@ -1700,17 +1700,17 @@ class HybridMemoryStorage(MemoryStorage):
         """Recall memories using natural language time expressions."""
         return await self.primary.recall_memory(query, n_results)
 
-    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None, tags: Optional[List[str]] = None) -> List[Memory]:
+    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, stale_days: Optional[int] = None) -> List[Memory]:
         """Get all memories from primary storage."""
-        return await self.primary.get_all_memories(limit=limit, offset=offset, memory_type=memory_type, tags=tags)
+        return await self.primary.get_all_memories(limit=limit, offset=offset, memory_type=memory_type, tags=tags, stale_days=stale_days)
 
     async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
         """Get a memory by its content hash from primary storage."""
         return await self.primary.get_by_hash(content_hash)
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, stale_days: Optional[int] = None) -> int:
         """Get total count of memories from primary storage."""
-        return await self.primary.count_all_memories(memory_type=memory_type, tags=tags)
+        return await self.primary.count_all_memories(memory_type=memory_type, tags=tags, stale_days=stale_days)
 
     async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
         """Get memories within time range from primary storage."""

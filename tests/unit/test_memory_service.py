@@ -95,7 +95,8 @@ async def test_list_memories_basic_pagination(memory_service, mock_storage, samp
         limit=2,
         offset=0,
         memory_type=None,
-        tags=None
+        tags=None,
+        stale_days=None
     )
 
 
