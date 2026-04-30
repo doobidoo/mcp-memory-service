@@ -457,17 +457,18 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.45.1** (April 30, 2026)
+## Latest Release: **v10.46.0** (April 30, 2026)
 
-**fix: CodeQL cleanup + soft-delete regression tests**
+**feat: stale_days filter for memory_list — dormant memory detection**
 
 **What's New:**
-- **CodeQL fix**: Remove redundant `import json` inside `mistake_note_add()` — module-level import already present. Addresses CodeQL alert #393. (PR #794, @filhocf)
-- **Regression tests**: 6 new tests in `tests/storage/test_soft_delete_guards.py` verifying `AND deleted_at IS NULL` guards silently skip tombstoned rows across all 6 affected call sites. Closes #791. (PR #795, @filhocf)
+- **`stale_days` filter**: Pass `stale_days=N` to `memory_list` to surface memories not accessed in N days. Falls back to `created_at` for never-read memories. Strict `<` semantics. Composes with `tags`, `memory_type`, and pagination. Fully implemented on SQLite-vec; stub (no-op) on Cloudflare/Hybrid/Milvus. (PR #796, @filhocf, closes #784)
+- **8 new tests** in `tests/storage/test_stale_days.py` covering boundary conditions, tag/type composition, pagination, and backward compatibility.
 
 ---
 
 **Previous Releases**:
+- **v10.45.1** - fix: CodeQL redundant import cleanup + soft-delete regression tests (PRs #794, #795, @filhocf)
 - **v10.45.0** - feat(quality): OpenAI-compatible provider for LiteLLM/Ollama/MLX + soft-delete UPDATE guards (PRs #790, #783, @filhocf)
 - **v10.44.0** - feat: Mistake Notes — structured error replay (`mistake_note_add`, `mistake_note_search`, PR #786, @filhocf)
 - **v10.43.0** - feat(search): Reciprocal Rank Fusion (RRF) for SQLite-vec hybrid search (PR #773, @filhocf)

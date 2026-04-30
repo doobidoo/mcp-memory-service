@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MCP Memory Service v10.45 — Semantic Memory Layer for AI Applications</title>
+<title>MCP Memory Service v10.46 — Semantic Memory Layer for AI Applications</title>
 <meta name="description" content="Semantic memory layer for AI applications. REST API + MCP transport. 14+ client integrations, knowledge graph, automatic consolidation. LongMemEval R@5 86%, session ingestion, self-hosted, zero cloud cost.">
-<meta property="og:title" content="MCP Memory Service v10.45">
-<meta property="og:description" content="OpenAI-compatible quality scoring: point memory scoring at Ollama, LiteLLM, MLX-LM, or vLLM — no cloud API key needed. Soft-delete UPDATE guards prevent operations on tombstoned rows. Streamable HTTP + OAuth 2.1 + PKCE. LongMemEval R@5 86%.">
+<meta property="og:title" content="MCP Memory Service v10.46">
+<meta property="og:description" content="Stale memory detection: filter memory_list by days since last access to surface dormant memories. Falls back to created_at for never-read memories. Composes with tags, memory_type, and pagination. Streamable HTTP + OAuth 2.1 + PKCE. LongMemEval R@5 86%.">
 <meta property="og:type" content="website">
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
@@ -116,7 +116,7 @@ footer a{color:var(--cyan)}
 <!-- Hero -->
 <header class="hero">
   <img src="brain-icon.png" alt="MCP Memory Service" class="hero-logo">
-  <span class="hero-badge">v10.45 &mdash; Now Available</span>
+  <span class="hero-badge">v10.46 &mdash; Now Available</span>
   <h1>MCP Memory Service</h1>
   <p>Persistent memory for AI agents. Semantic search, knowledge graph, automatic consolidation &mdash; now accessible from Claude.ai via Streamable HTTP.</p>
   <div class="hero-buttons">
@@ -136,23 +136,23 @@ footer a{color:var(--cyan)}
 <!-- Features -->
 <section id="features">
   <div class="container">
-    <h2 class="section-title">What's New in v10.45</h2>
-    <p class="section-subtitle">OpenAI-compatible quality scoring: point memory scoring at Ollama, LiteLLM, MLX-LM, or vLLM. Soft-delete UPDATE guards. ~1,758 tests.</p>
+    <h2 class="section-title">What's New in v10.46</h2>
+    <p class="section-subtitle">Stale memory detection: surface dormant memories with the new stale_days filter. ~1,772 tests.</p>
     <div class="features-grid">
       <div class="feature-card" data-delay="0">
-        <div class="feature-icon search">&#127968;</div>
-        <h3>Homelab Quality Scoring</h3>
-        <p>Set <code>MCP_QUALITY_AI_PROVIDER=openai-compatible</code> to score memories with any OpenAI <code>/v1/chat/completions</code>-compatible endpoint — Ollama, LiteLLM, MLX-LM server, or vLLM. No cloud API key required. (PR #790)</p>
+        <div class="feature-icon search">&#128337;</div>
+        <h3>Stale Memory Detection</h3>
+        <p>Pass <code>stale_days=N</code> to <code>memory_list</code> to surface memories not accessed in N days. Ideal for reviewing and consolidating dormant knowledge. (PR #796, @filhocf, closes #784)</p>
       </div>
       <div class="feature-card" data-delay="150">
         <div class="feature-icon graph">&#9881;</div>
-        <h3>Graceful Fallback Chain</h3>
-        <p>New Tier 2 in the quality scoring chain: local ONNX &rarr; openai-compatible &rarr; Groq &rarr; Gemini &rarr; implicit signals. Endpoint failures fall through silently — no exception reaches the storage path.</p>
+        <h3>Smart Fallback to created_at</h3>
+        <p>Never-accessed memories (<code>last_accessed IS NULL</code>) fall back to <code>created_at</code>, ensuring they appear in stale results when old enough. Strict <code>&lt;</code> semantics: memories at the exact threshold are not stale.</p>
       </div>
       <div class="feature-card" data-delay="300">
         <div class="feature-icon consolidation">&#128202;</div>
-        <h3>Soft-Delete UPDATE Guards</h3>
-        <p>Seven <code>UPDATE memories SET ...</code> statements in <code>sqlite_vec.py</code> now include <code>AND deleted_at IS NULL</code>, preventing accidental modification of tombstoned rows. (PR #783, @filhocf)</p>
+        <h3>Composable Filters</h3>
+        <p>The <code>stale_days</code> filter composes freely with existing <code>tags</code>, <code>memory_type</code>, and pagination parameters. Fully implemented on SQLite-vec; accepted (no-op) on Cloudflare, Hybrid, and Milvus backends.</p>
       </div>
     </div>
   </div>
@@ -203,7 +203,7 @@ footer a{color:var(--cyan)}
     <p class="section-subtitle">Battle-tested with comprehensive testing and optimized for performance.</p>
     <div class="stats-grid">
       <div class="stat-card" data-delay="0">
-        <div class="stat-number" data-target="1758">0</div>
+        <div class="stat-number" data-target="1772">0</div>
         <div class="stat-label">Tests</div>
       </div>
       <div class="stat-card" data-delay="100">
@@ -242,7 +242,7 @@ footer a{color:var(--cyan)}
       <a href="blog/remote-mcp-tutorial.html" class="btn btn-secondary">
         Blog: 5-Min claude.ai Setup
       </a>
-      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v10.45.0" class="btn btn-secondary" target="_blank">
+      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v10.46.0" class="btn btn-secondary" target="_blank">
         Release Notes
       </a>
     </div>

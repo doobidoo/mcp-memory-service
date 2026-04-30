@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.46.0] - 2026-04-30
+
+### Added
+
+- **[#784] `stale_days` filter for `memory_list`**: Adds an optional `stale_days` integer parameter to the `memory_list` tool and REST endpoint. Memories whose `COALESCE(last_accessed, created_at)` timestamp falls strictly before `now - stale_days * 86400 seconds` are considered stale. Memories accessed exactly at the threshold are NOT stale (strict `<` semantics). Memories that have never been read (`last_accessed IS NULL`) fall back to `created_at`, so never-accessed memories are included in stale results when their creation date is old enough. The filter composes freely with the existing `tags`, `memory_type`, and pagination parameters. Backend coverage: fully implemented in SQLite-vec; Cloudflare, Hybrid, and Milvus backends accept the parameter but ignore it (returning all memories as before — no silent wrong results). Refactors `_apply_stale_days_filter` as a static helper shared between `get_all_memories` and `count_all_memories` to avoid duplication (per code review). 8 new tests in `tests/storage/test_stale_days.py`. Closes #784. Thanks to @filhocf for the contribution. (PR #796)
+
 ## [10.45.1] - 2026-04-30
 
 ### Fixed
