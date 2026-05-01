@@ -25,17 +25,22 @@ Each placeholder is a self-contained `pyproject.toml` project. Build all four an
 ```bash
 cd tools/pypi-placeholders
 
-PKGS="agent-memory-service ai-memory-service agent-memory memory-for-agents"
+# Bash + zsh array (zsh does NOT word-split a plain "x y z" string by default,
+# so `for d in $PKGS` would treat the whole list as a single path. Arrays
+# work in both shells.)
+PKGS=(agent-memory-service ai-memory-service agent-memory memory-for-agents)
 
 # Build + check all four. Use `break` instead of `exit 1` so a failure in
 # this copy-pasted snippet does not terminate the user's interactive shell.
-for d in $PKGS; do
+for d in "${PKGS[@]}"; do
   ( cd "$d" && python -m build && twine check dist/* ) || break
 done
 
 # Upload all four to PyPI (interactive — twine will prompt for token / use ~/.pypirc)
-for d in $PKGS; do
-  twine upload "$d/dist/*"
+# The glob must be OUTSIDE the quotes so the shell expands it; "$d/dist/*" as
+# one quoted string is a literal path and twine will fail with InvalidDistribution.
+for d in "${PKGS[@]}"; do
+  twine upload "$d"/dist/*
 done
 ```
 
