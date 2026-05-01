@@ -146,7 +146,7 @@ class HTTPClientStorage(MemoryStorage):
         except Exception as e:
             return self._handle_http_error(e, "store")
     
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None) -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, include_superseded: bool = False) -> List[MemoryQueryResult]:
         """Retrieve memories using semantic search via HTTP API."""
         if not self._initialized or not self.session:
             logger.error("HTTP client not initialized")
