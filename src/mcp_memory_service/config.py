@@ -1201,6 +1201,9 @@ try:
 except (ValueError, TypeError):
     logger.error("Invalid value for MCP_MAINTAIN_AUTO_RESOLVE_THRESHOLD, using default 0.95")
     MAINTAIN_AUTO_RESOLVE_THRESHOLD = 0.95
+# Two-signal guard: only auto-resolve when both memories share the same type
+# AND their age difference exceeds this threshold (prevents resolving recent updates)
+MAINTAIN_AUTO_RESOLVE_AGE_DAYS = safe_get_int_env('MCP_MAINTAIN_AUTO_RESOLVE_AGE_DAYS', 7, min_value=0, max_value=365)
 
 # =============================================================================
 # Configuration Validation

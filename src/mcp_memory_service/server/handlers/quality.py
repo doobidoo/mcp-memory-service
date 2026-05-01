@@ -22,7 +22,7 @@ Extracted from server_impl.py Phase 2.5 refactoring.
 import logging
 import traceback
 import json
-import time as _time
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
@@ -32,6 +32,7 @@ from ...config import (
     MAINTAIN_STALE_DAYS,
     MAINTAIN_AUTO_RESOLVE,
     MAINTAIN_AUTO_RESOLVE_THRESHOLD,
+    MAINTAIN_AUTO_RESOLVE_AGE_DAYS,
 )
 
 logger = logging.getLogger(__name__)
@@ -338,7 +339,10 @@ _last_maintain_run: Dict[str, Any] = {}
 
 
 async def handle_maintain_status() -> List[types.TextContent]:
-    """Return stats from the last maintain run."""
+    """Return stats from the last maintain run.
+
+    Note: state is held in-process memory and resets on server restart.
+    """
     if not _last_maintain_run:
         return [types.TextContent(type="text", text=json.dumps({"status": "never_run"}))]
     return [types.TextContent(type="text", text=json.dumps(_last_maintain_run, indent=2, default=str))]
@@ -358,8 +362,9 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
         "stale_days": MAINTAIN_STALE_DAYS,
         "auto_resolve": MAINTAIN_AUTO_RESOLVE,
         "auto_resolve_threshold": MAINTAIN_AUTO_RESOLVE_THRESHOLD,
+        "auto_resolve_age_days": MAINTAIN_AUTO_RESOLVE_AGE_DAYS,
     }
-    start = _time.time()
+    start = time.time()
     report: Dict[str, Any] = {
         "action": "maintain",
         "dry_run": dry_run,
@@ -399,10 +404,43 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
                 and c.get("similarity", 0) >= config["auto_resolve_threshold"]
             )
             if can_resolve:
-                ok, msg = await storage.resolve_conflict(c["hash_a"], c["hash_b"])
+                # Two-signal guard: fetch both memories to check type + age
+                mem_a = await storage.get_by_hash(c["hash_a"])
+                mem_b = await storage.get_by_hash(c["hash_b"])
+                if not mem_a or not mem_b:
+                    skipped += 1
+                    detail["action"] = "skipped_missing_memory"
+                    conflict_details.append(detail)
+                    continue
+
+                # Guard 1: same memory_type required
+                if (mem_a.memory_type or "") != (mem_b.memory_type or ""):
+                    skipped += 1
+                    detail["action"] = "skipped_type_mismatch"
+                    conflict_details.append(detail)
+                    continue
+
+                # Guard 2: age delta must exceed threshold
+                ts_a = mem_a.created_at or 0
+                ts_b = mem_b.created_at or 0
+                age_delta_days = abs(ts_a - ts_b) / 86400
+                if age_delta_days < config["auto_resolve_age_days"]:
+                    skipped += 1
+                    detail["action"] = "skipped_age_too_close"
+                    conflict_details.append(detail)
+                    continue
+
+                # Newer-wins: the memory with the higher created_at is the winner
+                if ts_a >= ts_b:
+                    winner_hash, loser_hash = c["hash_a"], c["hash_b"]
+                else:
+                    winner_hash, loser_hash = c["hash_b"], c["hash_a"]
+
+                ok, msg = await storage.resolve_conflict(winner_hash, loser_hash)
                 if ok:
                     resolved += 1
                     detail["action"] = "auto_resolved"
+                    detail["winner"] = winner_hash[:12]
                 else:
                     skipped += 1
                     detail["action"] = f"resolve_failed: {msg}"
@@ -453,7 +491,7 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
         report["errors"].append(f"quality: {e}")
         report["steps"]["quality"] = {"error": str(e)}
 
-    elapsed = round(_time.time() - start, 2)
+    elapsed = round(time.time() - start, 2)
     report["elapsed_seconds"] = elapsed
     report["completed_at"] = datetime.now(timezone.utc).isoformat()
     report["success"] = len(report["errors"]) == 0

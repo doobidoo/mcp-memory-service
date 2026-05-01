@@ -95,17 +95,90 @@ async def test_maintain_detects_conflicts(mock_server):
 @pytest.mark.asyncio
 @patch("mcp_memory_service.server.handlers.quality.MAINTAIN_AUTO_RESOLVE", True)
 @patch("mcp_memory_service.server.handlers.quality.MAINTAIN_AUTO_RESOLVE_THRESHOLD", 0.80)
+@patch("mcp_memory_service.server.handlers.quality.MAINTAIN_AUTO_RESOLVE_AGE_DAYS", 7)
 async def test_maintain_auto_resolves_above_threshold(mock_server):
-    """With auto_resolve=true, conflicts above threshold are resolved."""
+    """With auto_resolve=true, conflicts above threshold are resolved (newer wins)."""
     server, storage = mock_server
+
+    # Create mock memories with same type and age delta > 7 days
+    mem_old = MagicMock()
+    mem_old.created_at = 1700000000.0  # older
+    mem_old.memory_type = "note"
+    mem_new = MagicMock()
+    mem_new.created_at = 1701000000.0  # ~11.5 days newer
+    mem_new.memory_type = "note"
+
     storage.get_conflicts = AsyncMock(return_value=[
         {"hash_a": "aaa111bbb222", "hash_b": "ccc333ddd444", "similarity": 0.96},
     ])
+    storage.get_by_hash = AsyncMock(side_effect=lambda h: mem_old if h == "aaa111bbb222" else mem_new)
+
     result = await handle_maintain(server, {"dry_run": False})
     report = json.loads(result[0].text)
 
     assert report["steps"]["conflicts"]["auto_resolved"] == 1
-    storage.resolve_conflict.assert_called_once()
+    # Newer memory (ccc333ddd444) should be the winner
+    storage.resolve_conflict.assert_called_once_with("ccc333ddd444", "aaa111bbb222")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@patch("mcp_memory_service.server.handlers.quality.MAINTAIN_AUTO_RESOLVE", True)
+@patch("mcp_memory_service.server.handlers.quality.MAINTAIN_AUTO_RESOLVE_THRESHOLD", 0.80)
+@patch("mcp_memory_service.server.handlers.quality.MAINTAIN_AUTO_RESOLVE_AGE_DAYS", 7)
+async def test_maintain_skips_type_mismatch(mock_server):
+    """Auto-resolve skips conflicts where memory types differ."""
+    server, storage = mock_server
+
+    mem_a = MagicMock()
+    mem_a.created_at = 1700000000.0
+    mem_a.memory_type = "note"
+    mem_b = MagicMock()
+    mem_b.created_at = 1701000000.0
+    mem_b.memory_type = "decision"
+
+    storage.get_conflicts = AsyncMock(return_value=[
+        {"hash_a": "aaa111bbb222", "hash_b": "ccc333ddd444", "similarity": 0.96},
+    ])
+    storage.get_by_hash = AsyncMock(side_effect=lambda h: mem_a if h == "aaa111bbb222" else mem_b)
+
+    result = await handle_maintain(server, {"dry_run": False})
+    report = json.loads(result[0].text)
+
+    assert report["steps"]["conflicts"]["auto_resolved"] == 0
+    assert report["steps"]["conflicts"]["skipped"] == 1
+    assert report["steps"]["conflicts"]["details"][0]["action"] == "skipped_type_mismatch"
+    storage.resolve_conflict.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@patch("mcp_memory_service.server.handlers.quality.MAINTAIN_AUTO_RESOLVE", True)
+@patch("mcp_memory_service.server.handlers.quality.MAINTAIN_AUTO_RESOLVE_THRESHOLD", 0.80)
+@patch("mcp_memory_service.server.handlers.quality.MAINTAIN_AUTO_RESOLVE_AGE_DAYS", 7)
+async def test_maintain_skips_age_too_close(mock_server):
+    """Auto-resolve skips conflicts where age delta is below threshold."""
+    server, storage = mock_server
+
+    mem_a = MagicMock()
+    mem_a.created_at = 1700000000.0
+    mem_a.memory_type = "note"
+    mem_b = MagicMock()
+    mem_b.created_at = 1700200000.0  # ~2.3 days apart (< 7)
+    mem_b.memory_type = "note"
+
+    storage.get_conflicts = AsyncMock(return_value=[
+        {"hash_a": "aaa111bbb222", "hash_b": "ccc333ddd444", "similarity": 0.96},
+    ])
+    storage.get_by_hash = AsyncMock(side_effect=lambda h: mem_a if h == "aaa111bbb222" else mem_b)
+
+    result = await handle_maintain(server, {"dry_run": False})
+    report = json.loads(result[0].text)
+
+    assert report["steps"]["conflicts"]["auto_resolved"] == 0
+    assert report["steps"]["conflicts"]["skipped"] == 1
+    assert report["steps"]["conflicts"]["details"][0]["action"] == "skipped_age_too_close"
+    storage.resolve_conflict.assert_not_called()
 
 
 @pytest.mark.unit
