@@ -54,10 +54,10 @@ COPY tools/docker/docker-entrypoint-unified.sh /usr/local/bin/
 # but MUST stay in sync with pyproject.toml `dependencies` for everything else.
 # See issue #811: missing aiosqlite/apscheduler/authlib/etc broke runtime in slim images.
 RUN python -m uv pip install \
-    "mcp>=1.0.0,<2.0.0" \
+    "mcp>=1.8.0,<2.0.0" \
     "sqlite-vec>=0.1.0" \
     "onnxruntime>=1.15.0" \
-    "tokenizers==0.20.3" \
+    "tokenizers>=0.22.2" \
     "build>=0.10.0" \
     "aiofiles>=23.2.1" \
     "aiohttp>=3.13.3" \
@@ -78,7 +78,8 @@ RUN python -m uv pip install \
     "sse-starlette>=2.1.0" \
     "uvicorn>=0.30.0" \
     "zeroconf>=0.130.0" \
-    && python -m uv pip install -e . --no-deps
+    && python -m uv pip install -e . --no-deps \
+    && rm -rf /root/.cache/uv /root/.cache/pip
 
 # Conditionally pre-download ONNX embedding models
 RUN if [ "$SKIP_MODEL_DOWNLOAD" != "true" ]; then \

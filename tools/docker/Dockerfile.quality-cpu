@@ -137,10 +137,10 @@ COPY tools/docker/docker-entrypoint-unified.sh /usr/local/bin/
 # Hand-curated list MUST stay in sync with pyproject.toml `dependencies`
 # minus the heavy ML deps. See issue #811.
 RUN python -m uv pip install \
-    "mcp>=1.0.0,<2.0.0" \
+    "mcp>=1.8.0,<2.0.0" \
     "sqlite-vec>=0.1.0" \
     "onnxruntime>=1.15.0" \
-    "tokenizers==0.20.3" \
+    "tokenizers>=0.22.2" \
     "build>=0.10.0" \
     "aiofiles>=23.2.1" \
     "aiohttp>=3.13.3" \
