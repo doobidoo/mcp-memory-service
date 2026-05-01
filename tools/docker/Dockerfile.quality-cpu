@@ -134,23 +134,33 @@ COPY tools/docker/docker-entrypoint-unified.sh /usr/local/bin/
 # Runtime deps: onnxruntime only — NO torch, transformers, huggingface_hub, onnx, onnxscript,
 # and NO sentence-transformers (it pulls torch+CUDA, bloating the image by ~8 GB).
 # Embeddings are provided by the project's built-in ONNX embedding module.
+# Hand-curated list MUST stay in sync with pyproject.toml `dependencies`
+# minus the heavy ML deps. See issue #811.
 RUN python -m uv pip install \
     "mcp>=1.0.0,<2.0.0" \
     "sqlite-vec>=0.1.0" \
     "onnxruntime>=1.15.0" \
     "tokenizers==0.20.3" \
     "build>=0.10.0" \
-    "aiohttp>=3.8.0" \
-    "fastapi>=0.115.0" \
-    "uvicorn>=0.30.0" \
-    "python-multipart>=0.0.9" \
-    "sse-starlette>=2.1.0" \
     "aiofiles>=23.2.1" \
-    "psutil>=5.9.0" \
-    "zeroconf>=0.130.0" \
-    "PyPDF2>=3.0.0" \
+    "aiohttp>=3.13.3" \
+    "aiosqlite>=0.20.0" \
+    "apscheduler>=3.11.0" \
+    "authlib>=1.6.9" \
     "chardet>=5.0.0" \
     "click>=8.0.0" \
+    "cryptography>=46.0.6" \
+    "fastapi>=0.115.5" \
+    "httpx>=0.24.0" \
+    "psutil>=5.9.0" \
+    "PyJWT[crypto]>=2.12.0" \
+    "pypdf>=6.9.1" \
+    "python-dotenv>=1.0.0" \
+    "python-multipart>=0.0.22" \
+    "requests>=2.32.4" \
+    "sse-starlette>=2.1.0" \
+    "uvicorn>=0.30.0" \
+    "zeroconf>=0.130.0" \
     && python -m uv pip install -e . --no-deps \
     && rm -rf /root/.cache/uv /root/.cache/pip
 
