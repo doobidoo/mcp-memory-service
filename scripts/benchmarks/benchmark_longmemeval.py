@@ -309,11 +309,11 @@ async def run_benchmark(args: argparse.Namespace):
     items = load_dataset(data_path=data_path, limit=limit)
     logger.info("Loaded %d items", len(items))
 
-    _ingest_fn = (
-        ingest_item_session if ingestion_mode == "session"
-        else ingest_item_hybrid if ingestion_mode == "hybrid"
-        else ingest_item
-    )
+    _ingest_fn = {
+        "turn": ingest_item,
+        "session": ingest_item_session,
+        "hybrid": ingest_item_hybrid,
+    }[ingestion_mode]
 
     all_per_item: List[Dict] = []
 
