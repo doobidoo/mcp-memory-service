@@ -90,6 +90,13 @@ async def ingest_item_session(storage: SqliteVecMemoryStorage, item: LongMemEval
     return stored
 
 
+async def ingest_item_hybrid(storage: SqliteVecMemoryStorage, item: LongMemEvalItem) -> int:
+    """Store both session units and individual turns. Returns total count."""
+    session_count = await ingest_item_session(storage, item)
+    turn_count = await ingest_item(storage, item)
+    return session_count + turn_count
+
+
 def _match_evidence(
     retrieved_results,
     answer_session_ids: List[str],
@@ -288,10 +295,10 @@ async def run_benchmark(args: argparse.Namespace):
     limit = getattr(args, "limit", None)
     ingestion_mode = getattr(args, "ingestion_mode", "turn")
 
-    # "both" mode: run turn-level then session-level and compare
+    # "both" mode: run all three ingestion modes and compare
     if ingestion_mode == "both":
         results = []
-        for mode in ("turn", "session"):
+        for mode in ("turn", "session", "hybrid"):
             args_copy = argparse.Namespace(**vars(args))
             args_copy.ingestion_mode = mode
             logger.info("--- Running ingestion_mode=%s ---", mode)
@@ -302,7 +309,11 @@ async def run_benchmark(args: argparse.Namespace):
     items = load_dataset(data_path=data_path, limit=limit)
     logger.info("Loaded %d items", len(items))
 
-    _ingest_fn = ingest_item_session if ingestion_mode == "session" else ingest_item
+    _ingest_fn = (
+        ingest_item_session if ingestion_mode == "session"
+        else ingest_item_hybrid if ingestion_mode == "hybrid"
+        else ingest_item
+    )
 
     all_per_item: List[Dict] = []
 
@@ -395,11 +406,12 @@ def parse_args(argv=None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--ingestion-mode",
-        choices=["turn", "session", "both"],
+        choices=["turn", "session", "hybrid", "both"],
         default="turn",
         help="Ingestion granularity: 'turn' stores each message separately (default), "
              "'session' stores a full conversation as one memory, "
-             "'both' runs both and prints a comparison table.",
+             "'hybrid' stores both session units and individual turns, "
+             "'both' runs all three modes and prints a comparison table.",
     )
     parser.add_argument(
         "--markdown",
