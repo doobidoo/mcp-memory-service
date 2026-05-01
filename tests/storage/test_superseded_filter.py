@@ -109,21 +109,13 @@ class TestAutoSupersedOnContradiction:
     @pytest.mark.asyncio
     async def test_auto_supersede_marks_older_memory(self, storage):
         """When a contradicts edge is detected, the older memory should be auto-superseded."""
-        from mcp_memory_service.consolidation.consolidator import DreamInspiredConsolidator
-        from mcp_memory_service.consolidation.base import ConsolidationConfig
-
         older_ts = 1000000.0
         newer_ts = 2000000.0
         h_old = await _store(storage, "The API uses REST architecture", created_at=older_ts)
         h_new = await _store(storage, "The API uses GraphQL architecture", created_at=newer_ts)
 
-        config = ConsolidationConfig()
-        consolidator = DreamInspiredConsolidator(storage, config)
-
-        old_mem = _make_memory("The API uses REST architecture", created_at=older_ts)
-        new_mem = _make_memory("The API uses GraphQL architecture", created_at=newer_ts)
-
-        await consolidator._auto_supersede_on_contradiction(new_mem, old_mem)
+        marked = await storage.mark_superseded_batch([(h_new, h_old)])
+        assert marked == 1
 
         # Verify older memory is superseded
         row = storage.conn.execute(
@@ -141,23 +133,15 @@ class TestAutoSupersedOnContradiction:
 
     @pytest.mark.asyncio
     async def test_auto_supersede_reverse_order(self, storage):
-        """Auto-supersede works regardless of argument order."""
-        from mcp_memory_service.consolidation.consolidator import DreamInspiredConsolidator
-        from mcp_memory_service.consolidation.base import ConsolidationConfig
-
+        """mark_superseded_batch correctly handles winner/loser regardless of order."""
         older_ts = 1000000.0
         newer_ts = 2000000.0
         h_old = await _store(storage, "Deploy target is AWS", created_at=older_ts)
         h_new = await _store(storage, "Deploy target is GCP", created_at=newer_ts)
 
-        config = ConsolidationConfig()
-        consolidator = DreamInspiredConsolidator(storage, config)
-
-        old_mem = _make_memory("Deploy target is AWS", created_at=older_ts)
-        new_mem = _make_memory("Deploy target is GCP", created_at=newer_ts)
-
-        # Pass in reverse order (old as source, new as target)
-        await consolidator._auto_supersede_on_contradiction(old_mem, new_mem)
+        # Winner is h_new, loser is h_old
+        marked = await storage.mark_superseded_batch([(h_new, h_old)])
+        assert marked == 1
 
         row = storage.conn.execute(
             "SELECT superseded_by FROM memories WHERE content_hash = ?", (h_old,)

@@ -1976,7 +1976,8 @@ SOLUTIONS:
         query: str,
         n_results: int = 5,
         keyword_weight: Optional[float] = None,
-        semantic_weight: Optional[float] = None
+        semantic_weight: Optional[float] = None,
+        include_superseded: bool = False
     ) -> List[MemoryQueryResult]:
         """
         Hybrid search combining BM25 keyword matching and vector similarity.
@@ -1996,7 +1997,7 @@ SOLUTIONS:
         try:
             # Execute searches in parallel (over-fetch to ensure good coverage)
             bm25_task = asyncio.create_task(self._search_bm25(query, n_results * 2))
-            vector_task = asyncio.create_task(self.retrieve(query, n_results * 2))
+            vector_task = asyncio.create_task(self.retrieve(query, n_results * 2, include_superseded=include_superseded))
 
             bm25_results, vector_results = await asyncio.gather(bm25_task, vector_task)
 
@@ -2029,11 +2030,13 @@ SOLUTIONS:
                         batch = bm25_only_hashes[batch_start : batch_start + 999]
                         placeholders = ",".join("?" for _ in batch)
 
-                        def fetch_batch(ph=placeholders, b=batch):
+                        superseded_filter = "" if include_superseded else " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
+
+                        def fetch_batch(ph=placeholders, b=batch, sf=superseded_filter):
                             cursor = self.conn.execute(
                                 f"SELECT content_hash, content, tags, memory_type, metadata, "
                                 f"created_at, updated_at, created_at_iso, updated_at_iso "
-                                f"FROM memories WHERE content_hash IN ({ph}) AND deleted_at IS NULL",
+                                f"FROM memories m WHERE content_hash IN ({ph}) AND deleted_at IS NULL{sf}",
                                 b,
                             )
                             return cursor.fetchall()
@@ -3070,6 +3073,39 @@ SOLUTIONS:
             logger.error(f"Batch update failed: {e}")
             logger.error(traceback.format_exc())
             return [False] * len(memories)
+
+    async def mark_superseded_batch(self, pairs: list[tuple[str, str]]) -> int:
+        """Mark memories as superseded in a single transaction.
+
+        Uses _conn_lock via _execute_with_retry for thread safety.
+
+        Args:
+            pairs: List of (winner_hash, loser_hash) tuples.
+
+        Returns:
+            Number of memories successfully marked.
+        """
+        if not pairs or not self.conn:
+            return 0
+
+        def _batch_mark():
+            count = 0
+            for winner_hash, loser_hash in pairs:
+                self.conn.execute(
+                    "UPDATE memories SET superseded_by = ? WHERE content_hash = ? AND deleted_at IS NULL",
+                    (winner_hash, loser_hash),
+                )
+                count += 1
+            self.conn.commit()
+            return count
+
+        try:
+            return await self._execute_with_retry(_batch_mark)
+        except Exception as e:
+            logger.error(f"mark_superseded_batch failed: {e}")
+            if self.conn:
+                self.conn.rollback()
+            return 0
 
     async def get_stats(self) -> Dict[str, Any]:
         """Get storage statistics."""

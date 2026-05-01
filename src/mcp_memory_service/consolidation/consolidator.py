@@ -659,6 +659,7 @@ class DreamInspiredConsolidator:
 
         stored_count = 0
         failed_count = 0
+        supersede_pairs = []
 
         # Build hash -> memory lookup map for efficiency
         all_memories = await self.storage.get_all_memories()
@@ -735,16 +736,19 @@ class DreamInspiredConsolidator:
                 if success:
                     stored_count += 1
 
-                    # Auto-mark older memory as superseded on high-confidence contradiction (#732)
+                    # Collect contradiction pairs for batch superseding (#732)
                     if (
                         relationship_type == "contradicts"
                         and confidence >= 0.75
                         and source_memory
                         and target_memory
                     ):
-                        await self._auto_supersede_on_contradiction(
-                            source_memory, target_memory
-                        )
+                        source_ts = source_memory.created_at or 0.0
+                        target_ts = target_memory.created_at or 0.0
+                        if source_ts >= target_ts:
+                            supersede_pairs.append((source_memory.content_hash, target_memory.content_hash))
+                        else:
+                            supersede_pairs.append((target_memory.content_hash, source_memory.content_hash))
                 else:
                     failed_count += 1
 
@@ -752,45 +756,24 @@ class DreamInspiredConsolidator:
                 failed_count += 1
                 self.logger.warning(f"Failed to store association in graph table: {e}")
 
+        # Batch-mark superseded memories in a single transaction (#732)
+        if supersede_pairs:
+            storage = self.storage
+            if not hasattr(storage, 'mark_superseded_batch'):
+                primary = getattr(storage, "primary_storage", None)
+                if primary and hasattr(primary, 'mark_superseded_batch'):
+                    storage = primary
+            if hasattr(storage, 'mark_superseded_batch'):
+                marked = await storage.mark_superseded_batch(supersede_pairs)
+                self.logger.info(
+                    f"Auto-superseded {marked} memories on contradiction detection"
+                )
+
         self.logger.info(
             f"Stored {stored_count} associations in graph table ({failed_count} failed)"
             if failed_count > 0
             else f"Stored {stored_count} associations in graph table"
         )
-
-    async def _auto_supersede_on_contradiction(
-        self, source_memory: "Memory", target_memory: "Memory"
-    ) -> None:
-        """Mark the older memory as superseded when a contradiction is detected (#732)."""
-        try:
-            source_ts = source_memory.created_at or 0.0
-            target_ts = target_memory.created_at or 0.0
-
-            if source_ts >= target_ts:
-                # Source is newer → target is superseded
-                winner, loser = source_memory, target_memory
-            else:
-                # Target is newer → source is superseded
-                winner, loser = target_memory, source_memory
-
-            conn = getattr(self.storage, "conn", None)
-            if conn is None:
-                primary = getattr(self.storage, "primary_storage", None)
-                if primary:
-                    conn = getattr(primary, "conn", None)
-            if conn is None:
-                return
-
-            conn.execute(
-                "UPDATE memories SET superseded_by = ? WHERE content_hash = ? AND deleted_at IS NULL",
-                (winner.content_hash, loser.content_hash),
-            )
-            conn.commit()
-            self.logger.info(
-                f"Auto-superseded {loser.content_hash[:8]} by {winner.content_hash[:8]} (contradiction)"
-            )
-        except Exception as e:
-            self.logger.warning(f"Failed to auto-supersede on contradiction: {e}")
 
     async def _handle_compression_results(self, compression_results) -> None:
         """Handle storage of compressed memories — batched for efficiency."""
