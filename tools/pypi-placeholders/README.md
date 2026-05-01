@@ -25,13 +25,16 @@ Each placeholder is a self-contained `pyproject.toml` project. Build all four an
 ```bash
 cd tools/pypi-placeholders
 
-# Build all four (one-shot)
-for d in agent-memory-service ai-memory-service agent-memory memory-for-agents; do
-  ( cd "$d" && python -m build && twine check dist/* ) || exit 1
+PKGS="agent-memory-service ai-memory-service agent-memory memory-for-agents"
+
+# Build + check all four. Use `break` instead of `exit 1` so a failure in
+# this copy-pasted snippet does not terminate the user's interactive shell.
+for d in $PKGS; do
+  ( cd "$d" && python -m build && twine check dist/* ) || break
 done
 
 # Upload all four to PyPI (interactive — twine will prompt for token / use ~/.pypirc)
-for d in agent-memory-service ai-memory-service agent-memory memory-for-agents; do
+for d in $PKGS; do
   twine upload "$d/dist/*"
 done
 ```

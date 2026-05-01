@@ -11,6 +11,6 @@ warnings.warn(
     "ai-memory-service is a placeholder. Install the real package: "
     "pip install mcp-memory-service "
     "(https://pypi.org/project/mcp-memory-service/)",
-    DeprecationWarning,
+    UserWarning,
     stacklevel=2,
 )
