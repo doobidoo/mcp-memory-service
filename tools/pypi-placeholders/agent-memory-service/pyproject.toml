@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-memory-service"
+version = "0.0.1"
+description = "Placeholder package — install mcp-memory-service instead."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Heinrich Krupp", email = "heinrich.krupp@gmail.com" }]
+keywords = ["mcp-memory-service", "placeholder", "redirect"]
+classifiers = [
+    "Development Status :: 7 - Inactive",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+]
+
+[project.urls]
+Homepage = "https://github.com/doobidoo/mcp-memory-service"
+"Real Package" = "https://pypi.org/project/mcp-memory-service/"
+Issues = "https://github.com/doobidoo/mcp-memory-service/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_memory_service"]
