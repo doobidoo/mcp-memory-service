@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **[#811] Docker `:slim` and `:quality-cpu` images missing `aiosqlite` and other core deps**: The hand-curated dependency lists in `tools/docker/Dockerfile.slim` and `tools/docker/Dockerfile.quality-cpu` had drifted from `pyproject.toml`'s `dependencies` block. Both Dockerfiles use `pip install -e . --no-deps` to skip the heavy ML stack (`torch`, `transformers`, `sentence-transformers`) but were also accidentally skipping `aiosqlite>=0.20.0` (the visible failure: `ModuleNotFoundError: No module named 'aiosqlite'` on first memory tool call with `MCP_MEMORY_STORAGE_BACKEND=sqlite_vec`), plus `apscheduler` (consolidation), `authlib`/`PyJWT[crypto]`/`cryptography` (OAuth), `httpx`/`requests`, `python-dotenv`, and `pypdf`. The list was also still installing the deprecated `PyPDF2` while the code imports `pypdf`. Both Dockerfiles now ship the full pyproject `dependencies` set minus the heavy ML deps, with `mcp` and `tokenizers` version specifiers re-aligned to pyproject. The `Dockerfile.slim` install step also strips uv/pip caches at the end of the RUN, mirroring `Dockerfile.quality-cpu`. Closes #811. (PR #815)
+
 ## [10.47.1] - 2026-05-01
 
 ### Fixed
