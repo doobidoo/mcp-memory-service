@@ -1503,6 +1503,11 @@ Examples:
                                 "max_response_chars": {
                                     "type": "number",
                                     "description": "Maximum response size in characters. Truncates at memory boundaries to prevent context overflow. Recommended: 30000-50000. Default: unlimited."
+                                },
+                                "include_superseded": {
+                                    "type": "boolean",
+                                    "default": False,
+                                    "description": "Include memories that have been superseded by newer contradicting memories. Default: false (superseded memories are hidden)."
                                 }
                             }
                         },

@@ -940,7 +940,8 @@ class MemoryStorage(ABC):
         tags: Optional[List[str]] = None,
         quality_boost: float = 0.0,
         limit: int = 10,
-        include_debug: bool = False
+        include_debug: bool = False,
+        include_superseded: bool = False
     ) -> Dict[str, Any]:
         """
         Unified memory search with flexible modes and filters.
@@ -1149,7 +1150,7 @@ class MemoryStorage(ABC):
                                     quality_weight=quality_boost
                                 )
                             else:
-                                results = await self.retrieve(query, n_results=fetch_limit, tags=tags)
+                                results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded)
                     elif quality_boost > 0:
                         # Use quality-boosted retrieval
                         results = await self.retrieve_with_quality_boost(
@@ -1161,7 +1162,7 @@ class MemoryStorage(ABC):
                         )
                     else:
                         # Standard semantic search
-                        results = await self.retrieve(query, n_results=fetch_limit, tags=tags)
+                        results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded)
 
                     pre_filter_count = len(results)
                 else:

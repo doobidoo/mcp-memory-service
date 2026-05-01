@@ -762,7 +762,8 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             tags=tags,
             quality_boost=arguments.get("quality_boost", 0.0),
             limit=arguments.get("limit", 10),
-            include_debug=arguments.get("include_debug", False)
+            include_debug=arguments.get("include_debug", False),
+            include_superseded=arguments.get("include_superseded", False)
         )
 
         # Check for errors

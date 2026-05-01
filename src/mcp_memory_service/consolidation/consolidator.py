@@ -688,6 +688,7 @@ class DreamInspiredConsolidator:
 
                 # Infer relationship type if both memories available
                 relationship_type = "related"
+                confidence = 0.0
                 if source_memory and target_memory:
                     try:
                         (
@@ -733,6 +734,17 @@ class DreamInspiredConsolidator:
 
                 if success:
                     stored_count += 1
+
+                    # Auto-mark older memory as superseded on high-confidence contradiction (#732)
+                    if (
+                        relationship_type == "contradicts"
+                        and confidence >= 0.75
+                        and source_memory
+                        and target_memory
+                    ):
+                        await self._auto_supersede_on_contradiction(
+                            source_memory, target_memory
+                        )
                 else:
                     failed_count += 1
 
@@ -745,6 +757,40 @@ class DreamInspiredConsolidator:
             if failed_count > 0
             else f"Stored {stored_count} associations in graph table"
         )
+
+    async def _auto_supersede_on_contradiction(
+        self, source_memory: "Memory", target_memory: "Memory"
+    ) -> None:
+        """Mark the older memory as superseded when a contradiction is detected (#732)."""
+        try:
+            source_ts = source_memory.created_at or 0.0
+            target_ts = target_memory.created_at or 0.0
+
+            if source_ts >= target_ts:
+                # Source is newer → target is superseded
+                winner, loser = source_memory, target_memory
+            else:
+                # Target is newer → source is superseded
+                winner, loser = target_memory, source_memory
+
+            conn = getattr(self.storage, "conn", None)
+            if conn is None:
+                primary = getattr(self.storage, "primary_storage", None)
+                if primary:
+                    conn = getattr(primary, "conn", None)
+            if conn is None:
+                return
+
+            conn.execute(
+                "UPDATE memories SET superseded_by = ? WHERE content_hash = ? AND deleted_at IS NULL",
+                (winner.content_hash, loser.content_hash),
+            )
+            conn.commit()
+            self.logger.info(
+                f"Auto-superseded {loser.content_hash[:8]} by {winner.content_hash[:8]} (contradiction)"
+            )
+        except Exception as e:
+            self.logger.warning(f"Failed to auto-supersede on contradiction: {e}")
 
     async def _handle_compression_results(self, compression_results) -> None:
         """Handle storage of compressed memories — batched for efficiency."""

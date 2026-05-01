@@ -1599,7 +1599,7 @@ SOLUTIONS:
 
         return [(r if r is not None else (False, "Skipped")) for r in results]
 
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0) -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False) -> List[MemoryQueryResult]:
         """Retrieve memories using semantic search."""
         try:
             if not self.conn:
@@ -1685,6 +1685,8 @@ SOLUTIONS:
 
                     tag_conditions = " AND (" + " OR ".join(tag_clauses) + ")"
 
+                superseded_filter = "" if include_superseded else " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
+
                 sql = f'''
                     SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
                            m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
@@ -1695,7 +1697,7 @@ SOLUTIONS:
                         FROM memory_embeddings
                         WHERE content_embedding MATCH ? AND k = ?
                     ) e ON m.id = e.rowid
-                    WHERE m.deleted_at IS NULL AND (m.superseded_by IS NULL OR m.superseded_by = ''){tag_conditions}
+                    WHERE m.deleted_at IS NULL{superseded_filter}{tag_conditions}
                     ORDER BY e.distance
                     LIMIT ?
                 '''
