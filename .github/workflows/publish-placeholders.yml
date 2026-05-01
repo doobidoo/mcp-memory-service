@@ -1,0 +1,87 @@
+name: Publish PyPI Placeholders
+
+# Manually-triggered workflow that builds and uploads the four defensive
+# name-reservation placeholder packages under tools/pypi-placeholders/ to
+# PyPI. See issue #809 and PRs #817/#818 for context.
+#
+# This is intended to be run ONCE for the initial registration of each
+# name. After upload, the four PyPI projects exist and don't need further
+# action — they sit at version 0.0.1 indefinitely. Re-running the workflow
+# is safe (twine --skip-existing), but pointless.
+#
+# Required secret: PYPI_TOKEN (account-scoped, since these are NEW projects
+# that don't exist on PyPI yet — project-scoped tokens cannot register new
+# projects). After first successful upload, you can rotate to project-scoped
+# tokens per placeholder if you want stricter security.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Where to upload"
+        required: true
+        default: "testpypi"
+        type: choice
+        options:
+          - testpypi
+          - pypi
+      skip_existing:
+        description: "Pass --skip-existing to twine (safe for re-runs)"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  publish-placeholders:
+    name: Build & upload placeholder packages
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - agent-memory-service
+          - ai-memory-service
+          - agent-memory
+          - memory-for-agents
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build twine
+
+      - name: Build placeholder
+        working-directory: tools/pypi-placeholders/${{ matrix.package }}
+        run: python -m build
+
+      - name: Verify artifacts
+        working-directory: tools/pypi-placeholders/${{ matrix.package }}
+        run: python -m twine check dist/*
+
+      - name: Upload to selected index
+        working-directory: tools/pypi-placeholders/${{ matrix.package }}
+        env:
+          # `target` is a `type: choice` enum so the substitution is bounded
+          # to one of two literal strings — but we still pipe it through env
+          # vars and avoid any direct ${{ ... }} interpolation in the run
+          # script body (workflow injection hardening).
+          TARGET: ${{ inputs.target }}
+          SKIP_EXISTING: ${{ inputs.skip_existing }}
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ inputs.target == 'pypi' && secrets.PYPI_TOKEN || secrets.TEST_PYPI_TOKEN }}
+          TWINE_REPOSITORY: ${{ inputs.target }}
+        run: |
+          if [ "${SKIP_EXISTING}" = "true" ]; then
+            python -m twine upload --skip-existing dist/*
+          else
+            python -m twine upload dist/*
+          fi
+          echo "Uploaded to ${TARGET}."
