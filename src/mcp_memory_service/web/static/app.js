@@ -3500,7 +3500,15 @@ class MemoryDashboard {
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.detail || `HTTP ${response.status}`);
+            // Preserve the HTTP status + parsed detail on the thrown Error so
+            // callers can branch on machine-readable values instead of
+            // substring-matching the human-readable message (which breaks on
+            // wording / translation changes — see PR #807 review).
+            const err = new Error(errorData.detail || `HTTP ${response.status}`);
+            err.status = response.status;
+            err.detail = errorData.detail;
+            err.body = errorData;
+            throw err;
         }
 
         return await response.json();
@@ -3749,8 +3757,11 @@ class MemoryDashboard {
             if (actionStatus) { actionStatus.style.display = 'none'; }
             const msg = error.message || String(error);
 
-            // 409 → dirty working tree. Offer force retry.
-            if (msg.includes('uncommitted changes')) {
+            // 409 Conflict → dirty working tree. Offer force retry.
+            // Gate on the HTTP status code (set by apiCall) instead of
+            // substring-matching the message — error wording can change
+            // between releases and gets translated, status codes don't.
+            if (error.status === 409) {
                 this.showToast('Update blocked: ' + msg, 'error');
                 if (confirm('The server has uncommitted local changes that will block the pull.\n\n' + msg + '\n\nForce-pull anyway? (Local changes may be overwritten.)')) {
                     return this.updateAndRestart(true);

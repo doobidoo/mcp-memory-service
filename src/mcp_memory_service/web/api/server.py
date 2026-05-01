@@ -107,6 +107,18 @@ class UpdateResponse(BaseModel):
 
 
 # Helper functions
+def _sanitize_log_value(value: object) -> str:
+    """
+    Sanitize a user-controlled value for safe inclusion in log messages.
+
+    OAuth-derived fields (``user.client_id``, ``user.auth_method``) reach
+    these audit logs from authenticated requests but are still attacker-
+    controllable for clients that successfully authenticated, so we strip
+    CR/LF/escape characters to prevent log forging (CodeQL py/log-injection).
+    """
+    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
+
 def _get_project_root() -> str:
     """Get the project root directory by searching for the .git folder."""
     from pathlib import Path
@@ -326,7 +338,11 @@ async def restart_server(
             detail="Restart confirmation required. Set 'confirm' to true."
         )
 
-    logger.warning(f"AUDIT: Server restart requested by user: {user.client_id} (auth: {user.auth_method})")
+    logger.warning(
+        "AUDIT: Server restart requested by user: %s (auth: %s)",
+        _sanitize_log_value(user.client_id),
+        _sanitize_log_value(user.auth_method),
+    )
 
     # Schedule restart in background
     background_tasks.add_task(_restart_server_delayed)
@@ -360,8 +376,10 @@ async def update_server(
         )
 
     logger.warning(
-        f"AUDIT: Server update requested by user: {user.client_id} "
-        f"(auth: {user.auth_method}, force: {request.force})"
+        "AUDIT: Server update requested by user: %s (auth: %s, force: %s)",
+        _sanitize_log_value(user.client_id),
+        _sanitize_log_value(user.auth_method),
+        request.force,
     )
 
     # Step 0: Refuse to pull on a dirty working tree unless force=True.
@@ -405,7 +423,10 @@ async def update_server(
     # Step 3: Schedule restart
     background_tasks.add_task(_restart_server_delayed)
 
-    logger.warning(f"AUDIT: Server update completed by {user.client_id}, restart scheduled")
+    logger.warning(
+        "AUDIT: Server update completed by %s, restart scheduled",
+        _sanitize_log_value(user.client_id),
+    )
 
     return UpdateResponse(
         status="success",
