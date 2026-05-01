@@ -85,11 +85,14 @@ class RestartResponse(BaseModel):
     status: str
     message: str
     restart_in_seconds: int
+    pre_restart_pid: int = Field(..., description="PID of the process scheduling the restart; clients compare to verify a real restart occurred")
+    pre_restart_version: str = Field(..., description="Version of the running process before restart")
 
 
 class UpdateRequest(BaseModel):
     """Request model for server update."""
     confirm: bool = Field(..., description="Must be true to confirm update")
+    force: bool = Field(False, description="If true, proceed even when the git working tree is dirty (uncommitted changes may block the pull)")
 
 
 class UpdateResponse(BaseModel):
@@ -99,6 +102,8 @@ class UpdateResponse(BaseModel):
     git_output: Optional[str] = None
     pip_output: Optional[str] = None
     restart_scheduled: bool
+    pre_restart_pid: Optional[int] = Field(None, description="PID of the process scheduling the restart; clients compare to verify a real restart occurred")
+    pre_restart_version: Optional[str] = Field(None, description="Version of the running process before restart")
 
 
 # Helper functions
@@ -117,6 +122,9 @@ def _run_command(command: List[str], timeout: int, command_name: str) -> Tuple[s
     """
     Run a command and return output.
 
+    On failure, stderr is appended to stdout so callers can surface the actual
+    error to the user (previous behaviour silently dropped stderr — see #729).
+
     Returns:
         Tuple of (output_string, success_boolean)
     """
@@ -128,13 +136,36 @@ def _run_command(command: List[str], timeout: int, command_name: str) -> Tuple[s
             timeout=timeout,
             cwd=_get_project_root()
         )
-        return result.stdout.strip(), result.returncode == 0
+        success = result.returncode == 0
+        if success:
+            return result.stdout.strip(), True
+        combined = "\n".join(s for s in (result.stdout.strip(), result.stderr.strip()) if s)
+        if not combined:
+            combined = f"{command_name} exited with code {result.returncode}"
+        return combined, False
     except FileNotFoundError:
         return f"{command_name} command not found. Please install {command_name.lower()}.", False
     except subprocess.TimeoutExpired:
         return f"{command_name} command timed out after {timeout} seconds", False
     except Exception as e:
         return f"{command_name} command failed: {str(e)}", False
+
+
+def _check_working_tree_clean() -> Tuple[bool, List[str]]:
+    """
+    Check whether the git working tree is clean.
+
+    Returns ``(is_clean, dirty_paths)``. ``is_clean`` is False if
+    ``git status --porcelain`` reports any modified/untracked files OR if
+    the command itself fails (defensive — refuse to pull on unknown state).
+    """
+    output, success = _run_git_command(['status', '--porcelain'])
+    if not success:
+        return False, [f"git status failed: {output}"]
+    if not output:
+        return True, []
+    dirty = [line.strip() for line in output.split('\n') if line.strip()]
+    return False, dirty
 
 
 def _run_git_command(args: List[str], timeout: int = GIT_TIMEOUT_SECONDS) -> Tuple[str, bool]:
@@ -303,7 +334,9 @@ async def restart_server(
     return RestartResponse(
         status="accepted",
         message=f"Server restarting in {RESTART_DELAY_SECONDS} seconds",
-        restart_in_seconds=RESTART_DELAY_SECONDS
+        restart_in_seconds=RESTART_DELAY_SECONDS,
+        pre_restart_pid=os.getpid(),
+        pre_restart_version=__version__,
     )
 
 
@@ -326,30 +359,47 @@ async def update_server(
             detail="Update confirmation required. Set 'confirm' to true."
         )
 
-    logger.warning(f"AUDIT: Server update requested by user: {user.client_id} (auth: {user.auth_method})")
+    logger.warning(
+        f"AUDIT: Server update requested by user: {user.client_id} "
+        f"(auth: {user.auth_method}, force: {request.force})"
+    )
+
+    # Step 0: Refuse to pull on a dirty working tree unless force=True.
+    # Previously we just ran `git pull`; if it aborted on a conflict the
+    # error was swallowed and the user saw a generic success toast (#729).
+    if not request.force:
+        is_clean, dirty = _check_working_tree_clean()
+        if not is_clean:
+            preview = "\n".join(dirty[:20])
+            if len(dirty) > 20:
+                preview += f"\n... and {len(dirty) - 20} more"
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Working tree has uncommitted changes — refusing to pull. "
+                    "Commit/stash them or retry with force=true.\n\n"
+                    f"{preview}"
+                ),
+            )
 
     # Step 1: Git pull
     git_output, git_success = _run_git_command(['pull', 'origin', 'main'])
 
     if not git_success:
-        return UpdateResponse(
-            status="error",
-            message="Git pull failed",
-            git_output=git_output,
-            pip_output=None,
-            restart_scheduled=False
+        logger.error(f"AUDIT: Server update aborted — git pull failed: {git_output}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Git pull failed: {git_output}",
         )
 
     # Step 2: Pip install
     pip_output, pip_success = _run_pip_command(['install', '-e', '.'])
 
     if not pip_success:
-        return UpdateResponse(
-            status="error",
-            message="Pip install failed",
-            git_output=git_output,
-            pip_output=pip_output,
-            restart_scheduled=False
+        logger.error(f"AUDIT: Server update aborted — pip install failed: {pip_output}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Pip install failed (git pull already succeeded — repository is at the new revision but dependencies are not installed): {pip_output}",
         )
 
     # Step 3: Schedule restart
@@ -362,5 +412,7 @@ async def update_server(
         message=f"Update completed successfully, server restarting in {RESTART_DELAY_SECONDS} seconds",
         git_output=git_output,
         pip_output=pip_output,
-        restart_scheduled=True
+        restart_scheduled=True,
+        pre_restart_pid=os.getpid(),
+        pre_restart_version=__version__,
     )

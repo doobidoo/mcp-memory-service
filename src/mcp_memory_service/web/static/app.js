@@ -3719,10 +3719,15 @@ class MemoryDashboard {
     }
 
     /**
-     * Update and restart the server
+     * Update and restart the server.
+     *
+     * Backend may refuse with HTTP 409 if the working tree is dirty (#729);
+     * we surface the detail and offer a force-retry confirmation. On success
+     * we capture pre-restart pid + version so pollServerHealth can verify
+     * the process actually rolled over instead of trusting /api/health.
      */
-    async updateAndRestart() {
-        if (!confirm('This will pull the latest code, install dependencies, and restart the server. Continue?')) {
+    async updateAndRestart(force = false) {
+        if (!force && !confirm('This will pull the latest code, install dependencies, and restart the server. Continue?')) {
             return;
         }
 
@@ -3733,18 +3738,33 @@ class MemoryDashboard {
         if (actionText) { actionText.textContent = 'Pulling updates and installing...'; }
 
         try {
-            const data = await this.apiCall('/server/update', 'POST', { confirm: true });
+            const data = await this.apiCall('/server/update', 'POST', { confirm: true, force });
 
             if (actionText) { actionText.textContent = 'Update complete. Server restarting...'; }
-            this.showRestartOverlay();
+            // Show captured git/pip output in console for diagnostics
+            if (data.git_output) { console.info('git pull:\n' + data.git_output); }
+            if (data.pip_output) { console.info('pip install:\n' + data.pip_output); }
+            this.showRestartOverlay(data.pre_restart_pid, data.pre_restart_version);
         } catch (error) {
             if (actionStatus) { actionStatus.style.display = 'none'; }
-            this.showToast('Update failed: ' + error.message, 'error');
+            const msg = error.message || String(error);
+
+            // 409 → dirty working tree. Offer force retry.
+            if (msg.includes('uncommitted changes')) {
+                this.showToast('Update blocked: ' + msg, 'error');
+                if (confirm('The server has uncommitted local changes that will block the pull.\n\n' + msg + '\n\nForce-pull anyway? (Local changes may be overwritten.)')) {
+                    return this.updateAndRestart(true);
+                }
+                return;
+            }
+
+            this.showToast('Update failed: ' + msg, 'error');
         }
     }
 
     /**
-     * Restart the server
+     * Restart the server (no update). Captures pre-restart pid + version
+     * so pollServerHealth can verify the process actually rolled over.
      */
     async restartServer() {
         if (!confirm('Are you sure you want to restart the server? This will temporarily disconnect all clients.')) {
@@ -3752,12 +3772,12 @@ class MemoryDashboard {
         }
 
         try {
-            await this.apiCall('/server/restart', 'POST', { confirm: true });
-            this.showRestartOverlay();
+            const data = await this.apiCall('/server/restart', 'POST', { confirm: true });
+            this.showRestartOverlay(data.pre_restart_pid, data.pre_restart_version);
         } catch (error) {
-            // Server may have already started shutting down
+            // Server may have already started shutting down before responding
             if (error.message && error.message.includes('fetch')) {
-                this.showRestartOverlay();
+                this.showRestartOverlay(null, null);
             } else {
                 this.showToast('Restart failed: ' + error.message, 'error');
             }
@@ -3765,9 +3785,14 @@ class MemoryDashboard {
     }
 
     /**
-     * Show restart overlay and poll for server recovery
+     * Show restart overlay and poll for server recovery.
+     *
+     * preRestartPid / preRestartVersion are captured before we kicked off
+     * the restart so we can detect the silent-no-op case (#729): the server
+     * answers /api/health (process never died) but pid+version are unchanged
+     * → user thinks the update worked but is still on the old build.
      */
-    showRestartOverlay() {
+    showRestartOverlay(preRestartPid, preRestartVersion) {
         const overlay = document.getElementById('restartOverlay');
         const countdownEl = document.getElementById('restartCountdown');
         const statusEl = document.getElementById('restartStatus');
@@ -3783,15 +3808,17 @@ class MemoryDashboard {
             if (countdownEl) { countdownEl.textContent = countdown; }
             if (countdown <= 0) {
                 clearInterval(countdownInterval);
-                this.pollServerHealth(statusEl, overlay, attempts, maxAttempts);
+                this.pollServerHealth(statusEl, overlay, attempts, maxAttempts, preRestartPid, preRestartVersion);
             }
         }, 1000);
     }
 
     /**
-     * Poll server health after restart
+     * Poll /server/status after restart and verify the process actually
+     * rolled over (pid changed OR version changed). /api/health alone is
+     * not enough because it answers OK on the original stale process.
      */
-    async pollServerHealth(statusEl, overlay, attempts, maxAttempts) {
+    async pollServerHealth(statusEl, overlay, attempts, maxAttempts, preRestartPid, preRestartVersion) {
         if (attempts >= maxAttempts) {
             if (statusEl) { statusEl.textContent = 'Server did not come back online. Please check manually.'; }
             setTimeout(() => {
@@ -3803,20 +3830,55 @@ class MemoryDashboard {
         if (statusEl) { statusEl.textContent = `Attempt ${attempts + 1}/${maxAttempts} - Waiting for server...`; }
 
         try {
-            const response = await fetch('/api/health');
-            if (response.ok) {
-                if (statusEl) { statusEl.textContent = 'Server is back online! Reloading...'; }
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1500);
-                return;
+            // Probe /server/status (auth-protected); fall back to /api/health
+            // if the call fails (e.g. before auth is re-established) so the
+            // overlay still progresses for unauthenticated dashboards.
+            let restarted = false;
+            try {
+                const status = await this.apiCall('/server/status');
+                if (preRestartPid != null || preRestartVersion != null) {
+                    const pidChanged = preRestartPid != null && status.pid !== preRestartPid;
+                    const versionChanged = preRestartVersion != null && status.version !== preRestartVersion;
+                    restarted = pidChanged || versionChanged;
+                } else {
+                    // No pre-restart baseline (e.g. shutdown before response) — accept any status response as recovery
+                    restarted = true;
+                }
+
+                if (restarted) {
+                    if (statusEl) { statusEl.textContent = `Server is back online (v${status.version}, pid ${status.pid})! Reloading...`; }
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                    return;
+                }
+                // Status responded but pid+version unchanged — process didn't actually restart.
+                // Keep polling; on the final attempt we surface a warning below.
+                if (attempts === maxAttempts - 1) {
+                    if (statusEl) {
+                        statusEl.textContent = `Process did not restart (still pid ${status.pid}, v${status.version}). The update may have failed silently — check server logs.`;
+                    }
+                    setTimeout(() => {
+                        if (overlay) { overlay.style.display = 'none'; }
+                    }, 8000);
+                    return;
+                }
+            } catch (apiErr) {
+                // /server/status unavailable (server still down or auth-gated) — try /api/health as a liveness probe
+                const response = await fetch('/api/health');
+                if (response.ok && preRestartPid == null && preRestartVersion == null) {
+                    if (statusEl) { statusEl.textContent = 'Server is back online! Reloading...'; }
+                    setTimeout(() => { window.location.reload(); }, 1500);
+                    return;
+                }
+                // /api/health up but we have a baseline to compare — keep polling /server/status
             }
         } catch (e) {
             // Server not ready yet
         }
 
         setTimeout(() => {
-            this.pollServerHealth(statusEl, overlay, attempts + 1, maxAttempts);
+            this.pollServerHealth(statusEl, overlay, attempts + 1, maxAttempts, preRestartPid, preRestartVersion);
         }, 2000);
     }
 
