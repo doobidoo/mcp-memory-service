@@ -569,7 +569,10 @@ python scripts/validation/diagnose_backend_config.py          # Backend-specific
 - **CLAUDE.md** - Architecture changes, new patterns, development workflows
 - **README.md** - New features, installation changes, user-facing updates
 - **CHANGELOG.md** - Every version bump (use github-release-manager agent)
-- **docs/index.html** - Landing page: MINOR/MAJOR releases only (version badge, test count, features). Auto-deployed via GitHub Pages. Also re-publish to here.now (`--slug merry-realm-j835`)
+- **docs/index.html** - Landing page: MINOR/MAJOR releases only (version badge, test count, features). Auto-deployed via GitHub Pages. Also re-publish to here.now:
+  ```bash
+  cd docs && ~/.agents/skills/here-now/scripts/publish.sh index.html --slug merry-realm-j835
+  ```
 - **Wiki** - Detailed guides, troubleshooting, tutorials
 
 ## Additional Resources
