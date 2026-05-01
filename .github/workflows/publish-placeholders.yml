@@ -44,8 +44,11 @@ jobs:
         package:
           - agent-memory-service
           - ai-memory-service
-          - agent-memory
           - memory-for-agents
+          # agent-memory was rejected by PyPI with HTTP 400 on first upload
+          # because it normalizes too closely to the existing `agentmemory`
+          # project (PEP 541-adjacent confusability check). Removed from the
+          # repo and the matrix. See tools/pypi-placeholders/README.md.
 
     steps:
       - uses: actions/checkout@v6
