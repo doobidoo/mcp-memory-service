@@ -20,11 +20,17 @@ Welcome to the comprehensive documentation for MCP Memory Service - a Model Cont
 - **[Multi-Client Setup](integration/multi-client.md)** - Share memory across multiple applications
 - **[Homebrew Integration](integration/homebrew.md)** - Use system-installed PyTorch via Homebrew
 - **[IDE Compatibility](ide-compatability.md)** - VS Code, Continue, and other IDE integrations
+- **[Gemini Integration](integrations/gemini.md)** - Use MCP Memory Service with Google Gemini
+- **[Groq Bridge](integrations/groq-bridge.md)** · **[Groq Integration Summary](integrations/groq-integration-summary.md)** · **[Groq Model Comparison](integrations/groq-model-comparison.md)** - Groq LLM integration for quality scoring
 
 ### 🚀 Deployment
 
 - **[Docker Deployment](deployment/docker.md)** - Containerized deployment with various configurations
 - **[Cloud Deployment](glama-deployment.md)** - Cloud platform deployment guides
+- **[Production Guide](deployment/production-guide.md)** - Single-process production deployment
+- **[Dual-Service Deployment](deployment/dual-service.md)** - FastMCP + HTTP two-service architecture
+- **[External Embeddings](deployment/external-embeddings.md)** - Use vLLM, Ollama, TEI or OpenAI-compatible embedding APIs
+- **[systemd Service](deployment/systemd-service.md)** - Linux systemd service unit setup
 
 ### 📚 User Guides
 
@@ -32,6 +38,18 @@ Welcome to the comprehensive documentation for MCP Memory Service - a Model Cont
 - **[Storage Backends](guides/STORAGE_BACKENDS.md)** - SQLite-vec / Cloudflare / Hybrid comparison and configuration
 - **[Migration Guide](guides/migration.md)** - Migrate between storage backends and versions
 - **[Scripts Reference](guides/scripts.md)** - Available utility scripts
+
+### 🎯 Natural Memory Triggers
+
+- **[Installation Guide](natural-memory-triggers/installation-guide.md)** - Set up automatic memory triggers in Claude Code
+- **[CLI Reference](natural-memory-triggers/cli-reference.md)** - Trigger CLI command reference
+- **[Performance Optimization](natural-memory-triggers/performance-optimization.md)** - Tune trigger sensitivity and latency
+
+### 🏛️ Architecture & Design
+
+- **[Graph Database Design](architecture/graph-database-design.md)** - Memory graph schema and relationships
+- **[Search Enhancement Spec](architecture/search-enhancement-spec.md)** - Hybrid search architecture
+- **[Search Examples](architecture/search-examples.md)** - Worked examples of search modes
 
 ### 🎯 Tutorials & Examples
 
