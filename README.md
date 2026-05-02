@@ -462,7 +462,7 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 **feat: include_superseded retrieval filter + auto-mark on contradiction**
 
 **What's New:**
-- **`include_superseded` parameter on all retrieval paths**: `memory_search`, `retrieve`, `retrieve_with_quality_boost`, and `retrieve_hybrid` across all backends (sqlite_vec, cloudflare, hybrid, milvus, http_client) now accept `include_superseded: bool = False`. Default behavior unchanged — pass `True` to retrieve the full contradiction chain. Partial implementation of RFC #732. (PR #814, @filhocf)
+- **`include_superseded` parameter on all retrieval paths**: `memory_search`, `retrieve`, `retrieve_with_quality_boost`, and `retrieve_hybrid` across all backends (`sqlite_vec`, `cloudflare`, `hybrid`, `milvus`, `http_client`) now accept `include_superseded: bool = False`. Default behavior unchanged — pass `True` to retrieve the full contradiction chain. Partial implementation of RFC #732. (PR #814, @filhocf)
 - **Auto-mark `superseded_by` on high-confidence contradiction**: The consolidator automatically marks the older memory as `superseded_by` the newer one when a `contradicts` relationship is detected with confidence ≥ 0.75. Single batched transaction via new `mark_superseded_batch()` storage method. No DB migration needed. (PR #814, @filhocf)
 
 ---
