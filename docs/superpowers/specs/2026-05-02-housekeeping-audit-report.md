@@ -7,7 +7,7 @@
 ## Summary
 
 - 🔴 Critical: 4 findings (F-007, F-008, F-015, F-016)
-- 🟡 Major:    19 findings
+- 🟡 Major:    18 findings (F-020 verified false → reclassified Noise)
 - 🟢 Minor:    13 findings (F-031 groups 46 repo orphans; F-032 groups 21 wiki orphans)
 - ⚪ Noise:    excluded (historical "introduced in vX" annotations, per-release test counts in old changelog entries, PR template examples, HTTPS port 8443 config examples in wiki)
 
@@ -23,13 +23,13 @@
 **Current**: `<a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v10.47.0">`
 **Expected**: `v10.47.2`
 **Fix**: Change release URL to `.../releases/tag/v10.47.2` so "Release Notes" button on landing page links to latest patch release.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-002 🟢 Minor · version drift · docs/index.html:6,8
 **Current**: `v10.47` (title tag and og:title — no patch version)
 **Expected**: `v10.47.2`
 **Fix**: Update `<title>` and `<meta property="og:title">` to `v10.47.2` for consistency. Per CLAUDE.md "MINOR/MAJOR releases only" policy, the `v10.47` form is technically allowed; this is cosmetic.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-003 🔴 Critical · cross-doc · test count drift (multiple files)
 **Current** (3 contradictory sources):
@@ -41,25 +41,25 @@
   - `wiki/13-Development-Roadmap.md:11` → `~1,780 tests passing`
 **Expected**: `~1,780 tests` (current canonical per CLAUDE.md header)
 **Fix**: Update CLAUDE.md:73 and CLAUDE.md:233 from `968 tests` → `~1,780 tests`. Per-release historical counts in README are correct as historical data and stay.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-004 🟡 Major · version drift · wiki/13-Development-Roadmap.md:9
 **Current**: `**Current Version**: v10.47.0 (Production-ready)`
 **Expected**: `v10.47.2`
 **Fix**: Bump to `v10.47.2` so the wiki roadmap header matches latest release.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-005 🟢 Minor · version drift · wiki/13-Development-Roadmap.md:289
 **Current**: `- **Version at Review**: v10.47.0`
 **Expected**: `v10.47.2`
 **Fix**: Update Q1 2026 review version marker to `v10.47.2`.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
 
 ### F-006 🟢 Minor · version drift · docs/BENCHMARKS.md:13
 **Current**: `**Date:** 2026-04-08 · **Version:** v10.34.0`
 **Expected**: Note reflects benchmark run version, not current.
 **Fix**: Add parenthetical `(benchmark run version; latest release: v10.47.2)` or link to updated benchmark. Existing value is historically correct for that run but may mislead.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
 
 ---
 
@@ -67,37 +67,37 @@
 **Current**: Entire "MCP (FastMCP HTTP) Tools" section documents pre-v10 deprecated tool names as canonical: `store_memory`, `retrieve_memory(query, n_results=5)`, `search_by_tag`, `delete_memory`, `check_database_health`.
 **Replacement**: v10 unified names — `memory_store`, `memory_search`, `memory_list`, `memory_delete`, `memory_health`. Parameter `n_results` → `limit`.
 **Fix**: Rewrite the "MCP Tools" table to list the 12 unified `memory_*` tools. Remove the `mcp_server.py` reference (still exists but is a compat shim, not primary).
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-008 🔴 Critical · feature drift · wiki/03-Integration-Guide.md:44–48
 **Current**: "Verify Connection" step (the actual install/setup verification path) tells users to look for `store_memory`, `retrieve_memory`, `search_by_tag`, `delete_memory`, `check_database_health` in tool list.
 **Replacement**: `memory_store`, `memory_search`, `memory_list`, `memory_delete`, `memory_health`.
 **Fix**: Update bullet list to v10 names. Critical because this is what users follow to confirm setup worked.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-009 🟡 Major · feature drift · docs/mastery/api-reference.md:66–73 (Examples)
 **Current**: Example snippets use `tool: store_memory`, `tool: retrieve_memory` with `n_results: 5`, `tool: search_by_tag`.
 **Replacement**: `memory_store`, `memory_search` (with `limit` param), `memory_list` for tag search.
 **Fix**: Update all three example blocks.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-010 🟡 Major · feature drift · wiki/14-Memory-Quality-System-Guide.md:235,273,298,318,708,792,809,812
 **Current**: Multiple code examples use deprecated quality tool names — `rate_memory`, `retrieve_with_quality_boost`, `get_memory_quality`, `analyze_quality_distribution`.
 **Replacement**: `memory_quality(action="rate"|"get"|"analyze")` and `memory_search(mode="hybrid", quality_boost=...)`.
 **Fix**: Update all code blocks; add migration note at top.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-011 🟡 Major · feature drift · wiki/10-Complete-Feature-List.md:560–563
 **Current**: Quality System "MCP Tools" subsection lists 4 deprecated names as the current inventory.
 **Replacement**: `memory_quality` actions + `memory_search` with quality_boost.
 **Fix**: Replace the 4 lines with correct unified signatures.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-012 🟡 Major · feature drift · docs/mastery/api-reference.md:37 + docs/mastery/architecture-overview.md:48,53
 **Current**: Architecture/overview docs describe tool surface using deprecated names: `store_memory`, `retrieve_memory`, `search_by_tag`, `delete_memory`, `check_database_health`, `cleanup_duplicates`, `update_memory_metadata`.
 **Replacement**: v10 unified names. Note `cleanup_duplicates` → `memory_cleanup`, `update_memory_metadata` → `memory_update`.
 **Fix**: Rewrite prose descriptions.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-013 🟡 Major · feature drift · `n_results` parameter (4 locations)
 **Current**: `n_results` parameter used in user-facing examples — deprecated since v10.0.0.
@@ -107,13 +107,13 @@
   - `docs/mastery/api-reference.md:67`: `args: { "query": "OAuth refactor", "n_results": 5 }`
 **Replacement**: `limit`.
 **Fix**: Replace `n_results` → `limit` in all 4 locations.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-014 🟡 Major · feature drift · docs/guides/memory-consolidation-guide.md:96 + wiki/Memory-Consolidation-System-Guide.md:203
 **Current**: Both guides show `trigger_consolidation` as the recommended MCP tool.
 **Replacement**: `memory_consolidate(action="run", ...)`.
 **Fix**: Update invocation in both files. Also update `consolidate_memories`, `scheduler_status`, `pause_consolidation` references to `memory_consolidate` action equivalents.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ---
 
@@ -126,40 +126,36 @@
 **Expected** (per `src/mcp_memory_service/config.py:306`): `SUPPORTED_BACKENDS = ['sqlite_vec', 'sqlite-vec', 'cloudflare', 'hybrid', 'milvus']`. Setting `chroma` falls through to fallback warning + reverts to `sqlite_vec`.
 **Fix**: Remove all `chroma` references from wiki; for "team sharing" use case, replace with `milvus` or note feature was retired.
 **VERIFY BEFORE FIX**: Re-grep `src/mcp_memory_service/config.py` to confirm `chroma` truly absent from `SUPPORTED_BACKENDS`. If subagent's read was stale, downgrade to Major.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-016 🔴 Critical · wiki↔repo · OAuth env vars don't exist in code
 **Current** (5 env vars documented in `wiki/04-Advanced-Configuration.md:466,469,472,546,547`): `MCP_OAUTH_CLIENT_STORAGE`, `MCP_OAUTH_REGISTRATION_RATE_LIMIT`, `MCP_OAUTH_AUDIT_LOG`, `MCP_OAUTH_CLEANUP_EXPIRED_TOKENS`, `MCP_OAUTH_TOKEN_CLEANUP_INTERVAL`.
 **Expected**: None exist in `src/mcp_memory_service/config.py` per subagent grep — would be silently ignored if set.
 **Fix**: Audit which OAuth env vars are actually implemented; remove or correct the rest. Note: `MCP_OAUTH_STORAGE_BACKEND` and `MCP_OAUTH_SQLITE_PATH` ARE real (per CLAUDE.md) — don't remove those.
 **VERIFY BEFORE FIX**: Re-grep `src/` for each env var name. False positive risk if vars live in `web/oauth/` modules outside `config.py`.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-017 🟡 Major · wiki↔repo · wiki/01-Installation-Guide.md:9
 **Current**: Banner says "Hybrid backend as default" (under v8.9.0 Highlights).
 **Expected**: Default is `sqlite_vec` per `config.py:307`. Hybrid is recommended for production but requires explicit configuration.
 **Fix**: Update banner to "SQLite-Vec is the default; Hybrid is recommended for production with Cloudflare credentials".
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-018 🟡 Major · wiki↔repo · MCP tool count "12" vs actual 18 in code
 **Current**: Wiki and `server_impl.py` docstring both claim "12 total" tools.
 **Expected** (per `grep -c 'types\.Tool(' src/mcp_memory_service/server_impl.py`): 18 distinct registrations — `memory_store`, `memory_store_session`, `memory_search`, `memory_list`, `memory_delete`, `memory_cleanup`, `memory_health`, `memory_stats`, `memory_update`, `memory_consolidate`, `memory_ingest`, `memory_harvest`, `memory_quality`, `memory_graph`, `memory_conflicts`, `memory_resolve`, `mistake_note_add`, `mistake_note_search`.
 **Fix**: Update `handle_list_tools` docstring + wiki references to "18 total" (or reconcile if some are deprecated/conditional).
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-019 🟡 Major · wiki↔repo · wiki/04-Advanced-Configuration.md missing `MCP_SCHEDULE_*` env vars
 **Current**: Wiki Advanced Configuration doesn't document `MCP_SCHEDULE_DAILY/WEEKLY/MONTHLY/QUARTERLY/YEARLY` env vars at all. Existing consolidation section (line 104) only covers manual triggering.
 **Expected**: All 5 schedule env vars exist per `config.py`, default `'disabled'` (per v10.47.2 PR #821). These are the primary opt-in mechanism for automatic consolidation.
 **Fix**: Add a schedule configuration table documenting all 5 vars with format examples (e.g. `MCP_SCHEDULE_DAILY=03:00`).
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
-### F-020 🟡 Major · wiki↔repo · `MCP_MEMORY_HTTP_ENDPOINT` undocumented
-**Current**: 3 wiki locations document `MCP_MEMORY_HTTP_ENDPOINT` as a client env var.
-  - `wiki/03-Integration-Guide.md:87,103,640`
-**Expected**: Per subagent grep, var doesn't exist in `src/mcp_memory_service/`. May be consumed by client-side bridge/shim, not the server.
-**Fix**: Verify whether this is a client-side bridge variable. If so, annotate clearly. If never existed, remove.
-**VERIFY BEFORE FIX**: Check `claude-code-memory-awareness/` hooks repo + any bridge scripts.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+### F-020 ⚪ Noise (FALSE FINDING — verified) · wiki↔repo · `MCP_MEMORY_HTTP_ENDPOINT` undocumented
+**Status**: VERIFIED FALSE — var IS implemented in `examples/http-mcp-bridge.js:157` (`process.env.MCP_MEMORY_HTTP_ENDPOINT`) and documented in `examples/claude-desktop-http-config.json:7`. Wiki references in `03-Integration-Guide.md` correctly document the client-side bridge env var. No fix needed.
+**Disposition**: [ ] ship-now  [ ] defer-issue  [x] skip
 
 ### F-021 🟡 Major · cross-doc · default storage backend (FAQ vs Installation Guide vs CLAUDE.md)
 **Locations**:
@@ -169,7 +165,7 @@
   - `CLAUDE.md` Claude Desktop config example → recommends `"hybrid"`
 **Expected** (per code): Effective runtime default is `sqlite_vec`. `hybrid` requires Cloudflare credentials and is recommended-for-production but not out-of-box.
 **Fix**: Align all three wiki/docs to: "Default is SQLite-Vec. Hybrid is recommended for production deployment when Cloudflare credentials are configured." (Fix bundled with F-017.)
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ---
 
@@ -180,28 +176,28 @@
   - line 205: another `issues/27` reference
 **Context**: Repo transferred from user `milla-jovovich` to org `MemPalace`. Issue is live at `https://github.com/MemPalace/mempalace/issues/27`.
 **Fix**: Replace all 3 `milla-jovovich/mempalace` → `MemPalace/mempalace` in README.md.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-023 🟡 Major · link rot · wiki/01-Installation-Guide.md:118,445 → `./Claude-Code-Memory-Awareness-Guide`
 **Broken URL**: `./Claude-Code-Memory-Awareness-Guide` (page does not exist)
 **Context**: Referenced as the primary "complete setup" guide and in "Next Steps".
 **Fix**: Create the wiki page OR redirect to `./Claude-Code-Commands-Wiki` (exists) or `./06-Development-Reference`.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-024 🟡 Major · link rot · wiki/01-Installation-Guide.md:446 + 03-Integration-Guide.md:809 → `./Claude-Code-Quick-Reference`
 **Broken URL**: `./Claude-Code-Quick-Reference` (page does not exist)
 **Fix**: Point to `./Claude-Code-Commands-Wiki` (exists, covers same ground) OR create the page.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-025 🟢 Minor · link rot · wiki/01-Installation-Guide.md:433 → `./macOS-Intel-Legacy-Guide`
 **Broken URL**: `./macOS-Intel-Legacy-Guide` (page does not exist).
 **Fix**: Remove link (keep text plain) or fold into `./07-TROUBLESHOOTING`.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
 
 ### F-026 🟢 Minor · link rot · wiki/01-Installation-Guide.md:447 → `./Tag-System-Migration-and-Management`
 **Broken URL**: `./Tag-System-Migration-and-Management` (page does not exist).
 **Fix**: Remove link or redirect to `./04-Advanced-Configuration`.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
 
 ### F-027 🟡 Major · link rot · 3× `./TROUBLESHOOTING` should be `./07-TROUBLESHOOTING`
 **Locations**:
@@ -209,24 +205,24 @@
   - `wiki/01-Installation-Guide.md:458`
   - `wiki/03-Integration-Guide.md:809`
 **Fix**: Rename all 3 occurrences `./TROUBLESHOOTING` → `./07-TROUBLESHOOTING`.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-028 🟢 Minor · anchor rot · wiki/06-Development-Reference.md:10 → `#debugging--testing`
 **Broken anchor**: TOC links `#debugging--testing` but heading at line 216 generates `#debugging--troubleshooting` (renamed).
 **Fix**: Change TOC link to `#debugging--troubleshooting`.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
 
 ### F-029 🟢 Minor · anchor rot · wiki/05-Performance-Optimization.md:8 → emoji variation selector
 **Broken anchor**: TOC links `#️-critical-cloudflare-service-limitations`. GitHub Wiki strips U+FE0F variation selector → actual anchor is `#-critical-cloudflare-service-limitations`.
 **Fix**: Update TOC anchor.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
 
 ---
 
 ### F-030 🟡 Major · structural · Wiki Home.md navigation broken — entire numbered series invisible
 **Issue**: Wiki Home.md has only 1 outbound link (to CONTRIBUTING.md on GitHub). The numbered wiki pages (01-Installation-Guide through 19-Graph-Database-Architecture) are referenced only from `Backend-Synchronization-Guide.md`'s docs table — and that file is itself orphaned. **Result**: the entire numbered wiki series is effectively invisible from Home.md navigation.
 **Fix**: Rewrite `wiki/Home.md` to include direct links to all 19 numbered guides + key non-numbered pages (OAuth setup, Web Dashboard, Claude AI Remote MCP, etc.). This is the highest-leverage wiki fix — single page change, unblocks navigation for all numbered guides.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [x] ship-now  [ ] defer-issue  [ ] skip
 
 ### F-031 🟢 Minor · structural · 46 orphaned docs in repo
 **Issue**: 46 `.md` files under `docs/` have no incoming links from any active doc/wiki. Examples (full list — see audit transcript):
@@ -254,7 +250,7 @@
 - `docs/images/dashboard-placeholder.md`
 - `docs/remote-configuration-wiki-section.md`
 **Fix**: Triage each — archive (move to `docs/archive/`), delete (placeholder/artifact files), or add inbound link if still relevant. Recommend filing as single umbrella issue for follow-up.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
 
 ### F-032 🟢 Minor · structural · 21 orphaned wiki pages
 **Issue**: 21 wiki pages have no incoming links from Home.md or any other wiki page. Examples:
@@ -269,7 +265,7 @@
 - `wiki/Windows-Hybrid-Backend-Setup-Example.md`, `wiki/Windows-Setup-Summary-Example.md`
 - `wiki/Development-Sprint-‐-November-2025.md`
 **Fix**: Largely solved by F-030 (Home.md rewrite). Remaining: archive sprint planning artifact, dedupe the dashboard guides.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
 
 ### F-033 🟢 Minor · structural · Cloudflare guide cluster (3-way duplicate)
 **Issue**: Three wiki guides cover the same Cloudflare hybrid setup territory:
@@ -277,26 +273,26 @@
 - `wiki/Cloudflare-Based-Multi-Machine-Sync.md` (problem/solution narrative)
 - `wiki/Hybrid_Setup_Configuration.md` (v8.9.0 reference config dump)
 **Fix**: Consolidate into single canonical guide (Cloudflare-Backup-Sync-Setup.md is best base — has step-by-step structure). Absorb multi-machine narrative + full config example. Retire other two with redirects or archive notes.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
 
 ### F-034 🟢 Minor · structural · Windows guide cluster (2-way duplicate)
 **Issue**: Two wiki files split a single Windows hybrid setup guide:
 - `wiki/Windows-Setup-Summary-Example.md` (status/summary)
 - `wiki/Windows-Hybrid-Backend-Setup-Example.md` (JSON config blocks)
 **Fix**: Merge into single Windows Hybrid Setup guide; link from `wiki/02-Platform-Setup-Guide.md`.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
 
 ### F-035 🟢 Minor · structural · `wiki/Backend-Synchronization-Guide.md` is misnamed
 **Issue**: Filename suggests sync documentation but content is actually a near-full project README from ~v7.1.3 era (features overview, what's new, docs table). Competes with `Cloudflare-Backup-Sync-Setup.md` for the "backend sync" search term.
 **Fix**: Archive or rename. `Cloudflare-Backup-Sync-Setup.md` is the real sync guide.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
 
 ### F-036 🟢 Minor · structural · `docs/deployment/` duplicate guides
 **Issue**: Both orphaned, both cover production deployment with overlapping audience but no cross-reference:
 - `docs/deployment/dual-service.md` (FastMCP+HTTP two-service setup)
 - `docs/deployment/production-guide.md` (single consolidated service with systemd, mDNS, HTTPS, consolidation)
 **Fix**: Add cross-references and link both from README deployment section, OR merge into one "Production Deployment Guide" with sections for each topology.
-**Disposition**: [ ] ship-now  [ ] defer-issue  [ ] skip
+**Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
 
 ---
 
