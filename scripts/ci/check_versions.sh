@@ -29,13 +29,26 @@ if [ -z "$CANONICAL" ]; then
   exit 1
 fi
 
-# Default scan targets; overridable for tests.
+# Default scan target: docs/index.html only (the project landing page).
+#
+# Rationale: the landing page is the one surface where ANY older-than-canonical
+# version reference is unambiguously wrong (it's the "current state" page).
+# README.md and CLAUDE.md intentionally cite historical versions:
+#   - README has a "Latest Releases" section enumerating all recent versions
+#   - CLAUDE.md uses "introduced in vX" / "vX+" annotations throughout
+# Distinguishing intentional historical refs from real drift in those files
+# requires semantic context this regex-based script doesn't have.
+#
+# To widen the scan (e.g. to catch only specific version-claim phrases in
+# README/CLAUDE.md), override via:
+#   MCS_VERSION_SCAN_TARGETS="docs/index.html README.md" bash check_versions.sh
 if [ -n "${MCS_VERSION_SCAN_TARGETS:-}" ]; then
   read -ra SCAN_TARGETS <<< "$MCS_VERSION_SCAN_TARGETS"
 else
-  SCAN_TARGETS=("docs/" "README.md" "CLAUDE.md")
+  SCAN_TARGETS=("docs/index.html")
 fi
 
+# Path-substring excludes applied even within scoped scan targets.
 EXCLUDE_PATHS=(
   "docs/archive"
   "docs/legacy"
