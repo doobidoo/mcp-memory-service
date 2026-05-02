@@ -334,3 +334,57 @@
 - ~6 wiki files touched (01, 03, 04, 06, 10, 13, 14, Memory-Consolidation, Home)
 - 1 new CI script + workflow change
 - Comfortable single-PR scope (well under the ~30-file threshold).
+
+---
+
+## Resolution
+
+**Status**: Complete (2026-05-02)
+
+### Shipped in PR-1: [#827](https://github.com/doobidoo/mcp-memory-service/pull/827)
+
+**Branch**: `chore/housekeeping-fixes` → `main` (15 commits, 16 files changed)
+
+**Critical fixes** (4 of 4):
+- F-003 → `3ca8595` (CLAUDE.md test count)
+- F-007 → `36917f3` (api-reference.md MCP Tools rewrite)
+- F-008 → wiki commit `2742b42` (Verify Connection tool names)
+- F-015 → wiki commit `7c376af` (chroma backend removed)
+- F-016 → wiki commit `7c376af` (5 non-existent OAuth env vars removed)
+
+**Major fixes** (18 of 18):
+- Main-repo: F-001, F-002 → `3ca8595` (landing page); F-009, F-012, F-013 → `36917f3`; F-014 → `5990371` (consolidation guide); F-022 → `3ca8595` (MemPalace org); F-018 → `177de87` (server docstring)
+- Wiki: F-004, F-010, F-011, F-013-wiki, F-014-wiki, F-017, F-018-wiki, F-019, F-021, F-023, F-024, F-027, F-030 → wiki commits `9ccd9d8`, `2742b42`, `7c376af`, `9f7ca65`
+
+### Wiki direct commits (`mcp-memory-service.wiki` master)
+
+- `9ccd9d8` — Home navigation rewrite (F-030, highest leverage)
+- `2742b42` — v10.0.0 unified tool surface alignment (F-008, F-010, F-011, F-013, F-014, F-018)
+- `7c376af` — config + storage backend defaults (F-015, F-016, F-017, F-019, F-021)
+- `9f7ca65` — version bump + broken page links (F-004, F-023, F-024, F-027)
+
+### Tooling shipped
+
+- New: `scripts/ci/check_versions.sh` + `tests/ci/test_check_versions.sh` (TDD, 3/3 pass)
+- New: `version-drift-check` job in `.github/workflows/docs-check.yml` (GREEN on first PR run)
+- Extended: `scripts/ci/check_dead_refs.sh` — added `docs/superpowers/` to EXCLUDE_PATHS
+
+### Deferred to issues
+
+- [#823](https://github.com/doobidoo/mcp-memory-service/issues/823) — Doc structural cleanup: orphans + duplicates (F-031, F-032, F-033, F-034, F-035, F-036)
+- [#824](https://github.com/doobidoo/mcp-memory-service/issues/824) — Wiki TOC anchor rot (F-028, F-029) [`good first issue`]
+- [#825](https://github.com/doobidoo/mcp-memory-service/issues/825) — Wiki broken page-link redirects (F-025, F-026)
+- [#826](https://github.com/doobidoo/mcp-memory-service/issues/826) — Cosmetic version-ref bumps (F-005, F-006) [`good first issue`]
+
+### Skipped (intentional)
+
+- F-020 (`MCP_MEMORY_HTTP_ENDPOINT`): verified FALSE — var IS implemented in `examples/http-mcp-bridge.js:157`. Wiki references are correct documentation of the client-side bridge env var.
+
+### Manual follow-up
+
+- Landing page (`docs/index.html`) re-publish to here.now (`merry-realm-j835`): `~/.agents/skills/here-now/scripts/publish.sh` not present at the documented path. Owner to republish manually after merge per CLAUDE.md instructions.
+
+### Future tooling work (intentionally deferred from PR-1)
+
+- Adding v10.0.0 deprecated MCP tool names (`store_memory(`, `retrieve_memory(`, etc.) to `check_dead_refs.sh` — deferred because 25+ active docs still use them as primary examples (mostly tutorials/agents/examples). Adding term-by-term as docs are migrated to the unified `memory_*` surface (tracked as part of #823 cleanup waves).
+- Wiki CI link-check (cross-repo handling) — non-trivial; deferred per design spec.
