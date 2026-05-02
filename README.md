@@ -182,7 +182,7 @@ A production-tested self-hosted deployment using Docker containers behind a Clou
 
 ### vs. MCP-Native Alternatives
 
-[MemPalace](https://github.com/milla-jovovich/mempalace) is an MCP-native alternative that went viral in April 2026 with strong LongMemEval claims. A [community code review (Issue #27)](https://github.com/milla-jovovich/mempalace/issues/27) subsequently showed that the headline numbers reflect the underlying vector store rather than the advertised Palace architecture, and the maintainers acknowledged most points. We keep the comparison here for transparency, but readers should interpret the scores with that context in mind.
+[MemPalace](https://github.com/MemPalace/mempalace) is an MCP-native alternative that went viral in April 2026 with strong LongMemEval claims. A [community code review (Issue #27)](https://github.com/MemPalace/mempalace/issues/27) subsequently showed that the headline numbers reflect the underlying vector store rather than the advertised Palace architecture, and the maintainers acknowledged most points. We keep the comparison here for transparency, but readers should interpret the scores with that context in mind.
 
 | | **MemPalace** | **mcp-memory-service** |
 |---|---|---|
@@ -202,7 +202,7 @@ A production-tested self-hosted deployment using Docker containers behind a Clou
 1. **Ingestion granularity.** MemPalace stores each conversation as a single unit (session-level). LongMemEval asks "which session contains the answer?" — a question that session-level storage answers structurally. mcp-memory-service defaults to turn-level storage (one entry per message), which enables fine-grained retrieval ("what exactly did the user say about X?") but spreads a session's signal across many entries. Using `memory_store_session` (added in v10.35.0) brings our score to **86.0% R@5**.
 2. **What the 96.6% actually measures.** Per Issue #27, MemPalace's headline number is produced in "raw mode" — plain text stored in ChromaDB with default embeddings. The Palace architecture (Wings, Rooms, Halls) is **not active** in that configuration; "Halls" exist only as metadata strings with no effect on ranking. The 96.6% is therefore a ChromaDB + default-embedding baseline, not a measurement of MemPalace's structural retrieval features. A direct "apples-to-apples" architectural comparison is not possible with the published numbers.
 
-> ¹ Measured in MemPalace "raw mode" (plain text in ChromaDB with default embeddings). Per [Issue #27](https://github.com/milla-jovovich/mempalace/issues/27), the Palace structural features are bypassed in this configuration.
+> ¹ Measured in MemPalace "raw mode" (plain text in ChromaDB with default embeddings). Per [Issue #27](https://github.com/MemPalace/mempalace/issues/27), the Palace structural features are bypassed in this configuration.
 >
 > ² 100% result uses optional LLM reranking (~500 API calls) on a partially tuned test set. Clean held-out score (as reported by the maintainers): **98.4% R@5**.
 

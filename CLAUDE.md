@@ -70,7 +70,7 @@ python scripts/server/run_http_server.py
 
 ### Testing
 ```bash
-# Run all tests (968 tests total)
+# Run all tests (~1,780 tests total)
 pytest
 
 # Run specific test file
@@ -230,7 +230,7 @@ src/mcp_memory_service/
 
 ## Test Architecture
 
-### Structure (968 tests)
+### Structure (~1,780 tests)
 ```
 tests/
 ├── api/              # API layer tests (compact types, operations)
