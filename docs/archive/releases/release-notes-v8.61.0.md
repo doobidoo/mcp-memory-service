@@ -125,6 +125,6 @@ uvx mcp-memory-service@8.61.0
 
 **This is a significant architectural milestone demonstrating commitment to code quality, maintainability, and sustainable development practices.**
 
-See [CHANGELOG.md](../../CHANGELOG.md) for complete version history.
+See [CHANGELOG.md](../../../CHANGELOG.md) for complete version history.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

@@ -391,8 +391,8 @@ Phase 2 **successfully achieves all objectives**:
 
 - [Issue #206 - Code Execution Interface](https://github.com/doobidoo/mcp-memory-service/issues/206)
 - [Phase 1 Implementation Summary](./PHASE1_IMPLEMENTATION_SUMMARY.md)
-- [Phase 2 Migration Guide](../hooks/phase2-code-execution-migration.md)
-- [Code Execution Interface Spec](./code-execution-interface.md)
+- [Phase 2 Migration Guide](../../hooks/phase2-code-execution-migration.md)
+- [Code Execution Interface Spec](../../api/code-execution-interface.md)
 
 ---
 
