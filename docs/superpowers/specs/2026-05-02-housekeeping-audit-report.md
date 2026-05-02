@@ -54,12 +54,14 @@
 **Expected**: `v10.47.2`
 **Fix**: Update Q1 2026 review version marker to `v10.47.2`.
 **Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
+**Issue**: #826
 
 ### F-006 🟢 Minor · version drift · docs/BENCHMARKS.md:13
 **Current**: `**Date:** 2026-04-08 · **Version:** v10.34.0`
 **Expected**: Note reflects benchmark run version, not current.
 **Fix**: Add parenthetical `(benchmark run version; latest release: v10.47.2)` or link to updated benchmark. Existing value is historically correct for that run but may mislead.
 **Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
+**Issue**: #826
 
 ---
 
@@ -193,11 +195,13 @@
 **Broken URL**: `./macOS-Intel-Legacy-Guide` (page does not exist).
 **Fix**: Remove link (keep text plain) or fold into `./07-TROUBLESHOOTING`.
 **Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
+**Issue**: #825
 
 ### F-026 🟢 Minor · link rot · wiki/01-Installation-Guide.md:447 → `./Tag-System-Migration-and-Management`
 **Broken URL**: `./Tag-System-Migration-and-Management` (page does not exist).
 **Fix**: Remove link or redirect to `./04-Advanced-Configuration`.
 **Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
+**Issue**: #825
 
 ### F-027 🟡 Major · link rot · 3× `./TROUBLESHOOTING` should be `./07-TROUBLESHOOTING`
 **Locations**:
@@ -211,11 +215,13 @@
 **Broken anchor**: TOC links `#debugging--testing` but heading at line 216 generates `#debugging--troubleshooting` (renamed).
 **Fix**: Change TOC link to `#debugging--troubleshooting`.
 **Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
+**Issue**: #824
 
 ### F-029 🟢 Minor · anchor rot · wiki/05-Performance-Optimization.md:8 → emoji variation selector
 **Broken anchor**: TOC links `#️-critical-cloudflare-service-limitations`. GitHub Wiki strips U+FE0F variation selector → actual anchor is `#-critical-cloudflare-service-limitations`.
 **Fix**: Update TOC anchor.
 **Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
+**Issue**: #824
 
 ---
 
@@ -251,6 +257,7 @@
 - `docs/remote-configuration-wiki-section.md`
 **Fix**: Triage each — archive (move to `docs/archive/`), delete (placeholder/artifact files), or add inbound link if still relevant. Recommend filing as single umbrella issue for follow-up.
 **Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
+**Issue**: #823
 
 ### F-032 🟢 Minor · structural · 21 orphaned wiki pages
 **Issue**: 21 wiki pages have no incoming links from Home.md or any other wiki page. Examples:
@@ -266,6 +273,7 @@
 - `wiki/Development-Sprint-‐-November-2025.md`
 **Fix**: Largely solved by F-030 (Home.md rewrite). Remaining: archive sprint planning artifact, dedupe the dashboard guides.
 **Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
+**Issue**: #823
 
 ### F-033 🟢 Minor · structural · Cloudflare guide cluster (3-way duplicate)
 **Issue**: Three wiki guides cover the same Cloudflare hybrid setup territory:
@@ -274,6 +282,7 @@
 - `wiki/Hybrid_Setup_Configuration.md` (v8.9.0 reference config dump)
 **Fix**: Consolidate into single canonical guide (Cloudflare-Backup-Sync-Setup.md is best base — has step-by-step structure). Absorb multi-machine narrative + full config example. Retire other two with redirects or archive notes.
 **Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
+**Issue**: #823
 
 ### F-034 🟢 Minor · structural · Windows guide cluster (2-way duplicate)
 **Issue**: Two wiki files split a single Windows hybrid setup guide:
@@ -281,11 +290,13 @@
 - `wiki/Windows-Hybrid-Backend-Setup-Example.md` (JSON config blocks)
 **Fix**: Merge into single Windows Hybrid Setup guide; link from `wiki/02-Platform-Setup-Guide.md`.
 **Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
+**Issue**: #823
 
 ### F-035 🟢 Minor · structural · `wiki/Backend-Synchronization-Guide.md` is misnamed
 **Issue**: Filename suggests sync documentation but content is actually a near-full project README from ~v7.1.3 era (features overview, what's new, docs table). Competes with `Cloudflare-Backup-Sync-Setup.md` for the "backend sync" search term.
 **Fix**: Archive or rename. `Cloudflare-Backup-Sync-Setup.md` is the real sync guide.
 **Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
+**Issue**: #823
 
 ### F-036 🟢 Minor · structural · `docs/deployment/` duplicate guides
 **Issue**: Both orphaned, both cover production deployment with overlapping audience but no cross-reference:
@@ -293,6 +304,7 @@
 - `docs/deployment/production-guide.md` (single consolidated service with systemd, mDNS, HTTPS, consolidation)
 **Fix**: Add cross-references and link both from README deployment section, OR merge into one "Production Deployment Guide" with sections for each topology.
 **Disposition**: [ ] ship-now  [x] defer-issue  [ ] skip
+**Issue**: #823
 
 ---
 
