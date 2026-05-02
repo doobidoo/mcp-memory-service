@@ -758,11 +758,7 @@ class DreamInspiredConsolidator:
 
         # Batch-mark superseded memories in a single transaction (#732)
         if supersede_pairs:
-            storage = self.storage
-            if not hasattr(storage, 'mark_superseded_batch'):
-                primary = getattr(storage, "primary_storage", None)
-                if primary and hasattr(primary, 'mark_superseded_batch'):
-                    storage = primary
+            storage = getattr(self.storage, "primary_storage", None) or self.storage
             if hasattr(storage, 'mark_superseded_batch'):
                 marked = await storage.mark_superseded_batch(supersede_pairs)
                 self.logger.info(

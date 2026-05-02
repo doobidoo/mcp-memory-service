@@ -3089,15 +3089,12 @@ SOLUTIONS:
             return 0
 
         def _batch_mark():
-            count = 0
-            for winner_hash, loser_hash in pairs:
-                self.conn.execute(
-                    "UPDATE memories SET superseded_by = ? WHERE content_hash = ? AND deleted_at IS NULL",
-                    (winner_hash, loser_hash),
-                )
-                count += 1
+            self.conn.executemany(
+                "UPDATE memories SET superseded_by = ? WHERE content_hash = ? AND deleted_at IS NULL",
+                [(winner, loser) for winner, loser in pairs],
+            )
             self.conn.commit()
-            return count
+            return len(pairs)
 
         try:
             return await self._execute_with_retry(_batch_mark)

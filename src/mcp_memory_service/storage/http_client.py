@@ -160,6 +160,8 @@ class HTTPClientStorage(MemoryStorage):
             }
             if tags:
                 payload["tags"] = tags
+            if include_superseded:
+                payload["include_superseded"] = True
             
             async with self.session.post(search_url, json=payload) as response:
                 if response.status == 200:
