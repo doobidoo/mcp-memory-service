@@ -10,7 +10,7 @@ All results use zero LLM API calls (retrieval-only mode) unless noted.
 **Dataset:** [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned) — 500 questions, ~45–62 sessions per question (distractor haystack)  
 **Mode:** Retrieval only (zero LLM API calls)  
 **Backend:** SQLite-Vec with all-MiniLM-L6-v2 ONNX embeddings  
-**Date:** 2026-04-08 · **Version:** v10.34.0
+**Date:** 2026-04-08 · **Version:** v10.34.0 (benchmark run version; latest release: v10.48.0)
 
 ### Overall Metrics
 
