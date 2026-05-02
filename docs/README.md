@@ -49,7 +49,7 @@ Welcome to the comprehensive documentation for MCP Memory Service - a Model Cont
 
 - **[Memory Metadata API](api/memory-metadata-api.md)** - Advanced metadata operations
 - **[Tag Standardization](api/tag-standardization.md)** - Tag schema and conventions
-- **[HTTP/SSE API](IMPLEMENTATION_PLAN_HTTP_SSE.md)** - Web API documentation for multi-client setups
+- **[HTTP/SSE API](archive/planning/IMPLEMENTATION_PLAN_HTTP_SSE.md)** - Web API documentation for multi-client setups (historical implementation plan)
 
 ### 🛠️ Development & Technical
 

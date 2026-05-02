@@ -438,7 +438,7 @@ python scripts/migrate_to_multi_client.py \
 - [Setup Guide](../setup-guide.md) - General installation instructions
 - [Deployment Guide](../deployment/docker.md) - Docker and cloud deployment
 - [Troubleshooting](../troubleshooting/general.md) - Multi-client specific issues
-- [API Reference](../IMPLEMENTATION_PLAN_HTTP_SSE.md) - HTTP/SSE API documentation
+- [API Reference](../archive/planning/IMPLEMENTATION_PLAN_HTTP_SSE.md) - HTTP/SSE API documentation (historical implementation plan)
 
 ## Client Setup Recipes (Codex, Cursor, Qwen, Gemini)
 
