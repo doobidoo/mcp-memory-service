@@ -93,7 +93,7 @@ curl -X POST http://127.0.0.1:8000/api/consolidation/trigger \
 
 ### 2. MCP Tools
 ```python
-mcp__memory__trigger_consolidation(time_horizon="daily", immediate=true)
+mcp__memory__memory_consolidate(action="run", time_horizon="daily", immediate=true)
 ```
 
 ### 3. Code Execution API (Most Token-Efficient)
