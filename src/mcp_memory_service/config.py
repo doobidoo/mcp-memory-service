@@ -739,12 +739,16 @@ CONSOLIDATION_CONFIG = {
 }
 
 # Consolidation scheduling settings (for APScheduler integration)
+# All schedules default to 'disabled' so consolidation is opt-in. Users must
+# explicitly set MCP_SCHEDULE_* env vars to enable automatic runs (issue #808).
+# Recommended values when enabling: daily='02:00', weekly='SUN 03:00',
+# monthly='01 04:00'. See .env.example for full documentation.
 CONSOLIDATION_SCHEDULE = {
-    'daily': os.getenv('MCP_SCHEDULE_DAILY', '02:00'),      # 2 AM daily
-    'weekly': os.getenv('MCP_SCHEDULE_WEEKLY', 'SUN 03:00'), # 3 AM on Sundays
-    'monthly': os.getenv('MCP_SCHEDULE_MONTHLY', '01 04:00'), # 4 AM on 1st of month
-    'quarterly': os.getenv('MCP_SCHEDULE_QUARTERLY', 'disabled'), # Disabled by default
-    'yearly': os.getenv('MCP_SCHEDULE_YEARLY', 'disabled')        # Disabled by default
+    'daily': os.getenv('MCP_SCHEDULE_DAILY', 'disabled'),
+    'weekly': os.getenv('MCP_SCHEDULE_WEEKLY', 'disabled'),
+    'monthly': os.getenv('MCP_SCHEDULE_MONTHLY', 'disabled'),
+    'quarterly': os.getenv('MCP_SCHEDULE_QUARTERLY', 'disabled'),
+    'yearly': os.getenv('MCP_SCHEDULE_YEARLY', 'disabled')
 }
 
 logger.info(f"Consolidation enabled: {CONSOLIDATION_ENABLED}")
