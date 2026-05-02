@@ -1255,7 +1255,12 @@ class MemoryServer:
         async def handle_list_tools() -> List[types.Tool]:
             """Return list of available MCP tools.
 
-            Note: This list only includes modern unified tools (12 total).
+            Note: This list only includes modern unified tools (18 total:
+            memory_store, memory_store_session, memory_search, memory_list,
+            memory_delete, memory_cleanup, memory_health, memory_stats,
+            memory_update, memory_consolidate, memory_ingest, memory_harvest,
+            memory_quality, memory_graph, memory_conflicts, memory_resolve,
+            mistake_note_add, mistake_note_search).
             Deprecated tools continue working via the backwards
             compatibility layer in compat.py but are not advertised to clients.
             """
