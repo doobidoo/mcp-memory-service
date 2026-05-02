@@ -45,7 +45,7 @@ This document summarizes the Memory Service architecture, components, data flow,
   - Coordination: detects if an HTTP sidecar is needed for multi-client access; starts/uses `HTTPClientStorage` when appropriate.
 
 - FastMCP (`mcp_server.py`):
-  - Wraps storage via `lifespan` context; exposes core tools like `store_memory`, `retrieve_memory`, `search_by_tag`, `delete_memory`, `check_database_health` using `@mcp.tool()`.
+  - Wraps storage via `lifespan` context; exposes core tools like `memory_store`, `memory_search`, `memory_list`, `memory_delete`, `memory_health` using `@mcp.tool()`.
   - Designed for remote/HTTP access and Claude Code compatibility via `streamable-http` transport.
 
 ## Storage Layer Abstraction
