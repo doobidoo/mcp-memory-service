@@ -457,18 +457,18 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.47.2** (May 2, 2026)
+## Latest Release: **v10.48.0** (May 2, 2026)
 
-**fix(consolidation): disable-by-default schedule prevents unintended automatic consolidation**
+**feat: include_superseded retrieval filter + auto-mark on contradiction**
 
-**What's Fixed:**
-- **Consolidation schedule defaults changed to `'disabled'`**: Previously, omitting `MCP_SCHEDULE_*` env vars activated daily (`02:00`), weekly (`SUN 03:00`), and monthly (`01 04:00`) consolidation automatically. Deployments that believed they were running in manual-only mode were silently accumulating scheduled runs. Defaults are now `'disabled'` — operators must explicitly set `MCP_SCHEDULE_DAILY`, `MCP_SCHEDULE_WEEKLY`, and `MCP_SCHEDULE_MONTHLY` to opt in to automatic consolidation. If you relied on the prior automatic behavior, add those three env vars to restore it. Closes #808. (PR #821)
-- **`.env.example` `CONSOLIDATION SCHEDULING` section**: New documented block makes the three schedule env vars discoverable with their expected cron/time syntax.
-- **Quarterly format docstring fix**: Corrected the docstring example for the monthly/quarterly schedule format (caught by gemini-code-assist, commit `0d4a658`).
+**What's New:**
+- **`include_superseded` parameter on all retrieval paths**: `memory_search`, `retrieve`, `retrieve_with_quality_boost`, and `retrieve_hybrid` across all backends (sqlite_vec, cloudflare, hybrid, milvus, http_client) now accept `include_superseded: bool = False`. Default behavior unchanged — pass `True` to retrieve the full contradiction chain. Partial implementation of RFC #732. (PR #814, @filhocf)
+- **Auto-mark `superseded_by` on high-confidence contradiction**: The consolidator automatically marks the older memory as `superseded_by` the newer one when a `contradicts` relationship is detected with confidence ≥ 0.75. Single batched transaction via new `mark_superseded_batch()` storage method. No DB migration needed. (PR #814, @filhocf)
 
 ---
 
 **Previous Releases**:
+- **v10.47.2** - fix(consolidation): disable-by-default schedule prevents unintended automatic consolidation (PR #821, closes #808)
 - **v10.47.1** - fix(web): surface /server/update failures end-to-end (PR #807, closes #729)
 - **v10.47.0** - feat: memory_quality maintain orchestrator + Docker DeBERTa quantization (PRs #802, #803, @filhocf, closes #799, #793)
 - **v10.46.0** - feat: stale_days filter for memory_list — dormant memory detection (PR #796, @filhocf, closes #784)
