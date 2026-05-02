@@ -23,6 +23,28 @@ DEAD_REFS=(
   "localhost:8443"
   "127.0.0.1:8443"
   "python install.py"
+  # Added 2026-05-02 housekeeping audit (PR for findings F-007 through F-014)
+  # v10.0.0 deprecated MCP tool names — compat aliases still work but docs
+  # must use unified memory_* names. Migration docs are excluded below.
+  "store_memory("
+  "retrieve_memory("
+  "delete_memory("
+  "check_database_health("
+  "search_by_tag("
+  "search_by_tags("
+  "delete_by_tag("
+  "delete_by_tags("
+  "delete_by_all_tags("
+  "delete_by_timeframe("
+  "delete_before_date("
+  "cleanup_duplicates("
+  "update_memory_metadata("
+  "trigger_consolidation("
+  "consolidate_memories("
+  "rate_memory("
+  "get_memory_quality("
+  "analyze_quality_distribution("
+  "retrieve_with_quality_boost("
 )
 
 # Soft dead reference: bare "chromadb". Checked separately because some active
@@ -42,6 +64,10 @@ EXCLUDE_PATHS=(
   "docs/DOCUMENTATION_AUDIT"
   "docs/IMPLEMENTATION_PLAN"
   "CHANGELOG"
+  # Added 2026-05-02: migration docs intentionally reference deprecated
+  # tool names as part of explaining the v10.0.0 rename
+  "docs/MIGRATION"
+  "docs/migration"
 )
 
 # Allow-list for the SOFT_DEAD_REF only. Files below intentionally retain
