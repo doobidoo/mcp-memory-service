@@ -353,9 +353,15 @@ class QualityEvaluator:
                 },
                 {"role": "user", "content": prompt},
             ],
-            "max_tokens": 50,
-            "temperature": 0.1,
         }
+        # OpenAI's gpt-5.x family rejects `max_tokens` and custom `temperature`
+        # (HTTP 400 "Unsupported parameter"). Reasoning variants also need extra
+        # headroom for internal reasoning tokens before emitting the score (#797).
+        if model.startswith("gpt-5"):
+            payload["max_completion_tokens"] = 800
+        else:
+            payload["max_tokens"] = 50
+            payload["temperature"] = 0.1
 
         client = self._get_httpx_client()
         try:

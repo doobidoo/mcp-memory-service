@@ -215,6 +215,63 @@ class TestScoreWithOpenAICompatible:
 
         assert captured_headers.get("Authorization") == "Bearer none"
 
+    @pytest.mark.asyncio
+    async def test_gpt5_uses_max_completion_tokens_and_no_temperature(self):
+        """gpt-5.x family rejects max_tokens/temperature; payload must use max_completion_tokens (#797)."""
+        ev = self._make_evaluator(openai_compat_model="gpt-5.4-mini")
+        mock_resp = _mock_httpx_response("0.7")
+        captured_payloads = []
+
+        async def capture_post(url, json=None, **kwargs):
+            captured_payloads.append(json)
+            return mock_resp
+
+        self._install_mock_post(ev, side_effect=capture_post)
+        await ev._score_with_openai_compatible("python", _make_memory())
+
+        payload = captured_payloads[0]
+        assert "max_tokens" not in payload
+        assert "temperature" not in payload
+        assert payload["max_completion_tokens"] == 800
+
+    @pytest.mark.asyncio
+    async def test_non_gpt5_keeps_max_tokens_and_temperature(self):
+        """Non-gpt-5 models retain the original max_tokens=50 / temperature=0.1 payload (#797)."""
+        ev = self._make_evaluator(openai_compat_model="gpt-4.1-mini")
+        mock_resp = _mock_httpx_response("0.5")
+        captured_payloads = []
+
+        async def capture_post(url, json=None, **kwargs):
+            captured_payloads.append(json)
+            return mock_resp
+
+        self._install_mock_post(ev, side_effect=capture_post)
+        await ev._score_with_openai_compatible("python", _make_memory())
+
+        payload = captured_payloads[0]
+        assert payload["max_tokens"] == 50
+        assert payload["temperature"] == 0.1
+        assert "max_completion_tokens" not in payload
+
+    @pytest.mark.asyncio
+    async def test_gpt5_reasoning_variant_also_uses_max_completion_tokens(self):
+        """gpt-5-mini (reasoning variant) and gpt-5-nano both take the gpt-5 branch (#797)."""
+        for model_name in ("gpt-5-mini", "gpt-5-nano", "gpt-5"):
+            ev = self._make_evaluator(openai_compat_model=model_name)
+            mock_resp = _mock_httpx_response("0.6")
+            captured_payloads = []
+
+            async def capture_post(url, json=None, **kwargs):
+                captured_payloads.append(json)
+                return mock_resp
+
+            self._install_mock_post(ev, side_effect=capture_post)
+            await ev._score_with_openai_compatible("q", _make_memory())
+
+            payload = captured_payloads[0]
+            assert "max_completion_tokens" in payload, f"{model_name} should use max_completion_tokens"
+            assert "max_tokens" not in payload, f"{model_name} should not use max_tokens"
+
 
 # ---------------------------------------------------------------------------
 # Fallback integration — endpoint failure → implicit_signals

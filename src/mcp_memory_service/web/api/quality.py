@@ -202,9 +202,12 @@ async def evaluate_memory_quality(
         if not memory:
             raise HTTPException(status_code=404, detail=f"Memory not found: {content_hash}")
 
-        # Use the first 200 chars of content as query context if not provided
-        query = (request.query if request and request.query
-                 else memory.content[:200] if memory.content else "")
+        # When no query is supplied, fall through to the absolute-quality prompt
+        # branch in QualityScorer (handled via _create_scoring_prompt). Using the
+        # memory's own content as the query made the relevance prompt evaluate
+        # "rate how relevant X is to X" — which any LLM scores 1.0 (issue #797).
+        query = (request.query.strip() if request and request.query and request.query.strip()
+                 else "")
 
         # Initialize quality scorer and evaluate
         scorer = QualityScorer()
