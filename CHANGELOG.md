@@ -10,6 +10,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **[#797] `/api/quality/memories/{hash}/evaluate` self-relevance loop returned 1.0 for everything**: When no request body was supplied, the endpoint defaulted the relevance query to the memory's own first 200 chars, collapsing the relevance prompt to "rate how relevant X is to X" — which any LLM scores at the ceiling. All `openai-compatible` AI tier evaluations on v10.45.0+ deployments returned `ai_score: 1.0` regardless of memory quality. Fix: pass an empty query through when none is supplied, so `_create_scoring_prompt` takes the absolute-quality branch which produces a calibrated 0.0–1.0 score with proper discrimination. Reported with full reproducer in #797. (PR #839)
+- **[#797] `gpt-5.x` family rejected from openai-compatible quality scorer**: `_score_with_openai_compatible` hardcoded `max_tokens=50` and `temperature=0.1`, both of which OpenAI's `gpt-5.x` family rejects with HTTP 400 ("Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead"). The AI tier silently fell through to `implicit_signals`, so the provider _appeared_ to work but wasn't using the AI. Fix: branch on `model.startswith("gpt-5")` to use `max_completion_tokens=800` (sized for reasoning variants which spend ~200–400 tokens reasoning internally) and skip `temperature`. Non-gpt-5 models keep the original payload to preserve cost and determinism. Bug 2 reported and patched by @thewusman2025. 6 new tests in `tests/web/api/test_quality_evaluate.py` and `tests/test_openai_compat_quality.py`. Closes #797. (PR #839)
+
+### Changed
+
+- **`docs/deployment/production-guide.md` rewritten as a topology selector**: The previous version was a 56-line stub that hardcoded an example API key, referenced a non-existent `COMPLETE_SETUP_GUIDE.md`, and did not actually guide production deployments. The new version is a topology selector that routes readers to the correct concrete guide (Docker / dual-service / systemd / external-embeddings) plus a common production checklist (WAL pragma, API key generation, OAuth storage, health checks, backups, hybrid sync owner). Security: the example API key (also present in two `archive/` files where it is no longer load-bearing) was removed from the active doc. (PR #836, closes #835)
+
+### Documentation
+
+- **Housekeeping audit follow-up — wave 1 + wave 2** (closes #823): Archived 19 historical/superseded `docs/` files to `docs/archive/` (5 phase-2 code-quality artifacts, 3 historical development docs, 3 phase reports, 2 superseded release notes, 4 planning artifacts, 2 one-time artifacts). Added 13 inbound links from `docs/README.md` for legitimate orphan guides (gemini integration, groq integrations, deployment guides, natural-memory-triggers, architecture & design). Two new sections added to the docs index: "Natural Memory Triggers" and "Architecture & Design". (PRs #831, #832)
+- **Wiki cleanup**: TOC anchors fixed (commits `387db7f`, closes #824), macOS Intel link redirected to existing Platform Setup section (commit `80bdc17`, closes #825), Windows guide cluster consolidated into single `Windows-Hybrid-Setup.md` (closes #834), Cloudflare guide cluster consolidated by removing pre-hybrid `Cloudflare-Based-Multi-Machine-Sync.md` and adding deprecation guidance to `Cloudflare-Backup-Sync-Setup.md` (closes #833).
+- **`docs/BENCHMARKS.md` clarification**: benchmark run version (`v10.34.0`) now annotated with "(benchmark run version; latest release: vX.Y.Z)" to prevent new readers from interpreting the historical run version as current. (PR #829, closes #826)
+
 ## [10.48.0] - 2026-05-02
 
 ### Added
