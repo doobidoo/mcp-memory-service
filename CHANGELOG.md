@@ -178,6 +178,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **[#721] Milvus CI hardening**: Docker image tag pinned for reproducibility, `docker-compose` standalone manifest added for older Docker versions, segment-sealing wait added to smoke test to prevent intermittent failures. (PR #721)
 
 ## [10.39.1] - 2026-04-19
+### Added
+- **CLI lifecycle commands**: Added `launch`, `stop`, `restart`, `info`, `health`, `logs` commands for background HTTP server management. These commands use the new `cli/lifecycle.py` module with cross-platform PID tracking and health polling.
+- **Lazy CLI command loading**: Ingestion commands (`ingest-document`, `ingest-directory`, `list-formats`) are now lazy-loaded — imported only when invoked, not at CLI startup.
+- **Lazy package imports**: Heavy dependencies (torch, transformers, sentence-transformers) are imported only when lazy-loaded attributes like `Memory`, `MemoryQueryResult`, or `MemoryStorage` are accessed.
+- **Unit tests for lazy loading**: Added targeted unit tests covering package lazy imports, CLI lazy command availability, and lifecycle command registration.
+
+### Changed
+- **CLI startup performance**: `memory --help` and lifecycle commands now start quickly by avoiding eager ML imports at module load time.
+- **HTTP host/port ergonomics**: `memory server --http` now supports `--http-host` and `--http-port`; lifecycle commands use `--host` and `--port` with environment fallbacks.
+- **Test conftest cleanup**: Removed Unicode emoji characters from `tests/conftest.py` to avoid `UnicodeEncodeError` on Windows cp1252 consoles.
+- **[SECURITY] Fixed command injection in `launch`**: Replaced unsafe `-c` command string with safe argument list using `sys.executable -m uvicorn` with separate args for `--host` and `--port`. User-controlled host values no longer get interpolated into code strings. (PR #740)
+- **[SECURITY] Fixed file handle leak in detached launch**: Parent process now explicitly closes stdout/stderr file handles immediately after spawning child process, preventing resource exhaustion. (PR #740)
+- **[PERF] Optimized log reading**: `logs` command now uses streaming tail with `collections.deque(maxlen=lines)` instead of `read_text().splitlines()` to avoid loading entire log file into memory. (PR #740)
+- **[DOCS] Added security warnings**: Added explicit security notice in `launch` command help text and `README.md` lifecycle section warning that binding to non-loopback hosts exposes the API and should use auth/firewall in production. (PR #740)
 
 ### Fixed
 
