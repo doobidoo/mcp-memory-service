@@ -24,14 +24,19 @@ except ImportError:
     except Exception:
         __version__ = "10.13.0"
 
-# Lazy imports: core classes are imported on first access to avoid
-# loading torch/transformers (~22s) at package import time.
-# This keeps CLI commands like 'memory launch', 'memory stop', 'memory info'
-# fast and responsive.
+# Ensure Python recognizes mcp_memory_service as a package (not a plain module)
+# in all install contexts (uvx, editable, wheel). Without this, a module-level
+# __getattr__ can cause Python to treat this as a non-package on some paths,
+# breaking subpackage imports like from mcp_memory_service.ingestion.csv_loader import CSVLoader
+__path__ = __path__  # noqa: F821 – always defined for packages; self-assignment is intentional
 
 
 def __getattr__(name):
-    """Lazy-load heavy submodules only when accessed."""
+    """Lazy-load heavy classes on first access to avoid loading
+    torch/transformers (~22s) at package import time.
+    This keeps CLI commands like 'memory launch', 'memory stop', 'memory info'
+    fast and responsive.
+    """
     _lazy_map = {
         "Memory": ".models",
         "MemoryQueryResult": ".models",
