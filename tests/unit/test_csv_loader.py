@@ -11,7 +11,7 @@ from pathlib import Path
 
 from mcp_memory_service.ingestion.csv_loader import CSVLoader
 from mcp_memory_service.ingestion.base import DocumentChunk
-from conftest import extract_chunks_from_temp_file
+from tests.unit.conftest import extract_chunks_from_temp_file
 
 
 class TestCSVLoader:

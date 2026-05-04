@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from mcp_memory_service.ingestion.json_loader import JSONLoader
 from mcp_memory_service.ingestion.base import DocumentChunk
-from conftest import extract_chunks_from_temp_file
+from tests.unit.conftest import extract_chunks_from_temp_file
 
 
 class TestJSONLoader:
