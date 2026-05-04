@@ -38,10 +38,6 @@ def test_lifecycle_commands_registered():
     for cmd in lifecycle:
         assert cmd in commands, f"Lifecycle command {cmd!r} not in {commands}"
     
-    # Clean up
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
 
 
 def test_launch_command_structure():
@@ -58,10 +54,6 @@ def test_launch_command_structure():
     for param in expected:
         assert param in param_names, f"launch command missing param {param!r}"
     
-    # Clean up
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
 
 
 def test_stop_command_structure():
@@ -73,10 +65,6 @@ def test_stop_command_structure():
     assert 'http_host' in param_names
     assert 'http_port' in param_names
     
-    # Clean up
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
 
 
 def test_info_command_structure():
@@ -88,10 +76,6 @@ def test_info_command_structure():
     assert 'http_host' in param_names
     assert 'http_port' in param_names
     
-    # Clean up
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
 
 
 def test_health_command_structure():
@@ -103,10 +87,6 @@ def test_health_command_structure():
     assert 'http_host' in param_names
     assert 'http_port' in param_names
     
-    # Clean up
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
 
 
 def test_logs_command_structure():
@@ -117,10 +97,6 @@ def test_logs_command_structure():
     param_names = [p.name for p in logs.params]
     assert 'lines' in param_names
     
-    # Clean up
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
 
 
 def test_lifecycle_commands_use_lifecycle_module():
@@ -140,10 +116,6 @@ def test_lifecycle_commands_use_lifecycle_module():
         assert hasattr(cmd, 'callback'), f"Command {cmd.name} has no callback attribute"
         assert callable(cmd.callback), f"Command {cmd.name} callback is not callable"
     
-    # Clean up
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
 
 
 # ─── Security and Fixes Tests ─────────────────────────────────────────────────

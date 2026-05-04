@@ -19,120 +19,100 @@ Tests verify that:
 1. CLI help shows lazy-loaded commands without heavy imports
 2. Ingestion commands are available via lazy resolution
 3. Lifecycle commands are properly registered
+
+Subprocess isolation is used for the heavy-import assertions to avoid
+mutating the parent process's sys.modules — that pollution previously
+broke any later test relying on FastAPI dependency_overrides bound to
+specific module objects (the override key references the original
+function; deleting modules forces a re-import that yields fresh function
+objects, and overrides silently miss).
 """
 
+import subprocess
 import sys
+import textwrap
+
 from click.testing import CliRunner
 
 
+def _run_in_subprocess(script: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, "-c", textwrap.dedent(script)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
 def test_cli_help_does_not_trigger_heavy_imports():
-    """Test that running CLI help doesn't trigger torch/transformers imports."""
-    # Store baseline
-    initial_modules = set(sys.modules.keys())
-    
-    # Run CLI help
-    from mcp_memory_service.cli.main import cli
-    
-    runner = CliRunner()
-    result = runner.invoke(cli, ['--help'])
-    
-    # Should succeed
-    assert result.exit_code == 0, f"CLI help failed: {result.output}"
-    
-    # Check help output contains expected content
-    assert 'memory' in result.output.lower() or 'MCP Memory Service' in result.output
-    
-    # Heavy imports should NOT be loaded
-    heavy_imports = ['torch', 'transformers', 'sentence_transformers']
-    for heavy in heavy_imports:
-        assert heavy not in sys.modules, f"Heavy import {heavy!r} loaded during CLI help"
-    
-    # Clean up
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
+    """Running `memory --help` must not import torch/transformers/sentence_transformers."""
+    result = _run_in_subprocess("""
+        import sys
+        from click.testing import CliRunner
+        from mcp_memory_service.cli.main import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ['--help'])
+        if result.exit_code != 0:
+            print(f'FAIL: --help exit_code={result.exit_code}: {result.output}')
+            sys.exit(1)
+        if 'memory' not in result.output.lower() and 'MCP Memory Service' not in result.output:
+            print(f'FAIL: unexpected help output: {result.output[:500]}')
+            sys.exit(1)
+        heavy = ['torch', 'transformers', 'sentence_transformers']
+        loaded = [m for m in heavy if m in sys.modules]
+        if loaded:
+            print(f'FAIL: heavy modules loaded during --help: {loaded}')
+            sys.exit(1)
+        print('OK')
+    """)
+    assert result.returncode == 0, (
+        f"CLI --help triggered heavy imports.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
 
 
 def test_cli_has_lifecycle_commands():
-    """Test that lifecycle commands are available in the CLI group."""
+    """Lifecycle commands (launch/stop/restart/info/health/logs) must be registered."""
     from mcp_memory_service.cli.main import cli
-    
-    # Get available commands - use an empty context so --help doesn't trigger exit
+
     ctx = cli.make_context('memory', [])
     commands = cli.list_commands(ctx)
-    
-    # Lifecycle commands
-    lifecycle = ['launch', 'stop', 'restart', 'info', 'health', 'logs']
-    for cmd in lifecycle:
+
+    for cmd in ['launch', 'stop', 'restart', 'info', 'health', 'logs']:
         assert cmd in commands, f"Lifecycle command {cmd!r} not in {commands}"
-    
-    # Clean up
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
 
 
 def test_cli_has_ingestion_commands():
-    """Test that ingestion commands are available via lazy resolution."""
+    """Ingestion commands must appear in the lazy command map and group listing."""
     from mcp_memory_service.cli.main import cli, LAZY_COMMANDS
-    
-    # Lazy commands should be defined
-    assert 'ingest-document' in LAZY_COMMANDS
-    assert 'ingest-directory' in LAZY_COMMANDS
-    assert 'list-formats' in LAZY_COMMANDS
-    
-    # Get actual command names from the group
+
+    for cmd in ['ingest-document', 'ingest-directory', 'list-formats']:
+        assert cmd in LAZY_COMMANDS, f"{cmd!r} not in LAZY_COMMANDS"
+
     ctx = cli.make_context('memory', [])
     commands = cli.list_commands(ctx)
-    
-    # Ingestion commands should appear in help
-    ingestion_commands = ['ingest-document', 'ingest-directory', 'list-formats']
-    for cmd in ingestion_commands:
-        assert cmd in commands, f"Ingestion command {cmd!r} not found"
+    for cmd in ['ingest-document', 'ingest-directory', 'list-formats']:
+        assert cmd in commands, f"Ingestion command {cmd!r} not found in {commands}"
 
 
 def test_lazy_get_command_for_ingest():
-    """Test that get_command lazily resolves ingestion commands without importing heavy deps."""
-    # Remove CLI module from cache
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
-    
-    from mcp_memory_service.cli.main import cli, LAZY_COMMANDS
-    
-    # Heavy modules should not be loaded
-    assert 'torch' not in sys.modules
-    
-    # Try to get an ingestion command - this should trigger lazy import
+    """get_command must lazily resolve ingestion commands to a Click command object."""
+    from mcp_memory_service.cli.main import cli
+
     ctx = cli.make_context('memory', ['ingest-document', '--help'])
-    
-    # The command should be resolvable
     cmd = cli.get_command(ctx, 'ingest-document')
-    
-    # Should return a Click command object
+
     assert cmd is not None, "ingest-document command not found"
     assert hasattr(cmd, 'callback') or hasattr(cmd, 'name')
-    
-    # Clean up
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
 
 
 def test_cli_ingestion_command_help():
-    """Test that getting help for lazy-loaded commands works."""
+    """Help for a lazy-loaded ingestion command must work end-to-end."""
     from mcp_memory_service.cli.main import cli
-    
+
     runner = CliRunner()
-    
-    # Test ingest-document help (lazy-loaded)
     result = runner.invoke(cli, ['ingest-document', '--help'])
-    
-    # Should succeed without errors
+
     assert result.exit_code == 0, f"ingest-document --help failed: {result.output}"
     assert 'ingest' in result.output.lower() or 'document' in result.output.lower()
-    
-    # Clean up
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]

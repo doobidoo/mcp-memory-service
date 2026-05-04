@@ -17,70 +17,59 @@ Tests for lazy import behavior in mcp_memory_service package.
 
 Lazy imports prevent heavy dependencies (torch, transformers) from being
 loaded at package import time, improving CLI startup performance.
+
+These tests run in subprocess to guarantee a clean import state — mutating
+the parent's sys.modules to "reset" lazy state pollutes global state and
+breaks any later test that uses FastAPI dependency_overrides on web.api.*
+modules (the route holds a reference to the original module; deleting it
+from sys.modules forces a re-import on next access, and the override keys
+no longer match the live function objects).
 """
 
+import subprocess
 import sys
+import textwrap
+
+
+def _run_in_subprocess(script: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, "-c", textwrap.dedent(script)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
 
 
 def test_import_does_not_eagerly_load_heavy_modules():
-    """Test that importing the package doesn't trigger heavy module loads."""
-    # Store baseline of loaded modules
-    initial_modules = set(sys.modules.keys())
-    
-    # Import the package
-    import mcp_memory_service
-    
-    # Check that heavy modules are NOT loaded
-    heavy_imports = ['torch', 'transformers', 'sentence_transformers']
-    for heavy in heavy_imports:
-        assert heavy not in sys.modules, f"Heavy import {heavy!r} was loaded at package import time"
-    
-    # Clean up: remove from sys.modules so subsequent tests start fresh
-    del sys.modules['mcp_memory_service']
+    """Importing the package should not pull torch/transformers/sentence_transformers."""
+    result = _run_in_subprocess("""
+        import sys
+        import mcp_memory_service
+        heavy = ['torch', 'transformers', 'sentence_transformers']
+        loaded = [m for m in heavy if m in sys.modules]
+        if loaded:
+            print(f'FAIL: heavy modules loaded: {loaded}')
+            sys.exit(1)
+        print('OK')
+    """)
+    assert result.returncode == 0, (
+        f"Heavy imports leaked at package import time.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
 
 
-def test_lazy_getattr_triggers_import_on_access():
-    """Test that accessing lazy-loaded attributes triggers the actual import."""
-    # Remove from cache if present
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
-    
-    import mcp_memory_service
-    
-    # Before access, heavy modules should not be loaded
-    assert 'torch' not in sys.modules
-    
-    # Access a lazy attribute - this should trigger the import
-    # We can't actually access Memory since it requires torch, but we can
-    # verify the lazy mechanism works by checking the module structure
-    
-    # The __getattr__ should be defined
-    assert hasattr(mcp_memory_service, '__getattr__')
-    
-    # Clean up
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
-
-
-def test_lazy_attributes_are_cached_after_first_access():
-    """Test that lazy-loaded attributes are cached in globals."""
-    # Remove from cache if present
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
-    
-    import mcp_memory_service
-    
-    # First access - should trigger __getattr__
-    # Note: We can't fully test this without actually importing torch
-    # but we can verify the mechanism exists
-    
-    # Check that __getattr__ is the mechanism for attribute access
-    assert callable(mcp_memory_service.__getattr__)
-    
-    # Clean up
-    for mod_name in list(sys.modules.keys()):
-        if 'mcp_memory_service' in mod_name:
-            del sys.modules[mod_name]
+def test_lazy_getattr_is_defined_on_package():
+    """The package should expose a module-level __getattr__ for lazy attribute access."""
+    result = _run_in_subprocess("""
+        import sys
+        import mcp_memory_service
+        assert hasattr(mcp_memory_service, '__getattr__'), 'no __getattr__'
+        assert callable(mcp_memory_service.__getattr__), '__getattr__ not callable'
+        # Heavy modules must remain unloaded until a lazy attribute is accessed
+        assert 'torch' not in sys.modules, 'torch loaded prematurely'
+        print('OK')
+    """)
+    assert result.returncode == 0, (
+        f"Lazy __getattr__ scaffolding broken.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
