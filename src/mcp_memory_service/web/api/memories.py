@@ -43,7 +43,7 @@ class MemoryCreateRequest(BaseModel):
     """Request model for creating a new memory."""
     content: str = Field(..., description="The memory content to store")
     tags: List[str] = Field(default=[], description="Tags to categorize the memory")
-    memory_type: Optional[str] = Field(None, description="Type of memory (e.g., 'note', 'reminder', 'fact')")
+    memory_type: Optional[str] = Field(None, description="Type of memory. Validated against the built-in ontology (base types: observation, decision, learning, error, pattern, planning, ceremony, milestone, stakeholder, meeting, research, communication). Unknown types are coerced to 'observation' and a warning is included in the response. Register additional types via MCP_CUSTOM_MEMORY_TYPES env var.")
     metadata: Dict[str, Any] = Field(default={}, description="Additional metadata for the memory")
     client_hostname: Optional[str] = Field(None, description="Client machine hostname for source tracking")
     conversation_id: Optional[str] = Field(None, description="Optional conversation identifier. When provided, semantic deduplication is skipped, allowing multiple incremental memories from the same conversation to be stored even if their content is topically similar.")
@@ -200,21 +200,38 @@ async def store_memory(
                 # Don't fail the request if SSE broadcasting fails
                 logger.warning(f"Failed to broadcast memory_stored event: {e}")
 
+            # Surface ontology coercion: when the requested memory_type is not
+            # in the ontology, Memory.__post_init__ silently rewrites it to
+            # "observation". Without an explicit warning the caller sees
+            # "success" while their type filter silently breaks.
+            def _coercion_warning(effective: Optional[str]) -> str:
+                requested = request.memory_type
+                if requested and effective and requested != effective:
+                    return (
+                        f" Warning: requested memory_type '{requested}' is not in "
+                        f"the ontology — stored as '{effective}'. Register custom "
+                        f"types via MCP_CUSTOM_MEMORY_TYPES, "
+                        f"e.g. '{{\"{requested}\": []}}'."
+                    )
+                return ""
+
             # Return appropriate response based on MemoryService result
             if "memory" in result:
                 # Single memory response
+                base_msg = "Memory stored successfully"
                 return MemoryCreateResponse(
                     success=True,
-                    message="Memory stored successfully",
+                    message=base_msg + _coercion_warning(result["memory"].get("memory_type")),
                     content_hash=result["memory"]["content_hash"],
                     memory=result["memory"]
                 )
             else:
                 # Chunked memory response
                 first_memory = result["memories"][0]
+                base_msg = f"Memory stored as {result['total_chunks']} chunks"
                 return MemoryCreateResponse(
                     success=True,
-                    message=f"Memory stored as {result['total_chunks']} chunks",
+                    message=base_msg + _coercion_warning(first_memory.get("memory_type")),
                     content_hash=first_memory["content_hash"],
                     memory=first_memory
                 )

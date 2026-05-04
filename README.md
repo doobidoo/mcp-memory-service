@@ -682,6 +682,7 @@ If you encounter issues during migration:
 - **[Architecture Overview](docs/architecture.md)** – How it works under the hood
 - **[Team Setup Guide](docs/setup-guide.md#path-4-full-stack)** – OAuth and cloud collaboration
 - **[Knowledge Graph Dashboard](docs/features/knowledge-graph-dashboard.md)** 🆕 – Interactive graph visualization guide
+- **[Memory Type Ontology](docs/memory-ontology.md)** 🆕 – Built-in taxonomy and `MCP_CUSTOM_MEMORY_TYPES` env var
 - **[Troubleshooting](docs/troubleshooting/)** – Common issues and solutions
 - **[API Reference](https://github.com/doobidoo/mcp-memory-service/wiki)** – Programmatic usage
 - **[Wiki](https://github.com/doobidoo/mcp-memory-service/wiki)** – Complete documentation

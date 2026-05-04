@@ -1340,7 +1340,7 @@ class MemoryServer:
                                         },
                                         "type": {
                                             "type": "string",
-                                            "description": "Optional type or category label for the memory, e.g., 'note', 'fact', 'reminder'."
+                                            "description": "Optional memory type. Validated against the built-in ontology. Common base types: observation, decision, learning, error, pattern, planning, ceremony, milestone, stakeholder, meeting, research, communication. Common subtypes: note, reference, code_edit, command, document, insight, gotcha, bug, action_item, finding. Unknown types are silently coerced to 'observation' and the response includes a warning. Register additional types via the MCP_CUSTOM_MEMORY_TYPES env var, e.g. '{\"foo\": [\"sub_a\", \"sub_b\"]}'. See docs/memory-ontology.md for the full taxonomy."
                                         }
                                     }
                                 }

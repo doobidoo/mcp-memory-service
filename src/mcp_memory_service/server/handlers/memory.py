@@ -186,6 +186,10 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
 
         # Extract parameters for MemoryService call
         tags = metadata.get("tags", "")
+        # Track whether the user explicitly supplied a type. The default
+        # "note" is silently applied when omitted, so we should only warn
+        # about coercion for explicit, user-provided types.
+        type_was_explicit = "type" in metadata
         memory_type = metadata.get("type", "note")  # HTTP server uses metadata.type
         client_hostname = arguments.get("client_hostname")
         conversation_id = arguments.get("conversation_id")
@@ -210,10 +214,28 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
             num_chunks = len(result["memories"])
             original_hash = result.get("original_hash", "unknown")
             message = f"Successfully stored {num_chunks} memory chunks (original hash: {original_hash})"
+            effective_type = result["memories"][0].get("memory_type") if result["memories"] else None
         else:
             # Single memory response
             memory_hash = result["memory"]["content_hash"]
             message = f"Memory stored successfully (hash: {memory_hash})"
+            effective_type = result["memory"].get("memory_type")
+
+        # Surface ontology coercion: when the requested memory_type is not
+        # in the ontology, Memory.__post_init__ silently rewrites it to
+        # "observation" and only logs a warning. Without this echo the
+        # caller sees "success" while their type filter silently breaks.
+        if (
+            type_was_explicit
+            and effective_type
+            and effective_type != memory_type
+        ):
+            message += (
+                f"\nWarning: requested memory_type '{memory_type}' is not in the "
+                f"ontology — stored as '{effective_type}'. "
+                f"Register custom types via the MCP_CUSTOM_MEMORY_TYPES env var, "
+                f"e.g. '{{\"{memory_type}\": []}}'."
+            )
 
         return [types.TextContent(type="text", text=message)]
 
