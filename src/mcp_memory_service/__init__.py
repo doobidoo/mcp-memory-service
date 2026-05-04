@@ -29,16 +29,10 @@ except ImportError:
 # in all install contexts (editable, wheel, uvx). A no-op `__path__ = __path__`
 # is not enough — pytest/import paths that use `sys.path.insert(0, 'src')`
 # can otherwise resolve this as a plain module and break subpackage imports.
-# `ingestion` is also eagerly loaded so it lands in sys.modules before any
-# test that mutates sys.modules['mcp_memory_service'] (e.g. the isolated-import
-# trick in tests/test_memory_ontology_integration.py); without this, later
-# `from mcp_memory_service.ingestion.X import Y` calls fall back to the
-# shadowed parent and fail with `'mcp_memory_service' is not a package`.
 # Heavy imports (torch/transformers via storage backends) stay deferred via
 # `__getattr__` below.
 from .models import Memory, MemoryQueryResult
 from .utils import generate_content_hash
-from . import ingestion  # noqa: F401  – anchor subpackage in sys.modules
 
 
 def __getattr__(name):

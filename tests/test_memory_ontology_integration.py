@@ -6,40 +6,8 @@ Tests the complete ontology validation workflow in Memory creation.
 
 import pytest
 import hashlib
-from pathlib import Path
-import importlib.util
-import sys
 
-# Load ontology module first
-ontology_path = Path(__file__).parent.parent / "src" / "mcp_memory_service" / "models" / "ontology.py"
-spec_ont = importlib.util.spec_from_file_location("ontology_test", ontology_path)
-ontology_module = importlib.util.module_from_spec(spec_ont)
-spec_ont.loader.exec_module(ontology_module)
-
-# Load tag_taxonomy module
-tag_tax_path = Path(__file__).parent.parent / "src" / "mcp_memory_service" / "models" / "tag_taxonomy.py"
-spec_tag = importlib.util.spec_from_file_location("tag_taxonomy_test", tag_tax_path)
-tag_taxonomy_module = importlib.util.module_from_spec(spec_tag)
-spec_tag.loader.exec_module(tag_taxonomy_module)
-
-# Create a fake package for the absolute imports
-fake_package = type(sys)('mcp_memory_service')
-fake_models = type(sys)('models')
-fake_package.models = fake_models
-fake_models.ontology = ontology_module
-fake_models.tag_taxonomy = tag_taxonomy_module
-sys.modules['mcp_memory_service'] = fake_package
-sys.modules['mcp_memory_service.models'] = fake_models
-sys.modules['mcp_memory_service.models.ontology'] = ontology_module
-sys.modules['mcp_memory_service.models.tag_taxonomy'] = tag_taxonomy_module
-
-# Now load memory module
-memory_path = Path(__file__).parent.parent / "src" / "mcp_memory_service" / "models" / "memory.py"
-spec = importlib.util.spec_from_file_location("memory_test", memory_path)
-memory_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(memory_module)
-
-Memory = memory_module.Memory
+from mcp_memory_service.models.memory import Memory
 
 
 class TestBurstI1MemoryOntologyValidation:
