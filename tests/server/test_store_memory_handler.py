@@ -82,6 +82,25 @@ async def test_store_memory_unknown_type_warns_about_coercion():
 
 
 @pytest.mark.asyncio
+async def test_store_memory_explicit_empty_string_warns_on_coercion():
+    """An explicit empty `type` is still a deliberate user choice. Ontology
+    validation rejects it and coerces to 'observation'; the handler must
+    surface the warning instead of silently treating "" as "not provided"."""
+    from mcp_memory_service.server.handlers.memory import handle_store_memory
+    server = _make_server(stored_memory_type="observation")
+
+    result = await handle_store_memory(server, {
+        "content": "hello",
+        "metadata": {"type": ""},
+    })
+
+    text = result[0].text
+    assert "Memory stored successfully" in text
+    assert "Warning" in text
+    assert "'observation'" in text
+
+
+@pytest.mark.asyncio
 async def test_store_memory_chunked_response_warns_on_coercion():
     """Chunked path uses memories[0].memory_type — same coercion surfacing
     must apply."""

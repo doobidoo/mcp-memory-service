@@ -206,7 +206,10 @@ async def store_memory(
             # "success" while their type filter silently breaks.
             def _coercion_warning(effective: Optional[str]) -> str:
                 requested = request.memory_type
-                if requested and effective and requested != effective:
+                # Use `is not None` (not truthy) so an explicit empty string —
+                # also coerced to 'observation' — still surfaces the warning.
+                # Mirrors the MCP handler's presence-based check.
+                if requested is not None and effective and requested != effective:
                     return (
                         f" Warning: requested memory_type '{requested}' is not in "
                         f"the ontology — stored as '{effective}'. Register custom "
