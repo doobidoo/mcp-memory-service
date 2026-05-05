@@ -3,11 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
-
-if TYPE_CHECKING:
-    from ..services.memory_service import MemoryService  # noqa: F401
-    from ..storage.sqlite_vec import SqliteVecMemoryStorage  # noqa: F401
+from typing import Any, Awaitable, Callable, Literal
 
 HookName = Literal["on_store", "on_delete", "on_retrieve", "on_consolidate"]
 
