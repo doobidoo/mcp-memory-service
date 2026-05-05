@@ -46,25 +46,36 @@ class PluginRegistry:
     async def fire(self, hook: HookName, *args: Any, **kwargs: Any) -> Any:
         """Fire a hook, calling all registered handlers in order.
 
-        For on_retrieve: handlers can modify and return the results list.
+        For on_retrieve: handlers receive (query, results) and can return
+        modified results. Chaining passes updated results to next handler.
         For other hooks: handlers are called for side effects only.
         """
         handlers = self.ctx._hooks.get(hook, [])
         if not handlers:
+            # on_retrieve: return results (2nd arg), others: return 1st arg
+            if hook == "on_retrieve":
+                return args[1] if len(args) > 1 else args[0] if args else None
             return args[0] if args else None
 
-        result = args[0] if args else None
+        if hook == "on_retrieve":
+            query = args[0] if args else None
+            results = args[1] if len(args) > 1 else args[0] if args else None
+            for fn in handlers:
+                try:
+                    modified = await fn(query, results, **kwargs)
+                    if modified is not None:
+                        results = modified
+                except Exception:
+                    logger.exception(
+                        "Error in plugin hook '%s' handler %s", hook, fn.__qualname__
+                    )
+            return results
 
         for fn in handlers:
             try:
-                if hook == "on_retrieve":
-                    # on_retrieve can rerank/filter results
-                    result = await fn(*args, **kwargs) or result
-                else:
-                    await fn(*args, **kwargs)
+                await fn(*args, **kwargs)
             except Exception:
                 logger.exception(
                     "Error in plugin hook '%s' handler %s", hook, fn.__qualname__
                 )
-
-        return result
+        return args[0] if args else None

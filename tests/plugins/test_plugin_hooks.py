@@ -60,12 +60,27 @@ class TestPluginRegistry:
 
     @pytest.mark.asyncio
     async def test_fire_on_retrieve_reranks(self, registry):
-        async def reranker(results):
+        async def reranker(query, results):
             return list(reversed(results))
 
         registry.ctx.on("on_retrieve", reranker)
-        result = await registry.fire("on_retrieve", [1, 2, 3])
+        result = await registry.fire("on_retrieve", "test query", [1, 2, 3])
         assert result == [3, 2, 1]
+
+    @pytest.mark.asyncio
+    async def test_fire_on_retrieve_chaining(self, registry):
+        """Subsequent handlers receive modified results from previous."""
+
+        async def add_item(query, results):
+            return results + [99]
+
+        async def reverse_it(query, results):
+            return list(reversed(results))
+
+        registry.ctx.on("on_retrieve", add_item)
+        registry.ctx.on("on_retrieve", reverse_it)
+        result = await registry.fire("on_retrieve", "q", [1, 2, 3])
+        assert result == [99, 3, 2, 1]
 
     @pytest.mark.asyncio
     async def test_fire_handler_error_doesnt_crash(self, registry):
