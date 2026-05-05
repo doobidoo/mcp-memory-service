@@ -490,18 +490,17 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.49.1** (May 5, 2026)
+## Latest Release: **v10.49.2** (May 5, 2026)
 
-**fix: surface memory_type ontology coercion warnings + uvx CI flake fix (PR #844)**
+**fix(ontology): register custom base types with empty subtype lists (PR #846)**
 
 **What's New:**
-- **Ontology coercion UX**: `memory_store` (MCP) and `POST /memories` (HTTP) now surface a visible warning when an unknown `memory_type` is silently coerced to `"observation"`. Callers can register custom types via `MCP_CUSTOM_MEMORY_TYPES`. Closes #843.
-- **New docs**: [`docs/memory-ontology.md`](docs/memory-ontology.md) documents the built-in taxonomy (12 base types, ~60 subtypes), coercion behaviour, and `MCP_CUSTOM_MEMORY_TYPES` JSON format.
-- **uvx CI flake fixed**: Removed `importlib.reload` in test files that poisoned FastAPI route deps, causing intermittent `test_harvest_requires_auth` failures in the `Test uvx compatibility` run.
+- **Custom type registration fixed**: `MCP_CUSTOM_MEMORY_TYPES='{"foo": []}'` now correctly registers `foo` as a valid type. Previously, the `if valid_subtypes:` guard in `_load_custom_types_from_config` silently dropped any custom type whose subtype list was empty — meaning the coercion warning added in v10.49.1 would fire forever, even after the user configured the env var correctly. Closes #842.
 
 ---
 
 **Previous Releases**:
+- **v10.49.1** - fix: surface memory_type ontology coercion warnings + uvx CI flake fix (PR #844)
 - **v10.49.0** - feat(cli): lazy lifecycle commands and faster startup (PR #841, @creativelaides)
 - **v10.48.0** - feat: include_superseded retrieval filter + auto-mark on contradiction (PR #814, @filhocf)
 - **v10.47.2** - fix(consolidation): disable-by-default schedule prevents unintended automatic consolidation (PR #821, closes #808)

@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.49.2] - 2026-05-05
+
+### Fixed
+
+- **[#842] Custom base types with empty subtype lists were silently dropped**: `_load_custom_types_from_config` in [`models/ontology.py`](src/mcp_memory_service/models/ontology.py) guarded registration with `if valid_subtypes:`, so a type declared as `MCP_CUSTOM_MEMORY_TYPES='{"foo": []}'` — the exact form documented in the v10.49.1 coercion warning and in the `memory_store` tool description — was never added to the ontology. The validator never saw `foo`, so `Memory.__post_init__` kept coercing it to `"observation"` even after the user had correctly configured the env var. Fix: register the base type unconditionally; emit a warning only when subtypes were supplied but all failed validation. Two regression tests added. Closes #842. (PR #846)
+
 ## [10.49.1] - 2026-05-05
 
 ### Fixed
