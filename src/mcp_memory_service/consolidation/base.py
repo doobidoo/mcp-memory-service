@@ -174,10 +174,14 @@ class ConsolidationBase(ABC):
         # Protect high-value mistake notes (recurring patterns)
         if memory.memory_type == 'mistake':
             metadata = memory.metadata or {}
-            if isinstance(metadata, str):
+            if isinstance(metadata, str) and metadata.strip():
                 import json
-                metadata = json.loads(metadata) if metadata else {}
-            if metadata.get('failure_count', 0) >= 3:
+                try:
+                    metadata = json.loads(metadata)
+                except (json.JSONDecodeError, TypeError):
+                    metadata = {}
+
+            if isinstance(metadata, dict) and metadata.get('failure_count', 0) >= 3:
                 return True
 
         return False

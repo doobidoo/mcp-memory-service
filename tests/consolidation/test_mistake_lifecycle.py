@@ -70,3 +70,13 @@ class TestMistakeNoteProtection:
     def test_mistake_note_json_string_low_count(self, consolidation_base):
         mem = _make_memory(memory_type="mistake", metadata='{"failure_count": 2}')
         assert consolidation_base._is_protected_memory(mem) is False
+
+    def test_mistake_note_invalid_json_metadata(self, consolidation_base):
+        """Invalid JSON metadata should not crash — just not protect."""
+        mem = _make_memory(memory_type="mistake", metadata="{invalid json")
+        assert consolidation_base._is_protected_memory(mem) is False
+
+    def test_mistake_note_list_metadata(self, consolidation_base):
+        """Non-dict JSON (e.g. list) should not crash."""
+        mem = _make_memory(memory_type="mistake", metadata='[1, 2, 3]')
+        assert consolidation_base._is_protected_memory(mem) is False
