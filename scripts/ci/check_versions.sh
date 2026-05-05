@@ -87,6 +87,13 @@ for target in "${SCAN_TARGETS[@]}"; do
     version=$(echo "$line" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//')
     [ -z "$version" ] && continue
 
+    # Ignore PATCH-only drift: a v10.49.1 ref next to a canonical v10.49.2 is
+    # not meaningful drift — landing-page updates are MINOR/MAJOR-only per
+    # CLAUDE.md. Only flag when MAJOR or MINOR differs.
+    found_mm=$(echo "$version"   | cut -d. -f1,2)
+    canon_mm=$(echo "$CANONICAL" | cut -d. -f1,2)
+    [ "$found_mm" = "$canon_mm" ] && continue
+
     if older_than "$version" "$CANONICAL"; then
       DRIFT_LINES+=("$line  →  expected v$CANONICAL (or excluded path)")
       FOUND=1
