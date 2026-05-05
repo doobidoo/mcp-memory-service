@@ -490,16 +490,18 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.49.2** (May 5, 2026)
+## Latest Release: **v10.49.3** (May 5, 2026)
 
-**fix(ontology): register custom base types with empty subtype lists (PR #846)**
+**fix(opencode): correct API path, payload field, and client-side tag filter (PRs #849, #850)**
 
 **What's New:**
-- **Custom type registration fixed**: `MCP_CUSTOM_MEMORY_TYPES='{"foo": []}'` now correctly registers `foo` as a valid type. Previously, the `if valid_subtypes:` guard in `_load_custom_types_from_config` silently dropped any custom type whose subtype list was empty — meaning the coercion warning added in v10.49.1 would fire forever, even after the user configured the env var correctly. Closes #842.
+- **OpenCode plugin works again**: Fixed wrong API path (`/api/memories/search` -> `/api/search`) and wrong payload field (`limit` -> `n_results`) that caused HTTP 405 errors on all OpenCode memory searches. Closes #847.
+- **Project-scoped searches correctly scoped**: `/api/search` ignores `tags` server-side; plugin now over-fetches and filters client-side by tag intersection so project memory stays isolated.
 
 ---
 
 **Previous Releases**:
+- **v10.49.2** - fix(ontology): register custom base types with empty subtype lists (PR #846)
 - **v10.49.1** - fix: surface memory_type ontology coercion warnings + uvx CI flake fix (PR #844)
 - **v10.49.0** - feat(cli): lazy lifecycle commands and faster startup (PR #841, @creativelaides)
 - **v10.48.0** - feat: include_superseded retrieval filter + auto-mark on contradiction (PR #814, @filhocf)

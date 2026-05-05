@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.49.3] - 2026-05-05
+
+### Fixed
+
+- **[#847] OpenCode plugin API path and payload corrected**: The plugin was calling `/api/memories/search` (HTTP 405) instead of `/api/search`, and sending `limit` instead of `n_results` in the request body (per `SemanticSearchRequest` schema). Both issues caused all OpenCode memory searches to fail silently. Fix applied in PR #850. Closes #847.
+- **[#847] OpenCode plugin tag filter now enforced client-side**: `/api/search` ignores the `tags` field server-side, so project-scoped searches were returning unfiltered results. The plugin now over-fetches (`max(limit * 4, 20)`) when tags are present and filters client-side by tag intersection before trimming to the requested limit. Fix applied in PR #849 (Gemini review follow-up).
+- **CI version-drift detection**: `scripts/ci/check_versions.sh` updated to skip landing-page version checks for PATCH releases, matching the documented release protocol that landing-page updates are MINOR/MAJOR only. (PR #850)
+
 ## [10.49.2] - 2026-05-05
 
 ### Fixed
