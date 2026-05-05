@@ -59,23 +59,22 @@ async def initialized_storage(temp_db, monkeypatch):
 @pytest.fixture
 def test_app(initialized_storage, monkeypatch):
     """Create a FastAPI test application with initialized storage."""
-    # Disable authentication for tests
+    # Disable authentication for tests. The env vars are set on the off-chance
+    # something reads them at request time, but auth is actually bypassed via
+    # `app.dependency_overrides` below — so we deliberately do NOT
+    # `importlib.reload` the middleware module here.
+    #
+    # Reloading rebinds `get_current_user` / `require_*_access` to fresh
+    # function objects, while the FastAPI route graph still holds references
+    # to the *original* objects captured at app-import time. Subsequent tests
+    # (e.g. `test_harvest_api::test_harvest_requires_auth`) then register
+    # overrides keyed by the post-reload objects, miss the route-captured
+    # originals, and fall through to the live middleware — which honours the
+    # CI-wide `MCP_ALLOW_ANONYMOUS_ACCESS=true` and silently returns 200
+    # instead of the expected 401. See PR #844 / issue #843 follow-up.
     monkeypatch.setenv('MCP_API_KEY', '')
     monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
     monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
-
-    # Force reload of config module to pick up new environment variables
-    import sys
-    import importlib
-    try:
-        if 'mcp_memory_service.config' in sys.modules:
-            importlib.reload(sys.modules['mcp_memory_service.config'])
-        if 'mcp_memory_service.web.oauth.middleware' in sys.modules:
-            importlib.reload(sys.modules['mcp_memory_service.web.oauth.middleware'])
-    except (AttributeError, ImportError):
-        # Module reload may fail in some test environments (e.g., editable installs)
-        # In that case, we'll rely on the environment variables being set before import
-        pass
 
     # Import here to avoid circular dependencies
     from mcp_memory_service.web.app import app

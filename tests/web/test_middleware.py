@@ -73,6 +73,21 @@ def client(temp_storage):
     config.OAUTH_ENABLED = original_oauth_enabled
     config.ALLOW_ANONYMOUS_ACCESS = original_allow_anonymous
 
+    # Reload the middleware module a second time so its module-level
+    # constants (`API_KEY`, `OAUTH_ENABLED`, `ALLOW_ANONYMOUS_ACCESS`,
+    # imported by name from `config` at module-load time) pick up the
+    # restored values.
+    #
+    # Without this, downstream tests that arrive at this app instance see
+    # routes whose `Depends(require_*_access)` still resolve to function
+    # objects whose `__globals__` (the middleware module dict) are frozen
+    # in the test-time configuration (api_key=test-secret, anon=False).
+    # Their `app.dependency_overrides` register against the post-reload
+    # function references, miss the route-captured originals, and fall
+    # through to that frozen middleware — returning 401 even when the test
+    # explicitly disables auth via env vars.
+    importlib.reload(middleware)
+
 
 class TestAPIKeyAuthentication:
     """Tests for API key authentication methods."""

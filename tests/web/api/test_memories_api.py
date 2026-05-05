@@ -51,20 +51,19 @@ async def initialized_storage(temp_db, monkeypatch):
 @pytest.fixture
 def test_app(initialized_storage, monkeypatch):
     """Create a FastAPI test application with initialized storage."""
+    # Auth is bypassed via `app.dependency_overrides` below — we deliberately
+    # do NOT `importlib.reload` the middleware module here. Reloading rebinds
+    # the dependency functions to fresh objects while the FastAPI route graph
+    # still holds the *original* references captured at app-import time;
+    # subsequent tests (e.g. `test_harvest_api::test_harvest_requires_auth`)
+    # then register overrides keyed by the post-reload objects, miss the
+    # route-captured originals, and fall through to the live middleware,
+    # which under the CI-wide `MCP_ALLOW_ANONYMOUS_ACCESS=true` silently
+    # returns 200 instead of 401. See PR #844 / issue #843 follow-up.
     monkeypatch.setenv('MCP_API_KEY', '')
     monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
     monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
     monkeypatch.setenv('INCLUDE_HOSTNAME', 'false')
-
-    import sys
-    import importlib
-    try:
-        if 'mcp_memory_service.config' in sys.modules:
-            importlib.reload(sys.modules['mcp_memory_service.config'])
-        if 'mcp_memory_service.web.oauth.middleware' in sys.modules:
-            importlib.reload(sys.modules['mcp_memory_service.web.oauth.middleware'])
-    except (AttributeError, ImportError):
-        pass
 
     from mcp_memory_service.web.app import app
     from mcp_memory_service.web.oauth.middleware import (

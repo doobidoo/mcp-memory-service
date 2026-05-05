@@ -69,9 +69,10 @@ def authed_client(monkeypatch):
 
 
 @pytest.fixture
-def unauth_client():
+def unauth_client(monkeypatch):
     """TestClient with auth dependencies overridden to reject requests (401)."""
     from fastapi import HTTPException, status
+    from mcp_memory_service.web.oauth import middleware
     from mcp_memory_service.web.app import app
     from mcp_memory_service.web.oauth.middleware import (
         get_current_user,
@@ -85,6 +86,21 @@ def unauth_client():
     app.dependency_overrides[get_current_user] = _reject
     app.dependency_overrides[require_read_access] = _reject
     app.dependency_overrides[require_write_access] = _reject
+
+    # In CI, `MCP_ALLOW_ANONYMOUS_ACCESS=true` is exported for the entire
+    # pytest run, and earlier tests (e.g. `tests/web/test_middleware.py`)
+    # may have reloaded the middleware module so its route-captured
+    # function objects no longer match the post-reload identifiers used
+    # above. When that happens, the `dependency_overrides` registered here
+    # don't intercept the request — and the route falls through to the
+    # live middleware, which honours the env var and returns 200 instead
+    # of the expected 401. To make this fixture robust against that
+    # reload-poisoning, also force the middleware module-level constants
+    # that `_reject` is meant to simulate. `monkeypatch` reverts both on
+    # teardown.
+    monkeypatch.setattr(middleware, "ALLOW_ANONYMOUS_ACCESS", False, raising=False)
+    monkeypatch.setattr(middleware, "API_KEY", "", raising=False)
+    monkeypatch.setattr(middleware, "OAUTH_ENABLED", False, raising=False)
 
     client = TestClient(app)
     yield client
