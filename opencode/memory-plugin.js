@@ -263,14 +263,14 @@ function formatMemories(projectName, memories, config, options = {}) {
 async function searchMemories(config, query, tags, limit) {
   const payload = {
     query,
-    limit,
+    n_results: limit,
   }
 
   if (tags.length) {
     payload.tags = tags
   }
 
-  const result = await requestJson(config, "/api/memories/search", {
+  const result = await requestJson(config, "/api/search", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
