@@ -261,13 +261,14 @@ function formatMemories(projectName, memories, config, options = {}) {
 }
 
 async function searchMemories(config, query, tags, limit) {
+  // /api/search is semantic-only and ignores tag filters server-side
+  // (see SemanticSearchRequest in src/mcp_memory_service/web/api/search.py).
+  // When the caller passes tags, over-fetch and filter client-side so
+  // project-scoped searches actually stay scoped.
+  const hasTagFilter = tags.length > 0
   const payload = {
     query,
-    n_results: limit,
-  }
-
-  if (tags.length) {
-    payload.tags = tags
+    n_results: hasTagFilter ? Math.max(limit * 4, 20) : limit,
   }
 
   const result = await requestJson(config, "/api/search", {
@@ -286,7 +287,17 @@ async function searchMemories(config, query, tags, limit) {
         ? result.results
         : []
 
-  return memories.map(normalizeMemory).filter(Boolean)
+  let normalized = memories.map(normalizeMemory).filter(Boolean)
+
+  if (hasTagFilter) {
+    const wanted = new Set(tags)
+    normalized = normalized.filter((memory) =>
+      memory.tags.some((tag) => wanted.has(tag)),
+    )
+    normalized = normalized.slice(0, limit)
+  }
+
+  return normalized
 }
 
 async function getHealth(config) {
