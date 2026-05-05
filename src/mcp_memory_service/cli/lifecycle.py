@@ -181,6 +181,9 @@ def _find_process_on_port(port: int) -> int | None:
                     if parts:
                         return int(parts[-1])
         except Exception:
+            # netstat unavailable, timed out, or returned unparseable output —
+            # treat as "no process found" so the caller can fall back to the
+            # PID-file path. Logging would be noise during normal `memory info`.
             pass
     else:
         try:
@@ -191,6 +194,9 @@ def _find_process_on_port(port: int) -> int | None:
             if result.stdout.strip():
                 return int(result.stdout.strip().splitlines()[0])
         except Exception:
+            # lsof not installed, timed out, or returned no listener — treat
+            # as "no process found" so the caller can fall back to the
+            # PID-file path. Logging would be noise during normal `memory info`.
             pass
     return None
 

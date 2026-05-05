@@ -31,8 +31,16 @@ except ImportError:
 # can otherwise resolve this as a plain module and break subpackage imports.
 # Heavy imports (torch/transformers via storage backends) stay deferred via
 # `__getattr__` below.
+from typing import TYPE_CHECKING
+
 from .models import Memory, MemoryQueryResult
 from .utils import generate_content_hash
+
+if TYPE_CHECKING:
+    # Static-analysis-only imports so CodeQL/IDEs see the names listed in
+    # `__all__`. At runtime these are resolved lazily via `__getattr__` to
+    # keep CLI startup fast (avoids loading torch/transformers).
+    from .storage import MemoryStorage, SqliteVecMemoryStorage  # noqa: F401
 
 
 def __getattr__(name):

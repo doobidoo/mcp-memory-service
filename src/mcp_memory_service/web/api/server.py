@@ -369,13 +369,17 @@ async def update_server(
 
     # Sanitize user-controlled fields inline so CodeQL py/log-injection
     # tracks the .replace() barriers in the same function as the log call.
+    # `request.force` is typed `bool` by Pydantic, but CodeQL still treats
+    # the request body as tainted — coerce explicitly so the barrier is
+    # visible to static analysis.
     safe_client_id = str(user.client_id).replace("\r", "").replace("\n", "")
     safe_auth_method = str(user.auth_method).replace("\r", "").replace("\n", "")
+    safe_force = bool(request.force)
     logger.warning(
         "AUDIT: Server update requested by user: %s (auth: %s, force: %s)",
         safe_client_id,
         safe_auth_method,
-        request.force,
+        safe_force,
     )
 
     # Step 0: Refuse to pull on a dirty working tree unless force=True.
