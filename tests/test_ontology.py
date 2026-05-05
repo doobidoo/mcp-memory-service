@@ -500,6 +500,37 @@ class TestBurst21CustomMemoryTypeConfiguration:
         all_types = ontology.get_all_types()
         assert "observation" in all_types  # Built-in type still works
 
+    def test_custom_base_type_with_empty_subtypes(self, monkeypatch):
+        """Issue #842: `{"foo": []}` must register `foo` as a base type.
+
+        The MCP coercion warning explicitly tells users to register custom
+        types with `'{"<type>": []}'`. Empty subtype lists were silently
+        dropped, so the bare custom type never reached the validator and
+        kept getting coerced to 'observation'.
+        """
+        import json
+
+        monkeypatch.setenv('MCP_CUSTOM_MEMORY_TYPES', json.dumps({"foo": []}))
+        ontology.clear_ontology_caches()
+
+        all_types = ontology.get_all_types()
+        assert "foo" in all_types
+        assert ontology.validate_memory_type("foo") is True
+        # Bare custom base types map to themselves
+        assert ontology.get_parent_type("foo") == "foo"
+
+    def test_custom_type_with_only_invalid_subtypes_still_registers_base(self, monkeypatch):
+        """If every subtype is filtered out, the base type must still register."""
+        import json
+
+        # `@@bad` fails the `replace('_','').isalnum()` check
+        monkeypatch.setenv('MCP_CUSTOM_MEMORY_TYPES', json.dumps({"foo": ["@@bad"]}))
+        ontology.clear_ontology_caches()
+
+        all_types = ontology.get_all_types()
+        assert "foo" in all_types
+        assert "@@bad" not in all_types
+
     def test_no_custom_types_default_behavior(self, monkeypatch):
         """Test default behavior when no custom types configured."""
         import os

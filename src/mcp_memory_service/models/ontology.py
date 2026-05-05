@@ -244,9 +244,18 @@ def _load_custom_types_from_config() -> Dict[str, List[str]]:
                 if isinstance(st, str) and st.replace('_', '').isalnum()
             ]
 
-            if valid_subtypes:
-                validated_types[base_type.lower()] = valid_subtypes
-                logger.info(f"Loaded custom memory type '{base_type}' with {len(valid_subtypes)} subtypes")
+            # Register the base type even when no (valid) subtypes were provided
+            # so that callers can use `{"foo": []}` to add a bare custom type.
+            # Issue #842: empty subtype lists were silently dropped.
+            if subtypes and not valid_subtypes:
+                logger.warning(
+                    f"All subtypes for custom memory type '{base_type}' were invalid; "
+                    f"registering base type with no subtypes"
+                )
+            validated_types[base_type.lower()] = valid_subtypes
+            logger.info(
+                f"Loaded custom memory type '{base_type}' with {len(valid_subtypes)} subtypes"
+            )
 
         return validated_types
 
