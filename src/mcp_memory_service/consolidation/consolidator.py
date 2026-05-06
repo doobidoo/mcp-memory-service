@@ -412,7 +412,8 @@ class DreamInspiredConsolidator:
                 # 9. Finalize report
                 report = self._finalize_report(report, [])
                 if self.plugin_registry:
-                    await self.plugin_registry.fire('on_consolidate', report.performance_metrics | {
+                    await self.plugin_registry.fire('on_consolidate', {
+                        **report.performance_metrics,
                         'time_horizon': report.time_horizon,
                         'memories_processed': report.memories_processed,
                         'associations_discovered': report.associations_discovered,

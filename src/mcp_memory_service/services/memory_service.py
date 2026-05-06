@@ -457,6 +457,9 @@ class MemoryService:
                     }
 
                 # If SOME chunks were stored, return partial success
+                for mem_dict in stored_memories:
+                    await self._plugin_registry.fire('on_store', mem_dict)
+
                 return {
                     "success": True,
                     "memories": stored_memories,
@@ -579,7 +582,9 @@ class MemoryService:
                     except Exception as e:
                         logger.debug(f"Background quality scoring for retrieved memory failed silently: {e}")
 
-            results = await self._plugin_registry.fire('on_retrieve', query, results)
+            modified = await self._plugin_registry.fire('on_retrieve', query, results)
+            if isinstance(modified, list):
+                results = modified
 
             return {
                 "memories": results,
