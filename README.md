@@ -490,16 +490,18 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.49.4** (May 5, 2026)
+## Latest Release: **v10.50.0** (May 6, 2026)
 
-**fix(consolidation): protect high-value mistake notes from decay/forgetting (PR #854, @filhocf)**
+**feat(plugins): plugin hook scaffolding — on_store, on_delete, on_retrieve, on_consolidate (PR #856, @filhocf)**
 
 **What's New:**
-- **Mistake notes survive consolidation**: `_is_protected_memory()` now shields `memory_type='mistake'` records with `failure_count >= 3` from decay and forgetting passes. Error-replay knowledge is no longer silently erased during scheduled consolidation. Closes #853.
+- **Plugin extension API**: Four lifecycle hooks (`on_store`, `on_delete`, `on_retrieve`, `on_consolidate`) with `entry_points` discovery let third-party packages register hooks without modifying core. Pure scaffolding — fire points wired in follow-up PR. Refs #732.
+- **Dependency updates**: `authlib` 1.7.1, `cryptography` 48, `torch` 2.11; CI actions bumped (`attest-build-provenance` 1→4, `codeql-action` 3→4, `hadolint-action` 3.3.0).
 
 ---
 
 **Previous Releases**:
+- **v10.49.4** - fix(consolidation): protect high-value mistake notes from decay/forgetting (PR #854, @filhocf)
 - **v10.49.3** - fix(opencode): correct API path, payload field, and client-side tag filter (PRs #849, #850)
 - **v10.49.2** - fix(ontology): register custom base types with empty subtype lists (PR #846)
 - **v10.49.1** - fix: surface memory_type ontology coercion warnings + uvx CI flake fix (PR #844)
