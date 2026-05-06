@@ -14,7 +14,7 @@ class Entity:
 _MENTION_RE = re.compile(r'@([\w.-]+)')
 _HASHTAG_RE = re.compile(r'#([\w-]+)')
 _URL_RE = re.compile(r'https?://[^\s<>\"\']+')
-_PATH_RE = re.compile(r'(?:^|[\s(])(/[\w./-]+|[\w./]+\.\w{1,5})(?=[\s),:;]|$)', re.MULTILINE)
+_PATH_RE = re.compile(r'(?:^|[\s(])(/[\w./-]+|[\w./]*[a-zA-Z][\w./]*\.\w{1,5})(?=[\s),:;]|$)', re.MULTILINE)
 _CAMEL_RE = re.compile(r'\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b')
 _ALLCAPS_RE = re.compile(r'\b([A-Z][A-Z_]{2,})\b')
 

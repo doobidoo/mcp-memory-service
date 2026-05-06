@@ -730,7 +730,7 @@ class GraphStorage:
             created_at = datetime.now(timezone.utc).timestamp()
             async with self._lock:
                 conn.execute("""
-                    INSERT OR REPLACE INTO memory_graph
+                    INSERT OR IGNORE INTO memory_graph
                     (source_hash, target_hash, similarity, connection_types, metadata, created_at, relationship_type)
                     VALUES (?, ?, 1.0, '["entity"]', ?, ?, 'has_entity')
                 """, (memory_hash, entity_name, metadata_json, created_at))
@@ -769,7 +769,7 @@ class GraphStorage:
             cursor = conn.cursor()
             try:
                 cursor.execute("""
-                    SELECT COUNT(*) as count, MAX(created_at) as last_activity, metadata
+                    SELECT COUNT(*) as count, MAX(created_at) as last_activity
                     FROM memory_graph
                     WHERE target_hash = ? AND relationship_type = 'has_entity'
                 """, (entity_name,))
