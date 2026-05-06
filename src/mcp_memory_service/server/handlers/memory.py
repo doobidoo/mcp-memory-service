@@ -907,7 +907,7 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
             if not hasattr(storage, "update_memory_versioned"):
                 return [types.TextContent(
                     type="text",
-                    text="Error: versioned updates are not supported by the current storage backend. Only sqlite-vec supports this feature."
+                    text="Error: versioned updates are not supported by the current storage backend."
                 )]
 
             new_content = updates.get("content", "")
