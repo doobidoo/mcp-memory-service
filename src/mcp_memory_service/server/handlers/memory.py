@@ -900,6 +900,40 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
         # Initialize storage lazily when needed
         storage = await server._ensure_storage_initialized()
 
+        versioned = arguments.get("versioned", False)
+
+        if versioned:
+            # Check if backend supports versioned updates
+            if not hasattr(storage, "update_memory_versioned"):
+                return [types.TextContent(
+                    type="text",
+                    text="Error: versioned updates are not supported by the current storage backend. Only sqlite-vec supports this feature."
+                )]
+
+            new_content = updates.get("content", "")
+            if not new_content:
+                return [types.TextContent(
+                    type="text",
+                    text="Error: versioned update requires 'content' field in updates."
+                )]
+
+            success, message, new_hash = await storage.update_memory_versioned(
+                content_hash=content_hash,
+                new_content=new_content,
+                new_tags=updates.get("tags"),
+                new_memory_type=updates.get("memory_type"),
+                reason=updates.get("reason"),
+            )
+
+            if success:
+                logger.info(f"Versioned update: {content_hash} -> {new_hash}")
+                return [types.TextContent(
+                    type="text",
+                    text=f"Versioned update successful. New hash: {new_hash}, parent hash: {content_hash}. {message}"
+                )]
+            else:
+                return [types.TextContent(type="text", text=f"Failed versioned update: {message}")]
+
         # Call the storage method
         success, message = await storage.update_memory_metadata(
             content_hash=content_hash,
