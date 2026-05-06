@@ -133,7 +133,7 @@ jobs:
 
     - name: Generate artifact attestation (Standard)
       if: github.event_name != 'pull_request'
-      uses: actions/attest-build-provenance@v1
+      uses: actions/attest-build-provenance@v4
       with:
         subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
         subject-digest: ${{ steps.build-and-push.outputs.digest }}
@@ -142,7 +142,7 @@ jobs:
 
     - name: Generate artifact attestation (Slim)
       if: github.event_name != 'pull_request'
-      uses: actions/attest-build-provenance@v1
+      uses: actions/attest-build-provenance@v4
       with:
         subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
         subject-digest: ${{ steps.build-and-push-slim.outputs.digest }}
@@ -151,7 +151,7 @@ jobs:
 
     - name: Generate artifact attestation (Quality CPU)
       if: github.event_name != 'pull_request'
-      uses: actions/attest-build-provenance@v1
+      uses: actions/attest-build-provenance@v4
       with:
         subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
         subject-digest: ${{ steps.build-and-push-quality-cpu.outputs.digest }}
