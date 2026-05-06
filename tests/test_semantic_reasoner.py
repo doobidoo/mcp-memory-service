@@ -185,12 +185,40 @@ class TestBurst47InferTransitive:
     """Tests for Burst 4.7: infer_transitive"""
 
     @pytest.mark.asyncio
-    async def test_returns_empty_list_placeholder(self, setup_graph):
-        """Should return empty list as placeholder"""
+    async def test_finds_transitive_chain(self, setup_graph):
+        """Should find A→C when A→B→C exists but not A→C directly"""
+        storage = setup_graph
+
+        # Add chain: chain_a → chain_b → chain_c (via "causes")
+        await storage.store_association("chain_a", "chain_b", 0.9, ["causal"], relationship_type="causes")
+        await storage.store_association("chain_b", "chain_c", 0.9, ["causal"], relationship_type="causes")
+
+        reasoner = SemanticReasoner(storage)
+        inferred = await reasoner.infer_transitive("causes", max_hops=2)
+
+        # Should find chain_a → chain_c at distance 2
+        assert any(src == "chain_a" and tgt == "chain_c" and dist == 2
+                   for src, tgt, dist in inferred)
+
+    @pytest.mark.asyncio
+    async def test_excludes_direct_edges(self, setup_graph):
+        """Should NOT report pairs that already have a direct edge"""
+        storage = setup_graph
+
+        # decision1 → error1 is direct, should not appear in inferred
+        reasoner = SemanticReasoner(storage)
+        inferred = await reasoner.infer_transitive("causes", max_hops=3)
+
+        assert not any(src == "decision1" and tgt == "error1"
+                       for src, tgt, _ in inferred)
+
+    @pytest.mark.asyncio
+    async def test_empty_for_unknown_rel_type(self, setup_graph):
+        """Should return empty for relationship type with no edges"""
         storage = setup_graph
         reasoner = SemanticReasoner(storage)
 
-        inferred = await reasoner.infer_transitive("causes", max_hops=2)
+        inferred = await reasoner.infer_transitive("nonexistent_type", max_hops=2)
         assert inferred == []
 
 
@@ -198,12 +226,35 @@ class TestBurst48SuggestRelationships:
     """Tests for Burst 4.8: suggest_relationships"""
 
     @pytest.mark.asyncio
-    async def test_returns_empty_list_placeholder(self, setup_graph):
-        """Should return empty list as placeholder"""
+    async def test_suggests_based_on_shared_neighbors(self, setup_graph):
+        """Should suggest relationships when memories share neighbors"""
+        storage = setup_graph
+
+        # Create a triangle-like structure:
+        # node_a → hub1, node_a → hub2
+        # node_b → hub1, node_b → hub2
+        # node_a and node_b share 2 neighbors → should be suggested
+        await storage.store_association("node_a", "hub1", 0.8, ["semantic"], relationship_type="related")
+        await storage.store_association("node_a", "hub2", 0.8, ["semantic"], relationship_type="related")
+        await storage.store_association("node_b", "hub1", 0.8, ["semantic"], relationship_type="related")
+        await storage.store_association("node_b", "hub2", 0.8, ["semantic"], relationship_type="related")
+
+        reasoner = SemanticReasoner(storage)
+        suggestions = await reasoner.suggest_relationships("node_a")
+
+        # node_b shares 2 neighbors with node_a
+        assert any(s["target"] == "node_b" for s in suggestions)
+        if suggestions:
+            assert "confidence" in suggestions[0]
+            assert "shared_neighbors" in suggestions[0]
+
+    @pytest.mark.asyncio
+    async def test_empty_for_isolated_node(self, setup_graph):
+        """Should return empty for a node with no connections"""
         storage = setup_graph
         reasoner = SemanticReasoner(storage)
 
-        suggestions = await reasoner.suggest_relationships("decision1")
+        suggestions = await reasoner.suggest_relationships("isolated_hash")
         assert suggestions == []
 
 
