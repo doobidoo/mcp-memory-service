@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from ...storage.base import MemoryStorage
 from ...models.memory import Memory
+from ...models.ontology import get_all_types
 from ...services.memory_service import MemoryService
 from ...config import INCLUDE_HOSTNAME
 # OAuth config no longer needed - auth is always enabled
@@ -509,5 +510,4 @@ async def get_memory_types(
     _auth: AuthenticationResult = Depends(require_read_access),
 ) -> List[str]:
     """Return all valid memory types (built-in + custom from MCP_CUSTOM_MEMORY_TYPES)."""
-    from ...models.ontology import get_all_types
     return sorted(get_all_types())

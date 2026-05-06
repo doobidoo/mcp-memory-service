@@ -884,33 +884,28 @@ class MemoryDashboard {
             // Populate typeFilter (search filter) - keep "All types" option
             const typeFilter = document.getElementById('typeFilter');
             if (typeFilter) {
-                const allOption = typeFilter.querySelector('option[value=""]');
-                typeFilter.innerHTML = '';
-                if (allOption) typeFilter.appendChild(allOption);
-                else {
-                    const opt = document.createElement('option');
-                    opt.value = '';
-                    opt.textContent = this.t('search.filters.type.all') || 'All types';
-                    typeFilter.appendChild(opt);
-                }
-                types.forEach(t => {
+                const allOpt = document.createElement('option');
+                allOpt.value = '';
+                allOpt.textContent = this.t('search.filters.type.all') || 'All types';
+                const typeOpts = types.map(t => {
                     const opt = document.createElement('option');
                     opt.value = t;
                     opt.textContent = t;
-                    typeFilter.appendChild(opt);
+                    return opt;
                 });
+                typeFilter.replaceChildren(allOpt, ...typeOpts);
             }
 
             // Populate all memoryType selects (document upload + add memory modal)
-            document.querySelectorAll('select#memoryType').forEach(select => {
+            document.querySelectorAll('select.memory-type-select, select#memoryType').forEach(select => {
                 const currentValue = select.value;
-                select.innerHTML = '';
-                types.forEach(t => {
+                const opts = types.map(t => {
                     const opt = document.createElement('option');
                     opt.value = t;
                     opt.textContent = t;
-                    select.appendChild(opt);
+                    return opt;
                 });
+                select.replaceChildren(...opts);
                 if (types.includes(currentValue)) select.value = currentValue;
             });
         } catch (error) {
