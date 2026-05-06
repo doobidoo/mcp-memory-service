@@ -23,10 +23,10 @@ Restart mcp-memory-service — the plugin loads automatically via `entry_points`
 Each line in the audit log is a JSON object:
 
 ```json
-{"timestamp": 1715000000.0, "type": "store", "hash": "abc123...", "type": "note", "tags": ["project"], "content_length": 150}
-{"timestamp": 1715000001.0, "type": "retrieve", "query": "how to deploy", "result_count": 5}
-{"timestamp": 1715000002.0, "type": "delete", "hash": "def456..."}
-{"timestamp": 1715000003.0, "type": "consolidate", "memories_processed": 42, "time_horizon": "7d"}
+{"timestamp": 1715000000.0, "event": "store", "hash": "abc123...", "memory_type": "note", "tags": ["project"], "content_length": 150}
+{"timestamp": 1715000001.0, "event": "retrieve", "query": "how to deploy", "result_count": 5}
+{"timestamp": 1715000002.0, "event": "delete", "hash": "def456..."}
+{"timestamp": 1715000003.0, "event": "consolidate", "memories_processed": 42, "time_horizon": "7d"}
 ```
 
 ## Hooks Used

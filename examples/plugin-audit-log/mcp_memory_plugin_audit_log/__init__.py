@@ -10,6 +10,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -35,11 +36,11 @@ def register(ctx: Any) -> None:
     ctx.on("on_consolidate", on_consolidate)
 
 
-def _write_event(event_type: str, data: dict) -> None:
-    """Append a JSON event to the audit log."""
+def _write_event_sync(event_type: str, data: dict) -> None:
+    """Synchronous file write — called via asyncio.to_thread."""
     event = {
         "timestamp": time.time(),
-        "type": event_type,
+        "event": event_type,
         **data,
     }
     try:
@@ -49,11 +50,16 @@ def _write_event(event_type: str, data: dict) -> None:
         logger.warning("audit-log: failed to write event: %s", e)
 
 
+async def _write_event(event_type: str, data: dict) -> None:
+    """Offload blocking file I/O to a thread."""
+    await asyncio.to_thread(_write_event_sync, event_type, data)
+
+
 async def on_store(memory_dict: dict) -> None:
     """Log every memory store event."""
-    _write_event("store", {
+    await _write_event("store", {
         "hash": memory_dict.get("content_hash", "unknown"),
-        "type": memory_dict.get("memory_type", ""),
+        "memory_type": memory_dict.get("memory_type", ""),
         "tags": memory_dict.get("tags", []),
         "content_length": len(memory_dict.get("content", "")),
     })
@@ -61,12 +67,12 @@ async def on_store(memory_dict: dict) -> None:
 
 async def on_delete(content_hash: str) -> None:
     """Log every memory deletion."""
-    _write_event("delete", {"hash": content_hash})
+    await _write_event("delete", {"hash": content_hash})
 
 
 async def on_retrieve(query: str, results: list[dict]) -> list[dict]:
     """Log retrieval queries and result count. Returns results unchanged."""
-    _write_event("retrieve", {
+    await _write_event("retrieve", {
         "query": query[:100],
         "result_count": len(results),
     })
@@ -75,7 +81,7 @@ async def on_retrieve(query: str, results: list[dict]) -> list[dict]:
 
 async def on_consolidate(report: dict) -> None:
     """Log consolidation events."""
-    _write_event("consolidate", {
+    await _write_event("consolidate", {
         "memories_processed": report.get("memories_processed", 0),
         "time_horizon": report.get("time_horizon", ""),
     })
