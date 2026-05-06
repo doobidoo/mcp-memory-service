@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.50.0] - 2026-05-06
+
+### Added
+
+- **Plugin hook scaffolding** ([#856](https://github.com/doobidoo/mcp-memory-service/pull/856), @filhocf, refs [#732](https://github.com/doobidoo/mcp-memory-service/issues/732)): Introduces the plugin extension API for `mcp-memory-service`. Four lifecycle hooks are defined — `on_store`, `on_delete`, `on_retrieve`, and `on_consolidate` — with `entry_points` discovery so third-party packages can register hooks without modifying core. This is pure scaffolding; fire points will be wired into `MemoryService` in a follow-up PR. Enables the ecosystem extensibility roadmap item from canonical issue #732.
+
+### Changed
+
+- **Dependency bumps** (PRs [#858](https://github.com/doobidoo/mcp-memory-service/pull/858), [#859](https://github.com/doobidoo/mcp-memory-service/pull/859), [#860](https://github.com/doobidoo/mcp-memory-service/pull/860), [#861](https://github.com/doobidoo/mcp-memory-service/pull/861)):
+  - `actions/attest-build-provenance` 1 → 4
+  - `github/codeql-action` 3 → 4
+  - `hadolint/hadolint-action` 3.1.0 → 3.3.0
+  - `authlib` 1.7.0 → 1.7.1, `cryptography` 47 → 48, `torch` 2.10 → 2.11, `setuptools` 82 → 81 (uv group bump, 905 tests validated)
+
 ## [10.49.4] - 2026-05-05
 
 ### Fixed
