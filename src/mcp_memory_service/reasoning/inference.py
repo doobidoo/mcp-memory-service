@@ -160,76 +160,26 @@ class SemanticReasoner:
         """
         Find transitive relationships (A→B→C implies A→C).
 
-        Traverses the graph for edges of rel_type, then finds paths of length 2+
-        that represent inferred (non-direct) relationships.
+        Delegates to GraphStorage.transitive_closure which uses a recursive CTE
+        for efficient in-database traversal.
 
         Args:
             rel_type: Relationship type to traverse
             max_hops: Maximum hops for transitive closure (2-4)
 
         Returns:
-            List of (source, target, distance) tuples for inferred relationships
+            List of (source, target, distance) tuples for inferred relationships.
             Only returns pairs that do NOT have a direct edge already.
 
         Example:
             >>> inferred = await reasoner.infer_transitive("causes", max_hops=2)
             [("hash1", "hash3", 2), ...]  # hash1→hash2→hash3
         """
-        max_hops = min(max(max_hops, 2), 4)  # Clamp to 2-4
-
+        if not hasattr(self.graph, 'transitive_closure'):
+            logger.warning("GraphStorage does not support transitive_closure")
+            return []
         try:
-            # Get all edges of this relationship type from the graph
-            conn = await self.graph._get_connection()
-            cursor = conn.cursor()
-            try:
-                cursor.execute(
-                    "SELECT source_hash, target_hash FROM memory_graph WHERE relationship_type = ?",
-                    (rel_type,)
-                )
-                edges = cursor.fetchall()
-            finally:
-                cursor.close()
-
-            if not edges:
-                return []
-
-            # Build adjacency list
-            adjacency: Dict[str, List[str]] = {}
-            direct_edges: set = set()
-            for row in edges:
-                src, tgt = row["source_hash"], row["target_hash"]
-                adjacency.setdefault(src, []).append(tgt)
-                direct_edges.add((src, tgt))
-
-            # BFS from each source to find transitive paths
-            inferred: List[Tuple[str, str, int]] = []
-            seen_inferred: set = set()
-
-            for start in adjacency:
-                # BFS
-                visited = {start}
-                queue = [(start, 0)]
-                qi = 0
-                while qi < len(queue):
-                    current, depth = queue[qi]
-                    qi += 1
-                    if depth >= max_hops:
-                        continue
-                    for neighbor in adjacency.get(current, []):
-                        if neighbor in visited:
-                            continue
-                        visited.add(neighbor)
-                        distance = depth + 1
-                        # Only report if NOT a direct edge and distance >= 2
-                        if distance >= 2 and (start, neighbor) not in direct_edges:
-                            pair = (start, neighbor)
-                            if pair not in seen_inferred:
-                                seen_inferred.add(pair)
-                                inferred.append((start, neighbor, distance))
-                        queue.append((neighbor, distance))
-
-            return inferred
-
+            return await self.graph.transitive_closure(rel_type, max_hops)
         except Exception as e:
             logger.error(f"Failed to infer transitive relationships: {e}")
             return []
@@ -238,8 +188,8 @@ class SemanticReasoner:
         """
         Suggest potential relationships for a memory based on shared neighbors.
 
-        Uses common-neighbor heuristic: if A and B share many neighbors,
-        they likely have a relationship. Confidence = shared / max(deg_a, deg_b).
+        Delegates to GraphStorage.common_neighbors which uses a single SQL query
+        with self-join. Confidence = shared_count / degree(source).
 
         Args:
             hash: Memory content hash
@@ -251,36 +201,18 @@ class SemanticReasoner:
             >>> suggestions = await reasoner.suggest_relationships("hash1")
             [{"target": "hash2", "type": "related", "confidence": 0.85}]
         """
+        if not hasattr(self.graph, 'common_neighbors'):
+            logger.warning("GraphStorage does not support common_neighbors")
+            return []
         try:
-            # Get direct neighbors of this memory (all relationship types)
-            neighbors = await self.graph.find_connected(
-                memory_hash=hash, max_hops=1, direction="both"
-            )
-            if not neighbors:
-                return []
-
-            neighbor_hashes = {h for h, _ in neighbors}
-
-            # For each neighbor's neighbor (2-hop), count shared connections
-            candidates: Dict[str, int] = {}
-            for n_hash, _ in neighbors:
-                second_hop = await self.graph.find_connected(
-                    memory_hash=n_hash, max_hops=1, direction="both"
-                )
-                for candidate, _ in second_hop:
-                    if candidate == hash or candidate in neighbor_hashes:
-                        continue  # Skip self and already-connected
-                    candidates[candidate] = candidates.get(candidate, 0) + 1
-
+            candidates = await self.graph.common_neighbors(hash, min_shared=1)
             if not candidates:
                 return []
 
-            # Calculate confidence and filter
-            my_degree = len(neighbor_hashes)
             suggestions = []
-            for target, shared_count in candidates.items():
-                confidence = shared_count / max(my_degree, 1)
-                if confidence >= 0.3:  # Minimum threshold
+            for target, shared_count, source_degree in candidates:
+                confidence = shared_count / max(source_degree, 1)
+                if confidence >= 0.3:
                     suggestions.append({
                         "target": target,
                         "type": "related",
@@ -289,7 +221,7 @@ class SemanticReasoner:
                     })
 
             suggestions.sort(key=lambda x: x["confidence"], reverse=True)
-            return suggestions[:10]  # Top 10
+            return suggestions[:10]
 
         except Exception as e:
             logger.error(f"Failed to suggest relationships for {hash}: {e}")
