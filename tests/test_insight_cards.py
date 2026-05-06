@@ -123,7 +123,7 @@ class TestStoreInsights:
         storage = AsyncMock()
         storage.store = AsyncMock(return_value=(True, "hash"))
         storage.store_association = AsyncMock(return_value=True)
-        storage.get_memory_by_hash = AsyncMock(return_value=None)
+        storage.get_by_hash = AsyncMock(return_value=None)
 
         cards = [
             InsightCard(
@@ -148,7 +148,7 @@ class TestStoreInsights:
         storage = AsyncMock()
         storage.store = AsyncMock(return_value=(True, "hash"))
         storage.store_association = AsyncMock(return_value=True)
-        storage.get_memory_by_hash = AsyncMock(return_value=None)
+        storage.get_by_hash = AsyncMock(return_value=None)
 
         cards = [
             InsightCard(

@@ -53,7 +53,7 @@ class InsightGenerator:
 
     def _detect_patterns(self, memories: List[dict]) -> List[InsightCard]:
         """Pattern: >=3 memories share 2+ tags → insight about the pattern."""
-        # Group memories by tag pairs
+        # Group memories by tag pairs, then consolidate by source set
         pair_memories: Dict[tuple, List[dict]] = defaultdict(list)
         for mem in memories:
             tags = sorted(set(mem.get("tags", [])))
@@ -61,21 +61,34 @@ class InsightGenerator:
                 for j in range(i + 1, len(tags)):
                     pair_memories[(tags[i], tags[j])].append(mem)
 
+        # Consolidate: group by source memory set to avoid redundant insights
+        seen_source_sets: set = set()
         insights = []
-        for tag_pair, mems in pair_memories.items():
-            if len(mems) >= self.MIN_PATTERN_MEMORIES:
-                hashes = [m["content_hash"] for m in mems]
-                confidence = min(1.0, len(mems) / 10.0)
-                insights.append(InsightCard(
-                    title=f"Recurring pattern: {tag_pair[0]} + {tag_pair[1]}",
-                    content=(
-                        f"{len(mems)} memories share tags '{tag_pair[0]}' and "
-                        f"'{tag_pair[1]}', indicating a recurring theme."
-                    ),
-                    source_hashes=hashes,
-                    insight_type="pattern",
-                    confidence=confidence,
-                ))
+        for tag_pair, mems in sorted(pair_memories.items(), key=lambda x: -len(x[1])):
+            if len(mems) < self.MIN_PATTERN_MEMORIES:
+                continue
+            hashes = tuple(sorted(set(m["content_hash"] for m in mems)))
+            if hashes in seen_source_sets:
+                continue
+            seen_source_sets.add(hashes)
+
+            # Find all shared tags for this memory set
+            shared_tags = set(mems[0].get("tags", []))
+            for m in mems[1:]:
+                shared_tags &= set(m.get("tags", []))
+            tag_label = " + ".join(sorted(shared_tags)) if shared_tags else f"{tag_pair[0]} + {tag_pair[1]}"
+
+            confidence = min(1.0, len(mems) / 10.0)
+            insights.append(InsightCard(
+                title=f"Recurring pattern: {tag_label}",
+                content=(
+                    f"{len(mems)} memories share tags {sorted(shared_tags) if shared_tags else list(tag_pair)}, "
+                    f"indicating a recurring theme."
+                ),
+                source_hashes=list(hashes),
+                insight_type="pattern",
+                confidence=confidence,
+            ))
         return insights
 
     def _detect_trends(self, memories: List[dict]) -> List[InsightCard]:
@@ -162,16 +175,13 @@ async def store_insights(insights: List[InsightCard], storage) -> List[str]:
     for card in insights:
         content_hash = _insight_hash(card)
 
-        # Check deduplication — skip if already stored
-        existing = getattr(storage, "memories", {})
-        if hasattr(storage, "get_memory_by_hash"):
+        # Check deduplication via public API
+        if hasattr(storage, "get_by_hash"):
             try:
-                if await storage.get_memory_by_hash(content_hash):
+                if await storage.get_by_hash(content_hash):
                     continue
             except Exception:
                 pass
-        elif content_hash in existing:
-            continue
 
         memory = Memory(
             content=f"[{card.insight_type.upper()}] {card.title}\n\n{card.content}",
@@ -192,7 +202,7 @@ async def store_insights(insights: List[InsightCard], storage) -> List[str]:
             continue
         stored_hashes.append(content_hash)
 
-        # Create derived_from edges
+        # Create derived_from edges (best-effort — non-critical if some fail)
         if hasattr(storage, "store_association"):
             for src_hash in card.source_hashes:
                 try:
@@ -204,12 +214,12 @@ async def store_insights(insights: List[InsightCard], storage) -> List[str]:
                         relationship_type="derived_from",
                     )
                 except Exception:
-                    pass  # Best-effort edge creation
+                    pass
 
     return stored_hashes
 
 
 def _insight_hash(card: InsightCard) -> str:
     """Deterministic hash for deduplication."""
-    key = f"{card.insight_type}:{card.title}:{sorted(card.source_hashes)}"
+    key = f"{card.insight_type}:{card.title}:{','.join(sorted(card.source_hashes))}"
     return f"insight_{hashlib.sha256(key.encode()).hexdigest()[:16]}"
