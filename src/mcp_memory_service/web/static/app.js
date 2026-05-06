@@ -153,6 +153,7 @@ class MemoryDashboard {
         this.setupSSE();
 
         await this.loadVersion();
+        await this.loadMemoryTypes();
         await this.loadDashboardData();
         this.updateConnectionStatus('connected');
 
@@ -869,6 +870,51 @@ class MemoryDashboard {
             if (versionBadge) {
                 versionBadge.textContent = 'v?.?.?';
             }
+        }
+    }
+
+    /**
+     * Load valid memory types from API and populate type selects/dropdowns
+     */
+    async loadMemoryTypes() {
+        try {
+            const types = await this.apiCall('/types');
+            if (!Array.isArray(types)) return;
+
+            // Populate typeFilter (search filter) - keep "All types" option
+            const typeFilter = document.getElementById('typeFilter');
+            if (typeFilter) {
+                const allOption = typeFilter.querySelector('option[value=""]');
+                typeFilter.innerHTML = '';
+                if (allOption) typeFilter.appendChild(allOption);
+                else {
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.textContent = this.t('search.filters.type.all') || 'All types';
+                    typeFilter.appendChild(opt);
+                }
+                types.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t;
+                    opt.textContent = t;
+                    typeFilter.appendChild(opt);
+                });
+            }
+
+            // Populate all memoryType selects (document upload + add memory modal)
+            document.querySelectorAll('select#memoryType').forEach(select => {
+                const currentValue = select.value;
+                select.innerHTML = '';
+                types.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t;
+                    opt.textContent = t;
+                    select.appendChild(opt);
+                });
+                if (types.includes(currentValue)) select.value = currentValue;
+            });
+        } catch (error) {
+            console.warn('Failed to load memory types:', error);
         }
     }
 

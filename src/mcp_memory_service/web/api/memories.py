@@ -502,3 +502,12 @@ async def store_session(
         content_hash=raw_memory.get("content_hash"),
         turn_count=len(lines),
     )
+
+
+@router.get("/types")
+async def get_memory_types(
+    _auth: AuthenticationResult = Depends(require_read_access),
+) -> List[str]:
+    """Return all valid memory types (built-in + custom from MCP_CUSTOM_MEMORY_TYPES)."""
+    from ...models.ontology import get_all_types
+    return sorted(get_all_types())
