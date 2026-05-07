@@ -751,6 +751,8 @@ class MemoryServer:
                 
                 # Initialize the consolidator with storage
                 self.consolidator = DreamInspiredConsolidator(self.storage, config)
+                if hasattr(self, 'memory_service'):
+                    self.consolidator.plugin_registry = self.memory_service._plugin_registry
                 logger.info("Dream-inspired consolidator initialized")
                 
                 # Initialize the scheduler if not disabled

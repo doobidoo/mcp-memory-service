@@ -160,6 +160,7 @@ class DreamInspiredConsolidator:
         self.storage = storage
         self.config = config
         self.logger = logging.getLogger(__name__)
+        self.plugin_registry = None  # Set externally to fire on_consolidate hook
 
         # Initialize component engines
         self.decay_calculator = ExponentialDecayCalculator(config)
@@ -409,7 +410,16 @@ class DreamInspiredConsolidator:
                     await self._update_consolidation_timestamps(memories)
 
                 # 9. Finalize report
-                return self._finalize_report(report, [])
+                report = self._finalize_report(report, [])
+                if self.plugin_registry:
+                    await self.plugin_registry.fire('on_consolidate', {
+                        **report.performance_metrics,
+                        'time_horizon': report.time_horizon,
+                        'memories_processed': report.memories_processed,
+                        'associations_discovered': report.associations_discovered,
+                        'clusters_created': report.clusters_created,
+                    })
+                return report
 
         except ConsolidationError as e:
             # Re-raise configuration and validation errors

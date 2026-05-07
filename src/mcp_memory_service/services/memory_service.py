@@ -32,6 +32,7 @@ from ..config import (
 )
 from ..storage.base import MemoryStorage
 from ..models.memory import Memory
+from ..plugins import PluginContext, PluginRegistry
 from ..utils.content_splitter import split_content
 from ..utils.hashing import generate_content_hash
 from ..quality.async_scorer import async_scorer
@@ -267,6 +268,8 @@ class MemoryService:
 
     def __init__(self, storage: MemoryStorage):
         self.storage = storage
+        self._plugin_registry = PluginRegistry(PluginContext(storage=storage, service=self))
+        self._plugin_registry.discover_and_register()
 
     async def list_memories(
         self,
@@ -454,6 +457,9 @@ class MemoryService:
                     }
 
                 # If SOME chunks were stored, return partial success
+                for mem_dict in stored_memories:
+                    await self._plugin_registry.fire('on_store', mem_dict)
+
                 return {
                     "success": True,
                     "memories": stored_memories,
@@ -480,6 +486,8 @@ class MemoryService:
                             await async_scorer.score_memory(memory, query="", storage=self.storage)
                         except Exception as e:
                             logger.debug(f"Background quality scoring queued (or failed silently): {e}")
+
+                    await self._plugin_registry.fire('on_store', self._format_memory_response(memory))
 
                     return {
                         "success": True,
@@ -573,6 +581,10 @@ class MemoryService:
                         await async_scorer.score_memory(result.memory, query=query, storage=self.storage)
                     except Exception as e:
                         logger.debug(f"Background quality scoring for retrieved memory failed silently: {e}")
+
+            modified = await self._plugin_registry.fire('on_retrieve', query, results)
+            if isinstance(modified, list):
+                results = modified
 
             return {
                 "memories": results,
@@ -680,6 +692,7 @@ class MemoryService:
         try:
             success, message = await self.storage.delete(content_hash)
             if success:
+                await self._plugin_registry.fire('on_delete', content_hash)
                 return {
                     "success": True,
                     "content_hash": content_hash
