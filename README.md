@@ -490,18 +490,17 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.51.0** (May 7, 2026)
+## Latest Release: **v10.51.1** (May 7, 2026)
 
-**feat(plugins): live plugin hooks + dynamic type dropdowns + audit-log example (PRs #863, #864, #867, @filhocf)**
+**fix(milvus): add delete_memory proxy for consolidation protocol (PR #872, @henry201605)**
 
 **What's New:**
-- **Plugin hooks are now live**: Fire points wired into `MemoryService` — `on_store`, `on_delete`, `on_retrieve`, `on_consolidate` called at actual lifecycle events. Third-party plugins receive live events. (PR #864)
-- **Dynamic type dropdowns**: New `GET /api/types` endpoint returns all valid memory types (built-in + custom). Dashboard filter and store-form dropdowns now populate from this endpoint automatically. (PR #863)
-- **Audit-log example plugin**: Reference implementation in `examples/plugins/audit_log/` demonstrating all four hooks with `entry_points` packaging. Living documentation for the plugin API. (PR #867)
+- **Milvus consolidation fix**: Adds `delete_memory(hash) -> bool` alias to `MilvusMemoryStorage`. Without this method, `memory_consolidate` silently failed on the Milvus backend during Compression (stage 4) and Controlled Forgetting (stage 5) with `AttributeError`. (PR #872)
 
 ---
 
 **Previous Releases**:
+- **v10.51.0** - feat(plugins): live plugin hooks + dynamic type dropdowns + audit-log example (PRs #863, #864, #867, @filhocf)
 - **v10.50.0** - feat(plugins): plugin hook scaffolding — on_store, on_delete, on_retrieve, on_consolidate (PR #856, @filhocf)
 - **v10.49.4** - fix(consolidation): protect high-value mistake notes from decay/forgetting (PR #854, @filhocf)
 - **v10.49.3** - fix(opencode): correct API path, payload field, and client-side tag filter (PRs #849, #850)
