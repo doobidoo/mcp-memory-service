@@ -66,6 +66,7 @@ from ..models.memory import Memory, MemoryQueryResult
 from ..utils.system_detection import (
     get_torch_device,
 )
+from ..utils.hashing import generate_content_hash
 from ..config import SQLITEVEC_MAX_CONTENT_LENGTH
 
 logger = logging.getLogger(__name__)
@@ -4287,7 +4288,10 @@ SOLUTIONS:
         new_memory_type: Optional[str] = None,
         reason: Optional[str] = None,
     ) -> Tuple[bool, str, Optional[str]]:
-        """Non-destructive update: creates a child node and marks the old one superseded.
+        """Non-destructive versioned update using existing store/update infrastructure.
+
+        Creates a new memory version and marks the old one as superseded
+        via the metadata field (superseded_by = new_hash).
 
         Returns:
             (success, message, new_content_hash)
@@ -4296,85 +4300,44 @@ SOLUTIONS:
             if not self.conn:
                 return False, "Database not initialized", None
 
-            def _read_for_versioning():
+            # 1. Verify old memory exists
+            def _check_exists():
                 cursor = self.conn.execute(
-                    """SELECT content_hash, content, tags, memory_type, metadata, version
-                       FROM memories
-                       WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL""",
+                    "SELECT content_hash, tags, memory_type FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
                     (content_hash,),
                 )
                 return cursor.fetchone()
 
-            row = await self._execute_with_retry(_read_for_versioning)
+            row = await self._execute_with_retry(_check_exists)
             if not row:
-                return False, f"Memory {content_hash} not found or already superseded", None
+                return False, f"Memory {content_hash} not found", None
 
-            old_hash, old_content, old_tags_str, old_type, old_metadata_str, old_version = row
-            old_version = old_version or 1
-
+            old_hash, old_tags_str, old_type = row
             resolved_tags = new_tags if new_tags is not None else (
                 [t for t in old_tags_str.split(",") if t] if old_tags_str else []
             )
             resolved_type = new_memory_type if new_memory_type is not None else old_type
-            old_metadata = self._safe_json_loads(old_metadata_str, "update_memory_versioned")
+
+            # 2. Create new memory via store()
+            new_hash = generate_content_hash(new_content)
+            new_memory = Memory(
+                content=new_content,
+                content_hash=new_hash,
+                tags=resolved_tags,
+                memory_type=resolved_type,
+            )
+            store_ok, store_msg = await self.store(new_memory, skip_semantic_dedup=True)
+            if not store_ok:
+                return False, f"Failed to store new version: {store_msg}", None
+
+            # 3. Update old memory metadata: superseded_by = new_hash
+            meta_updates: Dict[str, Any] = {"metadata": {"superseded_by": new_hash}}
             if reason:
-                old_metadata["evolution_reason"] = reason
+                meta_updates["metadata"]["evolution_reason"] = reason
+            await self.update_memory_metadata(content_hash, meta_updates, preserve_timestamps=True)
 
-            new_hash = hashlib.sha256(new_content.strip().lower().encode("utf-8")).hexdigest()
-            new_ver = old_version + 1
-
-            # Generate embedding for the new content
-            try:
-                embedding = self._generate_embedding(new_content)
-            except Exception as e:
-                return False, f"Failed to generate embedding: {e}", None
-
-            tags_str = ",".join(resolved_tags) if resolved_tags else ""
-            metadata_str = json.dumps(old_metadata) if old_metadata else "{}"
-            now = time.time()
-            now_iso = datetime.utcfromtimestamp(now).isoformat() + "Z"
-
-            # Atomic operation: insert new version + link lineage in a single SAVEPOINT.
-            # Prevents orphaned nodes if any step fails (per repo rules on batch inserts).
-            # Unique name prevents collision when concurrent evolve calls share the connection.
-            _ev_sp = f"evolve_{os.urandom(4).hex()}"
-            def versioned_insert():
-                self.conn.execute(f'SAVEPOINT {_ev_sp}')
-                try:
-                    self._purge_tombstone(new_hash)
-                    cursor = self.conn.execute('''
-                        INSERT INTO memories (
-                            content_hash, content, tags, memory_type, metadata,
-                            created_at, updated_at, created_at_iso, updated_at_iso,
-                            parent_id, version
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        new_hash, new_content, tags_str, resolved_type, metadata_str,
-                        now, now, now_iso, now_iso,
-                        old_hash, new_ver,
-                    ))
-                    memory_rowid = cursor.lastrowid
-
-                    self.conn.execute('''
-                        INSERT INTO memory_embeddings (rowid, content_embedding)
-                        VALUES (?, ?)
-                    ''', (memory_rowid, serialize_float32(embedding)))
-
-                    self.conn.execute(
-                        "UPDATE memories SET superseded_by = ? WHERE content_hash = ? AND deleted_at IS NULL",
-                        (new_hash, old_hash),
-                    )
-                    self.conn.execute(f'RELEASE SAVEPOINT {_ev_sp}')
-                except Exception:
-                    self.conn.execute(f'ROLLBACK TO SAVEPOINT {_ev_sp}')
-                    self.conn.execute(f'RELEASE SAVEPOINT {_ev_sp}')
-                    raise
-
-            async with self._savepoint_lock:
-                await self._execute_with_retry(versioned_insert)
-                await self._execute_with_retry(self.conn.commit)
-            logger.info(f"Memory evolved: {old_hash[:8]} → {new_hash[:8]} (v{old_version} → v{new_ver})")
-            return True, f"Memory updated (v{old_version} → v{new_ver})", new_hash
+            logger.info(f"Memory evolved: {old_hash[:8]} → {new_hash[:8]}")
+            return True, "Memory versioned successfully", new_hash
 
         except Exception as e:
             logger.error(f"update_memory_versioned error: {e}")
