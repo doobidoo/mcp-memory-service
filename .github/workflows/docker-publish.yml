@@ -11,7 +11,8 @@ env:
   IMAGE_NAME: doobidoo/mcp-memory-service
 
 jobs:
-  build:
+  build-standard:
+    name: Build Standard image
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,18 +26,6 @@ jobs:
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v4
-
-    - name: Debug - Check required files for Docker Hub build
-      run: |
-        echo "=== Checking required files for Docker Hub build ==="
-        echo "Standard Dockerfile exists:" && ls -la tools/docker/Dockerfile
-        echo "Slim Dockerfile exists:" && ls -la tools/docker/Dockerfile.slim
-        echo "Quality CPU Dockerfile exists:" && ls -la tools/docker/Dockerfile.quality-cpu
-        echo "Source directory exists:" && ls -la src/
-        echo "Entrypoint scripts exist:" && ls -la tools/docker/docker-entrypoint*.sh
-        echo "Utils scripts exist:" && ls -la scripts/utils/
-        echo "pyproject.toml exists:" && ls -la pyproject.toml
-        echo "uv.lock exists:" && ls -la uv.lock
 
     - name: Log in to Docker Hub
       if: github.event_name != 'pull_request'
@@ -59,32 +48,6 @@ jobs:
           type=semver,pattern={{major}}
           type=raw,value=latest,enable={{is_default_branch}}
 
-    - name: Extract metadata (Slim)
-      id: meta-slim
-      uses: docker/metadata-action@v6
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch,suffix=-slim
-          type=ref,event=pr,suffix=-slim
-          type=semver,pattern={{version}},suffix=-slim
-          type=semver,pattern={{major}}.{{minor}},suffix=-slim
-          type=semver,pattern={{major}},suffix=-slim
-          type=raw,value=slim,enable={{is_default_branch}}
-
-    - name: Extract metadata (Quality CPU)
-      id: meta-quality-cpu
-      uses: docker/metadata-action@v6
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch,suffix=-quality-cpu
-          type=ref,event=pr,suffix=-quality-cpu
-          type=semver,pattern={{version}},suffix=-quality-cpu
-          type=semver,pattern={{major}}.{{minor}},suffix=-quality-cpu
-          type=semver,pattern={{major}},suffix=-quality-cpu
-          type=raw,value=quality-cpu,enable={{is_default_branch}}
-
     - name: Build and push Standard Docker image
       id: build-and-push
       uses: docker/build-push-action@v7
@@ -100,6 +63,52 @@ jobs:
         build-args: |
           SKIP_MODEL_DOWNLOAD=true
         outputs: type=registry
+
+    - name: Generate artifact attestation (Standard)
+      if: github.event_name != 'pull_request'
+      uses: actions/attest-build-provenance@v4
+      with:
+        subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
+        subject-digest: ${{ steps.build-and-push.outputs.digest }}
+        push-to-registry: true
+      continue-on-error: true
+
+  build-slim:
+    name: Build Slim image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Log in to Docker Hub
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v4
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extract metadata (Slim)
+      id: meta-slim
+      uses: docker/metadata-action@v6
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch,suffix=-slim
+          type=ref,event=pr,suffix=-slim
+          type=semver,pattern={{version}},suffix=-slim
+          type=semver,pattern={{major}}.{{minor}},suffix=-slim
+          type=semver,pattern={{major}},suffix=-slim
+          type=raw,value=slim,enable={{is_default_branch}}
 
     - name: Build and push Slim Docker image
       id: build-and-push-slim
@@ -117,6 +126,52 @@ jobs:
           SKIP_MODEL_DOWNLOAD=true
         outputs: type=registry
 
+    - name: Generate artifact attestation (Slim)
+      if: github.event_name != 'pull_request'
+      uses: actions/attest-build-provenance@v4
+      with:
+        subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
+        subject-digest: ${{ steps.build-and-push-slim.outputs.digest }}
+        push-to-registry: true
+      continue-on-error: true
+
+  build-quality-cpu:
+    name: Build Quality CPU image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Log in to Docker Hub
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v4
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extract metadata (Quality CPU)
+      id: meta-quality-cpu
+      uses: docker/metadata-action@v6
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch,suffix=-quality-cpu
+          type=ref,event=pr,suffix=-quality-cpu
+          type=semver,pattern={{version}},suffix=-quality-cpu
+          type=semver,pattern={{major}}.{{minor}},suffix=-quality-cpu
+          type=semver,pattern={{major}},suffix=-quality-cpu
+          type=raw,value=quality-cpu,enable={{is_default_branch}}
+
     - name: Build and push Quality CPU Docker image
       id: build-and-push-quality-cpu
       uses: docker/build-push-action@v7
@@ -131,24 +186,6 @@ jobs:
         cache-to: type=gha,mode=max,scope=quality-cpu
         outputs: type=registry
 
-    - name: Generate artifact attestation (Standard)
-      if: github.event_name != 'pull_request'
-      uses: actions/attest-build-provenance@v4
-      with:
-        subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
-        subject-digest: ${{ steps.build-and-push.outputs.digest }}
-        push-to-registry: true
-      continue-on-error: true  # Don't fail the workflow if attestation fails
-
-    - name: Generate artifact attestation (Slim)
-      if: github.event_name != 'pull_request'
-      uses: actions/attest-build-provenance@v4
-      with:
-        subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
-        subject-digest: ${{ steps.build-and-push-slim.outputs.digest }}
-        push-to-registry: true
-      continue-on-error: true  # Don't fail the workflow if attestation fails
-
     - name: Generate artifact attestation (Quality CPU)
       if: github.event_name != 'pull_request'
       uses: actions/attest-build-provenance@v4
@@ -156,4 +193,4 @@ jobs:
         subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
         subject-digest: ${{ steps.build-and-push-quality-cpu.outputs.digest }}
         push-to-registry: true
-      continue-on-error: true  # Don't fail the workflow if attestation fails
+      continue-on-error: true
