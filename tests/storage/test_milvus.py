@@ -295,6 +295,25 @@ async def test_delete_nonexistent(storage):
 
 
 @pytest.mark.asyncio
+async def test_delete_memory_proxy_returns_bool(storage, sample_memory):
+    """delete_memory is the consolidation-protocol alias for delete().
+
+    It must return a plain ``bool`` (not a tuple) so that
+    DreamInspiredConsolidator.compression / forgetting stages work on
+    the Milvus backend. Regression guard: without this proxy, those
+    stages raise AttributeError on Milvus.
+    """
+    await storage.store(sample_memory)
+    result = await storage.delete_memory(sample_memory.content_hash)
+    assert result is True
+    assert await storage.get_by_hash(sample_memory.content_hash) is None
+
+    # Deleting again should surface as False, never raise.
+    missed = await storage.delete_memory(sample_memory.content_hash)
+    assert missed is False
+
+
+@pytest.mark.asyncio
 async def test_delete_by_tag(storage):
     shared = Memory(
         content="Shared tag memory",
