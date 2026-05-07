@@ -6,7 +6,7 @@
 <title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v10.51.0</title>
 <meta name="description" content="Memory layer for AI agents. REST API + MCP + OAuth + CLI + dashboard — one self-hosted service, every transport. 14+ client integrations, knowledge graph, automatic consolidation. LongMemEval R@5 86%, session ingestion, zero cloud cost.">
 <meta property="og:title" content="MCP Memory Service v10.51.0">
-<meta property="og:description" content="Plugin hooks live in MemoryService lifecycle (on_store, on_delete, on_retrieve, on_consolidate). Dynamic type dropdowns via /api/types. Audit-log example plugin. Ecosystem extensibility without forking core. Streamable HTTP + OAuth 2.1 + PKCE. LongMemEval R@5 86%.">
+<meta property="og:description" content="Plugin hooks now live in MemoryService. Dynamic /api/types dropdowns. Audit-log example. Self-hosted AI memory — REST, MCP, OAuth 2.1, CLI. LongMemEval R@5 86%.">
 <meta property="og:type" content="website">
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
@@ -150,7 +150,7 @@ footer a{color:var(--cyan)}
         <p>New <code>GET /api/types</code> endpoint returns all valid memory types — built-in and custom (<code>MCP_CUSTOM_MEMORY_TYPES</code>). Dashboard filter and store-form dropdowns now populate dynamically, so custom ontology entries appear in the UI automatically. (PR #863, @filhocf)</p>
       </div>
       <div class="feature-card" data-delay="300">
-        <div class="feature-icon oauth">&#128196;</div>
+        <div class="feature-icon privacy">&#128196;</div>
         <h3>Audit-Log Example Plugin</h3>
         <p>Reference implementation in <code>examples/plugins/audit_log/</code> demonstrating all four hooks with standard <code>entry_points</code> packaging. A complete, working plugin you can fork as a starting point. Living documentation for the plugin API. (PR #867, @filhocf)</p>
       </div>
