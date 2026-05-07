@@ -153,6 +153,7 @@ class MemoryDashboard {
         this.setupSSE();
 
         await this.loadVersion();
+        await this.loadMemoryTypes();
         await this.loadDashboardData();
         this.updateConnectionStatus('connected');
 
@@ -869,6 +870,46 @@ class MemoryDashboard {
             if (versionBadge) {
                 versionBadge.textContent = 'v?.?.?';
             }
+        }
+    }
+
+    /**
+     * Load valid memory types from API and populate type selects/dropdowns
+     */
+    async loadMemoryTypes() {
+        try {
+            const types = await this.apiCall('/types');
+            if (!Array.isArray(types)) return;
+
+            // Populate typeFilter (search filter) - keep "All types" option
+            const typeFilter = document.getElementById('typeFilter');
+            if (typeFilter) {
+                const allOpt = document.createElement('option');
+                allOpt.value = '';
+                allOpt.textContent = this.t('search.filters.type.all') || 'All types';
+                const typeOpts = types.map(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t;
+                    opt.textContent = t;
+                    return opt;
+                });
+                typeFilter.replaceChildren(allOpt, ...typeOpts);
+            }
+
+            // Populate all memoryType selects (document upload + add memory modal)
+            document.querySelectorAll('select.memory-type-select, select#memoryType').forEach(select => {
+                const currentValue = select.value;
+                const opts = types.map(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t;
+                    opt.textContent = t;
+                    return opt;
+                });
+                select.replaceChildren(...opts);
+                if (types.includes(currentValue)) select.value = currentValue;
+            });
+        } catch (error) {
+            console.warn('Failed to load memory types:', error);
         }
     }
 
