@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.51.1] - 2026-05-07
+
+### Fixed
+
+- **Milvus consolidation failure** ([#872](https://github.com/doobidoo/mcp-memory-service/pull/872), @henry201605): Adds `delete_memory(hash) -> bool` alias to `MilvusMemoryStorage`. Without this method, `memory_consolidate` silently failed on the Milvus backend during Compression (stage 4) and Controlled Forgetting (stage 5) with `AttributeError`. No behaviour change for other backends.
+
 ## [10.51.0] - 2026-05-07
 
 ### Added
