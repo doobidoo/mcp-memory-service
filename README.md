@@ -490,17 +490,19 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.50.0** (May 6, 2026)
+## Latest Release: **v10.51.0** (May 7, 2026)
 
-**feat(plugins): plugin hook scaffolding — on_store, on_delete, on_retrieve, on_consolidate (PR #856, @filhocf)**
+**feat(plugins): live plugin hooks + dynamic type dropdowns + audit-log example (PRs #863, #864, #867, @filhocf)**
 
 **What's New:**
-- **Plugin extension API**: Four lifecycle hooks (`on_store`, `on_delete`, `on_retrieve`, `on_consolidate`) with `entry_points` discovery let third-party packages register hooks without modifying core. Pure scaffolding — fire points wired in follow-up PR. Refs #732.
-- **Dependency updates**: `authlib` 1.7.1, `cryptography` 48, `torch` 2.11; CI actions bumped (`attest-build-provenance` 1→4, `codeql-action` 3→4, `hadolint-action` 3.3.0).
+- **Plugin hooks are now live**: Fire points wired into `MemoryService` — `on_store`, `on_delete`, `on_retrieve`, `on_consolidate` called at actual lifecycle events. Third-party plugins receive live events. (PR #864)
+- **Dynamic type dropdowns**: New `GET /api/types` endpoint returns all valid memory types (built-in + custom). Dashboard filter and store-form dropdowns now populate from this endpoint automatically. (PR #863)
+- **Audit-log example plugin**: Reference implementation in `examples/plugins/audit_log/` demonstrating all four hooks with `entry_points` packaging. Living documentation for the plugin API. (PR #867)
 
 ---
 
 **Previous Releases**:
+- **v10.50.0** - feat(plugins): plugin hook scaffolding — on_store, on_delete, on_retrieve, on_consolidate (PR #856, @filhocf)
 - **v10.49.4** - fix(consolidation): protect high-value mistake notes from decay/forgetting (PR #854, @filhocf)
 - **v10.49.3** - fix(opencode): correct API path, payload field, and client-side tag filter (PRs #849, #850)
 - **v10.49.2** - fix(ontology): register custom base types with empty subtype lists (PR #846)

@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.51.0] - 2026-05-07
+
+### Added
+
+- **Plugin fire points wired into MemoryService lifecycle** ([#864](https://github.com/doobidoo/mcp-memory-service/pull/864), @filhocf): Connects the plugin hook scaffolding (introduced in v10.50.0, PR #856) to actual lifecycle events in `MemoryService`. The four hooks — `on_store`, `on_delete`, `on_retrieve`, and `on_consolidate` — are now invoked at the appropriate call sites. Third-party plugins registered via `entry_points` will receive live events from this release onward.
+- **`GET /api/types` endpoint + dynamic type dropdowns in dashboard** ([#863](https://github.com/doobidoo/mcp-memory-service/pull/863), @filhocf): New REST endpoint returns all valid memory types (built-in + custom types from `MCP_CUSTOM_MEMORY_TYPES`). The web dashboard type filter and store-form dropdowns are now populated dynamically from this endpoint instead of being hardcoded, so custom ontology entries appear automatically in the UI.
+- **Audit-log example plugin** ([#867](https://github.com/doobidoo/mcp-memory-service/pull/867), @filhocf): Reference implementation in `examples/plugins/audit_log/` demonstrating all four lifecycle hooks. Shows how to write, package, and install a plugin using `entry_points` discovery. Serves as living documentation for the plugin API.
+
 ## [10.50.0] - 2026-05-06
 
 ### Added
