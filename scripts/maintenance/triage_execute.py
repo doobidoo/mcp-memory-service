@@ -43,16 +43,9 @@ SPAM_KEYWORDS = [
     "we built",
     "our product",
     "our solution",
-    "commercial",
-    "pricing",
-    "subscribe",
-    "sign up",
-    "signup",
     "free trial",
     "check out our",
     "try our",
-    "our platform",
-    "our service",
     "our tool",
     "our software",
     "introducing our",
@@ -125,7 +118,7 @@ def gh_api_paginate(path: str) -> list[Any]:
                     items.extend(obj)
                 else:
                     items.append(obj)
-                pos += end
+                pos = end
             except json.JSONDecodeError:
                 break
         return items
@@ -157,17 +150,19 @@ def fetch_recent_issues_and_prs(repo: str, since: dt.datetime) -> list[dict]:
 
 def determine_label_for_title(title: str, existing_repo_labels: set[str]) -> str | None:
     """Return the best matching label for the given title, or None."""
+    import re
     title_lower = title.lower()
     for keywords, label in TITLE_LABEL_RULES:
-        if any(kw in title_lower for kw in keywords):
-            # For backend-specific labels, only apply if the label exists in the repo
-            if label.startswith("backend"):
+        if any(re.search(r"\b" + re.escape(kw) + r"\b", title_lower) for kw in keywords):
+            # For backend-specific labels, fall back to generic "backend" if specific one missing
+            if label.startswith("backend:"):
                 if label.lower() in existing_repo_labels:
                     return label
-                # Try plain "backend" label as fallback
-                if "backend" in existing_repo_labels and label != "backend":
-                    continue
-                if label == "backend" and "backend" in existing_repo_labels:
+                if "backend" in existing_repo_labels:
+                    return "backend"
+                continue
+            if label == "backend":
+                if "backend" in existing_repo_labels:
                     return label
                 continue
             return label
