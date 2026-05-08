@@ -47,7 +47,7 @@ async def test_fallback_triggers_on_sparse_results(mock_server, mock_storage):
     # First call (semantic): returns 1 low-score result
     semantic_result = {
         "memories": [
-            {"content": "partial match", "content_hash": "aaa", "relevance_score": 0.2,
+            {"content": "partial match", "content_hash": "aaa", "similarity_score": 0.2,
              "tags": [], "created_at_iso": "2026-01-01T00:00:00Z"}
         ],
         "total": 1,
@@ -92,7 +92,7 @@ async def test_fallback_not_triggered_when_results_sufficient(mock_server, mock_
     """When semantic returns enough high-score results, no fallback."""
     mock_storage.search_memories.return_value = {
         "memories": [
-            {"content": f"result {i}", "content_hash": f"hash{i}", "relevance_score": 0.8,
+            {"content": f"result {i}", "content_hash": f"hash{i}", "similarity_score": 0.8,
              "tags": [], "created_at_iso": "2026-01-01T00:00:00Z"}
             for i in range(5)
         ],
@@ -116,7 +116,7 @@ async def test_fallback_deduplicates_results(mock_server, mock_storage):
     """Fallback doesn't return duplicate memories."""
     shared_memory = {
         "content": "found in both", "content_hash": "same_hash",
-        "relevance_score": 0.3, "tags": ["test"],
+        "similarity_score": 0.3, "tags": ["test"],
         "created_at_iso": "2026-01-01T00:00:00Z"
     }
 
@@ -140,7 +140,7 @@ async def test_fallback_marks_match_method(mock_server, mock_storage):
     """Each result is tagged with its match_method."""
     mock_storage.search_memories.side_effect = [
         {"memories": [
-            {"content": "semantic hit", "content_hash": "s1", "relevance_score": 0.3,
+            {"content": "semantic hit", "content_hash": "s1", "similarity_score": 0.3,
              "tags": [], "created_at_iso": "2026-01-01T00:00:00Z"}
         ], "total": 1, "query": "test", "mode": "semantic"},
         {"memories": [

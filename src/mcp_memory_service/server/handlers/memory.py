@@ -811,7 +811,7 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             # Check if existing results have low scores
             high_score_count = sum(
                 1 for m in memories
-                if m.get("relevance_score", 0) >= _FALLBACK_SCORE_THRESHOLD
+                if m.get("similarity_score", 0) >= _FALLBACK_SCORE_THRESHOLD
             )
 
             if high_score_count < _FALLBACK_MIN_RESULTS:
@@ -833,7 +833,7 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
 
                 # Tier 2: Tag intersection (extract potential tags from query tokens)
                 if len(memories) < limit:
-                    query_tokens = [t.strip().lower() for t in query.split() if len(t.strip()) > 2]
+                    query_tokens = [t.strip().lower().strip(".,;:!?\"'()[]{}") for t in query.split() if len(t.strip()) > 2]
                     if query_tokens:
                         tag_result = await storage.search_memories(
                             query=None,
