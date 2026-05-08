@@ -493,7 +493,7 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
 
     # Step 5: Batch entity extraction
     try:
-        from ..reasoning.entities import EntityExtractor
+        from mcp_memory_service.reasoning.entities import EntityExtractor
 
         all_mems = await storage.get_all_memories()
         extractor = EntityExtractor()

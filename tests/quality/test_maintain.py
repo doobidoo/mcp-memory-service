@@ -41,6 +41,7 @@ def mock_server():
     storage.count_all_memories = AsyncMock(return_value=5)
     storage.get_all_memories = AsyncMock(return_value=[])
     storage.resolve_conflict = AsyncMock(return_value=(True, "resolved"))
+    storage.graph = None  # No graph storage in tests by default
 
     server._ensure_storage_initialized = AsyncMock(return_value=storage)
     return server, storage
