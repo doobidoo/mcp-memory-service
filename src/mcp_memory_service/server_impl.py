@@ -1515,6 +1515,11 @@ Examples:
                                     "type": "boolean",
                                     "default": False,
                                     "description": "Include memories that have been superseded by newer contradicting memories. Default: false (superseded memories are hidden)."
+                                },
+                                "fallback": {
+                                    "type": "boolean",
+                                    "default": False,
+                                    "description": "Enable cascading fallback when semantic results are sparse. When true and fewer than 3 results are found with scores below 0.4, automatically attempts BM25 keyword match and tag intersection. Each result includes match_method field. Default: false."
                                 }
                             }
                         },
