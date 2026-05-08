@@ -1,0 +1,33 @@
+name: Contributor PR Welcome
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  welcome:
+    # Only for non-owner contributors
+    if: github.event.pull_request.user.login != github.repository_owner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: `Thanks for the PR! 🙌
+
+Before review, please verify the **Lean-MCP checklist**:
+
+- [ ] **Call path exists**: The new feature is reachable via an MCP tool or REST endpoint — not just internal helper code
+- [ ] **Tests included**: Unit tests cover the happy path and at least one edge case
+- [ ] **No dead code**: Code that is wired \`later\` in a follow-up PR will not be merged; wire it now or keep it out
+- [ ] **Pre-PR check passes**: \`bash scripts/pr/pre_pr_check.sh\` runs green locally
+
+_These are hard requirements, not suggestions. PRs that don't meet them will receive a \`changes requested\` review._`
+            });
