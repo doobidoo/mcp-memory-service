@@ -495,7 +495,7 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 
 ## Latest Release: **v10.52.0** (May 8, 2026)
 
-**feat(search): cascading fallback + refactor(storage): include_embeddings on bulk-read methods (PRs #881, #883, @henry201605, @filhocf)**
+**feat(search): cascading fallback + refactor(storage): include_embeddings on bulk-read methods (PRs #883, #881, @filhocf, @henry201605)**
 
 **What's New:**
 - **Cascading search fallback**: `retrieve_memories` now supports opt-in two-tier fallback (`fallback=True`) when semantic similarity returns sparse results. Falls back to BM25 exact-match then tag-intersection, merging de-duplicated results up to `n_results`. Closes [#873](https://github.com/doobidoo/mcp-memory-service/issues/873). (PR #883, @filhocf)

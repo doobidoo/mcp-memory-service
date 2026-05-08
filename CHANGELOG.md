@@ -22,7 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
-- **CI fork-PR label/comment automation** ([fix/ci](https://github.com/doobidoo/mcp-memory-service/commit/main)): Workflow triggers that write labels or post comments now use `pull_request_target` instead of `pull_request`, resolving `403` read-only-token failures that broke automation for all fork-originated PRs.
+- **CI fork-PR label/comment automation** ([#882](https://github.com/doobidoo/mcp-memory-service/pull/882)): Workflow triggers that write labels or post comments now use `pull_request_target` instead of `pull_request`, resolving `403` read-only-token failures that broke automation for all fork-originated PRs.
 
 ## [10.51.3] - 2026-05-08
 
