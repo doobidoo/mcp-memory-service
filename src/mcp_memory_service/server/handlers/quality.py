@@ -491,6 +491,45 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
         report["errors"].append(f"quality: {e}")
         report["steps"]["quality"] = {"error": str(e)}
 
+    # Step 5: Insight Cards generation (opt-in)
+    from ..config import MCP_INSIGHT_CARDS_ENABLED
+    if MCP_INSIGHT_CARDS_ENABLED:
+        try:
+            from ..consolidation.insights import InsightGenerator, store_insights
+
+            # Fetch recent memories for analysis
+            all_mems = await storage.get_all_memories()
+            mem_dicts = []
+            for m in all_mems[:500]:  # Cap to avoid excessive processing
+                mem_dicts.append({
+                    "content_hash": m.content_hash,
+                    "tags": m.tags if isinstance(m.tags, list) else [t.strip() for t in (m.tags or "").split(",") if t.strip()],
+                    "memory_type": m.memory_type,
+                    "created_at": m.created_at,
+                })
+
+            generator = InsightGenerator()
+            insights = generator.generate_insights(mem_dicts, [])
+
+            if dry_run:
+                report["steps"]["insights"] = {
+                    "skipped_dry_run": True,
+                    "candidates": len(insights),
+                    "types": {t: sum(1 for i in insights if i.insight_type == t) for t in ("pattern", "trend", "gap")},
+                }
+            else:
+                stored = await store_insights(insights, storage)
+                report["steps"]["insights"] = {
+                    "generated": len(insights),
+                    "stored": len(stored),
+                    "types": {t: sum(1 for i in insights if i.insight_type == t) for t in ("pattern", "trend", "gap")},
+                }
+        except Exception as e:
+            report["errors"].append(f"insights: {e}")
+            report["steps"]["insights"] = {"error": str(e)}
+    else:
+        report["steps"]["insights"] = {"skipped": True, "reason": "MCP_INSIGHT_CARDS_ENABLED=false"}
+
     elapsed = round(time.time() - start, 2)
     report["elapsed_seconds"] = elapsed
     report["completed_at"] = datetime.now(timezone.utc).isoformat()

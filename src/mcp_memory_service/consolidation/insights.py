@@ -1,7 +1,8 @@
 """Insight Cards generator for memory consolidation (Phase 3, #732).
 
 Generates pattern/trend/gap insights from memory clusters using heuristics only.
-Not integrated into the consolidator yet — standalone module for PR #864 hook.
+Integrated into the maintain cycle (memory_quality action='maintain') as Step 5.
+Opt-in via MCP_INSIGHT_CARDS_ENABLED=true environment variable.
 """
 
 from collections import defaultdict
@@ -26,8 +27,8 @@ class InsightCard:
 class InsightGenerator:
     """Generates Insight Cards from memories using heuristics."""
 
-    MIN_PATTERN_MEMORIES = 3
-    MIN_SHARED_TAGS = 2
+    MIN_PATTERN_MEMORIES = 5
+    MIN_SHARED_TAGS = 3
     RECENT_DAYS = 7
     OLD_DAYS = 30
     GAP_MIN_MEMORIES = 5

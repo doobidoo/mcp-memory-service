@@ -34,16 +34,20 @@ class TestPatternDetection:
             _mem("h1", ["python", "testing"]),
             _mem("h2", ["python", "testing"]),
             _mem("h3", ["python", "testing"]),
+            _mem("h4", ["python", "testing"]),
+            _mem("h5", ["python", "testing"]),
         ]
         insights = generator.generate_insights(memories, [])
         patterns = [i for i in insights if i.insight_type == "pattern"]
         assert len(patterns) >= 1
         assert any("python" in p.title and "testing" in p.title for p in patterns)
 
-    def test_no_pattern_with_fewer_than_3(self, generator):
+    def test_no_pattern_with_fewer_than_5(self, generator):
         memories = [
             _mem("h1", ["python", "testing"]),
             _mem("h2", ["python", "testing"]),
+            _mem("h3", ["python", "testing"]),
+            _mem("h4", ["python", "testing"]),
         ]
         insights = generator.generate_insights(memories, [])
         patterns = [i for i in insights if i.insight_type == "pattern"]
@@ -60,10 +64,12 @@ class TestPatternDetection:
             _mem("a1", ["docker", "deploy"]),
             _mem("a2", ["docker", "deploy"]),
             _mem("a3", ["docker", "deploy"]),
+            _mem("a4", ["docker", "deploy"]),
+            _mem("a5", ["docker", "deploy"]),
         ]
         insights = generator.generate_insights(memories, [])
         patterns = [i for i in insights if i.insight_type == "pattern"]
-        assert set(patterns[0].source_hashes) == {"a1", "a2", "a3"}
+        assert set(patterns[0].source_hashes) == {"a1", "a2", "a3", "a4", "a5"}
 
 
 class TestTrendDetection:
