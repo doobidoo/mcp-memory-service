@@ -1,0 +1,33 @@
+name: Daily Triage Execute
+
+on:
+  schedule:
+    - cron: "30 8 * * *"  # 08:30 UTC daily, shortly after the triage digest
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Dry run (no writes)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run triage execution
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry-run || 'false' }}
+        run: |
+          python3 scripts/maintenance/triage_execute.py \
+            --repo "$REPO" \
+            --issue 805 \
+            $([ "${DRY_RUN}" = "true" ] && echo "--dry-run" || true)
