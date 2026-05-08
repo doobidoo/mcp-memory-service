@@ -1,4 +1,9 @@
-"""Lightweight entity extraction using heuristics (no ML dependencies)."""
+"""Lightweight entity extraction using heuristics (no ML dependencies).
+
+Extracts high-precision entities: @mentions, #tags, URLs, and file paths.
+CamelCase/ALLCAPS patterns removed (too noisy for free-form text).
+Integrated into maintain cycle as batch extraction step.
+"""
 
 import re
 from dataclasses import dataclass
@@ -10,17 +15,19 @@ class Entity:
     entity_type: str  # person, project, service, file, url, tag
     source: str  # content, metadata
 
-# Patterns
+# Patterns — high precision only
 _MENTION_RE = re.compile(r'@([\w.-]+)')
 _HASHTAG_RE = re.compile(r'#([\w-]+)')
 _URL_RE = re.compile(r'https?://[^\s<>\"\']+')
 _PATH_RE = re.compile(r'(?:^|[\s(])(/[\w./-]+|[\w./]*[a-zA-Z][\w./]*\.\w{1,5})(?=[\s),:;]|$)', re.MULTILINE)
-_CAMEL_RE = re.compile(r'\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b')
-_ALLCAPS_RE = re.compile(r'\b([A-Z][A-Z_]{2,})\b')
 
 
 class EntityExtractor:
-    """Extract entities from memory content and metadata using regex heuristics."""
+    """Extract entities from memory content and metadata.
+
+    Uses high-precision patterns only (@mentions, #tags, URLs, paths).
+    CamelCase/ALLCAPS removed per review feedback (too many false positives).
+    """
 
     def extract_entities(self, content: str, metadata: Dict[str, Any] | None = None) -> List[Entity]:
         metadata = metadata or {}
@@ -33,7 +40,7 @@ class EntityExtractor:
                 seen.add(key)
                 entities.append(Entity(name=name, entity_type=etype, source=source))
 
-        # Content-based extraction
+        # Content-based extraction (high precision only)
         for m in _MENTION_RE.finditer(content):
             _add(m.group(1), 'person', 'content')
 
@@ -47,14 +54,6 @@ class EntityExtractor:
             path = m.group(1).strip()
             if '/' in path or '.' in path:
                 _add(path, 'file', 'content')
-
-        for m in _CAMEL_RE.finditer(content):
-            _add(m.group(1), 'service', 'content')
-
-        for m in _ALLCAPS_RE.finditer(content):
-            word = m.group(1)
-            if word not in ('TODO', 'NOTE', 'FIXME', 'README', 'HTTP', 'HTTPS', 'API', 'URL', 'SQL', 'JSON', 'XML', 'HTML', 'CSS'):
-                _add(word, 'project', 'content')
 
         # Metadata-based extraction
         tags = metadata.get('tags', [])

@@ -29,24 +29,17 @@ class TestEntityExtractor:
         urls = [e.name for e in entities if e.entity_type == 'url']
         assert any('github.com' in u for u in urls)
 
-    def test_extract_camelcase(self):
+    def test_camelcase_no_longer_extracted(self):
+        """CamelCase patterns removed (too noisy for free-form text)."""
         entities = self.extractor.extract_entities("The UserService handles authentication via AuthManager")
         names = [e.name for e in entities if e.entity_type == 'service']
-        assert 'UserService' in names
-        assert 'AuthManager' in names
+        assert len(names) == 0
 
-    def test_extract_allcaps(self):
+    def test_allcaps_no_longer_extracted(self):
+        """ALLCAPS patterns removed (too noisy for free-form text)."""
         entities = self.extractor.extract_entities("Set REDIS_HOST and DATABASE_URL in config")
         names = [e.name for e in entities if e.entity_type == 'project']
-        assert 'REDIS_HOST' in names
-        assert 'DATABASE_URL' in names
-
-    def test_allcaps_excludes_common(self):
-        entities = self.extractor.extract_entities("Use HTTP API with JSON format")
-        names = [e.name for e in entities if e.entity_type == 'project']
-        assert 'HTTP' not in names
-        assert 'API' not in names
-        assert 'JSON' not in names
+        assert len(names) == 0
 
     def test_extract_paths(self):
         entities = self.extractor.extract_entities("Edit /etc/nginx/nginx.conf and src/main.py")

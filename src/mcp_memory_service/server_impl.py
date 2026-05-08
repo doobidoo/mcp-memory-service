@@ -1513,6 +1513,10 @@ Examples:
                                     "type": "boolean",
                                     "default": False,
                                     "description": "Include memories that have been superseded by newer contradicting memories. Default: false (superseded memories are hidden)."
+                                },
+                                "entity": {
+                                    "type": "string",
+                                    "description": "Filter by linked entity name. Returns only memories that have been linked to this entity via entity extraction. Use after running maintain to populate entity links."
                                 }
                             }
                         },
