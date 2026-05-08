@@ -1,0 +1,37 @@
+name: PR Auto-Label
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            const labelMap = {
+              'feat':     'enhancement',
+              'fix':      'bug',
+              'docs':     'documentation',
+              'refactor': 'refactoring',
+              'chore':    'maintenance',
+              'perf':     'performance',
+              'test':     'maintenance',
+            };
+            const prefix = title.split(':')[0].replace(/\(.*\)/, '').trim().toLowerCase();
+            const label = labelMap[prefix];
+            if (label) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                labels: [label],
+              });
+            }
