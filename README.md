@@ -79,7 +79,7 @@ cloudflared tunnel --url http://localhost:8765
 | Context window limits create amnesia | Autonomous consolidation compresses old memories |
 
 **Key capabilities for agent pipelines:**
-- **Framework-agnostic REST API** — 50+ endpoints, no MCP client library needed
+- **Framework-agnostic REST API** — 76 endpoints, no MCP client library needed
 - **Knowledge graph** — agents share causal chains, not just facts
 - **`X-Agent-ID` header** — auto-tag memories by agent identity for scoped retrieval
 - **`conversation_id`** — bypass deduplication for incremental conversation storage
@@ -178,7 +178,7 @@ A production-tested self-hosted deployment using Docker containers behind a Clou
 | Privacy | Cloud | Cloud | Partial | **100% local** |
 | Hybrid search | No | Yes | Manual | **Yes (BM25 + vector)** |
 | MCP protocol | No | No | No | **Yes** |
-| REST API | Yes | Yes | Manual | **Yes (50+ endpoints)** |
+| REST API | Yes | Yes | Manual | **Yes (76 endpoints)** |
 
 ### vs. MCP-Native Alternatives
 
