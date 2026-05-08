@@ -34,6 +34,11 @@ from ...config import (
     get_jwt_algorithm,
     get_jwt_verification_key
 )
+
+def _www_authenticate_header() -> str:
+    """Build WWW-Authenticate header with resource_metadata for RFC 9728 compliance."""
+    resource_metadata = f"{OAUTH_ISSUER}/.well-known/oauth-protected-resource"
+    return f'Bearer resource_metadata="{resource_metadata}"'
 from .storage import get_oauth_storage
 
 logger = logging.getLogger(__name__)
@@ -338,7 +343,7 @@ async def get_current_user(
                 "error": "invalid_token",
                 "error_description": error_msg
             },
-            headers={"WWW-Authenticate": "Bearer"}
+            headers={"WWW-Authenticate": _www_authenticate_header()}
         )
 
     # Check for API key authentication without Bearer token
@@ -397,7 +402,7 @@ async def get_current_user(
             "error": "authorization_required",
             "error_description": error_msg
         },
-        headers={"WWW-Authenticate": "Bearer"}
+        headers={"WWW-Authenticate": _www_authenticate_header()}
     )
 
 
