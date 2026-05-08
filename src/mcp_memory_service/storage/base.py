@@ -812,7 +812,23 @@ class MemoryStorage(ABC):
         """Search memories. Default implementation uses retrieve."""
         return await self.retrieve(query, n_results)
     
-    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, stale_days: Optional[int] = None) -> List[Memory]:
+    # NOTE: ``include_embeddings`` is a new kwarg (see #881). The three
+    # overriding subclasses (sqlite_vec, hybrid, cloudflare) still carry
+    # their pre-#881 signatures and will be updated in the follow-up PR
+    # that wires DreamInspiredConsolidator. Until then, any caller that
+    # passes ``include_embeddings=True`` to a non-Milvus backend will hit
+    # a TypeError from the subclass override — not the ABC default. Do
+    # not opt into embedding hydration from the consolidator (or any other
+    # consumer) until the subclass signatures catch up.
+    async def get_all_memories(
+        self,
+        limit: int = None,
+        offset: int = 0,
+        memory_type: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        stale_days: Optional[int] = None,
+        include_embeddings: bool = False,
+    ) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
 
@@ -822,6 +838,13 @@ class MemoryStorage(ABC):
             memory_type: Optional filter by memory type
             tags: Optional filter by tags (matches ANY of the provided tags)
             stale_days: Optional filter to memories not accessed in the last N days
+            include_embeddings: If True and the backend stores embeddings
+                locally, populate ``Memory.embedding`` on the returned
+                objects. Used by the consolidation pipeline, which needs
+                vectors to drive clustering and creative-association
+                stages. Backends without local embeddings (e.g. Cloudflare)
+                MAY ignore the flag. Default False keeps the CRUD cost
+                envelope unchanged.
 
         Returns:
             List of Memory objects ordered by created_at DESC, optionally filtered by type and tags
@@ -855,8 +878,27 @@ class MemoryStorage(ABC):
         memories = await self.search_by_tag(tags)
         return len(memories)
 
-    async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
-        """Get memories within a time range. Override for specific implementations."""
+    # NOTE: ``include_embeddings`` — see ``get_all_memories`` above.
+    # Subclass signatures updated in the follow-up PR.
+    async def get_memories_by_time_range(
+        self,
+        start_time: float,
+        end_time: float,
+        include_embeddings: bool = False,
+    ) -> List[Memory]:
+        """Get memories within a time range. Override for specific implementations.
+
+        Args:
+            start_time: Inclusive range start (Unix timestamp, seconds).
+            end_time: Inclusive range end (Unix timestamp, seconds).
+            include_embeddings: If True and the backend stores embeddings
+                locally, populate ``Memory.embedding`` on the returned
+                objects. See ``get_all_memories`` for the full contract.
+                Default False.
+
+        Returns:
+            A list of Memory objects within the specified time range.
+        """
         return []
     
     async def get_memory_connections(self) -> Dict[str, int]:
