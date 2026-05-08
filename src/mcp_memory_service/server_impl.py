@@ -1786,6 +1786,11 @@ Examples:
                                     "type": "boolean",
                                     "default": True,
                                     "description": "Whether to preserve the original created_at timestamp (default: true)."
+                                },
+                                "versioned": {
+                                    "type": "boolean",
+                                    "default": False,
+                                    "description": "When true, creates a new version instead of overwriting. The old memory is marked as superseded. Requires content in updates to create the new version. Creates a new memory version and marks the old one as superseded. Supported backends: sqlite_vec. Unsupported backends return an error."
                                 }
                             },
                             "required": ["content_hash", "updates"]
