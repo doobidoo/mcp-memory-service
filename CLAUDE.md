@@ -45,7 +45,7 @@ Before merging or releasing:
 
 MCP Memory Service is a semantic memory layer for AI applications, accessible via REST API and MCP transport. It provides persistent storage for 14+ AI clients including Claude Desktop, OpenCode, LangGraph, CrewAI, and any HTTP client. It uses vector embeddings for semantic search, supports multiple storage backends (SQLite-vec, Cloudflare, Hybrid), and includes advanced features like memory consolidation, quality scoring, and OAuth 2.1 team collaboration.
 
-**Current Version:** v10.51.2 - fix(oauth): CORS preflight failures and missing resource_metadata; refactor(milvus): opt-in embedding hydration on read paths (PRs #877, #878) — ~1,838 tests — see [CHANGELOG.md](CHANGELOG.md) for details
+**Current Version:** v10.51.3 - feat(memory_update): versioned flag; feat(memory_graph): infer_transitive and suggest_relationships actions (PRs #865, #866, @filhocf) — ~1,838 tests — see [CHANGELOG.md](CHANGELOG.md) for details
 
 > **🎯 v10.0.0 Milestone**: This major release represents a complete API consolidation - 34 tools unified into 12 with enhanced capabilities. All deprecated tools continue working with warnings until v11.0. See `docs/MIGRATION.md` for migration guide.
 

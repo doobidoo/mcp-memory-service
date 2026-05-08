@@ -490,17 +490,18 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.51.2** (May 8, 2026)
+## Latest Release: **v10.51.3** (May 8, 2026)
 
-**fix(oauth) + refactor(milvus): CORS preflight fixes, RFC 9728 resource_metadata, and opt-in embedding hydration on Milvus read paths (PRs #877, #878)**
+**feat(memory_update + memory_graph): versioned update flag and transitive/suggest graph actions (PRs #865, #866, @filhocf)**
 
 **What's New:**
-- **OAuth CORS preflight fix**: Resolves three bugs in the OAuth remote connector flow — CORS on `oauth_app`, OPTIONS handling on `/mcp`, and `resource_metadata` in `WWW-Authenticate` headers per RFC 9728. (PR #877, @ghelleks)
-- **Milvus embedding hydration**: Adds `include_embedding: bool = False` opt-in parameter to Milvus read paths so the consolidation pipeline can access embeddings, fixing consolidation returning 0 clusters/associations on Milvus deployments. (PR #878, @henry201605)
+- **Versioned memory updates**: `memory_update` now accepts a `versioned: bool = False` parameter. When `True`, routes through `update_memory_versioned()` in sqlite_vec, storing `superseded_by` in metadata for full audit trail. Returns an explicit error on unsupported backends. (PR #865, @filhocf)
+- **Transitive inference and relationship suggestions**: `memory_graph` gains `infer` and `suggest` actions. Transitive closure uses a recursive CTE in GraphStorage (database-side, no Python BFS), making large graph traversals fast and efficient. (PR #866, @filhocf)
 
 ---
 
 **Previous Releases**:
+- **v10.51.2** - fix(oauth): CORS preflight failures and missing resource_metadata; refactor(milvus): opt-in embedding hydration on read paths (PRs #877, #878)
 - **v10.51.1** - fix(milvus): add delete_memory proxy for consolidation protocol (PR #872, @henry201605)
 - **v10.51.0** - feat(plugins): live plugin hooks + dynamic type dropdowns + audit-log example (PRs #863, #864, #867, @filhocf)
 - **v10.50.0** - feat(plugins): plugin hook scaffolding — on_store, on_delete, on_retrieve, on_consolidate (PR #856, @filhocf)
