@@ -812,6 +812,14 @@ class MemoryStorage(ABC):
         """Search memories. Default implementation uses retrieve."""
         return await self.retrieve(query, n_results)
     
+    # NOTE: ``include_embeddings`` is a new kwarg (see #881). The three
+    # overriding subclasses (sqlite_vec, hybrid, cloudflare) still carry
+    # their pre-#881 signatures and will be updated in the follow-up PR
+    # that wires DreamInspiredConsolidator. Until then, any caller that
+    # passes ``include_embeddings=True`` to a non-Milvus backend will hit
+    # a TypeError from the subclass override — not the ABC default. Do
+    # not opt into embedding hydration from the consolidator (or any other
+    # consumer) until the subclass signatures catch up.
     async def get_all_memories(
         self,
         limit: int = None,
@@ -870,6 +878,8 @@ class MemoryStorage(ABC):
         memories = await self.search_by_tag(tags)
         return len(memories)
 
+    # NOTE: ``include_embeddings`` — see ``get_all_memories`` above.
+    # Subclass signatures updated in the follow-up PR.
     async def get_memories_by_time_range(
         self,
         start_time: float,
