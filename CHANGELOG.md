@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.51.3] - 2026-05-08
+
+### Added
+
+- **Versioned memory update via `memory_update` tool** ([#865](https://github.com/doobidoo/mcp-memory-service/pull/865), @filhocf): Adds `versioned: bool = False` parameter to the `memory_update` MCP tool. When `True`, routes through `update_memory_versioned()` in sqlite_vec, storing `superseded_by` in the replaced memory's metadata for a full audit trail. Returns an explicit error message on backends that do not support versioning.
+- **Transitive inference and relationship suggestions in `memory_graph`** ([#866](https://github.com/doobidoo/mcp-memory-service/pull/866), @filhocf): Wires `infer` and `suggest` actions into the `memory_graph` MCP tool. `infer_transitive` computes the transitive closure of a starting node using a recursive CTE in `GraphStorage` (database-side traversal, no Python BFS), keeping large graph queries fast. `suggest_relationships` proposes new edges based on semantic proximity of existing associations.
+
 ## [10.51.2] - 2026-05-08
 
 ### Fixed
