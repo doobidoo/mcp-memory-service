@@ -490,16 +490,18 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.51.1** (May 7, 2026)
+## Latest Release: **v10.51.2** (May 8, 2026)
 
-**fix(milvus): add delete_memory proxy for consolidation protocol (PR #872, @henry201605)**
+**fix(oauth) + refactor(milvus): CORS preflight fixes, RFC 9728 resource_metadata, and opt-in embedding hydration on Milvus read paths (PRs #877, #878)**
 
 **What's New:**
-- **Milvus consolidation fix**: Adds `delete_memory(hash) -> bool` alias to `MilvusMemoryStorage`. Without this method, `memory_consolidate` silently failed on the Milvus backend during Compression (stage 4) and Controlled Forgetting (stage 5) with `AttributeError`. (PR #872)
+- **OAuth CORS preflight fix**: Resolves three bugs in the OAuth remote connector flow — CORS on `oauth_app`, OPTIONS handling on `/mcp`, and `resource_metadata` in `WWW-Authenticate` headers per RFC 9728. (PR #877, @ghelleks)
+- **Milvus embedding hydration**: Adds `include_embedding: bool = False` opt-in parameter to Milvus read paths so the consolidation pipeline can access embeddings, fixing consolidation returning 0 clusters/associations on Milvus deployments. (PR #878, @henry201605)
 
 ---
 
 **Previous Releases**:
+- **v10.51.1** - fix(milvus): add delete_memory proxy for consolidation protocol (PR #872, @henry201605)
 - **v10.51.0** - feat(plugins): live plugin hooks + dynamic type dropdowns + audit-log example (PRs #863, #864, #867, @filhocf)
 - **v10.50.0** - feat(plugins): plugin hook scaffolding — on_store, on_delete, on_retrieve, on_consolidate (PR #856, @filhocf)
 - **v10.49.4** - fix(consolidation): protect high-value mistake notes from decay/forgetting (PR #854, @filhocf)
