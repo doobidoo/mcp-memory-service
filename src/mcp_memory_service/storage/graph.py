@@ -726,3 +726,123 @@ class GraphStorage:
             self._connection.close()
             self._connection = None
             logger.info("Closed GraphStorage connection")
+
+    async def transitive_closure(
+        self,
+        relationship_type: str,
+        max_hops: int = 2
+    ) -> List[Tuple[str, str, int]]:
+        """
+        Find transitive relationships using recursive CTE.
+
+        Returns (source, target, distance) for inferred edges where no direct
+        edge exists. E.g., A→B→C at distance 2 when no A→C edge exists.
+
+        Args:
+            relationship_type: Edge type to traverse
+            max_hops: Maximum path length (2-4)
+
+        Returns:
+            List of (source, target, distance) tuples
+        """
+        max_hops = min(max(max_hops, 2), 4)
+        try:
+            conn = await self._get_connection()
+            cursor = conn.cursor()
+            try:
+                # Recursive CTE: find all reachable pairs via BFS in SQL
+                cursor.execute("""
+                    WITH RECURSIVE paths(source, current, depth, visited) AS (
+                        -- Base: all direct edges of this type
+                        SELECT source_hash, target_hash, 1, ',' || source_hash || ',' || target_hash || ','
+                        FROM memory_graph
+                        WHERE relationship_type = ?
+
+                        UNION ALL
+
+                        -- Recursive: extend by one hop
+                        SELECT p.source, mg.target_hash, p.depth + 1,
+                               p.visited || mg.target_hash || ','
+                        FROM paths p
+                        JOIN memory_graph mg ON p.current = mg.source_hash
+                            AND mg.relationship_type = ?
+                        WHERE p.depth < ?
+                            AND p.visited NOT LIKE '%,' || mg.target_hash || ',%'
+                    )
+                    -- Select only transitive (distance >= 2) pairs that have no direct edge
+                    SELECT DISTINCT p.source, p.current as target, p.depth as distance
+                    FROM paths p
+                    WHERE p.depth >= 2
+                        AND NOT EXISTS (
+                            SELECT 1 FROM memory_graph d
+                            WHERE d.source_hash = p.source
+                                AND d.target_hash = p.current
+                                AND d.relationship_type = ?
+                        )
+                    ORDER BY p.depth
+                """, (relationship_type, relationship_type, max_hops, relationship_type))
+
+                return [(row['source'], row['target'], row['distance'])
+                        for row in cursor.fetchall()]
+            finally:
+                cursor.close()
+        except sqlite3.Error as e:
+            logger.error(f"Failed transitive closure query: {e}")
+            return []
+
+    async def common_neighbors(
+        self,
+        memory_hash: str,
+        min_shared: int = 1
+    ) -> List[Tuple[str, int, int]]:
+        """
+        Find memories that share neighbors with the given memory.
+
+        Uses a self-join on memory_graph to find 2-hop candidates
+        and count shared connections in a single query.
+
+        Args:
+            memory_hash: Source memory hash
+            min_shared: Minimum shared neighbors to include
+
+        Returns:
+            List of (candidate_hash, shared_count, source_degree) tuples
+        """
+        try:
+            conn = await self._get_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    WITH my_neighbors AS (
+                        -- All direct neighbors of the source (both directions)
+                        SELECT CASE WHEN source_hash = ? THEN target_hash ELSE source_hash END as neighbor
+                        FROM memory_graph
+                        WHERE source_hash = ? OR target_hash = ?
+                    ),
+                    my_degree AS (
+                        SELECT COUNT(*) as deg FROM my_neighbors
+                    ),
+                    candidates AS (
+                        -- For each of my neighbors, find THEIR neighbors (2-hop from me)
+                        SELECT CASE WHEN mg.source_hash = mn.neighbor THEN mg.target_hash ELSE mg.source_hash END as candidate
+                        FROM my_neighbors mn
+                        JOIN memory_graph mg ON (mg.source_hash = mn.neighbor OR mg.target_hash = mn.neighbor)
+                        WHERE CASE WHEN mg.source_hash = mn.neighbor THEN mg.target_hash ELSE mg.source_hash END != ?
+                    )
+                    SELECT c.candidate, COUNT(*) as shared_count, (SELECT deg FROM my_degree) as source_degree
+                    FROM candidates c
+                    -- Exclude already-connected nodes
+                    WHERE c.candidate NOT IN (SELECT neighbor FROM my_neighbors)
+                    GROUP BY c.candidate
+                    HAVING COUNT(*) >= ?
+                    ORDER BY shared_count DESC
+                    LIMIT 10
+                """, (memory_hash, memory_hash, memory_hash, memory_hash, min_shared))
+
+                return [(row['candidate'], row['shared_count'], row['source_degree'])
+                        for row in cursor.fetchall()]
+            finally:
+                cursor.close()
+        except sqlite3.Error as e:
+            logger.error(f"Failed common neighbors query: {e}")
+            return []

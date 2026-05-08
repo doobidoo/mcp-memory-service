@@ -2135,18 +2135,22 @@ ACTIONS:
 - connected: Find memories connected via associations (BFS traversal)
 - path: Find shortest path between two memories
 - subgraph: Get graph structure around a memory for visualization
+- infer: Find transitive relationships (A→B→C implies A→C). Params: rel_type (string), max_hops (int, default 2)
+- suggest: Suggest potential relationships for a memory based on shared neighbors. Params: hash (string)
 
 Examples:
 {"action": "connected", "hash": "abc123", "max_hops": 2}
 {"action": "path", "hash1": "abc123", "hash2": "def456", "max_depth": 5}
 {"action": "subgraph", "hash": "abc123", "radius": 2}
+{"action": "infer", "rel_type": "causes", "max_hops": 2}
+{"action": "suggest", "hash": "abc123"}
 """,
                         inputSchema={
                             "type": "object",
                             "properties": {
                                 "action": {
                                     "type": "string",
-                                    "enum": ["connected", "path", "subgraph"],
+                                    "enum": ["connected", "path", "subgraph", "infer", "suggest"],
                                     "description": "Graph operation to perform"
                                 },
                                 "hash": {
@@ -2175,6 +2179,10 @@ Examples:
                                     "type": "integer",
                                     "default": 2,
                                     "description": "For 'subgraph': nodes to include"
+                                },
+                                "rel_type": {
+                                    "type": "string",
+                                    "description": "For 'infer': relationship type to traverse"
                                 }
                             },
                             "required": ["action"]
