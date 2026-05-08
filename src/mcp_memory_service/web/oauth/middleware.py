@@ -37,8 +37,10 @@ from ...config import (
 
 def _www_authenticate_header() -> str:
     """Build WWW-Authenticate header with resource_metadata for RFC 9728 compliance."""
-    resource_metadata = f"{OAUTH_ISSUER}/.well-known/oauth-protected-resource"
+    resource_metadata = f"{OAUTH_ISSUER.rstrip('/')}/.well-known/oauth-protected-resource"
     return f'Bearer resource_metadata="{resource_metadata}"'
+
+
 from .storage import get_oauth_storage
 
 logger = logging.getLogger(__name__)
