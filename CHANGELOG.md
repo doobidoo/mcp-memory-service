@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.51.2] - 2026-05-08
+
+### Fixed
+
+- **OAuth CORS preflight failures and missing resource_metadata** ([#877](https://github.com/doobidoo/mcp-memory-service/pull/877), @ghelleks): Resolves three bugs in the OAuth remote connector flow. CORS headers were missing on the `oauth_app` sub-application; `OPTIONS` requests to `/mcp` were not handled, blocking browser-based preflight checks; and `WWW-Authenticate` headers lacked the `resource_metadata` field required by RFC 9728, causing Remote MCP clients to fail authentication discovery. Fixes issue [#876](https://github.com/doobidoo/mcp-memory-service/issues/876).
+- **Milvus consolidation returning 0 clusters/associations** ([#878](https://github.com/doobidoo/mcp-memory-service/pull/878), @henry201605): Adds `include_embedding: bool = False` opt-in parameter to Milvus read paths (`retrieve_memory`, `list_memories`). When `True`, raw embedding vectors are returned alongside memory data, enabling the consolidation pipeline to access embeddings during clustering and association discovery. Fixes consolidation silently returning 0 clusters and 0 associations on Milvus deployments.
+
 ## [10.51.1] - 2026-05-07
 
 ### Fixed
