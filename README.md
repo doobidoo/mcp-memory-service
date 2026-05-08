@@ -79,7 +79,7 @@ cloudflared tunnel --url http://localhost:8765
 | Context window limits create amnesia | Autonomous consolidation compresses old memories |
 
 **Key capabilities for agent pipelines:**
-- **Framework-agnostic REST API** — 15 endpoints, no MCP client library needed
+- **Framework-agnostic REST API** — 50+ endpoints, no MCP client library needed
 - **Knowledge graph** — agents share causal chains, not just facts
 - **`X-Agent-ID` header** — auto-tag memories by agent identity for scoped retrieval
 - **`conversation_id`** — bypass deduplication for incremental conversation storage
@@ -170,7 +170,7 @@ A production-tested self-hosted deployment using Docker containers behind a Clou
 | Cost | Per-call API | Enterprise | Infra costs | **$0** |
 | **🌐 claude.ai Browser** | ❌ Desktop only | ❌ Desktop only | ❌ | **✅ Remote MCP** |
 | **OAuth 2.0 + DCR** | ❓ Unknown | ❓ Unknown | ❌ | **✅ Enterprise-ready** |
-| **Streamable HTTP** | ❌ | ❌ | ❌ | **✅ (SSE deprecated)** |
+| **Streamable HTTP** | ❌ | ❌ | ❌ | **✅ (SSE also supported)** |
 | Framework integration | SDK | SDK | Manual | **REST API (any HTTP client)** |
 | Knowledge graph | No | Limited | No | **Yes (typed edges)** |
 | Auto consolidation | No | No | No | **Yes (decay + compression)** |
@@ -178,7 +178,7 @@ A production-tested self-hosted deployment using Docker containers behind a Clou
 | Privacy | Cloud | Cloud | Partial | **100% local** |
 | Hybrid search | No | Yes | Manual | **Yes (BM25 + vector)** |
 | MCP protocol | No | No | No | **Yes** |
-| REST API | Yes | Yes | Manual | **Yes (15 endpoints)** |
+| REST API | Yes | Yes | Manual | **Yes (50+ endpoints)** |
 
 ### vs. MCP-Native Alternatives
 
@@ -194,7 +194,7 @@ A production-tested self-hosted deployment using Docker containers behind a Clou
 | OAuth 2.1 + multi-user | ❌ | **✅** |
 | Knowledge graph | ❌ | **✅ (typed edges)** |
 | Auto consolidation | ❌ | **✅ (decay + compression)** |
-| Compatible AI tools | Claude-focused | **13+ tools** |
+| Compatible AI tools | Claude-focused | **25+ tools** |
 | License | MIT | **Apache 2.0** |
 
 **Why the benchmark gap?** Two independent factors:
@@ -331,7 +331,10 @@ No local installation required on the client — works directly in your browser:
 
 ```bash
 # 1. Start server with Remote MCP
-MCP_STREAMABLE_HTTP_MODE=1 python -m mcp_memory_service.server
+MCP_STREAMABLE_HTTP_MODE=1 \
+MCP_SSE_HOST=0.0.0.0 \
+MCP_OAUTH_ENABLED=true \
+python -m mcp_memory_service.server
 
 # 2. Expose publicly (Cloudflare Tunnel)
 cloudflared tunnel --url http://localhost:8765
@@ -477,13 +480,13 @@ docker pull doobidoo/mcp-memory-service:quality-cpu
 
 The `:quality-cpu` image pre-exports both models at build time and ships only `onnxruntime` at runtime — no PyTorch dependency at deploy time. See [`tools/docker/README.md`](tools/docker/README.md) for details.
 
-### 🖥️ Dashboard Preview (v9.3.0)
+### 🖥️ Dashboard Preview
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/wiki/doobidoo/mcp-memory-service/images/dashboard/mcp-memory-dashboard-v9.3.0-tour.gif" alt="MCP Memory Dashboard Tour" width="800"/>
 </p>
 
-**8 Dashboard Tabs:** Dashboard • Search • Browse • Documents • Manage • Analytics • **Quality** (NEW) • API Docs
+**8 Dashboard Tabs:** Dashboard • Search • Browse • Documents • Manage • Analytics • Quality • API Docs
 
 📖 See [Web Dashboard Guide](https://github.com/doobidoo/mcp-memory-service/wiki/Web-Dashboard-Guide) for complete documentation.
 
@@ -664,7 +667,7 @@ Run benchmarks: `python scripts/benchmarks/benchmark_longmemeval.py`, `python sc
 - Type lookups: 35.9x faster (cached reverse maps)
 - Tag validation: 47.3% faster (eliminated double parsing)
 
-### Testing
+### Testing (at v9.0.0 release)
 
 - 829/914 tests passing (90.7%)
 - 80 new ontology tests with 100% backward compatibility
