@@ -317,7 +317,19 @@ class ServerRunManager:
             from ..web.oauth.authorization import router as authorization_router
             from ..config import OAUTH_ISSUER
 
+            from fastapi.middleware.cors import CORSMiddleware
+
             oauth_app = FastAPI(title="MCP Memory OAuth", docs_url=None, redoc_url=None)
+            _cors_origins = [o.strip() for o in os.environ.get("MCP_CORS_ORIGINS", "").split(",") if o.strip()]
+            oauth_app.add_middleware(
+                CORSMiddleware,
+                allow_origins=_cors_origins or ["*"],
+                # allow_credentials requires explicit origins; wildcard + credentials
+                # is rejected by browsers (CORS spec §3.2.2).
+                allow_credentials=bool(_cors_origins),
+                allow_methods=["*"],
+                allow_headers=["*"],
+            )
             oauth_app.include_router(discovery_router)
             oauth_app.include_router(registration_router, prefix="/oauth")
             oauth_app.include_router(authorization_router, prefix="/oauth")
@@ -354,6 +366,28 @@ class ServerRunManager:
 
             path = scope.get("path", "")
             if path == "/mcp" or path == "/mcp/":
+                # Handle CORS preflight for /mcp
+                if scope.get("method") == "OPTIONS":
+                    req_hdrs = dict(scope.get("headers", []))
+                    origin = req_hdrs.get(b"origin", b"").decode("latin-1")
+                    # Reuse _cors_origins parsed at startup (set when OAUTH_ENABLED);
+                    # fall back to re-parsing if OAuth is off but CORS origins are set.
+                    _mcp_cors = _cors_origins if OAUTH_ENABLED else [
+                        o.strip() for o in os.environ.get("MCP_CORS_ORIGINS", "").split(",") if o.strip()
+                    ]
+                    allow_origin = "*" if not _mcp_cors else (origin if origin in _mcp_cors else _mcp_cors[0])
+                    response = StarletteResponse(
+                        "",
+                        status_code=204,
+                        headers={
+                            "Access-Control-Allow-Origin": allow_origin,
+                            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+                            "Access-Control-Allow-Headers": "*",
+                            "Access-Control-Max-Age": "86400",
+                        },
+                    )
+                    await response(scope, receive, send)
+                    return
                 # Auth check on /mcp
                 if OAUTH_ENABLED or API_KEY:
                     if not await _check_auth_from_scope(scope, receive, send):
@@ -406,11 +440,14 @@ class ServerRunManager:
                     return True
 
             # Auth failed - send 401
+            from ..config import OAUTH_ISSUER as _issuer
+            _resource_metadata_url = f"{_issuer.rstrip('/')}/.well-known/oauth-protected-resource"
+            _www_auth = f'Bearer resource_metadata="{_resource_metadata_url}"' if OAUTH_ENABLED and _issuer else "Bearer"
             response = StarletteResponse(
                 '{"error":"unauthorized","error_description":"Valid Bearer token or API key required"}',
                 status_code=401,
                 headers={
-                    "WWW-Authenticate": "Bearer",
+                    "WWW-Authenticate": _www_auth,
                     "Content-Type": "application/json",
                 },
             )
