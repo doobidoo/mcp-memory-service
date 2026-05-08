@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.52.0] - 2026-05-08
+
+### Added
+
+- **Cascading search fallback when semantic results are sparse** ([#883](https://github.com/doobidoo/mcp-memory-service/pull/883), @filhocf, closes [#873](https://github.com/doobidoo/mcp-memory-service/issues/873)): Adds a two-tier fallback to `retrieve_memories` for deployments where vector similarity produces fewer results than requested. When enabled (`fallback=True`, opt-in), the system first attempts a BM25 exact-match pass over stored content, then a tag-intersection pass, and merges de-duplicated results up to `n_results`. Default is `fallback=False` so existing callers are unaffected.
+
+### Changed
+
+- **`MemoryStorage` ABC — `include_embeddings` parameter on bulk-read methods** ([#881](https://github.com/doobidoo/mcp-memory-service/pull/881), @henry201605): `get_all_memories` and `get_memories_by_time_range` in the base class (and all concrete backends) now accept `include_embeddings: bool = False`. When `True`, raw embedding vectors are hydrated into the returned `Memory` objects, enabling consolidation pipelines that need embedding data without a separate fetch. Default preserves existing behaviour for all callers.
+
+### Fixed
+
+- **CI fork-PR label/comment automation** ([fix/ci](https://github.com/doobidoo/mcp-memory-service/commit/main)): Workflow triggers that write labels or post comments now use `pull_request_target` instead of `pull_request`, resolving `403` read-only-token failures that broke automation for all fork-originated PRs.
+
 ## [10.51.3] - 2026-05-08
 
 ### Added

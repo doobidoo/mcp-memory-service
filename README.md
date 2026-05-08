@@ -493,17 +493,19 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.51.3** (May 8, 2026)
+## Latest Release: **v10.52.0** (May 8, 2026)
 
-**feat(memory_update + memory_graph): versioned update flag and transitive/suggest graph actions (PRs #865, #866, @filhocf)**
+**feat(search): cascading fallback + refactor(storage): include_embeddings on bulk-read methods (PRs #881, #883, @henry201605, @filhocf)**
 
 **What's New:**
-- **Versioned memory updates**: `memory_update` now accepts a `versioned: bool = False` parameter. When `True`, routes through `update_memory_versioned()` in sqlite_vec, storing `superseded_by` in metadata for full audit trail. Returns an explicit error on unsupported backends. (PR #865, @filhocf)
-- **Transitive inference and relationship suggestions**: `memory_graph` gains `infer` and `suggest` actions. Transitive closure uses a recursive CTE in GraphStorage (database-side, no Python BFS), making large graph traversals fast and efficient. (PR #866, @filhocf)
+- **Cascading search fallback**: `retrieve_memories` now supports opt-in two-tier fallback (`fallback=True`) when semantic similarity returns sparse results. Falls back to BM25 exact-match then tag-intersection, merging de-duplicated results up to `n_results`. Closes [#873](https://github.com/doobidoo/mcp-memory-service/issues/873). (PR #883, @filhocf)
+- **`include_embeddings` on bulk-read methods**: `get_all_memories` and `get_memories_by_time_range` on the `MemoryStorage` ABC and all backends now accept `include_embeddings: bool = False`, enabling consolidation pipelines to hydrate embeddings without a separate fetch. (PR #881, @henry201605)
+- **CI fork-PR automation fix**: Workflow triggers now use `pull_request_target` to resolve 403 failures for fork-originated PRs.
 
 ---
 
 **Previous Releases**:
+- **v10.51.3** - feat(memory_update): versioned flag; feat(memory_graph): infer_transitive and suggest_relationships (PRs #865, #866, @filhocf)
 - **v10.51.2** - fix(oauth): CORS preflight failures and missing resource_metadata; refactor(milvus): opt-in embedding hydration on read paths (PRs #877, #878)
 - **v10.51.1** - fix(milvus): add delete_memory proxy for consolidation protocol (PR #872, @henry201605)
 - **v10.51.0** - feat(plugins): live plugin hooks + dynamic type dropdowns + audit-log example (PRs #863, #864, #867, @filhocf)
