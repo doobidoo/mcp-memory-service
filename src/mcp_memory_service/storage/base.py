@@ -885,6 +885,9 @@ class MemoryStorage(ABC):
                 locally, populate ``Memory.embedding`` on the returned
                 objects. See ``get_all_memories`` for the full contract.
                 Default False.
+
+        Returns:
+            A list of Memory objects within the specified time range.
         """
         return []
     
