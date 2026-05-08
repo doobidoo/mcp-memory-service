@@ -454,12 +454,12 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 🧠 **Persistent Memory** – Context survives across sessions with semantic search
 🔍 **Smart Retrieval** – Finds relevant context automatically using AI embeddings
 ⚡ **5ms Speed** – Instant context injection, no latency
-🔄 **Multi-Client** – Works across 20+ AI applications
+🔄 **Multi-Client** – Works across 25+ AI applications
 ☁️ **Cloud Sync** – Optional Cloudflare backend for team collaboration
 🔒 **Privacy-First** – Local-first, you control your data
 📊 **Web Dashboard** – Visualize and manage memories at `http://localhost:8000`
-🧬 **Knowledge Graph** – Interactive D3.js visualization of memory relationships 🆕
-🏠 **Homelab Quality Scoring** – Point scoring at any OpenAI-compatible endpoint (Ollama, LiteLLM, vLLM) 🆕
+🧬 **Knowledge Graph** – Interactive D3.js visualization of memory relationships
+🏠 **Homelab Quality Scoring** – Point scoring at any OpenAI-compatible endpoint (Ollama, LiteLLM, vLLM)
 
 **Homelab / self-hosted quality scoring** (v10.45.0+): set `MCP_QUALITY_AI_PROVIDER=openai-compatible` to score memories with your local LLM instead of ONNX or a cloud API:
 
@@ -548,86 +548,7 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 
 ---
 
-## Migration to v9.0.0
-
-**⚡ TL;DR**: No manual migration needed - upgrades happen automatically!
-
-**Breaking Changes:**
-- **Memory Type Ontology**: Legacy types auto-migrate to new taxonomy (task→observation, note→observation)
-- **Asymmetric Relationships**: Directed edges only (no longer bidirectional)
-
-**Migration Process:**
-1. Stop your MCP server
-2. Update to latest version (`git pull` or `pip install --upgrade mcp-memory-service`)
-3. Restart server - automatic migrations run on startup:
-   - Database schema migrations (009, 010)
-   - Memory type soft-validation (legacy types → observation)
-   - No tag migration needed (backward compatible)
-
-**Safety**: Migrations are idempotent and safe to re-run
-
----
-
-### Breaking Changes
-
-#### 1. Memory Type Ontology
-
-**What Changed:**
-- Legacy memory types (task, note, standard) are deprecated
-- New formal taxonomy: 5 base types (observation, decision, learning, error, pattern) with 21 subtypes
-- Type validation now defaults to 'observation' for invalid types (soft validation)
-
-**Migration Process:**
-✅ **Automatic** - No manual action required!
-
-When you restart the server with v9.0.0:
-- Invalid memory types are automatically soft-validated to 'observation'
-- Database schema updates run automatically
-- Existing memories continue to work without modification
-
-**New Memory Types:**
-- observation: General observations, facts, and discoveries
-- decision: Decisions and planning
-- learning: Learnings and insights
-- error: Errors and failures
-- pattern: Patterns and trends
-
-**Backward Compatibility:**
-- Existing memories will be auto-migrated (task→observation, note→observation, standard→observation)
-- Invalid types default to 'observation' (no errors thrown)
-
-#### 2. Asymmetric Relationships
-
-**What Changed:**
-- Asymmetric relationships (causes, fixes, supports, follows) now store only directed edges
-- Symmetric relationships (related, contradicts) continue storing bidirectional edges
-- Database migration (010) removes incorrect reverse edges
-
-**Migration Required:**
-No action needed - database migration runs automatically on startup.
-
-**Code Changes Required:**
-If your code expects bidirectional storage for asymmetric relationships:
-
-```python
-# OLD (will no longer work):
-# Asymmetric relationships were stored bidirectionally
-result = storage.find_connected(memory_id, relationship_type="causes")
-
-# NEW (correct approach):
-# Use direction parameter for asymmetric relationships
-result = storage.find_connected(
-    memory_id,
-    relationship_type="causes",
-    direction="both"  # Explicit direction required for asymmetric types
-)
-```
-
-**Relationship Types:**
-- Asymmetric: causes, fixes, supports, follows (A→B ≠ B→A)
-- Symmetric: related, contradicts (A↔B)
-
-### Retrieval Benchmarks
+## 📊 Retrieval Benchmarks
 
 Three benchmarks measure retrieval quality (all-MiniLM-L6-v2, 384d embeddings, zero LLM API calls):
 
@@ -661,24 +582,56 @@ Three benchmarks measure retrieval quality (all-MiniLM-L6-v2, 384d embeddings, z
 
 Run benchmarks: `python scripts/benchmarks/benchmark_longmemeval.py`, `python scripts/benchmarks/benchmark_devbench.py`, `python scripts/benchmarks/benchmark_locomo.py`
 
-### Performance Improvements
+---
 
-- ontology validation: 97.5x faster (module-level caching)
-- Type lookups: 35.9x faster (cached reverse maps)
-- Tag validation: 47.3% faster (eliminated double parsing)
+<details>
+<summary><strong>Migration to v9.0.0</strong> (upgrading from v8.x)</summary>
 
-### Testing (at v9.0.0 release)
+**⚡ TL;DR**: No manual migration needed - upgrades happen automatically!
 
-- 829/914 tests passing (90.7%)
-- 80 new ontology tests with 100% backward compatibility
-- All API/HTTP integration tests passing
+**Breaking Changes:**
+- **Memory Type Ontology**: Legacy types auto-migrate to new taxonomy (task→observation, note→observation)
+- **Asymmetric Relationships**: Directed edges only (no longer bidirectional)
 
-### Support
+**Migration Process:**
+1. Stop your MCP server
+2. Update to latest version (`git pull` or `pip install --upgrade mcp-memory-service`)
+3. Restart server - automatic migrations run on startup:
+   - Database schema migrations (009, 010)
+   - Memory type soft-validation (legacy types → observation)
+   - No tag migration needed (backward compatible)
 
-If you encounter issues during migration:
-- Check [Troubleshooting Guide](docs/troubleshooting/)
-- Review [CHANGELOG.md](CHANGELOG.md) for detailed changes
-- Open an issue: https://github.com/doobidoo/mcp-memory-service/issues
+**Safety**: Migrations are idempotent and safe to re-run
+
+#### Breaking Change 1: Memory Type Ontology
+
+- Legacy memory types (task, note, standard) are deprecated
+- New formal taxonomy: 5 base types (observation, decision, learning, error, pattern) with 21 subtypes
+- Migration is **automatic** on server restart — no manual action required
+
+#### Breaking Change 2: Asymmetric Relationships
+
+- Asymmetric relationships (causes, fixes, supports, follows) now store only directed edges
+- Symmetric relationships (related, contradicts) continue storing bidirectional edges
+- Database migration (010) runs automatically on startup
+
+If your code expects bidirectional storage for asymmetric relationships:
+
+```python
+# OLD behavior (no longer applies):
+result = storage.find_connected(memory_id, relationship_type="causes")
+
+# NEW: use direction parameter explicitly
+result = storage.find_connected(
+    memory_id,
+    relationship_type="causes",
+    direction="both"
+)
+```
+
+If you encounter issues: [Troubleshooting Guide](docs/troubleshooting/) · [CHANGELOG.md](CHANGELOG.md) · [Open an issue](https://github.com/doobidoo/mcp-memory-service/issues)
+
+</details>
 
 ---
 
