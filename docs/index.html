@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v10.52.0</title>
+<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v10.53.0</title>
 <meta name="description" content="Memory layer for AI agents. REST API + MCP + OAuth + CLI + dashboard — one self-hosted service, every transport. 14+ client integrations, knowledge graph, automatic consolidation. LongMemEval R@5 86%, session ingestion, zero cloud cost.">
-<meta property="og:title" content="MCP Memory Service v10.52.0">
+<meta property="og:title" content="MCP Memory Service v10.53.0">
 <meta property="og:description" content="Plugin hooks now live in MemoryService. Dynamic /api/types dropdowns. Audit-log example. Self-hosted AI memory — REST, MCP, OAuth 2.1, CLI. LongMemEval R@5 86%.">
 <meta property="og:type" content="website">
 <style>
@@ -116,7 +116,7 @@ footer a{color:var(--cyan)}
 <!-- Hero -->
 <header class="hero">
   <img src="brain-icon.png" alt="Memory for AI Agents" class="hero-logo">
-  <span class="hero-badge">mcp-memory-service v10.51 &mdash; Now Available</span>
+  <span class="hero-badge">mcp-memory-service v10.53 &mdash; Now Available</span>
   <h1>Memory for AI Agents</h1>
   <p>Persistent memory for AI agents &mdash; REST API, MCP, OAuth, CLI, dashboard. Semantic search, knowledge graph, automatic consolidation. One self-hosted service, every transport.</p>
   <div class="hero-buttons">
@@ -136,23 +136,23 @@ footer a{color:var(--cyan)}
 <!-- Features -->
 <section id="features">
   <div class="container">
-    <h2 class="section-title">What's New in v10.51</h2>
-    <p class="section-subtitle">Plugin hooks live — wire your logic into every memory event. ~1,838 tests.</p>
+    <h2 class="section-title">What's New in v10.53</h2>
+    <p class="section-subtitle">Milvus consolidation fully operational — embedding hydration end-to-end. ~1,838 tests.</p>
     <div class="features-grid">
       <div class="feature-card" data-delay="0">
-        <div class="feature-icon http">&#9881;</div>
-        <h3>Plugin Hooks Are Live</h3>
-        <p>Fire points wired into <code>MemoryService</code> — <code>on_store</code>, <code>on_delete</code>, <code>on_retrieve</code>, <code>on_consolidate</code> now called at actual lifecycle events. Install a plugin package and it receives live events automatically. (PR #864, @filhocf)</p>
+        <div class="feature-icon consolidation">&#9889;</div>
+        <h3>Milvus Consolidation Fixed</h3>
+        <p>End-to-end embedding hydration for Milvus deployments — consolidation no longer produces 0 clusters/associations. <code>consolidator._get_memories_for_horizon</code> now passes <code>include_embeddings=True</code> to bulk-read methods, ensuring clustering receives real vectors. Completes a 4-PR series (#872, #878, #881, #885). (PR #885, @henry201605)</p>
       </div>
       <div class="feature-card" data-delay="150">
-        <div class="feature-icon consolidation">&#9889;</div>
-        <h3>Dynamic Type Dropdowns</h3>
-        <p>New <code>GET /api/types</code> endpoint returns all valid memory types — built-in and custom (<code>MCP_CUSTOM_MEMORY_TYPES</code>). Dashboard filter and store-form dropdowns now populate dynamically, so custom ontology entries appear in the UI automatically. (PR #863, @filhocf)</p>
+        <div class="feature-icon http">&#128274;</div>
+        <h3>GitPython Security Bump</h3>
+        <p>Upgraded GitPython 3.1.47 to 3.1.50, resolving 3 high-severity CVEs in the transitive <code>wandb</code> dependency: path traversal (arbitrary file write/delete), newline injection enabling RCE via <code>core.hooksPath</code>, and a bypass of the prior CVE patch. (PR #886)</p>
       </div>
       <div class="feature-card" data-delay="300">
-        <div class="feature-icon privacy">&#128196;</div>
-        <h3>Audit-Log Example Plugin</h3>
-        <p>Reference implementation in <code>examples/plugins/audit_log/</code> demonstrating all four hooks with standard <code>entry_points</code> packaging. A complete, working plugin you can fork as a starting point. Living documentation for the plugin API. (PR #867, @filhocf)</p>
+        <div class="feature-icon privacy">&#9881;</div>
+        <h3>Cascading Search Fallback</h3>
+        <p>Opt-in two-tier fallback in <code>retrieve_memories</code> (<code>fallback=True</code>) for sparse semantic results: BM25 exact-match, then tag-intersection, merged and de-duplicated up to <code>n_results</code>. Default off — existing callers unaffected. (PR #883, @filhocf)</p>
       </div>
     </div>
   </div>
@@ -242,7 +242,7 @@ footer a{color:var(--cyan)}
       <a href="blog/remote-mcp-tutorial.html" class="btn btn-secondary">
         Blog: 5-Min claude.ai Setup
       </a>
-      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v10.52.0" class="btn btn-secondary" target="_blank">
+      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v10.53.0" class="btn btn-secondary" target="_blank">
         Release Notes
       </a>
     </div>
