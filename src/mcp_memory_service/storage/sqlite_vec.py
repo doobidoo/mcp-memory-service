@@ -3368,49 +3368,51 @@ SOLUTIONS:
             logger.error(traceback.format_exc())
             return []
     
-    async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
-        """Get memories within a specific time range."""
+    async def get_memories_by_time_range(
+        self,
+        start_time: float,
+        end_time: float,
+        include_embeddings: bool = False,
+    ) -> List[Memory]:
+        """Get memories within a specific time range.
+
+        When ``include_embeddings=True`` the query LEFT JOINs the embeddings
+        table so consolidation consumers (DBSCAN, associations, compression)
+        see populated ``Memory.embedding`` values. The default remains False
+        to keep the CRUD cost envelope unchanged.
+        """
         try:
             await self.initialize()
 
-            def _get_by_time_range():
-                cursor = self.conn.execute('''
+            if include_embeddings:
+                sql = '''
+                    SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
+                           m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
+                           e.content_embedding
+                    FROM memories m
+                    LEFT JOIN memory_embeddings e ON m.id = e.rowid
+                    WHERE m.created_at BETWEEN ? AND ? AND m.deleted_at IS NULL
+                    ORDER BY m.created_at DESC
+                '''
+            else:
+                sql = '''
                     SELECT content_hash, content, tags, memory_type, metadata,
                            created_at, updated_at, created_at_iso, updated_at_iso
                     FROM memories
                     WHERE created_at BETWEEN ? AND ? AND deleted_at IS NULL
                     ORDER BY created_at DESC
-                ''', (start_time, end_time))
+                '''
+
+            def _get_by_time_range():
+                cursor = self.conn.execute(sql, (start_time, end_time))
                 return cursor.fetchall()
 
             results = []
             for row in await self._execute_with_retry(_get_by_time_range):
-                try:
-                    content_hash, content, tags_str, memory_type, metadata_str = row[:5]
-                    created_at, updated_at, created_at_iso, updated_at_iso = row[5:]
-                    
-                    # Parse tags and metadata
-                    tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()] if tags_str else []
-                    metadata = self._safe_json_loads(metadata_str, "memory_metadata")
-                    
-                    memory = Memory(
-                        content=content,
-                        content_hash=content_hash,
-                        tags=tags,
-                        memory_type=memory_type,
-                        metadata=metadata,
-                        created_at=created_at,
-                        updated_at=updated_at,
-                        created_at_iso=created_at_iso,
-                        updated_at_iso=updated_at_iso
-                    )
-                    
+                memory = self._row_to_memory(row)
+                if memory is not None:
                     results.append(memory)
-                    
-                except Exception as parse_error:
-                    logger.warning(f"Failed to parse memory result: {parse_error}")
-                    continue
-            
+
             logger.info(f"Retrieved {len(results)} memories in time range {start_time}-{end_time}")
             return results
             
@@ -3522,7 +3524,15 @@ SOLUTIONS:
             conditions.append(f'COALESCE({prefix}last_accessed, {prefix}created_at) < ?')
             params.append(threshold)
 
-    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, stale_days: Optional[int] = None) -> List[Memory]:
+    async def get_all_memories(
+        self,
+        limit: int = None,
+        offset: int = 0,
+        memory_type: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        stale_days: Optional[int] = None,
+        include_embeddings: bool = False,
+    ) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
 
@@ -3531,6 +3541,11 @@ SOLUTIONS:
             offset: Number of memories to skip (for pagination)
             memory_type: Optional filter by memory type
             tags: Optional filter by tags (matches ANY of the provided tags)
+            include_embeddings: Accepted for signature compatibility with the
+                base ABC. SqliteVecMemoryStorage already LEFT-JOINs the
+                embeddings table unconditionally (``_row_to_memory`` decodes
+                the blob when present), so this flag is a no-op here. See
+                :class:`MemoryStorage` for the cross-backend contract.
 
         Returns:
             List of Memory objects ordered by created_at DESC, optionally filtered by type and tags
