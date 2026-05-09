@@ -5,22 +5,25 @@ These tests exercise the opt-in ``include_embeddings`` kwarg landed in
 #878 (Milvus internals), #881 (base ABC), and the current PR (consumer
 switch). They are mock-based and do NOT require a live Milvus server
 or the sentence-transformers model cache — see
-``tests/integration/test_milvus_lite_consolidation.py`` for the
-end-to-end integration test.
+``tests/storage/test_milvus_consolidation.py`` for the end-to-end
+integration test.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-# The module under test imports pymilvus and sentence_transformers at
-# module load time. Stub them out before importing the storage class.
-import sys
-sys.modules.setdefault("sentence_transformers", MagicMock())
-sys.modules.setdefault("pymilvus", MagicMock())
+# Skip the whole module if pymilvus / sentence_transformers are not
+# installed — same pattern used by tests/storage/test_milvus.py. We
+# deliberately do NOT monkey-patch ``sys.modules`` here: doing so would
+# leak a MagicMock into every subsequent test module that also imports
+# pymilvus (e.g. tests/test_milvus_graph.py), breaking their real
+# Milvus Lite fixtures.
+pytest.importorskip("pymilvus")
+pytest.importorskip("sentence_transformers")
 
 from src.mcp_memory_service.models.memory import Memory  # noqa: E402
 from src.mcp_memory_service.storage.milvus import MilvusMemoryStorage  # noqa: E402
