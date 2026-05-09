@@ -797,11 +797,12 @@ class MilvusMemoryStorage(MemoryStorage):
     def _coerce_vector(self, row: Dict[str, Any]) -> Optional[List[float]]:
         """Convert ``row['vector']`` into a ``list[float]`` or return ``None``.
 
-        Never raises. The four non-happy paths all map to ``None``:
+        Never raises. The five non-happy paths all map to ``None``:
 
         * ``vector`` key absent
         * ``vector is None``
         * ``vector`` is an empty sequence
+        * ``vector`` is a string or mapping (iterable but semantically wrong)
         * ``vector`` is a type we cannot safely convert to a list
 
         Numpy arrays are converted via ``.tolist()``; other sequences go
@@ -819,6 +820,16 @@ class MilvusMemoryStorage(MemoryStorage):
         # Fast path: already a list of numbers.
         if isinstance(raw, list):
             return raw if raw else None
+        # Reject str / bytes / mapping early — they are iterable but would
+        # produce nonsense when fed into list(). This catches e.g. a stray
+        # JSON string being stored in the vector column.
+        if isinstance(raw, (str, bytes, bytearray, dict)):
+            row_id = row.get("id", "<unknown>")
+            logger.warning(
+                "Unexpected vector type %s for row id=%s; leaving embedding=None",
+                type(raw).__name__, _sanitize_log_value(row_id),
+            )
+            return None
         # Numpy array path.
         to_list = getattr(raw, "tolist", None)
         if callable(to_list):
@@ -1897,10 +1908,16 @@ class MilvusMemoryStorage(MemoryStorage):
             filter_expr, include_embeddings=include_embeddings,
         )
         memories: List[Memory] = []
+        hydrated = 0
         for row in rows:
             mem = self._entity_to_memory(row, include_embedding=include_embeddings)
             if mem is not None:
                 memories.append(mem)
+                if mem.embedding:
+                    hydrated += 1
+
+        if include_embeddings:
+            self._log_hydration_stats(memories, hydrated)
 
         if sort_desc_key:
             memories.sort(key=lambda m: getattr(m, sort_desc_key) or 0.0, reverse=True)
@@ -1908,6 +1925,31 @@ class MilvusMemoryStorage(MemoryStorage):
         if offset:
             memories = memories[offset:]
         return memories[:limit]
+
+    def _log_hydration_stats(
+        self,
+        memories: List[Memory],
+        hydrated: int,
+    ) -> None:
+        """Emit a DEBUG counter and, at most, one WARNING when no row hydrated.
+
+        Called only when a consolidation read path ran with
+        ``include_embeddings=True``. The caller passes a pre-computed
+        ``hydrated`` count to avoid a second O(n) scan of the already-built
+        ``memories`` list (see PR #885 review feedback). Never logs raw
+        vector values — only integer counts and the collection name.
+        """
+        total = len(memories)
+        logger.debug(
+            "Milvus hydration: %d/%d memories returned with embeddings",
+            hydrated, total,
+        )
+        if total > 0 and hydrated == 0:
+            logger.warning(
+                "Milvus collection '%s' returned %d rows but none carried a "
+                "usable vector — the collection may be missing vector data.",
+                self.collection_name, total,
+            )
 
     async def _iterate_all_rows(
         self,

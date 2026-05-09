@@ -1787,7 +1787,15 @@ class CloudflareStorage(MemoryStorage):
             logger.error(f"Recall failed: {e}")
             return []
 
-    async def get_all_memories(self, limit: int = None, offset: int = 0, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, stale_days: Optional[int] = None) -> List[Memory]:
+    async def get_all_memories(
+        self,
+        limit: int = None,
+        offset: int = 0,
+        memory_type: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        stale_days: Optional[int] = None,
+        include_embeddings: bool = False,
+    ) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
 
@@ -2058,7 +2066,12 @@ class CloudflareStorage(MemoryStorage):
             logger.error(f"Error getting updated memories: {e}")
             return []
 
-    async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
+    async def get_memories_by_time_range(
+        self,
+        start_time: float,
+        end_time: float,
+        include_embeddings: bool = False,
+    ) -> List[Memory]:
         """
         Get memories within a specific time range (v8.31.0+).
 

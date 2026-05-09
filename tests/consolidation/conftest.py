@@ -202,10 +202,10 @@ def mock_storage(sample_memories):
             }
 
 
-        async def get_all_memories(self) -> List[Memory]:
+        async def get_all_memories(self, include_embeddings: bool = False) -> List[Memory]:
             return list(self.memories.values())
 
-        async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
+        async def get_memories_by_time_range(self, start_time: float, end_time: float, include_embeddings: bool = False) -> List[Memory]:
             return [
                 mem for mem in self.memories.values()
                 if mem.created_at and start_time <= mem.created_at <= end_time
@@ -314,10 +314,10 @@ def mock_large_storage(large_memory_set):
                 days_ago = np.random.randint(1, 30)
                 self.access_patterns[mem.content_hash] = datetime.now() - timedelta(days=days_ago)
 
-        async def get_all_memories(self) -> List[Memory]:
+        async def get_all_memories(self, include_embeddings: bool = False) -> List[Memory]:
             return list(self.memories.values())
 
-        async def get_memories_by_time_range(self, start_time: float, end_time: float) -> List[Memory]:
+        async def get_memories_by_time_range(self, start_time: float, end_time: float, include_embeddings: bool = False) -> List[Memory]:
             return [
                 mem for mem in self.memories.values()
                 if mem.created_at and start_time <= mem.created_at <= end_time

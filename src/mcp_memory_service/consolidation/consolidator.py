@@ -460,11 +460,11 @@ class DreamInspiredConsolidator:
             start_time = (now - timedelta(days=cutoff_days)).timestamp()
             end_time = now.timestamp()
             memories = await self.storage.get_memories_by_time_range(
-                start_time, end_time
+                start_time, end_time, include_embeddings=True,
             )
         else:
             # For longer horizons: incremental oldest-first processing
-            memories = await self.storage.get_all_memories()
+            memories = await self.storage.get_all_memories(include_embeddings=True)
 
             # Filter by relevance to time horizon (quarterly/yearly still focus on old memories)
             cutoff_days = config.get("cutoff_days")
