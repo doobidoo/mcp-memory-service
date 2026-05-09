@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Security
+
+- **Bump GitPython 3.1.47 → 3.1.50** ([#886](https://github.com/doobidoo/mcp-memory-service/pull/886)): Resolves 3 high-severity vulnerabilities in transitive dependency (`wandb → GitPython`): path traversal allowing arbitrary file write/delete outside the repository ([GHSA-7545-fcxq-7j24](https://github.com/advisories/GHSA-7545-fcxq-7j24)), newline injection in `config_writer().set_value()` enabling RCE via `core.hooksPath` ([GHSA-v87r-6q3f-2j67](https://github.com/advisories/GHSA-v87r-6q3f-2j67)), and newline injection in `config_writer()` section parameter bypassing the prior CVE patch ([GHSA-mv93-w799-cj2w](https://github.com/advisories/GHSA-mv93-w799-cj2w)).
+
 ## [10.52.0] - 2026-05-08
 
 ### Added
