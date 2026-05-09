@@ -1908,13 +1908,16 @@ class MilvusMemoryStorage(MemoryStorage):
             filter_expr, include_embeddings=include_embeddings,
         )
         memories: List[Memory] = []
+        hydrated = 0
         for row in rows:
             mem = self._entity_to_memory(row, include_embedding=include_embeddings)
             if mem is not None:
                 memories.append(mem)
+                if mem.embedding:
+                    hydrated += 1
 
         if include_embeddings:
-            self._log_hydration_stats(memories)
+            self._log_hydration_stats(memories, hydrated)
 
         if sort_desc_key:
             memories.sort(key=lambda m: getattr(m, sort_desc_key) or 0.0, reverse=True)
@@ -1923,15 +1926,20 @@ class MilvusMemoryStorage(MemoryStorage):
             memories = memories[offset:]
         return memories[:limit]
 
-    def _log_hydration_stats(self, memories: List[Memory]) -> None:
+    def _log_hydration_stats(
+        self,
+        memories: List[Memory],
+        hydrated: int,
+    ) -> None:
         """Emit a DEBUG counter and, at most, one WARNING when no row hydrated.
 
         Called only when a consolidation read path ran with
-        ``include_embeddings=True``. Never logs raw vector values — only
-        integer counts and the collection name.
+        ``include_embeddings=True``. The caller passes a pre-computed
+        ``hydrated`` count to avoid a second O(n) scan of the already-built
+        ``memories`` list (see PR #885 review feedback). Never logs raw
+        vector values — only integer counts and the collection name.
         """
         total = len(memories)
-        hydrated = sum(1 for m in memories if m.embedding)
         logger.debug(
             "Milvus hydration: %d/%d memories returned with embeddings",
             hydrated, total,

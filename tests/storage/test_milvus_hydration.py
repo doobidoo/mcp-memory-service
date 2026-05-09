@@ -210,7 +210,12 @@ class TestDrainQueryIteratorOutputFields:
 
 class TestLogHydrationStats:
     """DEBUG counter per call, WARNING iff total > 0 and hydrated == 0, and
-    never log raw vector values (Requirement 7.3)."""
+    never log raw vector values (Requirement 7.3).
+
+    The caller pre-computes ``hydrated`` and passes it in to avoid a
+    redundant scan of the already-built ``memories`` list (PR #885
+    review feedback).
+    """
 
     def _make_memory(self, embedding):
         return Memory(
@@ -226,7 +231,7 @@ class TestLogHydrationStats:
         storage = _make_storage()
         memories = [self._make_memory([0.1, 0.2, 0.3, 0.4]) for _ in range(3)]
         with caplog.at_level("DEBUG", logger="src.mcp_memory_service.storage.milvus"):
-            storage._log_hydration_stats(memories)
+            storage._log_hydration_stats(memories, hydrated=3)
         debug_lines = [r for r in caplog.records if r.levelname == "DEBUG"]
         assert any(
             "3/3" in r.message or "3/3" in r.getMessage() for r in debug_lines
@@ -237,7 +242,7 @@ class TestLogHydrationStats:
         storage = _make_storage()
         memories = [self._make_memory(None) for _ in range(3)]
         with caplog.at_level("WARNING", logger="src.mcp_memory_service.storage.milvus"):
-            storage._log_hydration_stats(memories)
+            storage._log_hydration_stats(memories, hydrated=0)
         warn_lines = [r for r in caplog.records if r.levelname == "WARNING"]
         assert len(warn_lines) == 1, (
             f"expected exactly 1 WARNING, got {[r.getMessage() for r in warn_lines]}"
@@ -247,7 +252,7 @@ class TestLogHydrationStats:
     def test_no_warning_on_empty_result_set(self, caplog):
         storage = _make_storage()
         with caplog.at_level("WARNING", logger="src.mcp_memory_service.storage.milvus"):
-            storage._log_hydration_stats([])
+            storage._log_hydration_stats([], hydrated=0)
         assert not any(r.levelname == "WARNING" for r in caplog.records)
 
     def test_never_logs_raw_vector_values(self, caplog):
@@ -255,7 +260,7 @@ class TestLogHydrationStats:
         secret_vector = [0.1337, 0.4242, 0.9999, 0.5555]
         memories = [self._make_memory(secret_vector)]
         with caplog.at_level("DEBUG", logger="src.mcp_memory_service.storage.milvus"):
-            storage._log_hydration_stats(memories)
+            storage._log_hydration_stats(memories, hydrated=1)
         joined = " ".join(r.getMessage() for r in caplog.records)
         for value in secret_vector:
             assert str(value) not in joined, (
