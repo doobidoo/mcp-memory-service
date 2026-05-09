@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.53.0] - 2026-05-09
+
+### Added
+
+- **Milvus consolidation embedding hydration end-to-end** ([#885](https://github.com/doobidoo/mcp-memory-service/pull/885), @henry201605): Completes a 4-PR series (#872, #878, #881, #885) that fixes a production failure on Milvus-backed deployments where consolidation produced 0 clusters and 0 associations. Root cause: the `vector` column was dropped during bulk reads, leaving every `Memory` with `embedding=None`. `consolidator._get_memories_for_horizon` now passes `include_embeddings=True` to both `get_all_memories` and `get_memories_by_time_range`. Supporting changes: `sqlite_vec.get_memories_by_time_range` gains a conditional LEFT JOIN on `memory_embeddings`; `hybrid.py` forwards the kwarg to the primary backend; `cloudflare.py` accepts the kwarg on both methods (ignores it — vectors live in Vectorize); `milvus._coerce_vector` now explicitly rejects `str`/`bytes`/`dict` types and `_log_hydration_stats` receives a pre-computed count for O(n) efficiency. Covered by 24 unit tests (`test_milvus_hydration.py`) and 5 Milvus Lite integration tests (`test_milvus_consolidation.py`).
+
 ### Security
 
 - **Bump GitPython 3.1.47 → 3.1.50** ([#886](https://github.com/doobidoo/mcp-memory-service/pull/886)): Resolves 3 high-severity vulnerabilities in transitive dependency (`wandb → GitPython`): path traversal allowing arbitrary file write/delete outside the repository ([GHSA-7545-fcxq-7j24](https://github.com/advisories/GHSA-7545-fcxq-7j24)), newline injection in `config_writer().set_value()` enabling RCE via `core.hooksPath` ([GHSA-v87r-6q3f-2j67](https://github.com/advisories/GHSA-v87r-6q3f-2j67)), and newline injection in `config_writer()` section parameter bypassing the prior CVE patch ([GHSA-mv93-w799-cj2w](https://github.com/advisories/GHSA-mv93-w799-cj2w)).
