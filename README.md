@@ -493,17 +493,17 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.53.0** (May 9, 2026)
+## Latest Release: **v10.54.0** (May 10, 2026)
 
-**feat(milvus): activate consolidation embedding hydration end-to-end (PR #885, @henry201605)**
+**feat(search): add `tag_match` parameter to `memory_search` for AND/OR tag filtering (PR #890, @filhocf)**
 
 **What's New:**
-- **Milvus consolidation embedding hydration**: Completes a 4-PR series that fixes a production failure where consolidation produced 0 clusters/associations on Milvus deployments. `consolidator._get_memories_for_horizon` now passes `include_embeddings=True` to bulk-read methods, ensuring embeddings are hydrated before clustering. All backends updated: sqlite_vec gains conditional LEFT JOIN, hybrid forwards the kwarg, cloudflare accepts it (vectors live in Vectorize), milvus gets stricter `_coerce_vector` type rejection. Covered by 29 new tests. (PR #885, @henry201605)
-- **GitPython security bump**: Upgraded 3.1.47 to 3.1.50, resolving 3 high-severity CVEs (path traversal, newline injection / RCE, CVE patch bypass). (PR #886)
+- **AND/OR tag filtering in `memory_search`**: Extends the `tag_match: "any" | "all"` parameter (already available in `memory_delete`) to the `memory_search` MCP tool. Use `"all"` to require every supplied tag to match (AND); `"any"` (default) preserves existing OR behavior. No breaking change. (PR #890, @filhocf, closes #889)
 
 ---
 
 **Previous Releases**:
+- **v10.53.0** - feat(milvus): activate consolidation embedding hydration end-to-end; security: GitPython 3.1.50 (PRs #885, #886, @henry201605)
 - **v10.52.0** - feat(search): cascading fallback when semantic results are sparse; refactor(storage): include_embeddings on bulk-read ABC methods (PRs #883, #881, @filhocf, @henry201605)
 - **v10.51.3** - feat(memory_update): versioned flag; feat(memory_graph): infer_transitive and suggest_relationships (PRs #865, #866, @filhocf)
 - **v10.51.2** - fix(oauth): CORS preflight failures and missing resource_metadata; refactor(milvus): opt-in embedding hydration on read paths (PRs #877, #878)

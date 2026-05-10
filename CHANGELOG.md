@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.54.0] - 2026-05-10
+
+### Added
+
+- **`tag_match` parameter for `memory_search` MCP tool** ([#890](https://github.com/doobidoo/mcp-memory-service/pull/890), @filhocf, closes [#889](https://github.com/doobidoo/mcp-memory-service/issues/889)): Extends the AND/OR tag filtering already present in `memory_delete` to the `memory_search` tool. Accepts `tag_match: "any"` (OR, default — existing behavior unchanged) or `tag_match: "all"` (AND — only memories matching every supplied tag are returned). Implemented across `server_impl.py`, `server/handlers/memory.py`, and `storage/base.py`.
+
 ## [10.53.0] - 2026-05-09
 
 ### Added
