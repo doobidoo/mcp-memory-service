@@ -1488,6 +1488,12 @@ Examples:
                                     ],
                                     "description": "Filter to memories with any of these tags"
                                 },
+                                "tag_match": {
+                                    "type": "string",
+                                    "enum": ["any", "all"],
+                                    "default": "any",
+                                    "description": "Match ANY tag (OR, default) or ALL tags (AND)"
+                                },
                                 "quality_boost": {
                                     "type": "number",
                                     "minimum": 0,

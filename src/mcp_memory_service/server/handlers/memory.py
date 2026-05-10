@@ -784,6 +784,7 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             after=arguments.get("after"),
             before=arguments.get("before"),
             tags=tags,
+            tag_match=arguments.get("tag_match", "any"),
             quality_boost=arguments.get("quality_boost", 0.0),
             limit=limit,
             include_debug=arguments.get("include_debug", False),

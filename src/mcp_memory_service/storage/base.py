@@ -994,6 +994,7 @@ class MemoryStorage(ABC):
         after: Optional[str] = None,
         before: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        tag_match: str = "any",
         quality_boost: float = 0.0,
         limit: int = 10,
         include_debug: bool = False,
@@ -1274,9 +1275,14 @@ class MemoryStorage(ABC):
             if tags:
                 filtered_results = []
                 for result in results:
-                    # Match ANY tag
-                    if any(tag in result.memory.tags for tag in tags):
-                        filtered_results.append(result)
+                    if tag_match == "all":
+                        # Match ALL tags (AND)
+                        if all(tag in result.memory.tags for tag in tags):
+                            filtered_results.append(result)
+                    else:
+                        # Match ANY tag (OR) — default
+                        if any(tag in result.memory.tags for tag in tags):
+                            filtered_results.append(result)
                 results = filtered_results
 
             # Limit results
