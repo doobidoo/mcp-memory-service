@@ -493,16 +493,19 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.54.0** (May 10, 2026)
+## Latest Release: **v10.55.0** (May 11, 2026)
 
-**feat(search): add `tag_match` parameter to `memory_search` for AND/OR tag filtering (PR #890, @filhocf)**
+**feat(reasoning+consolidation): entity extraction, memory-entity linking, and Insight Cards (PRs #868, #869, @filhocf)**
 
 **What's New:**
-- **AND/OR tag filtering in `memory_search`**: Extends the `tag_match: "any" | "all"` parameter (already available in `memory_delete`) to the `memory_search` MCP tool. Use `"all"` to require every supplied tag to match (AND); `"any"` (default) preserves existing OR behavior. No breaking change. (PR #890, @filhocf, closes #889)
+- **Entity extraction and memory-entity linking** (PR #868): New `EntityExtractor` detects @mentions, #tags, URLs, and paths in memory content. `memory_search` gains an `entity` filter; `memory_graph` gains `action="extract_entities"`. Runs as Step 5 in the `maintain` consolidation cycle.
+- **Insight Cards** (PR #869): `InsightGenerator` analyses the memory corpus and surfaces patterns, trends, and gaps. Runs as Step 6 in `maintain`. Opt-in via `MCP_INSIGHT_CARDS_ENABLED=true` (default: off).
+- **Bump urllib3 2.6.3 → 2.7.0** (PR #893): routine dependency update.
 
 ---
 
 **Previous Releases**:
+- **v10.54.0** - feat(search): tag_match parameter for memory_search AND/OR tag filtering (PR #890, @filhocf)
 - **v10.53.0** - feat(milvus): activate consolidation embedding hydration end-to-end; security: GitPython 3.1.50 (PRs #885, #886, @henry201605)
 - **v10.52.0** - feat(search): cascading fallback when semantic results are sparse; refactor(storage): include_embeddings on bulk-read ABC methods (PRs #883, #881, @filhocf, @henry201605)
 - **v10.51.3** - feat(memory_update): versioned flag; feat(memory_graph): infer_transitive and suggest_relationships (PRs #865, #866, @filhocf)
