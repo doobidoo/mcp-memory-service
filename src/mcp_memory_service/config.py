@@ -1209,6 +1209,9 @@ except (ValueError, TypeError):
 # AND their age difference exceeds this threshold (prevents resolving recent updates)
 MAINTAIN_AUTO_RESOLVE_AGE_DAYS = safe_get_int_env('MCP_MAINTAIN_AUTO_RESOLVE_AGE_DAYS', 7, min_value=0, max_value=365)
 
+# Insight Cards (Phase 3, #732) — opt-in, generates pattern/trend/gap insights during maintain
+MCP_INSIGHT_CARDS_ENABLED = safe_get_bool_env('MCP_INSIGHT_CARDS_ENABLED', False)
+
 # =============================================================================
 # Configuration Validation
 # =============================================================================
