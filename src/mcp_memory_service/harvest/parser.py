@@ -107,19 +107,21 @@ class TranscriptParser:
         timestamp = obj.get("timestamp")
         uuid = obj.get("uuid")
 
+        texts = []
         for block in content:
             if isinstance(block, dict) and block.get("type") == "text":
                 text = block.get("text", "").strip()
                 if text and not self._is_system_content(text):
-                    return ParsedMessage(
-                        role=msg_type,
-                        text=text,
-                        timestamp=timestamp,
-                        uuid=uuid
-                    )
-        return None
+                    texts.append(text)
 
-        return messages
+        if texts:
+            return ParsedMessage(
+                role=msg_type,
+                text="\n".join(texts),
+                timestamp=timestamp,
+                uuid=uuid
+            )
+        return None
 
     @staticmethod
     def _is_system_content(text: str) -> bool:
