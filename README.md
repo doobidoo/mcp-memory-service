@@ -493,18 +493,17 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.55.0** (May 11, 2026)
+## Latest Release: **v10.55.1** (May 11, 2026)
 
-**feat(reasoning+consolidation): entity extraction, memory-entity linking, and Insight Cards (PRs #868, #869, @filhocf)**
+**fix(entities): entity links always 0 in `maintain` Step 5 due to wrong graph accessor**
 
-**What's New:**
-- **Entity extraction and memory-entity linking** (PR #868): New `EntityExtractor` detects @mentions, #tags, URLs, and paths in memory content. `memory_search` gains an `entity` filter; `memory_graph` gains `action="extract_entities"`. Runs as Step 5 in the `maintain` consolidation cycle.
-- **Insight Cards** (PR #869): `InsightGenerator` analyses the memory corpus and surfaces patterns, trends, and gaps. Runs as Step 6 in `maintain`. Opt-in via `MCP_INSIGHT_CARDS_ENABLED=true` (default: off).
-- **Bump urllib3 2.6.3 → 2.7.0** (PR #893): routine dependency update.
+**What's Fixed:**
+- **`maintain` Step 5 entity links** (PR #895): `quality.py` checked `storage.graph` (never set on storage objects), causing `links_stored` to always be `0` even when `entities_found > 0`. Fixed by using `get_graph_storage()`, the same accessor pattern used by all other graph handlers.
 
 ---
 
 **Previous Releases**:
+- **v10.55.0** - feat(reasoning+consolidation): entity extraction, memory-entity linking, and Insight Cards (PRs #868, #869, @filhocf)
 - **v10.54.0** - feat(search): tag_match parameter for memory_search AND/OR tag filtering (PR #890, @filhocf)
 - **v10.53.0** - feat(milvus): activate consolidation embedding hydration end-to-end; security: GitPython 3.1.50 (PRs #885, #886, @henry201605)
 - **v10.52.0** - feat(search): cascading fallback when semantic results are sparse; refactor(storage): include_embeddings on bulk-read ABC methods (PRs #883, #881, @filhocf, @henry201605)
