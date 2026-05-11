@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.55.1] - 2026-05-11
+
+### Fixed
+
+- **`maintain` Step 5: entity links always 0 due to wrong graph accessor** ([#895](https://github.com/doobidoo/mcp-memory-service/pull/895)): `quality.py` Step 5 checked `storage.graph`, which is never set on storage objects, so `links_stored` was always `0` even when `entities_found > 0`. Fixed by using `get_graph_storage()` — the same accessor pattern used by all other graph handlers.
+
 ## [10.55.0] - 2026-05-11
 
 ### Added
