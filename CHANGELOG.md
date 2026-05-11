@@ -10,6 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.55.0] - 2026-05-11
+
+### Added
+
+- **Entity extraction and memory-entity linking** ([#868](https://github.com/doobidoo/mcp-memory-service/pull/868), @filhocf): Phase 2 of the #732 reasoning roadmap. Introduces `EntityExtractor` that detects @mentions, #tags, URLs, and file paths inside memory content. `memory_search` gains an `entity` filter parameter for targeted retrieval; `memory_graph` gains `action="extract_entities"` to surface entities from a memory. Entity extraction also runs as Step 5 in the `maintain` consolidation cycle, continuously indexing entities from new memories.
+
+- **Insight Cards — automated pattern/trend/gap detection** ([#869](https://github.com/doobidoo/mcp-memory-service/pull/869), @filhocf): Phase 3 of the #732 reasoning roadmap. Adds `InsightGenerator` that analyses the memory corpus and produces three insight types: patterns (recurring knowledge clusters), trends (frequency changes over time), and gaps (under-represented topic areas). Runs as Step 6 in the `maintain` consolidation cycle. Opt-in via `MCP_INSIGHT_CARDS_ENABLED` (default: `false`) to avoid performance impact on existing deployments.
+
+### Changed
+
+- **Bump urllib3 2.6.3 → 2.7.0** ([#893](https://github.com/doobidoo/mcp-memory-service/pull/893)): Routine dependency update.
+
 ## [10.54.0] - 2026-05-10
 
 ### Added
