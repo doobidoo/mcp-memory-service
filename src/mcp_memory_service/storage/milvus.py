@@ -755,14 +755,36 @@ class MilvusMemoryStorage(MemoryStorage):
             entity["content_lower"] = content.lower()
         return entity
 
-    def _entity_to_memory(self, row: Dict[str, Any]) -> Optional[Memory]:
+    def _entity_to_memory(
+        self,
+        row: Dict[str, Any],
+        include_embedding: bool = False,
+    ) -> Optional[Memory]:
+        """Convert a Milvus row dict into a :class:`Memory`.
+
+        Args:
+            row: The row dict as returned by pymilvus ``query`` or
+                ``query_iterator``.
+            include_embedding: If True **and** the row carries a usable
+                ``vector`` value, populate ``Memory.embedding`` as a
+                ``list[float]``. If False, ``Memory.embedding`` is always
+                ``None``. If True but the vector is missing / empty /
+                malformed, ``Memory.embedding`` is ``None`` — hydration
+                never raises.
+
+        Returns:
+            A :class:`Memory` instance, or ``None`` if the row cannot be
+            parsed at all (e.g. missing mandatory scalar fields).
+        """
         try:
+            embedding = self._coerce_vector(row) if include_embedding else None
             return Memory(
                 content=row.get("content", "") or "",
                 content_hash=row.get("id", "") or "",
                 tags=_string_to_tags(row.get("tags")),
                 memory_type=row.get("memory_type") or None,
                 metadata=_safe_json_loads(row.get("metadata", ""), "milvus_entity"),
+                embedding=embedding,
                 created_at=row.get("created_at"),
                 updated_at=row.get("updated_at"),
                 created_at_iso=row.get("created_at_iso") or None,
@@ -770,6 +792,63 @@ class MilvusMemoryStorage(MemoryStorage):
             )
         except Exception as exc:  # noqa: BLE001 — never kill a batch on one bad row
             logger.warning("Failed to convert Milvus entity to Memory: %s", exc)
+            return None
+
+    def _coerce_vector(self, row: Dict[str, Any]) -> Optional[List[float]]:
+        """Convert ``row['vector']`` into a ``list[float]`` or return ``None``.
+
+        Never raises. The five non-happy paths all map to ``None``:
+
+        * ``vector`` key absent
+        * ``vector is None``
+        * ``vector`` is an empty sequence
+        * ``vector`` is a string or mapping (iterable but semantically wrong)
+        * ``vector`` is a type we cannot safely convert to a list
+
+        Numpy arrays are converted via ``.tolist()``; other sequences go
+        through ``list(...)``. A successful conversion is **not** validated
+        against ``self.embedding_dimension`` — dimension validation belongs
+        to ``_validate_existing_collection`` at connect time, not the hot
+        loop. Downstream consumers (clustering / associations) already
+        handle mismatched-length embeddings defensively.
+        """
+        if "vector" not in row:
+            return None
+        raw = row["vector"]
+        if raw is None:
+            return None
+        # Fast path: already a list of numbers.
+        if isinstance(raw, list):
+            return raw if raw else None
+        # Reject str / bytes / mapping early — they are iterable but would
+        # produce nonsense when fed into list(). This catches e.g. a stray
+        # JSON string being stored in the vector column.
+        if isinstance(raw, (str, bytes, bytearray, dict)):
+            row_id = row.get("id", "<unknown>")
+            logger.warning(
+                "Unexpected vector type %s for row id=%s; leaving embedding=None",
+                type(raw).__name__, _sanitize_log_value(row_id),
+            )
+            return None
+        # Numpy array path.
+        to_list = getattr(raw, "tolist", None)
+        if callable(to_list):
+            try:
+                converted = to_list()
+            except Exception:  # noqa: BLE001 — tolist() contract is loose
+                converted = None
+            if isinstance(converted, list):
+                return converted if converted else None
+        # Generic sequence fallback.
+        try:
+            converted = list(raw)
+            return converted if converted else None
+        except TypeError:
+            row_id = row.get("id", "<unknown>")
+            logger.warning(
+                "Unexpected vector type %s for row id=%s; leaving embedding=None",
+                type(raw).__name__, _sanitize_log_value(row_id),
+            )
             return None
 
     @staticmethod
@@ -807,10 +886,24 @@ class MilvusMemoryStorage(MemoryStorage):
             return keep[0]
         return " and ".join(f"({p})" for p in keep)
 
-    _OUTPUT_FIELDS = (
+    # Base output fields for CRUD read paths. Intentionally excludes ``vector``
+    # (roughly ``embedding_dimension * 4`` bytes, ≈ 2 KB per row at 512-dim) so
+    # that high-frequency tool calls like ``retrieve`` / ``search_by_tag`` /
+    # ``get_by_hash`` don't transfer vectors the caller doesn't consume.
+    _OUTPUT_FIELDS_BASE = (
         "id", "content", "tags", "memory_type", "metadata",
         "created_at", "updated_at", "created_at_iso", "updated_at_iso",
     )
+
+    # Extended output fields used by the consolidation read path, which needs
+    # the stored vector to drive DBSCAN clustering and cosine-similarity
+    # associations. Callers opt in via ``include_embeddings=True`` on
+    # ``get_all_memories`` / ``get_memories_by_time_range``.
+    _OUTPUT_FIELDS_WITH_VECTOR = _OUTPUT_FIELDS_BASE + ("vector",)
+
+    # Backward-compat alias. All existing references keep working; new code
+    # should pick one of the two tuples above explicitly.
+    _OUTPUT_FIELDS = _OUTPUT_FIELDS_BASE
 
     # -- Semantic dedup ------------------------------------------------------
 
@@ -1251,6 +1344,18 @@ class MilvusMemoryStorage(MemoryStorage):
         logger.info("Deleted memory %s", content_hash)
         return True, f"Successfully deleted memory {content_hash}"
 
+    async def delete_memory(self, content_hash: str) -> bool:
+        """Delete a memory by content hash (consolidation protocol).
+
+        DreamInspiredConsolidator expects a ``delete_memory(hash) -> bool``
+        method during the Compression (replace-with-summary) and Controlled
+        Forgetting stages. Milvus's native ``delete()`` returns
+        ``Tuple[bool, str]``; this thin proxy adapts the signature so
+        consolidation does not fail with ``AttributeError``.
+        """
+        success, _ = await self.delete(content_hash)
+        return success
+
     async def delete_by_tag(self, tag: str) -> Tuple[int, str]:
         if not self._ensure_initialized():
             return 0, "Milvus storage not initialized"
@@ -1676,6 +1781,7 @@ class MilvusMemoryStorage(MemoryStorage):
         memory_type: Optional[str] = None,
         tags: Optional[List[str]] = None,
         stale_days: Optional[int] = None,
+        include_embeddings: bool = False,
     ) -> List[Memory]:
         if not self._ensure_initialized():
             return []
@@ -1696,6 +1802,7 @@ class MilvusMemoryStorage(MemoryStorage):
             limit=limit if limit is not None else _MILVUS_MAX_LIMIT,
             offset=offset,
             sort_desc_key="created_at",
+            include_embeddings=include_embeddings,
         )
 
     async def count_all_memories(
@@ -1732,7 +1839,8 @@ class MilvusMemoryStorage(MemoryStorage):
             return 0
 
     async def get_memories_by_time_range(
-        self, start_time: float, end_time: float
+        self, start_time: float, end_time: float,
+        include_embeddings: bool = False,
     ) -> List[Memory]:
         if not self._ensure_initialized():
             return []
@@ -1741,6 +1849,7 @@ class MilvusMemoryStorage(MemoryStorage):
             filter_expr=filter_expr,
             limit=_MILVUS_MAX_LIMIT,
             sort_desc_key="created_at",
+            include_embeddings=include_embeddings,
         )
 
     async def get_memory_timestamps(self, days: Optional[int] = None) -> List[float]:
@@ -1775,6 +1884,7 @@ class MilvusMemoryStorage(MemoryStorage):
         limit: int,
         offset: int = 0,
         sort_desc_key: Optional[str] = None,
+        include_embeddings: bool = False,
     ) -> List[Memory]:
         """Stream rows via ``QueryIterator`` and return sorted, sliced ``Memory``
         objects.
@@ -1785,15 +1895,29 @@ class MilvusMemoryStorage(MemoryStorage):
         to return an arbitrary window. Sorting is still done client-side
         (Milvus Lite has no server-side ``order_by``), but it is now applied
         to the full matching set rather than to a random subset.
+
+        Args:
+            include_embeddings: If True, request the ``vector`` field from
+                Milvus and populate ``Memory.embedding`` on the returned
+                objects. Used by the consolidation pipeline. Default False
+                keeps the CRUD cost envelope unchanged.
         """
         if limit <= 0:
             return []
-        rows = await self._iterate_all_rows(filter_expr)
+        rows = await self._iterate_all_rows(
+            filter_expr, include_embeddings=include_embeddings,
+        )
         memories: List[Memory] = []
+        hydrated = 0
         for row in rows:
-            mem = self._entity_to_memory(row)
+            mem = self._entity_to_memory(row, include_embedding=include_embeddings)
             if mem is not None:
                 memories.append(mem)
+                if mem.embedding:
+                    hydrated += 1
+
+        if include_embeddings:
+            self._log_hydration_stats(memories, hydrated)
 
         if sort_desc_key:
             memories.sort(key=lambda m: getattr(m, sort_desc_key) or 0.0, reverse=True)
@@ -1802,24 +1926,69 @@ class MilvusMemoryStorage(MemoryStorage):
             memories = memories[offset:]
         return memories[:limit]
 
-    async def _iterate_all_rows(self, filter_expr: str) -> List[Dict[str, Any]]:
+    def _log_hydration_stats(
+        self,
+        memories: List[Memory],
+        hydrated: int,
+    ) -> None:
+        """Emit a DEBUG counter and, at most, one WARNING when no row hydrated.
+
+        Called only when a consolidation read path ran with
+        ``include_embeddings=True``. The caller passes a pre-computed
+        ``hydrated`` count to avoid a second O(n) scan of the already-built
+        ``memories`` list (see PR #885 review feedback). Never logs raw
+        vector values — only integer counts and the collection name.
+        """
+        total = len(memories)
+        logger.debug(
+            "Milvus hydration: %d/%d memories returned with embeddings",
+            hydrated, total,
+        )
+        if total > 0 and hydrated == 0:
+            logger.warning(
+                "Milvus collection '%s' returned %d rows but none carried a "
+                "usable vector — the collection may be missing vector data.",
+                self.collection_name, total,
+            )
+
+    async def _iterate_all_rows(
+        self,
+        filter_expr: str,
+        include_embeddings: bool = False,
+    ) -> List[Dict[str, Any]]:
         """Collect every row matching ``filter_expr`` using ``QueryIterator``.
 
         One lock-acquisition covers the full iteration so other coroutines
         can't interleave RPCs on the shared pymilvus channel.
+
+        Args:
+            include_embeddings: If True, request the ``vector`` field in
+                ``output_fields`` so :meth:`_entity_to_memory` can hydrate
+                ``Memory.embedding``.
         """
         async with self._write_lock:
             if self.client is None:
                 raise RuntimeError("MilvusMemoryStorage was not initialized")
-            return await asyncio.to_thread(self._drain_query_iterator, filter_expr)
+            return await asyncio.to_thread(
+                self._drain_query_iterator, filter_expr, include_embeddings,
+            )
 
-    def _drain_query_iterator(self, filter_expr: str) -> List[Dict[str, Any]]:
+    def _drain_query_iterator(
+        self,
+        filter_expr: str,
+        include_embeddings: bool = False,
+    ) -> List[Dict[str, Any]]:
         """Sync helper that drains a ``QueryIterator`` into a plain list."""
         assert self.client is not None
+        fields = (
+            self._OUTPUT_FIELDS_WITH_VECTOR
+            if include_embeddings
+            else self._OUTPUT_FIELDS_BASE
+        )
         iterator = self.client.query_iterator(
             collection_name=self.collection_name,
             filter=filter_expr or "",
-            output_fields=list(self._OUTPUT_FIELDS),
+            output_fields=list(fields),
             batch_size=self._QUERY_ITER_BATCH,
         )
         rows: List[Dict[str, Any]] = []

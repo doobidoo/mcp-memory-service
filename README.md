@@ -79,7 +79,7 @@ cloudflared tunnel --url http://localhost:8765
 | Context window limits create amnesia | Autonomous consolidation compresses old memories |
 
 **Key capabilities for agent pipelines:**
-- **Framework-agnostic REST API** — 15 endpoints, no MCP client library needed
+- **Framework-agnostic REST API** — 76 endpoints, no MCP client library needed
 - **Knowledge graph** — agents share causal chains, not just facts
 - **`X-Agent-ID` header** — auto-tag memories by agent identity for scoped retrieval
 - **`conversation_id`** — bypass deduplication for incremental conversation storage
@@ -170,7 +170,7 @@ A production-tested self-hosted deployment using Docker containers behind a Clou
 | Cost | Per-call API | Enterprise | Infra costs | **$0** |
 | **🌐 claude.ai Browser** | ❌ Desktop only | ❌ Desktop only | ❌ | **✅ Remote MCP** |
 | **OAuth 2.0 + DCR** | ❓ Unknown | ❓ Unknown | ❌ | **✅ Enterprise-ready** |
-| **Streamable HTTP** | ❌ | ❌ | ❌ | **✅ (SSE deprecated)** |
+| **Streamable HTTP** | ❌ | ❌ | ❌ | **✅ (SSE also supported)** |
 | Framework integration | SDK | SDK | Manual | **REST API (any HTTP client)** |
 | Knowledge graph | No | Limited | No | **Yes (typed edges)** |
 | Auto consolidation | No | No | No | **Yes (decay + compression)** |
@@ -178,7 +178,7 @@ A production-tested self-hosted deployment using Docker containers behind a Clou
 | Privacy | Cloud | Cloud | Partial | **100% local** |
 | Hybrid search | No | Yes | Manual | **Yes (BM25 + vector)** |
 | MCP protocol | No | No | No | **Yes** |
-| REST API | Yes | Yes | Manual | **Yes (15 endpoints)** |
+| REST API | Yes | Yes | Manual | **Yes (76 endpoints)** |
 
 ### vs. MCP-Native Alternatives
 
@@ -194,7 +194,7 @@ A production-tested self-hosted deployment using Docker containers behind a Clou
 | OAuth 2.1 + multi-user | ❌ | **✅** |
 | Knowledge graph | ❌ | **✅ (typed edges)** |
 | Auto consolidation | ❌ | **✅ (decay + compression)** |
-| Compatible AI tools | Claude-focused | **13+ tools** |
+| Compatible AI tools | Claude-focused | **25+ tools** |
 | License | MIT | **Apache 2.0** |
 
 **Why the benchmark gap?** Two independent factors:
@@ -331,7 +331,10 @@ No local installation required on the client — works directly in your browser:
 
 ```bash
 # 1. Start server with Remote MCP
-MCP_STREAMABLE_HTTP_MODE=1 python -m mcp_memory_service.server
+MCP_STREAMABLE_HTTP_MODE=1 \
+MCP_SSE_HOST=0.0.0.0 \
+MCP_OAUTH_ENABLED=true \
+python -m mcp_memory_service.server
 
 # 2. Expose publicly (Cloudflare Tunnel)
 cloudflared tunnel --url http://localhost:8765
@@ -451,12 +454,12 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 🧠 **Persistent Memory** – Context survives across sessions with semantic search
 🔍 **Smart Retrieval** – Finds relevant context automatically using AI embeddings
 ⚡ **5ms Speed** – Instant context injection, no latency
-🔄 **Multi-Client** – Works across 20+ AI applications
+🔄 **Multi-Client** – Works across 25+ AI applications
 ☁️ **Cloud Sync** – Optional Cloudflare backend for team collaboration
 🔒 **Privacy-First** – Local-first, you control your data
 📊 **Web Dashboard** – Visualize and manage memories at `http://localhost:8000`
-🧬 **Knowledge Graph** – Interactive D3.js visualization of memory relationships 🆕
-🏠 **Homelab Quality Scoring** – Point scoring at any OpenAI-compatible endpoint (Ollama, LiteLLM, vLLM) 🆕
+🧬 **Knowledge Graph** – Interactive D3.js visualization of memory relationships
+🏠 **Homelab Quality Scoring** – Point scoring at any OpenAI-compatible endpoint (Ollama, LiteLLM, vLLM)
 
 **Homelab / self-hosted quality scoring** (v10.45.0+): set `MCP_QUALITY_AI_PROVIDER=openai-compatible` to score memories with your local LLM instead of ONNX or a cloud API:
 
@@ -477,30 +480,36 @@ docker pull doobidoo/mcp-memory-service:quality-cpu
 
 The `:quality-cpu` image pre-exports both models at build time and ships only `onnxruntime` at runtime — no PyTorch dependency at deploy time. See [`tools/docker/README.md`](tools/docker/README.md) for details.
 
-### 🖥️ Dashboard Preview (v9.3.0)
+### 🖥️ Dashboard Preview
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/wiki/doobidoo/mcp-memory-service/images/dashboard/mcp-memory-dashboard-v9.3.0-tour.gif" alt="MCP Memory Dashboard Tour" width="800"/>
 </p>
 
-**8 Dashboard Tabs:** Dashboard • Search • Browse • Documents • Manage • Analytics • **Quality** (NEW) • API Docs
+**8 Dashboard Tabs:** Dashboard • Search • Browse • Documents • Manage • Analytics • Quality • API Docs
 
 📖 See [Web Dashboard Guide](https://github.com/doobidoo/mcp-memory-service/wiki/Web-Dashboard-Guide) for complete documentation.
 
 ---
 
 
-## Latest Release: **v10.50.0** (May 6, 2026)
+## Latest Release: **v10.54.0** (May 10, 2026)
 
-**feat(plugins): plugin hook scaffolding — on_store, on_delete, on_retrieve, on_consolidate (PR #856, @filhocf)**
+**feat(search): add `tag_match` parameter to `memory_search` for AND/OR tag filtering (PR #890, @filhocf)**
 
 **What's New:**
-- **Plugin extension API**: Four lifecycle hooks (`on_store`, `on_delete`, `on_retrieve`, `on_consolidate`) with `entry_points` discovery let third-party packages register hooks without modifying core. Pure scaffolding — fire points wired in follow-up PR. Refs #732.
-- **Dependency updates**: `authlib` 1.7.1, `cryptography` 48, `torch` 2.11; CI actions bumped (`attest-build-provenance` 1→4, `codeql-action` 3→4, `hadolint-action` 3.3.0).
+- **AND/OR tag filtering in `memory_search`**: Extends the `tag_match: "any" | "all"` parameter (already available in `memory_delete`) to the `memory_search` MCP tool. Use `"all"` to require every supplied tag to match (AND); `"any"` (default) preserves existing OR behavior. No breaking change. (PR #890, @filhocf, closes #889)
 
 ---
 
 **Previous Releases**:
+- **v10.53.0** - feat(milvus): activate consolidation embedding hydration end-to-end; security: GitPython 3.1.50 (PRs #885, #886, @henry201605)
+- **v10.52.0** - feat(search): cascading fallback when semantic results are sparse; refactor(storage): include_embeddings on bulk-read ABC methods (PRs #883, #881, @filhocf, @henry201605)
+- **v10.51.3** - feat(memory_update): versioned flag; feat(memory_graph): infer_transitive and suggest_relationships (PRs #865, #866, @filhocf)
+- **v10.51.2** - fix(oauth): CORS preflight failures and missing resource_metadata; refactor(milvus): opt-in embedding hydration on read paths (PRs #877, #878)
+- **v10.51.1** - fix(milvus): add delete_memory proxy for consolidation protocol (PR #872, @henry201605)
+- **v10.51.0** - feat(plugins): live plugin hooks + dynamic type dropdowns + audit-log example (PRs #863, #864, #867, @filhocf)
+- **v10.50.0** - feat(plugins): plugin hook scaffolding — on_store, on_delete, on_retrieve, on_consolidate (PR #856, @filhocf)
 - **v10.49.4** - fix(consolidation): protect high-value mistake notes from decay/forgetting (PR #854, @filhocf)
 - **v10.49.3** - fix(opencode): correct API path, payload field, and client-side tag filter (PRs #849, #850)
 - **v10.49.2** - fix(ontology): register custom base types with empty subtype lists (PR #846)
@@ -541,86 +550,7 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 
 ---
 
-## Migration to v9.0.0
-
-**⚡ TL;DR**: No manual migration needed - upgrades happen automatically!
-
-**Breaking Changes:**
-- **Memory Type Ontology**: Legacy types auto-migrate to new taxonomy (task→observation, note→observation)
-- **Asymmetric Relationships**: Directed edges only (no longer bidirectional)
-
-**Migration Process:**
-1. Stop your MCP server
-2. Update to latest version (`git pull` or `pip install --upgrade mcp-memory-service`)
-3. Restart server - automatic migrations run on startup:
-   - Database schema migrations (009, 010)
-   - Memory type soft-validation (legacy types → observation)
-   - No tag migration needed (backward compatible)
-
-**Safety**: Migrations are idempotent and safe to re-run
-
----
-
-### Breaking Changes
-
-#### 1. Memory Type Ontology
-
-**What Changed:**
-- Legacy memory types (task, note, standard) are deprecated
-- New formal taxonomy: 5 base types (observation, decision, learning, error, pattern) with 21 subtypes
-- Type validation now defaults to 'observation' for invalid types (soft validation)
-
-**Migration Process:**
-✅ **Automatic** - No manual action required!
-
-When you restart the server with v9.0.0:
-- Invalid memory types are automatically soft-validated to 'observation'
-- Database schema updates run automatically
-- Existing memories continue to work without modification
-
-**New Memory Types:**
-- observation: General observations, facts, and discoveries
-- decision: Decisions and planning
-- learning: Learnings and insights
-- error: Errors and failures
-- pattern: Patterns and trends
-
-**Backward Compatibility:**
-- Existing memories will be auto-migrated (task→observation, note→observation, standard→observation)
-- Invalid types default to 'observation' (no errors thrown)
-
-#### 2. Asymmetric Relationships
-
-**What Changed:**
-- Asymmetric relationships (causes, fixes, supports, follows) now store only directed edges
-- Symmetric relationships (related, contradicts) continue storing bidirectional edges
-- Database migration (010) removes incorrect reverse edges
-
-**Migration Required:**
-No action needed - database migration runs automatically on startup.
-
-**Code Changes Required:**
-If your code expects bidirectional storage for asymmetric relationships:
-
-```python
-# OLD (will no longer work):
-# Asymmetric relationships were stored bidirectionally
-result = storage.find_connected(memory_id, relationship_type="causes")
-
-# NEW (correct approach):
-# Use direction parameter for asymmetric relationships
-result = storage.find_connected(
-    memory_id,
-    relationship_type="causes",
-    direction="both"  # Explicit direction required for asymmetric types
-)
-```
-
-**Relationship Types:**
-- Asymmetric: causes, fixes, supports, follows (A→B ≠ B→A)
-- Symmetric: related, contradicts (A↔B)
-
-### Retrieval Benchmarks
+## 📊 Retrieval Benchmarks
 
 Three benchmarks measure retrieval quality (all-MiniLM-L6-v2, 384d embeddings, zero LLM API calls):
 
@@ -654,24 +584,56 @@ Three benchmarks measure retrieval quality (all-MiniLM-L6-v2, 384d embeddings, z
 
 Run benchmarks: `python scripts/benchmarks/benchmark_longmemeval.py`, `python scripts/benchmarks/benchmark_devbench.py`, `python scripts/benchmarks/benchmark_locomo.py`
 
-### Performance Improvements
+---
 
-- ontology validation: 97.5x faster (module-level caching)
-- Type lookups: 35.9x faster (cached reverse maps)
-- Tag validation: 47.3% faster (eliminated double parsing)
+<details>
+<summary><strong>Migration to v9.0.0</strong> (upgrading from v8.x)</summary>
 
-### Testing
+**⚡ TL;DR**: No manual migration needed - upgrades happen automatically!
 
-- 829/914 tests passing (90.7%)
-- 80 new ontology tests with 100% backward compatibility
-- All API/HTTP integration tests passing
+**Breaking Changes:**
+- **Memory Type Ontology**: Legacy types auto-migrate to new taxonomy (task→observation, note→observation)
+- **Asymmetric Relationships**: Directed edges only (no longer bidirectional)
 
-### Support
+**Migration Process:**
+1. Stop your MCP server
+2. Update to latest version (`git pull` or `pip install --upgrade mcp-memory-service`)
+3. Restart server - automatic migrations run on startup:
+   - Database schema migrations (009, 010)
+   - Memory type soft-validation (legacy types → observation)
+   - No tag migration needed (backward compatible)
 
-If you encounter issues during migration:
-- Check [Troubleshooting Guide](docs/troubleshooting/)
-- Review [CHANGELOG.md](CHANGELOG.md) for detailed changes
-- Open an issue: https://github.com/doobidoo/mcp-memory-service/issues
+**Safety**: Migrations are idempotent and safe to re-run
+
+#### Breaking Change 1: Memory Type Ontology
+
+- Legacy memory types (task, note, standard) are deprecated
+- New formal taxonomy: 5 base types (observation, decision, learning, error, pattern) with 21 subtypes
+- Migration is **automatic** on server restart — no manual action required
+
+#### Breaking Change 2: Asymmetric Relationships
+
+- Asymmetric relationships (causes, fixes, supports, follows) now store only directed edges
+- Symmetric relationships (related, contradicts) continue storing bidirectional edges
+- Database migration (010) runs automatically on startup
+
+If your code expects bidirectional storage for asymmetric relationships:
+
+```python
+# OLD behavior (no longer applies):
+result = storage.find_connected(memory_id, relationship_type="causes")
+
+# NEW: use direction parameter explicitly
+result = storage.find_connected(
+    memory_id,
+    relationship_type="causes",
+    direction="both"
+)
+```
+
+If you encounter issues: [Troubleshooting Guide](docs/troubleshooting/) · [CHANGELOG.md](CHANGELOG.md) · [Open an issue](https://github.com/doobidoo/mcp-memory-service/issues)
+
+</details>
 
 ---
 

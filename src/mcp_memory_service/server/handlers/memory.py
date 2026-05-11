@@ -775,15 +775,18 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
         max_response_chars = _get_max_response_chars(arguments)
 
         # Call unified search_memories method
+        query = arguments.get("query")
+        limit = arguments.get("limit", 10)
         result = await storage.search_memories(
-            query=arguments.get("query"),
+            query=query,
             mode=arguments.get("mode", "semantic"),
             time_expr=arguments.get("time_expr"),
             after=arguments.get("after"),
             before=arguments.get("before"),
             tags=tags,
+            tag_match=arguments.get("tag_match", "any"),
             quality_boost=arguments.get("quality_boost", 0.0),
-            limit=arguments.get("limit", 10),
+            limit=limit,
             include_debug=arguments.get("include_debug", False),
             include_superseded=arguments.get("include_superseded", False)
         )
@@ -793,6 +796,70 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             return [types.TextContent(type="text", text=f"Error: {result['error']}")]
 
         memories = result["memories"]
+        fallback_used = None
+
+        # Cascading fallback: when enabled and semantic results are sparse
+        fallback_enabled = arguments.get("fallback", False)
+        _FALLBACK_MIN_RESULTS = 3
+        _FALLBACK_SCORE_THRESHOLD = 0.4
+
+        if (
+            fallback_enabled
+            and query
+            and arguments.get("mode", "semantic") in ("semantic", "hybrid")
+            and len(memories) < _FALLBACK_MIN_RESULTS
+        ):
+            # Check if existing results have low scores
+            high_score_count = sum(
+                1 for m in memories
+                if m.get("similarity_score", 0) >= _FALLBACK_SCORE_THRESHOLD
+            )
+
+            if high_score_count < _FALLBACK_MIN_RESULTS:
+                seen_hashes = {m.get("content_hash") for m in memories}
+
+                # Tier 1: BM25/exact keyword match
+                exact_result = await storage.search_memories(
+                    query=query,
+                    mode="exact",
+                    limit=limit,
+                    include_superseded=arguments.get("include_superseded", False)
+                )
+                if "error" not in exact_result:
+                    for m in exact_result.get("memories", []):
+                        if m.get("content_hash") not in seen_hashes:
+                            m["match_method"] = "exact_fallback"
+                            memories.append(m)
+                            seen_hashes.add(m.get("content_hash"))
+
+                # Tier 2: Tag intersection (extract potential tags from query tokens)
+                if len(memories) < limit:
+                    query_tokens = [t.strip().lower().strip(".,;:!?\"'()[]{}") for t in query.split() if len(t.strip()) > 2]
+                    if query_tokens:
+                        tag_result = await storage.search_memories(
+                            query=None,
+                            mode="semantic",
+                            tags=query_tokens,
+                            limit=limit,
+                            include_superseded=arguments.get("include_superseded", False)
+                        )
+                        if "error" not in tag_result:
+                            for m in tag_result.get("memories", []):
+                                if m.get("content_hash") not in seen_hashes:
+                                    m["match_method"] = "tag_fallback"
+                                    memories.append(m)
+                                    seen_hashes.add(m.get("content_hash"))
+
+                # Mark original results
+                for m in memories:
+                    if "match_method" not in m:
+                        m["match_method"] = "semantic"
+
+                # Trim to limit
+                memories = memories[:limit]
+                result["memories"] = memories
+                result["total"] = len(memories)
+                fallback_used = True
         total = result["total"]
 
         # Apply truncation if needed
@@ -816,6 +883,8 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             header = f"Found {total} memories"
             if result.get("mode"):
                 header += f" (mode: {result['mode']})"
+            if fallback_used:
+                header += " [fallback: exact+tag]"
             if result.get("query"):
                 header += f" for query: '{result['query']}'"
             header += "\n\n"
@@ -838,15 +907,21 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             tags_display = f" [{', '.join(tags)}]" if tags else ""
             content_hash = memory.get('content_hash', '')
 
+            match_info = ""
+            if fallback_used and memory.get("match_method"):
+                match_info = f" (via {memory['match_method']})"
+
             formatted_results.append(
                 f"{idx}. {memory.get('content', '')}\n"
                 f"   Hash: {content_hash}\n"
-                f"   Created: {created_at}{tags_display}"
+                f"   Created: {created_at}{tags_display}{match_info}"
             )
 
         header = f"Found {total} memories"
         if result.get("mode"):
             header += f" (mode: {result['mode']})"
+        if fallback_used:
+            header += " [fallback: exact+tag]"
         if result.get("query"):
             header += f" for query: '{result['query']}'"
 
@@ -899,6 +974,40 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
 
         # Initialize storage lazily when needed
         storage = await server._ensure_storage_initialized()
+
+        versioned = arguments.get("versioned", False)
+
+        if versioned:
+            # Check if backend supports versioned updates
+            if not hasattr(storage, "update_memory_versioned"):
+                return [types.TextContent(
+                    type="text",
+                    text="Error: versioned updates are not supported by the current storage backend."
+                )]
+
+            new_content = updates.get("content", "")
+            if not new_content:
+                return [types.TextContent(
+                    type="text",
+                    text="Error: versioned update requires 'content' field in updates."
+                )]
+
+            success, message, new_hash = await storage.update_memory_versioned(
+                content_hash=content_hash,
+                new_content=new_content,
+                new_tags=updates.get("tags"),
+                new_memory_type=updates.get("memory_type"),
+                reason=updates.get("reason"),
+            )
+
+            if success:
+                logger.info(f"Versioned update: {content_hash} -> {new_hash}")
+                return [types.TextContent(
+                    type="text",
+                    text=f"Versioned update successful. New hash: {new_hash}, parent hash: {content_hash}. {message}"
+                )]
+            else:
+                return [types.TextContent(type="text", text=f"Failed versioned update: {message}")]
 
         # Call the storage method
         success, message = await storage.update_memory_metadata(

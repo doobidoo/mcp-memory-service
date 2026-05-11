@@ -160,41 +160,69 @@ class SemanticReasoner:
         """
         Find transitive relationships (A→B→C implies A→C).
 
+        Delegates to GraphStorage.transitive_closure which uses a recursive CTE
+        for efficient in-database traversal.
+
         Args:
             rel_type: Relationship type to traverse
-            max_hops: Maximum hops for transitive closure
+            max_hops: Maximum hops for transitive closure (2-4)
 
         Returns:
-            List of (source, target, distance) tuples for inferred relationships
+            List of (source, target, distance) tuples for inferred relationships.
+            Only returns pairs that do NOT have a direct edge already.
 
         Example:
             >>> inferred = await reasoner.infer_transitive("causes", max_hops=2)
             [("hash1", "hash3", 2), ...]  # hash1→hash2→hash3
         """
-        # This is a placeholder - full implementation would:
-        # 1. Get all edges of rel_type
-        # 2. Build graph structure
-        # 3. Find paths of length 2+ (transitive closure)
-        # 4. Return inferred edges
-        # For now, return empty list
-        return []
+        if not hasattr(self.graph, 'transitive_closure'):
+            logger.warning("GraphStorage does not support transitive_closure")
+            return []
+        try:
+            return await self.graph.transitive_closure(rel_type, max_hops)
+        except Exception as e:
+            logger.error(f"Failed to infer transitive relationships: {e}")
+            return []
 
     async def suggest_relationships(self, hash: str) -> List[Dict[str, Any]]:
         """
-        Suggest potential relationships for a memory.
+        Suggest potential relationships for a memory based on shared neighbors.
 
-        Uses semantic similarity to suggest typed relationships.
+        Delegates to GraphStorage.common_neighbors which uses a single SQL query
+        with self-join. Confidence = shared_count / degree(source).
 
         Args:
             hash: Memory content hash
 
         Returns:
-            List of suggested relationships with confidence scores
+            List of suggested relationships with confidence scores, sorted by confidence.
 
         Example:
             >>> suggestions = await reasoner.suggest_relationships("hash1")
-            [{"target": "hash2", "type": "supports", "confidence": 0.85}]
+            [{"target": "hash2", "type": "related", "confidence": 0.85}]
         """
-        # Placeholder - will be enhanced with semantic analysis
-        # For now, return empty list
-        return []
+        if not hasattr(self.graph, 'common_neighbors'):
+            logger.warning("GraphStorage does not support common_neighbors")
+            return []
+        try:
+            candidates = await self.graph.common_neighbors(hash, min_shared=1)
+            if not candidates:
+                return []
+
+            suggestions = []
+            for target, shared_count, source_degree in candidates:
+                confidence = shared_count / max(source_degree, 1)
+                if confidence >= 0.3:
+                    suggestions.append({
+                        "target": target,
+                        "type": "related",
+                        "confidence": round(confidence, 3),
+                        "shared_neighbors": shared_count,
+                    })
+
+            suggestions.sort(key=lambda x: x["confidence"], reverse=True)
+            return suggestions[:10]
+
+        except Exception as e:
+            logger.error(f"Failed to suggest relationships for {hash}: {e}")
+            return []

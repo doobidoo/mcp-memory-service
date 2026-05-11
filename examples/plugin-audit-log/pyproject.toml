@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-memory-plugin-audit-log"
+version = "0.1.0"
+description = "Example plugin for mcp-memory-service — demonstrates all 4 lifecycle hooks with an audit log"
+requires-python = ">=3.10"
+license = "MIT"
+
+[project.entry-points."mcp_memory_service.plugins"]
+audit_log = "mcp_memory_plugin_audit_log:register"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_memory_plugin_audit_log"]

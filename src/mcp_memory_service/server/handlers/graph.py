@@ -75,7 +75,7 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
         return [types.TextContent(type="text", text="Error: action parameter is required")]
 
     # Validate action
-    valid_actions = ["connected", "path", "subgraph"]
+    valid_actions = ["connected", "path", "subgraph", "infer", "suggest"]
     if action not in valid_actions:
         return [types.TextContent(
             type="text",
@@ -119,6 +119,12 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
                 "radius": arguments.get("radius", 2)
             })
 
+        elif action == "infer":
+            return await handle_infer(arguments)
+
+        elif action == "suggest":
+            return await handle_suggest(arguments)
+
         else:
             # Should never reach here due to validation above
             return [types.TextContent(type="text", text=f"Error: Unknown action '{action}'")]
@@ -128,6 +134,62 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
         error_msg = f"Error in memory_graph action '{action}': {str(e)}"
         logger.error(f"{error_msg}\n{traceback.format_exc()}")
         return [types.TextContent(type="text", text=error_msg)]
+
+
+async def handle_infer(arguments: dict) -> List[types.TextContent]:
+    """Handle infer action: find transitive relationships."""
+    graph = await get_graph_storage()
+    if graph is None:
+        return [types.TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": f"Graph operations not available for backend: {STORAGE_BACKEND}",
+            "inferred": []
+        }, indent=2))]
+
+    from ...reasoning.inference import SemanticReasoner
+    reasoner = SemanticReasoner(graph)
+
+    rel_type = arguments.get("rel_type", "related")
+    max_hops = arguments.get("max_hops", 2)
+
+    results = await reasoner.infer_transitive(rel_type, max_hops)
+    return [types.TextContent(type="text", text=json.dumps({
+        "success": True,
+        "inferred": [
+            {"source": src, "target": tgt, "distance": dist}
+            for src, tgt, dist in results
+        ],
+        "count": len(results)
+    }, indent=2))]
+
+
+async def handle_suggest(arguments: dict) -> List[types.TextContent]:
+    """Handle suggest action: suggest potential relationships."""
+    graph = await get_graph_storage()
+    if graph is None:
+        return [types.TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": f"Graph operations not available for backend: {STORAGE_BACKEND}",
+            "suggestions": []
+        }, indent=2))]
+
+    hash_val = arguments.get("hash")
+    if not hash_val:
+        return [types.TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": "Missing required parameter: hash",
+            "suggestions": []
+        }, indent=2))]
+
+    from ...reasoning.inference import SemanticReasoner
+    reasoner = SemanticReasoner(graph)
+
+    suggestions = await reasoner.suggest_relationships(hash_val)
+    return [types.TextContent(type="text", text=json.dumps({
+        "success": True,
+        "suggestions": suggestions,
+        "count": len(suggestions)
+    }, indent=2))]
 
 
 async def handle_find_connected_memories(

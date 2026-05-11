@@ -751,6 +751,8 @@ class MemoryServer:
                 
                 # Initialize the consolidator with storage
                 self.consolidator = DreamInspiredConsolidator(self.storage, config)
+                if hasattr(self, 'memory_service'):
+                    self.consolidator.plugin_registry = self.memory_service._plugin_registry
                 logger.info("Dream-inspired consolidator initialized")
                 
                 # Initialize the scheduler if not disabled
@@ -1486,6 +1488,12 @@ Examples:
                                     ],
                                     "description": "Filter to memories with any of these tags"
                                 },
+                                "tag_match": {
+                                    "type": "string",
+                                    "enum": ["any", "all"],
+                                    "default": "any",
+                                    "description": "Match ANY tag (OR, default) or ALL tags (AND)"
+                                },
                                 "quality_boost": {
                                     "type": "number",
                                     "minimum": 0,
@@ -1513,6 +1521,11 @@ Examples:
                                     "type": "boolean",
                                     "default": False,
                                     "description": "Include memories that have been superseded by newer contradicting memories. Default: false (superseded memories are hidden)."
+                                },
+                                "fallback": {
+                                    "type": "boolean",
+                                    "default": False,
+                                    "description": "Enable cascading fallback when semantic results are sparse. When true and fewer than 3 results are found with scores below 0.4, automatically attempts BM25 keyword match and tag intersection. Each result includes match_method field. Default: false."
                                 }
                             }
                         },
@@ -1784,6 +1797,11 @@ Examples:
                                     "type": "boolean",
                                     "default": True,
                                     "description": "Whether to preserve the original created_at timestamp (default: true)."
+                                },
+                                "versioned": {
+                                    "type": "boolean",
+                                    "default": False,
+                                    "description": "When true, creates a new version instead of overwriting. The old memory is marked as superseded. Requires content in updates to create the new version. Creates a new memory version and marks the old one as superseded. Supported backends: sqlite_vec. Unsupported backends return an error."
                                 }
                             },
                             "required": ["content_hash", "updates"]
@@ -2128,18 +2146,22 @@ ACTIONS:
 - connected: Find memories connected via associations (BFS traversal)
 - path: Find shortest path between two memories
 - subgraph: Get graph structure around a memory for visualization
+- infer: Find transitive relationships (A→B→C implies A→C). Params: rel_type (string), max_hops (int, default 2)
+- suggest: Suggest potential relationships for a memory based on shared neighbors. Params: hash (string)
 
 Examples:
 {"action": "connected", "hash": "abc123", "max_hops": 2}
 {"action": "path", "hash1": "abc123", "hash2": "def456", "max_depth": 5}
 {"action": "subgraph", "hash": "abc123", "radius": 2}
+{"action": "infer", "rel_type": "causes", "max_hops": 2}
+{"action": "suggest", "hash": "abc123"}
 """,
                         inputSchema={
                             "type": "object",
                             "properties": {
                                 "action": {
                                     "type": "string",
-                                    "enum": ["connected", "path", "subgraph"],
+                                    "enum": ["connected", "path", "subgraph", "infer", "suggest"],
                                     "description": "Graph operation to perform"
                                 },
                                 "hash": {
@@ -2168,6 +2190,10 @@ Examples:
                                     "type": "integer",
                                     "default": 2,
                                     "description": "For 'subgraph': nodes to include"
+                                },
+                                "rel_type": {
+                                    "type": "string",
+                                    "description": "For 'infer': relationship type to traverse"
                                 }
                             },
                             "required": ["action"]

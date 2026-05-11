@@ -10,6 +10,64 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.54.0] - 2026-05-10
+
+### Added
+
+- **`tag_match` parameter for `memory_search` MCP tool** ([#890](https://github.com/doobidoo/mcp-memory-service/pull/890), @filhocf, closes [#889](https://github.com/doobidoo/mcp-memory-service/issues/889)): Extends the AND/OR tag filtering already present in `memory_delete` to the `memory_search` tool. Accepts `tag_match: "any"` (OR, default — existing behavior unchanged) or `tag_match: "all"` (AND — only memories matching every supplied tag are returned). Implemented across `server_impl.py`, `server/handlers/memory.py`, and `storage/base.py`.
+
+## [10.53.0] - 2026-05-09
+
+### Added
+
+- **Milvus consolidation embedding hydration end-to-end** ([#885](https://github.com/doobidoo/mcp-memory-service/pull/885), @henry201605): Completes a 4-PR series (#872, #878, #881, #885) that fixes a production failure on Milvus-backed deployments where consolidation produced 0 clusters and 0 associations. Root cause: the `vector` column was dropped during bulk reads, leaving every `Memory` with `embedding=None`. `consolidator._get_memories_for_horizon` now passes `include_embeddings=True` to both `get_all_memories` and `get_memories_by_time_range`. Supporting changes: `sqlite_vec.get_memories_by_time_range` gains a conditional LEFT JOIN on `memory_embeddings`; `hybrid.py` forwards the kwarg to the primary backend; `cloudflare.py` accepts the kwarg on both methods (ignores it — vectors live in Vectorize); `milvus._coerce_vector` now explicitly rejects `str`/`bytes`/`dict` types and `_log_hydration_stats` receives a pre-computed count for O(n) efficiency. Covered by 24 unit tests (`test_milvus_hydration.py`) and 5 Milvus Lite integration tests (`test_milvus_consolidation.py`).
+
+### Security
+
+- **Bump GitPython 3.1.47 → 3.1.50** ([#886](https://github.com/doobidoo/mcp-memory-service/pull/886)): Resolves 3 high-severity vulnerabilities in transitive dependency (`wandb → GitPython`): path traversal allowing arbitrary file write/delete outside the repository ([GHSA-7545-fcxq-7j24](https://github.com/advisories/GHSA-7545-fcxq-7j24)), newline injection in `config_writer().set_value()` enabling RCE via `core.hooksPath` ([GHSA-v87r-6q3f-2j67](https://github.com/advisories/GHSA-v87r-6q3f-2j67)), and newline injection in `config_writer()` section parameter bypassing the prior CVE patch ([GHSA-mv93-w799-cj2w](https://github.com/advisories/GHSA-mv93-w799-cj2w)).
+
+## [10.52.0] - 2026-05-08
+
+### Added
+
+- **Cascading search fallback when semantic results are sparse** ([#883](https://github.com/doobidoo/mcp-memory-service/pull/883), @filhocf, closes [#873](https://github.com/doobidoo/mcp-memory-service/issues/873)): Adds a two-tier fallback to `retrieve_memories` for deployments where vector similarity produces fewer results than requested. When enabled (`fallback=True`, opt-in), the system first attempts a BM25 exact-match pass over stored content, then a tag-intersection pass, and merges de-duplicated results up to `n_results`. Default is `fallback=False` so existing callers are unaffected.
+
+### Changed
+
+- **`MemoryStorage` ABC — `include_embeddings` parameter on bulk-read methods** ([#881](https://github.com/doobidoo/mcp-memory-service/pull/881), @henry201605): `get_all_memories` and `get_memories_by_time_range` in the base class (and all concrete backends) now accept `include_embeddings: bool = False`. When `True`, raw embedding vectors are hydrated into the returned `Memory` objects, enabling consolidation pipelines that need embedding data without a separate fetch. Default preserves existing behaviour for all callers.
+
+### Fixed
+
+- **CI fork-PR label/comment automation** ([#882](https://github.com/doobidoo/mcp-memory-service/pull/882)): Workflow triggers that write labels or post comments now use `pull_request_target` instead of `pull_request`, resolving `403` read-only-token failures that broke automation for all fork-originated PRs.
+
+## [10.51.3] - 2026-05-08
+
+### Added
+
+- **Versioned memory update via `memory_update` tool** ([#865](https://github.com/doobidoo/mcp-memory-service/pull/865), @filhocf): Adds `versioned: bool = False` parameter to the `memory_update` MCP tool. When `True`, routes through `update_memory_versioned()` in sqlite_vec, storing `superseded_by` in the replaced memory's metadata for a full audit trail. Returns an explicit error message on backends that do not support versioning.
+- **Transitive inference and relationship suggestions in `memory_graph`** ([#866](https://github.com/doobidoo/mcp-memory-service/pull/866), @filhocf): Wires `infer` and `suggest` actions into the `memory_graph` MCP tool. `infer_transitive` computes the transitive closure of a starting node using a recursive CTE in `GraphStorage` (database-side traversal, no Python BFS), keeping large graph queries fast. `suggest_relationships` proposes new edges based on semantic proximity of existing associations.
+
+## [10.51.2] - 2026-05-08
+
+### Fixed
+
+- **OAuth CORS preflight failures and missing resource_metadata** ([#877](https://github.com/doobidoo/mcp-memory-service/pull/877), @ghelleks): Resolves three bugs in the OAuth remote connector flow. CORS headers were missing on the `oauth_app` sub-application; `OPTIONS` requests to `/mcp` were not handled, blocking browser-based preflight checks; and `WWW-Authenticate` headers lacked the `resource_metadata` field required by RFC 9728, causing Remote MCP clients to fail authentication discovery. Fixes issue [#876](https://github.com/doobidoo/mcp-memory-service/issues/876).
+- **Milvus consolidation returning 0 clusters/associations** ([#878](https://github.com/doobidoo/mcp-memory-service/pull/878), @henry201605): Adds `include_embedding: bool = False` opt-in parameter to Milvus read paths (`retrieve_memory`, `list_memories`). When `True`, raw embedding vectors are returned alongside memory data, enabling the consolidation pipeline to access embeddings during clustering and association discovery. Fixes consolidation silently returning 0 clusters and 0 associations on Milvus deployments.
+
+## [10.51.1] - 2026-05-07
+
+### Fixed
+
+- **Milvus consolidation failure** ([#872](https://github.com/doobidoo/mcp-memory-service/pull/872), @henry201605): Adds `delete_memory(hash) -> bool` alias to `MilvusMemoryStorage`. Without this method, `memory_consolidate` silently failed on the Milvus backend during Compression (stage 4) and Controlled Forgetting (stage 5) with `AttributeError`. No behaviour change for other backends.
+
+## [10.51.0] - 2026-05-07
+
+### Added
+
+- **Plugin fire points wired into MemoryService lifecycle** ([#864](https://github.com/doobidoo/mcp-memory-service/pull/864), @filhocf): Connects the plugin hook scaffolding (introduced in v10.50.0, PR #856) to actual lifecycle events in `MemoryService`. The four hooks — `on_store`, `on_delete`, `on_retrieve`, and `on_consolidate` — are now invoked at the appropriate call sites. Third-party plugins registered via `entry_points` will receive live events from this release onward.
+- **`GET /api/types` endpoint + dynamic type dropdowns in dashboard** ([#863](https://github.com/doobidoo/mcp-memory-service/pull/863), @filhocf): New REST endpoint returns all valid memory types (built-in + custom types from `MCP_CUSTOM_MEMORY_TYPES`). The web dashboard type filter and store-form dropdowns are now populated dynamically from this endpoint instead of being hardcoded, so custom ontology entries appear automatically in the UI.
+- **Audit-log example plugin** ([#867](https://github.com/doobidoo/mcp-memory-service/pull/867), @filhocf): Reference implementation in `examples/plugins/audit_log/` demonstrating all four lifecycle hooks. Shows how to write, package, and install a plugin using `entry_points` discovery. Serves as living documentation for the plugin API.
+
 ## [10.50.0] - 2026-05-06
 
 ### Added
