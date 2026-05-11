@@ -720,6 +720,87 @@ class GraphStorage:
             logger.error(f"Failed to count associations: {e}")
             return 0
 
+    async def store_entity_link(self, memory_hash: str, entity_name: str, entity_type: str) -> bool:
+        """Store an entity link using memory_graph with relationship_type='has_entity'."""
+        if not memory_hash or not entity_name:
+            return False
+        try:
+            conn = await self._get_connection()
+            metadata_json = json.dumps({"entity_type": entity_type})
+            created_at = datetime.now(timezone.utc).timestamp()
+            async with self._lock:
+                conn.execute("""
+                    INSERT OR IGNORE INTO memory_graph
+                    (source_hash, target_hash, similarity, connection_types, metadata, created_at, relationship_type)
+                    VALUES (?, ?, 1.0, '["entity"]', ?, ?, 'has_entity')
+                """, (memory_hash, entity_name, metadata_json, created_at))
+                conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Failed to store entity link: {e}")
+            return False
+
+    async def find_memories_by_entity(self, entity_name: str, limit: int = 20) -> List[str]:
+        """Find memory hashes linked to a given entity name."""
+        if not entity_name:
+            return []
+        try:
+            conn = await self._get_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT source_hash FROM memory_graph
+                    WHERE target_hash = ? AND relationship_type = 'has_entity'
+                    ORDER BY created_at DESC LIMIT ?
+                """, (entity_name, limit))
+                return [row['source_hash'] for row in cursor.fetchall()]
+            finally:
+                cursor.close()
+        except sqlite3.Error as e:
+            logger.error(f"Failed to find memories by entity: {e}")
+            return []
+
+    async def get_entity_profile(self, entity_name: str) -> Dict[str, Any]:
+        """Get entity profile: memory count, entity types, last activity."""
+        if not entity_name:
+            return {}
+        try:
+            conn = await self._get_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT COUNT(*) as count, MAX(created_at) as last_activity
+                    FROM memory_graph
+                    WHERE target_hash = ? AND relationship_type = 'has_entity'
+                """, (entity_name,))
+                row = cursor.fetchone()
+                if not row or row['count'] == 0:
+                    return {}
+                # Gather distinct entity_types
+                cursor.execute("""
+                    SELECT DISTINCT metadata FROM memory_graph
+                    WHERE target_hash = ? AND relationship_type = 'has_entity'
+                """, (entity_name,))
+                types = set()
+                for r in cursor.fetchall():
+                    try:
+                        meta = json.loads(r['metadata']) if r['metadata'] else {}
+                        if 'entity_type' in meta:
+                            types.add(meta['entity_type'])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                return {
+                    "entity_name": entity_name,
+                    "memory_count": row['count'],
+                    "entity_types": list(types),
+                    "last_activity": row['last_activity'],
+                }
+            finally:
+                cursor.close()
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get entity profile: {e}")
+            return {}
+
     async def close(self):
         """Close database connection."""
         if self._connection:

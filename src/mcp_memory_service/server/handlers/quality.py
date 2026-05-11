@@ -491,6 +491,54 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
         report["errors"].append(f"quality: {e}")
         report["steps"]["quality"] = {"error": str(e)}
 
+    # Step 5: Batch entity extraction
+    try:
+        from mcp_memory_service.reasoning.entities import EntityExtractor
+
+        all_mems = await storage.get_all_memories()
+        extractor = EntityExtractor()
+        total_entities = 0
+        linked = 0
+
+        for mem in all_mems[:500]:  # Cap to avoid excessive processing
+            content = mem.content if hasattr(mem, 'content') else ""
+            metadata = mem.metadata if hasattr(mem, 'metadata') else {}
+            if isinstance(metadata, str):
+                import json as _json
+                try:
+                    metadata = _json.loads(metadata)
+                except Exception:
+                    metadata = {}
+
+            entities = extractor.extract_entities(content, metadata)
+            total_entities += len(entities)
+
+            if not dry_run and hasattr(storage, 'graph') and storage.graph:
+                for ent in entities:
+                    try:
+                        await storage.graph.store_entity_link(
+                            mem.content_hash, ent.name, ent.entity_type
+                        )
+                        linked += 1
+                    except Exception:
+                        pass
+
+        if dry_run:
+            report["steps"]["entities"] = {
+                "skipped_dry_run": True,
+                "memories_scanned": min(len(all_mems), 500),
+                "entities_found": total_entities,
+            }
+        else:
+            report["steps"]["entities"] = {
+                "memories_scanned": min(len(all_mems), 500),
+                "entities_found": total_entities,
+                "links_stored": linked,
+            }
+    except Exception as e:
+        report["errors"].append(f"entities: {e}")
+        report["steps"]["entities"] = {"error": str(e)}
+
     elapsed = round(time.time() - start, 2)
     report["elapsed_seconds"] = elapsed
     report["completed_at"] = datetime.now(timezone.utc).isoformat()

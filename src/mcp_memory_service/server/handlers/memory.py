@@ -862,6 +862,19 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
                 fallback_used = True
         total = result["total"]
 
+        # Entity filter: restrict to memories linked to a specific entity
+        entity_filter = arguments.get("entity")
+        if entity_filter and hasattr(storage, 'graph') and storage.graph:
+            try:
+                entity_hashes = set(await storage.graph.find_memories_by_entity(entity_filter))
+                if entity_hashes:
+                    memories = [m for m in memories if m.get("content_hash") in entity_hashes]
+                    total = len(memories)
+                    result["memories"] = memories
+                    result["total"] = total
+            except Exception:
+                pass  # If entity lookup fails, return unfiltered results
+
         # Apply truncation if needed
         if max_response_chars > 0 and memories:
             # Memories are already dicts from storage.search_memories()
