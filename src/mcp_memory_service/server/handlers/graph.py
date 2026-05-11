@@ -128,6 +128,8 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
             from mcp_memory_service.reasoning.entities import EntityExtractor
 
             storage = server.storage
+            if not (hasattr(storage, 'graph') and storage.graph):
+                return [types.TextContent(type="text", text="Error: graph storage required for entity extraction")]
             mem = await storage.retrieve(hash_val)
             if not mem:
                 return [types.TextContent(type="text", text=f"Memory {hash_val} not found")]
