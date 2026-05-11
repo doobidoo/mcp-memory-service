@@ -75,7 +75,7 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
         return [types.TextContent(type="text", text="Error: action parameter is required")]
 
     # Validate action
-    valid_actions = ["connected", "path", "subgraph"]
+    valid_actions = ["connected", "path", "subgraph", "extract_entities"]
     if action not in valid_actions:
         return [types.TextContent(
             type="text",
@@ -118,6 +118,38 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
                 "hash": hash_val,
                 "radius": arguments.get("radius", 2)
             })
+
+        elif action == "extract_entities":
+            # Manual entity extraction for a specific memory
+            hash_val = arguments.get("hash")
+            if not hash_val:
+                return [types.TextContent(type="text", text="Error: hash is required for 'extract_entities' action")]
+
+            from mcp_memory_service.reasoning.entities import EntityExtractor
+
+            storage = server.storage
+            mem = await storage.retrieve(hash_val)
+            if not mem:
+                return [types.TextContent(type="text", text=f"Memory {hash_val} not found")]
+
+            extractor = EntityExtractor()
+            content = mem.get("content", "")
+            metadata = mem.get("metadata", {})
+            entities = extractor.extract_entities(content, metadata)
+
+            stored = 0
+            for ent in entities:
+                ok = await storage.graph.store_entity_link(hash_val, ent.name, ent.entity_type)
+                if ok:
+                    stored += 1
+
+            result = {
+                "hash": hash_val,
+                "entities_found": len(entities),
+                "entities_stored": stored,
+                "entities": [{"name": e.name, "type": e.entity_type, "source": e.source} for e in entities]
+            }
+            return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
 
         else:
             # Should never reach here due to validation above
