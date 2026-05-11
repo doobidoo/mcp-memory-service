@@ -34,7 +34,10 @@ class TranscriptParser:
         return jsonl_files[:count]
 
     def parse_file(self, filepath: Path) -> List[ParsedMessage]:
-        """Parse a JSONL file and extract user/assistant text messages."""
+        """Parse a JSONL file and extract user/assistant text messages.
+
+        Supports both Claude Code format and Kiro CLI format.
+        """
         filepath = Path(filepath)
         messages: List[ParsedMessage] = []
 
@@ -52,26 +55,69 @@ class TranscriptParser:
                     logger.debug(f"Skipping corrupt line {line_num} in {filepath.name}")
                     continue
 
-                msg_type = obj.get("type")
-                if msg_type not in self.RELEVANT_TYPES:
-                    continue
+                # Detect format and dispatch
+                if "version" in obj and "kind" in obj:
+                    msg = self._parse_kiro_line(obj)
+                    if msg:
+                        messages.append(msg)
+                elif "type" in obj:
+                    msg = self._parse_claude_code_line(obj)
+                    if msg:
+                        messages.append(msg)
 
-                message = obj.get("message", {})
-                content = message.get("content", [])
-                timestamp = obj.get("timestamp")
-                uuid = obj.get("uuid")
+        return messages
 
-                # Extract text blocks (skip thinking, tool_use, etc.)
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        text = block.get("text", "").strip()
-                        if text and not self._is_system_content(text):
-                            messages.append(ParsedMessage(
-                                role=msg_type,
-                                text=text,
-                                timestamp=timestamp,
-                                uuid=uuid
-                            ))
+    def _parse_kiro_line(self, obj: dict) -> Optional[ParsedMessage]:
+        """Parse a Kiro CLI JSONL line."""
+        kind = obj.get("kind")
+        data = obj.get("data", {})
+        message_id = data.get("message_id")
+        content = data.get("content", [])
+
+        if kind not in ("Prompt", "AssistantMessage"):
+            return None
+
+        role = "user" if kind == "Prompt" else "assistant"
+
+        # Content is a list of {kind: "text"|"toolUse", data: ...}
+        texts = []
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("kind") == "text":
+                    text = block.get("data", "")
+                    if isinstance(text, str) and text.strip():
+                        texts.append(text.strip())
+        elif isinstance(content, str) and content.strip():
+            texts.append(content.strip())
+
+        combined = "\n".join(texts).strip()
+        if combined and not self._is_system_content(combined):
+            return ParsedMessage(role=role, text=combined, uuid=message_id)
+
+        return None
+
+    def _parse_claude_code_line(self, obj: dict) -> Optional[ParsedMessage]:
+        """Parse a Claude Code JSONL line."""
+        msg_type = obj.get("type")
+        if msg_type not in self.RELEVANT_TYPES:
+            return None
+
+        message = obj.get("message", {})
+        content = message.get("content", [])
+        timestamp = obj.get("timestamp")
+        uuid = obj.get("uuid")
+
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text", "").strip()
+                if text and not self._is_system_content(text):
+                    return ParsedMessage(
+                        role=msg_type,
+                        text=text,
+                        timestamp=timestamp,
+                        uuid=uuid
+                    )
+        return None
 
         return messages
 
