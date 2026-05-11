@@ -492,10 +492,10 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
         report["steps"]["quality"] = {"error": str(e)}
 
     # Step 5: Insight Cards generation (opt-in)
-    from ..config import MCP_INSIGHT_CARDS_ENABLED
+    from ...config import MCP_INSIGHT_CARDS_ENABLED
     if MCP_INSIGHT_CARDS_ENABLED:
         try:
-            from ..consolidation.insights import InsightGenerator, store_insights
+            from ...consolidation.insights import InsightGenerator, store_insights
 
             # Fetch recent memories for analysis
             all_mems = await storage.get_all_memories()
