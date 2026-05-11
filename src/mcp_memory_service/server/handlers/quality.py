@@ -494,11 +494,14 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
     # Step 5: Batch entity extraction
     try:
         from mcp_memory_service.reasoning.entities import EntityExtractor
+        from .graph import get_graph_storage
 
         all_mems = await storage.get_all_memories()
         extractor = EntityExtractor()
         total_entities = 0
         linked = 0
+
+        graph = await get_graph_storage() if not dry_run else None
 
         for mem in all_mems[:500]:  # Cap to avoid excessive processing
             content = mem.content if hasattr(mem, 'content') else ""
@@ -513,10 +516,10 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
             entities = extractor.extract_entities(content, metadata)
             total_entities += len(entities)
 
-            if not dry_run and hasattr(storage, 'graph') and storage.graph:
+            if graph:
                 for ent in entities:
                     try:
-                        await storage.graph.store_entity_link(
+                        await graph.store_entity_link(
                             mem.content_hash, ent.name, ent.entity_type
                         )
                         linked += 1
