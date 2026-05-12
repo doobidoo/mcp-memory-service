@@ -75,11 +75,17 @@ Re-publish: `cd docs && ~/.agents/skills/here-now/scripts/publish.sh . --slug me
 
 ### 5. Code Review Gate (MANDATORY)
 
-**NEVER merge before all review feedback is addressed.**
+**NEVER merge before all review feedback is addressed — including bot reviewers (gemini-code-assist, github-actions).**
 
-- Check: `gh api repos/OWNER/REPO/pulls/PR/reviews` + `.../pulls/PR/comments`
-- Apply fixes OR explicitly reject with justification
-- Push fixes, wait for re-review if needed
+Run this before every merge to surface unresolved inline comments:
+```bash
+PR=<number>
+gh api repos/doobidoo/mcp-memory-service/pulls/$PR/comments \
+  --jq '.[] | "[\(.user.login)] \(.path):\(.line)\n\(.body)\n"'
+```
+
+- If the output is non-empty: address each comment (fix or explicit reject with justification), push, re-check
+- If empty: proceed with merge
 - **NEVER use `--admin` to bypass unresolved review comments**
 
 **Incident (v10.23.0)**: PR #553 merged with `--admin` before Gemini's 3 valid comments were addressed. Fixes applied post-release.
