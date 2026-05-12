@@ -496,16 +496,18 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.56.1** (May 12, 2026)
+## Latest Release: **v10.56.2** (May 12, 2026)
 
-**fix(session): pass session_id as conversation_id to bypass semantic dedup**
+**Compatibility fixes for Milvus and stale-process server upgrades**
 
 **What's Fixed:**
-- `memory_store_session` was incorrectly blocked by semantic deduplication against topically-similar atomic memories — a category error (session logs vs atomic facts). Fixed by setting `skip_dedup = bool(conversation_id) or (memory_type == "session")` in `store_memory()`.
+- `MilvusMemoryStorage.count_all_memories()` was missing `stale_days` parameter, causing `TypeError` when called with this argument (all other backends accept it). Now accepted and silently ignored (Milvus has no `last_accessed` field).
+- `quality.py` maintain handler now falls back gracefully when `MAINTAIN_SCAN_LIMIT` cannot be imported from a stale `sys.modules` cache after an in-place server upgrade. Falls back to `MCP_MAINTAIN_SCAN_LIMIT` env-var (default 2000).
 
 ---
 
 **Previous Releases**:
+- **v10.56.1** - fix(session): pass session_id as conversation_id to bypass semantic dedup
 - **v10.56.0** - feat(consolidation): configurable maintain scan limit + InsightGenerator gap filter
 - **v10.55.2** - fix(insights): handle None memory\_type and tags in InsightGenerator sort
 - **v10.55.1** - fix(entities): entity links always 0 in `maintain` Step 5 due to wrong graph accessor (PR #895)

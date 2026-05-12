@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.56.2] - 2026-05-12
+
+### Fixed
+
+- **fix(milvus): add missing `stale_days` param to `count_all_memories`** ([#901](https://github.com/doobidoo/mcp-memory-service/pull/901), @henry201605): `MilvusMemoryStorage.count_all_memories()` was missing the `stale_days: Optional[int] = None` parameter present on all other backends, causing a `TypeError` when callers passed this argument. The parameter is now accepted and silently ignored (Milvus has no `last_accessed` field).
+- **fix(quality): graceful fallback for `MAINTAIN_SCAN_LIMIT` on stale server process**: Wrapped the `from ...config import MAINTAIN_SCAN_LIMIT, MCP_INSIGHT_CARDS_ENABLED` import in a `try/except ImportError` block. On in-place upgrades where the server process has a stale `sys.modules` cache, the import can fail; the handler now falls back to reading `MCP_MAINTAIN_SCAN_LIMIT` from the environment (default: 2000) so maintain cycles continue working without a full server restart.
+
 ## [10.56.1] - 2026-05-12
 
 ### Fixed
