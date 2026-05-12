@@ -278,6 +278,7 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
             tags=tags,
             memory_type="session",
             metadata=arguments.get("metadata", {}),
+            client_hostname=arguments.get("client_hostname"),
         )
 
         if not result.get("success"):

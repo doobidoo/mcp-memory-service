@@ -401,8 +401,8 @@ class MemoryService:
                 final_metadata["hostname"] = client_hostname
 
             # Store conversation_id in metadata for future grouping/retrieval
-            skip_dedup = bool(conversation_id)
-            if skip_dedup:
+            skip_dedup = bool(conversation_id) or (memory_type == "session")
+            if conversation_id:
                 final_metadata["conversation_id"] = conversation_id
 
             # Generate content hash for deduplication
