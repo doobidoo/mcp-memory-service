@@ -71,3 +71,55 @@ class TestStoreMemory:
         memory = await memory_service.storage.get_by_hash(content_hash)
         assert memory is not None
         assert memory.metadata.get("conversation_id") == "conv-persist-check"
+
+    @pytest.mark.asyncio
+    async def test_session_memory_type_bypasses_semantic_dedup(self, memory_service):
+        """Storing with memory_type='session' skips semantic dedup.
+
+        Session logs are verbose multi-turn transcripts. Comparing them
+        against short atomic facts via cosine similarity is a category error —
+        near-identical scores are expected, not a sign of actual duplication.
+        """
+        # Enable semantic dedup on the storage backend
+        memory_service.storage.semantic_dedup_enabled = True
+
+        # Store an atomic memory about a topic
+        result1 = await memory_service.store_memory(
+            content="Milvus deployment requires etcd, MinIO, and the standalone server.",
+            tags=["milvus"],
+        )
+        assert result1["success"]
+
+        # Store a session discussing the same topic — should succeed
+        session_content = (
+            "[user] How do I deploy Milvus on K8s?\n"
+            "[assistant] You need etcd, MinIO, and Milvus standalone. "
+            "Deploy them in order with initContainers."
+        )
+        result2 = await memory_service.store_memory(
+            content=session_content,
+            tags=["session:test-session-123"],
+            memory_type="session",
+        )
+        assert result2["success"], (
+            f"Expected session to bypass semantic dedup, got: {result2.get('error')}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_non_session_still_blocked_by_semantic_dedup(self, memory_service):
+        """Non-session memories with similar content are still blocked."""
+        memory_service.storage.semantic_dedup_enabled = True
+
+        result1 = await memory_service.store_memory(
+            content="Redis timeout should be set to 3 seconds for production.",
+            tags=["config"],
+        )
+        assert result1["success"]
+
+        # Similar content without session type — should be rejected
+        result2 = await memory_service.store_memory(
+            content="Redis timeout is configured at 3s in production environments.",
+            tags=["config"],
+        )
+        assert not result2["success"]
+        assert "semantically similar" in result2.get("error", "").lower()

@@ -496,16 +496,18 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.55.2** (May 12, 2026)
+## Latest Release: **v10.56.1** (May 12, 2026)
 
-**fix(insights): handle None memory\_type and tags in InsightGenerator sort**
+**fix(session): pass session_id as conversation_id to bypass semantic dedup**
 
 **What's Fixed:**
-- **InsightGenerator TypeError** (`insights.py`): Fixed `'<' not supported between instances of 'str' and 'NoneType'` crash when memories have `None` values for `memory_type` or `tags`. The `maintain` cycle Step 6 (Insight Cards) now runs without errors.
+- `memory_store_session` was incorrectly blocked by semantic deduplication against topically-similar atomic memories — a category error (session logs vs atomic facts). Fixed by setting `skip_dedup = bool(conversation_id) or (memory_type == "session")` in `store_memory()`.
 
 ---
 
 **Previous Releases**:
+- **v10.56.0** - feat(consolidation): configurable maintain scan limit + InsightGenerator gap filter
+- **v10.55.2** - fix(insights): handle None memory\_type and tags in InsightGenerator sort
 - **v10.55.1** - fix(entities): entity links always 0 in `maintain` Step 5 due to wrong graph accessor (PR #895)
 - **v10.55.0** - feat(reasoning+consolidation): entity extraction, memory-entity linking, and Insight Cards (PRs #868, #869, @filhocf)
 - **v10.54.0** - feat(search): tag_match parameter for memory_search AND/OR tag filtering (PR #890, @filhocf)

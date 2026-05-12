@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v10.55.0</title>
+<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v10.56.0</title>
 <meta name="description" content="Memory layer for AI agents. REST API + MCP + OAuth + CLI + dashboard — one self-hosted service, every transport. 14+ client integrations, knowledge graph, automatic consolidation. LongMemEval R@5 86%, session ingestion, zero cloud cost.">
-<meta property="og:title" content="MCP Memory Service v10.55.0">
-<meta property="og:description" content="Entity extraction, memory-entity linking, and Insight Cards. Self-hosted AI memory — REST, MCP, OAuth 2.1, CLI. LongMemEval R@5 86%.">
+<meta property="og:title" content="MCP Memory Service v10.56.0">
+<meta property="og:description" content="Configurable maintain scan limit, InsightGenerator gap filter. Self-hosted AI memory — REST, MCP, OAuth 2.1, CLI. LongMemEval R@5 86%.">
 <meta property="og:type" content="website">
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
@@ -116,7 +116,7 @@ footer a{color:var(--cyan)}
 <!-- Hero -->
 <header class="hero">
   <img src="brain-icon.png" alt="Memory for AI Agents" class="hero-logo">
-  <span class="hero-badge">mcp-memory-service v10.55 &mdash; Now Available</span>
+  <span class="hero-badge">mcp-memory-service v10.56 &mdash; Now Available</span>
   <h1>Memory for AI Agents</h1>
   <p>Persistent memory for AI agents &mdash; REST API, MCP, OAuth, CLI, dashboard. Semantic search, knowledge graph, automatic consolidation. One self-hosted service, every transport.</p>
   <div class="hero-buttons">
@@ -136,23 +136,23 @@ footer a{color:var(--cyan)}
 <!-- Features -->
 <section id="features">
   <div class="container">
-    <h2 class="section-title">What's New in v10.55</h2>
-    <p class="section-subtitle">Entity extraction, memory-entity linking, and Insight Cards. ~1,902 tests.</p>
+    <h2 class="section-title">What's New in v10.56</h2>
+    <p class="section-subtitle">Configurable maintain scan limit and smarter Insight Cards. ~1,902 tests.</p>
     <div class="features-grid">
       <div class="feature-card" data-delay="0">
         <div class="feature-icon privacy">&#128279;</div>
-        <h3>Entity Extraction and Memory-Entity Linking</h3>
-        <p>New <code>EntityExtractor</code> detects @mentions, #tags, URLs, and file paths inside memory content. <code>memory_search</code> gains an <code>entity</code> filter; <code>memory_graph</code> gains <code>action="extract_entities"</code>. Runs as Step 5 in the <code>maintain</code> cycle. (PR #868, @filhocf)</p>
+        <h3>Configurable Maintain Scan Limit</h3>
+        <p>New <code>MCP_MAINTAIN_SCAN_LIMIT</code> env var (default: 2000, set to 0 for unlimited) replaces the hardcoded 500-memory cap in the <code>maintain</code> cycle. Large deployments can now tune or remove the ceiling for entity extraction (Step 5) and insight card generation (Step 6).</p>
       </div>
       <div class="feature-card" data-delay="150">
         <div class="feature-icon consolidation">&#128161;</div>
-        <h3>Insight Cards</h3>
-        <p><code>InsightGenerator</code> analyses the memory corpus and surfaces patterns, trends, and gaps automatically. Runs as Step 6 in <code>maintain</code>. Opt-in via <code>MCP_INSIGHT_CARDS_ENABLED=true</code> — default off, no impact on existing deployments. (PR #869, @filhocf)</p>
+        <h3>Smarter Insight Card Gap Detection</h3>
+        <p><code>InsightGenerator._detect_gaps</code> now skips operational metadata tags (<code>conflict:unresolved</code>, <code>automated</code>, <code>__test__</code>, <code>temporary</code>, <code>processed</code>, <code>auto-generated</code>, <code>insight-card</code>) that are not knowledge domains, eliminating false-positive "Decision gap" insight cards.</p>
       </div>
       <div class="feature-card" data-delay="300">
-        <div class="feature-icon http">&#128274;</div>
-        <h3>Dependency Update</h3>
-        <p>urllib3 bumped from 2.6.3 to 2.7.0. Routine maintenance — no behaviour change. (PR #893)</p>
+        <div class="feature-icon http">&#9881;</div>
+        <h3>Entity Extraction and Insight Cards</h3>
+        <p>Built on v10.55: <code>EntityExtractor</code> indexes @mentions, #tags, URLs, and file paths from memory content. <code>InsightGenerator</code> surfaces patterns, trends, and gaps via <code>memory_quality maintain</code>. Opt-in via <code>MCP_INSIGHT_CARDS_ENABLED=true</code>.</p>
       </div>
     </div>
   </div>
@@ -242,7 +242,7 @@ footer a{color:var(--cyan)}
       <a href="blog/remote-mcp-tutorial.html" class="btn btn-secondary">
         Blog: 5-Min claude.ai Setup
       </a>
-      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v10.55.0" class="btn btn-secondary" target="_blank">
+      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v10.56.0" class="btn btn-secondary" target="_blank">
         Release Notes
       </a>
     </div>

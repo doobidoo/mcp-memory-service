@@ -33,6 +33,12 @@ class InsightGenerator:
     OLD_DAYS = 30
     GAP_MIN_MEMORIES = 5
 
+    # Tags that are status/metadata markers, not knowledge domains — skip gap detection.
+    EXCLUDED_GAP_TAGS: frozenset = frozenset({
+        "conflict:unresolved", "automated", "__test__", "temporary",
+        "processed", "auto-generated", "insight-card",
+    })
+
     def generate_insights(
         self, memories: List[dict], clusters: List[List[dict]]
     ) -> List[InsightCard]:
@@ -147,6 +153,8 @@ class InsightGenerator:
 
         insights = []
         for tag, mems in tag_mems.items():
+            if tag in self.EXCLUDED_GAP_TAGS:
+                continue
             if len(mems) >= self.GAP_MIN_MEMORIES and not tag_has_decision[tag]:
                 hashes = [m["content_hash"] for m in mems]
                 insights.append(InsightCard(
