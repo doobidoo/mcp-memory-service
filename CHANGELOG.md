@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.56.1] - 2026-05-12
+
+### Fixed
+
+- **fix(session): pass `session_id` as `conversation_id` to bypass semantic dedup** ([#898](https://github.com/doobidoo/mcp-memory-service/pull/898), @henry201605): `memory_store_session` calls were incorrectly blocked by semantic deduplication against topically-similar atomic memories — a category error (session logs vs atomic facts). Fixed by setting `skip_dedup = bool(conversation_id) or (memory_type == "session")` in `memory_service.store_memory()`.
+- **fix(maintain): hoist `get_all_memories()` and `scan_slice` before Steps 5 & 6** (addresses code review on [#899](https://github.com/doobidoo/mcp-memory-service/pull/899)): Eliminates a duplicate DB call and a latent `NameError` where `MAINTAIN_SCAN_LIMIT` was only defined inside Step 5's try block and would have raised `NameError` in Step 6 if Step 5 failed before reaching the import.
+
 ## [10.56.0] - 2026-05-12
 
 ### Added

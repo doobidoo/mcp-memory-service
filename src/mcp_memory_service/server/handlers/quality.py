@@ -491,21 +491,23 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
         report["errors"].append(f"quality: {e}")
         report["steps"]["quality"] = {"error": str(e)}
 
+    # Pre-fetch memories once; shared by Steps 5 and 6 to avoid duplicate DB calls.
+    from ...config import MAINTAIN_SCAN_LIMIT, MCP_INSIGHT_CARDS_ENABLED
+    _all_mems = await storage.get_all_memories()
+    _scan_slice = _all_mems if MAINTAIN_SCAN_LIMIT == 0 else _all_mems[:MAINTAIN_SCAN_LIMIT]
+
     # Step 5: Batch entity extraction
     try:
         from mcp_memory_service.reasoning.entities import EntityExtractor
         from .graph import get_graph_storage
-        from ...config import MAINTAIN_SCAN_LIMIT
 
-        all_mems = await storage.get_all_memories()
-        scan_slice = all_mems if MAINTAIN_SCAN_LIMIT == 0 else all_mems[:MAINTAIN_SCAN_LIMIT]
         extractor = EntityExtractor()
         total_entities = 0
         linked = 0
 
         graph = await get_graph_storage() if not dry_run else None
 
-        for mem in scan_slice:
+        for mem in _scan_slice:
             content = mem.content if hasattr(mem, 'content') else ""
             metadata = mem.metadata if hasattr(mem, 'metadata') else {}
             if isinstance(metadata, str):
@@ -528,7 +530,7 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
                     except Exception:
                         pass
 
-        scanned = len(scan_slice)
+        scanned = len(_scan_slice)
         if dry_run:
             report["steps"]["entities"] = {
                 "skipped_dry_run": True,
@@ -546,16 +548,12 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
         report["steps"]["entities"] = {"error": str(e)}
 
     # Step 6: Insight Cards generation (opt-in)
-    from ...config import MCP_INSIGHT_CARDS_ENABLED
     if MCP_INSIGHT_CARDS_ENABLED:
         try:
             from ...consolidation.insights import InsightGenerator, store_insights
 
-            # Fetch recent memories for analysis
-            all_mems = await storage.get_all_memories()
-            scan_slice = all_mems if MAINTAIN_SCAN_LIMIT == 0 else all_mems[:MAINTAIN_SCAN_LIMIT]
             mem_dicts = []
-            for m in scan_slice:
+            for m in _scan_slice:
                 mem_dicts.append({
                     "content_hash": m.content_hash,
                     "tags": m.tags if isinstance(m.tags, list) else [t.strip() for t in (m.tags or "").split(",") if t.strip()],
