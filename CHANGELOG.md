@@ -10,6 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.56.0] - 2026-05-12
+
+### Added
+
+- **`MCP_MAINTAIN_SCAN_LIMIT` env var** (default: 2000, 0 = unlimited): Controls how many memories are scanned per maintain cycle for entity extraction (Step 5) and insight card generation (Step 6). Previously hardcoded to 500 — large deployments can now tune or remove the cap entirely.
+
+### Fixed
+
+- **InsightGenerator gap detector skips metadata/status tags**: The `_detect_gaps` method now ignores tags that are operational markers rather than knowledge domains (`conflict:unresolved`, `automated`, `__test__`, `temporary`, `processed`, `auto-generated`, `insight-card`), eliminating false-positive "Decision gap" insight cards for these system tags.
+
 ## [10.55.2] - 2026-05-12
 
 ### Fixed
