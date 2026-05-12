@@ -496,17 +496,17 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.56.0** (May 12, 2026)
+## Latest Release: **v10.56.1** (May 12, 2026)
 
-**feat(consolidation): configurable maintain scan limit + InsightGenerator gap filter**
+**fix(session): pass session_id as conversation_id to bypass semantic dedup**
 
-**What's New:**
-- **`MCP_MAINTAIN_SCAN_LIMIT` env var** (default: 2000, 0 = unlimited): Replaces the hardcoded 500-memory cap in the `maintain` cycle. Tune or remove the scan ceiling for entity extraction (Step 5) and insight card generation (Step 6) on large deployments.
-- **InsightGenerator gap filter**: The gap detector now skips operational/metadata tags (`conflict:unresolved`, `automated`, `__test__`, `temporary`, `processed`, `auto-generated`, `insight-card`) that are not knowledge domains, eliminating false-positive "Decision gap" insight cards.
+**What's Fixed:**
+- `memory_store_session` was incorrectly blocked by semantic deduplication against topically-similar atomic memories — a category error (session logs vs atomic facts). Fixed by setting `skip_dedup = bool(conversation_id) or (memory_type == "session")` in `store_memory()`.
 
 ---
 
 **Previous Releases**:
+- **v10.56.0** - feat(consolidation): configurable maintain scan limit + InsightGenerator gap filter
 - **v10.55.2** - fix(insights): handle None memory\_type and tags in InsightGenerator sort
 - **v10.55.1** - fix(entities): entity links always 0 in `maintain` Step 5 due to wrong graph accessor (PR #895)
 - **v10.55.0** - feat(reasoning+consolidation): entity extraction, memory-entity linking, and Insight Cards (PRs #868, #869, @filhocf)
