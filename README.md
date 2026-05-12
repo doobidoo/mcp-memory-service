@@ -496,16 +496,17 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.55.1** (May 11, 2026)
+## Latest Release: **v10.55.2** (May 12, 2026)
 
-**fix(entities): entity links always 0 in `maintain` Step 5 due to wrong graph accessor**
+**fix(insights): handle None memory\_type and tags in InsightGenerator sort**
 
 **What's Fixed:**
-- **`maintain` Step 5 entity links** (PR #895): `quality.py` checked `storage.graph` (never set on storage objects), causing `links_stored` to always be `0` even when `entities_found > 0`. Fixed by using `get_graph_storage()`, the same accessor pattern used by all other graph handlers.
+- **InsightGenerator TypeError** (`insights.py`): Fixed `'<' not supported between instances of 'str' and 'NoneType'` crash when memories have `None` values for `memory_type` or `tags`. The `maintain` cycle Step 6 (Insight Cards) now runs without errors.
 
 ---
 
 **Previous Releases**:
+- **v10.55.1** - fix(entities): entity links always 0 in `maintain` Step 5 due to wrong graph accessor (PR #895)
 - **v10.55.0** - feat(reasoning+consolidation): entity extraction, memory-entity linking, and Insight Cards (PRs #868, #869, @filhocf)
 - **v10.54.0** - feat(search): tag_match parameter for memory_search AND/OR tag filtering (PR #890, @filhocf)
 - **v10.53.0** - feat(milvus): activate consolidation embedding hydration end-to-end; security: GitPython 3.1.50 (PRs #885, #886, @henry201605)

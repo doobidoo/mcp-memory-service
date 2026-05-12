@@ -57,7 +57,7 @@ class InsightGenerator:
         # Group memories by tag pairs, then consolidate by source set
         pair_memories: Dict[tuple, List[dict]] = defaultdict(list)
         for mem in memories:
-            tags = sorted(set(mem.get("tags", [])))
+            tags = sorted(set(t for t in (mem.get("tags") or []) if t is not None))
             for i in range(len(tags)):
                 for j in range(i + 1, len(tags)):
                     pair_memories[(tags[i], tags[j])].append(mem)
@@ -115,8 +115,8 @@ class InsightGenerator:
         for tag in recent_tags:
             if tag not in old_tags:
                 continue
-            recent_types = set(m.get("memory_type", "") for m in recent_tags[tag])
-            old_types = set(m.get("memory_type", "") for m in old_tags[tag])
+            recent_types = set(m.get("memory_type") or "" for m in recent_tags[tag])
+            old_types = set(m.get("memory_type") or "" for m in old_tags[tag])
             if recent_types != old_types and len(recent_tags[tag]) >= 2:
                 hashes = (
                     [m["content_hash"] for m in recent_tags[tag]] +

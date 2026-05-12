@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.55.2] - 2026-05-12
+
+### Fixed
+
+- **fix(insights): handle None memory\_type and tags in InsightGenerator sort**: Fixed `TypeError: '<' not supported between instances of 'str' and 'NoneType'` in `InsightGenerator` when memories have `None` values for `memory_type` or `tags` fields. `dict.get(key, default)` does not fall back to the default when the key is present with a `None` value; fixed with `or ""` / `or []` idiom. Step 6 (Insight Cards) in the `maintain` cycle now runs without errors.
+
 ## [10.55.1] - 2026-05-11
 
 ### Fixed
