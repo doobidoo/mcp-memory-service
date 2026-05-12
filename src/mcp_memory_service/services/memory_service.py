@@ -276,6 +276,8 @@ class MemoryService:
         page: int = 1,
         page_size: int = 10,
         tag: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        tag_match: str = "any",
         memory_type: Optional[str] = None,
         stale_days: Optional[int] = None,
     ) -> Union[ListMemoriesSuccess, ListMemoriesError]:
@@ -288,7 +290,9 @@ class MemoryService:
         Args:
             page: Page number (1-based)
             page_size: Number of memories per page
-            tag: Filter by specific tag
+            tag: Filter by specific tag (legacy, use tags instead)
+            tags: Filter by list of tags
+            tag_match: "any" to match ANY tag (OR), "all" to match ALL tags (AND)
             memory_type: Filter by memory type
             stale_days: Filter to memories not accessed in the last N days.
                 Uses COALESCE(last_accessed, created_at) for memories never read.
@@ -301,12 +305,14 @@ class MemoryService:
             offset = (page - 1) * page_size
 
             # Use database-level filtering for optimal performance
-            tags_list = [tag] if tag else None
+            # Support both legacy single tag and new tags list
+            tags_list = tags if tags else ([tag] if tag else None)
             memories = await self.storage.get_all_memories(
                 limit=page_size,
                 offset=offset,
                 memory_type=memory_type,
                 tags=tags_list,
+                tag_match=tag_match,
                 stale_days=stale_days,
             )
 
@@ -314,6 +320,7 @@ class MemoryService:
             total = await self.storage.count_all_memories(
                 memory_type=memory_type,
                 tags=tags_list,
+                tag_match=tag_match,
                 stale_days=stale_days,
             )
 
