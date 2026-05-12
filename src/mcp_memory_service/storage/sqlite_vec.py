@@ -3530,6 +3530,7 @@ SOLUTIONS:
         offset: int = 0,
         memory_type: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        tag_match: str = "any",
         stale_days: Optional[int] = None,
         include_embeddings: bool = False,
     ) -> List[Memory]:
@@ -3540,7 +3541,8 @@ SOLUTIONS:
             limit: Maximum number of memories to return (None for all)
             offset: Number of memories to skip (for pagination)
             memory_type: Optional filter by memory type
-            tags: Optional filter by tags (matches ANY of the provided tags)
+            tags: Optional filter by tags
+            tag_match: "any" to match ANY tag (OR), "all" to match ALL tags (AND)
             include_embeddings: Accepted for signature compatibility with the
                 base ABC. SqliteVecMemoryStorage already LEFT-JOINs the
                 embeddings table unconditionally (``_row_to_memory`` decodes
@@ -3576,7 +3578,8 @@ SOLUTIONS:
             # Add tags filter if specified (GLOB for exact tag matching in CSV column)
             if tags and len(tags) > 0:
                 stripped_tags = [tag.strip() for tag in tags]
-                tag_conditions = " OR ".join(
+                joiner = " AND " if tag_match == "all" else " OR "
+                tag_conditions = joiner.join(
                     [
                         "(',' || REPLACE(m.tags, ' ', '') || ',') GLOB ?"
                         for _ in stripped_tags
@@ -3729,13 +3732,14 @@ SOLUTIONS:
             logger.error(f"Error getting memory timestamps: {e}")
             return []
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, stale_days: Optional[int] = None) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None) -> int:
         """
         Get total count of memories in storage.
 
         Args:
             memory_type: Optional filter by memory type
-            tags: Optional filter by tags (memories matching ANY of the tags)
+            tags: Optional filter by tags
+            tag_match: "any" to match ANY tag (OR), "all" to match ALL tags (AND)
 
         Returns:
             Total number of memories, optionally filtered by type and/or tags
@@ -3752,9 +3756,10 @@ SOLUTIONS:
                 params.append(memory_type)
 
             if tags:
-                # Filter by tags - match ANY tag (OR logic, GLOB for exact match in CSV)
+                # Filter by tags using tag_match mode
                 stripped_tags = [tag.strip() for tag in tags]
-                tag_conditions = " OR ".join(
+                joiner = " AND " if tag_match == "all" else " OR "
+                tag_conditions = joiner.join(
                     [
                         "(',' || REPLACE(tags, ' ', '') || ',') GLOB ?"
                         for _ in stripped_tags
