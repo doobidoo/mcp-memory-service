@@ -460,6 +460,9 @@ Export memories from mcp-memory-service → Import to shodh-cloudflare → Sync 
 📊 **Web Dashboard** – Visualize and manage memories at `http://localhost:8000`
 🧬 **Knowledge Graph** – Interactive D3.js visualization of memory relationships
 🏠 **Homelab Quality Scoring** – Point scoring at any OpenAI-compatible endpoint (Ollama, LiteLLM, vLLM)
+🔗 **Entity Extraction** – Auto-links @mentions, #tags, URLs, and file paths from memory content to a queryable entity graph
+💡 **Insight Cards** – Consolidation detects patterns, trends, and knowledge gaps across your memory corpus and surfaces them as structured insights
+🏷️ **Tag Match Filtering** – `tag_match=AND/OR` on `memory_search` for precise multi-tag queries
 
 **Homelab / self-hosted quality scoring** (v10.45.0+): set `MCP_QUALITY_AI_PROVIDER=openai-compatible` to score memories with your local LLM instead of ONNX or a cloud API:
 
