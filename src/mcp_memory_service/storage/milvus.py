@@ -1887,6 +1887,9 @@ class MilvusMemoryStorage(MemoryStorage):
         times each hash appears as either ``source_hash`` or ``target_hash``.
         This enables the Forgetting engine to protect highly-connected
         "hub" memories from premature archival.
+
+        Uses ``query_iterator`` to handle arbitrarily large graph collections
+        without hitting the single-query limit cap.
         """
         graph_collection = f"{self.collection_name}_graph"
 
@@ -1904,15 +1907,14 @@ class MilvusMemoryStorage(MemoryStorage):
         except Exception:  # noqa: BLE001
             return {}
 
-        # Fetch all edges (source_hash, target_hash) from graph collection
+        # Drain all edges via QueryIterator (handles large graphs)
         try:
-            rows = await self._call_client(
-                "query",
-                collection_name=graph_collection,
-                filter="",
-                output_fields=["source_hash", "target_hash"],
-                limit=_MILVUS_MAX_LIMIT,
-            )
+            async with self._write_lock:
+                if self.client is None:
+                    return {}
+                rows = await asyncio.to_thread(
+                    self._drain_graph_edges, graph_collection,
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning("get_memory_connections: failed to query graph collection: %s", exc)
             return {}
@@ -1928,6 +1930,29 @@ class MilvusMemoryStorage(MemoryStorage):
                 connections[tgt] = connections.get(tgt, 0) + 1
 
         return connections
+
+    def _drain_graph_edges(self, graph_collection: str) -> List[Dict[str, Any]]:
+        """Sync helper that drains all edges from the graph collection."""
+        assert self.client is not None
+        iterator = self.client.query_iterator(
+            collection_name=graph_collection,
+            filter="",
+            output_fields=["source_hash", "target_hash"],
+            batch_size=self._QUERY_ITER_BATCH,
+        )
+        rows: List[Dict[str, Any]] = []
+        try:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                rows.extend(batch)
+        finally:
+            try:
+                iterator.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return rows
 
     _QUERY_ITER_BATCH = 1000
 
