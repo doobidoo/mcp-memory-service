@@ -1706,6 +1706,7 @@ class HybridMemoryStorage(MemoryStorage):
         offset: int = 0,
         memory_type: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        tag_match: str = "any",
         stale_days: Optional[int] = None,
         include_embeddings: bool = False,
     ) -> List[Memory]:
@@ -1719,6 +1720,7 @@ class HybridMemoryStorage(MemoryStorage):
             offset=offset,
             memory_type=memory_type,
             tags=tags,
+            tag_match=tag_match,
             stale_days=stale_days,
             include_embeddings=include_embeddings,
         )
@@ -1727,9 +1729,9 @@ class HybridMemoryStorage(MemoryStorage):
         """Get a memory by its content hash from primary storage."""
         return await self.primary.get_by_hash(content_hash)
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, stale_days: Optional[int] = None) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None) -> int:
         """Get total count of memories from primary storage."""
-        return await self.primary.count_all_memories(memory_type=memory_type, tags=tags, stale_days=stale_days)
+        return await self.primary.count_all_memories(memory_type=memory_type, tags=tags, tag_match=tag_match, stale_days=stale_days)
 
     async def get_memories_by_time_range(
         self,

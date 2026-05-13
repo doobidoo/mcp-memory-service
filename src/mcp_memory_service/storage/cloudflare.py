@@ -1793,6 +1793,7 @@ class CloudflareStorage(MemoryStorage):
         offset: int = 0,
         memory_type: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        tag_match: str = "any",
         stale_days: Optional[int] = None,
         include_embeddings: bool = False,
     ) -> List[Memory]:
@@ -1839,14 +1840,16 @@ class CloudflareStorage(MemoryStorage):
             if where_conditions:
                 sql += " WHERE " + " AND ".join(where_conditions)
 
+            query_params = params.copy()
+
             if tags:
-                sql += " GROUP BY m.id HAVING COUNT(DISTINCT t.name) = ?"
+                if tag_match == "all":
+                    sql += " GROUP BY m.id HAVING COUNT(DISTINCT t.name) = ?"
+                    query_params.append(tag_count)
+                else:
+                    sql += " GROUP BY m.id"
 
             sql += " ORDER BY m.created_at DESC"
-
-            query_params = params.copy()
-            if tags:
-                query_params.append(tag_count)
 
             if limit is not None:
                 sql += " LIMIT ?"
@@ -2125,13 +2128,13 @@ class CloudflareStorage(MemoryStorage):
             logger.error(f"Error getting memories by time range: {str(e)}")
             return []
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, stale_days: Optional[int] = None) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None) -> int:
         """
         Get total count of memories in storage.
 
         Args:
             memory_type: Optional filter by memory type
-            tags: Optional filter by tags (memories matching ANY of the tags)
+            tags: Optional filter by tags (tag_match controls AND/OR logic)
 
         Returns:
             Total number of memories, optionally filtered by type and/or tags
@@ -2163,12 +2166,15 @@ class CloudflareStorage(MemoryStorage):
                 sql += ' WHERE ' + ' AND '.join(conditions)
 
             if tags:
-                sql += ' GROUP BY m.id HAVING COUNT(DISTINCT t.name) = ?'
+                if tag_match == "all":
+                    sql += ' GROUP BY m.id HAVING COUNT(DISTINCT t.name) = ?'
+                else:
+                    sql += ' GROUP BY m.id'
 
             count_sql = f'SELECT COUNT(*) as count FROM ({sql}) AS subquery'
 
             count_params = params.copy()
-            if tags:
+            if tags and tag_match == "all":
                 count_params.append(tag_count)
 
             payload = {"sql": count_sql, "params": count_params}

@@ -550,23 +550,20 @@ async def handle_memory_list(server, arguments: dict) -> List[types.TextContent]
         page = arguments.get("page", 1)
         page_size = arguments.get("page_size", 20)
         tags = arguments.get("tags")
+        tag_match = arguments.get("tag_match", "any")
         memory_type = arguments.get("memory_type")
         stale_days = arguments.get("stale_days")
 
         # Normalize tags if provided
         if tags:
             tags = normalize_tags(tags)
-            # For list_memories, we need a single tag (legacy API)
-            # Use the first tag if multiple provided
-            tag = tags[0] if tags else None
-        else:
-            tag = None
 
         # Call memory service list_memories
         result = await server.memory_service.list_memories(
             page=page,
             page_size=page_size,
-            tag=tag,
+            tags=tags,
+            tag_match=tag_match,
             memory_type=memory_type,
             stale_days=stale_days,
         )
