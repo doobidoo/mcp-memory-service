@@ -10,6 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.57.0] - 2026-05-13
+
+### Added
+
+- **`tag_match` parameter for `memory_list` MCP tool** ([#904](https://github.com/doobidoo/mcp-memory-service/pull/904), @filhocf): Extends AND/OR tag filtering to `memory_list`, harmonizing it with `memory_search` and `memory_delete`. Accepts `tag_match: "any"` (OR, default — existing behavior unchanged) or `tag_match: "all"` (AND — only memories matching every supplied tag are returned). Implemented across `server_impl.py`, `server/handlers/memory.py`, REST API, and all three storage backends (sqlite_vec, cloudflare, hybrid).
+- **Automatic chunking for `memory_store_session`** ([#912](https://github.com/doobidoo/mcp-memory-service/pull/912), @filhocf): Long sessions stored via `memory_store_session` are now automatically split at turn boundaries (lines starting with `User:`, `Assistant:`, `Human:`, `AI:`, `You:`, `Bot:`). Configure with `SESSION_CHUNK_SIZE` env var (default: 1500 chars, set to 0 to disable). Each chunk is tagged `chunk:N/M` for sequential retrieval. Fully backward compatible — short sessions are stored as a single memory with no change in behavior.
+
+### Fixed
+
+- **CI: guard `pr-contributor-welcome` against non-PR event triggers** (commit b42cf004): Added `github.event_name == 'pull_request_target'` guard to the contributor-welcome workflow to prevent crashes when triggered by push events.
+
 ## [10.56.3] - 2026-05-13
 
 ### Fixed
