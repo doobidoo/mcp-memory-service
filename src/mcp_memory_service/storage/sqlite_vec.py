@@ -77,13 +77,13 @@ def _sanitize_log_value(value: object) -> str:
     return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
 
 
-def _escape_glob(value: str) -> str:
-    """Escape GLOB metacharacters so they are treated as literals.
+def _escape_like(value: str) -> str:
+    """Escape LIKE metacharacters for use with ESCAPE '\\'.
 
-    SQLite GLOB uses *, ?, and [...] as wildcards.  Bracket escaping
-    (``[*]``, ``[?]``, ``[[]``) turns them into literal matches.
+    SQLite LIKE uses % and _ as wildcards; \\ is the escape character.
+    Escaping order matters: backslash must be escaped first.
     """
-    return value.replace("[", "[[]").replace("*", "[*]").replace("?", "[?]")
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 # Module-level constants for vector search and tag filtering
@@ -1661,10 +1661,9 @@ SOLUTIONS:
                 params = [serialize_float32(query_embedding), k_value]
 
                 if tags:
-                    # Match ANY tag using GLOB on the comma-separated tags column.
-                    # GLOB is case-sensitive and uses * wildcards (no injection risk from user data
-                    # since GLOB special chars * ? [ are not valid in tag names).
+                    # Match ANY tag using LIKE on the comma-separated tags column.
                     # REPLACE strips whitespace to handle "tag1, tag2" storage format.
+                    # LIKE special chars (%, _, \) are escaped via _escape_like.
                     tag_clauses = []
                     for tag in tags:
                         # Type validation: skip non-string elements to prevent AttributeError
@@ -1673,9 +1672,9 @@ SOLUTIONS:
                             continue
                         stripped = tag.strip()
                         tag_clauses.append(
-                            "(',' || REPLACE(m.tags, ' ', '') || ',') GLOB ?"
+                            "(',' || REPLACE(m.tags, ' ', '') || ',') LIKE ? ESCAPE '\\'"
                         )
-                        params.append(f"*,{_escape_glob(stripped)},*")
+                        params.append(f"%,{_escape_like(stripped)},%")
 
                     # CRITICAL: If tag filter was provided but all tags invalid,
                     # return empty results instead of silently ignoring the filter.
@@ -2114,12 +2113,11 @@ SOLUTIONS:
                 return []
 
             # Build query for tag search (OR logic) with EXACT tag matching
-            # Uses GLOB for case-sensitive matching (LIKE is case-insensitive in SQLite)
-            # Pattern: (',' || tags || ',') GLOB '*,tag,*' matches exact tag in comma-separated list
+            # Uses LIKE ESCAPE for safe matching; REPLACE strips spaces around commas.
             # Strip whitespace from tags to match get_all_tags_with_counts behavior
             stripped_tags = [tag.strip() for tag in tags]
-            tag_conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') GLOB ?" for _ in stripped_tags])
-            tag_params = [f"*,{_escape_glob(tag)},*" for tag in stripped_tags]
+            tag_conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
+            tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             # Add time filter to WHERE clause if provided
             # Also exclude soft-deleted memories
@@ -2197,13 +2195,12 @@ SOLUTIONS:
                 logger.warning("Unsupported tag operation %s; defaulting to AND", operation)
                 normalized_operation = "AND"
 
-            # Use GLOB for case-sensitive exact tag matching
-            # Pattern: (',' || tags || ',') GLOB '*,tag,*' matches exact tag in comma-separated list
+            # Use LIKE ESCAPE for exact tag matching; REPLACE strips spaces around commas.
             # Strip whitespace from tags to match get_all_tags_with_counts behavior
             stripped_tags = [tag.strip() for tag in tags]
             comparator = " AND " if normalized_operation == "AND" else " OR "
-            tag_conditions = comparator.join(["(',' || REPLACE(tags, ' ', '') || ',') GLOB ?" for _ in stripped_tags])
-            tag_params = [f"*,{_escape_glob(tag)},*" for tag in stripped_tags]
+            tag_conditions = comparator.join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
+            tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             where_conditions = [f"({tag_conditions})"] if tag_conditions else []
             # Always exclude soft-deleted memories
@@ -2288,11 +2285,11 @@ SOLUTIONS:
                 return []
 
             # Build query for tag search (OR logic) with database-level ordering and pagination
-            # Use GLOB for case-sensitive exact tag matching
+            # Use LIKE ESCAPE for exact tag matching; REPLACE strips spaces around commas.
             # Strip whitespace from tags to match get_all_tags_with_counts behavior
             stripped_tags = [tag.strip() for tag in tags]
-            tag_conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') GLOB ?" for _ in stripped_tags])
-            tag_params = [f"*,{_escape_glob(tag)},*" for tag in stripped_tags]
+            tag_conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
+            tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             # Build query with parameterized pagination (avoid f-string interpolation)
             query = f"""
@@ -2540,16 +2537,14 @@ SOLUTIONS:
             if not self.conn:
                 return 0, "Database not initialized"
 
-            # Use GLOB for case-sensitive exact tag matching
-            # Pattern: (',' || tags || ',') GLOB '*,tag,*' matches exact tag in comma-separated list
-            # Strip whitespace to match get_all_tags_with_counts behavior
+            # Use LIKE ESCAPE for exact tag matching; REPLACE strips spaces around commas.
             stripped_tag = tag.strip()
-            exact_match_pattern = f"*,{_escape_glob(stripped_tag)},*"
+            exact_match_pattern = f"%,{_escape_like(stripped_tag)},%"
 
             def _delete_by_tag():
                 # Get the ids and hashes first to delete corresponding embeddings and graph edges (only non-deleted)
                 cursor = self.conn.execute(
-                    "SELECT id, content_hash FROM memories WHERE (',' || REPLACE(tags, ' ', '') || ',') GLOB ? AND deleted_at IS NULL",
+                    "SELECT id, content_hash FROM memories WHERE (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\' AND deleted_at IS NULL",
                     (exact_match_pattern,)
                 )
                 rows = cursor.fetchall()
@@ -2569,7 +2564,7 @@ SOLUTIONS:
 
                 # Soft-delete: set deleted_at timestamp instead of DELETE
                 cursor = self.conn.execute(
-                    "UPDATE memories SET deleted_at = ? WHERE (',' || REPLACE(tags, ' ', '') || ',') GLOB ? AND deleted_at IS NULL",
+                    "UPDATE memories SET deleted_at = ? WHERE (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\' AND deleted_at IS NULL",
                     (time.time(), exact_match_pattern)
                 )
                 self.conn.commit()
@@ -2604,12 +2599,10 @@ SOLUTIONS:
             if not tags:
                 return 0, "No tags provided", []
 
-            # Build OR condition with GLOB for case-sensitive exact tag matching
-            # Pattern: (',' || tags || ',') GLOB '*,tag,*' matches exact tag in comma-separated list
-            # Strip whitespace to match get_all_tags_with_counts behavior
+            # Use LIKE ESCAPE for exact tag matching; REPLACE strips spaces around commas.
             stripped_tags = [tag.strip() for tag in tags]
-            conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') GLOB ?" for _ in stripped_tags])
-            params = [f"*,{_escape_glob(tag)},*" for tag in stripped_tags]
+            conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
+            params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             select_query = f'SELECT id, content_hash FROM memories WHERE ({conditions}) AND deleted_at IS NULL'
             update_query = f'UPDATE memories SET deleted_at = ? WHERE ({conditions}) AND deleted_at IS NULL'
@@ -2663,16 +2656,16 @@ SOLUTIONS:
 
             def _select_timeframe():
                 if tag:
-                    # Delete with tag filter (GLOB for exact tag match in CSV column)
+                    # Delete with tag filter (LIKE ESCAPE for exact tag match in CSV column)
                     stripped_tag = tag.strip()
                     cursor = self.conn.execute(
                         """
                         SELECT content_hash FROM memories
                         WHERE created_at >= ? AND created_at <= ?
-                        AND (',' || REPLACE(tags, ' ', '') || ',') GLOB ?
+                        AND (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\'
                         AND deleted_at IS NULL
                     """,
-                        (start_ts, end_ts, f"*,{_escape_glob(stripped_tag)},*"),
+                        (start_ts, end_ts, f"%,{_escape_like(stripped_tag)},%"),
                     )
                 else:
                     # Delete all in timeframe
@@ -2709,16 +2702,16 @@ SOLUTIONS:
 
             def _select_before_date():
                 if tag:
-                    # Delete with tag filter (GLOB for exact tag match in CSV column)
+                    # Delete with tag filter (LIKE ESCAPE for exact tag match in CSV column)
                     stripped_tag = tag.strip()
                     cursor = self.conn.execute(
                         """
                         SELECT content_hash FROM memories
                         WHERE created_at < ?
-                        AND (',' || REPLACE(tags, ' ', '') || ',') GLOB ?
+                        AND (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\'
                         AND deleted_at IS NULL
                     """,
-                        (before_ts, f"*,{_escape_glob(stripped_tag)},*"),
+                        (before_ts, f"%,{_escape_like(stripped_tag)},%"),
                     )
                 else:
                     # Delete all before date
@@ -3575,18 +3568,18 @@ SOLUTIONS:
                 where_conditions.append('m.memory_type = ?')
                 params.append(memory_type)
 
-            # Add tags filter if specified (GLOB for exact tag matching in CSV column)
+            # Add tags filter if specified (LIKE ESCAPE for exact tag matching in CSV column)
             if tags and len(tags) > 0:
                 stripped_tags = [tag.strip() for tag in tags]
                 joiner = " AND " if tag_match == "all" else " OR "
                 tag_conditions = joiner.join(
                     [
-                        "(',' || REPLACE(m.tags, ' ', '') || ',') GLOB ?"
+                        "(',' || REPLACE(m.tags, ' ', '') || ',') LIKE ? ESCAPE '\\'"
                         for _ in stripped_tags
                     ]
                 )
                 where_conditions.append(f"({tag_conditions})")
-                params.extend([f"*,{_escape_glob(tag)},*" for tag in stripped_tags])
+                params.extend([f"%,{_escape_like(tag)},%" for tag in stripped_tags])
 
             # Add stale_days filter: memories not accessed in the last N days
             # Uses COALESCE(last_accessed, created_at) for memories never read
@@ -3761,12 +3754,12 @@ SOLUTIONS:
                 joiner = " AND " if tag_match == "all" else " OR "
                 tag_conditions = joiner.join(
                     [
-                        "(',' || REPLACE(tags, ' ', '') || ',') GLOB ?"
+                        "(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'"
                         for _ in stripped_tags
                     ]
                 )
                 conditions.append(f"({tag_conditions})")
-                params.extend([f"*,{_escape_glob(tag)},*" for tag in stripped_tags])
+                params.extend([f"%,{_escape_like(tag)},%" for tag in stripped_tags])
 
             # Add stale_days filter
             self._apply_stale_days_filter(conditions, params, stale_days)
