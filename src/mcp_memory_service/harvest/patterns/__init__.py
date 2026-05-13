@@ -27,7 +27,7 @@ def load_patterns(locales: str = "en") -> PatternDict:
         Merged pattern dict ready for use by PatternExtractor.
     """
     merged: PatternDict = {}
-    locale_list = [loc.strip() for loc in locales.split(",") if loc.strip()]
+    locale_list = list(dict.fromkeys(loc.strip() for loc in locales.split(",") if loc.strip()))
 
     if not locale_list:
         locale_list = ["en"]
@@ -69,12 +69,14 @@ def _parse_yaml_patterns(filepath: Path) -> PatternDict:
     for memory_type, entries in data["patterns"].items():
         compiled = []
         for entry in entries:
+            if not isinstance(entry, dict) or "pattern" not in entry:
+                continue
             try:
                 pattern = re.compile(entry["pattern"], re.IGNORECASE)
                 confidence = float(entry.get("confidence", 0.6))
                 compiled.append((pattern, confidence))
-            except re.error as e:
-                logger.warning(f"Invalid regex in {filepath.name}/{memory_type}: {e}")
+            except (re.error, ValueError, TypeError) as e:
+                logger.warning(f"Invalid pattern in {filepath.name}/{memory_type}: {e}")
         if compiled:
             result[memory_type] = compiled
 
@@ -104,7 +106,11 @@ def _parse_yaml_simple(filepath: Path) -> PatternDict:
             # Pattern line
             if "pattern:" in stripped and current_type:
                 # Extract pattern value between quotes
-                match = re.search(r"pattern:\s*['\"](.+?)['\"]", stripped)
+                # Extract pattern value — handle quotes containing the opposite quote type
+                match = (
+                    re.search(r"pattern:\s*'(.+)'\s*$", stripped) or
+                    re.search(r'pattern:\s*"(.+)"\s*$', stripped)
+                )
                 if match:
                     pat_str = match.group(1)
                     try:
