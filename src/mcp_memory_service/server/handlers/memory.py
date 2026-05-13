@@ -245,10 +245,11 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
 
 
 async def handle_store_session(server, arguments: dict) -> List[types.TextContent]:
-    """Store a conversation session as a single memory unit.
+    """Store a conversation session, with automatic chunking for long sessions.
 
-    Concatenates all turns into '[role] content\\n' format and stores as
-    memory_type='session' with a session:<id> tag.
+    Short sessions (≤ chunk_size chars) are stored as a single memory.
+    Long sessions are split into chunks, each with its own embedding,
+    all sharing the same session:<id> tag for grouped retrieval.
     """
     turns = arguments.get("turns")
     if not turns:
@@ -268,30 +269,84 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
     if not lines:
         return [types.TextContent(type="text", text="Error: all turns have empty content")]
 
-    content = "\n".join(lines)
-    tags = [f"session:{session_id}"] + extra_tags
+    full_content = "\n".join(lines)
+    base_tags = [f"session:{session_id}"] + extra_tags
+
+    # Chunking threshold: ~1500 chars is roughly the embedding model window.
+    # Use env var or default to 1500 chars per chunk.
+    chunk_size = int(os.environ.get("SESSION_CHUNK_SIZE", "1500"))
 
     try:
         await server._ensure_storage_initialized()
-        result = await server.memory_service.store_memory(
-            content=content,
-            tags=tags,
-            memory_type="session",
-            metadata=arguments.get("metadata", {}),
-            client_hostname=arguments.get("client_hostname"),
-        )
 
-        if not result.get("success"):
-            return [types.TextContent(type="text", text=f"Error storing session: {result.get('error', 'Unknown error')}")]
+        if len(full_content) <= chunk_size:
+            # Short session — store as single memory (original behavior)
+            result = await server.memory_service.store_memory(
+                content=full_content,
+                tags=base_tags,
+                memory_type="session",
+                metadata=arguments.get("metadata", {}),
+                client_hostname=arguments.get("client_hostname"),
+            )
+            if not result.get("success"):
+                return [types.TextContent(type="text", text=f"Error storing session: {result.get('error', 'Unknown error')}")]
+            memory_hash = result["memory"]["content_hash"]
+            return [types.TextContent(
+                type="text",
+                text=f"Session stored successfully (session_id: {session_id}, hash: {memory_hash}, turns: {len(lines)})"
+            )]
 
-        memory_hash = result["memory"]["content_hash"]
+        # Long session — chunk by turns, respecting chunk_size
+        chunks = _chunk_session_lines(lines, chunk_size)
+        stored = 0
+        hashes = []
+
+        for i, chunk_lines in enumerate(chunks):
+            chunk_content = "\n".join(chunk_lines)
+            chunk_tags = base_tags + [f"chunk:{i+1}/{len(chunks)}"]
+            result = await server.memory_service.store_memory(
+                content=chunk_content,
+                tags=chunk_tags,
+                memory_type="session",
+                metadata=arguments.get("metadata", {}),
+                client_hostname=arguments.get("client_hostname"),
+            )
+            if result.get("success"):
+                stored += 1
+                hashes.append(result["memory"]["content_hash"][:8])
+
         return [types.TextContent(
             type="text",
-            text=f"Session stored successfully (session_id: {session_id}, hash: {memory_hash}, turns: {len(lines)})"
+            text=f"Session stored successfully (session_id: {session_id}, chunks: {stored}/{len(chunks)}, turns: {len(lines)})"
         )]
     except Exception as e:
         logger.error(f"Error storing session: {str(e)}\n{traceback.format_exc()}")
         return [types.TextContent(type="text", text=f"Error storing session: {str(e)}")]
+
+
+def _chunk_session_lines(lines: List[str], chunk_size: int) -> List[List[str]]:
+    """Split session lines into chunks respecting char size limit.
+
+    Each chunk tries to stay under chunk_size chars while keeping
+    complete turns together (never splits mid-turn).
+    """
+    chunks = []
+    current_chunk = []
+    current_size = 0
+
+    for line in lines:
+        line_size = len(line) + 1  # +1 for newline
+        if current_chunk and current_size + line_size > chunk_size:
+            chunks.append(current_chunk)
+            current_chunk = []
+            current_size = 0
+        current_chunk.append(line)
+        current_size += line_size
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks
 
 
 async def handle_retrieve_memory(server, arguments: dict) -> List[types.TextContent]:
