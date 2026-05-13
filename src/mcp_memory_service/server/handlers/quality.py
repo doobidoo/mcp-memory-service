@@ -492,7 +492,12 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
         report["steps"]["quality"] = {"error": str(e)}
 
     # Pre-fetch memories once; shared by Steps 5 and 6 to avoid duplicate DB calls.
-    from ...config import MAINTAIN_SCAN_LIMIT, MCP_INSIGHT_CARDS_ENABLED
+    # Fallback guards against stale sys.modules cache when server runs across upgrades.
+    try:
+        from ...config import MAINTAIN_SCAN_LIMIT, MCP_INSIGHT_CARDS_ENABLED
+    except ImportError:
+        MAINTAIN_SCAN_LIMIT = int(__import__('os').environ.get('MCP_MAINTAIN_SCAN_LIMIT', '2000') or '2000')
+        MCP_INSIGHT_CARDS_ENABLED = __import__('os').environ.get('MCP_INSIGHT_CARDS_ENABLED', '').lower() in ('1', 'true', 'yes')
     _all_mems = await storage.get_all_memories()
     _scan_slice = _all_mems if MAINTAIN_SCAN_LIMIT == 0 else _all_mems[:MAINTAIN_SCAN_LIMIT]
 

@@ -389,6 +389,9 @@ async def test_get_all_memories_and_count(storage):
     assert await storage.count_all_memories(tags=["g-1"]) == 1
     assert await storage.count_all_memories(memory_type="note") == 3
     assert await storage.count_all_memories(memory_type="reminder") == 0
+    # stale_days is accepted but ignored (Milvus has no last_accessed field)
+    assert await storage.count_all_memories(stale_days=7) == 3
+    assert await storage.count_all_memories(memory_type="note", stale_days=30) == 3
 
 
 @pytest.mark.asyncio
