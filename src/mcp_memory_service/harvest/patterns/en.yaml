@@ -1,0 +1,41 @@
+language: en
+version: 1
+
+patterns:
+  decision:
+    - pattern: '\b(?:decided|chose|choosing|going with|opted for|selected)\b.*\b(?:over|instead of|because|for)\b'
+      confidence: 0.75
+    - pattern: '\b(?:decision|approach):\s'
+      confidence: 0.7
+    - pattern: '\bI (?:will|''ll) (?:use|go with|pick|choose)\b'
+      confidence: 0.65
+
+  bug:
+    - pattern: '\b(?:root cause|bug was|issue was|problem was|error was)\b'
+      confidence: 0.75
+    - pattern: '\b(?:fixed by|fix was|resolved by|the fix)\b'
+      confidence: 0.7
+    - pattern: '\b(?:crash|regression|broke|breaking|broken)\b.*\b(?:because|due to|caused by)\b'
+      confidence: 0.7
+
+  convention:
+    - pattern: '\b(?:convention|rule|pattern|standard):\s'
+      confidence: 0.8
+    - pattern: '\b(?:always|never)\s+(?:use|do|add|include|set|run|check)\b'
+      confidence: 0.65
+    - pattern: '\bmust (?:always|never)\b'
+      confidence: 0.7
+
+  learning:
+    - pattern: '\b(?:learned|discovered|realized|found out|turns out|TIL)\b'
+      confidence: 0.7
+    - pattern: '\b(?:insight|takeaway|lesson|key finding)\b'
+      confidence: 0.7
+    - pattern: '\b(?:didn''t know|wasn''t aware|surprised to find)\b'
+      confidence: 0.65
+
+  context:
+    - pattern: '\b(?:current state|status|progress|where we left off)\b'
+      confidence: 0.6
+    - pattern: '\b(?:next steps?|todo|remaining work|blocked on)\b'
+      confidence: 0.6

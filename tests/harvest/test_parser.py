@@ -133,3 +133,112 @@ class TestTranscriptParser:
         messages = parser.parse_file(filepath)
         assert len(messages) == 1
         assert "bug fix" in messages[0].text
+
+
+class TestKiroCliParser:
+    """Tests for Kiro CLI JSONL format parsing."""
+
+    def test_parse_kiro_file(self, sample_kiro_jsonl):
+        filepath, session_id = sample_kiro_jsonl
+        parser = TranscriptParser()
+        messages = parser.parse_file(filepath)
+        # Should get: 2 user (Prompt) + 2 assistant (AssistantMessage with text)
+        # ToolResults are skipped
+        assert len(messages) == 4
+
+    def test_kiro_roles_mapped(self, sample_kiro_jsonl):
+        filepath, _ = sample_kiro_jsonl
+        parser = TranscriptParser()
+        messages = parser.parse_file(filepath)
+        assert messages[0].role == "user"
+        assert messages[1].role == "assistant"
+
+    def test_kiro_text_extracted(self, sample_kiro_jsonl):
+        filepath, _ = sample_kiro_jsonl
+        parser = TranscriptParser()
+        messages = parser.parse_file(filepath)
+        assert "SQLite-Vec" in messages[0].text
+
+    def test_kiro_tool_use_excluded(self, sample_kiro_jsonl):
+        filepath, _ = sample_kiro_jsonl
+        parser = TranscriptParser()
+        messages = parser.parse_file(filepath)
+        # Assistant message a1 has toolUse — only text should be extracted
+        for msg in messages:
+            assert "toolUse" not in msg.text
+            assert "shell" not in msg.text
+
+    def test_kiro_uuid_preserved(self, sample_kiro_jsonl):
+        filepath, _ = sample_kiro_jsonl
+        parser = TranscriptParser()
+        messages = parser.parse_file(filepath)
+        assert messages[0].uuid == "u1"
+
+    def test_kiro_timestamp_converted(self, sample_kiro_jsonl):
+        filepath, _ = sample_kiro_jsonl
+        parser = TranscriptParser()
+        messages = parser.parse_file(filepath)
+        # Unix 1778593355 should be converted to ISO string
+        assert messages[0].timestamp is not None
+        assert "2026" in messages[0].timestamp
+
+    def test_kiro_tool_results_skipped(self, tmp_path):
+        """ToolResults lines should be completely skipped."""
+        import json
+        lines = [
+            {"version": "v1", "kind": "ToolResults", "data": {
+                "message_id": "tr1",
+                "content": [{"kind": "toolResult", "data": {"toolUseId": "t1", "content": [], "status": "success"}}]
+            }},
+        ]
+        filepath = tmp_path / "tools_only.jsonl"
+        with open(filepath, 'w') as f:
+            for line in lines:
+                f.write(json.dumps(line) + '\n')
+        parser = TranscriptParser()
+        messages = parser.parse_file(filepath)
+        assert messages == []
+
+    def test_mixed_format_file(self, tmp_path):
+        """A file with both formats should parse both correctly."""
+        import json
+        lines = [
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "text", "text": "Claude Code message"}
+            ]}, "timestamp": "2026-03-25T10:00:00Z", "sessionId": "s1", "uuid": "cc1"},
+            {"version": "v1", "kind": "Prompt", "data": {
+                "message_id": "k1",
+                "content": [{"kind": "text", "data": "Kiro CLI message"}],
+                "meta": {"timestamp": 1778593355}
+            }},
+        ]
+        filepath = tmp_path / "mixed.jsonl"
+        with open(filepath, 'w') as f:
+            for line in lines:
+                f.write(json.dumps(line) + '\n')
+        parser = TranscriptParser()
+        messages = parser.parse_file(filepath)
+        assert len(messages) == 2
+        assert messages[0].text == "Claude Code message"
+        assert messages[1].text == "Kiro CLI message"
+
+    def test_kiro_empty_text_skipped(self, tmp_path):
+        """Kiro lines with empty text blocks should be skipped."""
+        import json
+        lines = [
+            {"version": "v1", "kind": "AssistantMessage", "data": {
+                "message_id": "a1",
+                "content": [
+                    {"kind": "text", "data": ""},
+                    {"kind": "toolUse", "data": {"toolUseId": "t1", "name": "shell", "input": {}}}
+                ],
+                "meta": {"timestamp": 1778593355}
+            }},
+        ]
+        filepath = tmp_path / "empty_text.jsonl"
+        with open(filepath, 'w') as f:
+            for line in lines:
+                f.write(json.dumps(line) + '\n')
+        parser = TranscriptParser()
+        messages = parser.parse_file(filepath)
+        assert messages == []

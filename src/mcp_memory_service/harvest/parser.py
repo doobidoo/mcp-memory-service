@@ -1,8 +1,9 @@
-"""JSONL transcript parser for Claude Code session files."""
+"""JSONL transcript parser for Claude Code and Kiro CLI session files."""
 
 import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -19,7 +20,7 @@ class ParsedMessage:
 
 
 class TranscriptParser:
-    """Parses Claude Code JSONL session transcripts."""
+    """Parses JSONL session transcripts from Claude Code and Kiro CLI."""
 
     RELEVANT_TYPES = {"user", "assistant"}
 
@@ -36,7 +37,9 @@ class TranscriptParser:
     def parse_file(self, filepath: Path) -> List[ParsedMessage]:
         """Parse a JSONL file and extract user/assistant text messages.
 
-        Supports both Claude Code format and Kiro CLI format.
+        Auto-detects format per line:
+        - Kiro CLI: {"version": "v1", "kind": "Prompt"|"AssistantMessage"|"ToolResults", ...}
+        - Claude Code: {"type": "user"|"assistant", "message": {...}, ...}
         """
         filepath = Path(filepath)
         messages: List[ParsedMessage] = []
@@ -55,31 +58,44 @@ class TranscriptParser:
                     logger.debug(f"Skipping corrupt line {line_num} in {filepath.name}")
                     continue
 
-                # Detect format and dispatch
                 if "version" in obj and "kind" in obj:
                     msg = self._parse_kiro_line(obj)
-                    if msg:
-                        messages.append(msg)
                 elif "type" in obj:
                     msg = self._parse_claude_code_line(obj)
-                    if msg:
-                        messages.append(msg)
+                else:
+                    continue
+
+                if msg:
+                    messages.append(msg)
 
         return messages
 
     def _parse_kiro_line(self, obj: dict) -> Optional[ParsedMessage]:
-        """Parse a Kiro CLI JSONL line."""
-        kind = obj.get("kind")
-        data = obj.get("data", {})
-        message_id = data.get("message_id")
-        content = data.get("content", [])
+        """Parse a Kiro CLI JSONL line.
 
+        Format:
+          {"version": "v1", "kind": "Prompt", "data": {"message_id": "...",
+           "content": [{"kind": "text", "data": "..."}],
+           "meta": {"timestamp": 1778593355}}}
+        """
+        kind = obj.get("kind")
         if kind not in ("Prompt", "AssistantMessage"):
             return None
 
+        data = obj.get("data", {})
+        message_id = data.get("message_id")
+        content = data.get("content", [])
+        meta = data.get("meta", {})
+
         role = "user" if kind == "Prompt" else "assistant"
 
-        # Content is a list of {kind: "text"|"toolUse", data: ...}
+        # Extract timestamp (Unix epoch → ISO string)
+        timestamp = None
+        raw_ts = meta.get("timestamp")
+        if isinstance(raw_ts, (int, float)):
+            timestamp = datetime.fromtimestamp(raw_ts, tz=timezone.utc).isoformat()
+
+        # Extract text blocks only (skip toolUse)
         texts = []
         if isinstance(content, list):
             for block in content:
@@ -87,17 +103,21 @@ class TranscriptParser:
                     text = block.get("data", "")
                     if isinstance(text, str) and text.strip():
                         texts.append(text.strip())
-        elif isinstance(content, str) and content.strip():
-            texts.append(content.strip())
 
         combined = "\n".join(texts).strip()
         if combined and not self._is_system_content(combined):
-            return ParsedMessage(role=role, text=combined, uuid=message_id)
-
+            return ParsedMessage(
+                role=role, text=combined, timestamp=timestamp, uuid=message_id
+            )
         return None
 
     def _parse_claude_code_line(self, obj: dict) -> Optional[ParsedMessage]:
-        """Parse a Claude Code JSONL line."""
+        """Parse a Claude Code JSONL line.
+
+        Format:
+          {"type": "user"|"assistant", "message": {"content": [{"type": "text", "text": "..."}]},
+           "timestamp": "...", "uuid": "..."}
+        """
         msg_type = obj.get("type")
         if msg_type not in self.RELEVANT_TYPES:
             return None
