@@ -404,6 +404,65 @@ async def test_get_all_tags_deduplicates(storage):
     assert set(tags) == {"x", "y", "z"}
 
 
+# -- Connection tracking -----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_memory_connections_empty(storage):
+    """get_memory_connections returns empty dict when no graph collection exists."""
+    connections = await storage.get_memory_connections()
+    assert connections == {}
+
+
+@pytest.mark.asyncio
+async def test_get_memory_connections_with_graph_data(storage):
+    """get_memory_connections counts edges from graph collection."""
+    from pymilvus import DataType
+
+    graph_collection = f"{storage.collection_name}_graph"
+    client = storage.client
+
+    # Create graph collection if not exists (mimics MilvusGraphStorage)
+    if not client.has_collection(collection_name=graph_collection):
+        schema = client.create_schema(auto_id=False, enable_dynamic_field=False)
+        schema.add_field(field_name="id", datatype=DataType.VARCHAR, is_primary=True, max_length=64)
+        schema.add_field(field_name="source_hash", datatype=DataType.VARCHAR, max_length=64)
+        schema.add_field(field_name="target_hash", datatype=DataType.VARCHAR, max_length=64)
+        schema.add_field(field_name="similarity", datatype=DataType.FLOAT)
+        schema.add_field(field_name="connection_types", datatype=DataType.VARCHAR, max_length=65535)
+        schema.add_field(field_name="metadata", datatype=DataType.VARCHAR, max_length=65535)
+        schema.add_field(field_name="relationship_type", datatype=DataType.VARCHAR, max_length=32)
+        schema.add_field(field_name="created_at", datatype=DataType.DOUBLE)
+        schema.add_field(field_name="_dummy_vec", datatype=DataType.FLOAT_VECTOR, dim=2)
+        index_params = client.prepare_index_params()
+        index_params.add_index(field_name="_dummy_vec", index_type="AUTOINDEX", metric_type="L2")
+        client.create_collection(collection_name=graph_collection, schema=schema, index_params=index_params)
+
+    # Insert test edges: A->B, A->C, B->C
+    import hashlib, time
+    edges = [
+        {"id": hashlib.sha256(b"a:b").hexdigest()[:64], "source_hash": "aaaa1111", "target_hash": "bbbb2222",
+         "similarity": 0.8, "connection_types": "shared_tags", "metadata": "{}",
+         "relationship_type": "related", "created_at": time.time(), "_dummy_vec": [0.0, 0.0]},
+        {"id": hashlib.sha256(b"a:c").hexdigest()[:64], "source_hash": "aaaa1111", "target_hash": "cccc3333",
+         "similarity": 0.7, "connection_types": "temporal_proximity", "metadata": "{}",
+         "relationship_type": "related", "created_at": time.time(), "_dummy_vec": [0.0, 0.0]},
+        {"id": hashlib.sha256(b"b:c").hexdigest()[:64], "source_hash": "bbbb2222", "target_hash": "cccc3333",
+         "similarity": 0.6, "connection_types": "shared_concepts", "metadata": "{}",
+         "relationship_type": "related", "created_at": time.time(), "_dummy_vec": [0.0, 0.0]},
+    ]
+    client.insert(collection_name=graph_collection, data=edges)
+
+    # Verify counts
+    connections = await storage.get_memory_connections()
+    assert connections["aaaa1111"] == 2  # source twice
+    assert connections["bbbb2222"] == 2  # source once + target once
+    assert connections["cccc3333"] == 2  # target twice
+
+    # Cleanup
+    client.drop_collection(collection_name=graph_collection)
+
+
 # -- Update / stats ---------------------------------------------------------
 
 

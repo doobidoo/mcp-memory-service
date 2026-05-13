@@ -1877,6 +1877,84 @@ class MilvusMemoryStorage(MemoryStorage):
         timestamps = [row["created_at"] for row in rows if row.get("created_at") is not None]
         return sorted(timestamps, reverse=True)
 
+    # ------------------------------------------------------------------
+    # Connection tracking (graph-based)
+    # ------------------------------------------------------------------
+
+    async def get_memory_connections(self) -> Dict[str, int]:
+        """Return connection counts per memory hash from the graph collection.
+
+        Queries ``{collection_name}_graph`` for all edges and counts how many
+        times each hash appears as either ``source_hash`` or ``target_hash``.
+        This enables the Forgetting engine to protect highly-connected
+        "hub" memories from premature archival.
+
+        Uses ``query_iterator`` to handle arbitrarily large graph collections
+        without hitting the single-query limit cap.
+        """
+        graph_collection = f"{self.collection_name}_graph"
+
+        if not self._ensure_initialized():
+            return {}
+
+        # Check if graph collection exists
+        try:
+            has_graph = await self._call_client(
+                "has_collection",
+                collection_name=graph_collection,
+            )
+            if not has_graph:
+                return {}
+        except Exception:  # noqa: BLE001
+            return {}
+
+        # Drain all edges via QueryIterator (handles large graphs)
+        try:
+            async with self._write_lock:
+                if self.client is None:
+                    return {}
+                rows = await asyncio.to_thread(
+                    self._drain_graph_edges, graph_collection,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("get_memory_connections: failed to query graph collection: %s", exc)
+            return {}
+
+        # Count occurrences of each hash (as source or target)
+        connections: Dict[str, int] = {}
+        for row in rows:
+            src = row.get("source_hash")
+            tgt = row.get("target_hash")
+            if src:
+                connections[src] = connections.get(src, 0) + 1
+            if tgt:
+                connections[tgt] = connections.get(tgt, 0) + 1
+
+        return connections
+
+    def _drain_graph_edges(self, graph_collection: str) -> List[Dict[str, Any]]:
+        """Sync helper that drains all edges from the graph collection."""
+        assert self.client is not None
+        iterator = self.client.query_iterator(
+            collection_name=graph_collection,
+            filter="",
+            output_fields=["source_hash", "target_hash"],
+            batch_size=self._QUERY_ITER_BATCH,
+        )
+        rows: List[Dict[str, Any]] = []
+        try:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                rows.extend(batch)
+        finally:
+            try:
+                iterator.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return rows
+
     _QUERY_ITER_BATCH = 1000
 
     async def _query_memories(
