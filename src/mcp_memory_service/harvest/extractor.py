@@ -1,10 +1,12 @@
 """Pattern-based extraction of learnings from session messages."""
 
+import os
 import re
 import logging
 from typing import List
 from .models import HarvestCandidate
 from .parser import ParsedMessage
+from .patterns import load_patterns
 
 logger = logging.getLogger(__name__)
 
@@ -16,33 +18,10 @@ MAX_CANDIDATE_CONTENT_LENGTH = 500
 # Regex to detect code blocks — we strip these before pattern matching
 CODE_BLOCK_RE = re.compile(r'```[\s\S]*?```', re.MULTILINE)
 
-# Pattern definitions: (compiled_regex, base_confidence)
-PATTERNS = {
-    "decision": [
-        (re.compile(r'\b(?:decided|chose|choosing|going with|opted for|selected)\b.*\b(?:over|instead of|because|for)\b', re.IGNORECASE), 0.75),
-        (re.compile(r'\b(?:decision|approach):\s', re.IGNORECASE), 0.7),
-        (re.compile(r'\bI (?:will|\'ll) (?:use|go with|pick|choose)\b', re.IGNORECASE), 0.65),
-    ],
-    "bug": [
-        (re.compile(r'\b(?:root cause|bug was|issue was|problem was|error was)\b', re.IGNORECASE), 0.75),
-        (re.compile(r'\b(?:fixed by|fix was|resolved by|the fix)\b', re.IGNORECASE), 0.7),
-        (re.compile(r'\b(?:crash|regression|broke|breaking|broken)\b.*\b(?:because|due to|caused by)\b', re.IGNORECASE), 0.7),
-    ],
-    "convention": [
-        (re.compile(r'\b(?:convention|rule|pattern|standard):\s', re.IGNORECASE), 0.8),
-        (re.compile(r'\b(?:always|never)\s+(?:use|do|add|include|set|run|check)\b', re.IGNORECASE), 0.65),
-        (re.compile(r'\bmust (?:always|never)\b', re.IGNORECASE), 0.7),
-    ],
-    "learning": [
-        (re.compile(r'\b(?:learned|discovered|realized|found out|turns out|TIL)\b', re.IGNORECASE), 0.7),
-        (re.compile(r'\b(?:insight|takeaway|lesson|key finding)\b', re.IGNORECASE), 0.7),
-        (re.compile(r'\b(?:didn\'t know|wasn\'t aware|surprised to find)\b', re.IGNORECASE), 0.65),
-    ],
-    "context": [
-        (re.compile(r'\b(?:current state|status|progress|where we left off)\b', re.IGNORECASE), 0.6),
-        (re.compile(r'\b(?:next steps?|todo|remaining work|blocked on)\b', re.IGNORECASE), 0.6),
-    ],
-}
+# Load patterns from locale YAML files.
+# HARVEST_LOCALE env var controls which locales are loaded (default: "en").
+# Example: HARVEST_LOCALE=en,pt_BR,de loads English + Portuguese + German patterns.
+PATTERNS = load_patterns(os.environ.get("HARVEST_LOCALE", "en"))
 
 
 class PatternExtractor:

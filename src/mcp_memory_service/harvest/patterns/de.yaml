@@ -1,0 +1,41 @@
+language: de
+version: 1
+
+patterns:
+  decision:
+    - pattern: '\b(?:entschieden|gewählt|beschlossen|wir nehmen|ich nehme|gehen mit)\b'
+      confidence: 0.7
+    - pattern: '\b(?:Entscheidung|Ansatz|Strategie):\s'
+      confidence: 0.7
+    - pattern: '\b(?:anstatt|statt|stattdessen|lieber|bevorzugt)\b'
+      confidence: 0.65
+
+  bug:
+    - pattern: '\b(?:Ursache|Root Cause|das Problem war|der Fehler war|der Bug war)\b'
+      confidence: 0.75
+    - pattern: '\b(?:behoben|gefixt|korrigiert|gelöst|die Lösung)\b'
+      confidence: 0.7
+    - pattern: '\b(?:abgestürzt|kaputt|fehlgeschlagen|Absturz)\b.*\b(?:weil|wegen|durch|aufgrund)\b'
+      confidence: 0.7
+
+  convention:
+    - pattern: '\b(?:Regel|Konvention|Standard|Muster):\s'
+      confidence: 0.8
+    - pattern: '\b(?:immer|niemals)\s+(?:verwenden|machen|ausführen|prüfen|setzen)\b'
+      confidence: 0.7
+    - pattern: '\b(?:muss immer|darf niemals|verboten|pflicht)\b'
+      confidence: 0.7
+
+  learning:
+    - pattern: '\b(?:gelernt|entdeckt|herausgefunden|erkannt|stellte sich heraus)\b'
+      confidence: 0.7
+    - pattern: '\b(?:Erkenntnis|Lektion|Einsicht|Fazit)\b'
+      confidence: 0.7
+    - pattern: '\b(?:wusste nicht|war mir nicht bewusst|überrascht)\b'
+      confidence: 0.65
+
+  context:
+    - pattern: '\b(?:aktueller Stand|Status|Fortschritt|wo wir aufgehört haben)\b'
+      confidence: 0.6
+    - pattern: '\b(?:nächste Schritte|TODO|verbleibende Arbeit|blockiert)\b'
+      confidence: 0.6
