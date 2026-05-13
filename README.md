@@ -496,17 +496,18 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.56.2** (May 12, 2026)
+## Latest Release: **v10.56.3** (May 13, 2026)
 
-**Compatibility fixes for Milvus and stale-process server upgrades**
+**Milvus connection graph + quality handler hardening**
 
 **What's Fixed:**
-- `MilvusMemoryStorage.count_all_memories()` was missing `stale_days` parameter, causing `TypeError` when called with this argument (all other backends accept it). Now accepted and silently ignored (Milvus has no `last_accessed` field).
-- `quality.py` maintain handler now falls back gracefully when `MAINTAIN_SCAN_LIMIT` cannot be imported from a stale `sys.modules` cache after an in-place server upgrade. Falls back to `MCP_MAINTAIN_SCAN_LIMIT` env-var (default 2000).
+- `MilvusMemoryStorage.get_memory_connections()` was a stub returning `{}`, meaning hub memories had no protection from archival in the Forgetting engine's connection-based retention boost. Now fully implemented via `QueryIterator` + `asyncio.to_thread` against the graph collection.
+- `quality.py` `MAINTAIN_SCAN_LIMIT` fallback now uses a clean `import os` (replacing `__import__('os')`), guards against invalid env-var values with `try/except ValueError`, and documents the DoS risk of uncapped scan limits.
 
 ---
 
 **Previous Releases**:
+- **v10.56.2** - fix(milvus): missing `stale_days` param in `count_all_memories` + fix(quality): graceful `MAINTAIN_SCAN_LIMIT` fallback
 - **v10.56.1** - fix(session): pass session_id as conversation_id to bypass semantic dedup
 - **v10.56.0** - feat(consolidation): configurable maintain scan limit + InsightGenerator gap filter
 - **v10.55.2** - fix(insights): handle None memory\_type and tags in InsightGenerator sort

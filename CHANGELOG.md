@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.56.3] - 2026-05-13
+
+### Fixed
+
+- **feat(milvus): implement `get_memory_connections()` via graph collection** ([#907](https://github.com/doobidoo/mcp-memory-service/pull/907), @henry201605): `MilvusMemoryStorage.get_memory_connections()` was a stub returning `{}`, meaning hub memories had no protection from archival in the Forgetting engine's connection-based retention boost. Implemented using `QueryIterator` + `asyncio.to_thread` to drain all edges from the `{collection_name}_graph` collection. Adds 2 unit tests.
+- **fix(quality): apply Gemini review suggestion for `MAINTAIN_SCAN_LIMIT` fallback**: Replaced `__import__('os')` with a standard `import os`, added `try/except ValueError` guard for invalid `MCP_MAINTAIN_SCAN_LIMIT` env values, and documented the DoS risk of uncapped values in a comment. Addresses a Gemini code-assist review comment on PR #902 that was missed before merge.
+
 ## [10.56.2] - 2026-05-12
 
 ### Fixed
