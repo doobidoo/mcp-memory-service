@@ -274,7 +274,10 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
 
     # Chunking threshold: ~1500 chars is roughly the embedding model window.
     # Set SESSION_CHUNK_SIZE=0 to disable chunking entirely.
-    chunk_size = int(os.environ.get("SESSION_CHUNK_SIZE", "1500"))
+    try:
+        chunk_size = int(os.environ.get("SESSION_CHUNK_SIZE", "1500"))
+    except (ValueError, TypeError):
+        chunk_size = 1500
 
     try:
         await server._ensure_storage_initialized()
@@ -310,8 +313,13 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
                 metadata=arguments.get("metadata", {}),
                 client_hostname=arguments.get("client_hostname"),
             )
-            if result.get("success"):
-                stored += 1
+            if not result.get("success"):
+                error = result.get("error", "Unknown error")
+                return [types.TextContent(
+                    type="text",
+                    text=f"Error storing session chunk {i+1}/{len(chunks)}: {error} (stored {stored}/{len(chunks)} before failure)"
+                )]
+            stored += 1
 
         return [types.TextContent(
             type="text",
