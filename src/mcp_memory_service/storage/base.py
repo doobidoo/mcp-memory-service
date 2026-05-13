@@ -826,6 +826,7 @@ class MemoryStorage(ABC):
         offset: int = 0,
         memory_type: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        tag_match: str = "any",
         stale_days: Optional[int] = None,
         include_embeddings: bool = False,
     ) -> List[Memory]:
@@ -836,7 +837,8 @@ class MemoryStorage(ABC):
             limit: Maximum number of memories to return (None for all)
             offset: Number of memories to skip (for pagination)
             memory_type: Optional filter by memory type
-            tags: Optional filter by tags (matches ANY of the provided tags)
+            tags: Optional filter by tags
+            tag_match: "any" to match ANY tag (OR), "all" to match ALL tags (AND)
             stale_days: Optional filter to memories not accessed in the last N days
             include_embeddings: If True and the backend stores embeddings
                 locally, populate ``Memory.embedding`` on the returned
@@ -851,7 +853,7 @@ class MemoryStorage(ABC):
         """
         return []
     
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, stale_days: Optional[int] = None) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None) -> int:
         """
         Get total count of memories in storage.
 

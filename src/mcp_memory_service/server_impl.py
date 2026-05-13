@@ -1555,7 +1555,8 @@ PAGINATION:
 - page_size: Results per page (default: 20, max: 100)
 
 FILTERS (combine with AND logic):
-- tags: Filter to memories with ANY of these tags
+- tags: Filter to memories with matching tags
+- tag_match: "any" (OR, default) or "all" (AND) — controls how multiple tags are matched
 - memory_type: Filter by type (note, reference, decision, etc.)
 - stale_days: Filter to memories not accessed in the last N days
 
@@ -1563,6 +1564,7 @@ Examples:
 {}  // List first 20 memories
 {"page": 2, "page_size": 50}
 {"tags": ["python", "reference"]}
+{"tags": ["python", "reference"], "tag_match": "all"}
 {"memory_type": "decision", "page_size": 10}
 {"tags": ["important"], "memory_type": "note"}
 {"stale_days": 30}  // Memories not accessed in 30 days
@@ -1587,7 +1589,13 @@ Examples:
                                 "tags": {
                                     "type": "array",
                                     "items": {"type": "string"},
-                                    "description": "Filter by tags (returns memories with ANY of these tags)"
+                                    "description": "Filter by tags (returns memories with ANY of these tags by default, use tag_match to control)"
+                                },
+                                "tag_match": {
+                                    "type": "string",
+                                    "default": "any",
+                                    "enum": ["any", "all"],
+                                    "description": "Match ANY tag (OR, default) or ALL tags (AND)"
                                 },
                                 "memory_type": {
                                     "type": "string",

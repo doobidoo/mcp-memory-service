@@ -257,6 +257,7 @@ async def list_memories(
     page_size: int = Query(10, ge=1, le=100, description="Number of memories per page"),
     tag: Optional[str] = Query(None, description="Filter by tag"),
     memory_type: Optional[str] = Query(None, description="Filter by memory type"),
+    tag_match: Optional[str] = Query("any", description="Tag matching mode: 'any' (OR) or 'all' (AND)"),
     memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_read_access)
 ):
@@ -266,12 +267,16 @@ async def list_memories(
     Uses the MemoryService for consistent business logic and optimal database-level filtering.
     """
     try:
+        # Split comma-separated tags into list for proper multi-tag filtering
+        tags_list = [t.strip() for t in tag.split(",") if t.strip()] if tag else None
+
         # Use the injected service for consistent, performant memory listing
         result = await memory_service.list_memories(
             page=page,
             page_size=page_size,
-            tag=tag,
-            memory_type=memory_type
+            tags=tags_list,
+            memory_type=memory_type,
+            tag_match=tag_match
         )
 
         return MemoryListResponse(

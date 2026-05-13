@@ -430,8 +430,8 @@ class TestCloudflareStorage:
             assert len(memories) == 1
             sql_payload = mock_request.call_args_list[0].kwargs["json"]
             sql_text = sql_payload["sql"].upper()
-            assert "JOIN MEMORY_TAGS" in sql_text and "HAVING COUNT(DISTINCT T.NAME) = ?" in sql_text
-            assert sql_payload["params"] == ["status:initialized", 1, 10]
+            assert "JOIN MEMORY_TAGS" in sql_text and "GROUP BY M.ID" in sql_text
+            assert sql_payload["params"] == ["status:initialized", 10]
 
     @pytest.mark.asyncio
     async def test_count_all_memories_with_tag_filter(self, cloudflare_storage):
@@ -448,8 +448,8 @@ class TestCloudflareStorage:
             assert count == 3
             sql_payload = mock_request.call_args.kwargs["json"]
             sql_text = sql_payload["sql"].upper()
-            assert "COUNT(*) AS COUNT FROM" in sql_text and "HAVING COUNT(DISTINCT T.NAME) = ?" in sql_text
-            assert sql_payload["params"] == ["alpha", "beta", 2]
+            assert "COUNT(*) AS COUNT FROM" in sql_text and "GROUP BY M.ID" in sql_text
+            assert sql_payload["params"] == ["alpha", "beta"]
 
     @pytest.mark.asyncio
     async def test_delete_memory(self, cloudflare_storage):
