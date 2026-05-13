@@ -152,3 +152,83 @@ async def test_store_session_skips_empty_content_turns():
     assert "[user] Hello" in content
     assert "[user] Follow-up" in content
     assert content.count("\n") == 1  # only 2 non-empty turns
+
+
+@pytest.mark.asyncio
+async def test_store_session_chunks_long_sessions(monkeypatch):
+    """Sessions exceeding chunk_size should be stored as multiple memories."""
+    from mcp_memory_service.server.handlers.memory import handle_store_session
+    monkeypatch.setenv("SESSION_CHUNK_SIZE", "100")
+    server = _make_server()
+
+    # Create turns that exceed 100 chars total
+    turns = [
+        {"role": "user", "content": "A" * 60},
+        {"role": "assistant", "content": "B" * 60},
+        {"role": "user", "content": "C" * 60},
+    ]
+
+    result = await handle_store_session(server, {
+        "turns": turns,
+        "session_id": "chunked-session",
+    })
+
+    # Should have been called multiple times (chunked)
+    assert server.memory_service.store_memory.call_count > 1
+    assert "chunks:" in result[0].text
+    assert "chunked-session" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_store_session_chunks_have_session_tag(monkeypatch):
+    """All chunks should share the same session:<id> tag."""
+    from mcp_memory_service.server.handlers.memory import handle_store_session
+    monkeypatch.setenv("SESSION_CHUNK_SIZE", "50")
+    server = _make_server()
+
+    turns = [
+        {"role": "user", "content": "X" * 40},
+        {"role": "assistant", "content": "Y" * 40},
+    ]
+
+    await handle_store_session(server, {
+        "turns": turns,
+        "session_id": "my-sess",
+    })
+
+    for call in server.memory_service.store_memory.call_args_list:
+        tags = call.kwargs["tags"]
+        assert "session:my-sess" in tags
+        # Each chunk should have a chunk:N/M tag
+        assert any(t.startswith("chunk:") for t in tags)
+
+
+@pytest.mark.asyncio
+async def test_store_session_short_session_no_chunking():
+    """Short sessions should be stored as single memory (no chunk tag)."""
+    from mcp_memory_service.server.handlers.memory import handle_store_session
+    server = _make_server()
+
+    result = await handle_store_session(server, {
+        "turns": [{"role": "user", "content": "Short message"}],
+        "session_id": "short-sess",
+    })
+
+    assert server.memory_service.store_memory.call_count == 1
+    call_kwargs = server.memory_service.store_memory.call_args.kwargs
+    assert not any(t.startswith("chunk:") for t in call_kwargs["tags"])
+    assert "hash:" in result[0].text  # single memory returns hash
+
+
+@pytest.mark.asyncio
+async def test_chunk_session_lines_helper():
+    """Test the chunking helper function directly."""
+    from mcp_memory_service.server.handlers.memory import _chunk_session_lines
+
+    lines = ["A" * 50, "B" * 50, "C" * 50, "D" * 50]
+    chunks = _chunk_session_lines(lines, chunk_size=110)
+
+    # Each line is 50+1=51 chars. Two lines = 102 < 110. Third would be 153 > 110.
+    assert len(chunks) == 2
+    assert len(chunks[0]) == 2
+    assert len(chunks[1]) == 2
