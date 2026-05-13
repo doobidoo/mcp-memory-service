@@ -279,7 +279,7 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
     try:
         await server._ensure_storage_initialized()
 
-        if len(full_content) <= chunk_size:
+        if chunk_size <= 0 or len(full_content) <= chunk_size:
             # Short session — store as single memory (original behavior)
             result = await server.memory_service.store_memory(
                 content=full_content,
@@ -299,7 +299,6 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
         # Long session — chunk by turns, respecting chunk_size
         chunks = _chunk_session_lines(lines, chunk_size)
         stored = 0
-        hashes = []
 
         for i, chunk_lines in enumerate(chunks):
             chunk_content = "\n".join(chunk_lines)
@@ -313,7 +312,6 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
             )
             if result.get("success"):
                 stored += 1
-                hashes.append(result["memory"]["content_hash"][:8])
 
         return [types.TextContent(
             type="text",

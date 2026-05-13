@@ -111,12 +111,12 @@ def _parse_yaml_simple(filepath: Path) -> PatternDict:
                         compiled = re.compile(pat_str, re.IGNORECASE)
                         result[current_type].append((compiled, 0.6))  # default confidence
                     except re.error:
-                        pass
+                        pass  # Skip invalid regex patterns from locale YAML files
 
-            # Confidence line (update last pattern)
-            if "confidence:" in stripped and current_type and result.get(current_type):
+            # Confidence line (update last pattern if available)
+            if "confidence:" in stripped and current_type:
                 match = re.search(r"confidence:\s*([\d.]+)", stripped)
-                if match:
+                if match and result.get(current_type):
                     conf = float(match.group(1))
                     pat, _ = result[current_type][-1]
                     result[current_type][-1] = (pat, conf)
