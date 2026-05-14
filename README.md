@@ -496,20 +496,18 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.57.0** (May 13, 2026)
+## Latest Release: **v10.57.1** (May 14, 2026)
 
-**Tag-match filtering for `memory_list` + automatic session chunking**
-
-**What's New:**
-- `memory_list` now accepts `tag_match="any"` (OR, default) / `tag_match="all"` (AND) — harmonizes with `memory_search` and `memory_delete` filtering. Implemented across all three backends (sqlite_vec, cloudflare, hybrid) (PR #904, @filhocf).
-- `memory_store_session` automatically splits long sessions at turn boundaries. Configure with `SESSION_CHUNK_SIZE` (default 1500 chars, 0=disabled); chunks are tagged `chunk:N/M` for easy retrieval (PR #912, @filhocf).
+**SQLite tag matching robustness + Milvus preserve_timestamps fix**
 
 **What's Fixed:**
-- CI: `pr-contributor-welcome` workflow now guarded against non-PR event triggers to prevent crash on push events.
+- `sqlite_vec`: replaced `GLOB` with `LIKE ESCAPE '\'` for tag matching — fixes fragility when tags contain `%`, `_`, or `\` characters. All 13 query sites migrated (PR #916, closes #914).
+- `milvus`: `_compute_update_timestamps()` now compares field values instead of checking key presence, preventing spurious `updated_at` bumps during consolidation runs and fixing `access_boost` fallback logic in the Forgetting engine (PR #918, @henry201605).
 
 ---
 
 **Previous Releases**:
+- **v10.57.0** - feat(memory_list): tag_match AND/OR filtering + feat(session): automatic chunking at turn boundaries (PRs #904, #912, @filhocf)
 - **v10.56.3** - feat(milvus): get_memory_connections() via graph collection + fix(quality): MAINTAIN_SCAN_LIMIT fallback hardening
 - **v10.56.2** - fix(milvus): missing `stale_days` param in `count_all_memories` + fix(quality): graceful `MAINTAIN_SCAN_LIMIT` fallback
 - **v10.56.1** - fix(session): pass session_id as conversation_id to bypass semantic dedup
