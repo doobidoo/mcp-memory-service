@@ -196,6 +196,50 @@ class TestTagTimeFilteringSqliteVec:
         assert len(results) == 1
         assert results[0].content_hash == memory1.content_hash
 
+    @pytest.mark.asyncio
+    async def test_search_by_tag_with_percent_in_tag(self, storage):
+        """Tags containing % must not be treated as LIKE wildcards."""
+        memory = Memory(
+            content="Memory tagged with special char",
+            content_hash=generate_content_hash("Memory tagged with special char"),
+            tags=["100%"],
+            created_at=time.time(),
+        )
+        unrelated = Memory(
+            content="Unrelated memory",
+            content_hash=generate_content_hash("Unrelated memory"),
+            tags=["other"],
+            created_at=time.time(),
+        )
+        await storage.store(memory)
+        await storage.store(unrelated)
+
+        results = await storage.search_by_tag(["100%"])
+        assert len(results) == 1
+        assert results[0].content_hash == memory.content_hash
+
+    @pytest.mark.asyncio
+    async def test_search_by_tag_with_underscore_in_tag(self, storage):
+        """Tags containing _ must not be treated as single-char LIKE wildcards."""
+        memory = Memory(
+            content="Memory with underscore tag",
+            content_hash=generate_content_hash("Memory with underscore tag"),
+            tags=["my_tag"],
+            created_at=time.time(),
+        )
+        decoy = Memory(
+            content="Memory that should not match",
+            content_hash=generate_content_hash("Memory that should not match"),
+            tags=["myXtag"],
+            created_at=time.time(),
+        )
+        await storage.store(memory)
+        await storage.store(decoy)
+
+        results = await storage.search_by_tag(["my_tag"])
+        assert len(results) == 1
+        assert results[0].content_hash == memory.content_hash
+
 
 @pytest.mark.skipif(not CLOUDFLARE_AVAILABLE, reason="Cloudflare storage not available")
 class TestTagTimeFilteringCloudflare:
