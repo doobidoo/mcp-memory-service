@@ -1366,7 +1366,7 @@ requires-dist = [
     { name = "onnxruntime", marker = "extra == 'sqlite'", specifier = ">=1.14.1" },
     { name = "psutil", specifier = ">=5.9.0" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.12.0" },
-    { name = "pymilvus", marker = "extra == 'milvus'", specifier = ">=2.5.0" },
+    { name = "pymilvus", marker = "extra == 'milvus'", specifier = ">=2.5.0,<3.0.0" },
     { name = "pypdf", specifier = ">=6.9.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
@@ -2356,7 +2356,7 @@ crypto = [
 
 [[package]]
 name = "pymilvus"
-version = "3.0.0"
+version = "2.6.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachetools" },
@@ -2369,8 +2369,9 @@ dependencies = [
     { name = "requests" },
     { name = "setuptools" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/28/78/68e752283ad58891687c2d9e56a09019585a31d03637af9b60bf2d396821/pymilvus-2.6.13.tar.gz", hash = "sha256:d29908d9623967be7be41c518d1fb68fe5816b9ab780af2737fd3059f2d370c0", size = 1579003, upload-time = "2026-05-07T12:08:36.179Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ac/c1/01647e61f3a82fd881382746b6dde3401d65b88cd4f75bd059901fb2392b/pymilvus-3.0.0-1-py3-none-any.whl", hash = "sha256:57c8e7c87fbbf579f122b4df893949bc78e50bca2988527864891bd544817b05", size = 344817, upload-time = "2026-05-07T14:57:45.235Z" },
+    { url = "https://files.pythonhosted.org/packages/15/f2/850c023173525ba02701cc0990461a67ef999825b301847ce16db9efee32/pymilvus-2.6.13-py3-none-any.whl", hash = "sha256:3098204172413f6fe7c7928652adba0e1ec70150d6e515b83da4e319b98d9e69", size = 319649, upload-time = "2026-05-07T12:08:34.362Z" },
 ]
 
 [[package]]

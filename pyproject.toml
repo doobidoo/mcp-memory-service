@@ -94,7 +94,7 @@ sqlite-ml = [
 # Milvus backend — Milvus Lite (single file), self-hosted Milvus, or Zilliz Cloud.
 # Shipped with the ML extras so sentence-transformers embeddings are available.
 milvus = [
-    "pymilvus>=2.5.0",
+    "pymilvus>=2.5.0,<3.0.0",  # 3.x has breaking API changes; migrate separately
     "milvus-lite>=2.4.10",
     # milvus-lite 2.5.x still imports `pkg_resources` from setuptools; that API
     # was removed in setuptools 81. Pin setuptools below 81 on newer Pythons
