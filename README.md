@@ -496,16 +496,17 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.57.2** (May 14, 2026)
+## Latest Release: **v10.57.3** (May 14, 2026)
 
-**Dependency pin: pymilvus<3.0.0 restores Milvus Docker CI**
+**Milvus: last_accessed tracking via `_access` side-collection**
 
-**What's Fixed:**
-- `deps`: pinned `pymilvus<3.0.0` in `pyproject.toml`; re-locked to `2.6.13` in `uv.lock`. pymilvus 3.0.0 introduced breaking API changes that silently broke the Milvus Docker CI job (PR #921). Full 3.x migration tracked in issue #922.
+**What's New:**
+- `feat(milvus)`: `_access` side-collection records retrieve-hit timestamps, fixing the Forgetting engine's `access_boost` (was falling back to `updated_at`), `count_all_memories(stale_days=N)` (was silently ignored), and `memory_quality(action="maintain")` stale detection. Fire-and-forget via `asyncio.create_task` with graceful degradation (PR #925, @henry201605). Closes #923.
 
 ---
 
 **Previous Releases**:
+- **v10.57.2** - fix(deps): pin pymilvus<3.0.0 to restore Milvus Docker CI (PR #921)
 - **v10.57.1** - fix(sqlite): LIKE ESCAPE tag matching + fix(milvus): preserve_timestamps value comparison (PRs #916, #918)
 - **v10.57.0** - feat(memory_list): tag_match AND/OR filtering + feat(session): automatic chunking at turn boundaries (PRs #904, #912, @filhocf)
 - **v10.56.3** - feat(milvus): get_memory_connections() via graph collection + fix(quality): MAINTAIN_SCAN_LIMIT fallback hardening

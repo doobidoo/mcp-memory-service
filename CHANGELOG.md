@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.57.3] - 2026-05-14
+
+### Added
+
+- **feat(milvus): last_accessed tracking via `_access` side-collection** ([#925](https://github.com/doobidoo/mcp-memory-service/pull/925), @henry201605): Implements a lightweight `{collection_name}_access` side-collection that records retrieve-hit timestamps. Fixes the Forgetting engine's `access_boost` (was always falling back to `updated_at`), fixes `count_all_memories(stale_days=N)` where `stale_days` was silently ignored, and fixes `memory_quality(action="maintain")` stale detection. `_touch_access()` is fire-and-forget via `asyncio.create_task` (non-blocking) with graceful degradation if the collection is unavailable. Closes [#923](https://github.com/doobidoo/mcp-memory-service/issues/923).
+
 ## [10.57.2] - 2026-05-14
 
 ### Fixed
