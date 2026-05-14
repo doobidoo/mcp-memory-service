@@ -1943,7 +1943,7 @@ class MilvusMemoryStorage(MemoryStorage):
         """
         threshold = time.time() - stale_days * 86400
 
-        # Get all memory hashes + created_at from main collection via iterator
+        # Drain both collections under a single lock acquisition to avoid deadlock
         try:
             async with self._write_lock:
                 if self.client is None:
@@ -1951,27 +1951,20 @@ class MilvusMemoryStorage(MemoryStorage):
                 all_rows = await asyncio.to_thread(
                     self._drain_main_ids_and_created_at, base_filter,
                 )
+                active_rows: List[Dict[str, Any]] = []
+                if self._has_access_collection:
+                    active_rows = await asyncio.to_thread(
+                        self._drain_active_hashes, threshold,
+                    )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("_count_stale_memories: main query failed: %s", exc)
+            logger.warning("_count_stale_memories failed: %s", exc)
             return 0
 
         if not all_rows:
             return 0
 
-        # Get active hashes from _access collection (last_accessed >= threshold)
-        active_hashes: set = set()
-        if self._has_access_collection:
-            try:
-                active_rows = await self._call_client(
-                    "query",
-                    collection_name=self._access_collection,
-                    filter=f"last_accessed >= {threshold}",
-                    output_fields=["id"],
-                    limit=_MILVUS_MAX_LIMIT,
-                )
-                active_hashes = {row.get("id") for row in active_rows if row.get("id")}
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("_count_stale_memories: access query failed: %s", exc)
+        # Build active hash set
+        active_hashes = {row.get("id") for row in active_rows if row.get("id")}
 
         # Count stale: not in active set AND created_at < threshold
         stale_count = 0
@@ -2114,6 +2107,29 @@ class MilvusMemoryStorage(MemoryStorage):
             collection_name=self.collection_name,
             filter=filter_expr or "",
             output_fields=["id", "created_at"],
+            batch_size=self._QUERY_ITER_BATCH,
+        )
+        rows: List[Dict[str, Any]] = []
+        try:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                rows.extend(batch)
+        finally:
+            try:
+                iterator.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return rows
+
+    def _drain_active_hashes(self, threshold: float) -> List[Dict[str, Any]]:
+        """Sync helper that drains active (recently accessed) hashes from _access collection."""
+        assert self.client is not None
+        iterator = self.client.query_iterator(
+            collection_name=self._access_collection,
+            filter=f"last_accessed >= {threshold}",
+            output_fields=["id"],
             batch_size=self._QUERY_ITER_BATCH,
         )
         rows: List[Dict[str, Any]] = []
