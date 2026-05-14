@@ -7,8 +7,8 @@ Opt-in via MCP_INSIGHT_CARDS_ENABLED=true environment variable.
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Optional, Tuple
+from datetime import datetime, timezone
+from typing import List, Dict, Optional
 import hashlib
 
 from ..models.memory import Memory
