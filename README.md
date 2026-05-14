@@ -496,17 +496,17 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.57.1** (May 14, 2026)
+## Latest Release: **v10.57.2** (May 14, 2026)
 
-**SQLite tag matching robustness + Milvus preserve_timestamps fix**
+**Dependency pin: pymilvus<3.0.0 restores Milvus Docker CI**
 
 **What's Fixed:**
-- `sqlite_vec`: replaced `GLOB` with `LIKE ESCAPE '\'` for tag matching — fixes fragility when tags contain `%`, `_`, or `\` characters. All 13 query sites migrated (PR #916, closes #914).
-- `milvus`: `_compute_update_timestamps()` now compares field values instead of checking key presence, preventing spurious `updated_at` bumps during consolidation runs and fixing `access_boost` fallback logic in the Forgetting engine (PR #918, @henry201605).
+- `deps`: pinned `pymilvus<3.0.0` in `pyproject.toml`; re-locked to `2.6.13` in `uv.lock`. pymilvus 3.0.0 introduced breaking API changes that silently broke the Milvus Docker CI job (PR #921). Full 3.x migration tracked in issue #922.
 
 ---
 
 **Previous Releases**:
+- **v10.57.1** - fix(sqlite): LIKE ESCAPE tag matching + fix(milvus): preserve_timestamps value comparison (PRs #916, #918)
 - **v10.57.0** - feat(memory_list): tag_match AND/OR filtering + feat(session): automatic chunking at turn boundaries (PRs #904, #912, @filhocf)
 - **v10.56.3** - feat(milvus): get_memory_connections() via graph collection + fix(quality): MAINTAIN_SCAN_LIMIT fallback hardening
 - **v10.56.2** - fix(milvus): missing `stale_days` param in `count_all_memories` + fix(quality): graceful `MAINTAIN_SCAN_LIMIT` fallback
