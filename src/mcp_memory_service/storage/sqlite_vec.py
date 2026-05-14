@@ -2662,7 +2662,7 @@ SOLUTIONS:
                         """
                         SELECT content_hash FROM memories
                         WHERE created_at >= ? AND created_at <= ?
-                        AND (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\'
+                        AND (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'
                         AND deleted_at IS NULL
                     """,
                         (start_ts, end_ts, f"%,{_escape_like(stripped_tag)},%"),
@@ -2708,7 +2708,7 @@ SOLUTIONS:
                         """
                         SELECT content_hash FROM memories
                         WHERE created_at < ?
-                        AND (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\'
+                        AND (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'
                         AND deleted_at IS NULL
                     """,
                         (before_ts, f"%,{_escape_like(stripped_tag)},%"),
