@@ -1588,7 +1588,17 @@ class MilvusMemoryStorage(MemoryStorage):
         """
         now = time.time()
         now_iso = self._iso_from_epoch(now)
-        structural = any(k in updates for k in ("tags", "memory_type", "content"))
+
+        # Detect structural changes by comparing actual values, not just key
+        # presence. This prevents consolidation's metadata-only updates (which
+        # pass tags/memory_type unchanged) from incorrectly bumping updated_at.
+        structural = False
+        if "content" in updates and updates["content"] != existing.content:
+            structural = True
+        elif "tags" in updates and sorted(updates["tags"] or []) != sorted(existing.tags or []):
+            structural = True
+        elif "memory_type" in updates and updates["memory_type"] != existing.memory_type:
+            structural = True
 
         if preserve_timestamps and not structural:
             updated_at = existing.updated_at if existing.updated_at is not None else now
