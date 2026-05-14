@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.57.1] - 2026-05-14
+
+### Fixed
+
+- **fix(sqlite): replace GLOB with LIKE ESCAPE for tag matching** ([#916](https://github.com/doobidoo/mcp-memory-service/pull/916)): Replaced `_escape_glob` with `_escape_like` in `sqlite_vec.py`. All 13 tag-filtering query sites migrated from `GLOB ?` to `LIKE ? ESCAPE '\'`, fixing fragility when tags contain `%`, `_`, or `\` characters. Closes [#914](https://github.com/doobidoo/mcp-memory-service/issues/914).
+- **fix(milvus): compare values in structural change detection for `preserve_timestamps`** ([#918](https://github.com/doobidoo/mcp-memory-service/pull/918), @henry201605): In `_compute_update_timestamps()`, replaced key-presence checks with value comparisons. Prevents consolidation runs from incorrectly bumping `updated_at` for all memories and fixes the Forgetting engine's `access_boost` fallback logic on Milvus.
+
 ## [10.57.0] - 2026-05-13
 
 ### Added
