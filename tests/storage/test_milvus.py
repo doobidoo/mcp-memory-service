@@ -499,6 +499,65 @@ async def test_update_rejects_bad_tag_type(storage, sample_memory):
 
 
 @pytest.mark.asyncio
+async def test_metadata_only_update_preserves_updated_at(storage, sample_memory):
+    """Regression: updating only metadata (not tags/type/content) with
+    preserve_timestamps=True must NOT bump updated_at.
+
+    This guards against consolidation's _update_consolidation_timestamps
+    incorrectly refreshing updated_at for all memories, which breaks the
+    Forgetting engine's access_boost fallback logic.
+    """
+    await storage.store(sample_memory)
+    original = await storage.get_by_hash(sample_memory.content_hash)
+    original_updated_at = original.updated_at
+
+    # Simulate what consolidation does: update metadata only, same tags/type
+    import asyncio
+    await asyncio.sleep(0.1)  # ensure time passes
+    ok, _ = await storage.update_memory_metadata(
+        sample_memory.content_hash,
+        updates={
+            "tags": sample_memory.tags,  # same tags, no change
+            "memory_type": sample_memory.memory_type,  # same type
+            "metadata": {"last_consolidated_at": 9999999999.0},
+        },
+        preserve_timestamps=True,
+    )
+    assert ok
+
+    refreshed = await storage.get_by_hash(sample_memory.content_hash)
+    assert refreshed.updated_at == original_updated_at, (
+        f"updated_at was bumped from {original_updated_at} to {refreshed.updated_at} "
+        f"despite preserve_timestamps=True and no structural change"
+    )
+
+
+@pytest.mark.asyncio
+async def test_structural_change_bumps_updated_at(storage, sample_memory):
+    """When tags actually change, updated_at SHOULD be bumped even with preserve_timestamps=True."""
+    await storage.store(sample_memory)
+    original = await storage.get_by_hash(sample_memory.content_hash)
+    original_updated_at = original.updated_at
+
+    import asyncio
+    await asyncio.sleep(0.1)
+    ok, _ = await storage.update_memory_metadata(
+        sample_memory.content_hash,
+        updates={
+            "tags": ["completely", "different", "tags"],
+            "metadata": {"reason": "user edit"},
+        },
+        preserve_timestamps=True,
+    )
+    assert ok
+
+    refreshed = await storage.get_by_hash(sample_memory.content_hash)
+    assert refreshed.updated_at > original_updated_at, (
+        "updated_at should be bumped when tags actually change"
+    )
+
+
+@pytest.mark.asyncio
 async def test_get_stats(storage, sample_memory):
     await storage.store(sample_memory)
     stats = await storage.get_stats()
