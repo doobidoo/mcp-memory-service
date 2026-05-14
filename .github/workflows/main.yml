@@ -218,11 +218,21 @@ jobs:
         python -m pytest tests/ -v \
           --cov=src/mcp_memory_service \
           --cov-report=term-missing \
-          --cov-report=html \
-          --cov-fail-under=57 || {
-            echo "❌ Coverage below 57% threshold"
-            exit 1
-          }
+          --cov-report=html
+        PYTEST_EXIT_CODE=$?
+
+        # Check coverage threshold separately so the error message is accurate
+        # (--cov-fail-under conflates test failures with coverage failures)
+        if ! python -m coverage report --fail-under=57 2>/dev/null; then
+          echo "❌ Coverage below 57% threshold"
+          exit 1
+        fi
+
+        # Fail on test failures (coverage was fine above)
+        if [ "$PYTEST_EXIT_CODE" -ne 0 ]; then
+          echo "❌ Tests failed (see above)"
+          exit 1
+        fi
 
         echo "✓ Tests completed with coverage ≥57%"
 
