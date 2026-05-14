@@ -1937,18 +1937,20 @@ class MilvusMemoryStorage(MemoryStorage):
         Cross-references the ``_access`` side-collection to determine which
         memories are stale. Memories without an access record fall back to
         ``created_at`` for staleness determination.
+
+        Uses QueryIterator for both queries to handle arbitrarily large
+        collections without hitting the single-query limit cap.
         """
         threshold = time.time() - stale_days * 86400
 
-        # Get all memory hashes + created_at from main collection
+        # Get all memory hashes + created_at from main collection via iterator
         try:
-            all_rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=base_filter,
-                output_fields=["id", "created_at"],
-                limit=_MILVUS_MAX_LIMIT,
-            )
+            async with self._write_lock:
+                if self.client is None:
+                    return 0
+                all_rows = await asyncio.to_thread(
+                    self._drain_main_ids_and_created_at, base_filter,
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning("_count_stale_memories: main query failed: %s", exc)
             return 0
@@ -1971,7 +1973,7 @@ class MilvusMemoryStorage(MemoryStorage):
             except Exception as exc:  # noqa: BLE001
                 logger.warning("_count_stale_memories: access query failed: %s", exc)
 
-        # Count stale: not in active set AND (has access record with old ts OR created_at < threshold)
+        # Count stale: not in active set AND created_at < threshold
         stale_count = 0
         for row in all_rows:
             rid = row.get("id")
@@ -2089,6 +2091,29 @@ class MilvusMemoryStorage(MemoryStorage):
             collection_name=self._access_collection,
             filter="",
             output_fields=["id", "last_accessed"],
+            batch_size=self._QUERY_ITER_BATCH,
+        )
+        rows: List[Dict[str, Any]] = []
+        try:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                rows.extend(batch)
+        finally:
+            try:
+                iterator.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return rows
+
+    def _drain_main_ids_and_created_at(self, filter_expr: str) -> List[Dict[str, Any]]:
+        """Sync helper that drains id + created_at from the main collection."""
+        assert self.client is not None
+        iterator = self.client.query_iterator(
+            collection_name=self.collection_name,
+            filter=filter_expr or "",
+            output_fields=["id", "created_at"],
             batch_size=self._QUERY_ITER_BATCH,
         )
         rows: List[Dict[str, Any]] = []
