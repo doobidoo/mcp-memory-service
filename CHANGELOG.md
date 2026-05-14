@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.57.2] - 2026-05-14
+
+### Fixed
+
+- **fix(deps): pin pymilvus<3.0.0 to restore Milvus Docker CI** ([#921](https://github.com/doobidoo/mcp-memory-service/pull/921)): Added `<3.0.0` upper bound to the `pymilvus` dependency in `pyproject.toml` and re-locked to `2.6.13` in `uv.lock`. pymilvus 3.0.0 introduced breaking API changes that silently broke the Milvus Docker CI job when the dependency was upgraded. Full pymilvus 3.x migration is tracked in [#922](https://github.com/doobidoo/mcp-memory-service/issues/922).
+
 ## [10.57.1] - 2026-05-14
 
 ### Fixed
