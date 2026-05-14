@@ -274,6 +274,11 @@ class MilvusMemoryStorage(MemoryStorage):
         # without the ``sparse_vector`` field fall back to vector-only search.
         self._has_bm25 = False
 
+        # Whether the access-tracking side-collection exists. Set during
+        # initialize() by _ensure_access_collection().
+        self._has_access_collection = False
+        self._access_collection: str = f"{self.collection_name}_access"
+
         # Whether this storage is backed by Milvus Lite (embedded daemon) as
         # opposed to a remote Milvus server or Zilliz Cloud endpoint. We
         # mirror pymilvus's own heuristic (``uri.endswith('.db')``) — see
@@ -323,6 +328,7 @@ class MilvusMemoryStorage(MemoryStorage):
         await self._initialize_embedding_model()
         await asyncio.to_thread(self._connect_client)
         await asyncio.to_thread(self._ensure_collection)
+        await asyncio.to_thread(self._ensure_access_collection)
 
         self._initialized = True
         logger.info(
@@ -512,6 +518,61 @@ class MilvusMemoryStorage(MemoryStorage):
                 "using vector-only search",
                 self.collection_name,
             )
+
+    def _ensure_access_collection(self) -> None:
+        """Create the access-tracking side-collection if it does not exist.
+
+        Schema mirrors the ``_graph`` collection pattern: a lightweight
+        scalar collection with a dummy vector field for Zilliz Cloud
+        compatibility.
+        """
+        assert self.client is not None
+
+        if self.client.has_collection(collection_name=self._access_collection):
+            self._has_access_collection = True
+            logger.info(
+                "Reusing existing access collection '%s'",
+                self._access_collection,
+            )
+            return
+
+        schema = self.client.create_schema(
+            auto_id=False,
+            enable_dynamic_field=False,
+        )
+        schema.add_field(
+            field_name="id",
+            datatype=DataType.VARCHAR,
+            is_primary=True,
+            max_length=_ID_MAX_LEN,
+        )
+        schema.add_field(
+            field_name="last_accessed",
+            datatype=DataType.DOUBLE,
+        )
+        schema.add_field(
+            field_name="_dummy_vec",
+            datatype=DataType.FLOAT_VECTOR,
+            dim=2,
+        )
+
+        index_params = self.client.prepare_index_params()
+        index_params.add_index(
+            field_name="_dummy_vec",
+            index_type="AUTOINDEX",
+            metric_type="L2",
+        )
+
+        self.client.create_collection(
+            collection_name=self._access_collection,
+            schema=schema,
+            index_params=index_params,
+        )
+        self._has_access_collection = True
+        logger.info(
+            "Created access-tracking collection '%s'",
+            self._access_collection,
+        )
 
     async def _initialize_embedding_model(self) -> None:
         """Load the sentence-transformers model (or cached instance)."""
@@ -1252,7 +1313,14 @@ class MilvusMemoryStorage(MemoryStorage):
             hits = await self._run_hybrid_search(query, query_embedding, tag_filter, fetch_n)
         else:
             hits = await self._run_search(query_embedding, tag_filter, fetch_n)
-        return self._rank_and_trim(hits, query, n_results, min_confidence)
+        results = self._rank_and_trim(hits, query, n_results, min_confidence)
+
+        # Async update last_accessed for hit memories (non-blocking)
+        if results:
+            hit_hashes = [r.memory.content_hash for r in results]
+            asyncio.create_task(self._touch_access(hit_hashes))
+
+        return results
 
     # -- Tag-based search ----------------------------------------------------
 
@@ -1342,6 +1410,16 @@ class MilvusMemoryStorage(MemoryStorage):
             return False, f"Failed to delete memory: {exc}"
 
         logger.info("Deleted memory %s", content_hash)
+        # Clean up access tracking record
+        if self._has_access_collection:
+            try:
+                await self._call_client(
+                    "delete",
+                    collection_name=self._access_collection,
+                    ids=[content_hash],
+                )
+            except Exception:  # noqa: BLE001
+                pass  # non-fatal
         return True, f"Successfully deleted memory {content_hash}"
 
     async def delete_memory(self, content_hash: str) -> bool:
@@ -1837,6 +1915,10 @@ class MilvusMemoryStorage(MemoryStorage):
 
         filter_expr = self._combine_filter(*filters)
 
+        # When stale_days is set, perform cross-collection filtering
+        if stale_days is not None and stale_days > 0:
+            return await self._count_stale_memories(filter_expr, stale_days)
+
         try:
             rows = await self._call_client(
                 "query",
@@ -1848,6 +1930,53 @@ class MilvusMemoryStorage(MemoryStorage):
         except Exception as exc:  # noqa: BLE001
             logger.warning("count_all_memories failed: %s", exc)
             return 0
+
+    async def _count_stale_memories(self, base_filter: str, stale_days: int) -> int:
+        """Count memories not accessed in the last ``stale_days`` days.
+
+        Cross-references the ``_access`` side-collection to determine which
+        memories are stale. Memories without an access record fall back to
+        ``created_at`` for staleness determination.
+
+        Uses QueryIterator for both queries to handle arbitrarily large
+        collections without hitting the single-query limit cap.
+        """
+        threshold = time.time() - stale_days * 86400
+
+        # Drain both collections under a single lock acquisition to avoid deadlock
+        try:
+            async with self._write_lock:
+                if self.client is None:
+                    return 0
+                all_rows = await asyncio.to_thread(
+                    self._drain_main_ids_and_created_at, base_filter,
+                )
+                active_rows: List[Dict[str, Any]] = []
+                if self._has_access_collection:
+                    active_rows = await asyncio.to_thread(
+                        self._drain_active_hashes, threshold,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("_count_stale_memories failed: %s", exc)
+            return 0
+
+        if not all_rows:
+            return 0
+
+        # Build active hash set
+        active_hashes = {row.get("id") for row in active_rows if row.get("id")}
+
+        # Count stale: not in active set AND created_at < threshold
+        stale_count = 0
+        for row in all_rows:
+            rid = row.get("id")
+            if rid and rid not in active_hashes:
+                # Not recently accessed — check created_at as fallback
+                created_at = row.get("created_at", 0)
+                if created_at < threshold:
+                    stale_count += 1
+
+        return stale_count
 
     async def get_memories_by_time_range(
         self, start_time: float, end_time: float,
@@ -1890,6 +2019,132 @@ class MilvusMemoryStorage(MemoryStorage):
     # ------------------------------------------------------------------
     # Connection tracking (graph-based)
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Access tracking (_access side-collection)
+    # ------------------------------------------------------------------
+
+    async def _touch_access(self, hashes: List[str]) -> None:
+        """Batch-upsert last_accessed timestamps for retrieved memories.
+
+        Called asynchronously after retrieve() returns results. Failures are
+        logged but never propagate — access tracking is best-effort.
+        """
+        if not self._has_access_collection or not hashes:
+            return
+
+        now = time.time()
+        rows = [
+            {"id": h, "last_accessed": now, "_dummy_vec": [0.0, 0.0]}
+            for h in hashes
+        ]
+
+        try:
+            await self._call_client(
+                "upsert",
+                collection_name=self._access_collection,
+                data=rows,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("_touch_access failed (non-fatal): %s", exc)
+
+    async def get_access_patterns(self) -> Dict[str, datetime]:
+        """Return last-accessed timestamps from the _access side-collection.
+
+        Used by the Forgetting engine's decay calculator to compute
+        access_boost. Returns ``{content_hash: datetime}`` for all memories
+        that have been accessed at least once.
+        """
+        if not self._has_access_collection:
+            return {}
+
+        try:
+            async with self._write_lock:
+                if self.client is None:
+                    return {}
+                rows = await asyncio.to_thread(
+                    self._drain_access_records,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("get_access_patterns failed: %s", exc)
+            return {}
+
+        patterns: Dict[str, datetime] = {}
+        for row in rows:
+            ts = row.get("last_accessed")
+            rid = row.get("id")
+            if rid and ts:
+                patterns[rid] = datetime.fromtimestamp(ts, tz=timezone.utc)
+        return patterns
+
+    def _drain_access_records(self) -> List[Dict[str, Any]]:
+        """Sync helper that drains all rows from the _access collection."""
+        assert self.client is not None
+        iterator = self.client.query_iterator(
+            collection_name=self._access_collection,
+            filter="",
+            output_fields=["id", "last_accessed"],
+            batch_size=self._QUERY_ITER_BATCH,
+        )
+        rows: List[Dict[str, Any]] = []
+        try:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                rows.extend(batch)
+        finally:
+            try:
+                iterator.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return rows
+
+    def _drain_main_ids_and_created_at(self, filter_expr: str) -> List[Dict[str, Any]]:
+        """Sync helper that drains id + created_at from the main collection."""
+        assert self.client is not None
+        iterator = self.client.query_iterator(
+            collection_name=self.collection_name,
+            filter=filter_expr or "",
+            output_fields=["id", "created_at"],
+            batch_size=self._QUERY_ITER_BATCH,
+        )
+        rows: List[Dict[str, Any]] = []
+        try:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                rows.extend(batch)
+        finally:
+            try:
+                iterator.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return rows
+
+    def _drain_active_hashes(self, threshold: float) -> List[Dict[str, Any]]:
+        """Sync helper that drains active (recently accessed) hashes from _access collection."""
+        assert self.client is not None
+        iterator = self.client.query_iterator(
+            collection_name=self._access_collection,
+            filter=f"last_accessed >= {threshold}",
+            output_fields=["id"],
+            batch_size=self._QUERY_ITER_BATCH,
+        )
+        rows: List[Dict[str, Any]] = []
+        try:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                rows.extend(batch)
+        finally:
+            try:
+                iterator.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return rows
 
     async def get_memory_connections(self) -> Dict[str, int]:
         """Return connection counts per memory hash from the graph collection.

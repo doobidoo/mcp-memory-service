@@ -389,9 +389,9 @@ async def test_get_all_memories_and_count(storage):
     assert await storage.count_all_memories(tags=["g-1"]) == 1
     assert await storage.count_all_memories(memory_type="note") == 3
     assert await storage.count_all_memories(memory_type="reminder") == 0
-    # stale_days is accepted but ignored (Milvus has no last_accessed field)
-    assert await storage.count_all_memories(stale_days=7) == 3
-    assert await storage.count_all_memories(memory_type="note", stale_days=30) == 3
+    # stale_days filtering: memories just created are NOT stale
+    assert await storage.count_all_memories(stale_days=7) == 0
+    assert await storage.count_all_memories(memory_type="note", stale_days=30) == 0
 
 
 @pytest.mark.asyncio
@@ -461,6 +461,87 @@ async def test_get_memory_connections_with_graph_data(storage):
 
     # Cleanup
     client.drop_collection(collection_name=graph_collection)
+
+
+# -- Access tracking ---------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_access_collection_created_on_init(storage):
+    """_access collection is created during initialize()."""
+    assert storage._has_access_collection is True
+    assert storage.client.has_collection(collection_name=storage._access_collection)
+
+
+@pytest.mark.asyncio
+async def test_touch_access_creates_record(storage, sample_memory):
+    """retrieve() triggers _touch_access which creates a record in _access."""
+    await storage.store(sample_memory)
+    # Trigger retrieve to update last_accessed
+    await storage.retrieve("fastapi", n_results=1)
+    import asyncio
+    await asyncio.sleep(0.2)  # let async task complete
+
+    patterns = await storage.get_access_patterns()
+    assert sample_memory.content_hash in patterns
+
+
+@pytest.mark.asyncio
+async def test_touch_access_updates_timestamp(storage, sample_memory):
+    """Multiple retrieves update the timestamp."""
+    await storage.store(sample_memory)
+
+    await storage.retrieve("fastapi", n_results=1)
+    import asyncio
+    await asyncio.sleep(0.2)
+    patterns1 = await storage.get_access_patterns()
+    ts1 = patterns1.get(sample_memory.content_hash)
+    assert ts1 is not None
+
+    await asyncio.sleep(0.1)
+    await storage.retrieve("fastapi", n_results=1)
+    await asyncio.sleep(0.2)
+    patterns2 = await storage.get_access_patterns()
+    ts2 = patterns2.get(sample_memory.content_hash)
+    assert ts2 is not None
+    assert ts2 >= ts1
+
+
+@pytest.mark.asyncio
+async def test_get_access_patterns_returns_correct_format(storage, sample_memory):
+    """get_access_patterns returns Dict[str, datetime]."""
+    from datetime import datetime as dt
+    await storage.store(sample_memory)
+    await storage.retrieve("fastapi", n_results=1)
+    import asyncio
+    await asyncio.sleep(0.2)
+
+    patterns = await storage.get_access_patterns()
+    assert isinstance(patterns, dict)
+    for k, v in patterns.items():
+        assert isinstance(k, str)
+        assert isinstance(v, dt)
+
+
+@pytest.mark.asyncio
+async def test_delete_cleans_access_record(storage, sample_memory):
+    """Deleting a memory also removes its _access record."""
+    await storage.store(sample_memory)
+    await storage.retrieve("fastapi", n_results=1)
+    import asyncio
+    await asyncio.sleep(0.2)
+
+    # Verify access record exists
+    patterns = await storage.get_access_patterns()
+    assert sample_memory.content_hash in patterns
+
+    # Delete the memory
+    ok, _ = await storage.delete(sample_memory.content_hash)
+    assert ok
+
+    # Access record should be gone
+    patterns_after = await storage.get_access_patterns()
+    assert sample_memory.content_hash not in patterns_after
 
 
 # -- Update / stats ---------------------------------------------------------
