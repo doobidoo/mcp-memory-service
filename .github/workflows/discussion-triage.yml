@@ -2,8 +2,8 @@ name: Discussion Triage
 
 on:
   schedule:
-    # Every Monday at 09:00 UTC
-    - cron: "0 9 * * 1"
+    # Daily at 06:00 UTC (08:00 Europe/Zurich)
+    - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
       dry-run:
