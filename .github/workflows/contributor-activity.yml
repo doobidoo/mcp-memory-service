@@ -1,0 +1,38 @@
+name: Contributor Activity Digest
+
+on:
+  schedule:
+    # Daily at 07:00 UTC (09:00 Europe/Zurich) — after discussion-triage at 06:00
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Print to logs only, do not update issue"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+  discussions: read
+  pull-requests: read
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/maintenance/contributor_activity.py
+
+      - name: Run contributor activity digest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ARGS=("--repo" "$GITHUB_REPOSITORY" "--issue")
+          if [ "${{ inputs.dry-run || 'false' }}" = "true" ]; then
+            ARGS+=("--dry-run")
+          fi
+          python3 scripts/maintenance/contributor_activity.py "${ARGS[@]}"

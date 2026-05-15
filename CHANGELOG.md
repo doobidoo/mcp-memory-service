@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **feat(harvest): locale-based pattern plugins for multilingual extraction** ([#935](https://github.com/doobidoo/mcp-memory-service/pull/935), @filhocf): Replaces hardcoded English regex in the harvest extractor with a YAML-based pattern system. Patterns are loaded at startup via `HARVEST_LOCALE` env var (default: `"en"`, backward compatible). New files: `harvest/patterns/__init__.py` (loader with additive locale merging), `harvest/patterns/en.yaml`, `harvest/patterns/pt_BR.yaml` (Portuguese), `harvest/patterns/de.yaml` (German). `PatternExtractor` now stores patterns as `self._patterns` (instance-level). Unknown locales log a warning and are skipped. Non-English users see up to 8× improvement in harvest candidates. Closes [#908](https://github.com/doobidoo/mcp-memory-service/issues/908).
+- **feat(plugin): smart-tagger example plugin — auto-tagging + mistake-note boost** ([#932](https://github.com/doobidoo/mcp-memory-service/pull/932), @filhocf): Second reference plugin in `examples/plugin-smart-tagger/`, alongside `plugin-audit-log`. Uses the `mcp_memory_service.plugins` entry-point mechanism with `on_store` (auto-tags content by regex: decision, bug, convention, database, infra, frontend, backend) and `on_retrieve` hooks (boosts score for `mistake-note`/`error-replay` tagged memories). Configurable via `MCP_PLUGIN_SMART_TAGGER_ENABLED` (default: `true`) and `MCP_PLUGIN_SMART_TAGGER_BOOST` (default: `0.15`). No external dependencies.
+
 ## [10.57.3] - 2026-05-14
 
 ### Added
