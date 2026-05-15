@@ -973,6 +973,26 @@ class MilvusMemoryStorage(MemoryStorage):
     _CONFLICT_SIMILARITY_THRESHOLD = 0.95
     _CONFLICT_DIVERGENCE_THRESHOLD = 0.20
 
+    # Cached graph storage instance for conflict operations. Avoids creating
+    # a new MilvusClient + gRPC connection on every store() call.
+    _graph_storage_cache: Optional[Any] = None
+
+    async def _get_graph_storage(self):
+        """Get or create a cached MilvusGraphStorage instance."""
+        from .milvus_graph import MilvusGraphStorage
+
+        if self._graph_storage_cache is not None:
+            return self._graph_storage_cache
+
+        graph = MilvusGraphStorage(
+            uri=self.uri,
+            token=self.token,
+            collection_name=self.collection_name,
+        )
+        await graph.initialize()
+        self._graph_storage_cache = graph
+        return graph
+
     async def _detect_conflicts(
         self, new_hash: str, new_content: str, embedding: List[float]
     ) -> List[Dict[str, Any]]:
@@ -1046,21 +1066,49 @@ class MilvusMemoryStorage(MemoryStorage):
         Stores bidirectional 'contradicts' edges in MilvusGraphStorage and
         adds 'conflict:unresolved' tag to both memories.
         """
-        from .milvus_graph import MilvusGraphStorage
-
-        # Initialize graph storage for edge writes
         try:
-            graph = MilvusGraphStorage(
-                uri=self.uri,
-                token=self.token,
-                collection_name=self.collection_name,
-            )
-            await graph.initialize()
+            graph = await self._get_graph_storage()
         except Exception as exc:  # noqa: BLE001
             logger.warning("Cannot init graph storage for conflicts: %s", exc)
             return
 
         now = time.time()
+
+        # Fetch new_hash memory once (constant across all conflicts)
+        try:
+            new_mem = await self.get_by_hash(new_hash)
+        except Exception:  # noqa: BLE001
+            new_mem = None
+
+        # Tag new_hash once if needed
+        if new_mem and "conflict:unresolved" not in new_mem.tags:
+            try:
+                new_tags = list(new_mem.tags) + ["conflict:unresolved"]
+                await self.update_memory_metadata(
+                    content_hash=new_hash,
+                    updates={"tags": new_tags},
+                    preserve_timestamps=True,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to tag conflict on %s: %s", new_hash[:8], exc)
+
+        # Batch-fetch all existing_hash memories to avoid N+1 queries
+        existing_hashes = [c["existing_hash"] for c in conflicts]
+        mem_map: Dict[str, Any] = {}
+        if existing_hashes:
+            try:
+                fetched = await self._call_client(
+                    "get",
+                    collection_name=self.collection_name,
+                    ids=existing_hashes,
+                    output_fields=list(self._OUTPUT_FIELDS),
+                )
+                for row in (fetched or []):
+                    m = self._entity_to_memory(row)
+                    if m:
+                        mem_map[m.content_hash] = m
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Batch fetch for conflict tagging failed: %s", exc)
 
         for c in conflicts:
             existing_hash = c["existing_hash"]
@@ -1087,24 +1135,18 @@ class MilvusMemoryStorage(MemoryStorage):
                 )
                 continue
 
-            # Tag both memories with conflict:unresolved
-            for h in (new_hash, existing_hash):
+            # Tag existing memory with conflict:unresolved
+            existing_mem = mem_map.get(existing_hash)
+            if existing_mem and "conflict:unresolved" not in existing_mem.tags:
                 try:
-                    mem = await self.get_by_hash(h)
-                    if mem and "conflict:unresolved" not in mem.tags:
-                        new_tags = list(mem.tags) + ["conflict:unresolved"]
-                        await self.update_memory_metadata(
-                            content_hash=h,
-                            updates={"tags": new_tags},
-                            preserve_timestamps=True,
-                        )
+                    new_tags = list(existing_mem.tags) + ["conflict:unresolved"]
+                    await self.update_memory_metadata(
+                        content_hash=existing_hash,
+                        updates={"tags": new_tags},
+                        preserve_timestamps=True,
+                    )
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("Failed to tag conflict on %s: %s", h[:8], exc)
-
-        try:
-            await graph.close()
-        except Exception:  # noqa: BLE001
-            pass
+                    logger.warning("Failed to tag conflict on %s: %s", existing_hash[:8], exc)
 
         logger.info(
             "Recorded %d conflict(s) for %s", len(conflicts), new_hash[:8]
@@ -1114,27 +1156,19 @@ class MilvusMemoryStorage(MemoryStorage):
         """Return unresolved conflict pairs from the graph collection.
 
         Queries the graph collection for edges with relationship_type='contradicts',
-        then filters to only include pairs where both memories still exist and
-        have the 'conflict:unresolved' tag.
+        then batch-fetches all referenced memories to avoid N+1 queries.
         """
         if not self._ensure_initialized():
             return []
 
-        from .milvus_graph import MilvusGraphStorage
-
         try:
-            graph = MilvusGraphStorage(
-                uri=self.uri,
-                token=self.token,
-                collection_name=self.collection_name,
-            )
-            await graph.initialize()
+            graph = await self._get_graph_storage()
         except Exception as exc:  # noqa: BLE001
             logger.warning("Cannot init graph storage for get_conflicts: %s", exc)
             return []
 
         try:
-            # Query all contradicts edges (only one direction to avoid duplicates)
+            # Query all contradicts edges
             rows = await graph._call_client(
                 "query",
                 collection_name=graph.collection_name,
@@ -1146,12 +1180,15 @@ class MilvusMemoryStorage(MemoryStorage):
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to query conflict edges: %s", exc)
-            await graph.close()
             return []
 
-        # Deduplicate: only keep pairs where source_hash < target_hash
+        if not rows:
+            return []
+
+        # Deduplicate and collect all unique hashes
+        pair_rows: List[Dict[str, Any]] = []
+        all_hashes: set = set()
         seen: set = set()
-        results: List[Dict[str, Any]] = []
 
         for row in rows:
             src = row.get("source_hash", "")
@@ -1160,10 +1197,36 @@ class MilvusMemoryStorage(MemoryStorage):
             if pair_key in seen:
                 continue
             seen.add(pair_key)
+            pair_rows.append(row)
+            if src:
+                all_hashes.add(src)
+            if tgt:
+                all_hashes.add(tgt)
 
-            # Verify both memories still exist and are unresolved
-            mem_a = await self.get_by_hash(src)
-            mem_b = await self.get_by_hash(tgt)
+        # Batch-fetch all memories in one call to avoid N+1 queries
+        mem_map: Dict[str, Any] = {}
+        if all_hashes:
+            try:
+                fetched = await self._call_client(
+                    "get",
+                    collection_name=self.collection_name,
+                    ids=list(all_hashes),
+                    output_fields=list(self._OUTPUT_FIELDS),
+                )
+                for r in (fetched or []):
+                    m = self._entity_to_memory(r)
+                    if m:
+                        mem_map[m.content_hash] = m
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Batch fetch for get_conflicts failed: %s", exc)
+                return []
+
+        results: List[Dict[str, Any]] = []
+        for row in pair_rows:
+            src = row.get("source_hash", "")
+            tgt = row.get("target_hash", "")
+            mem_a = mem_map.get(src)
+            mem_b = mem_map.get(tgt)
             if not mem_a or not mem_b:
                 continue
             if (
@@ -1184,11 +1247,6 @@ class MilvusMemoryStorage(MemoryStorage):
                 "divergence": meta.get("divergence"),
                 "detected_at": meta.get("detected_at"),
             })
-
-        try:
-            await graph.close()
-        except Exception:  # noqa: BLE001
-            pass
 
         return results
 
@@ -1247,16 +1305,8 @@ class MilvusMemoryStorage(MemoryStorage):
 
         # Delete the contradicts edge from graph
         try:
-            from .milvus_graph import MilvusGraphStorage
-
-            graph = MilvusGraphStorage(
-                uri=self.uri,
-                token=self.token,
-                collection_name=self.collection_name,
-            )
-            await graph.initialize()
+            graph = await self._get_graph_storage()
             await graph.delete_association(winner_hash, loser_hash)
-            await graph.close()
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to delete conflict edge (non-fatal): %s", exc)
 
