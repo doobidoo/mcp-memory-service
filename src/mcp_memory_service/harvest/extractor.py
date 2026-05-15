@@ -1,10 +1,13 @@
 """Pattern-based extraction of learnings from session messages."""
 
+import os
 import re
 import logging
-from typing import List
+from typing import Dict, List, Tuple
+
 from .models import HarvestCandidate
 from .parser import ParsedMessage
+from .patterns import load_patterns
 
 logger = logging.getLogger(__name__)
 
@@ -16,37 +19,28 @@ MAX_CANDIDATE_CONTENT_LENGTH = 500
 # Regex to detect code blocks — we strip these before pattern matching
 CODE_BLOCK_RE = re.compile(r'```[\s\S]*?```', re.MULTILINE)
 
-# Pattern definitions: (compiled_regex, base_confidence)
-PATTERNS = {
-    "decision": [
-        (re.compile(r'\b(?:decided|chose|choosing|going with|opted for|selected)\b.*\b(?:over|instead of|because|for)\b', re.IGNORECASE), 0.75),
-        (re.compile(r'\b(?:decision|approach):\s', re.IGNORECASE), 0.7),
-        (re.compile(r'\bI (?:will|\'ll) (?:use|go with|pick|choose)\b', re.IGNORECASE), 0.65),
-    ],
-    "bug": [
-        (re.compile(r'\b(?:root cause|bug was|issue was|problem was|error was)\b', re.IGNORECASE), 0.75),
-        (re.compile(r'\b(?:fixed by|fix was|resolved by|the fix)\b', re.IGNORECASE), 0.7),
-        (re.compile(r'\b(?:crash|regression|broke|breaking|broken)\b.*\b(?:because|due to|caused by)\b', re.IGNORECASE), 0.7),
-    ],
-    "convention": [
-        (re.compile(r'\b(?:convention|rule|pattern|standard):\s', re.IGNORECASE), 0.8),
-        (re.compile(r'\b(?:always|never)\s+(?:use|do|add|include|set|run|check)\b', re.IGNORECASE), 0.65),
-        (re.compile(r'\bmust (?:always|never)\b', re.IGNORECASE), 0.7),
-    ],
-    "learning": [
-        (re.compile(r'\b(?:learned|discovered|realized|found out|turns out|TIL)\b', re.IGNORECASE), 0.7),
-        (re.compile(r'\b(?:insight|takeaway|lesson|key finding)\b', re.IGNORECASE), 0.7),
-        (re.compile(r'\b(?:didn\'t know|wasn\'t aware|surprised to find)\b', re.IGNORECASE), 0.65),
-    ],
-    "context": [
-        (re.compile(r'\b(?:current state|status|progress|where we left off)\b', re.IGNORECASE), 0.6),
-        (re.compile(r'\b(?:next steps?|todo|remaining work|blocked on)\b', re.IGNORECASE), 0.6),
-    ],
-}
+# Default locale from environment, fallback to English
+DEFAULT_LOCALE = os.environ.get("HARVEST_LOCALE", "en")
 
 
 class PatternExtractor:
-    """Extracts harvest candidates from parsed messages using regex patterns."""
+    """Extracts harvest candidates from parsed messages using regex patterns.
+
+    Supports multiple locales via pattern plugin files.
+    Set HARVEST_LOCALE env var to load additional locales (e.g., "en,pt_BR").
+    """
+
+    def __init__(self, locale: str = None):
+        """Initialize with locale-specific patterns.
+
+        Args:
+            locale: Comma-separated locale codes. Defaults to HARVEST_LOCALE env or "en".
+        """
+        self._locale = locale or DEFAULT_LOCALE
+        self._patterns: Dict[str, List[Tuple[re.Pattern, float]]] = load_patterns(self._locale)
+        if self._patterns:
+            total = sum(len(v) for v in self._patterns.values())
+            logger.info(f"PatternExtractor loaded {total} patterns for locale(s): {self._locale}")
 
     def extract(self, message: ParsedMessage) -> List[HarvestCandidate]:
         """Extract candidates from a single message."""
@@ -64,7 +58,7 @@ class PatternExtractor:
         candidates: List[HarvestCandidate] = []
         seen_types = {}  # type -> best confidence
 
-        for memory_type, patterns in PATTERNS.items():
+        for memory_type, patterns in self._patterns.items():
             matches = []
             for pattern, base_confidence in patterns:
                 if pattern.search(clean_text):
