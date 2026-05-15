@@ -27,7 +27,10 @@ def load_patterns(locales: str = "en") -> PatternDict:
         Merged pattern dict ready for use by PatternExtractor.
     """
     merged: PatternDict = {}
-    locale_list = [loc.strip() for loc in locales.split(",") if loc.strip()]
+    if isinstance(locales, str):
+        locale_list = [loc.strip() for loc in locales.split(",") if loc.strip()]
+    else:
+        locale_list = [str(loc).strip() for loc in locales if loc]
 
     if not locale_list:
         locale_list = ["en"]
