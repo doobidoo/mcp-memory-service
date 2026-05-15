@@ -20,10 +20,15 @@ on:
         type: boolean
         default: true
       keep_versions:
-        description: 'Number of versions to keep'
+        description: 'Number of patch versions to keep (e.g. 10.57.3)'
         required: false
         type: string
-        default: '20'
+        default: '5'
+      keep_minor_floaters:
+        description: 'Number of major.minor floating tags to keep (e.g. 10.57, 10.57-slim)'
+        required: false
+        type: string
+        default: '3'
       delete_untagged:
         description: 'Delete untagged images'
         required: false
@@ -117,18 +122,44 @@ jobs:
       run: |
         cat > cleanup_docker_hub.py << 'EOF'
         #!/usr/bin/env python3
-        """
-        Docker Hub image cleanup script
-        Deletes old image tags based on retention policy
-        """
+        """Docker Hub image cleanup — version-aware retention policy."""
         import os
         import sys
-        import json
+        import re
         import requests
         from datetime import datetime, timedelta, timezone
         from dateutil import parser
-        import re
-        
+
+        # Tags that are never deleted.
+        PROTECTED = {"latest", "slim", "main", "stable"}
+
+        # Regex helpers
+        RE_PATCH        = re.compile(r'^(v?\d+\.\d+\.\d+)$')           # 10.57.3
+        RE_PATCH_VAR    = re.compile(r'^(v?\d+\.\d+\.\d+)(-.+)$')      # 10.57.3-slim
+        RE_MINOR        = re.compile(r'^(v?\d+\.\d+)$')                 # 10.57
+        RE_MINOR_VAR    = re.compile(r'^(v?\d+\.\d+)(-.+)$')           # 10.57-slim
+        RE_MAJOR        = re.compile(r'^(v?\d+)$')                      # 10
+        RE_MAJOR_VAR    = re.compile(r'^(v?\d+)(-.+)$')                 # 10-slim
+
+        def semver_key(tag_name):
+            """Return (major, minor, patch) for sorting, or None if not a patch tag."""
+            m = RE_PATCH.match(tag_name) or RE_PATCH_VAR.match(tag_name)
+            if m:
+                parts = re.findall(r'\d+', m.group(1))
+                if len(parts) >= 3:
+                    return tuple(int(p) for p in parts[:3])
+            return None
+
+        def minor_key(tag_name):
+            """Return (major, minor) for sorting, or None."""
+            m = RE_MINOR.match(tag_name) or RE_MINOR_VAR.match(tag_name)
+            if m:
+                parts = re.findall(r'\d+', m.group(1))
+                if len(parts) >= 2:
+                    return tuple(int(p) for p in parts[:2])
+            return None
+
+
         class DockerHubCleaner:
             def __init__(self, username, password, repository):
                 self.username = username
@@ -136,193 +167,195 @@ jobs:
                 self.repository = repository
                 self.token = None
                 self.api_base = "https://hub.docker.com/v2"
-                
+
             def authenticate(self):
-                """Get authentication token from Docker Hub"""
                 url = f"{self.api_base}/users/login/"
-                data = {"username": self.username, "password": self.password}
-                
                 try:
-                    response = requests.post(url, json=data)
-                    response.raise_for_status()
-                    self.token = response.json()["token"]
+                    r = requests.post(url, json={"username": self.username, "password": self.password})
+                    r.raise_for_status()
+                    self.token = r.json()["token"]
                     print("✓ Authenticated with Docker Hub")
                     return True
                 except Exception as e:
                     print(f"✗ Authentication failed: {e}")
                     return False
-            
+
             def get_tags(self):
-                """Get all tags for the repository"""
                 url = f"{self.api_base}/repositories/{self.repository}/tags"
                 headers = {"Authorization": f"Bearer {self.token}"}
                 tags = []
-                
                 while url:
                     try:
-                        response = requests.get(url, headers=headers, params={"page_size": 100})
-                        response.raise_for_status()
-                        data = response.json()
+                        r = requests.get(url, headers=headers, params={"page_size": 100})
+                        r.raise_for_status()
+                        data = r.json()
                         tags.extend(data["results"])
                         url = data.get("next")
                     except Exception as e:
                         print(f"✗ Failed to get tags: {e}")
                         break
-                
                 print(f"✓ Found {len(tags)} tags in repository")
                 return tags
-            
-            def should_keep_tag(self, tag_name, tag_date, keep_versions, cutoff_date):
-                """Determine if a tag should be kept based on retention policy"""
-                # Always keep these tags
-                protected_tags = ["latest", "slim", "main", "stable"]
-                if tag_name in protected_tags:
-                    return True, "Protected tag"
-                
-                # Keep semantic version tags (v1.2.3)
-                if re.match(r'^v?\d+\.\d+\.\d+$', tag_name):
-                    # Check if it's one of the most recent versions
-                    return True, "Semantic version"
-                
-                # Keep major.minor tags (1.0, 2.1)
-                if re.match(r'^v?\d+\.\d+$', tag_name):
-                    return True, "Major.minor version"
-                
-                # Delete buildcache tags older than cutoff
-                if tag_name.startswith("buildcache-"):
-                    if tag_date < cutoff_date:
-                        return False, "Old buildcache tag"
-                    return True, "Recent buildcache tag"
-                
-                # Delete sha/digest tags older than cutoff
-                if tag_name.startswith("sha256-") or len(tag_name) == 7:
-                    if tag_date < cutoff_date:
-                        return False, "Old sha/digest tag"
-                    return True, "Recent sha/digest tag"
-                
-                # Delete test/dev tags older than cutoff
-                if any(x in tag_name.lower() for x in ["test", "dev", "tmp", "temp"]):
-                    if tag_date < cutoff_date:
-                        return False, "Old test/dev tag"
-                    return True, "Recent test/dev tag"
-                
-                # Keep if recent
-                if tag_date >= cutoff_date:
-                    return True, "Recent tag"
-                
-                return False, "Old tag"
-            
+
             def delete_tag(self, tag_name, dry_run=False):
-                """Delete a specific tag from Docker Hub"""
                 if dry_run:
                     print(f"  [DRY RUN] Would delete: {tag_name}")
                     return True
-                
                 url = f"{self.api_base}/repositories/{self.repository}/tags/{tag_name}/"
                 headers = {"Authorization": f"Bearer {self.token}"}
-                
                 try:
-                    response = requests.delete(url, headers=headers)
-                    response.raise_for_status()
+                    r = requests.delete(url, headers=headers)
+                    r.raise_for_status()
                     print(f"  ✓ Deleted: {tag_name}")
                     return True
                 except Exception as e:
                     print(f"  ✗ Failed to delete {tag_name}: {e}")
                     return False
-            
-            def cleanup(self, keep_versions=5, days_to_keep=30, dry_run=False):
-                """Main cleanup function"""
+
+            def cleanup(self, keep_versions=5, keep_minor_floaters=3, dry_run=False):
                 if not self.authenticate():
                     return False
-                
+
                 tags = self.get_tags()
                 if not tags:
                     return False
-                
-                # Sort tags by date (newest first)
-                tags.sort(key=lambda x: parser.parse(x["last_updated"]), reverse=True)
-                
-                # Calculate cutoff date
-                cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_to_keep)
-                
-                # Separate semantic versions from other tags
-                version_tags = []
-                other_tags = []
-                
-                for tag in tags:
-                    if re.match(r'^v?\d+\.\d+\.\d+$', tag["name"]):
-                        version_tags.append(tag)
-                    else:
-                        other_tags.append(tag)
-                
+
+                # ── Classify every tag ──────────────────────────────────────
+                patch_tags      = {}   # base_str → tag dict  (10.57.3)
+                patch_var_tags  = {}   # base_str → [tag dicts]  (10.57.3-slim)
+                minor_tags      = {}   # base_str → tag dict  (10.57)
+                minor_var_tags  = {}   # base_str → [tag dicts]  (10.57-slim)
+                rest_tags       = []   # everything else (major, buildcache, sha, …)
+
+                for t in tags:
+                    n = t["name"]
+                    if n in PROTECTED:
+                        continue
+                    m = RE_PATCH.match(n)
+                    if m:
+                        patch_tags[m.group(1)] = t
+                        continue
+                    m = RE_PATCH_VAR.match(n)
+                    if m:
+                        patch_var_tags.setdefault(m.group(1), []).append(t)
+                        continue
+                    m = RE_MINOR.match(n)
+                    if m:
+                        minor_tags[m.group(1)] = t
+                        continue
+                    m = RE_MINOR_VAR.match(n)
+                    if m:
+                        minor_var_tags.setdefault(m.group(1), []).append(t)
+                        continue
+                    rest_tags.append(t)
+
+                # ── Decide which patch bases to keep ────────────────────────
+                sorted_patches = sorted(patch_tags.keys(),
+                                        key=lambda s: semver_key(s) or (0, 0, 0),
+                                        reverse=True)
+                keep_patch_bases = set(sorted_patches[:keep_versions])
+
+                # ── Decide which minor bases to keep ────────────────────────
+                all_minor_bases = sorted(
+                    set(minor_tags.keys()) | set(minor_var_tags.keys()),
+                    key=lambda s: minor_key(s) or (0, 0),
+                    reverse=True,
+                )
+                keep_minor_bases = set(all_minor_bases[:keep_minor_floaters])
+
                 print(f"\n📊 Repository Statistics:")
-                print(f"  - Total tags: {len(tags)}")
-                print(f"  - Version tags: {len(version_tags)}")
-                print(f"  - Other tags: {len(other_tags)}")
-                print(f"  - Keep versions: {keep_versions}")
-                print(f"  - Days to keep: {days_to_keep}")
+                print(f"  - Patch version tags: {len(patch_tags)}  (keeping {len(keep_patch_bases)})")
+                print(f"  - Patch variant tags: {sum(len(v) for v in patch_var_tags.values())}")
+                print(f"  - Minor floater tags: {len(minor_tags) + sum(len(v) for v in minor_var_tags.values())}  (keeping {len(keep_minor_bases)} minor bases)")
+                print(f"  - Other tags: {len(rest_tags)}")
                 print(f"  - Dry run: {dry_run}")
-                
+                print(f"  - Keep patch versions: {sorted_patches[:keep_versions]}")
+                print(f"  - Keep minor bases:    {sorted(keep_minor_bases, key=lambda s: minor_key(s) or (0,0), reverse=True)}")
+
                 deleted_count = 0
                 kept_count = 0
-                
-                print(f"\n🔍 Analyzing tags...")
-                
-                # Process version tags (keep only the most recent N)
-                for i, tag in enumerate(version_tags):
-                    tag_date = parser.parse(tag["last_updated"])
-                    if i < keep_versions:
-                        print(f"  ✓ Keep {tag['name']} (recent version #{i+1})")
+
+                print(f"\n🔍 Analyzing tags…")
+
+                # Protected tags
+                for t in tags:
+                    if t["name"] in PROTECTED:
+                        print(f"  ✓ Keep {t['name']} (Protected)")
+                        kept_count += 1
+
+                # Patch versions
+                for base, t in patch_tags.items():
+                    if base in keep_patch_bases:
+                        print(f"  ✓ Keep {t['name']} (recent patch)")
                         kept_count += 1
                     else:
-                        print(f"  ✗ Delete {tag['name']} (old version #{i+1})")
-                        if self.delete_tag(tag["name"], dry_run):
+                        print(f"  ✗ Delete {t['name']} (old patch)")
+                        if self.delete_tag(t["name"], dry_run):
                             deleted_count += 1
-                
-                # Process other tags based on policy
-                for tag in other_tags:
-                    tag_date = parser.parse(tag["last_updated"])
-                    should_keep, reason = self.should_keep_tag(
-                        tag["name"], tag_date, keep_versions, cutoff_date
-                    )
-                    
-                    if should_keep:
-                        print(f"  ✓ Keep {tag['name']} ({reason})")
+
+                # Patch variants (10.57.3-slim, 10.57.3-quality-cpu, …)
+                for base, tlist in patch_var_tags.items():
+                    for t in tlist:
+                        if base in keep_patch_bases:
+                            print(f"  ✓ Keep {t['name']} (recent patch variant)")
+                            kept_count += 1
+                        else:
+                            print(f"  ✗ Delete {t['name']} (old patch variant)")
+                            if self.delete_tag(t["name"], dry_run):
+                                deleted_count += 1
+
+                # Minor floaters (10.57)
+                for base, t in minor_tags.items():
+                    if base in keep_minor_bases:
+                        print(f"  ✓ Keep {t['name']} (recent minor floater)")
                         kept_count += 1
                     else:
-                        print(f"  ✗ Delete {tag['name']} ({reason})")
-                        if self.delete_tag(tag["name"], dry_run):
+                        print(f"  ✗ Delete {t['name']} (old minor floater)")
+                        if self.delete_tag(t["name"], dry_run):
                             deleted_count += 1
-                
+
+                # Minor variants (10.57-slim, 10.57-quality-cpu)
+                for base, tlist in minor_var_tags.items():
+                    for t in tlist:
+                        if base in keep_minor_bases:
+                            print(f"  ✓ Keep {t['name']} (recent minor variant)")
+                            kept_count += 1
+                        else:
+                            print(f"  ✗ Delete {t['name']} (old minor variant)")
+                            if self.delete_tag(t["name"], dry_run):
+                                deleted_count += 1
+
+                # Major floaters and everything else: always keep
+                for t in rest_tags:
+                    print(f"  ✓ Keep {t['name']} (major/other)")
+                    kept_count += 1
+
                 print(f"\n📈 Summary:")
                 print(f"  - Kept: {kept_count} tags")
                 print(f"  - Deleted: {deleted_count} tags")
-                
                 return True
-        
+
+
         def main():
-            # Get environment variables
-            username = os.environ.get("DOCKER_USERNAME")
-            password = os.environ.get("DOCKER_PASSWORD")
+            username   = os.environ.get("DOCKER_USERNAME")
+            password   = os.environ.get("DOCKER_PASSWORD")
             repository = os.environ.get("DOCKER_REPOSITORY", "doobidoo/mcp-memory-service")
-            
-            # Get parameters
-            dry_run = os.environ.get("DRY_RUN", "false").lower() == "true"
-            keep_versions = int(os.environ.get("KEEP_VERSIONS", "5"))
-            days_to_keep = int(os.environ.get("DAYS_TO_KEEP", "30"))
-            
+            dry_run    = os.environ.get("DRY_RUN", "false").lower() == "true"
+            keep_versions       = int(os.environ.get("KEEP_VERSIONS", "5"))
+            keep_minor_floaters = int(os.environ.get("KEEP_MINOR_FLOATERS", "3"))
+
             if not username or not password:
                 print("✗ Missing DOCKER_USERNAME or DOCKER_PASSWORD")
                 sys.exit(1)
-            
+
             print(f"🐳 Docker Hub Cleanup for {repository}")
             print("=" * 50)
-            
+
             cleaner = DockerHubCleaner(username, password, repository)
-            success = cleaner.cleanup(keep_versions, days_to_keep, dry_run)
-            
+            success = cleaner.cleanup(keep_versions, keep_minor_floaters, dry_run)
             sys.exit(0 if success else 1)
-        
+
+
         if __name__ == "__main__":
             main()
         EOF
@@ -335,7 +368,7 @@ jobs:
         DOCKER_REPOSITORY: doobidoo/mcp-memory-service
         DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         KEEP_VERSIONS: ${{ github.event.inputs.keep_versions || '5' }}
-        DAYS_TO_KEEP: '30'
+        KEEP_MINOR_FLOATERS: ${{ github.event.inputs.keep_minor_floaters || '3' }}
       run: python cleanup_docker_hub.py
     
     - name: Docker Hub cleanup skipped
