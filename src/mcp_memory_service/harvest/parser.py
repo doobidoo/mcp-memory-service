@@ -75,61 +75,60 @@ class TranscriptParser:
                         return messages
 
                 if format_detected == "claude":
-                    msg = self._parse_claude_line(obj)
+                    msgs = self._parse_claude_line(obj)
                 else:
-                    msg = self._parse_kiro_line(obj)
+                    msgs = self._parse_kiro_line(obj)
 
-                if msg:
-                    messages.append(msg)
+                if msgs:
+                    messages.extend(msgs)
 
         return messages
 
-    def _parse_claude_line(self, obj: dict) -> Optional[ParsedMessage]:
+    def _parse_claude_line(self, obj: dict) -> List[ParsedMessage]:
         """Parse a single Claude Code JSONL line."""
         msg_type = obj.get("type")
         if msg_type not in self.RELEVANT_TYPES:
-            return None
+            return []
 
         message = obj.get("message", {})
         content = message.get("content", [])
         timestamp = obj.get("timestamp")
         uuid = obj.get("uuid")
 
+        results = []
         for block in content:
             if isinstance(block, dict) and block.get("type") == "text":
                 text = block.get("text", "").strip()
                 if text and not self._is_system_content(text):
-                    return ParsedMessage(role=msg_type, text=text, timestamp=timestamp, uuid=uuid)
-        return None
+                    results.append(ParsedMessage(role=msg_type, text=text, timestamp=timestamp, uuid=uuid))
+        return results
 
-    def _parse_kiro_line(self, obj: dict) -> Optional[ParsedMessage]:
+    def _parse_kiro_line(self, obj: dict) -> List[ParsedMessage]:
         """Parse a single Kiro CLI JSONL line."""
         kind = obj.get("kind")
         role = self.KIRO_KIND_MAP.get(kind)
         if not role:
-            return None
+            return []
 
         data = obj.get("data", {})
         content = data.get("content", []) if isinstance(data.get("content"), list) else []
         timestamp = obj.get("timestamp")
         uuid = obj.get("uuid")
 
-        # Kiro uses content[].data (where kind=="text") for text
-        # Also handle content as plain string
+        # Handle plain string content
         if isinstance(data.get("content"), str):
             text = data["content"].strip()
             if text and not self._is_system_content(text):
-                return ParsedMessage(role=role, text=text, timestamp=timestamp, uuid=uuid)
-            return None
+                return [ParsedMessage(role=role, text=text, timestamp=timestamp, uuid=uuid)]
+            return []
 
+        results = []
         for block in content:
             if isinstance(block, dict) and block.get("kind") == "text":
                 text = block.get("data", "").strip()
                 if text and not self._is_system_content(text):
-                    return ParsedMessage(role=role, text=text, timestamp=timestamp, uuid=uuid)
-        return None
-
-        return messages
+                    results.append(ParsedMessage(role=role, text=text, timestamp=timestamp, uuid=uuid))
+        return results
 
     @staticmethod
     def _is_system_content(text: str) -> bool:
