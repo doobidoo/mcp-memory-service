@@ -496,16 +496,20 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.57.3** (May 14, 2026)
+## Latest Release: **v10.58.0** (May 16, 2026)
 
-**Milvus: last_accessed tracking via `_access` side-collection**
+**InsightGenerator: configurable exclusion, automated-type heuristic, and acknowledgement flow**
 
 **What's New:**
-- `feat(milvus)`: `_access` side-collection records retrieve-hit timestamps, fixing the Forgetting engine's `access_boost` (was falling back to `updated_at`), `count_all_memories(stale_days=N)` (was silently ignored), and `memory_quality(action="maintain")` stale detection. Fire-and-forget via `asyncio.create_task` with graceful degradation (PR #925, @henry201605). Closes #923.
+- `feat(insights)`: `MCP_INSIGHT_EXCLUDE_TAGS` env var — comma-separated tags to exclude from gap detection (e.g. `MCP_INSIGHT_EXCLUDE_TAGS=ci,radar`). Automated-type heuristic skips gap detection for tags where >90% of memories are session/auto-generated/temporary type. Insight card acknowledgement — tagging a card with `acknowledged` materialises a stable sentinel so the card is never regenerated, even after deletion (PR #939). Closes discussion #897.
+- `fix(milvus)`: deduplicate `_drain_graph_edges` against Milvus Lite double-batch bug; use `consistency_level="Session"` in semantic-dedup ANN search (commit 6f7e1f82).
+- `fix(triage)`: use existing `daily-triage` label; create missing `automated` label (commit 6f7e1f82).
+- `fix(test)`: raise `test_api_search_by_tag_time_filter_performance` threshold to 500ms for CI stability (PR #939).
 
 ---
 
 **Previous Releases**:
+- **v10.57.3** - feat(milvus): last_accessed tracking via `_access` side-collection (PR #925, @henry201605)
 - **v10.57.2** - fix(deps): pin pymilvus<3.0.0 to restore Milvus Docker CI (PR #921)
 - **v10.57.1** - fix(sqlite): LIKE ESCAPE tag matching + fix(milvus): preserve_timestamps value comparison (PRs #916, #918)
 - **v10.57.0** - feat(memory_list): tag_match AND/OR filtering + feat(session): automatic chunking at turn boundaries (PRs #904, #912, @filhocf)
