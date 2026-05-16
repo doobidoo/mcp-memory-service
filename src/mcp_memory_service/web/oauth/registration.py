@@ -58,6 +58,10 @@ def validate_redirect_uris(redirect_uris: Optional[List[str]]) -> None:
     ALLOWED_SCHEMES = {
         'https',    # HTTPS (preferred)
         'http',     # HTTP (localhost only)
+        # IDE deep-link schemes for OAuth callback in editor extensions
+        'cursor',
+        'vscode',
+        'vscode-insiders',
         # Native app custom schemes (common patterns)
         'com.example.app',  # Reverse domain notation
         'myapp',           # Simple custom scheme

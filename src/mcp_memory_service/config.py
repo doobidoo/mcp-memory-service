@@ -795,11 +795,36 @@ Example:
 if OAUTH_STORAGE_BACKEND == "sqlite":
     pass  # SQLite OAuth storage configured
 
-# RSA key pair configuration for JWT signing (RS256)
-# Private key for signing tokens
-OAUTH_PRIVATE_KEY = os.getenv('MCP_OAUTH_PRIVATE_KEY')
-# Public key for verifying tokens
-OAUTH_PUBLIC_KEY = os.getenv('MCP_OAUTH_PUBLIC_KEY')
+# RSA key pair configuration for JWT signing (RS256).
+# Two ways to provide keys (inline takes precedence):
+#   1. Inline PEM via MCP_OAUTH_PRIVATE_KEY / MCP_OAUTH_PUBLIC_KEY
+#   2. File path via MCP_OAUTH_PRIVATE_KEY_PATH / MCP_OAUTH_PUBLIC_KEY_PATH
+#
+# SECURITY: when a _PATH var is set but the file cannot be read, startup is
+# aborted (ValueError) rather than silently falling through to ephemeral key
+# generation, which would invalidate all active JWTs on every restart.
+
+def _load_pem_from_env(value_var: str, path_var: str) -> "str | None":
+    """Return PEM string from inline env var or file path, or None if neither set."""
+    inline = os.getenv(value_var)
+    if inline:
+        return inline
+    path = os.getenv(path_var)
+    if path:
+        expanded = os.path.expanduser(path)
+        try:
+            with open(expanded) as fh:
+                return fh.read()
+        except OSError as exc:
+            raise ValueError(
+                f"{path_var}={path!r} is set but the file could not be read: {exc}. "
+                "Fix the path / permissions or unset the variable."
+            ) from exc
+    return None
+
+
+OAUTH_PRIVATE_KEY = _load_pem_from_env('MCP_OAUTH_PRIVATE_KEY', 'MCP_OAUTH_PRIVATE_KEY_PATH')
+OAUTH_PUBLIC_KEY = _load_pem_from_env('MCP_OAUTH_PUBLIC_KEY', 'MCP_OAUTH_PUBLIC_KEY_PATH')
 
 # Generate RSA key pair if not provided
 if not OAUTH_PRIVATE_KEY or not OAUTH_PUBLIC_KEY:

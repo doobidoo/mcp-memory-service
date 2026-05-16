@@ -471,7 +471,11 @@ function calculateRelevanceScore(memory, projectContext, options = {}) {
 
         // Check for project name in tags OR content
         const hasProjectTag = projectName && (
-            memoryTags.some(tag => tag === projectName || tag.includes(projectName)) ||
+            memoryTags.some(tag =>
+                tag === projectName ||
+                tag.includes(projectName) ||
+                projectName.includes(tag)
+            ) ||
             memoryContent.includes(projectName)
         );
 

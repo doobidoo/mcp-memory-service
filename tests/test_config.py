@@ -1,5 +1,6 @@
 """Tests for config.py environment variable parsing robustness."""
 import os
+import tempfile
 import pytest
 
 
@@ -140,3 +141,62 @@ def test_validate_config_returns_warning_for_hybrid_weight_normalization():
             os.environ['MCP_HYBRID_SEMANTIC_WEIGHT'] = original_semantic
         else:
             os.environ.pop('MCP_HYBRID_SEMANTIC_WEIGHT', None)
+
+
+# ---------------------------------------------------------------------------
+# Tests for _load_pem_from_env (MCP_OAUTH_*_KEY_PATH support, PR #926)
+# ---------------------------------------------------------------------------
+
+def test_load_pem_from_env_returns_inline_value(monkeypatch):
+    """Inline env var takes precedence over path var."""
+    from mcp_memory_service.config import _load_pem_from_env
+    monkeypatch.setenv('_TEST_PEM_INLINE', 'INLINE_PEM')
+    monkeypatch.delenv('_TEST_PEM_PATH', raising=False)
+    assert _load_pem_from_env('_TEST_PEM_INLINE', '_TEST_PEM_PATH') == 'INLINE_PEM'
+
+
+def test_load_pem_from_env_reads_from_file(monkeypatch, tmp_path):
+    """When only path var is set, content is read from the file."""
+    from mcp_memory_service.config import _load_pem_from_env
+    pem_file = tmp_path / "key.pem"
+    pem_file.write_text("FILE_PEM_CONTENT")
+    monkeypatch.delenv('_TEST_PEM_INLINE', raising=False)
+    monkeypatch.setenv('_TEST_PEM_PATH', str(pem_file))
+    assert _load_pem_from_env('_TEST_PEM_INLINE', '_TEST_PEM_PATH') == 'FILE_PEM_CONTENT'
+
+
+def test_load_pem_from_env_returns_none_when_unset(monkeypatch):
+    """Returns None when neither var is set (triggers auto-generation)."""
+    from mcp_memory_service.config import _load_pem_from_env
+    monkeypatch.delenv('_TEST_PEM_INLINE', raising=False)
+    monkeypatch.delenv('_TEST_PEM_PATH', raising=False)
+    assert _load_pem_from_env('_TEST_PEM_INLINE', '_TEST_PEM_PATH') is None
+
+
+def test_load_pem_from_env_raises_on_missing_file(monkeypatch, tmp_path):
+    """When path var points to a non-existent file, ValueError is raised (fail-hard)."""
+    from mcp_memory_service.config import _load_pem_from_env
+    monkeypatch.delenv('_TEST_PEM_INLINE', raising=False)
+    monkeypatch.setenv('_TEST_PEM_PATH', str(tmp_path / "nonexistent.pem"))
+    with pytest.raises(ValueError, match="_TEST_PEM_PATH"):
+        _load_pem_from_env('_TEST_PEM_INLINE', '_TEST_PEM_PATH')
+
+
+def test_load_pem_from_env_inline_takes_precedence_over_path(monkeypatch, tmp_path):
+    """Inline value wins even when path var also points to a valid file."""
+    from mcp_memory_service.config import _load_pem_from_env
+    pem_file = tmp_path / "key.pem"
+    pem_file.write_text("FILE_PEM")
+    monkeypatch.setenv('_TEST_PEM_INLINE', 'INLINE_WINS')
+    monkeypatch.setenv('_TEST_PEM_PATH', str(pem_file))
+    assert _load_pem_from_env('_TEST_PEM_INLINE', '_TEST_PEM_PATH') == 'INLINE_WINS'
+
+
+def test_load_pem_from_env_reads_absolute_path(monkeypatch, tmp_path):
+    """Absolute path without tilde is read correctly."""
+    from mcp_memory_service.config import _load_pem_from_env
+    pem_file = tmp_path / "key.pem"
+    pem_file.write_text("ABSOLUTE_PEM")
+    monkeypatch.delenv('_TEST_PEM_INLINE', raising=False)
+    monkeypatch.setenv('_TEST_PEM_PATH', str(pem_file))
+    assert _load_pem_from_env('_TEST_PEM_INLINE', '_TEST_PEM_PATH') == 'ABSOLUTE_PEM'
