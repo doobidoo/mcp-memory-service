@@ -1326,8 +1326,10 @@ class MilvusMemoryStorage(MemoryStorage):
         """Look for a recently stored memory that is semantically similar.
 
         Returns ``(is_duplicate, existing_hash)``. Mirrors the sqlite_vec
-        implementation: search the top-1 neighbour inside the time window and
-        compare its cosine similarity against the threshold.
+        implementation: search the top-N nearest neighbours without a
+        server-side time filter (some Milvus Lite versions raise
+        ``Method not implemented`` for filtered ANN searches) and applies
+        the time-window cut-off on the client instead.
         """
         if not self._ensure_initialized():
             return False, None
@@ -1345,9 +1347,8 @@ class MilvusMemoryStorage(MemoryStorage):
                 collection_name=self.collection_name,
                 data=[embedding],
                 anns_field="vector",
-                filter=f"created_at > {cutoff}",
-                limit=1,
-                output_fields=["id"],
+                limit=10,
+                output_fields=["id", "created_at"],
                 search_params={"metric_type": "COSINE"},
             )
         except Exception as exc:  # noqa: BLE001
@@ -1356,10 +1357,16 @@ class MilvusMemoryStorage(MemoryStorage):
 
         if not results or not results[0]:
             return False, None
-        hit = results[0][0]
-        similarity = float(hit.get("distance", 0.0))
-        if similarity >= similarity_threshold:
-            return True, hit.get("id") or hit.get("entity", {}).get("id")
+
+        for hit in results[0]:
+            entity = hit.get("entity") or hit
+            hit_created = float(entity.get("created_at") or 0.0)
+            if hit_created < cutoff:
+                continue
+            similarity = float(hit.get("distance", 0.0))
+            if similarity >= similarity_threshold:
+                hit_id = entity.get("id") or hit.get("id")
+                return True, hit_id
         return False, None
 
     # -- Store ---------------------------------------------------------------
@@ -2686,7 +2693,12 @@ class MilvusMemoryStorage(MemoryStorage):
         filter_expr: str,
         include_embeddings: bool = False,
     ) -> List[Dict[str, Any]]:
-        """Sync helper that drains a ``QueryIterator`` into a plain list."""
+        """Sync helper that drains a ``QueryIterator`` into a plain list.
+
+        Deduplicates by primary-key ``id`` to defend against a Milvus Lite bug
+        where the last batch of records is returned a second time before the
+        iterator signals end-of-data with an empty batch.
+        """
         assert self.client is not None
         fields = (
             self._OUTPUT_FIELDS_WITH_VECTOR
@@ -2700,12 +2712,19 @@ class MilvusMemoryStorage(MemoryStorage):
             batch_size=self._QUERY_ITER_BATCH,
         )
         rows: List[Dict[str, Any]] = []
+        seen_ids: set = set()
         try:
             while True:
                 batch = iterator.next()
                 if not batch:
                     break
-                rows.extend(batch)
+                for row in batch:
+                    row_id = row.get("id")
+                    if row_id is not None:
+                        if row_id in seen_ids:
+                            continue
+                        seen_ids.add(row_id)
+                    rows.append(row)
         finally:
             try:
                 iterator.close()
