@@ -55,12 +55,6 @@ def _sanitize_log_value(value: object) -> str:
     return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
 
 
-def _sanitize_state(state: str) -> str:
-    """Sanitize the OAuth state parameter to prevent log injection and open redirect abuse."""
-    # Allow only alphanumeric, hyphen, underscore, and dot characters (RFC 6749 opaque value)
-    import re as _re
-
-    return _re.sub(r"[^A-Za-z0-9\-_.]", "", state)[:128]
 
 
 def _is_loopback_http_redirect(parsed: ParseResult) -> bool:
@@ -425,7 +419,7 @@ async def authorize_post(
         # Redirect with authorization code
         redirect_params = {"code": auth_code}
         if state:
-            redirect_params["state"] = _sanitize_state(state)
+            redirect_params["state"] = state
 
         redirect_url = _build_redirect_url(validated_redirect_uri, redirect_params)
         logger.info(f"Authorization granted, redirecting to callback")
@@ -459,7 +453,7 @@ async def authorize_post(
             "error_description": "Internal server error",
         }
         if state:
-            error_params["state"] = _sanitize_state(state)
+            error_params["state"] = state
         if validated_redirect_uri:
             return RedirectResponse(
                 url=_build_redirect_url(validated_redirect_uri, error_params)

@@ -1,3 +1,6 @@
+import json
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 from unittest.mock import patch
 
@@ -5,6 +8,7 @@ from fastapi import HTTPException
 
 from mcp_memory_service.web.oauth.authorization import (
     _handle_authorization_code_grant,
+    authorize_post,
     validate_redirect_uri,
 )
 from mcp_memory_service.web.oauth.models import RegisteredClient
@@ -107,3 +111,60 @@ async def test_public_pkce_client_can_exchange_code_without_secret():
 
     assert response.token_type == "Bearer"
     assert response.access_token
+
+
+@pytest.mark.parametrize(
+    "client_state",
+    [
+        "plain_state_123",
+        "eyJ0Ijp7ImEiOjF9fQ==",                       # base64url with '=' padding
+        "abc+def/ghi==",                              # standard base64 (+ / =)
+        "hdr.eyJzdWIiOiJ4In0.c2ln",                   # JWT-shaped
+        "S" * 200,                                    # > 128 chars
+    ],
+)
+@pytest.mark.asyncio
+async def test_authorize_post_returns_state_verbatim(client_state):
+    """RFC 6749 §4.1.2: state MUST be reflected back to the client unchanged.
+    """
+    storage = MemoryOAuthStorage()
+    await storage.store_client(
+        RegisteredClient(
+            client_id="cursor-native",
+            client_secret="unused",
+            redirect_uris=["cursor://127.0.0.1:51234/callback"],
+            grant_types=["authorization_code"],
+            response_types=["code"],
+            token_endpoint_auth_method="none",
+            client_name="Cursor",
+            created_at=0,
+        )
+    )
+
+    with patch(
+        "mcp_memory_service.web.oauth.authorization.get_oauth_storage",
+        return_value=storage,
+    ), patch(
+        "mcp_memory_service.web.oauth.authorization.API_KEY", "test-api-key"
+    ) as api_key:
+        response = await authorize_post(
+            request=None,  # unused on the success path
+            response_type="code",
+            client_id="cursor-native",
+            redirect_uri="cursor://127.0.0.1:51234/callback",
+            scope="read write",
+            state=client_state,
+            code_challenge="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            code_challenge_method="S256",
+            api_key=api_key,
+        )
+
+    # Success body embeds the callback URL as a JS string literal:
+    #   <script>window.location.href = "<redirect_url>";</script>
+    body = response.body.decode()
+    js_literal = body.split("window.location.href = ", 1)[1].split(";</script>", 1)[0]
+    redirect_url = json.loads(js_literal.replace("<\\/", "</"))
+
+    qs = parse_qs(urlparse(redirect_url).query)
+    assert "code" in qs, f"authorization code missing: {redirect_url}"
+    assert qs.get("state")[0] == client_state
