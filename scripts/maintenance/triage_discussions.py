@@ -145,7 +145,7 @@ def upsert_triage_issue(repo: str, body: str, dry_run: bool) -> None:
     else:
         subprocess.run(
             ["gh", "issue", "create", "--repo", repo, "--title", TRIAGE_ISSUE_TITLE,
-             "--body-file", "-", "--label", "triage,automated"],
+             "--body-file", "-", "--label", "daily-triage,automated"],
             input=body, text=True, check=True,
         )
         print("created new triage issue")

@@ -1350,6 +1350,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 limit=10,
                 output_fields=["id", "created_at"],
                 search_params={"metric_type": "COSINE"},
+                consistency_level="Session",
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Semantic dedup search failed: %s", exc)
@@ -2569,21 +2570,32 @@ class MilvusMemoryStorage(MemoryStorage):
         return connections
 
     def _drain_graph_edges(self, graph_collection: str) -> List[Dict[str, Any]]:
-        """Sync helper that drains all edges from the graph collection."""
+        """Sync helper that drains all edges from the graph collection.
+
+        Deduplicates by primary-key ``id`` to defend against the same Milvus
+        Lite double-batch bug handled in :meth:`_drain_query_iterator`.
+        """
         assert self.client is not None
         iterator = self.client.query_iterator(
             collection_name=graph_collection,
             filter="",
-            output_fields=["source_hash", "target_hash"],
+            output_fields=["id", "source_hash", "target_hash"],
             batch_size=self._QUERY_ITER_BATCH,
         )
         rows: List[Dict[str, Any]] = []
+        seen_ids: set = set()
         try:
             while True:
                 batch = iterator.next()
                 if not batch:
                     break
-                rows.extend(batch)
+                for row in batch:
+                    row_id = row.get("id")
+                    if row_id is not None:
+                        if row_id in seen_ids:
+                            continue
+                        seen_ids.add(row_id)
+                    rows.append(row)
         finally:
             try:
                 iterator.close()
