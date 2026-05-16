@@ -6,11 +6,14 @@ Opt-in via MCP_INSIGHT_CARDS_ENABLED=true environment variable.
 """
 
 import hashlib
+import logging
 import os
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import List, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 from ..models.memory import Memory
 
@@ -223,13 +226,16 @@ async def store_insights(insights: List[InsightCard], storage) -> List[str]:
 
                 existing = await storage.get_by_hash(content_hash)
                 if existing:
-                    # If user tagged this card as acknowledged, materialise the sentinel.
                     if "acknowledged" in (existing.tags or []):
+                        # Sentinel creation has its own error handling — kept separate
+                        # so a sentinel failure does not swallow the dedup check result.
                         await _store_ack_sentinel(card, ack_hash, storage)
                     continue
             except Exception:
+                # Dedup check failed — proceed to store to avoid silent data loss.
                 pass
 
+        now = datetime.now(timezone.utc)
         memory = Memory(
             content=f"[{card.insight_type.upper()}] {card.title}\n\n{card.content}",
             content_hash=content_hash,
@@ -240,8 +246,8 @@ async def store_insights(insights: List[InsightCard], storage) -> List[str]:
                 "insight_type": card.insight_type,
                 "confidence": card.confidence,
             },
-            created_at=datetime.now(timezone.utc).timestamp(),
-            created_at_iso=datetime.now(timezone.utc).isoformat(),
+            created_at=now.timestamp(),
+            created_at_iso=now.isoformat(),
         )
 
         success, _ = await storage.store(memory)
@@ -249,7 +255,7 @@ async def store_insights(insights: List[InsightCard], storage) -> List[str]:
             continue
         stored_hashes.append(content_hash)
 
-        # Create derived_from edges (best-effort — non-critical if some fail)
+        # Create derived_from edges (best-effort — graph edges are non-critical)
         if hasattr(storage, "store_association"):
             for src_hash in card.source_hashes:
                 try:
@@ -261,26 +267,28 @@ async def store_insights(insights: List[InsightCard], storage) -> List[str]:
                         relationship_type="derived_from",
                     )
                 except Exception:
-                    pass
+                    pass  # graph edges are advisory; insight card is already stored
 
     return stored_hashes
 
 
 async def _store_ack_sentinel(card: InsightCard, ack_hash: str, storage) -> None:
     """Persist a lightweight sentinel so an acknowledged insight is never regenerated."""
+    now = datetime.now(timezone.utc)
     sentinel = Memory(
         content=f"[ACK] {card.insight_type}:{card.title}",
         content_hash=ack_hash,
         tags=["insight-ack", "acknowledged", card.insight_type],
         memory_type="insight",
         metadata={"ack_for": _insight_hash(card)},
-        created_at=datetime.now(timezone.utc).timestamp(),
-        created_at_iso=datetime.now(timezone.utc).isoformat(),
+        created_at=now.timestamp(),
+        created_at_iso=now.isoformat(),
     )
     try:
         await storage.store(sentinel)
-    except Exception:
-        pass
+    except Exception as exc:
+        # Sentinel is best-effort: if storage fails, the card may regenerate after deletion.
+        logger.warning("Failed to store insight ack sentinel for %r: %s", card.title, exc)
 
 
 def _insight_hash(card: InsightCard) -> str:
