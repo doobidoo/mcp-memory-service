@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v10.57.0</title>
+<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v10.58.0</title>
 <meta name="description" content="Memory layer for AI agents. REST API + MCP + OAuth + CLI + dashboard — one self-hosted service, every transport. 14+ client integrations, knowledge graph, automatic consolidation. LongMemEval R@5 86%, session ingestion, zero cloud cost.">
-<meta property="og:title" content="MCP Memory Service v10.57.0">
-<meta property="og:description" content="Tag-match AND/OR filtering for memory_list, automatic session chunking. Self-hosted AI memory — REST, MCP, OAuth 2.1, CLI. LongMemEval R@5 86%.">
+<meta property="og:title" content="MCP Memory Service v10.58.0">
+<meta property="og:description" content="InsightGenerator: configurable tag exclusion, automated-type heuristic, acknowledgement sentinel flow. Self-hosted AI memory — REST, MCP, OAuth 2.1, CLI. LongMemEval R@5 86%.">
 <meta property="og:type" content="website">
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
@@ -116,7 +116,7 @@ footer a{color:var(--cyan)}
 <!-- Hero -->
 <header class="hero">
   <img src="brain-icon.png" alt="Memory for AI Agents" class="hero-logo">
-  <span class="hero-badge">mcp-memory-service v10.57 &mdash; Now Available</span>
+  <span class="hero-badge">mcp-memory-service v10.58 &mdash; Now Available</span>
   <h1>Memory for AI Agents</h1>
   <p>Persistent memory for AI agents &mdash; REST API, MCP, OAuth, CLI, dashboard. Semantic search, knowledge graph, automatic consolidation. One self-hosted service, every transport.</p>
   <div class="hero-buttons">
@@ -136,23 +136,23 @@ footer a{color:var(--cyan)}
 <!-- Features -->
 <section id="features">
   <div class="container">
-    <h2 class="section-title">What's New in v10.57</h2>
-    <p class="section-subtitle">Tag-match AND/OR filtering for memory_list and automatic session chunking. ~1,960 tests.</p>
+    <h2 class="section-title">What's New in v10.58</h2>
+    <p class="section-subtitle">InsightGenerator: configurable tag exclusion, automated-type heuristic, and acknowledgement sentinel flow. ~1,983 tests.</p>
     <div class="features-grid">
       <div class="feature-card" data-delay="0">
         <div class="feature-icon privacy">&#127991;</div>
-        <h3>AND/OR Tag Filtering for memory_list</h3>
-        <p>New <code>tag_match</code> parameter for the <code>memory_list</code> MCP tool and REST API: <code>"any"</code> (OR, default) returns memories matching at least one tag; <code>"all"</code> (AND) returns only memories matching every supplied tag. Implemented across sqlite_vec, cloudflare, and hybrid backends.</p>
+        <h3>Configurable Tag Exclusion</h3>
+        <p>New <code>MCP_INSIGHT_EXCLUDE_TAGS</code> env var — comma-separated list of tags to exclude from InsightGenerator gap detection, in addition to the built-in set. Example: <code>MCP_INSIGHT_EXCLUDE_TAGS=ci,radar</code>. Prevents noisy system tags from polluting insight results.</p>
       </div>
       <div class="feature-card" data-delay="150">
         <div class="feature-icon consolidation">&#128203;</div>
-        <h3>Automatic Session Chunking</h3>
-        <p><code>memory_store_session</code> now auto-splits long sessions at turn boundaries (<code>User:</code>, <code>Assistant:</code>, <code>Human:</code>, etc.). Configure with <code>SESSION_CHUNK_SIZE</code> env var (default: 1500 chars, 0=disabled). Chunks tagged <code>chunk:N/M</code> for sequential retrieval. Fully backward compatible.</p>
+        <h3>Automated-Type Heuristic</h3>
+        <p>Gap detection is now skipped for tags where &gt;90% of memories have an automated <code>memory_type</code> (<code>session</code>, <code>auto-generated</code>, <code>temporary</code>). Catches status markers not in the exclusion list without manual configuration.</p>
       </div>
       <div class="feature-card" data-delay="300">
         <div class="feature-icon http">&#128279;</div>
-        <h3>Built on v10.55-10.56 Foundation</h3>
-        <p>Extends the entity extraction, insight cards, and configurable maintain scan limit capabilities introduced in recent releases. Complete AND/OR tag filtering now unified across <code>memory_search</code>, <code>memory_delete</code>, and <code>memory_list</code>.</p>
+        <h3>Insight Card Acknowledgement</h3>
+        <p>Tagging an insight card with <code>acknowledged</code> materialises a stable sentinel so the card is never regenerated — even after deletion. The sentinel hash is independent of source memories, making acknowledgement permanent across consolidation cycles.</p>
       </div>
     </div>
   </div>
@@ -203,7 +203,7 @@ footer a{color:var(--cyan)}
     <p class="section-subtitle">Battle-tested with comprehensive testing and optimized for performance.</p>
     <div class="stats-grid">
       <div class="stat-card" data-delay="0">
-        <div class="stat-number" data-target="1960">0</div>
+        <div class="stat-number" data-target="1983">0</div>
         <div class="stat-label">Tests</div>
       </div>
       <div class="stat-card" data-delay="100">
@@ -242,7 +242,7 @@ footer a{color:var(--cyan)}
       <a href="blog/remote-mcp-tutorial.html" class="btn btn-secondary">
         Blog: 5-Min claude.ai Setup
       </a>
-      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v10.57.0" class="btn btn-secondary" target="_blank">
+      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v10.58.0" class="btn btn-secondary" target="_blank">
         Release Notes
       </a>
     </div>
