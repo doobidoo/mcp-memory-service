@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **fix(milvus): deduplicate QueryIterator results to defend against Milvus Lite double-batch bug** (commit 96bfbd87): `_drain_query_iterator` now tracks seen primary-key `id` values and skips duplicate rows. Milvus Lite returns the last batch a second time before signalling end-of-data with an empty batch, causing `get_all_memories()`, `count_all_memories()`, and `query_memories()` to return inflated result sets. Fixes `test_get_all_memories_and_count`, `test_query_memories_returns_most_recent_first`, `test_query_memories_pagination`, and `test_get_memory_connections_with_graph_data`.
+- **fix(milvus): remove server-side time filter from semantic-dedup ANN search** (commit 96bfbd87): Some Milvus Lite versions raise `Method not implemented` for filtered ANN searches. `_check_semantic_duplicate` now issues an unfiltered `limit=10` ANN search and applies the time-window cut-off on the client over the returned results. Fixes `test_semantic_dedup_blocks_near_duplicate`.
+- **fix(ci): repair YAML parse error in `pr-contributor-welcome` workflow** (commit 96bfbd87): The welcome message was built with a JS template literal whose body lines started at column 0, terminating the YAML block scalar prematurely and causing GitHub to report a workflow file issue on every push. Replaced with a JS array `.join("\n")` so all content stays within the YAML block indentation.
+
 ### Added
 
 - **feat(harvest): locale-based pattern plugins for multilingual extraction** ([#935](https://github.com/doobidoo/mcp-memory-service/pull/935), @filhocf): Replaces hardcoded English regex in the harvest extractor with a YAML-based pattern system. Patterns are loaded at startup via `HARVEST_LOCALE` env var (default: `"en"`, backward compatible). New files: `harvest/patterns/__init__.py` (loader with additive locale merging), `harvest/patterns/en.yaml`, `harvest/patterns/pt_BR.yaml` (Portuguese), `harvest/patterns/de.yaml` (German). `PatternExtractor` now stores patterns as `self._patterns` (instance-level). Unknown locales log a warning and are skipped. Non-English users see up to 8× improvement in harvest candidates. Closes [#908](https://github.com/doobidoo/mcp-memory-service/issues/908).
