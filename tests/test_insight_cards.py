@@ -2,13 +2,14 @@
 
 import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from mcp_memory_service.consolidation.insights import (
     InsightCard,
     InsightGenerator,
     store_insights,
     _insight_hash,
+    _insight_ack_hash,
 )
 
 
@@ -117,10 +118,56 @@ class TestGapDetection:
     def test_no_gap_when_too_few_memories(self, generator):
         memories = [_mem(f"g{i}", ["rare-tag"], "observation") for i in range(3)]
         insights = generator.generate_insights(memories, [])
-        gaps = [i for i in insights if i.insight_type == "gap" and "rare-tag" in g.title for g in [i]]
-        # Simpler check
         gap_titles = [g.title for g in insights if g.insight_type == "gap"]
         assert not any("rare-tag" in t for t in gap_titles)
+
+    def test_builtin_excluded_tags_skip_gap(self, generator):
+        for excluded in ("conflict:unresolved", "automated", "__test__", "temporary"):
+            memories = [_mem(f"e{i}", [excluded], "observation") for i in range(5)]
+            insights = generator.generate_insights(memories, [])
+            gap_titles = [g.title for g in insights if g.insight_type == "gap"]
+            assert not any(excluded in t for t in gap_titles), f"gap fired for excluded tag '{excluded}'"
+
+    def test_env_var_excludes_extra_tag(self, monkeypatch, generator):
+        monkeypatch.setenv("MCP_INSIGHT_EXCLUDE_TAGS", "ci,radar")
+        gen = InsightGenerator()  # new instance picks up env var
+        for tag in ("ci", "radar"):
+            memories = [_mem(f"v{i}", [tag], "observation") for i in range(5)]
+            insights = gen.generate_insights(memories, [])
+            gap_titles = [g.title for g in insights if g.insight_type == "gap"]
+            assert not any(tag in t for t in gap_titles), f"gap fired for env-excluded tag '{tag}'"
+
+    def test_env_var_does_not_affect_other_tags(self, monkeypatch):
+        monkeypatch.setenv("MCP_INSIGHT_EXCLUDE_TAGS", "ci")
+        gen = InsightGenerator()
+        memories = [_mem(f"k{i}", ["kubernetes"], "observation") for i in range(5)]
+        insights = gen.generate_insights(memories, [])
+        gaps = [g for g in insights if g.insight_type == "gap" and "kubernetes" in g.title]
+        assert len(gaps) >= 1
+
+    def test_metadata_heuristic_skips_dominant_type_tag(self, generator):
+        # 10/10 memories are "session" type → dominant → skip gap
+        memories = [_mem(f"m{i}", ["conflict:session"], "session") for i in range(10)]
+        insights = generator.generate_insights(memories, [])
+        gap_titles = [g.title for g in insights if g.insight_type == "gap"]
+        assert not any("conflict:session" in t for t in gap_titles)
+
+    def test_metadata_heuristic_allows_mixed_type_tag(self, generator):
+        # 7 session + 3 learning (70% automated) → below 90% threshold → gap fires
+        memories = (
+            [_mem(f"s{i}", ["project-x"], "session") for i in range(7)] +
+            [_mem(f"d{i}", ["project-x"], "learning") for i in range(3)]
+        )
+        insights = generator.generate_insights(memories, [])
+        gaps = [g for g in insights if g.insight_type == "gap" and "project-x" in g.title]
+        assert len(gaps) >= 1
+
+    def test_metadata_heuristic_does_not_filter_observation(self, generator):
+        # All 'observation' — NOT an automated type → real knowledge domain → gap fires
+        memories = [_mem(f"o{i}", ["architecture"], "observation") for i in range(5)]
+        insights = generator.generate_insights(memories, [])
+        gaps = [g for g in insights if g.insight_type == "gap" and "architecture" in g.title]
+        assert len(gaps) >= 1
 
 
 class TestStoreInsights:
@@ -206,3 +253,92 @@ class TestStoreInsights:
         h2 = _insight_hash(card)
         assert h1 == h2
         assert h1.startswith("insight_")
+
+    @pytest.mark.asyncio
+    async def test_ack_sentinel_skips_regeneration(self):
+        """Insight with ack sentinel in storage is not regenerated."""
+        card = InsightCard(
+            title="Known gap",
+            content="Content",
+            source_hashes=["s1"],
+            insight_type="gap",
+            confidence=0.5,
+        )
+        ack_hash = _insight_ack_hash(card)
+
+        # Sentinel exists, card itself is gone
+        existing = MagicMock()
+        existing.tags = []
+
+        async def fake_get_by_hash(h):
+            if h == ack_hash:
+                return existing  # sentinel present
+            return None
+
+        storage = AsyncMock()
+        storage.store = AsyncMock(return_value=(True, "hash"))
+        storage.get_by_hash = AsyncMock(side_effect=fake_get_by_hash)
+
+        hashes = await store_insights([card], storage)
+        assert len(hashes) == 0
+        storage.store.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_acknowledged_tag_stores_sentinel(self):
+        """When existing card has 'acknowledged' tag, a sentinel is stored."""
+        card = InsightCard(
+            title="Acknowledged gap",
+            content="Content",
+            source_hashes=["s1"],
+            insight_type="gap",
+            confidence=0.5,
+        )
+        content_hash = _insight_hash(card)
+        ack_hash = _insight_ack_hash(card)
+
+        acknowledged_mem = MagicMock()
+        acknowledged_mem.tags = ["insight-card", "acknowledged", "gap"]
+
+        async def fake_get_by_hash(h):
+            if h == ack_hash:
+                return None  # no sentinel yet
+            if h == content_hash:
+                return acknowledged_mem
+            return None
+
+        storage = AsyncMock()
+        storage.store = AsyncMock(return_value=(True, "hash"))
+        storage.get_by_hash = AsyncMock(side_effect=fake_get_by_hash)
+
+        hashes = await store_insights([card], storage)
+        # Card not re-stored (existing found), but sentinel created
+        assert len(hashes) == 0
+        storage.store.assert_called_once()
+        sentinel_mem = storage.store.call_args[0][0]
+        assert sentinel_mem.content_hash == ack_hash
+        assert "acknowledged" in sentinel_mem.tags
+        assert "insight-ack" in sentinel_mem.tags
+
+    def test_ack_hash_is_stable_across_source_changes(self):
+        """ack hash must not change when source_hashes differ."""
+        card_v1 = InsightCard(
+            title="Stable gap", content="c", source_hashes=["a", "b"],
+            insight_type="gap", confidence=0.5,
+        )
+        card_v2 = InsightCard(
+            title="Stable gap", content="c", source_hashes=["a", "b", "c"],
+            insight_type="gap", confidence=0.5,
+        )
+        assert _insight_ack_hash(card_v1) == _insight_ack_hash(card_v2)
+        assert _insight_hash(card_v1) != _insight_hash(card_v2)
+
+    def test_ack_hash_differs_by_type_and_title(self):
+        card_gap = InsightCard(
+            title="Same title", content="c", source_hashes=["s"],
+            insight_type="gap", confidence=0.5,
+        )
+        card_pattern = InsightCard(
+            title="Same title", content="c", source_hashes=["s"],
+            insight_type="pattern", confidence=0.5,
+        )
+        assert _insight_ack_hash(card_gap) != _insight_ack_hash(card_pattern)
