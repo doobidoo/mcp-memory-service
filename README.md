@@ -496,19 +496,19 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.58.0** (May 16, 2026)
+## Latest Release: **v10.59.0** (May 16, 2026)
 
-**InsightGenerator: configurable exclusion, automated-type heuristic, and acknowledgement flow**
+**OAuth PEM key files, IDE redirect URI schemes, and memory-scorer affinity fix**
 
 **What's New:**
-- `feat(insights)`: `MCP_INSIGHT_EXCLUDE_TAGS` env var — comma-separated tags to exclude from gap detection (e.g. `MCP_INSIGHT_EXCLUDE_TAGS=ci,radar`). Automated-type heuristic skips gap detection for tags where >90% of memories are session/auto-generated/temporary type. Insight card acknowledgement — tagging a card with `acknowledged` materialises a stable sentinel so the card is never regenerated, even after deletion (PR #939). Closes discussion #897.
-- `fix(milvus)`: deduplicate `_drain_graph_edges` against Milvus Lite double-batch bug; use `consistency_level="Session"` in semantic-dedup ANN search (commit 6f7e1f82).
-- `fix(triage)`: use existing `daily-triage` label; create missing `automated` label (commit 6f7e1f82).
-- `fix(test)`: raise `test_api_search_by_tag_time_filter_performance` threshold to 500ms for CI stability (PR #939).
+- `feat(oauth)`: File-based PEM key loading via `MCP_OAUTH_PRIVATE_KEY_PATH` / `MCP_OAUTH_PUBLIC_KEY_PATH` env vars — prevents silent JWT invalidation on restart; startup aborts with `ValueError` if the file cannot be read (PR #926, co-author aria-inboxia).
+- `feat(oauth)`: Allow `cursor`, `vscode`, `vscode-insiders` as OAuth redirect URI schemes for IDE deep-link OAuth callbacks (PR #942, co-author tkislan).
+- `fix(hooks)`: Symmetric project-affinity check in `memory-scorer.js` — short memory tags (e.g. `wing:hoi4`) no longer zeroed when the project name is a superset (e.g. `hoi4coach`) (#941, reported by minecraft-mattsource).
 
 ---
 
 **Previous Releases**:
+- **v10.58.0** - feat(insights): configurable exclusion, automated-type heuristic, acknowledgement flow (PR #939); feat(harvest): locale YAML plugins (PR #935, @filhocf); feat(plugin): smart-tagger example (PR #932, @filhocf)
 - **v10.57.3** - feat(milvus): last_accessed tracking via `_access` side-collection (PR #925, @henry201605)
 - **v10.57.2** - fix(deps): pin pymilvus<3.0.0 to restore Milvus Docker CI (PR #921)
 - **v10.57.1** - fix(sqlite): LIKE ESCAPE tag matching + fix(milvus): preserve_timestamps value comparison (PRs #916, #918)

@@ -10,6 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.59.0] - 2026-05-16
+
+### Added
+
+- **feat(oauth): file-based PEM key loading via `MCP_OAUTH_PRIVATE_KEY_PATH` / `MCP_OAUTH_PUBLIC_KEY_PATH`** ([#926](https://github.com/doobidoo/mcp-memory-service/pull/926), co-authored by aria-inboxia): New `_load_pem_from_env()` helper in `config.py` reads PEM content from a file path when the corresponding `_PATH` env var is set. Inline env vars continue to take precedence. When a `_PATH` var is set but the file cannot be read, startup aborts with `ValueError` — fail-hard prevents silent JWT invalidation on restart. 6 unit tests added in `tests/test_config.py`.
+- **feat(oauth): allow `cursor`, `vscode`, `vscode-insiders` as OAuth redirect URI schemes** ([#942](https://github.com/doobidoo/mcp-memory-service/pull/942), co-authored by tkislan): `src/mcp_memory_service/web/oauth/registration.py` now accepts IDE deep-link schemes (`cursor://`, `vscode://`, `vscode-insiders://`) as valid OAuth redirect URIs, enabling OAuth callbacks for Cursor and VS Code extensions.
+
+### Fixed
+
+- **fix(hooks): symmetric project-affinity check in `memory-scorer.js`** ([#941](https://github.com/doobidoo/mcp-memory-service/issues/941), reported by minecraft-mattsource): Added `projectName.includes(tag)` as the inverse check so short memory tags (e.g. `wing:hoi4`) are matched when the project name is a superset (e.g. `hoi4coach`). Previously all memories were zeroed by the affinity filter in this case.
+
 ## [10.58.0] - 2026-05-16
 
 ### Added
