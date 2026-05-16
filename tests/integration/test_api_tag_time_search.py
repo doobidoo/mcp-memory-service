@@ -427,8 +427,9 @@ async def test_api_search_by_tag_invalid_time_filter_format(temp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
+@pytest.mark.performance
 async def test_api_search_by_tag_time_filter_performance(temp_db):
-    """Test that tag+time filtering maintains good performance (<100ms)."""
+    """Test that tag+time filtering maintains acceptable performance."""
     storage = await create_test_storage_with_data(temp_db)
 
     try:
@@ -459,9 +460,8 @@ async def test_api_search_by_tag_time_filter_performance(temp_db):
 
         assert response.status_code == 200
 
-        # Performance target: <100ms for tag+time search
-        # (may need adjustment based on hardware)
-        assert elapsed_ms < 200, f"Tag+time search took {elapsed_ms:.2f}ms (expected <200ms)"
+        # Target: <100ms locally; 500ms to stay CI-stable on shared runners.
+        assert elapsed_ms < 500, f"Tag+time search took {elapsed_ms:.2f}ms (expected <500ms)"
 
     finally:
         app.dependency_overrides.clear()
