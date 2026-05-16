@@ -59,6 +59,9 @@ def validate_redirect_uris(redirect_uris: Optional[List[str]]) -> None:
         'https',    # HTTPS (preferred)
         'http',     # HTTP (localhost only)
         # Native app custom schemes (common patterns)
+        'cursor',
+        'vscode',
+        'vscode-insiders',
         'com.example.app',  # Reverse domain notation
         'myapp',           # Simple custom scheme
         # Add more custom schemes as needed, but NEVER allow:
