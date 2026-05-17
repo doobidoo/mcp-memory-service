@@ -38,12 +38,19 @@ async def detect_contradictions(storage, dry_run: bool = True) -> dict:
     }
 
     try:
-        # Get all memories with embeddings
-        all_memories = await storage.list_memories(page=1, page_size=10000)
-        if not all_memories or not all_memories.get("memories"):
-            return {**results, "message": "No memories to scan"}
+        # Get all memories with pagination
+        memories = []
+        page = 1
+        while True:
+            chunk = await storage.list_memories(page=page, page_size=500)
+            batch = (chunk or {}).get("memories", [])
+            if not batch:
+                break
+            memories.extend(batch)
+            page += 1
 
-        memories = all_memories["memories"]
+        if not memories:
+            return {**results, "message": "No memories to scan"}
         logger.info(f"[contradiction] Scanning {len(memories)} memories for contradictions")
 
         # For each memory, find KNN neighbors in the similarity band
