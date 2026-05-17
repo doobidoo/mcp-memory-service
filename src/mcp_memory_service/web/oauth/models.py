@@ -17,7 +17,7 @@ OAuth 2.1 data models and schemas for MCP Memory Service.
 """
 
 from typing import List, Optional
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field, HttpUrl
 
 
 class OAuthServerMetadata(BaseModel):
@@ -147,7 +147,7 @@ class AuthorizationRequest(BaseModel):
 
     response_type: str = Field(..., description="OAuth response type")
     client_id: str = Field(..., description="OAuth client identifier")
-    redirect_uri: Optional[HttpUrl] = Field(default=None, description="Redirection URI")
+    redirect_uri: Optional[AnyUrl] = Field(default=None, description="Redirection URI")
     scope: Optional[str] = Field(default=None, description="Requested scope")
     state: Optional[str] = Field(default=None, description="Opaque value for CSRF protection")
 
@@ -157,7 +157,7 @@ class TokenRequest(BaseModel):
 
     grant_type: str = Field(..., description="OAuth grant type")
     code: Optional[str] = Field(default=None, description="Authorization code")
-    redirect_uri: Optional[HttpUrl] = Field(default=None, description="Redirection URI")
+    redirect_uri: Optional[AnyUrl] = Field(default=None, description="Redirection URI")
     client_id: Optional[str] = Field(default=None, description="OAuth client identifier")
     client_secret: Optional[str] = Field(default=None, description="OAuth client secret")
 

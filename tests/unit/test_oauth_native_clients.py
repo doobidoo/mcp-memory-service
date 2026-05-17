@@ -168,3 +168,41 @@ async def test_authorize_post_returns_state_verbatim(client_state):
     qs = parse_qs(urlparse(redirect_url).query)
     assert "code" in qs, f"authorization code missing: {redirect_url}"
     assert qs.get("state")[0] == client_state
+
+
+# ---------------------------------------------------------------------------
+# Regression: AnyUrl — cursor:// and vscode:// must not be rejected by Pydantic
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("scheme,uri", [
+    ("cursor",          "cursor://callback"),
+    ("vscode",          "vscode://callback"),
+    ("vscode-insiders", "vscode-insiders://callback"),
+    ("https",           "https://app.example.com/callback"),
+    ("http",            "http://localhost:8080/callback"),
+])
+def test_authorization_request_accepts_ide_redirect_uri(scheme, uri):
+    """AuthorizationRequest must accept IDE deep-link schemes (AnyUrl, not HttpUrl)."""
+    from mcp_memory_service.web.oauth.models import AuthorizationRequest
+    req = AuthorizationRequest(
+        response_type="code",
+        client_id="test-client",
+        redirect_uri=uri,
+    )
+    assert str(req.redirect_uri).rstrip("/").startswith(scheme)
+
+
+@pytest.mark.parametrize("scheme,uri", [
+    ("cursor",  "cursor://callback"),
+    ("vscode",  "vscode://callback"),
+    ("https",   "https://app.example.com/callback"),
+])
+def test_token_request_accepts_ide_redirect_uri(scheme, uri):
+    """TokenRequest must accept IDE deep-link schemes (AnyUrl, not HttpUrl)."""
+    from mcp_memory_service.web.oauth.models import TokenRequest
+    req = TokenRequest(
+        grant_type="authorization_code",
+        code="abc123",
+        redirect_uri=uri,
+    )
+    assert str(req.redirect_uri).rstrip("/").startswith(scheme)
