@@ -1,0 +1,574 @@
+# Changelog
+
+**Recent releases for MCP Memory Service (v10.36.4 and later)**
+
+All notable changes to the MCP Memory Service project will be documented in this file.
+
+**Versions v10.36.3 and earlier** – See [docs/archive/CHANGELOG-HISTORIC.md](./docs/archive/CHANGELOG-HISTORIC.md).
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [10.59.2] - 2026-05-17
+
+### Fixed
+
+- **fix(oauth): use AnyUrl for redirect_uri in AuthorizationRequest and TokenRequest** ([#942](https://github.com/doobidoo/mcp-memory-service/issues/942), reported by @tkislan): `HttpUrl` only accepts `http`/`https` — `cursor://`, `vscode://`, `vscode-insiders://` were silently rejected by Pydantic before reaching the `ALLOWED_SCHEMES` whitelist in `registration.py`, making the scheme addition in v10.59.0 a no-op in practice. Fixed: `redirect_uri` fields in `AuthorizationRequest` and `TokenRequest` changed from `Optional[HttpUrl]` to `Optional[AnyUrl]` in `src/mcp_memory_service/web/oauth/models.py`. `ErrorResponse.error_uri` keeps `HttpUrl`. 8 regression tests added in `tests/unit/test_oauth_native_clients.py`.
+
+## [10.59.1] - 2026-05-17
+
+### Fixed
+
+- **fix(oauth): reflect OAuth state parameter verbatim per RFC 6749 §4.1.2** ([#944](https://github.com/doobidoo/mcp-memory-service/pull/944), @tkislan): `_sanitize_state()` stripped non-`[A-Za-z0-9-_.]` characters and truncated to 128 chars before reflecting `state` back to the client. RFC 6749 §4.1.2 requires returning `state` exactly as received. This broke Cursor OAuth (base64url padding `=`, JWTs, values >128 chars all got mangled). Fix: remove `_sanitize_state()` entirely and reflect `state` verbatim. 5 parametrized regression tests added in `tests/unit/test_oauth_native_clients.py`.
+
+## [10.59.0] - 2026-05-16
+
+### Added
+
+- **feat(oauth): file-based PEM key loading via `MCP_OAUTH_PRIVATE_KEY_PATH` / `MCP_OAUTH_PUBLIC_KEY_PATH`** ([#926](https://github.com/doobidoo/mcp-memory-service/pull/926), co-authored by aria-inboxia): New `_load_pem_from_env()` helper in `config.py` reads PEM content from a file path when the corresponding `_PATH` env var is set. Inline env vars continue to take precedence. When a `_PATH` var is set but the file cannot be read, startup aborts with `ValueError` — fail-hard prevents silent JWT invalidation on restart. 6 unit tests added in `tests/test_config.py`.
+- **feat(oauth): allow `cursor`, `vscode`, `vscode-insiders` as OAuth redirect URI schemes** ([#942](https://github.com/doobidoo/mcp-memory-service/pull/942), co-authored by tkislan): `src/mcp_memory_service/web/oauth/registration.py` now accepts IDE deep-link schemes (`cursor://`, `vscode://`, `vscode-insiders://`) as valid OAuth redirect URIs, enabling OAuth callbacks for Cursor and VS Code extensions.
+
+### Fixed
+
+- **fix(hooks): symmetric project-affinity check in `memory-scorer.js`** ([#941](https://github.com/doobidoo/mcp-memory-service/issues/941), reported by minecraft-mattsource): Added `projectName.includes(tag)` as the inverse check so short memory tags (e.g. `wing:hoi4`) are matched when the project name is a superset (e.g. `hoi4coach`). Previously all memories were zeroed by the affinity filter in this case.
+
+## [10.58.0] - 2026-05-16
+
+### Added
+
+- **feat(insights): configurable tag exclusion, metadata heuristic, and acknowledgement flow** ([#939](https://github.com/doobidoo/mcp-memory-service/pull/939), discussion [#897](https://github.com/doobidoo/mcp-memory-service/discussions/897)): Three improvements to the InsightGenerator based on real-corpus observations. (1) **`MCP_INSIGHT_EXCLUDE_TAGS`** env var — comma-separated list of tags to exclude from gap detection in addition to the built-in set (`conflict:unresolved`, `automated`, `__test__`, `temporary`, `processed`, `auto-generated`, `insight-card`). Example: `MCP_INSIGHT_EXCLUDE_TAGS=ci,radar`. (2) **Automated-type heuristic** — gap detection is skipped for tags where >90% of memories have an automated `memory_type` (`session`, `auto-generated`, `temporary`), catching status markers not in the exclusion list. Normal types like `observation` are not treated as automated. (3) **Insight card acknowledgement** — tagging an insight card with `acknowledged` causes `store_insights` to materialise a stable sentinel (hash independent of source memories) so the card is never regenerated, even if the original card is later deleted. 8 new tests covering all three paths.
+- **feat(harvest): locale-based pattern plugins for multilingual extraction** ([#935](https://github.com/doobidoo/mcp-memory-service/pull/935), @filhocf): Replaces hardcoded English regex in the harvest extractor with a YAML-based pattern system. Patterns are loaded at startup via `HARVEST_LOCALE` env var (default: `"en"`, backward compatible). New files: `harvest/patterns/__init__.py` (loader with additive locale merging), `harvest/patterns/en.yaml`, `harvest/patterns/pt_BR.yaml` (Portuguese), `harvest/patterns/de.yaml` (German). `PatternExtractor` now stores patterns as `self._patterns` (instance-level). Unknown locales log a warning and are skipped. Non-English users see up to 8x improvement in harvest candidates. Closes [#908](https://github.com/doobidoo/mcp-memory-service/issues/908).
+- **feat(plugin): smart-tagger example plugin — auto-tagging + mistake-note boost** ([#932](https://github.com/doobidoo/mcp-memory-service/pull/932), @filhocf): Second reference plugin in `examples/plugin-smart-tagger/`, alongside `plugin-audit-log`. Uses the `mcp_memory_service.plugins` entry-point mechanism with `on_store` (auto-tags content by regex: decision, bug, convention, database, infra, frontend, backend) and `on_retrieve` hooks (boosts score for `mistake-note`/`error-replay` tagged memories). Configurable via `MCP_PLUGIN_SMART_TAGGER_ENABLED` (default: `true`) and `MCP_PLUGIN_SMART_TAGGER_BOOST` (default: `0.15`). No external dependencies.
+
+### Fixed
+
+- **fix(milvus): deduplicate `_drain_graph_edges` against Milvus Lite double-batch bug** (commit 6f7e1f82): `_drain_graph_edges` (used by `get_memory_connections`) had the same QueryIterator last-batch duplication issue as `_drain_query_iterator`. Added `seen_ids` set and `"id"` to `output_fields` so graph edges are correctly deduplicated. Fixes `test_get_memory_connections_with_graph_data`.
+- **fix(milvus): use `consistency_level="Session"` in semantic-dedup ANN search** (commit 6f7e1f82): Milvus's default `Bounded` consistency does not guarantee that a memory stored earlier in the same session is visible to an immediately following `search()`. `_check_semantic_duplicate` now passes `consistency_level="Session"` so near-duplicates are reliably detected. Fixes `test_semantic_dedup_blocks_near_duplicate`.
+- **fix(triage): use existing `daily-triage` label; create missing `automated` label** (commit 6f7e1f82): `triage_discussions.py` was passing `--label 'triage,automated'` to `gh issue create`, but neither label existed, causing the workflow to fail. Changed to `daily-triage` (already present) and created the `automated` label via API.
+- **fix(milvus): deduplicate QueryIterator results to defend against Milvus Lite double-batch bug** (commit 96bfbd87): `_drain_query_iterator` now tracks seen primary-key `id` values and skips duplicate rows. Milvus Lite returns the last batch a second time before signalling end-of-data with an empty batch, causing `get_all_memories()`, `count_all_memories()`, and `query_memories()` to return inflated result sets. Fixes `test_get_all_memories_and_count`, `test_query_memories_returns_most_recent_first`, `test_query_memories_pagination`.
+- **fix(milvus): remove server-side time filter from semantic-dedup ANN search** (commit 96bfbd87): Some Milvus Lite versions raise `Method not implemented` for filtered ANN searches. `_check_semantic_duplicate` now issues an unfiltered `limit=10` ANN search and applies the time-window cut-off on the client over the returned results.
+- **fix(ci): repair YAML parse error in `pr-contributor-welcome` workflow** (commit 96bfbd87): The welcome message was built with a JS template literal whose body lines started at column 0, terminating the YAML block scalar prematurely and causing GitHub to report a workflow file issue on every push. Replaced with a JS array `.join("\n")` so all content stays within the YAML block indentation.
+- **fix(test): raise performance threshold to 500ms for CI stability** ([#939](https://github.com/doobidoo/mcp-memory-service/pull/939)): `test_api_search_by_tag_time_filter_performance` was using a 200ms threshold that was too tight for slow GitHub Actions runners. Raised to 500ms. Unrelated to feature changes.
+
+## [10.57.3] - 2026-05-14
+
+### Added
+
+- **feat(milvus): last_accessed tracking via `_access` side-collection** ([#925](https://github.com/doobidoo/mcp-memory-service/pull/925), @henry201605): Implements a lightweight `{collection_name}_access` side-collection that records retrieve-hit timestamps. Fixes the Forgetting engine's `access_boost` (was always falling back to `updated_at`), fixes `count_all_memories(stale_days=N)` where `stale_days` was silently ignored, and fixes `memory_quality(action="maintain")` stale detection. `_touch_access()` is fire-and-forget via `asyncio.create_task` (non-blocking) with graceful degradation if the collection is unavailable. Closes [#923](https://github.com/doobidoo/mcp-memory-service/issues/923).
+
+## [10.57.2] - 2026-05-14
+
+### Fixed
+
+- **fix(deps): pin pymilvus<3.0.0 to restore Milvus Docker CI** ([#921](https://github.com/doobidoo/mcp-memory-service/pull/921)): Added `<3.0.0` upper bound to the `pymilvus` dependency in `pyproject.toml` and re-locked to `2.6.13` in `uv.lock`. pymilvus 3.0.0 introduced breaking API changes that silently broke the Milvus Docker CI job when the dependency was upgraded. Full pymilvus 3.x migration is tracked in [#922](https://github.com/doobidoo/mcp-memory-service/issues/922).
+
+## [10.57.1] - 2026-05-14
+
+### Fixed
+
+- **fix(sqlite): replace GLOB with LIKE ESCAPE for tag matching** ([#916](https://github.com/doobidoo/mcp-memory-service/pull/916)): Replaced `_escape_glob` with `_escape_like` in `sqlite_vec.py`. All 13 tag-filtering query sites migrated from `GLOB ?` to `LIKE ? ESCAPE '\'`, fixing fragility when tags contain `%`, `_`, or `\` characters. Closes [#914](https://github.com/doobidoo/mcp-memory-service/issues/914).
+- **fix(milvus): compare values in structural change detection for `preserve_timestamps`** ([#918](https://github.com/doobidoo/mcp-memory-service/pull/918), @henry201605): In `_compute_update_timestamps()`, replaced key-presence checks with value comparisons. Prevents consolidation runs from incorrectly bumping `updated_at` for all memories and fixes the Forgetting engine's `access_boost` fallback logic on Milvus.
+
+## [10.57.0] - 2026-05-13
+
+### Added
+
+- **`tag_match` parameter for `memory_list` MCP tool** ([#904](https://github.com/doobidoo/mcp-memory-service/pull/904), @filhocf): Extends AND/OR tag filtering to `memory_list`, harmonizing it with `memory_search` and `memory_delete`. Accepts `tag_match: "any"` (OR, default — existing behavior unchanged) or `tag_match: "all"` (AND — only memories matching every supplied tag are returned). Implemented across `server_impl.py`, `server/handlers/memory.py`, REST API, and all three storage backends (sqlite_vec, cloudflare, hybrid).
+- **Automatic chunking for `memory_store_session`** ([#912](https://github.com/doobidoo/mcp-memory-service/pull/912), @filhocf): Long sessions stored via `memory_store_session` are now automatically split at turn boundaries (lines starting with `User:`, `Assistant:`, `Human:`, `AI:`, `You:`, `Bot:`). Configure with `SESSION_CHUNK_SIZE` env var (default: 1500 chars, set to 0 to disable). Each chunk is tagged `chunk:N/M` for sequential retrieval. Fully backward compatible — short sessions are stored as a single memory with no change in behavior.
+
+### Fixed
+
+- **CI: guard `pr-contributor-welcome` against non-PR event triggers** (commit b42cf004): Added `github.event_name == 'pull_request_target'` guard to the contributor-welcome workflow to prevent crashes when triggered by push events.
+
+## [10.56.3] - 2026-05-13
+
+### Fixed
+
+- **feat(milvus): implement `get_memory_connections()` via graph collection** ([#907](https://github.com/doobidoo/mcp-memory-service/pull/907), @henry201605): `MilvusMemoryStorage.get_memory_connections()` was a stub returning `{}`, meaning hub memories had no protection from archival in the Forgetting engine's connection-based retention boost. Implemented using `QueryIterator` + `asyncio.to_thread` to drain all edges from the `{collection_name}_graph` collection. Adds 2 unit tests.
+- **fix(quality): apply Gemini review suggestion for `MAINTAIN_SCAN_LIMIT` fallback**: Replaced `__import__('os')` with a standard `import os`, added `try/except ValueError` guard for invalid `MCP_MAINTAIN_SCAN_LIMIT` env values, and documented the DoS risk of uncapped values in a comment. Addresses a Gemini code-assist review comment on PR #902 that was missed before merge.
+
+## [10.56.2] - 2026-05-12
+
+### Fixed
+
+- **fix(milvus): add missing `stale_days` param to `count_all_memories`** ([#901](https://github.com/doobidoo/mcp-memory-service/pull/901), @henry201605): `MilvusMemoryStorage.count_all_memories()` was missing the `stale_days: Optional[int] = None` parameter present on all other backends, causing a `TypeError` when callers passed this argument. The parameter is now accepted and silently ignored (Milvus has no `last_accessed` field).
+- **fix(quality): graceful fallback for `MAINTAIN_SCAN_LIMIT` on stale server process**: Wrapped the `from ...config import MAINTAIN_SCAN_LIMIT, MCP_INSIGHT_CARDS_ENABLED` import in a `try/except ImportError` block. On in-place upgrades where the server process has a stale `sys.modules` cache, the import can fail; the handler now falls back to reading `MCP_MAINTAIN_SCAN_LIMIT` from the environment (default: 2000) so maintain cycles continue working without a full server restart.
+
+## [10.56.1] - 2026-05-12
+
+### Fixed
+
+- **fix(session): pass `session_id` as `conversation_id` to bypass semantic dedup** ([#898](https://github.com/doobidoo/mcp-memory-service/pull/898), @henry201605): `memory_store_session` calls were incorrectly blocked by semantic deduplication against topically-similar atomic memories — a category error (session logs vs atomic facts). Fixed by setting `skip_dedup = bool(conversation_id) or (memory_type == "session")` in `memory_service.store_memory()`.
+- **fix(maintain): hoist `get_all_memories()` and `scan_slice` before Steps 5 & 6** (addresses code review on [#899](https://github.com/doobidoo/mcp-memory-service/pull/899)): Eliminates a duplicate DB call and a latent `NameError` where `MAINTAIN_SCAN_LIMIT` was only defined inside Step 5's try block and would have raised `NameError` in Step 6 if Step 5 failed before reaching the import.
+
+## [10.56.0] - 2026-05-12
+
+### Added
+
+- **`MCP_MAINTAIN_SCAN_LIMIT` env var** (default: 2000, 0 = unlimited): Controls how many memories are scanned per maintain cycle for entity extraction (Step 5) and insight card generation (Step 6). Previously hardcoded to 500 — large deployments can now tune or remove the cap entirely.
+
+### Fixed
+
+- **InsightGenerator gap detector skips metadata/status tags**: The `_detect_gaps` method now ignores tags that are operational markers rather than knowledge domains (`conflict:unresolved`, `automated`, `__test__`, `temporary`, `processed`, `auto-generated`, `insight-card`), eliminating false-positive "Decision gap" insight cards for these system tags.
+
+## [10.55.2] - 2026-05-12
+
+### Fixed
+
+- **fix(insights): handle None memory\_type and tags in InsightGenerator sort**: Fixed `TypeError: '<' not supported between instances of 'str' and 'NoneType'` in `InsightGenerator` when memories have `None` values for `memory_type` or `tags` fields. `dict.get(key, default)` does not fall back to the default when the key is present with a `None` value; fixed with `or ""` / `or []` idiom. Step 6 (Insight Cards) in the `maintain` cycle now runs without errors.
+
+## [10.55.1] - 2026-05-11
+
+### Fixed
+
+- **`maintain` Step 5: entity links always 0 due to wrong graph accessor** ([#895](https://github.com/doobidoo/mcp-memory-service/pull/895)): `quality.py` Step 5 checked `storage.graph`, which is never set on storage objects, so `links_stored` was always `0` even when `entities_found > 0`. Fixed by using `get_graph_storage()` — the same accessor pattern used by all other graph handlers.
+
+## [10.55.0] - 2026-05-11
+
+### Added
+
+- **Entity extraction and memory-entity linking** ([#868](https://github.com/doobidoo/mcp-memory-service/pull/868), @filhocf): Phase 2 of the #732 reasoning roadmap. Introduces `EntityExtractor` that detects @mentions, #tags, URLs, and file paths inside memory content. `memory_search` gains an `entity` filter parameter for targeted retrieval; `memory_graph` gains `action="extract_entities"` to surface entities from a memory. Entity extraction also runs as Step 5 in the `maintain` consolidation cycle, continuously indexing entities from new memories.
+
+- **Insight Cards — automated pattern/trend/gap detection** ([#869](https://github.com/doobidoo/mcp-memory-service/pull/869), @filhocf): Phase 3 of the #732 reasoning roadmap. Adds `InsightGenerator` that analyses the memory corpus and produces three insight types: patterns (recurring knowledge clusters), trends (frequency changes over time), and gaps (under-represented topic areas). Runs as Step 6 in the `maintain` consolidation cycle. Opt-in via `MCP_INSIGHT_CARDS_ENABLED` (default: `false`) to avoid performance impact on existing deployments.
+
+### Changed
+
+- **Bump urllib3 2.6.3 → 2.7.0** ([#893](https://github.com/doobidoo/mcp-memory-service/pull/893)): Routine dependency update.
+
+## [10.54.0] - 2026-05-10
+
+### Added
+
+- **`tag_match` parameter for `memory_search` MCP tool** ([#890](https://github.com/doobidoo/mcp-memory-service/pull/890), @filhocf, closes [#889](https://github.com/doobidoo/mcp-memory-service/issues/889)): Extends the AND/OR tag filtering already present in `memory_delete` to the `memory_search` tool. Accepts `tag_match: "any"` (OR, default — existing behavior unchanged) or `tag_match: "all"` (AND — only memories matching every supplied tag are returned). Implemented across `server_impl.py`, `server/handlers/memory.py`, and `storage/base.py`.
+
+## [10.53.0] - 2026-05-09
+
+### Added
+
+- **Milvus consolidation embedding hydration end-to-end** ([#885](https://github.com/doobidoo/mcp-memory-service/pull/885), @henry201605): Completes a 4-PR series (#872, #878, #881, #885) that fixes a production failure on Milvus-backed deployments where consolidation produced 0 clusters and 0 associations. Root cause: the `vector` column was dropped during bulk reads, leaving every `Memory` with `embedding=None`. `consolidator._get_memories_for_horizon` now passes `include_embeddings=True` to both `get_all_memories` and `get_memories_by_time_range`. Supporting changes: `sqlite_vec.get_memories_by_time_range` gains a conditional LEFT JOIN on `memory_embeddings`; `hybrid.py` forwards the kwarg to the primary backend; `cloudflare.py` accepts the kwarg on both methods (ignores it — vectors live in Vectorize); `milvus._coerce_vector` now explicitly rejects `str`/`bytes`/`dict` types and `_log_hydration_stats` receives a pre-computed count for O(n) efficiency. Covered by 24 unit tests (`test_milvus_hydration.py`) and 5 Milvus Lite integration tests (`test_milvus_consolidation.py`).
+
+### Security
+
+- **Bump GitPython 3.1.47 → 3.1.50** ([#886](https://github.com/doobidoo/mcp-memory-service/pull/886)): Resolves 3 high-severity vulnerabilities in transitive dependency (`wandb → GitPython`): path traversal allowing arbitrary file write/delete outside the repository ([GHSA-7545-fcxq-7j24](https://github.com/advisories/GHSA-7545-fcxq-7j24)), newline injection in `config_writer().set_value()` enabling RCE via `core.hooksPath` ([GHSA-v87r-6q3f-2j67](https://github.com/advisories/GHSA-v87r-6q3f-2j67)), and newline injection in `config_writer()` section parameter bypassing the prior CVE patch ([GHSA-mv93-w799-cj2w](https://github.com/advisories/GHSA-mv93-w799-cj2w)).
+
+## [10.52.0] - 2026-05-08
+
+### Added
+
+- **Cascading search fallback when semantic results are sparse** ([#883](https://github.com/doobidoo/mcp-memory-service/pull/883), @filhocf, closes [#873](https://github.com/doobidoo/mcp-memory-service/issues/873)): Adds a two-tier fallback to `retrieve_memories` for deployments where vector similarity produces fewer results than requested. When enabled (`fallback=True`, opt-in), the system first attempts a BM25 exact-match pass over stored content, then a tag-intersection pass, and merges de-duplicated results up to `n_results`. Default is `fallback=False` so existing callers are unaffected.
+
+### Changed
+
+- **`MemoryStorage` ABC — `include_embeddings` parameter on bulk-read methods** ([#881](https://github.com/doobidoo/mcp-memory-service/pull/881), @henry201605): `get_all_memories` and `get_memories_by_time_range` in the base class (and all concrete backends) now accept `include_embeddings: bool = False`. When `True`, raw embedding vectors are hydrated into the returned `Memory` objects, enabling consolidation pipelines that need embedding data without a separate fetch. Default preserves existing behaviour for all callers.
+
+### Fixed
+
+- **CI fork-PR label/comment automation** ([#882](https://github.com/doobidoo/mcp-memory-service/pull/882)): Workflow triggers that write labels or post comments now use `pull_request_target` instead of `pull_request`, resolving `403` read-only-token failures that broke automation for all fork-originated PRs.
+
+## [10.51.3] - 2026-05-08
+
+### Added
+
+- **Versioned memory update via `memory_update` tool** ([#865](https://github.com/doobidoo/mcp-memory-service/pull/865), @filhocf): Adds `versioned: bool = False` parameter to the `memory_update` MCP tool. When `True`, routes through `update_memory_versioned()` in sqlite_vec, storing `superseded_by` in the replaced memory's metadata for a full audit trail. Returns an explicit error message on backends that do not support versioning.
+- **Transitive inference and relationship suggestions in `memory_graph`** ([#866](https://github.com/doobidoo/mcp-memory-service/pull/866), @filhocf): Wires `infer` and `suggest` actions into the `memory_graph` MCP tool. `infer_transitive` computes the transitive closure of a starting node using a recursive CTE in `GraphStorage` (database-side traversal, no Python BFS), keeping large graph queries fast. `suggest_relationships` proposes new edges based on semantic proximity of existing associations.
+
+## [10.51.2] - 2026-05-08
+
+### Fixed
+
+- **OAuth CORS preflight failures and missing resource_metadata** ([#877](https://github.com/doobidoo/mcp-memory-service/pull/877), @ghelleks): Resolves three bugs in the OAuth remote connector flow. CORS headers were missing on the `oauth_app` sub-application; `OPTIONS` requests to `/mcp` were not handled, blocking browser-based preflight checks; and `WWW-Authenticate` headers lacked the `resource_metadata` field required by RFC 9728, causing Remote MCP clients to fail authentication discovery. Fixes issue [#876](https://github.com/doobidoo/mcp-memory-service/issues/876).
+- **Milvus consolidation returning 0 clusters/associations** ([#878](https://github.com/doobidoo/mcp-memory-service/pull/878), @henry201605): Adds `include_embedding: bool = False` opt-in parameter to Milvus read paths (`retrieve_memory`, `list_memories`). When `True`, raw embedding vectors are returned alongside memory data, enabling the consolidation pipeline to access embeddings during clustering and association discovery. Fixes consolidation silently returning 0 clusters and 0 associations on Milvus deployments.
+
+## [10.51.1] - 2026-05-07
+
+### Fixed
+
+- **Milvus consolidation failure** ([#872](https://github.com/doobidoo/mcp-memory-service/pull/872), @henry201605): Adds `delete_memory(hash) -> bool` alias to `MilvusMemoryStorage`. Without this method, `memory_consolidate` silently failed on the Milvus backend during Compression (stage 4) and Controlled Forgetting (stage 5) with `AttributeError`. No behaviour change for other backends.
+
+## [10.51.0] - 2026-05-07
+
+### Added
+
+- **Plugin fire points wired into MemoryService lifecycle** ([#864](https://github.com/doobidoo/mcp-memory-service/pull/864), @filhocf): Connects the plugin hook scaffolding (introduced in v10.50.0, PR #856) to actual lifecycle events in `MemoryService`. The four hooks — `on_store`, `on_delete`, `on_retrieve`, and `on_consolidate` — are now invoked at the appropriate call sites. Third-party plugins registered via `entry_points` will receive live events from this release onward.
+- **`GET /api/types` endpoint + dynamic type dropdowns in dashboard** ([#863](https://github.com/doobidoo/mcp-memory-service/pull/863), @filhocf): New REST endpoint returns all valid memory types (built-in + custom types from `MCP_CUSTOM_MEMORY_TYPES`). The web dashboard type filter and store-form dropdowns are now populated dynamically from this endpoint instead of being hardcoded, so custom ontology entries appear automatically in the UI.
+- **Audit-log example plugin** ([#867](https://github.com/doobidoo/mcp-memory-service/pull/867), @filhocf): Reference implementation in `examples/plugins/audit_log/` demonstrating all four lifecycle hooks. Shows how to write, package, and install a plugin using `entry_points` discovery. Serves as living documentation for the plugin API.
+
+## [10.50.0] - 2026-05-06
+
+### Added
+
+- **Plugin hook scaffolding** ([#856](https://github.com/doobidoo/mcp-memory-service/pull/856), @filhocf, refs [#732](https://github.com/doobidoo/mcp-memory-service/issues/732)): Introduces the plugin extension API for `mcp-memory-service`. Four lifecycle hooks are defined — `on_store`, `on_delete`, `on_retrieve`, and `on_consolidate` — with `entry_points` discovery so third-party packages can register hooks without modifying core. This is pure scaffolding; fire points will be wired into `MemoryService` in a follow-up PR. Enables the ecosystem extensibility roadmap item from canonical issue #732.
+
+### Changed
+
+- **Dependency bumps** (PRs [#858](https://github.com/doobidoo/mcp-memory-service/pull/858), [#859](https://github.com/doobidoo/mcp-memory-service/pull/859), [#860](https://github.com/doobidoo/mcp-memory-service/pull/860), [#861](https://github.com/doobidoo/mcp-memory-service/pull/861)):
+  - `actions/attest-build-provenance` 1 → 4
+  - `github/codeql-action` 3 → 4
+  - `hadolint/hadolint-action` 3.1.0 → 3.3.0
+  - `authlib` 1.7.0 → 1.7.1, `cryptography` 47 → 48, `torch` 2.10 → 2.11, `setuptools` 82 → 81 (uv group bump, 905 tests validated)
+
+## [10.49.4] - 2026-05-05
+
+### Fixed
+
+- **[#853] Mistake-notes survive consolidation**: `_is_protected_memory()` in [`consolidation/base.py`](src/mcp_memory_service/consolidation/base.py) now shields memories with `memory_type='mistake'` and `failure_count >= 3` from decay and forgetting passes. High-value error-replay records no longer vanish during scheduled consolidation. 10 new tests in `tests/consolidation/test_mistake_lifecycle.py`. Closes #853. (PR #854, @filhocf)
+
+## [10.49.3] - 2026-05-05
+
+### Fixed
+
+- **[#847] OpenCode plugin API path and payload corrected**: The plugin was calling `/api/memories/search` (HTTP 405) instead of `/api/search`, and sending `limit` instead of `n_results` in the request body (per `SemanticSearchRequest` schema). Both issues caused all OpenCode memory searches to fail silently. Fix applied in PR #850. Closes #847.
+- **[#847] OpenCode plugin tag filter now enforced client-side**: `/api/search` ignores the `tags` field server-side, so project-scoped searches were returning unfiltered results. The plugin now over-fetches (`max(limit * 4, 20)`) when tags are present and filters client-side by tag intersection before trimming to the requested limit. Fix applied in PR #849 (Gemini review follow-up).
+- **CI version-drift detection**: `scripts/ci/check_versions.sh` updated to skip landing-page version checks for PATCH releases, matching the documented release protocol that landing-page updates are MINOR/MAJOR only. (PR #850)
+
+## [10.49.2] - 2026-05-05
+
+### Fixed
+
+- **[#842] Custom base types with empty subtype lists were silently dropped**: `_load_custom_types_from_config` in [`models/ontology.py`](src/mcp_memory_service/models/ontology.py) guarded registration with `if valid_subtypes:`, so a type declared as `MCP_CUSTOM_MEMORY_TYPES='{"foo": []}'` — the exact form documented in the v10.49.1 coercion warning and in the `memory_store` tool description — was never added to the ontology. The validator never saw `foo`, so `Memory.__post_init__` kept coercing it to `"observation"` even after the user had correctly configured the env var. Fix: register the base type unconditionally; emit a warning only when subtypes were supplied but all failed validation. Two regression tests added. Closes #842. (PR #846)
+
+## [10.49.1] - 2026-05-05
+
+### Fixed
+
+- **[#842 / #843] `memory_type` ontology coercion was invisible to callers**: When a user passed an unknown `memory_type` (e.g. `"foo"`), `Memory.__post_init__` silently rewrote it to `"observation"` and only logged a warning. The MCP/HTTP store responses still reported `success`, so the caller had no way to detect the rewrite — subsequent `memory_list` queries filtered on the original type returned 0 results and looked like a broken filter (#842). Fix: both the MCP `memory_store` handler ([`server/handlers/memory.py`](src/mcp_memory_service/server/handlers/memory.py)) and the HTTP `POST /memories` endpoint ([`web/api/memories.py`](src/mcp_memory_service/web/api/memories.py)) now compare the requested vs. effective `memory_type` and append a visible warning to the response when they diverge, including a hint to register the type via `MCP_CUSTOM_MEMORY_TYPES`. The default `"note"` (applied when the caller omits `type`) does not trigger a warning. Tool description for `memory_store` updated to enumerate the built-in base types and link to the new ontology guide. Closes #843.
+- **[#797] `/api/quality/memories/{hash}/evaluate` self-relevance loop returned 1.0 for everything**: When no request body was supplied, the endpoint defaulted the relevance query to the memory's own first 200 chars, collapsing the relevance prompt to "rate how relevant X is to X" — which any LLM scores at the ceiling. All `openai-compatible` AI tier evaluations on v10.45.0+ deployments returned `ai_score: 1.0` regardless of memory quality. Fix: pass an empty query through when none is supplied, so `_create_scoring_prompt` takes the absolute-quality branch which produces a calibrated 0.0–1.0 score with proper discrimination. Reported with full reproducer in #797. (PR #839)
+- **[#797] `gpt-5.x` family rejected from openai-compatible quality scorer**: `_score_with_openai_compatible` hardcoded `max_tokens=50` and `temperature=0.1`, both of which OpenAI's `gpt-5.x` family rejects with HTTP 400 ("Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead"). The AI tier silently fell through to `implicit_signals`, so the provider _appeared_ to work but wasn't using the AI. Fix: branch on `model.startswith("gpt-5")` to use `max_completion_tokens=800` (sized for reasoning variants which spend ~200–400 tokens reasoning internally) and skip `temperature`. Non-gpt-5 models keep the original payload to preserve cost and determinism. Bug 2 reported and patched by @thewusman2025. 6 new tests in `tests/web/api/test_quality_evaluate.py` and `tests/test_openai_compat_quality.py`. Closes #797. (PR #839)
+
+### Changed
+
+- **`docs/deployment/production-guide.md` rewritten as a topology selector**: The previous version was a 56-line stub that hardcoded an example API key, referenced a non-existent `COMPLETE_SETUP_GUIDE.md`, and did not actually guide production deployments. The new version is a topology selector that routes readers to the correct concrete guide (Docker / dual-service / systemd / external-embeddings) plus a common production checklist (WAL pragma, API key generation, OAuth storage, health checks, backups, hybrid sync owner). Security: the example API key (also present in two `archive/` files where it is no longer load-bearing) was removed from the active doc. (PR #836, closes #835)
+
+### Documentation
+
+- **New: [`docs/memory-ontology.md`](docs/memory-ontology.md)**: Documents the built-in memory-type taxonomy (12 base types, ~60 subtypes), the rationale for ontology validation, the coercion warning surfaced in store responses, and the JSON format for `MCP_CUSTOM_MEMORY_TYPES`. Linked from the README documentation index and from the `memory_store` MCP tool description. `.env.example` expanded with concrete examples for the env var. (Issue #843)
+- **Housekeeping audit follow-up — wave 1 + wave 2** (closes #823): Archived 19 historical/superseded `docs/` files to `docs/archive/` (5 phase-2 code-quality artifacts, 3 historical development docs, 3 phase reports, 2 superseded release notes, 4 planning artifacts, 2 one-time artifacts). Added 13 inbound links from `docs/README.md` for legitimate orphan guides (gemini integration, groq integrations, deployment guides, natural-memory-triggers, architecture & design). Two new sections added to the docs index: "Natural Memory Triggers" and "Architecture & Design". (PRs #831, #832)
+- **Wiki cleanup**: TOC anchors fixed (commits `387db7f`, closes #824), macOS Intel link redirected to existing Platform Setup section (commit `80bdc17`, closes #825), Windows guide cluster consolidated into single `Windows-Hybrid-Setup.md` (closes #834), Cloudflare guide cluster consolidated by removing pre-hybrid `Cloudflare-Based-Multi-Machine-Sync.md` and adding deprecation guidance to `Cloudflare-Backup-Sync-Setup.md` (closes #833).
+- **`docs/BENCHMARKS.md` clarification**: benchmark run version (`v10.34.0`) now annotated with "(benchmark run version; latest release: vX.Y.Z)" to prevent new readers from interpreting the historical run version as current. (PR #829, closes #826)
+
+## [10.49.0] - 2026-05-04
+
+### Added
+- **CLI lifecycle commands**: Added `launch`, `stop`, `restart`, `info`, `health`, `logs` commands for background HTTP server management. These commands use the new `cli/lifecycle.py` module with cross-platform PID tracking and health polling.
+- **Lazy CLI command loading**: Ingestion commands (`ingest-document`, `ingest-directory`, `list-formats`) are now lazy-loaded — imported only when invoked, not at CLI startup.
+- **Lazy package imports**: Heavy dependencies (torch, transformers, sentence-transformers) are imported only when lazy-loaded attributes like `Memory`, `MemoryQueryResult`, or `MemoryStorage` are accessed.
+- **Unit tests for lazy loading**: Added targeted unit tests covering package lazy imports, CLI lazy command availability, and lifecycle command registration.
+
+### Changed
+- **CLI startup performance**: `memory --help` and lifecycle commands now start in under 3 seconds (was ~22s) by avoiding eager ML imports at module load time.
+- **HTTP host/port ergonomics**: `memory server --http` now supports `--http-host` and `--http-port`; lifecycle commands use `--host` and `--port` with environment fallbacks.
+- **`restart` inherits flags**: `restart` threads `--storage-backend` and `--debug` flags from the running server process automatically.
+- **Test conftest cleanup**: Removed Unicode emoji characters from `tests/conftest.py` to avoid `UnicodeEncodeError` on Windows cp1252 consoles.
+- **Test architecture**: `tests/test_memory_ontology_integration.py` rewritten to drop `sys.modules` shadow gymnastics; subprocess isolation for lazy-import assertions; qualified conftest imports in csv/json/semtools loader tests restored (+18 recovered tests, total ~1,803).
+
+### Security
+- **Fixed command injection in `launch`**: Replaced unsafe `-c` command string with safe argument list using `sys.executable -m uvicorn` with separate args for `--host` and `--port`. User-controlled host values no longer get interpolated into code strings. (PR #740)
+- **Fixed file handle leak in detached launch**: Parent process now explicitly closes stdout/stderr file handles immediately after spawning child process, preventing resource exhaustion. (PR #740)
+- **`MCP_ALLOW_ANONYMOUS_ACCESS` pass-through**: The env var is no longer forced to `true` internally; the actual environment value is now passed through to the launched server, restoring the intended security boundary.
+- **PR #438 test-safety protections preserved**: Windows test-safety positive allowlist is maintained alongside production indicators — the triple-safety system against production database deletion remains intact.
+
+### Fixed
+- **PID-reuse detection**: `stop` and `restart` commands detect PID reuse via `create_time` + `cmdline_hint` to avoid killing an unrelated process that inherited the same PID.
+- **Version lookup**: CLI `info` command now reads version from `_version.py` directly instead of `importlib.metadata`, avoiding stale cached values.
+- **Optimized log reading**: `logs` command uses streaming tail with `collections.deque(maxlen=lines)` instead of `read_text().splitlines()` to avoid loading the entire log file into memory. (PR #740)
+- **Security warnings in docs**: Added explicit security notice in `launch` command help text and `README.md` lifecycle section warning that binding to non-loopback hosts exposes the API. (PR #740)
+
+### Credits
+- Lead author: @creativelaides (Jose Velaides) — original PR #743; all 6 commits co-authored on the merged squash in PR #841.
+
+
+## [10.48.0] - 2026-05-02
+
+### Added
+
+- **[#732] `include_superseded` retrieval filter — opt in to see the full contradiction chain**: All retrieval paths (`memory_search`, `retrieve`, `retrieve_with_quality_boost`, `retrieve_hybrid`) and all storage backends (`sqlite_vec`, `cloudflare`, `hybrid`, `milvus`, `http_client`) now accept an `include_superseded: bool = False` parameter. Default behavior is unchanged — superseded memories stay filtered out — but callers can pass `include_superseded=True` to retrieve the complete contradiction chain. Partial implementation of RFC #732. Thanks to @filhocf. (PR #814)
+- **[#732] Auto-mark `superseded_by` on high-confidence contradiction**: The consolidator now automatically marks the older memory with `superseded_by` pointing to the newer one whenever a `contradicts` relationship is detected with confidence ≥ 0.75. Executed in a single batched transaction via the new `mark_superseded_batch()` storage method (thread-safe via `_conn_lock` / `_execute_with_retry`). No DB migration needed — uses existing `superseded_by` column from migration 011. 5 new tests in `tests/storage/test_superseded_filter.py`. Thanks to @filhocf. (PR #814)
+
+
+## [10.47.2] - 2026-05-02
+
+### Fixed
+
+- **[#808] Consolidation schedule defaults changed to `'disabled'` — operators must now opt in to automatic consolidation**: Previously, omitting `MCP_SCHEDULE_DAILY`, `MCP_SCHEDULE_WEEKLY`, and `MCP_SCHEDULE_MONTHLY` env vars silently activated automatic consolidation runs at `02:00` daily, `SUN 03:00` weekly, and `01 04:00` monthly. One affected deployment accumulated 1,369 unintended `compressed/` entries and had 76+ files silently archived in a monthly run they believed was disabled. The defaults are now `'disabled'` — automatic consolidation no longer runs unless the env vars are explicitly set. **If you relied on the prior automatic behavior**, add the following to your `.env` to restore it: `MCP_SCHEDULE_DAILY=02:00`, `MCP_SCHEDULE_WEEKLY=SUN 03:00`, `MCP_SCHEDULE_MONTHLY=01 04:00`. A new `CONSOLIDATION SCHEDULING` section in `.env.example` documents the syntax. Quarterly schedule format docstring corrected (caught by gemini-code-assist). Closes #808. (PR #821, commit `0d4a658`)
+
+### Added
+
+- **[#811] Docker `:slim` and `:quality-cpu` images missing `aiosqlite` and other core deps**: The hand-curated dependency lists in `tools/docker/Dockerfile.slim` and `tools/docker/Dockerfile.quality-cpu` had drifted from `pyproject.toml`'s `dependencies` block. Both Dockerfiles use `pip install -e . --no-deps` to skip the heavy ML stack (`torch`, `transformers`, `sentence-transformers`) but were also accidentally skipping `aiosqlite>=0.20.0` (the visible failure: `ModuleNotFoundError: No module named 'aiosqlite'` on first memory tool call with `MCP_MEMORY_STORAGE_BACKEND=sqlite_vec`), plus `apscheduler` (consolidation), `authlib`/`PyJWT[crypto]`/`cryptography` (OAuth), `httpx`/`requests`, `python-dotenv`, and `pypdf`. The list was also still installing the deprecated `PyPDF2` while the code imports `pypdf`. Both Dockerfiles now ship the full pyproject `dependencies` set minus the heavy ML deps, with `mcp` and `tokenizers` version specifiers re-aligned to pyproject. The `Dockerfile.slim` install step also strips uv/pip caches at the end of the RUN, mirroring `Dockerfile.quality-cpu`. Closes #811. (PR #815)
+
+## [10.47.1] - 2026-05-01
+
+### Fixed
+
+- **[#729] `/server/update` no longer silently fails**: The dashboard's *Update & Restart* button used to show a generic success toast even when `git pull` aborted on a dirty working tree, when `pip install` failed, or when the process never actually restarted. Three changes fix this end-to-end: (1) `/api/server/update` now refuses to pull on a dirty working tree (HTTP 409 with the offending paths) unless the new `force=true` flag is set; (2) git/pip failures now return HTTP 500 with the real stderr in `detail` instead of HTTP 200 with `status: "error"` in the body that the frontend never read; (3) `/api/server/restart` and `/api/server/update` now return `pre_restart_pid` + `pre_restart_version`, and the dashboard polls `/api/server/status` after restart to verify the process actually rolled over (pid or version changed). The restart overlay surfaces a clear warning if the process never restarted instead of reloading to the same stale build. The dashboard also offers a force-retry confirmation dialog when a dirty tree blocks an update. 8 new tests in `tests/web/api/test_server_management.py`. Closes #729. (PR #807)
+- **[Security] CodeQL log injection fix**: Inline CR/LF sanitization on all user-controlled strings written to `server.py` audit logs, preventing log-forging via malicious input.
+- **[Frontend] `apiCall` now attaches `.status` to thrown errors**: `app.js` error objects surface the HTTP status code so callers can branch on specific failure codes (e.g. 409 dirty-tree vs 500 subprocess failure).
+- **[Tests] `test_server_management.py` monkeypatch switched to module-object refs**: Fixes `uvx`/isolated-env CI failures where dotted-string patch targets resolved to the wrong module copy.
+
+## [10.47.0] - 2026-05-01
+
+### Added
+
+- **[#799] `memory_quality(action='maintain')` — one-call maintenance orchestrator**: New `maintain` action runs cleanup → conflict detection → stale detection → quality snapshot in a single cycle. `dry_run=true` by default so the tool is always safe to call. New `maintain_status` action returns last-run stats. Auto-resolve is opt-in via `MCP_MAINTAIN_AUTO_RESOLVE` (default `false`); when enabled, conflict pairs are auto-resolved when three signals all pass: cosine similarity ≥ `MCP_MAINTAIN_AUTO_RESOLVE_THRESHOLD` (default `0.95`), same `memory_type`, and age delta > `MCP_MAINTAIN_AUTO_RESOLVE_AGE_DAYS` (default `7`). Winner is the newer memory (`created_at`). New env vars: `MCP_MAINTAIN_STALE_DAYS`, `MCP_MAINTAIN_AUTO_RESOLVE`, `MCP_MAINTAIN_AUTO_RESOLVE_THRESHOLD`, `MCP_MAINTAIN_AUTO_RESOLVE_AGE_DAYS`. 10 new tests. Closes #799. Thanks to @filhocf for the contribution. (PR #802)
+
+### Changed
+
+- **[#793] Quantize deberta quality classifier at Docker build time**: New `tools/docker/scripts/quantize_quality_models.py` runs after the existing ONNX export in `Dockerfile.quality-cpu`. Produces fp16 (`onnxconverter-common`) and dynamic int8 (`onnxruntime.quantization.quantize_dynamic` on MatMul + Gather) variants of `nvidia-quality-classifier-deberta`, benchmarks each against the fp32 baseline (file size, mean inference latency, and Pearson correlation on 100 sample texts), and replaces `model.onnx` in place with the smallest variant whose correlation is ≥ 0.98. The correlation reduction mirrors the production scoring path in `onnx_ranker.py::score_quality` (softmax + weighted sum `[High=1.0, Medium=0.5, Low=0.0]`) so the metric reflects the score that actually drives quality decisions at runtime. Cleanup deletes the fp32 external-weights sidecar (`model.onnx_data`, ~700 MB) along with rejected variants. Falls back to fp32 (no build failure) if no variant meets the gate; pass `--strict` to make a missed gate hard-fail. Strategy is overridable at build time via `--build-arg QUANTIZE_MODE={fp16|int8|best}` and `--build-arg QUANTIZE_MIN_CORR=<float>`. Expected size delta vs `:slim` drops from ~1.7 GB to ~600 MB on the next tagged build. `ms-marco-MiniLM-L-6-v2` is intentionally not quantized (already ~80 MB). Closes #793. (PR #803)
+
+## [10.46.0] - 2026-04-30
+
+### Added
+
+- **[#784] `stale_days` filter for `memory_list`**: Adds an optional `stale_days` integer parameter to the `memory_list` tool and REST endpoint. Memories whose `COALESCE(last_accessed, created_at)` timestamp falls strictly before `now - stale_days * 86400 seconds` are considered stale. Memories accessed exactly at the threshold are NOT stale (strict `<` semantics). Memories that have never been read (`last_accessed IS NULL`) fall back to `created_at`, so never-accessed memories are included in stale results when their creation date is old enough. The filter composes freely with the existing `tags`, `memory_type`, and pagination parameters. Backend coverage: fully implemented in SQLite-vec; Cloudflare, Hybrid, and Milvus backends accept the parameter but ignore it (returning all memories as before — no silent wrong results). Refactors `_apply_stale_days_filter` as a static helper shared between `get_all_memories` and `count_all_memories` to avoid duplication (per code review). 8 new tests in `tests/storage/test_stale_days.py`. Closes #784. Thanks to @filhocf for the contribution. (PR #796)
+
+## [10.45.1] - 2026-04-30
+
+### Fixed
+
+- **[#794] Remove redundant `import json` inside `mistake_note_add()`**: The `json` module was already imported at the top of `memory_service.py`; the duplicate import inside the function body was flagged by CodeQL alert #393. One-line cleanup with no behavioral change. Thanks to @filhocf. (PR #794)
+
+### Tests
+
+- **[#795] Regression coverage for soft-delete UPDATE guards** (`tests/storage/test_soft_delete_guards.py`): 6 new tests verifying that the `AND deleted_at IS NULL` guards added in PR #783 silently skip tombstoned rows. Covers `_persist_access_metadata_batch`, `_record_conflicts`, `resolve_conflict` (deleted winner and deleted loser), `_touch`, and `update_memory_versioned`. Closes #791. Thanks to @filhocf. (PR #795)
+
+## [10.45.0] - 2026-04-30
+
+### Added
+
+- **[#790] OpenAI-compatible quality scoring provider (LiteLLM / Ollama / MLX / vLLM)**: Adds `openai-compatible` as a new `MCP_QUALITY_AI_PROVIDER` value so homelab and self-hosted users can point quality scoring at any OpenAI `/v1/chat/completions`-compatible endpoint without a cloud API key or the ONNX model. Three new env vars: `MCP_QUALITY_AI_BASE_URL` (required), `MCP_QUALITY_AI_MODEL` (required), `MCP_QUALITY_AI_API_KEY` (optional). Config validation raises `ValueError` if the provider is set without the required vars. New Tier 2 in the fallback chain: local ONNX → openai-compatible → Groq → Gemini → implicit signals. Endpoint failures fall through silently — no exception bubbles to the storage path. 18 new tests in `tests/test_openai_compat_quality.py`. (PR #790)
+
+### Fixed
+
+- **[#783] Soft-delete UPDATE guards — 7 remaining UPDATE statements in `sqlite_vec.py`**: Seven `UPDATE memories SET ...` statements were missing the `AND deleted_at IS NULL` guard, meaning they could operate on soft-deleted (tombstoned) rows. All seven have been patched. No behavioral change for live rows. Continues the series from PRs #557, #558, #562. Follow-up testing tracked in #791. Thanks to @filhocf for the contribution. (PR #783)
+
+## [10.44.0] - 2026-04-29
+
+### Added
+
+- **[#786] Mistake Notes — structured error replay for learning from failures**: Two new MCP tools (`mistake_note_add`, `mistake_note_search`) that store mistake patterns as regular memories with `memory_type='mistake'`. Reuses the existing memory store — no new tables, works on all backends. `mistake_note_add` auto-deduplicates: if a similar pattern exists above the configurable similarity threshold (`MCP_MISTAKE_NOTE_DEDUP_THRESHOLD`, default 0.85), it increments `failure_count` in metadata instead of creating a duplicate. `mistake_note_search` retrieves mistake notes by semantic similarity, filtered to `memory_type='mistake'`. Inspired by [Mistake Notebook Learning](https://arxiv.org/abs/2512.11485). 5 new tests in `tests/services/test_mistake_notes.py`. `models/ontology.py` updated to register `mistake` as subtype of `error`. Thanks to @filhocf for the contribution. (PR #786)
+
+### Changed
+
+- **[#789] CI: ignore glama.ai in markdown link-check** — glama.ai was causing intermittent link-check failures. Added to the ignore list in `.github/workflows/docs-link-check.yml`. (PR #789)
+
+## [10.43.0] - 2026-04-29
+
+### Added
+
+- **[#773] Reciprocal Rank Fusion (RRF) for SQLite-vec hybrid search**: The SQLite-vec backend now supports RRF as an alternative fusion method for hybrid search (vector + keyword). Set `MCP_HYBRID_FUSION_METHOD=rrf` to activate; the default remains `weighted_average` for full backward compatibility. Two additional env vars control RRF behaviour: `MCP_HYBRID_RRF_K` (smoothing constant, default `60` per Cormack, Clarke & Buettcher 2009) and `MCP_HYBRID_RRF_CONSENSUS_BOOST` (score bonus when both retrieval paths rank the same document, default `0.1`). 10 new tests in `tests/storage/test_rrf_fusion.py`. Thanks to @filhocf for the contribution. (PR #773)
+
+### Changed
+
+- **Dependency bumps (Dependabot)**: `actions/checkout` 3 → 6 (PR #777), `docker/login-action` 3 → 4 (PR #778), `actions/upload-artifact` 4 → 7 (PR #779), uv group bump (PR #780): `authlib` 1.6.11 → 1.7.0, `cryptography` 46.0.7 → 47.0.0, `fastapi` 0.135.3 → 0.136.1, `uvicorn` 0.44.0 → 0.46.0, `sse-starlette` 3.3.4 → 3.4.1, `setuptools` 80.10.2 → 82.0.1 (constraint bumped to `<83`), plus `click`, `python-multipart`, `ruff`, `wandb` patches.
+
+## [10.42.1] - 2026-04-29
+
+### Fixed
+
+- **[#775] Milvus: missing `anns_field` in `_check_semantic_duplicate` and `_run_search` causes silent failures on BM25-enabled collections**: Milvus collections with BM25 full-text search (pymilvus ≥ 2.5) contain two vector fields (`vector` dense + `sparse_vector` BM25-generated). Milvus rejects `search()` calls without an explicit `anns_field` when multiple vector fields exist. Two call sites swallowed the error in `except` blocks, causing completely silent failures: semantic deduplication was bypassed (duplicate memories stored silently), and pure vector-search fallback returned empty results on collections where `_has_bm25=False`, `_HYBRID_SEARCH_AVAILABLE=False`, or the hybrid search error-fallback path was taken. The hybrid search happy path (which already specified `anns_field` per `AnnSearchRequest`) was not affected. Does not manifest with Milvus Lite or pre-BM25 collections. Thanks to @henry201605 for the report and fix. (PR #775)
+
+## [10.42.0] - 2026-04-26
+
+### Added
+
+- **[#762] MilvusGraphStorage — knowledge graph for Milvus backend**: New `MilvusGraphStorage` class (~760 lines) stored in a dedicated `{collection}_graph` Milvus scalar collection. Implements the full graph interface: `add_association`, `remove_association`, `find_connected` (application-layer BFS), `shortest_path`, and `get_subgraph`. Edge IDs use `sha256(f"{src}:{tgt}")` — 64-char fixed length, deterministic, and Zilliz Cloud-compatible. The graph collection includes a `_dummy_vec` field (dim=2, `[0.0, 0.0]`) to satisfy Zilliz Cloud's requirement of at least one vector field per collection. (PR #762, @henry201605, verification by @zc277584121)
+- **[#762] BM25 hybrid search for Milvus 2.5+**: Milvus storage backend now creates a BM25 function index on the `content` field with `enable_analyzer=True` (required for Zilliz Cloud) and uses `RRFRanker` for combined vector + keyword search. Pre-existing collections without a `sparse_vector` field automatically fall back to vector-only search, so the upgrade is backward-compatible. Schema-level regression test (`test_bm25_content_field_has_enable_analyzer`) guards the `enable_analyzer` flag going forward. (PR #762, @henry201605)
+- **[#762] Consolidation integration for Milvus**: `DreamInspiredConsolidator` now detects a Milvus storage backend at consolidation time and initializes a `MilvusGraphStorage` instance via lazy async init guarded by `asyncio.Lock`, preventing races when multiple consolidation cycles overlap. Relationship inference during consolidation cycles now works end-to-end for Milvus deployments. (PR #762, @henry201605)
+- **[#762] Zilliz Cloud remote-compatibility test suite**: `TestRemoteMilvusCompat` (env-gated via `MILVUS_TEST_URI`) validates schema correctness against a real remote Milvus / Zilliz Cloud instance. `TestRealContentHashes` (5 tests) covers store/retrieve/delete with 64-char SHA-256 content hashes as used by the graph edge-ID scheme. 25 unit tests in `tests/test_milvus_graph.py` cover `MilvusGraphStorage` in isolation. (PR #762, @henry201605, @zc277584121)
+
+## [10.41.0] - 2026-04-28
+
+### Added
+
+- **[#766] OAuth 2.1 `refresh_token` grant with rotation (MCP SEP-2207)**: Clients that include the `offline_access` scope in their authorization request now receive a refresh token alongside the access token (RFC 6749 §6, OAuth 2.1 §4.3.1). Every successful refresh issues a new access token AND a rotated refresh token while atomically revoking the presented one, preventing replay attacks. Replay detection walks the full `parent_token` chain to the root and bulk-revokes all descendant tokens in a single `UPDATE`, ensuring a stolen token cannot be reused even after the legitimate client has already rotated past it. Discovery (`/.well-known/oauth-authorization-server`) now advertises `refresh_token` in `grant_types_supported` and `offline_access` in `scopes_supported`. Both the Memory and SQLite OAuth storage backends implement the new contract; the SQLite backend uses additive schema changes only (no destructive `ALTER TABLE`). New env vars: `MCP_OAUTH_REFRESH_TOKEN_EXPIRE_DAYS` (default 30, range 1–365). Clients that do not request `offline_access` receive the same response shape as before — zero breaking changes. 17 new unit tests in `tests/unit/test_oauth_refresh.py`; storage parity tests extended in `tests/unit/test_oauth_storage_backends.py`. Documentation updated: `docs/oauth-setup.md`, `README.md`. Thanks to @netizen1119 for the contribution. (PR #766)
+- **[#759] `memory_graph` tool for streamable-http MCP server**: Knowledge graph operations (find connected memories, shortest path, subgraph extraction) are now available in the FastMCP streamable-http server, matching the capabilities already present in stdio mode. Introduces a shared `GraphService` business-logic layer under `src/mcp_memory_service/services/graph_service.py` so both server variants reuse the same traversal + error-handling code paths. Graph operations require `sqlite_vec` or `hybrid` storage backends; `milvus` and `cloudflare` backends return a structured unavailability error instead of crashing. 14 unit tests for `GraphService`. Thanks to @henry201605 for the contribution. (PR #759)
+
+### Fixed
+
+- **[#759] Test isolation: `test_graph_service.py` no longer pollutes `sys.modules`**: The lightweight stub used to import `GraphService` without heavy dependencies previously replaced `mcp_memory_service.storage.graph` unconditionally at module-import time. This caused cascading `TypeError: _StubGraphStorage() takes no arguments` failures in `tests/test_graph_traversal.py` and `tests/web/api/test_analytics_graph.py` whenever `test_graph_service.py` was collected first. The stub is now only installed if the real module fails to import, preserving isolation in CI where dependencies are available.
+- **[#759] Removed unused `List` import in `graph_service.py`**: CodeQL alert #391 (unused import).
+
+## [10.40.4] - 2026-04-28
+
+### Fixed
+
+- **[#764] quality: ONNX cross-encoder scalar logits no longer silently return 0.5 placeholder score**: The cross-encoder scoring path in `ONNXRankerModel.rerank()` assumed logits always had shape `(N,)`, but the ONNX model can output shape `(1, 1)` for a single-pair input, causing a `TypeError` when indexing with `[i]`. The outer `except Exception` handler swallowed the error and fell back to a neutral 0.5, making quality-boosted search silently rank all results equal. The fix squeezes the logit tensor to 1-D before indexing, making the scorer shape-agnostic. Thanks to @thewusman2025 for the root-cause analysis and patch. (PR #765)
+
+## [10.40.3] - 2026-04-24
+
+### Fixed
+
+- **claude-hooks: socket hang-up on multi-phase retrieval eliminated** (`memory-client.js`): Node.js HTTPS agent defaults to `keepAlive: true`, which causes Uvicorn to close idle sockets after ~5 s. The hook is a one-shot CLI process — keepAlive provides zero benefit and caused subsequent phase requests to reuse dead sockets, producing `ECONNRESET` ("socket hang up"). Added `agent: false` and `Connection: close` header to `_attemptHealthCheck`, `storeMemoryHTTP`, and `_performApiPost`. Also added a 10 s request timeout + timeout handler to `_performApiPost` (previously unset) for consistency with the other two paths and to ensure slow semantic-search queries fail fast rather than starving the overall HOOK_TIMEOUT. Intermittent silent partial-injection failures are resolved.
+- **claude-hooks: HOOK_TIMEOUT raised from 9.5 s to 28 s** (`session-start.js`): Phase 0 (git query) + Phase 1 (recent memories) + Phase 2 (tagged memories) with a cold Python cache takes 12–15 s total. The 9.5 s budget expired before `formatMemoriesForContext()` ran, so memories were fetched but the injection block was never written — the hook appeared to "not work" in the Claude Code VSCode extension. Internal constant raised to 28 000 ms.
+- **claude-hooks installer: outer process timeout raised from 10 s to 30 s** (`install_hooks.py`): The `timeout` field written into `~/.claude/settings.json` is Claude Code's hard kill limit for the hook process. Must be ≥ internal HOOK_TIMEOUT plus cleanup buffer; was 10 s (less than the old internal limit of 9.5 s leaving no headroom). Updated to 30 s.
+
+## [10.40.2] - 2026-04-23
+
+### Fixed
+
+- **[#756] Docker: ONNX model pre-download now actually executes at build time**: The `python -c "..."` one-liner in `tools/docker/Dockerfile.slim` used `try/except` compound statements with backslash continuations — a construct Python rejects with `SyntaxError`. The shell `|| echo` fallback was silently swallowing the error, so the model cache was never populated. Replaced with a simple expression chain (`import; call; print`) and let the shell `||` fallback handle genuine download failures as originally intended. Cold-start time on `Dockerfile.slim` drops from ~30s to ~3s; prevents Fly.io 40s health-check grace-period timeouts. `Dockerfile` (non-slim) gets the same fix for its `onnxruntime` availability check. Thanks to @netizen1119 for the report, root-cause analysis, and verified fix. (PR #757)
+
+## [10.40.1] - 2026-04-21
+
+### Fixed
+
+- **[#750] CF hybrid sync: `POST /api/sync/force` now reliably completes**: Deduplication logic in the force-sync path now compares against secondary-store hashes before embedding, so already-synced memories are skipped cheaply rather than consuming Cloudflare Workers AI quota. This eliminates the "0 synced / N failed" result that was caused by exhausting the embed rate limit on redundant re-submissions. (PR #753)
+- **[#750] CF hybrid sync: sync status flag reflects current health, not lifetime-cumulative failures**: `status.sync_ok` was latching `False` on any historical error and never recovering. It now reflects whether the most-recent sync attempt succeeded, so dashboards and health probes show accurate state after a transient failure is resolved. (PR #751)
+- **[#750] CF stats: totals no longer inflated by soft-deleted tombstones**: The Cloudflare statistics endpoint was counting soft-deleted (tombstoned) records in memory totals, making the remote count appear larger than the live dataset. Tombstones are now excluded from count queries. (PR #751)
+- **[#750] Reduced timezone-mismatch log noise**: Spurious drift warnings caused by comparing UTC timestamps from Cloudflare against local naive datetimes have been suppressed. (PR #751)
+
+### Changed
+
+- **Dependency bumps (Dependabot)**: `python-semantic-release/python-semantic-release` (PR #748), `actions/setup-python` 5 → 6 (PR #749), `actions/setup-node` 4 → 6 (PR #747).
+
+## [10.40.0] - 2026-04-22
+
+### Added
+
+- **[#721] Milvus storage backend (Lite / self-hosted / Zilliz Cloud)**: New fourth storage backend implementing the full `MemoryStorage` interface against Milvus. Supports three deployment modes from the same code path — Milvus Lite (zero-dep local `.db` file, ideal for scripts and tests), self-hosted Milvus via Docker (recommended for MCP servers and single-tenant deployments), and Zilliz Cloud (managed service for team/production use). ~1,750 lines of new code, 39 Milvus-specific tests. Activate with `MCP_MEMORY_STORAGE_BACKEND=milvus`. See `docs/milvus-backend.md` for full deployment guide. (PR #721, @zc277584121)
+- **[#721] `backend:milvus` label + `.github/CODEOWNERS` + `test-milvus-docker` CI job**: Issue tracker label for routing Milvus bug reports; `@zc277584121` added to CODEOWNERS for `src/mcp_memory_service/storage/milvus.py` with a 6-month SLA commitment; dedicated Docker-based Milvus smoke-test job in Main CI/CD Pipeline. (PR #721)
+- **[#740] Claude Code plugin manifest shape validation**: CI smoke test now validates `plugin.json` against the full Claude Code plugin spec (author object, tools array, schema fields) using structured JSON shape checks — catches regressions that `JSON.parse` alone misses. (PR #740)
+
+### Security
+
+- **[#745] oauth**: Harden the authorization-code redirect response against CodeQL
+  alerts `py/reflective-xss` (#385) and `py/url-redirection` (#382).
+  `_build_redirect_url` now rejects `javascript:`, `data:`, `vbscript:`,
+  `file:`, `about:`, and `blob:` schemes (RFC 8252 custom schemes like
+  `myapp://callback` remain supported). The meta-refresh URL is
+  HTML-attribute-escaped and the JS redirect string has `</` escaped to
+  `<\/` so it cannot break out of the `<script>` element.
+  `validate_redirect_uri` already allowlists the URI against the registered
+  client; these are defense-in-depth guards for the code-scanning findings. (PR #745)
+
+### CI
+
+- **[#741] Docs link-check: ignore milvus.io and docs.zilliz.com**: Unblocks the link-checker on all Milvus documentation. (PR #741)
+- **[#721] Milvus CI hardening**: Docker image tag pinned for reproducibility, `docker-compose` standalone manifest added for older Docker versions, segment-sealing wait added to smoke test to prevent intermittent failures. (PR #721)
+
+## [10.39.1] - 2026-04-19
+
+### Fixed
+
+- **plugin**: `plugin.json` `author` field now uses the Claude Code plugin spec's required object format (`{"name": "..."}`) instead of the pre-spec string form. Unblocks `/plugin install mcp-memory-service` — thanks @yingzhi0808 for the report (#738) and the fix (#739).
+
+
+## [10.39.0] - 2026-04-19
+
+### Added
+- **plugin**: Claude Code plugin packaging for the claude-hooks suite. Install via `/plugin marketplace add doobidoo/mcp-memory-service` + `/plugin install mcp-memory-service`. Ships with `.mcp.json`, hook wiring, and self-healing `ensure-server.js`. Coexists with the legacy `install_hooks.py` installer — see [claude-hooks/PLUGIN.md](claude-hooks/PLUGIN.md). Closes #530 (plugin packaging track). (PR #736)
+
+### Changed
+- **hooks**: Route memory writes through `MemoryClient.storeMemory()` — enables HTTP-primary + MCP-fallback for `session-end` and `auto-capture` hooks. Closes silent write-failure path documented in #530 (Option B). (PR #735)
+
+## [10.38.4] - 2026-04-19
+
+### Fixed
+
+- **[#733] MCP: return HTTP 202 for JSON-RPC notifications on `/mcp`**: JSON-RPC 2.0 §4.1 forbids servers from replying to notifications (messages without `id`), and MCP Streamable HTTP requires HTTP 202 Accepted with an empty body in that case. The `/mcp` handler previously fell through to method dispatch and returned a `-32601 Method not found` error for `notifications/initialized`. Tolerant clients (Claude Code) ignored it; strict clients (Codex's `rmcp`) treated the response as a handshake failure and refused to start the MCP server. Fixed by short-circuiting to `Response(status_code=202)` at the top of `mcp_endpoint` whenever `request.id is None`. Added regression tests for the 202/empty-body path and the `initialize` happy path. (PR #733)
+
+## [10.38.3] - 2026-04-17
+
+### Fixed
+
+- **[#728] Dashboard: auto-check updates on Server tab open + accurate initial label**: The Server tab now automatically triggers an update check when opened, and displays an accurate initial label before the first check completes, eliminating stale/misleading status on first render. (PR #728)
+- **[#731] API: add `total_pages` to `list_memories` return**: The `list_memories` REST API response now includes a `total_pages` field alongside `total_count` and `page`, enabling correct client-side pagination without extra requests. (PR #731)
+- **[#730] Dashboard: render knowledge-graph edges for non-canonical relationship types**: Edges whose `type` had no matching CSS custom property were rendered invisible. Added fallback color resolution so all relationship types display correctly in the graph view. (PR #730)
+
+### Changed
+
+- **[#725] Dependency bump**: `pypdf` 6.10.1 → 6.10.2 (Dependabot)
+- **[#726] Dependency bump**: `authlib` 1.6.10 → 1.6.11 (Dependabot)
+- **[#727] CI: skip full test suite on docs-only changes**: Added `paths-ignore` for `docs/**`, `*.md`, `.claude/**`, `LICENSE`, `.gitignore` to `main.yml`. Docs-only PRs no longer trigger the 1587-test pytest suite, Docker build, or CodeQL scan.
+
+## [10.38.2] - 2026-04-16
+
+### Fixed
+
+- **[#723] Windows PS7+: replace removed `ICertificatePolicy` with `ServerCertificateValidationCallback`**: `lib/server-config.ps1` used `Add-Type` to implement the `System.Net.ICertificatePolicy` interface, which was removed in .NET Core / .NET 5+. On PowerShell 7+ this caused "Cannot add type. Compilation errors occurred" at script load time, breaking all Windows update/service scripts. Replaced with a `[System.Net.ServicePointManager]::ServerCertificateValidationCallback` assignment, scoped to PS 5.1 only (`$PSVersionTable.PSVersion.Major -lt 6`) to avoid a global process-wide callback leak on PS 7+. (PR #723)
+- **[#723] Windows PS7+: add `Get-McpWebRequestExtraParams` helper for HTTPS cert bypass**: PS 7+ `Invoke-WebRequest` / `Invoke-RestMethod` use `HttpClient` internally and ignore `ServicePointManager` entirely. Added `Get-McpWebRequestExtraParams` to `lib/server-config.ps1` that returns `@{ SkipCertificateCheck = $true }` on PS 7+ HTTPS targets. All 7 web-request call sites across `update_and_restart.ps1`, `manage_service.ps1`, and `run_http_server_background.ps1` now splat these extra params. (PR #723)
+- **[#723] Windows: defer `lib/server-config.ps1` sourcing in `update_and_restart.ps1` until after `git pull` + `pip install`**: Previously the lib was sourced at script load time, so a buggy checked-out version of the lib would fail immediately, preventing the pull from delivering the fix. The script now sources the lib after the update steps complete, enabling self-healing on the next run. (PR #723)
+
+### Changed
+
+- **`scripts/service/mcp-memory.service` portability cleanup**: Replaced hardcoded `/home/hkr/` paths with the `%h` systemd specifier across `WorkingDirectory`, `PATH`, `PYTHONPATH`, and `ExecStart`, and removed the `User=hkr` / `Group=hkr` directives (user services run as the invoking user by default). Matches the convention already used in `scripts/service/mcp-memory-http.service`. Closes the follow-up flagged in PR #706 / #719.
+
+### Documentation
+
+- **[#662] Dead-reference cleanup across active docs**: Removed stale references to port 8443 (current default is 8000), the removed `python install.py` bootstrap, and the retired ChromaDB backend from 15 active documentation files. Rewrote the Homebrew and multi-client integration guides around the current `memory server --http` CLI entry point and `MCP_HTTP_ENABLED=true` + `MCP_MEMORY_USE_HOMEBREW_PYTORCH=1` env patterns (old installer flags no longer exist). Switched `scripts/ci/check_dead_refs.sh` from warning-only to `exit 1` on findings. (PR #702)
+- **[#703] Rewrote `docs/guides/STORAGE_BACKENDS.md` for the current 3-backend model**: Previous guide compared SQLite-vec vs ChromaDB throughout — actively misleading since ChromaDB was removed from `SUPPORTED_BACKENDS` in v7.x. New guide covers SQLite-vec / Cloudflare / Hybrid with a 3-column comparison, backend-specific "When to Choose X" sections, a deployment matrix reframed around connectivity/privacy/scale, performance numbers sourced from CLAUDE.md, and per-backend configuration blocks sourced from `.env.example`. Net −80 lines. Migration section now points to the real scripts in `scripts/migration/` (with correct subcommand/argument syntax) and flags Cloudflare → SQLite-vec as the one direction without a dedicated script (hybrid-mode workaround documented). (PR #712)
+- **[#713] Eliminated all current-tense ChromaDB references from active docs**: Swept 31 files to remove ChromaDB as a current backend option — config examples (`MCP_MEMORY_STORAGE_BACKEND=chromadb`), docker compose/run templates (`chromadb` → `sqlite_vec`, `chroma_db` → `sqlite_data`), `.[chromadb]` pip extras, `--with-chromadb` installer flag, comparison tables, architecture diagrams, and visible SVG text. Historical references preserved where they link users to `docs/guides/chromadb-migration.md`. (PR #714, net −159 lines)
+- **[#713] CI hardening against ChromaDB regressions**: `scripts/ci/check_dead_refs.sh` now also blocks `MCP_MEMORY_CHROMA_PATH` and `MCP_MEMORY_CHROMADB_{HOST,PORT,SSL,API_KEY}` env vars as hard dead refs, plus `chromadb` as a soft dead ref with an explicit `SOFT_REF_ALLOWLIST` for the 13 files that legitimately carry historical/migration pointers or external-project (MemPalace) benchmark context. Script refactored to support per-ref exclusions. (PR #714)
+- **[#706] Hardened `docs/deployment/systemd-service.md` for LAN/network exposure**: Added a "Network exposure hardening" subsection with five concrete recommendations — bind to a specific LAN interface instead of `0.0.0.0`, apply per-source-IP firewall rules (`ufw allow from <IP>`), restrict the database parent directory with `chmod 700` to cover SQLite sidecar files (`*-wal`, `*-shm`), guidance on TLS termination (reverse proxy) or WireGuard/Tailscale overlays for untrusted networks, and a warning about shared client config files (e.g. `~/.claude.json` symlinked across hosts) that cause every reader to hit the same service URL. Also swapped the hardcoded `/home/hkr/` path in the in-guide "Service File Structure" and LAN examples for the portable `%h` systemd specifier (matches the shipped `scripts/service/mcp-memory-http.service` template). The corresponding `scripts/service/mcp-memory.service` template cleanup is tracked separately — see the `### Changed` entry above. (PR #706)
+
+## [10.38.1] - 2026-04-15
+
+### Fixed
+
+- **[#697] OAuth: accept native loopback redirect ports (RFC 8252)**: Native apps like OpenCode register a loopback redirect URI (e.g. `http://127.0.0.1`) without a port, then listen on an ephemeral port chosen at runtime. The authorization server now matches loopback URIs by scheme and host only, ignoring the port, in conformance with RFC 8252 §7.3. Previously, the port mismatch caused authorization to fail for native app clients. (PR #697, +109 test lines)
+- **[#704] CLI: import missing `generate_content_hash` in ingestion**: `memory ingest-document` silently stored 0 chunks due to a `NameError` on `generate_content_hash` which was used but never imported in `src/mcp_memory_service/cli/ingestion.py`. (PR #704)
+- **[#705] Server: `--sse-host` / `--sse-port` CLI flags now take effect**: Config module constants were frozen at import time, so the CLI flags had no effect on the transport's bind address. The transport now re-reads the environment at startup instead of using the cached constants. (PR #705)
+
+### Changed
+
+- **[#707] CI: bump `docker/metadata-action` 5 → 6** (PR #707)
+- **[#708] CI: bump `docker/build-push-action` 5 → 7** (PR #708)
+- **[#709] CI: bump `docker/setup-buildx-action` 3 → 4** (PR #709)
+
+## [10.38.0] - 2026-04-14
+
+### Added
+
+- **[#631] Claude Code SessionEnd auto-harvest hook**: New opt-in hook `claude-hooks/core/session-end-harvest.js` that automatically calls `POST /api/harvest` at the end of every Claude Code session. Safe-by-default design: disabled by default (`sessionHarvest.enabled: false`), forces `dry_run: true` on first run (sentinel file `~/.claude/mcp-memory-harvest-first-run.done`), and enforces a minimum session message threshold (`minSessionMessages`, default 10) to skip trivially short sessions. (PR #711, issue #631)
+- **[#631] Graceful failure guarantees**: The hook enforces a 5-second timeout and catches all exceptions — it never throws and never blocks session end. HTTP failures and timeouts are logged to stderr and silently ignored. (PR #711)
+- **[#631] Security: TLS certificate validation opt-in only**: Self-signed certificate acceptance (`allowSelfSignedCerts`) is disabled by default and logs a warning when enabled, preventing silent MITM exposure for users who copy config templates. (PR #711)
+- **[#631] Standalone CLI entry point**: The hook reads `transcript_path` and `cwd` from Claude Code's stdin JSON, making it usable as a direct `command:` entry in `.claude/settings.json` without any wrapper script. (PR #711)
+- **[#631] Supporting files**: `claude-hooks/tests/session-end-harvest.test.js` (9 tests), `claude-hooks/README-SESSION-HARVEST.md` (user documentation), `claude-hooks/config.template.json` (`sessionHarvest` + `hooks.sessionEndHarvest` config sections). (PR #711)
+
+### Tests
+
+- **[#631] 9 new Node.js hook tests** in `claude-hooks/tests/session-end-harvest.test.js` covering: disabled-by-default, short-session skip, first-run dry-run force, subsequent runs honor config, timeout non-fatal, HTTP failure non-fatal, API key precedence, TLS opt-in, and transcript message counting. (PR #711)
+
+## [10.37.0] - 2026-04-14
+
+### Added
+
+- **[#630] `POST /api/harvest` HTTP endpoint**: New REST endpoint that exposes the existing `memory_harvest` MCP tool over HTTP, enabling Session Harvest to be triggered from scripts, cron jobs, CI pipelines, or the dashboard without an active MCP session. Request fields mirror the MCP tool: `sessions`, `session_ids`, `use_llm`, `dry_run`, `min_confidence`, `types`, `project_path`. Auth via existing `require_write_access` dependency. New router: `src/mcp_memory_service/web/api/harvest.py` with Pydantic request/response models. (PR #710)
+- **[#630] Security hardening for `project_path`**: The `project_path` parameter in `/api/harvest` accepts only relative names under `~/.claude/projects/`. Absolute paths, `..` path-traversal components, and symlink escapes all return HTTP 400. Addresses CodeQL path-injection findings #383 and #384. (PR #710)
+- **[#630] Async hygiene in `harvester.py`**: `harvest_and_store` now offloads synchronous `_harvest_file` reads via `asyncio.to_thread`, keeping the event loop unblocked during file I/O. Benefits both MCP and HTTP callers. (PR #710)
+
+### Tests
+
+- **[#630] 10 new tests** in `tests/web/api/test_harvest_api.py` covering endpoint authentication, dry-run mode, path-traversal rejection, and symlink escape prevention. (PR #710)
+
+## [10.36.8] - 2026-04-14
+
+### Fixed
+
+- **[#664] Event-loop blocking paths in `SqliteVecMemoryStorage.initialize()`**: Pragma application in `_connect_and_load_extension` now runs in a worker thread under `_conn_lock` via `_run_in_thread` instead of executing synchronously on the event loop. `_initialize_hash_embedding_fallback` is now async and wraps `_get_existing_db_embedding_dimension` in `_run_in_thread`. The sqlite-vec extension is not thread-safe so `asyncio.to_thread` (used in an earlier iteration) was replaced with `_run_in_thread` to ensure proper `_conn_lock` protection. (PR #700)
+
+## [10.36.7] - 2026-04-14
+
+### Security
+
+- **[#698] Bumped pygments to 2.20.0**: Resolves CVE-2026-4539 (GHSA-5239-wwwm-4pmq, ReDoS via inefficient regex for GUID matching). Transitive dependency via rich. (PR #698)
+
+## [10.36.6] - 2026-04-14
+
+### Security
+
+- **[#690] Bumped cryptography to 46.0.7**: Resolves CVE-2026-39892 (buffer overflow in non-contiguous buffer handling). (PR #690)
+
+## [10.36.5] - 2026-04-14
+
+### Fixed
+
+- **[#689] Cloudflare Vectorize API v1→v2**: Updated `scripts/installation/setup_cloudflare_resources.py` to use the v2 Vectorize API endpoint, fixing error 1010 "incorrect_api_version" during Cloudflare resource setup. (PR #689, @mychaelgo)
+- **[#689] `test_cloudflare_backend.py` test script fixes**: Added required `content_hash` argument to `Memory()` constructor and fixed `sys.path` to correctly locate the `src/` package directory. (PR #689, @mychaelgo)
+
+## [10.36.4] - 2026-04-10
+
+### Fixed
+
+- **[#687] `Get-McpApiKey` returned first character of API key instead of full key**: A Gemini-suggested refactor in v10.36.3 replaced a working implementation with `($matches[1], $matches[2], $matches[3] | Where-Object { $_ -ne $null })[0]`. Unmatched regex capture groups are absent from `$matches` (not `$null`), so when only one group matched the comma expression produced a single-element string, which PowerShell enumerated to its `Char` array — making `[0]` return `'b'` instead of `bxvWZwrI...`. This broke `manage_service.ps1 status` for all Windows users: Version and Backend showed `(unavailable - set MCP_API_KEY in .env for details)` even when the key was correctly configured. Fixed by replacing the comma expression with an explicit `if/elseif` chain using `$matches.ContainsKey(N)` and `[string]` casts. Verified live: returns full 43-character key string, `manage_service.ps1 status` correctly displays Version and Backend.
+
