@@ -53,7 +53,7 @@ async function queryMemoryService(endpoint, apiKey, query) {
 
         const options = {
             hostname: url.hostname,
-            port: url.port || 8443,
+            port: url.port ? Number(url.port) : (url.protocol === 'https:' ? 443 : 80),
             path: url.pathname,
             method: 'POST',
             headers: {
