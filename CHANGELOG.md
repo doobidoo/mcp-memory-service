@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.59.2] - 2026-05-17
+
+### Fixed
+
+- **fix(oauth): use AnyUrl for redirect_uri in AuthorizationRequest and TokenRequest** ([#942](https://github.com/doobidoo/mcp-memory-service/issues/942), reported by @tkislan): `HttpUrl` only accepts `http`/`https` — `cursor://`, `vscode://`, `vscode-insiders://` were silently rejected by Pydantic before reaching the `ALLOWED_SCHEMES` whitelist in `registration.py`, making the scheme addition in v10.59.0 a no-op in practice. Fixed: `redirect_uri` fields in `AuthorizationRequest` and `TokenRequest` changed from `Optional[HttpUrl]` to `Optional[AnyUrl]` in `src/mcp_memory_service/web/oauth/models.py`. `ErrorResponse.error_uri` keeps `HttpUrl`. 8 regression tests added in `tests/unit/test_oauth_native_clients.py`.
+
 ## [10.59.1] - 2026-05-17
 
 ### Fixed

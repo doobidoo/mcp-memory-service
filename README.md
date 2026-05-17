@@ -496,16 +496,17 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.59.1** (May 17, 2026)
+## Latest Release: **v10.59.2** (May 17, 2026)
 
-**OAuth state parameter RFC 6749 compliance fix**
+**OAuth redirect_uri AnyUrl fix — IDE schemes now actually work**
 
 **What's New:**
-- `fix(oauth)`: Reflect OAuth `state` parameter verbatim per RFC 6749 §4.1.2 — previous `_sanitize_state()` stripped base64url padding (`=`), mangled JWTs, and truncated values >128 chars, breaking Cursor OAuth. Fix removes sanitization entirely. 5 regression tests added (PR #944, @tkislan).
+- `fix(oauth)`: `redirect_uri` fields in `AuthorizationRequest` and `TokenRequest` changed from `Optional[HttpUrl]` to `Optional[AnyUrl]` — `HttpUrl` silently rejected `cursor://`, `vscode://`, `vscode-insiders://` before reaching the scheme whitelist, making the v10.59.0 IDE scheme feature a no-op in practice. 8 regression tests added (#942, reported by @tkislan).
 
 ---
 
 **Previous Releases**:
+- **v10.59.1** - fix(oauth): reflect state parameter verbatim per RFC 6749 §4.1.2, fixes Cursor OAuth (#944, @tkislan)
 - **v10.59.0** - feat(oauth): PEM key files + IDE redirect URI schemes; fix(hooks): symmetric project-affinity (PRs #926, #942, #941)
 - **v10.58.0** - feat(insights): configurable exclusion, automated-type heuristic, acknowledgement flow (PR #939); feat(harvest): locale YAML plugins (PR #935, @filhocf); feat(plugin): smart-tagger example (PR #932, @filhocf)
 - **v10.57.3** - feat(milvus): last_accessed tracking via `_access` side-collection (PR #925, @henry201605)
