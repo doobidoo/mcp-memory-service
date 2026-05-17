@@ -10,6 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.60.0] - 2026-05-17
+
+### Added
+
+- **feat(consolidation): temporal contradiction detection via embedding similarity band** ([#949](https://github.com/doobidoo/mcp-memory-service/pull/949), @filhocf): New module `src/mcp_memory_service/consolidation/contradictions.py`. Detects contradictions using a similarity band of 0.4–0.75 (too similar to be independent facts, too different to be duplicates). Emits a `CONTRADICTED_BY` graph edge and sets `superseded_by` on the older memory. Opt-in via `MCP_CONTRADICTION_DETECTION_ENABLED=true` and `MCP_CONTRADICTION_ON_STORE=true`. Integrated as Step 7 in `handlers/quality.py` maintain flow. 8 new tests in `tests/consolidation/test_contradictions.py`.
+
+### Fixed
+
+- **fix(milvus): instance-level graph cache + filter superseded in retrieve** ([#948](https://github.com/doobidoo/mcp-memory-service/pull/948), @henry201605): Replaces the class-variable `_graph_storage_cache` with an instance attribute protected by double-checked locking, preventing cross-instance contamination in tests. `retrieve()` now filters out `superseded_by` memories before trimming results to match the sqlite_vec behavior.
+
 ## [10.59.2] - 2026-05-17
 
 ### Fixed

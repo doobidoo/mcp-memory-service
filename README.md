@@ -496,16 +496,18 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.59.2** (May 17, 2026)
+## Latest Release: **v10.60.0** (May 17, 2026)
 
-**OAuth redirect_uri AnyUrl fix — IDE schemes now actually work**
+**Temporal contradiction detection + Milvus instance-level graph cache fix**
 
 **What's New:**
-- `fix(oauth)`: `redirect_uri` fields in `AuthorizationRequest` and `TokenRequest` changed from `Optional[HttpUrl]` to `Optional[AnyUrl]` — `HttpUrl` silently rejected `cursor://`, `vscode://`, `vscode-insiders://` before reaching the scheme whitelist, making the v10.59.0 IDE scheme feature a no-op in practice. 8 regression tests added (#942, reported by @tkislan).
+- `feat(consolidation)`: New temporal contradiction detection module — detects contradicting facts using embedding similarity band 0.4–0.75, emits `CONTRADICTED_BY` graph edges, marks older memory with `superseded_by`. Opt-in via `MCP_CONTRADICTION_DETECTION_ENABLED=true` and `MCP_CONTRADICTION_ON_STORE=true`. 8 new tests. (#949, @filhocf)
+- `fix(milvus)`: Replace class-variable `_graph_storage_cache` with instance attribute + double-checked locking to prevent cross-instance contamination. `retrieve()` now filters `superseded_by` memories before trimming, matching sqlite_vec behavior. (#948, @henry201605)
 
 ---
 
 **Previous Releases**:
+- **v10.59.2** - fix(oauth): AnyUrl for redirect_uri so IDE schemes (cursor://, vscode://) pass Pydantic validation (#942, @tkislan)
 - **v10.59.1** - fix(oauth): reflect state parameter verbatim per RFC 6749 §4.1.2, fixes Cursor OAuth (#944, @tkislan)
 - **v10.59.0** - feat(oauth): PEM key files + IDE redirect URI schemes; fix(hooks): symmetric project-affinity (PRs #926, #942, #941)
 - **v10.58.0** - feat(insights): configurable exclusion, automated-type heuristic, acknowledgement flow (PR #939); feat(harvest): locale YAML plugins (PR #935, @filhocf); feat(plugin): smart-tagger example (PR #932, @filhocf)
