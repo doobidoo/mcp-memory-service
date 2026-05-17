@@ -192,9 +192,11 @@ def test_authorization_request_accepts_ide_redirect_uri(scheme, uri):
 
 
 @pytest.mark.parametrize("scheme,uri", [
-    ("cursor",  "cursor://callback"),
-    ("vscode",  "vscode://callback"),
-    ("https",   "https://app.example.com/callback"),
+    ("cursor",          "cursor://callback"),
+    ("vscode",          "vscode://callback"),
+    ("vscode-insiders", "vscode-insiders://callback"),
+    ("https",           "https://app.example.com/callback"),
+    ("http",            "http://localhost:8080/callback"),
 ])
 def test_token_request_accepts_ide_redirect_uri(scheme, uri):
     """TokenRequest must accept IDE deep-link schemes (AnyUrl, not HttpUrl)."""
