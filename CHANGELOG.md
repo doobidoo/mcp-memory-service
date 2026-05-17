@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **feat(sse): Last-Event-ID replay on `/api/events` reconnect**: Bounded ring buffer of recently broadcast events lets SSE clients resume after a transient disconnect per the standard EventSource resume header. Buffer size configurable via `MCP_SSE_REPLAY_BUFFER_SIZE` (default 1000, 0 disables). Replay outcome (`status: resumed` or `status: id_not_in_buffer`) is surfaced in the `connection_established` welcome event so clients can detect overflow and fall back to their own catch-up strategy. Connection-scoped events (welcome, close) and heartbeats are not buffered; filtered broadcasts are excluded to avoid expanding the original audience on replay.
+
 ## [10.59.2] - 2026-05-17
 
 ### Fixed
