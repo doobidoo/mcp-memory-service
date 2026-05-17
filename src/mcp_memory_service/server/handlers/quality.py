@@ -595,6 +595,17 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
     else:
         report["steps"]["insights"] = {"skipped": True, "reason": "MCP_INSIGHT_CARDS_ENABLED=false"}
 
+    # Step 7: Temporal Contradiction Detection (opt-in)
+    from mcp_memory_service.consolidation.contradictions import detect_contradictions, CONTRADICTION_ENABLED
+    if CONTRADICTION_ENABLED:
+        try:
+            contradiction_result = await detect_contradictions(storage, dry_run=dry_run)
+            report["steps"]["contradictions"] = contradiction_result
+        except Exception as e:
+            report["steps"]["contradictions"] = {"error": str(e)}
+    else:
+        report["steps"]["contradictions"] = {"skipped": True, "reason": "MCP_CONTRADICTION_DETECTION_ENABLED=false"}
+
     elapsed = round(time.time() - start, 2)
     report["elapsed_seconds"] = elapsed
     report["completed_at"] = datetime.now(timezone.utc).isoformat()
