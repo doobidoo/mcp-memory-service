@@ -11,7 +11,7 @@ from mcp_memory_service.web.oauth.authorization import (
     authorize_post,
     validate_redirect_uri,
 )
-from mcp_memory_service.web.oauth.models import RegisteredClient
+from mcp_memory_service.web.oauth.models import AuthorizationRequest, RegisteredClient, TokenRequest
 from mcp_memory_service.web.oauth.storage.memory import MemoryOAuthStorage
 
 
@@ -183,13 +183,12 @@ async def test_authorize_post_returns_state_verbatim(client_state):
 ])
 def test_authorization_request_accepts_ide_redirect_uri(scheme, uri):
     """AuthorizationRequest must accept IDE deep-link schemes (AnyUrl, not HttpUrl)."""
-    from mcp_memory_service.web.oauth.models import AuthorizationRequest
     req = AuthorizationRequest(
         response_type="code",
         client_id="test-client",
         redirect_uri=uri,
     )
-    assert str(req.redirect_uri).rstrip("/").startswith(scheme)
+    assert req.redirect_uri.scheme == scheme
 
 
 @pytest.mark.parametrize("scheme,uri", [
@@ -199,10 +198,9 @@ def test_authorization_request_accepts_ide_redirect_uri(scheme, uri):
 ])
 def test_token_request_accepts_ide_redirect_uri(scheme, uri):
     """TokenRequest must accept IDE deep-link schemes (AnyUrl, not HttpUrl)."""
-    from mcp_memory_service.web.oauth.models import TokenRequest
     req = TokenRequest(
         grant_type="authorization_code",
         code="abc123",
         redirect_uri=uri,
     )
-    assert str(req.redirect_uri).rstrip("/").startswith(scheme)
+    assert req.redirect_uri.scheme == scheme
