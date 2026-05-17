@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.59.1] - 2026-05-17
+
+### Fixed
+
+- **fix(oauth): reflect OAuth state parameter verbatim per RFC 6749 §4.1.2** ([#944](https://github.com/doobidoo/mcp-memory-service/pull/944), @tkislan): `_sanitize_state()` stripped non-`[A-Za-z0-9-_.]` characters and truncated to 128 chars before reflecting `state` back to the client. RFC 6749 §4.1.2 requires returning `state` exactly as received. This broke Cursor OAuth (base64url padding `=`, JWTs, values >128 chars all got mangled). Fix: remove `_sanitize_state()` entirely and reflect `state` verbatim. 5 parametrized regression tests added in `tests/unit/test_oauth_native_clients.py`.
+
 ## [10.59.0] - 2026-05-16
 
 ### Added

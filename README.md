@@ -496,18 +496,17 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.59.0** (May 16, 2026)
+## Latest Release: **v10.59.1** (May 17, 2026)
 
-**OAuth PEM key files, IDE redirect URI schemes, and memory-scorer affinity fix**
+**OAuth state parameter RFC 6749 compliance fix**
 
 **What's New:**
-- `feat(oauth)`: File-based PEM key loading via `MCP_OAUTH_PRIVATE_KEY_PATH` / `MCP_OAUTH_PUBLIC_KEY_PATH` env vars — prevents silent JWT invalidation on restart; startup aborts with `ValueError` if the file cannot be read (PR #926, co-author aria-inboxia).
-- `feat(oauth)`: Allow `cursor`, `vscode`, `vscode-insiders` as OAuth redirect URI schemes for IDE deep-link OAuth callbacks (PR #942, co-author tkislan).
-- `fix(hooks)`: Symmetric project-affinity check in `memory-scorer.js` — short memory tags (e.g. `wing:hoi4`) no longer zeroed when the project name is a superset (e.g. `hoi4coach`) (#941, reported by minecraft-mattsource).
+- `fix(oauth)`: Reflect OAuth `state` parameter verbatim per RFC 6749 §4.1.2 — previous `_sanitize_state()` stripped base64url padding (`=`), mangled JWTs, and truncated values >128 chars, breaking Cursor OAuth. Fix removes sanitization entirely. 5 regression tests added (PR #944, @tkislan).
 
 ---
 
 **Previous Releases**:
+- **v10.59.0** - feat(oauth): PEM key files + IDE redirect URI schemes; fix(hooks): symmetric project-affinity (PRs #926, #942, #941)
 - **v10.58.0** - feat(insights): configurable exclusion, automated-type heuristic, acknowledgement flow (PR #939); feat(harvest): locale YAML plugins (PR #935, @filhocf); feat(plugin): smart-tagger example (PR #932, @filhocf)
 - **v10.57.3** - feat(milvus): last_accessed tracking via `_access` side-collection (PR #925, @henry201605)
 - **v10.57.2** - fix(deps): pin pymilvus<3.0.0 to restore Milvus Docker CI (PR #921)
