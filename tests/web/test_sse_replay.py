@@ -152,6 +152,30 @@ async def test_buffer_evicts_oldest_at_capacity():
 
 
 @pytest.mark.asyncio
+async def test_heartbeats_are_not_buffered():
+    """Heartbeats reach live connections but are excluded from the replay
+    buffer — otherwise a quiet period would fill the buffer with pings."""
+    manager = SSEManager(replay_buffer_size=10)
+
+    real = SSEEvent(event_type="memory_stored", data={"n": 1})
+    beat = SSEEvent(event_type="heartbeat", data={"ping": True})
+    await manager.broadcast_event(real)
+    await manager.broadcast_event(beat)
+
+    queue = await manager.add_connection(
+        "conn-hb",
+        _FakeRequest(),
+        last_event_id=real.event_id,
+    )
+    events = await _drain(queue)
+
+    # Welcome only — heartbeat was filtered, so nothing to replay after `real`.
+    assert len(events) == 1
+    assert events[0].data["replay"]["status"] == "resumed"
+    assert events[0].data["replay"]["events_replayed"] == 0
+
+
+@pytest.mark.asyncio
 async def test_replay_disabled_when_buffer_size_zero():
     """replay_buffer_size=0 disables replay entirely; Last-Event-ID is ignored."""
     manager = SSEManager(replay_buffer_size=0)

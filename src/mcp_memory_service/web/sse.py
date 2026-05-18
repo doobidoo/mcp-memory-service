@@ -157,30 +157,32 @@ class SSEManager:
         disabled. Otherwise it describes the outcome (resumed vs. overflow)
         so the client can decide whether to trust the resume or do its own
         catch-up (e.g. via search-by-tag).
+
+        Single-pass iteration over the deque — no full-buffer copy — so the
+        memory cost stays proportional to what actually needs replaying,
+        not to MCP_SSE_REPLAY_BUFFER_SIZE.
         """
         if not last_event_id or self._replay_buffer.maxlen == 0:
             return None, []
 
-        buffered: List[SSEEvent] = list(self._replay_buffer)
-        oldest_id = buffered[0].event_id if buffered else None
-        for index, event in enumerate(buffered):
-            if event.event_id == last_event_id:
-                to_replay = buffered[index + 1:]
-                return ({
-                    "requested_last_event_id": last_event_id,
-                    "status": "resumed",
-                    "events_replayed": len(to_replay),
-                    "buffer_size": self._replay_buffer.maxlen,
-                    "buffer_oldest_id": oldest_id,
-                }, to_replay)
+        oldest_id = self._replay_buffer[0].event_id if self._replay_buffer else None
+        to_replay: List[SSEEvent] = []
+        found = False
+        for event in self._replay_buffer:
+            if found:
+                to_replay.append(event)
+            elif event.event_id == last_event_id:
+                found = True
 
-        return ({
+        base_meta = {
             "requested_last_event_id": last_event_id,
-            "status": "id_not_in_buffer",
-            "events_replayed": 0,
+            "events_replayed": len(to_replay),
             "buffer_size": self._replay_buffer.maxlen,
             "buffer_oldest_id": oldest_id,
-        }, [])
+        }
+        if found:
+            return ({**base_meta, "status": "resumed"}, to_replay)
+        return ({**base_meta, "status": "id_not_in_buffer"}, [])
     
     async def _remove_connection(self, connection_id: str):
         """Remove an SSE connection."""
@@ -203,9 +205,18 @@ class SSEManager:
     
     async def broadcast_event(self, event: SSEEvent, connection_filter: Optional[Set[str]] = None):
         """Broadcast an event to all or filtered connections."""
-        # Buffer only globally broadcast events; replaying a filtered event to
-        # a different reconnecting client would expand the original audience.
-        if connection_filter is None and self._replay_buffer.maxlen:
+        # Buffer only globally broadcast, non-heartbeat events:
+        # - Filtered broadcasts targeted specific live connections; replaying
+        #   them to a different reconnecting client would expand the audience.
+        # - Heartbeats are liveness signals; they carry no value to a resuming
+        #   client and would dominate the buffer during quiet periods (every
+        #   SSE_HEARTBEAT_INTERVAL seconds; at 30s a 1000-slot buffer fills
+        #   with heartbeats in ~8h of no real traffic).
+        if (
+            connection_filter is None
+            and event.event_type != "heartbeat"
+            and self._replay_buffer.maxlen
+        ):
             self._replay_buffer.append(event)
 
         if not self.connections:
