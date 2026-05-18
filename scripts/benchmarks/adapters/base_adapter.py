@@ -1,0 +1,16 @@
+"""Abstract base adapter for benchmark comparisons."""
+from abc import ABC, abstractmethod
+from typing import Any
+
+class MemoryAdapter(ABC):
+    @property
+    @abstractmethod
+    def name(self) -> str: ...
+    @abstractmethod
+    async def setup(self) -> None: ...
+    @abstractmethod
+    async def store(self, content: str, metadata: dict[str, Any]) -> str: ...
+    @abstractmethod
+    async def search(self, query: str, limit: int = 5) -> list[dict[str, Any]]: ...
+    @abstractmethod
+    async def teardown(self) -> None: ...
