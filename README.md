@@ -496,13 +496,15 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.60.0** (May 17, 2026)
+## Latest Release: **v10.60.0** (May 18, 2026)
 
-**Temporal contradiction detection + Milvus instance-level graph cache fix**
+**Temporal contradiction detection + Milvus fixes + Hooks tunnel fix + Benchmark adapters**
 
 **What's New:**
 - `feat(consolidation)`: New temporal contradiction detection module — detects contradicting facts using embedding similarity band 0.4–0.75, emits `CONTRADICTED_BY` graph edges, marks older memory with `superseded_by`. Opt-in via `MCP_CONTRADICTION_DETECTION_ENABLED=true` and `MCP_CONTRADICTION_ON_STORE=true`. 8 new tests. (#949, @filhocf)
+- `feat(benchmarks)`: Adds `scripts/benchmarks/adapters/` with abstract `BenchmarkAdapter` base + concrete `Mem0Adapter` for end-to-end mem0 cloud API comparison. (#954, @filhocf)
 - `fix(milvus)`: Replace class-variable `_graph_storage_cache` with instance attribute + double-checked locking to prevent cross-instance contamination. `retrieve()` now filters `superseded_by` memories before trimming, matching sqlite_vec behavior. (#948, @henry201605)
+- `fix(hooks)`: Use protocol-correct default port for standard HTTPS/HTTP URLs — fixes broken hook connectivity for Cloudflare Tunnel and reverse proxy deployments. (#952, fixes #950)
 
 ---
 

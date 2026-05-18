@@ -10,15 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-## [10.60.0] - 2026-05-17
+## [10.60.0] - 2026-05-18
 
 ### Added
 
 - **feat(consolidation): temporal contradiction detection via embedding similarity band** ([#949](https://github.com/doobidoo/mcp-memory-service/pull/949), @filhocf): New module `src/mcp_memory_service/consolidation/contradictions.py`. Detects contradictions using a similarity band of 0.4–0.75 (too similar to be independent facts, too different to be duplicates). Emits a `CONTRADICTED_BY` graph edge and sets `superseded_by` on the older memory. Opt-in via `MCP_CONTRADICTION_DETECTION_ENABLED=true` and `MCP_CONTRADICTION_ON_STORE=true`. Integrated as Step 7 in `handlers/quality.py` maintain flow. 8 new tests in `tests/consolidation/test_contradictions.py`.
+- **feat(benchmarks): mem0 adapter — tested end-to-end with cloud API** ([#954](https://github.com/doobidoo/mcp-memory-service/pull/954), @filhocf): Adds `scripts/benchmarks/adapters/` with an abstract `BenchmarkAdapter` base class and a concrete `Mem0Adapter` implementation that wraps the mem0 cloud API. Validated end-to-end with the mem0 cloud service. Provides a foundation for systematic latency/quality comparisons between mcp-memory-service and alternative memory backends.
 
 ### Fixed
 
 - **fix(milvus): instance-level graph cache + filter superseded in retrieve** ([#948](https://github.com/doobidoo/mcp-memory-service/pull/948), @henry201605): Replaces the class-variable `_graph_storage_cache` with an instance attribute protected by double-checked locking, preventing cross-instance contamination in tests. `retrieve()` now filters out `superseded_by` memories before trimming results to match the sqlite_vec behavior.
+- **fix(hooks): use protocol-correct default port for standard HTTPS/HTTP URLs** ([#952](https://github.com/doobidoo/mcp-memory-service/pull/952), fixes [#950](https://github.com/doobidoo/mcp-memory-service/issues/950)): `memory-client.js` and `memory-retrieval.js` used `url.port || 8443` (or `|| 8080`) as the default port. For standard `https://` URLs (e.g. Cloudflare Tunnel, reverse proxy) `url.port` is empty string — causing the fallback to always trigger and producing `https://host:8443/...` instead of the correct portless URL. Fix: use the protocol's default port (`443` for https, `80` for http) when `url.port` is absent, and omit the port from the constructed URL if it matches the protocol default. Resolves broken hook connectivity for all Cloudflare Tunnel and reverse proxy deployments.
 
 ## [10.59.2] - 2026-05-17
 
