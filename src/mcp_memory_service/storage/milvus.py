@@ -2255,6 +2255,7 @@ class MilvusMemoryStorage(MemoryStorage):
         offset: int = 0,
         memory_type: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        tag_match: str = "any",
         stale_days: Optional[int] = None,
         include_embeddings: bool = False,
     ) -> List[Memory]:
@@ -2266,14 +2267,26 @@ class MilvusMemoryStorage(MemoryStorage):
             safe_type = memory_type.replace('"', '\\"')
             filters.append(f'memory_type == "{safe_type}"')
         if tags:
-            tag_filter, matched = self._tag_like_clauses(tags, joiner="or")
+            joiner = "and" if tag_match == "all" else "or"
+            tag_filter, matched = self._tag_like_clauses(tags, joiner=joiner)
             if matched:
                 filters.append(tag_filter)
             else:
                 return []
 
+        filter_expr = self._combine_filter(*filters)
+
+        # When stale_days is set, perform cross-collection filtering.
+        # Fetch all matching memories first, filter for staleness, then
+        # apply pagination manually — mirrors count_all_memories logic.
+        if stale_days is not None and stale_days > 0:
+            return await self._get_stale_memories(
+                filter_expr, stale_days, limit=limit, offset=offset,
+                include_embeddings=include_embeddings,
+            )
+
         return await self._query_memories(
-            filter_expr=self._combine_filter(*filters),
+            filter_expr=filter_expr,
             limit=limit if limit is not None else _MILVUS_MAX_LIMIT,
             offset=offset,
             sort_desc_key="created_at",
@@ -2284,6 +2297,7 @@ class MilvusMemoryStorage(MemoryStorage):
         self,
         memory_type: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        tag_match: str = "any",
         stale_days: Optional[int] = None,
     ) -> int:
         if not self._ensure_initialized():
@@ -2294,7 +2308,8 @@ class MilvusMemoryStorage(MemoryStorage):
             safe_type = memory_type.replace('"', '\\"')
             filters.append(f'memory_type == "{safe_type}"')
         if tags:
-            tag_filter, matched = self._tag_like_clauses(tags, joiner="or")
+            joiner = "and" if tag_match == "all" else "or"
+            tag_filter, matched = self._tag_like_clauses(tags, joiner=joiner)
             if matched:
                 filters.append(tag_filter)
             else:
@@ -2364,6 +2379,79 @@ class MilvusMemoryStorage(MemoryStorage):
                     stale_count += 1
 
         return stale_count
+
+    async def _get_stale_memories(
+        self,
+        base_filter: str,
+        stale_days: int,
+        *,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        include_embeddings: bool = False,
+    ) -> List[Memory]:
+        """Return memories not accessed in the last ``stale_days`` days.
+
+        Mirrors the cross-collection logic in ``_count_stale_memories`` but
+        returns full Memory objects instead of a count.  Pagination
+        (limit/offset) is applied *after* staleness filtering.
+        """
+        threshold = time.time() - stale_days * 86400
+
+        # Determine stale content_hashes via _access side-collection
+        try:
+            async with self._write_lock:
+                if self.client is None:
+                    return []
+                all_rows = await asyncio.to_thread(
+                    self._drain_main_ids_and_created_at, base_filter,
+                )
+                active_rows: List[Dict[str, Any]] = []
+                if self._has_access_collection:
+                    active_rows = await asyncio.to_thread(
+                        self._drain_active_hashes, threshold,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("_get_stale_memories failed: %s", exc)
+            return []
+
+        if not all_rows:
+            return []
+
+        active_hashes = {row.get("id") for row in active_rows if row.get("id")}
+
+        # Collect stale hashes (not recently accessed AND created_at < threshold)
+        stale_hashes: List[str] = []
+        for row in all_rows:
+            rid = row.get("id")
+            if rid and rid not in active_hashes:
+                created_at = row.get("created_at", 0)
+                if created_at < threshold:
+                    stale_hashes.append(rid)
+
+        if not stale_hashes:
+            return []
+
+        # Apply pagination to the stale set
+        # Sort by created_at desc is implicit from _drain_main_ids_and_created_at order
+        paginated = stale_hashes[offset:]
+        if limit is not None:
+            paginated = paginated[:limit]
+
+        if not paginated:
+            return []
+
+        # Fetch full Memory objects for the paginated stale hashes
+        hash_filter_parts = [
+            f'id == "{h.replace(chr(34), "")}"' for h in paginated
+        ]
+        hash_filter = " or ".join(hash_filter_parts)
+
+        return await self._query_memories(
+            filter_expr=hash_filter,
+            limit=len(paginated),
+            sort_desc_key="created_at",
+            include_embeddings=include_embeddings,
+        )
 
     async def get_memories_by_time_range(
         self, start_time: float, end_time: float,

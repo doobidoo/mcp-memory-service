@@ -1264,3 +1264,78 @@ async def test_bm25_content_field_has_enable_analyzer(milvus_db_path):
         except Exception:
             pass
         await storage.close()
+
+
+# ---------------------------------------------------------------------------
+# tag_match parameter tests (PR #958)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_all_memories_tag_match_any(storage):
+    """tag_match='any' returns memories matching ANY of the given tags."""
+    for i, tags in enumerate([["alpha", "beta"], ["beta", "gamma"], ["delta"]]):
+        content = f"tag_match test any {i}"
+        m = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=tags,
+            memory_type="note",
+        )
+        await storage.store(m, skip_semantic_dedup=True)
+
+    # "any" — should match memories with alpha OR gamma (all three stored)
+    result = await storage.get_all_memories(tags=["alpha", "gamma"], tag_match="any")
+    assert len(result) == 2  # first has alpha, second has gamma
+
+    # count should agree
+    count = await storage.count_all_memories(tags=["alpha", "gamma"], tag_match="any")
+    assert count == 2
+
+
+@pytest.mark.asyncio
+async def test_get_all_memories_tag_match_all(storage):
+    """tag_match='all' returns only memories matching ALL of the given tags."""
+    for i, tags in enumerate([["alpha", "beta"], ["beta", "gamma"], ["alpha", "beta", "gamma"]]):
+        content = f"tag_match test all {i}"
+        m = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=tags,
+            memory_type="note",
+        )
+        await storage.store(m, skip_semantic_dedup=True)
+
+    # "all" — only memories with BOTH alpha AND beta
+    result = await storage.get_all_memories(tags=["alpha", "beta"], tag_match="all")
+    assert len(result) == 2  # first and third
+
+    count = await storage.count_all_memories(tags=["alpha", "beta"], tag_match="all")
+    assert count == 2
+
+    # Require all three tags — only the third memory qualifies
+    result = await storage.get_all_memories(tags=["alpha", "beta", "gamma"], tag_match="all")
+    assert len(result) == 1
+    assert "tag_match test all 2" in result[0].content
+
+
+@pytest.mark.asyncio
+async def test_get_all_memories_stale_days_filters(storage):
+    """stale_days filtering in get_all_memories: freshly created = not stale."""
+    for i in range(3):
+        content = f"stale test {i}"
+        m = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["stale-test"],
+            memory_type="note",
+        )
+        await storage.store(m, skip_semantic_dedup=True)
+
+    # Memories just created should NOT be stale
+    result = await storage.get_all_memories(stale_days=7)
+    assert len(result) == 0
+
+    # Without stale_days, all 3 are returned
+    result = await storage.get_all_memories(tags=["stale-test"])
+    assert len(result) == 3
