@@ -223,7 +223,7 @@ function triggerQualityEvaluation(endpoint, apiKey, contentHash) {
 
         const options = {
             hostname: url.hostname,
-            port: url.port || (isHttps ? 8443 : 8000),
+            port: url.port ? Number(url.port) : (isHttps ? 443 : 80),
             path: url.pathname,
             method: 'POST',
             headers: {
