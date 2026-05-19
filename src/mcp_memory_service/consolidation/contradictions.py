@@ -9,7 +9,6 @@ Integration: maintain Step 7 + opt-in MCP_CONTRADICTION_ON_STORE=true.
 
 import logging
 import os
-from typing import List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -38,16 +37,8 @@ async def detect_contradictions(storage, dry_run: bool = True) -> dict:
     }
 
     try:
-        # Get all memories with pagination
-        memories = []
-        page = 1
-        while True:
-            chunk = await storage.list_memories(page=page, page_size=500)
-            batch = (chunk or {}).get("memories", [])
-            if not batch:
-                break
-            memories.extend(batch)
-            page += 1
+        # Get all memories — returns List[Memory] dataclass instances
+        memories = await storage.get_all_memories()
 
         if not memories:
             return {**results, "message": "No memories to scan"}
@@ -55,24 +46,24 @@ async def detect_contradictions(storage, dry_run: bool = True) -> dict:
 
         # For each memory, find KNN neighbors in the similarity band
         for memory in memories:
-            content_hash = memory.get("content_hash")
-            memory_type = memory.get("memory_type")
-            content = memory.get("content", "")
+            content_hash = memory.content_hash
+            memory_type = memory.memory_type
+            content = memory.content
 
             if not content or not content_hash:
                 continue
 
-            # Skip if already superseded
-            metadata = memory.get("metadata", {}) or {}
-            if metadata.get("superseded_by"):
+            # Skip if already superseded (superseded_by lives in metadata dict)
+            if (memory.metadata or {}).get("superseded_by"):
                 continue
 
-            # Search for similar memories
+            # Search for similar memories — returns {"memories": [dict, ...], ...}
             try:
-                similar = await storage.search_memories(
+                search_result = await storage.search_memories(
                     query=content,
-                    n_results=KNN_K,
+                    limit=KNN_K,
                 )
+                similar = search_result.get("memories", []) if isinstance(search_result, dict) else []
             except Exception:
                 continue
 
@@ -80,8 +71,9 @@ async def detect_contradictions(storage, dry_run: bool = True) -> dict:
                 continue
 
             for candidate in similar:
+                # candidates are plain dicts (from Memory.to_dict() + similarity_score key)
                 cand_hash = candidate.get("content_hash")
-                similarity = candidate.get("similarity", 0)
+                similarity = candidate.get("similarity_score", 0)
 
                 # Skip self
                 if cand_hash == content_hash:
@@ -91,14 +83,14 @@ async def detect_contradictions(storage, dry_run: bool = True) -> dict:
                 if similarity < SIMILARITY_MIN or similarity > SIMILARITY_MAX:
                     continue
 
-                # Skip if same memory_type=None is wildcard (matches any)
-                cand_type = candidate.get("memory_type")
+                # Skip if types differ (None is wildcard — matches any)
+                cand_type = candidate.get("type")  # to_dict() uses "type", not "memory_type"
                 if memory_type and cand_type and memory_type != cand_type:
                     continue
 
-                # Determine which is older (by created_at)
-                mem_created = memory.get("created_at", "")
-                cand_created = candidate.get("created_at", "")
+                # Determine which is older (by created_at float timestamp)
+                mem_created = memory.created_at or 0
+                cand_created = candidate.get("created_at") or 0
 
                 if mem_created < cand_created:
                     older_hash, newer_hash = content_hash, cand_hash
@@ -153,13 +145,14 @@ async def check_contradiction_on_store(storage, content: str, content_hash: str)
         return None
 
     try:
-        similar = await storage.search_memories(query=content, n_results=KNN_K)
+        search_result = await storage.search_memories(query=content, limit=KNN_K)
+        similar = search_result.get("memories", []) if isinstance(search_result, dict) else []
         if not similar:
             return None
 
         for candidate in similar:
             cand_hash = candidate.get("content_hash")
-            similarity = candidate.get("similarity", 0)
+            similarity = candidate.get("similarity_score", 0)
 
             if cand_hash == content_hash:
                 continue
