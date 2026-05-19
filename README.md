@@ -508,7 +508,7 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 **Previous Releases**:
-- **v10.60.0** - feat(consolidation): temporal contradiction detection + fix(milvus): instance-level graph cache + fix(hooks): tunnel/reverse-proxy port fix + feat(benchmarks): mem0 adapter (May 18, 2026)
+- **v10.60.0** - feat(consolidation): temporal contradiction detection + fix(milvus): instance-level graph cache + fix(hooks): tunnel/reverse-proxy port fix + feat(benchmarks): mem0 adapter (PRs #949, #954, #948, #952)
 - **v10.59.2** - fix(oauth): AnyUrl for redirect_uri so IDE schemes (cursor://, vscode://) pass Pydantic validation (#942, @tkislan)
 - **v10.59.1** - fix(oauth): reflect state parameter verbatim per RFC 6749 §4.1.2, fixes Cursor OAuth (#944, @tkislan)
 - **v10.59.0** - feat(oauth): PEM key files + IDE redirect URI schemes; fix(hooks): symmetric project-affinity (PRs #926, #942, #941)
