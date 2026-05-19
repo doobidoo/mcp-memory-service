@@ -496,19 +496,19 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.60.0** (May 18, 2026)
+## Latest Release: **v10.60.1** (May 19, 2026)
 
-**Temporal contradiction detection + Milvus fixes + Hooks tunnel fix + Benchmark adapters**
+**Patch: Milvus tag_match fix + Session-end port fallback + Contradiction detection repair**
 
 **What's New:**
-- `feat(consolidation)`: New temporal contradiction detection module — detects contradicting facts using embedding similarity band 0.4–0.75, emits `CONTRADICTED_BY` graph edges, marks older memory with `superseded_by`. Opt-in via `MCP_CONTRADICTION_DETECTION_ENABLED=true` and `MCP_CONTRADICTION_ON_STORE=true`. 8 new tests. (#949, @filhocf)
-- `feat(benchmarks)`: Adds `scripts/benchmarks/adapters/` with abstract `BenchmarkAdapter` base + concrete `Mem0Adapter` for end-to-end mem0 cloud API comparison. (#954, @filhocf)
-- `fix(milvus)`: Replace class-variable `_graph_storage_cache` with instance attribute + double-checked locking to prevent cross-instance contamination. `retrieve()` now filters `superseded_by` memories before trimming, matching sqlite_vec behavior. (#948, @henry201605)
-- `fix(hooks)`: Use protocol-correct default port for standard HTTPS/HTTP URLs — fixes broken hook connectivity for Cloudflare Tunnel and reverse proxy deployments. (#952, fixes #950)
+- `fix(milvus)`: Add missing `tag_match` param to `get_all_memories`/`count_all_memories` (#958, @henry201605)
+- `fix(hooks)`: Apply protocol-correct port fallback to `session-end.js` `triggerQualityEvaluation` (#960, fixes #957)
+- `fix(consolidation)`: Repair broken contradiction detection — `list_memories`→`get_all_memories`, dataclass attribute access, `search_memories` param/return type (#961, fixes #959)
 
 ---
 
 **Previous Releases**:
+- **v10.60.0** - feat(consolidation): temporal contradiction detection + fix(milvus): instance-level graph cache + fix(hooks): tunnel/reverse-proxy port fix + feat(benchmarks): mem0 adapter (May 18, 2026)
 - **v10.59.2** - fix(oauth): AnyUrl for redirect_uri so IDE schemes (cursor://, vscode://) pass Pydantic validation (#942, @tkislan)
 - **v10.59.1** - fix(oauth): reflect state parameter verbatim per RFC 6749 §4.1.2, fixes Cursor OAuth (#944, @tkislan)
 - **v10.59.0** - feat(oauth): PEM key files + IDE redirect URI schemes; fix(hooks): symmetric project-affinity (PRs #926, #942, #941)
