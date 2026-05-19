@@ -1324,6 +1324,16 @@ class MilvusMemoryStorage(MemoryStorage):
 
     # -- Semantic dedup ------------------------------------------------------
 
+    @staticmethod
+    def _cosine_similarity(a: List[float], b: List[float]) -> float:
+        """Compute cosine similarity between two vectors (pure Python)."""
+        dot = sum(x * y for x, y in zip(a, b))
+        norm_a = sum(x * x for x in a) ** 0.5
+        norm_b = sum(x * x for x in b) ** 0.5
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return dot / (norm_a * norm_b)
+
     async def _check_semantic_duplicate(
         self,
         content: str,
@@ -1332,11 +1342,15 @@ class MilvusMemoryStorage(MemoryStorage):
     ) -> Tuple[bool, Optional[str]]:
         """Look for a recently stored memory that is semantically similar.
 
-        Returns ``(is_duplicate, existing_hash)``. Mirrors the sqlite_vec
-        implementation: search the top-N nearest neighbours without a
-        server-side time filter (some Milvus Lite versions raise
-        ``Method not implemented`` for filtered ANN searches) and applies
-        the time-window cut-off on the client instead.
+        Returns ``(is_duplicate, existing_hash)``.
+
+        Uses ``query()`` (brute-force scan) instead of ``search()`` (ANN) to
+        guarantee visibility of data in growing segments on Milvus Lite.  ANN
+        search may not find freshly inserted records whose segment has not yet
+        been sealed/indexed — see GitHub issue #938.
+
+        The query fetches recent memories with their vectors, then computes
+        cosine similarity on the client side.
         """
         if not self._ensure_initialized():
             return False, None
@@ -1349,32 +1363,28 @@ class MilvusMemoryStorage(MemoryStorage):
             return False, None
 
         try:
-            results = await self._call_client(
-                "search",
+            rows = await self._call_client(
+                "query",
                 collection_name=self.collection_name,
-                data=[embedding],
-                anns_field="vector",
-                limit=10,
-                output_fields=["id", "created_at"],
-                search_params={"metric_type": "COSINE"},
-                consistency_level="Session",
+                filter=f"created_at >= {cutoff}",
+                output_fields=["id", "vector", "created_at"],
+                limit=50,
+                consistency_level="Strong",
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Semantic dedup search failed: %s", exc)
+            logger.warning("Semantic dedup query failed: %s", exc)
             return False, None
 
-        if not results or not results[0]:
+        if not rows:
             return False, None
 
-        for hit in results[0]:
-            entity = hit.get("entity") or hit
-            hit_created = float(entity.get("created_at") or 0.0)
-            if hit_created < cutoff:
+        for row in rows:
+            row_vec = row.get("vector")
+            if not row_vec:
                 continue
-            similarity = float(hit.get("distance", 0.0))
+            similarity = self._cosine_similarity(embedding, row_vec)
             if similarity >= similarity_threshold:
-                hit_id = entity.get("id") or hit.get("id")
-                return True, hit_id
+                return True, row.get("id")
         return False, None
 
     # -- Store ---------------------------------------------------------------
