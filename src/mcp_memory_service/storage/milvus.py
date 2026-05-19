@@ -2240,8 +2240,6 @@ class MilvusMemoryStorage(MemoryStorage):
         if not self._ensure_initialized():
             return [False] * len(memories)
 
-        now = time.time()
-        now_iso = self._iso_from_epoch(now)
         results: List[bool] = [False] * len(memories)
 
         # -- Step 1: Batch fetch all existing records in one call --
