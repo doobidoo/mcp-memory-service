@@ -2189,6 +2189,158 @@ class MilvusMemoryStorage(MemoryStorage):
         summary = self._summarize_updated_fields(updates, self._PROTECTED_UPDATE_KEYS)
         return True, f"Updated fields: {', '.join(summary)}"
 
+    # -- update_memory / update_memories_batch --------------------------------
+
+    async def update_memory(self, memory: Memory) -> bool:
+        """Update an existing memory using Milvus native upsert.
+
+        Unlike the base-class fallback (which delegates to
+        ``update_memory_metadata`` with a fixed ``preserve_timestamps=True``),
+        this override builds the upsert entity directly from the Memory object,
+        preserving ``created_at`` while refreshing ``updated_at``.
+        """
+        if not self._ensure_initialized():
+            return False
+
+        existing = await self.get_by_hash(memory.content_hash)
+        if existing is None:
+            logger.warning("update_memory: hash %s not found", memory.content_hash)
+            return False
+
+        try:
+            embedding = self._generate_embedding(existing.content)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("update_memory: embedding generation failed: %s", exc)
+            return False
+
+        now = time.time()
+        now_iso = self._iso_from_epoch(now)
+
+        # Preserve original created_at, refresh updated_at
+        created_at = float(existing.created_at) if existing.created_at is not None else now
+        created_at_iso = existing.created_at_iso or self._iso_from_epoch(created_at)
+
+        content = existing.content or ""
+        entity: Dict[str, Any] = {
+            "id": existing.content_hash,
+            "vector": embedding,
+            "content": content,
+            "tags": _tags_to_string(memory.tags),
+            "memory_type": memory.memory_type or "",
+            "metadata": json.dumps(memory.metadata) if memory.metadata else "{}",
+            "created_at": created_at,
+            "updated_at": now,
+            "created_at_iso": created_at_iso,
+            "updated_at_iso": now_iso,
+        }
+        if self._has_content_lower:
+            entity["content_lower"] = content.lower()
+
+        try:
+            await self._call_client(
+                "upsert",
+                collection_name=self.collection_name,
+                data=[entity],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("update_memory: upsert failed for %s: %s", memory.content_hash, exc)
+            return False
+
+        return True
+
+    async def update_memories_batch(
+        self, memories: List[Memory], preserve_timestamps: bool = False
+    ) -> List[bool]:
+        """Batch-update memories using a single Milvus upsert call.
+
+        Instead of issuing N individual upserts (base-class fallback via
+        ``asyncio.gather``), this override collects all entities and sends
+        them in one network round-trip.
+
+        Args:
+            memories: List of Memory objects with updated fields.
+            preserve_timestamps: If True, do not advance ``updated_at``.
+
+        Returns:
+            List of booleans indicating success for each memory.
+        """
+        if not memories:
+            return []
+        if not self._ensure_initialized():
+            return [False] * len(memories)
+
+        now = time.time()
+        now_iso = self._iso_from_epoch(now)
+
+        results: List[bool] = [False] * len(memories)
+        entities: List[Dict[str, Any]] = []
+        entity_indices: List[int] = []
+
+        for idx, memory in enumerate(memories):
+            existing = await self.get_by_hash(memory.content_hash)
+            if existing is None:
+                logger.warning(
+                    "update_memories_batch: hash %s not found, skipping",
+                    memory.content_hash,
+                )
+                continue
+
+            try:
+                embedding = self._generate_embedding(existing.content)
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "update_memories_batch: embedding failed for %s: %s",
+                    memory.content_hash, exc,
+                )
+                continue
+
+            # Timestamp handling
+            created_at = float(existing.created_at) if existing.created_at is not None else now
+            created_at_iso = existing.created_at_iso or self._iso_from_epoch(created_at)
+
+            if preserve_timestamps:
+                updated_at = float(existing.updated_at) if existing.updated_at is not None else now
+                updated_at_iso = existing.updated_at_iso or now_iso
+            else:
+                updated_at = now
+                updated_at_iso = now_iso
+
+            content = existing.content or ""
+            entity: Dict[str, Any] = {
+                "id": existing.content_hash,
+                "vector": embedding,
+                "content": content,
+                "tags": _tags_to_string(memory.tags),
+                "memory_type": memory.memory_type or "",
+                "metadata": json.dumps(memory.metadata) if memory.metadata else "{}",
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "created_at_iso": created_at_iso,
+                "updated_at_iso": updated_at_iso,
+            }
+            if self._has_content_lower:
+                entity["content_lower"] = content.lower()
+
+            entities.append(entity)
+            entity_indices.append(idx)
+
+        if not entities:
+            return results
+
+        try:
+            await self._call_client(
+                "upsert",
+                collection_name=self.collection_name,
+                data=entities,
+            )
+            for idx in entity_indices:
+                results[idx] = True
+        except Exception as exc:  # noqa: BLE001
+            logger.error("update_memories_batch: batch upsert failed: %s", exc)
+            # All items in this batch failed
+
+        return results
+
     # -- Stats / misc --------------------------------------------------------
 
     async def get_stats(self) -> Dict[str, Any]:
