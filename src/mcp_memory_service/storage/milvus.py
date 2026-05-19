@@ -1328,8 +1328,8 @@ class MilvusMemoryStorage(MemoryStorage):
     def _cosine_similarity(a: List[float], b: List[float]) -> float:
         """Compute cosine similarity between two vectors (pure Python)."""
         dot = sum(x * y for x, y in zip(a, b))
-        norm_a = sum(x * x for x in a) ** 0.5
-        norm_b = sum(x * x for x in b) ** 0.5
+        norm_a = math.sqrt(sum(x * x for x in a))
+        norm_b = math.sqrt(sum(x * x for x in b))
         if norm_a == 0 or norm_b == 0:
             return 0.0
         return dot / (norm_a * norm_b)
@@ -1378,11 +1378,20 @@ class MilvusMemoryStorage(MemoryStorage):
         if not rows:
             return False, None
 
+        # Pre-compute query embedding norm once — it is constant across all candidates.
+        norm_embedding = math.sqrt(sum(x * x for x in embedding))
+        if norm_embedding == 0:
+            return False, None
+
         for row in rows:
             row_vec = row.get("vector")
             if not row_vec:
                 continue
-            similarity = self._cosine_similarity(embedding, row_vec)
+            norm_row = math.sqrt(sum(x * x for x in row_vec))
+            if norm_row == 0:
+                continue
+            dot = sum(x * y for x, y in zip(embedding, row_vec))
+            similarity = dot / (norm_embedding * norm_row)
             if similarity >= similarity_threshold:
                 return True, row.get("id")
         return False, None
