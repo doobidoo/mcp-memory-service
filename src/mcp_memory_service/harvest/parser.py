@@ -28,7 +28,7 @@ class TranscriptParser:
     """
 
     RELEVANT_TYPES = {"user", "assistant"}
-    KIRO_KIND_MAP = {"Prompt": "user", "Response": "assistant"}
+    KIRO_KIND_MAP = {"Prompt": "user", "Response": "assistant", "AssistantMessage": "assistant"}
 
     def find_sessions(self, project_dir: Path, count: int = 1) -> List[Path]:
         """Find the most recent JSONL session files in a project directory."""
@@ -142,7 +142,5 @@ class TranscriptParser:
         # IDE context injections
         if text.startswith("<ide_opened_file>"):
             return True
-        # Very long blocks (>2000 chars) are typically skill definitions, not conversation
-        if len(text) > 2000:
-            return True
+        # Very long blocks: keep but will be truncated by extractor (MAX_CANDIDATE_CONTENT_LENGTH)
         return False
