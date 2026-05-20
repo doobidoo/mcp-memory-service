@@ -189,11 +189,15 @@ RELATIONSHIPS: Final[Dict[str, Dict[str, List[str]]]] = {
     "related": {
         "description": "A is related to B (generic association)",
         "valid_patterns": ["any → any"]
+    },
+    "shares_entity": {
+        "description": "A and B share a common entity (auto-linked)",
+        "valid_patterns": ["any → any"]
     }
 }
 
 # Symmetric relationships (bidirectional semantics)
-SYMMETRIC_RELATIONSHIPS: Final[set] = {"related", "contradicts"}
+SYMMETRIC_RELATIONSHIPS: Final[set] = {"related", "contradicts", "shares_entity"}
 
 
 def _load_custom_types_from_config() -> Dict[str, List[str]]:

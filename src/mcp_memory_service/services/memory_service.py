@@ -494,6 +494,9 @@ class MemoryService:
                         except Exception as e:
                             logger.debug(f"Background quality scoring queued (or failed silently): {e}")
 
+                    # Entity linking: extract entities and create shares_entity edges
+                    await self._maybe_link_entities(memory)
+
                     await self._plugin_registry.fire('on_store', self._format_memory_response(memory))
 
                     return {
@@ -742,6 +745,37 @@ class MemoryService:
                 "healthy": False,
                 "error": f"Health check failed: {str(e)}"
             }
+
+    async def _maybe_link_entities(self, memory: Memory) -> None:
+        """Extract entities and create shares_entity edges if linking is enabled."""
+        from ..reasoning.entity_linker import is_entity_linking_enabled, EntityLinker
+        if not is_entity_linking_enabled():
+            return
+
+        try:
+            from ..reasoning.entities import EntityExtractor
+            from ..server.handlers.graph import get_graph_storage
+
+            graph = await get_graph_storage()
+            if not graph:
+                return
+
+            extractor = EntityExtractor()
+            entities = extractor.extract_entities(memory.content, memory.metadata)
+            if not entities:
+                return
+
+            # Store entity links (has_entity edges)
+            entity_names = []
+            for ent in entities:
+                await graph.store_entity_link(memory.content_hash, ent.name, ent.entity_type)
+                entity_names.append(ent.name)
+
+            # Create shares_entity edges between memories with common entities
+            linker = EntityLinker()
+            await linker.link_by_entities(memory.content_hash, entity_names, graph)
+        except Exception as e:
+            logger.debug(f"Entity linking failed silently: {e}")
 
     def _format_memory_response(self, memory: Memory) -> MemoryResult:
         """
