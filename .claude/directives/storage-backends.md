@@ -59,8 +59,7 @@ export CLOUDFLARE_VECTORIZE_INDEX="mcp-memory-index"
 MCP_MEMORY_SQLITE_PRAGMAS=busy_timeout=15000,cache_size=20000
 
 # Restart HTTP server
-kill <PID>
-uv run python scripts/server/run_http_server.py
+memory restart
 
 # Restart MCP servers
 # Use /mcp in Claude Code to reconnect, or restart Claude Desktop

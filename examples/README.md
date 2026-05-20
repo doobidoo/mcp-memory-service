@@ -52,7 +52,7 @@ cd mcp-memory-service
 python install.py --server-mode --storage-backend sqlite_vec
 export MCP_HTTP_HOST=0.0.0.0
 export MCP_API_KEY="your-secure-key"
-python scripts/run_http_server.py
+memory launch
 ```
 
 ### 2. Client Configuration

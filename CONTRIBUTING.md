@@ -85,12 +85,16 @@ Answer questions in Issues, Discussions, or help other users.
 
 5. **Run the service**:
    ```bash
-   uv run memory server
+   # HTTP server (background, dashboard + REST API, recommended)
+   memory launch
+
+   # OR MCP stdio server (for Claude Desktop integration)
+   memory server
    ```
 
-6. **Test with MCP Inspector** (optional):
+6. **Test with MCP Inspector** (optional, stdio child process):
    ```bash
-   npx @modelcontextprotocol/inspector uv run memory server
+   npx @modelcontextprotocol/inspector memory server
    ```
 
 ### Alternative: Docker Setup

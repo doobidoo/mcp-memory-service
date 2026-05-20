@@ -43,11 +43,11 @@ export CLOUDFLARE_D1_DATABASE_ID="your-d1-database-id"
 export CLOUDFLARE_R2_BUCKET="mcp-memory-content"  # Optional
 
 # 4. Test and start
-python -m src.mcp_memory_service.server
+memory launch                   # HTTP server (background, recommended)
 
 # Alternative startup methods:
-# uv run memory server          # Modern CLI (recommended)
-# python scripts/run_memory_server.py  # Direct script execution
+# memory server                 # MCP stdio (for Claude Desktop)
+# python -m mcp_memory_service.server  # MCP stdio (module form)
 ```
 
 > **⚠️ Important**: Cloudflare backend uses Workers AI for embedding generation, so do NOT use `scripts/memory_offline.py` which sets offline mode. Use the standard startup methods above instead.

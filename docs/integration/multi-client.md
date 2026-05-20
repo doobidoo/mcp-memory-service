@@ -25,10 +25,10 @@ pip install "mcp-memory-service[full]"    # user install
 export MCP_HTTP_ENABLED=true
 export MCP_HTTP_PORT=8000
 export MCP_MEMORY_STORAGE_BACKEND=hybrid   # or sqlite_vec
-memory server --http
+memory launch
 ```
 
-> **Note:** `memory server --http` is the pip-installable CLI entry point. If you cloned the repo, `python scripts/server/run_http_server.py` works equivalently.
+> **Note:** `memory launch` is the recommended lifecycle CLI (background, PID tracking, health check). Equivalent foreground command: `memory server --http`.
 
 **Benefits of the HTTP-based setup:**
 - ✅ One server process serves Claude Desktop, VS Code, Continue, Cursor, and any HTTP/MCP client
@@ -161,7 +161,7 @@ For Claude Desktop on each client machine:
 
 3. **Start the HTTP server:**
    ```bash
-   python scripts/run_http_server.py
+   memory launch
    ```
 
 ### Client Configuration (HTTP Mode)
@@ -417,7 +417,7 @@ netstat -an | grep :8000
    export MCP_HTTP_ENABLED=true
    export MCP_HTTP_PORT=8000
    export MCP_MEMORY_STORAGE_BACKEND=hybrid   # or sqlite_vec
-   python scripts/server/run_http_server.py
+   memory launch
    ```
 
 3. **Update client configurations** to point at `http://<host>:8000` as needed.

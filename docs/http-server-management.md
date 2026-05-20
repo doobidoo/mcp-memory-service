@@ -34,10 +34,10 @@ uv run python scripts/server/check_http_server.py -q
 [ERROR] HTTP server is NOT running
 
 To start the HTTP server, run:
-   uv run python scripts/server/run_http_server.py
+   memory launch
 
    Or for HTTPS:
-   MCP_HTTPS_ENABLED=true uv run python scripts/server/run_http_server.py
+   MCP_HTTPS_ENABLED=true memory launch
 
 Error: [WinError 10061] No connection could be made...
 ```
@@ -47,11 +47,14 @@ Error: [WinError 10061] No connection could be made...
 ### Manual Start
 
 ```bash
-# HTTP mode (default, port 8000)
-uv run python scripts/server/run_http_server.py
+# HTTP mode (default, port 8000) — background with PID tracking
+memory launch
 
 # HTTPS mode (same port 8000, TLS enabled)
-MCP_HTTPS_ENABLED=true uv run python scripts/server/run_http_server.py
+MCP_HTTPS_ENABLED=true memory launch
+
+# Foreground mode (logs to stdout)
+memory launch --foreground
 ```
 
 ### Auto-Start Scripts
@@ -88,7 +91,7 @@ scripts\server\start_http_server.bat
 
 2. If not running, start it:
    ```bash
-   uv run python scripts/server/run_http_server.py
+   memory launch
    ```
 
 3. Restart Claude Code to trigger session-start hook
