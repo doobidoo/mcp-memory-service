@@ -142,5 +142,7 @@ class TranscriptParser:
         # IDE context injections
         if text.startswith("<ide_opened_file>"):
             return True
-        # Very long blocks: keep but will be truncated by extractor (MAX_CANDIDATE_CONTENT_LENGTH)
+        # Extremely long blocks (>10k chars) — likely injected context, not conversation
+        if len(text) > 10000:
+            return True
         return False
