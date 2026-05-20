@@ -102,9 +102,26 @@ async function readStdin() {
 async function parseTranscript(transcriptPath) {
     try {
         const content = await fs.readFile(transcriptPath, 'utf8');
-        const transcript = JSON.parse(content);
 
-        if (!Array.isArray(transcript) || transcript.length === 0) {
+        // Claude Code writes transcripts as JSONL (newline-delimited JSON),
+        // one message envelope per line. Tolerate trailing whitespace and skip
+        // malformed lines instead of failing the whole hook.
+        const transcript = [];
+        for (const line of content.split(/\r?\n/)) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {
+                const parsed = JSON.parse(trimmed);
+                const items = Array.isArray(parsed) ? parsed : [parsed];
+                for (const item of items) {
+                    if (item && typeof item === 'object') transcript.push(item);
+                }
+            } catch {
+                // skip malformed line
+            }
+        }
+
+        if (transcript.length === 0) {
             return null;
         }
 
@@ -114,13 +131,16 @@ async function parseTranscript(transcriptPath) {
 
         for (let i = transcript.length - 1; i >= 0; i--) {
             const msg = transcript[i];
-            const role = msg.role || msg.type;
+            // Claude Code envelope nests the actual message under `message`;
+            // fall back to flat shape for compatibility with older formats.
+            const role = msg.message?.role || msg.role || msg.type;
+            const content = msg.message?.content ?? msg.content;
 
             if (!lastAssistant && role === 'assistant') {
-                lastAssistant = extractTextContent(msg.content);
+                lastAssistant = extractTextContent(content);
             }
             if (!lastUser && role === 'user') {
-                lastUser = extractTextContent(msg.content);
+                lastUser = extractTextContent(content);
             }
 
             if (lastUser && lastAssistant) break;

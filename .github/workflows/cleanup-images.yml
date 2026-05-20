@@ -75,7 +75,7 @@ jobs:
         delete-only-pre-release-versions: 'false'
     
     - name: Clean buildcache tags older than 7 days
-      uses: snok/container-retention-policy@v1
+      uses: snok/container-retention-policy@v2
       continue-on-error: true
       with:
         image-names: mcp-memory-service
@@ -98,7 +98,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.11'
         cache: 'pip'
