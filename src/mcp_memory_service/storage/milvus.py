@@ -2764,6 +2764,125 @@ class MilvusMemoryStorage(MemoryStorage):
 
         return response
 
+    # -- Low-priority optional overrides -------------------------------------
+
+    async def search_by_tag_chronological(
+        self, tags: List[str], limit: int = None, offset: int = 0
+    ) -> List[Memory]:
+        """Search memories by tags with chronological ordering (newest first).
+
+        Pushes tag filter + sort to Milvus instead of fetching all then
+        sorting in Python (base-class fallback).
+        """
+        if not tags or not self._ensure_initialized():
+            return []
+
+        tag_filter, matched = self._tag_like_clauses(tags, joiner="or")
+        if not matched:
+            return []
+
+        effective_limit = limit if limit is not None else _MILVUS_MAX_LIMIT
+        return await self._query_memories(
+            filter_expr=tag_filter,
+            limit=effective_limit,
+            offset=offset,
+            sort_desc_key="created_at",
+        )
+
+    async def count_memories_by_tag(self, tags: List[str]) -> int:
+        """Count memories matching any of the given tags.
+
+        Uses Milvus count query instead of fetching all rows and counting
+        in Python (base-class fallback).
+        """
+        if not tags or not self._ensure_initialized():
+            return 0
+
+        tag_filter, matched = self._tag_like_clauses(tags, joiner="or")
+        if not matched:
+            return 0
+
+        try:
+            rows = await self._call_client(
+                "query",
+                collection_name=self.collection_name,
+                filter=tag_filter,
+                output_fields=["count(*)"],
+            )
+            return self._extract_count(rows)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("count_memories_by_tag failed: %s", exc)
+            return 0
+
+    async def is_deleted(self, content_hash: str) -> bool:
+        """Check if a memory has been soft-deleted.
+
+        In Milvus, a soft-deleted memory has metadata.deleted_at set.
+        If the memory doesn't exist at all, returns False (not soft-deleted,
+        just gone).
+        """
+        if not self._ensure_initialized():
+            return False
+
+        existing = await self.get_by_hash(content_hash)
+        if existing is None:
+            return False
+
+        return existing.metadata.get("deleted_at") is not None
+
+    async def purge_deleted(self, older_than_days: int = 30) -> int:
+        """Permanently delete soft-deleted memories older than specified days.
+
+        Finds memories with metadata.deleted_at set and created_at older
+        than the threshold, then hard-deletes them from Milvus.
+        """
+        if not self._ensure_initialized():
+            return 0
+
+        import time as _time
+        cutoff = _time.time() - (older_than_days * 86400)
+
+        # Milvus can't filter on JSON sub-fields easily, so we need to
+        # scan for memories with deleted_at in metadata
+        try:
+            # Get all memories created before cutoff
+            rows = await self._call_client(
+                "query",
+                collection_name=self.collection_name,
+                filter=f"created_at <= {cutoff}",
+                output_fields=["id", "metadata"],
+                limit=_MILVUS_MAX_LIMIT,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("purge_deleted: query failed: %s", exc)
+            return 0
+
+        if not rows:
+            return 0
+
+        # Filter for those with deleted_at in metadata
+        to_purge: List[str] = []
+        for row in rows:
+            meta = _safe_json_loads(row.get("metadata", "{}"), "purge_deleted")
+            if meta.get("deleted_at") is not None:
+                to_purge.append(row["id"])
+
+        if not to_purge:
+            return 0
+
+        try:
+            await self._call_client(
+                "delete",
+                collection_name=self.collection_name,
+                ids=to_purge,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("purge_deleted: delete failed: %s", exc)
+            return 0
+
+        logger.info("purge_deleted: permanently removed %d tombstones", len(to_purge))
+        return len(to_purge)
+
     # -- Stats / misc --------------------------------------------------------
 
     async def get_stats(self) -> Dict[str, Any]:
