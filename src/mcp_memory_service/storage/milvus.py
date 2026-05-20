@@ -1686,6 +1686,327 @@ class MilvusMemoryStorage(MemoryStorage):
             results = [r for r in results if r.relevance_score >= min_confidence]
         return results
 
+    @staticmethod
+    def _parse_search_time_bounds(
+        time_expr: Optional[str],
+        after: Optional[str],
+        before: Optional[str],
+    ) -> Tuple[Optional[float], Optional[float], Optional[str]]:
+        """Resolve unified-search time arguments into timestamp bounds."""
+        start_time = None
+        end_time = None
+
+        if time_expr:
+            try:
+                from ..utils.time_parser import parse_time_expression
+                start_time, end_time = parse_time_expression(time_expr)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to parse time expression '%s': %s", time_expr, exc)
+            return start_time, end_time, None
+
+        if after:
+            try:
+                start_time = datetime.fromisoformat(after).timestamp()
+            except ValueError:
+                return None, None, f"Invalid after date format: {after}. Use YYYY-MM-DD"
+
+        if before:
+            try:
+                end_time = datetime.fromisoformat(before).timestamp()
+            except ValueError:
+                return None, None, f"Invalid before date format: {before}. Use YYYY-MM-DD"
+
+        return start_time, end_time, None
+
+    @staticmethod
+    def _time_filter_from_bounds(
+        start_time: Optional[float],
+        end_time: Optional[float],
+    ) -> str:
+        filters: List[str] = []
+        if start_time is not None:
+            filters.append(f"created_at >= {start_time}")
+        if end_time is not None:
+            filters.append(f"created_at <= {end_time}")
+        return " and ".join(filters)
+
+    @staticmethod
+    def _filter_superseded_results(
+        results: List[MemoryQueryResult],
+        include_superseded: bool,
+    ) -> List[MemoryQueryResult]:
+        if include_superseded:
+            return results
+        return [
+            result for result in results
+            if not result.memory.metadata.get("superseded_by")
+        ]
+
+    @staticmethod
+    def _apply_quality_boost(
+        results: List[MemoryQueryResult],
+        quality_weight: float,
+    ) -> List[MemoryQueryResult]:
+        if quality_weight <= 0:
+            return results
+
+        semantic_weight = 1.0 - quality_weight
+        for result in results:
+            semantic_score = result.relevance_score
+            quality_score = result.memory.quality_score
+            result.relevance_score = (
+                semantic_weight * semantic_score
+                + quality_weight * quality_score
+            )
+            if result.debug_info is None:
+                result.debug_info = {}
+            result.debug_info.update({
+                "original_semantic_score": semantic_score,
+                "quality_score": quality_score,
+                "quality_weight": quality_weight,
+                "semantic_weight": semantic_weight,
+                "reranked": True,
+            })
+        results.sort(key=lambda r: r.relevance_score, reverse=True)
+        return results
+
+    @staticmethod
+    def _search_response_from_results(
+        results: List[MemoryQueryResult],
+        query: Optional[str],
+        mode: str,
+        include_debug: bool,
+        debug: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        memories = []
+        for result in results:
+            memory_dict = result.memory.to_dict()
+            memory_dict["similarity_score"] = result.relevance_score
+            if result.debug_info:
+                memory_dict["debug_info"] = result.debug_info
+            memories.append(memory_dict)
+
+        response: Dict[str, Any] = {
+            "memories": memories,
+            "total": len(memories),
+            "query": query,
+            "mode": mode,
+        }
+        if include_debug:
+            response["debug"] = debug
+        return response
+
+    async def search_memories(
+        self,
+        query: Optional[str] = None,
+        mode: str = "semantic",
+        time_expr: Optional[str] = None,
+        after: Optional[str] = None,
+        before: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        tag_match: str = "any",
+        quality_boost: float = 0.0,
+        limit: int = 10,
+        include_debug: bool = False,
+        include_superseded: bool = False,
+    ) -> Dict[str, Any]:
+        """Milvus-native unified memory search.
+
+        Mirrors ``MemoryStorage.search_memories`` while pushing tag/time
+        filtering into Milvus where possible. This keeps the server-side
+        cascading fallback paths (exact + tag-only) efficient for Milvus
+        deployments instead of loading broad generic fallback result sets.
+        """
+        if mode not in ("semantic", "exact", "hybrid"):
+            return {
+                "memories": [],
+                "total": 0,
+                "query": query,
+                "mode": mode,
+                "error": f"Invalid mode: {mode}. Must be 'semantic', 'exact', or 'hybrid'",
+            }
+
+        if not 0.0 <= quality_boost <= 1.0:
+            return {
+                "memories": [],
+                "total": 0,
+                "query": query,
+                "mode": mode,
+                "error": f"Invalid quality_boost: {quality_boost}. Must be 0.0-1.0",
+            }
+
+        if limit <= 0:
+            return {
+                "memories": [],
+                "total": 0,
+                "query": query,
+                "mode": mode,
+            }
+
+        if not self._ensure_initialized():
+            return {
+                "memories": [],
+                "total": 0,
+                "query": query,
+                "mode": mode,
+                "error": "Milvus storage not initialized",
+            }
+
+        start_time, end_time, time_error = self._parse_search_time_bounds(
+            time_expr, after, before,
+        )
+        if time_error:
+            return {
+                "memories": [],
+                "total": 0,
+                "query": query,
+                "mode": mode,
+                "error": time_error,
+            }
+
+        tag_filter = ""
+        if tags:
+            joiner = "and" if tag_match == "all" else "or"
+            tag_filter, matched = self._tag_like_clauses(tags, joiner=joiner)
+            if not matched:
+                return {
+                    "memories": [],
+                    "total": 0,
+                    "query": query,
+                    "mode": mode,
+                }
+
+        time_filter = self._time_filter_from_bounds(start_time, end_time)
+        filter_expr = self._combine_filter(tag_filter, time_filter)
+
+        debug = {
+            "time_filter": {
+                "time_expr": time_expr,
+                "after": after,
+                "before": before,
+                "start_timestamp": start_time,
+                "end_timestamp": end_time,
+            },
+            "tag_filter": tags,
+            "tag_match": tag_match,
+            "quality_boost": quality_boost,
+            "pre_filter_count": 0,
+            "post_filter_count": 0,
+            "limit": limit,
+            "backend": "milvus",
+            "filter_expr": filter_expr,
+        }
+
+        try:
+            results: List[MemoryQueryResult] = []
+
+            if mode == "exact":
+                if not query:
+                    return {
+                        "memories": [],
+                        "total": 0,
+                        "query": query,
+                        "mode": mode,
+                        "error": "query required for exact mode",
+                    }
+                memories = await self.get_by_exact_content(query)
+                results = [
+                    MemoryQueryResult(
+                        memory=memory,
+                        relevance_score=1.0,
+                        debug_info={"backend": "milvus", "match": "exact"},
+                    )
+                    for memory in memories
+                ]
+                if filter_expr:
+                    results = [
+                        result for result in results
+                        if self._memory_matches_search_filters(
+                            result.memory, tags, tag_match, start_time, end_time,
+                        )
+                    ]
+
+            elif query:
+                query_embedding = self._embed_query(query)
+                if query_embedding is None:
+                    results = []
+                else:
+                    needs_post_filter = bool(quality_boost or not include_superseded)
+                    fetch_n = limit * 3 if (filter_expr or needs_post_filter) else limit
+                    fetch_n = max(1, min(fetch_n, _MILVUS_MAX_LIMIT))
+
+                    if mode == "hybrid" and self._has_bm25:
+                        hits = await self._run_hybrid_search(
+                            query, query_embedding, filter_expr, fetch_n,
+                        )
+                    else:
+                        hits = await self._run_search(
+                            query_embedding, filter_expr, fetch_n,
+                        )
+
+                    results = self._rank_and_trim(hits, query, len(hits), 0.0)
+
+            else:
+                if not filter_expr:
+                    return {
+                        "memories": [],
+                        "total": 0,
+                        "query": query,
+                        "mode": mode,
+                        "error": "At least one filter required (query, time_expr, after, before, or tags)",
+                    }
+                memories = await self._query_memories(
+                    filter_expr=filter_expr,
+                    limit=min(limit * 3, _MILVUS_MAX_LIMIT),
+                    sort_desc_key="created_at",
+                )
+                results = [
+                    MemoryQueryResult(
+                        memory=memory,
+                        relevance_score=0.5,
+                        debug_info={"backend": "milvus", "match": "filter"},
+                    )
+                    for memory in memories
+                ]
+
+            debug["pre_filter_count"] = len(results)
+            results = self._filter_superseded_results(results, include_superseded)
+            results = self._apply_quality_boost(results, quality_boost)
+            results = results[:limit]
+            debug["post_filter_count"] = len(results)
+
+            return self._search_response_from_results(
+                results, query, mode, include_debug, debug,
+            )
+
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Milvus unified search failed: %s", exc)
+            return {
+                "memories": [],
+                "total": 0,
+                "query": query,
+                "mode": mode,
+                "error": f"Search operation failed: {exc}",
+            }
+
+    @staticmethod
+    def _memory_matches_search_filters(
+        memory: Memory,
+        tags: Optional[List[str]],
+        tag_match: str,
+        start_time: Optional[float],
+        end_time: Optional[float],
+    ) -> bool:
+        if start_time is not None and (memory.created_at or 0.0) < start_time:
+            return False
+        if end_time is not None and (memory.created_at or 0.0) > end_time:
+            return False
+        if tags:
+            if tag_match == "all":
+                return all(tag in memory.tags for tag in tags)
+            return any(tag in memory.tags for tag in tags)
+        return True
+
     async def retrieve(
         self,
         query: str,
