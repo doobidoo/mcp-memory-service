@@ -261,12 +261,12 @@ Deploy multiple services with different names:
 # Development server
 export MCP_MDNS_SERVICE_NAME="Dev Memory Service"
 export MCP_HTTP_PORT=8000
-memory launch &
+memory launch
 
 # Staging server
 export MCP_MDNS_SERVICE_NAME="Staging Memory Service"
 export MCP_HTTP_PORT=8001
-memory launch &
+memory launch
 ```
 
 Clients will discover both and can select based on preferences.

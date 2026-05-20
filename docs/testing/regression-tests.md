@@ -209,8 +209,7 @@ python scripts/sync/check_cloudflare_sync.py --tag hybrid-test --verify-hashes
 1. **SQLite-vec phase:**
    ```bash
    export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
-   memory launch &
-   SERVER_PID=$!
+   memory launch
 
    # Store 20 memories
    for i in {1..20}; do
@@ -219,7 +218,7 @@ python scripts/sync/check_cloudflare_sync.py --tag hybrid-test --verify-hashes
        -d "{\"content\":\"Backend switch test $i\",\"tags\":[\"switch-test\"]}"
    done
 
-   kill $SERVER_PID
+   memory stop
    ```
 
 2. **Switch to hybrid:**
@@ -227,8 +226,7 @@ python scripts/sync/check_cloudflare_sync.py --tag hybrid-test --verify-hashes
    export MCP_MEMORY_STORAGE_BACKEND=hybrid
    export MCP_HYBRID_SYNC_INTERVAL=10
    # Set Cloudflare credentials...
-   memory launch &
-   SERVER_PID=$!
+   memory launch
 
    # Wait for startup
    sleep 5
