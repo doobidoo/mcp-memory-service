@@ -48,6 +48,7 @@ def _make_row(
     content_hash: str = "hash_abc",
     content: str = "test content",
     metadata: Optional[Dict[str, Any]] = None,
+    vector: Optional[List[float]] = None,
 ) -> Dict[str, Any]:
     """Build a Milvus row dict."""
     now = time.time()
@@ -61,6 +62,7 @@ def _make_row(
         "updated_at": now - 50,
         "created_at_iso": None,
         "updated_at_iso": None,
+        "vector": vector or [0.1, 0.2, 0.3, 0.4],
     }
 
 
@@ -92,14 +94,11 @@ class TestMarkSupersededBatch:
         storage = _make_storage()
 
         storage._call_client = AsyncMock(side_effect=[
-            # First call: "get" returns the loser
-            [_make_row(content_hash="loser1", content="old content")],
+            # First call: "get" returns the loser with vector
+            [_make_row(content_hash="loser1", content="old content", vector=[0.5, 0.6, 0.7, 0.8])],
             # Second call: "upsert" succeeds
             None,
         ])
-        storage.embedding_model.encode = MagicMock(
-            return_value=np.array([[0.1, 0.2, 0.3, 0.4]])
-        )
 
         result = await storage.mark_superseded_batch([("winner1", "loser1")])
 
@@ -110,26 +109,24 @@ class TestMarkSupersededBatch:
         entity = upsert_call[1]["data"][0]
         metadata = json.loads(entity["metadata"])
         assert metadata["superseded_by"] == "winner1"
+        # Vector should be reused from the existing record
+        assert entity["vector"] == [0.5, 0.6, 0.7, 0.8]
 
     @pytest.mark.asyncio
     async def test_multiple_pairs_single_upsert(self):
         """Multiple pairs are processed in one batch upsert call."""
         storage = _make_storage()
 
-        now = time.time()
         storage._call_client = AsyncMock(side_effect=[
-            # "get" returns 3 losers
+            # "get" returns 3 losers with vectors
             [
-                _make_row(content_hash="l1", content="c1"),
-                _make_row(content_hash="l2", content="c2"),
-                _make_row(content_hash="l3", content="c3"),
+                _make_row(content_hash="l1", content="c1", vector=[0.1, 0.2, 0.3, 0.4]),
+                _make_row(content_hash="l2", content="c2", vector=[0.2, 0.3, 0.4, 0.5]),
+                _make_row(content_hash="l3", content="c3", vector=[0.3, 0.4, 0.5, 0.6]),
             ],
             # "upsert" succeeds
             None,
         ])
-        storage.embedding_model.encode = MagicMock(
-            return_value=np.array([[0.1, 0.2, 0.3, 0.4]] * 3)
-        )
 
         pairs = [("w1", "l1"), ("w2", "l2"), ("w3", "l3")]
         result = await storage.mark_superseded_batch(pairs)
@@ -137,6 +134,8 @@ class TestMarkSupersededBatch:
         assert result == 3
         # Single get + single upsert = 2 calls total
         assert storage._call_client.call_count == 2
+        # No embedding encode should be called (vectors reused)
+        storage.embedding_model.encode.assert_not_called()
         # Verify all entities have correct superseded_by
         entities = storage._call_client.call_args_list[1][1]["data"]
         assert len(entities) == 3
@@ -154,9 +153,6 @@ class TestMarkSupersededBatch:
             [_make_row(content_hash="l1", content="c1")],
             None,
         ])
-        storage.embedding_model.encode = MagicMock(
-            return_value=np.array([[0.1, 0.2, 0.3, 0.4]])
-        )
 
         pairs = [("w1", "l1"), ("w2", "l2")]
         result = await storage.mark_superseded_batch(pairs)
@@ -174,13 +170,35 @@ class TestMarkSupersededBatch:
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_batch_embedding_failure_returns_zero(self):
-        """When batch encode fails, returns 0."""
+    async def test_vector_missing_falls_back_to_embedding(self):
+        """When vector is not in fetched row, falls back to _generate_embedding."""
         storage = _make_storage()
+
+        # Row without vector field
+        row = _make_row(content_hash="l1", content="c1")
+        del row["vector"]
         storage._call_client = AsyncMock(side_effect=[
-            [_make_row(content_hash="l1", content="c1")],
+            [row],
+            None,
         ])
-        storage.embedding_model.encode = MagicMock(side_effect=RuntimeError("OOM"))
+
+        result = await storage.mark_superseded_batch([("w1", "l1")])
+
+        assert result == 1
+        # Fallback embedding should have been called
+        storage._generate_embedding.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_vector_missing_and_embedding_fails_skips(self):
+        """When vector is missing and fallback embedding fails, item is skipped."""
+        storage = _make_storage()
+
+        row = _make_row(content_hash="l1", content="c1")
+        del row["vector"]
+        storage._call_client = AsyncMock(side_effect=[
+            [row],
+        ])
+        storage._generate_embedding = MagicMock(side_effect=RuntimeError("OOM"))
 
         result = await storage.mark_superseded_batch([("w1", "l1")])
 
@@ -194,9 +212,6 @@ class TestMarkSupersededBatch:
             [_make_row(content_hash="l1", content="c1")],
             Exception("upsert failed"),
         ])
-        storage.embedding_model.encode = MagicMock(
-            return_value=np.array([[0.1, 0.2, 0.3, 0.4]])
-        )
 
         result = await storage.mark_superseded_batch([("w1", "l1")])
 
@@ -212,9 +227,6 @@ class TestMarkSupersededBatch:
             [_make_row(content_hash="l1", content="c1", metadata=existing_meta)],
             None,
         ])
-        storage.embedding_model.encode = MagicMock(
-            return_value=np.array([[0.1, 0.2, 0.3, 0.4]])
-        )
 
         result = await storage.mark_superseded_batch([("w1", "l1")])
 
@@ -234,9 +246,6 @@ class TestMarkSupersededBatch:
             [_make_row(content_hash="l1", content="c1")],
             None,
         ])
-        storage.embedding_model.encode = MagicMock(
-            return_value=np.array([[0.1, 0.2, 0.3, 0.4]])
-        )
 
         # Same loser, different winners — last one ("w2") should win
         pairs = [("w1", "l1"), ("w2", "l1")]
@@ -261,9 +270,6 @@ class TestMarkSupersededBatch:
             [row],
             None,
         ])
-        storage.embedding_model.encode = MagicMock(
-            return_value=np.array([[0.1, 0.2, 0.3, 0.4]])
-        )
 
         await storage.mark_superseded_batch([("w1", "l1")])
 

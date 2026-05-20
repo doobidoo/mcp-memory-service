@@ -2359,17 +2359,17 @@ class MilvusMemoryStorage(MemoryStorage):
         # (if a loser appears multiple times, last winner wins)
         loser_to_winner: Dict[str, str] = {loser: winner for winner, loser in pairs}
 
-        # -- Batch fetch all losers --
+        # -- Batch fetch all losers (including vectors to avoid re-encoding) --
         existing_map: Dict[str, Memory] = {}
         try:
             fetched = await self._call_client(
                 "get",
                 collection_name=self.collection_name,
                 ids=loser_hashes,
-                output_fields=list(self._OUTPUT_FIELDS),
+                output_fields=list(self._OUTPUT_FIELDS_WITH_VECTOR),
             )
             for row in (fetched or []):
-                mem = self._entity_to_memory(row)
+                mem = self._entity_to_memory(row, include_embedding=True)
                 if mem:
                     existing_map[mem.content_hash] = mem
         except Exception as exc:  # noqa: BLE001
@@ -2379,8 +2379,7 @@ class MilvusMemoryStorage(MemoryStorage):
         if not existing_map:
             return 0
 
-        # -- Build update entities --
-        # Collect content for batch embedding
+        # -- Build update entities (reuse existing vectors, no re-encoding) --
         valid_losers: List[tuple] = []  # (loser_hash, existing, winner_hash)
         for loser_hash, winner_hash in loser_to_winner.items():
             existing = existing_map.get(loser_hash)
@@ -2395,27 +2394,11 @@ class MilvusMemoryStorage(MemoryStorage):
         if not valid_losers:
             return 0
 
-        # Batch embedding
-        contents = [existing.content or "" for (_, existing, _) in valid_losers]
-        try:
-            if not self.embedding_model:
-                raise RuntimeError("Embedding model not loaded")
-            raw_embeddings = self.embedding_model.encode(contents, convert_to_numpy=True)
-            embeddings = [
-                e.tolist() if hasattr(e, "tolist") else list(e)
-                for e in raw_embeddings
-            ]
-        except Exception as exc:  # noqa: BLE001
-            logger.error("mark_superseded_batch: batch embedding failed: %s", exc)
-            return 0
-
-        # Build entities with superseded_by in metadata
+        # Build entities with superseded_by in metadata, reusing existing vectors
         entities: List[Dict[str, Any]] = []
-        for i, (loser_hash, existing, winner_hash) in enumerate(valid_losers):
-            meta = dict(existing.metadata or {})
-            meta["superseded_by"] = winner_hash
-
-            updates = {"metadata": meta}
+        for loser_hash, existing, winner_hash in valid_losers:
+            # Only pass the new field — _merge_updates handles merging internally
+            updates: Dict[str, Any] = {"metadata": {"superseded_by": winner_hash}}
             merged, err = self._merge_updates(existing, updates)
             if merged is None:
                 logger.warning(
@@ -2427,7 +2410,21 @@ class MilvusMemoryStorage(MemoryStorage):
             timestamps = self._compute_update_timestamps(
                 existing, updates, preserve_timestamps=True
             )
-            entity = self._build_update_entity(existing, merged, timestamps, embeddings[i])
+
+            # Reuse existing vector — content hasn't changed
+            embedding = existing.embedding
+            if not embedding:
+                # Fallback: generate embedding if vector wasn't fetched
+                try:
+                    embedding = self._generate_embedding(existing.content or "")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "mark_superseded_batch: embedding fallback failed for %s: %s",
+                        loser_hash, exc,
+                    )
+                    continue
+
+            entity = self._build_update_entity(existing, merged, timestamps, embedding)
             entities.append(entity)
 
         if not entities:
