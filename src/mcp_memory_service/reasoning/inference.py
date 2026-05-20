@@ -13,6 +13,10 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
+TRAVERSABLE_EDGE_TYPES = {'relates_to', 'superseded_by', 'causes', 'fixes', 'related'}
+NON_TRAVERSABLE = {'contradicts', 'contradicted_by'}
+
+
 class SemanticReasoner:
     """
     Lightweight reasoning engine for knowledge graph inference.
@@ -155,31 +159,37 @@ class SemanticReasoner:
     async def infer_transitive(
         self,
         rel_type: str,
-        max_hops: int = 2
-    ) -> List[Tuple[str, str, int]]:
+        max_hops: int = 2,
+        decay_factor: float = 1.0
+    ) -> List[Tuple[str, str, int, float]]:
         """
-        Find transitive relationships (A→B→C implies A→C).
-
-        Delegates to GraphStorage.transitive_closure which uses a recursive CTE
-        for efficient in-database traversal.
+        Find transitive relationships (A→B→C implies A→C) with decay by distance.
 
         Args:
-            rel_type: Relationship type to traverse
+            rel_type: Relationship type to traverse (must be in TRAVERSABLE_EDGE_TYPES)
             max_hops: Maximum hops for transitive closure (2-4)
+            decay_factor: Base decay multiplier (weight = decay_factor / distance)
 
         Returns:
-            List of (source, target, distance) tuples for inferred relationships.
-            Only returns pairs that do NOT have a direct edge already.
+            List of (source, target, distance, weight) tuples.
 
-        Example:
-            >>> inferred = await reasoner.infer_transitive("causes", max_hops=2)
-            [("hash1", "hash3", 2), ...]  # hash1→hash2→hash3
+        Raises:
+            ValueError: If rel_type is non-traversable
         """
+        if rel_type in NON_TRAVERSABLE:
+            raise ValueError(
+                f"Edge type '{rel_type}' is non-traversable. "
+                f"Non-traversable types: {sorted(NON_TRAVERSABLE)}"
+            )
         if not hasattr(self.graph, 'transitive_closure'):
             logger.warning("GraphStorage does not support transitive_closure")
             return []
         try:
-            return await self.graph.transitive_closure(rel_type, max_hops)
+            results = await self.graph.transitive_closure(rel_type, max_hops)
+            return [
+                (src, tgt, dist, decay_factor / dist)
+                for src, tgt, dist in results
+            ]
         except Exception as e:
             logger.error(f"Failed to infer transitive relationships: {e}")
             return []

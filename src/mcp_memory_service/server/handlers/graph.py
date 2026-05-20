@@ -185,13 +185,22 @@ async def handle_infer(arguments: dict) -> List[types.TextContent]:
 
     rel_type = arguments.get("rel_type", "related")
     max_hops = arguments.get("max_hops", 2)
+    decay_factor = arguments.get("decay_factor", 1.0)
 
-    results = await reasoner.infer_transitive(rel_type, max_hops)
+    try:
+        results = await reasoner.infer_transitive(rel_type, max_hops, decay_factor)
+    except ValueError as e:
+        return [types.TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(e),
+            "inferred": []
+        }, indent=2))]
+
     return [types.TextContent(type="text", text=json.dumps({
         "success": True,
         "inferred": [
-            {"source": src, "target": tgt, "distance": dist}
-            for src, tgt, dist in results
+            {"source": src, "target": tgt, "distance": dist, "weight": weight}
+            for src, tgt, dist, weight in results
         ],
         "count": len(results)
     }, indent=2))]

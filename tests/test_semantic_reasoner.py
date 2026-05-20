@@ -198,7 +198,7 @@ class TestBurst47InferTransitive:
 
         # Should find chain_a → chain_c at distance 2
         assert any(src == "chain_a" and tgt == "chain_c" and dist == 2
-                   for src, tgt, dist in inferred)
+                   for src, tgt, dist, _weight in inferred)
 
     @pytest.mark.asyncio
     async def test_excludes_direct_edges(self, setup_graph):
@@ -210,7 +210,7 @@ class TestBurst47InferTransitive:
         inferred = await reasoner.infer_transitive("causes", max_hops=3)
 
         assert not any(src == "decision1" and tgt == "error1"
-                       for src, tgt, _ in inferred)
+                       for src, tgt, *_ in inferred)
 
     @pytest.mark.asyncio
     async def test_empty_for_unknown_rel_type(self, setup_graph):
