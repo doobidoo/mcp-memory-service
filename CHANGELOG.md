@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Documentation
+
+- **docs: modernize server commands to `memory` CLI** ([#969](https://github.com/doobidoo/mcp-memory-service/pull/969)): Sweep across 23 docs files replacing outdated/dead startup commands with the modern `memory` lifecycle CLI (`launch`, `server`, `restart`). Fixes broken refs (`python scripts/run_http_server.py` — wrong path; `./start_all_servers.sh`, `./stop_all_servers.sh`, `./status_servers.sh`, `python run_server.py` — no longer exist; `python -m src.mcp_memory_service.server` — invalid module path). Modernizes legacy patterns (`uv run memory server` → `memory launch` for HTTP or `memory server` for MCP stdio/Inspector; `python scripts/server/run_http_server.py` → `memory launch`; `./scripts/update_and_restart.sh` → `memory restart`). systemd `ExecStart=` paths, the `claude-hooks/PLUGIN.md` spawn fallback chain, and `python -m mcp_memory_service.server` for MCP stdio are intentionally preserved.
+
 ## [10.61.0] - 2026-05-19
 
 ### Added
