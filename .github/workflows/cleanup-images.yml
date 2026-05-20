@@ -75,7 +75,7 @@ jobs:
         delete-only-pre-release-versions: 'false'
     
     - name: Clean buildcache tags older than 7 days
-      uses: snok/container-retention-policy@v1
+      uses: snok/container-retention-policy@v2
       continue-on-error: true
       with:
         image-names: mcp-memory-service
