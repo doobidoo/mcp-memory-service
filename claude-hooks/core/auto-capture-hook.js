@@ -111,7 +111,11 @@ async function parseTranscript(transcriptPath) {
             const trimmed = line.trim();
             if (!trimmed) continue;
             try {
-                transcript.push(JSON.parse(trimmed));
+                const parsed = JSON.parse(trimmed);
+                const items = Array.isArray(parsed) ? parsed : [parsed];
+                for (const item of items) {
+                    if (item && typeof item === 'object') transcript.push(item);
+                }
             } catch {
                 // skip malformed line
             }
