@@ -25,16 +25,17 @@
 - **Run single test**: `pytest tests/test_filename.py::test_function_name -v`
 - **Run specific test class**: `pytest tests/test_filename.py::TestClass -v`
 - **Run with markers**: `pytest -m "unit or integration"`
-- **MCP Server startup**: `uv run memory server`
-- **HTTP Dashboard startup**: `python run_server.py` or `./start_all_servers.sh`
+- **MCP Server startup (stdio)**: `memory server` (for Claude Desktop)
+- **HTTP Dashboard startup**: `memory launch` (background, PID tracking, health check)
 - **Install dependencies**: `python scripts/installation/install.py`
 
 ## Server Management Commands
-- **Start all servers**: `./start_all_servers.sh` (both MCP + HTTP Dashboard)
-- **Stop all servers**: `./stop_all_servers.sh`
-- **Check server status**: `./status_servers.sh`
-- **View HTTP logs**: `tail -f http_server.log`
-- **View MCP logs**: `tail -f mcp_server.log`
+- **Start HTTP server**: `memory launch` (background, default)
+- **Foreground mode**: `memory launch --foreground`
+- **Stop server**: `memory stop`
+- **Restart**: `memory restart`
+- **Check server status**: `memory info`
+- **View logs**: `memory logs` or `memory logs -n 50`
 
 ## Memory Cleanup & Auto-Tagging Commands
 

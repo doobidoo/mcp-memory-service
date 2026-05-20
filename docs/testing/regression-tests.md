@@ -74,7 +74,7 @@ sqlite3 ~/Library/Application\ Support/mcp-memory/sqlite_vec.db "PRAGMA journal_
 **Context:** Test simultaneous read/write operations from multiple clients
 
 **Setup:**
-1. Start HTTP server: `uv run python scripts/server/run_http_server.py`
+1. Start HTTP server: `memory launch`
 2. Verify server is healthy: `curl http://127.0.0.1:8000/api/health`
 
 **Execution:**
@@ -148,7 +148,7 @@ tail -100 ~/Library/Logs/Claude/mcp-server-memory.log | grep -i error
    CLOUDFLARE_VECTORIZE_INDEX=mcp-memory-index
    ```
 2. Clear Cloudflare backend: `python scripts/database/clear_cloudflare.py --confirm`
-3. Start server: `uv run python scripts/server/run_http_server.py`
+3. Start server: `memory launch`
 
 **Execution:**
 1. Store 10 test memories via API:
@@ -209,8 +209,7 @@ python scripts/sync/check_cloudflare_sync.py --tag hybrid-test --verify-hashes
 1. **SQLite-vec phase:**
    ```bash
    export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
-   uv run python scripts/server/run_http_server.py &
-   SERVER_PID=$!
+   memory launch
 
    # Store 20 memories
    for i in {1..20}; do
@@ -219,7 +218,7 @@ python scripts/sync/check_cloudflare_sync.py --tag hybrid-test --verify-hashes
        -d "{\"content\":\"Backend switch test $i\",\"tags\":[\"switch-test\"]}"
    done
 
-   kill $SERVER_PID
+   memory stop
    ```
 
 2. **Switch to hybrid:**
@@ -227,8 +226,7 @@ python scripts/sync/check_cloudflare_sync.py --tag hybrid-test --verify-hashes
    export MCP_MEMORY_STORAGE_BACKEND=hybrid
    export MCP_HYBRID_SYNC_INTERVAL=10
    # Set Cloudflare credentials...
-   uv run python scripts/server/run_http_server.py &
-   SERVER_PID=$!
+   memory launch
 
    # Wait for startup
    sleep 5
@@ -263,7 +261,7 @@ python scripts/sync/check_cloudflare_sync.py --tag hybrid-test --verify-hashes
 
 **Setup:**
 1. Database with 1000+ memories
-2. HTTP server running: `uv run python scripts/server/run_http_server.py`
+2. HTTP server running: `memory launch`
 3. Dashboard at `http://127.0.0.1:8000/`
 
 **Execution:**
@@ -468,8 +466,8 @@ time curl -s "http://127.0.0.1:8000/api/search/by-tag" \
 **Context:** Ensure all MCP tools conform to protocol schema
 
 **Setup:**
-1. Start MCP server: `uv run memory server`
-2. Use MCP Inspector: `npx @modelcontextprotocol/inspector uv run memory server`
+1. Start MCP server: `memory server`
+2. Use MCP Inspector: `npx @modelcontextprotocol/inspector memory server`
 
 **Execution:**
 1. Connect with MCP Inspector
@@ -488,7 +486,7 @@ time curl -s "http://127.0.0.1:8000/api/search/by-tag" \
 **Evidence Collection:**
 ```bash
 # Capture tools/list output
-npx @modelcontextprotocol/inspector uv run memory server \
+npx @modelcontextprotocol/inspector memory server \
   --command "tools/list" > tools_schema.json
 
 # Validate schema format

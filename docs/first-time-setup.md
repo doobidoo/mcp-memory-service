@@ -178,8 +178,8 @@ source venv/bin/activate
 # Install the service
 pip install mcp-memory-service
 
-# Start the service
-uv run memory server
+# Start the service (HTTP server, background)
+memory launch
 ```
 
 ## 🔧 Troubleshooting First-Time Issues
@@ -206,7 +206,7 @@ sudo chown -R $USER:$USER ~/.mcp_memory_service/
 
 ### Issue: Service Doesn't Start After Download
 **Solution:**
-1. Check logs: `uv run memory server --debug`
+1. Check logs: `memory logs` or start in foreground: `memory launch --foreground --debug`
 2. Verify installation: `memory server --help`
 3. Restart with clean state:
    ```bash

@@ -74,16 +74,16 @@ uv run pytest -q
 
 ## Local MCP/Service Tests
 
-Run stdio server:
+Run stdio MCP server:
 
 ```
-uv run memory server
+memory server
 ```
 
-Run FastMCP HTTP server:
+Run HTTP server (background, dashboard + REST API):
 
 ```
-uv run mcp-memory-server
+memory launch
 ```
 
 Use any MCP client (Claude Desktop/Code) and exercise tools: store, retrieve, search_by_tag, delete, health.

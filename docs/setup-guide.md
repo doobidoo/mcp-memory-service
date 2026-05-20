@@ -148,10 +148,10 @@ Start OpenCode inside a project that already has stored memories, then ask a pro
 > ```
 
 ```bash
-python scripts/server/run_http_server.py
+memory launch
 ```
 
-The server starts on port 8000 by default.
+The server starts on port 8000 by default (in the background with PID tracking).
 
 ### 2. Open the dashboard
 
@@ -222,7 +222,7 @@ CLOUDFLARE_VECTORIZE_INDEX=mcp-memory-index
 ### 3. Restart servers
 
 ```bash
-./scripts/update_and_restart.sh
+memory restart
 ```
 
 ### 4. Verify
@@ -291,7 +291,7 @@ python scripts/validation/validate_configuration_complete.py
 |---------|-----|
 | Memory tools don't appear in Claude | Restart the client after config change |
 | `command not found: memory` | Run `pip install mcp-memory-service` again, check your PATH |
-| Dashboard not loading | Check `python scripts/server/run_http_server.py` is running, default port 8000 |
+| Dashboard not loading | Check `memory info` (server should be running, default port 8000) |
 | "database is locked" errors | Add `journal_mode=WAL` to `MCP_MEMORY_SQLITE_PRAGMAS` in `.env` |
 | Cloudflare 401 on startup | Set `MCP_HYBRID_SYNC_OWNER=http` — MCP server then skips Cloudflare entirely |
 | Slow first start (30–60s) | Normal — ONNX model loads on first run, cached afterwards |

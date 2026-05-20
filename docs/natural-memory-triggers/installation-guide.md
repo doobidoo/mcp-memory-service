@@ -340,7 +340,7 @@ cat ~/.claude/hooks/config.json | grep -A 5 "memoryService"
 ```
 
 **Solutions**:
-1. **Start Memory Service**: `uv run memory server`
+1. **Start Memory Service**: `memory launch` (HTTP, default port 8000)
 2. **Check API Key**: Ensure valid API key in configuration
 3. **Firewall Settings**: Verify port 8000 is accessible
 4. **SSL Issues**: Self-signed certificates may need special handling

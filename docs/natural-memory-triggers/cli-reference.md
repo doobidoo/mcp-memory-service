@@ -504,8 +504,8 @@ node memory-mode-controller.js reset --force
 # Check memory service status
 curl http://localhost:8000/api/health
 
-# Start memory service
-uv run memory server
+# Start memory service (HTTP, default port 8000)
+memory launch
 
 # Check configuration
 node memory-mode-controller.js config get memoryService.endpoint

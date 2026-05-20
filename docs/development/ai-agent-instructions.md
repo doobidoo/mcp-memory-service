@@ -25,14 +25,14 @@ pip show mcp-memory-service | grep Location
 # Verify version consistency (detects stale venv)
 python scripts/validation/check_dev_setup.py
 
-# Start development server
-uv run memory server
+# Start MCP stdio server (for Claude Desktop)
+memory server
 
-# Run with inspector for debugging
-npx @modelcontextprotocol/inspector uv run memory server
+# Run with inspector for debugging (stdio child process)
+npx @modelcontextprotocol/inspector memory server
 
-# Start HTTP API server (dashboard at http://localhost:8000)
-uv run python scripts/server/run_http_server.py
+# Start HTTP API server (dashboard at http://localhost:8000, background)
+memory launch
 ```
 
 **Why `-e` flag matters**: MCP servers load from `site-packages`, not source files. Without editable install, source code changes won't take effect until you reinstall. System restart won't help - it just relaunches with the same stale package.
@@ -105,7 +105,7 @@ src/mcp_memory_service/
 ### Modifying MCP Tools
 1. Edit tool definitions in `src/mcp_memory_service/mcp_server.py`
 2. Update tool handlers in the same file
-3. Test with MCP inspector: `npx @modelcontextprotocol/inspector uv run memory server`
+3. Test with MCP inspector: `npx @modelcontextprotocol/inspector memory server`
 4. Update documentation in `docs/api/tools.md`
 
 ### Adding Environment Variables
@@ -157,7 +157,7 @@ curl http://localhost:8000/api/health
 tail -f ~/.mcp-memory-service/logs/service.log
 
 # Inspect MCP communication
-npx @modelcontextprotocol/inspector uv run memory server
+npx @modelcontextprotocol/inspector memory server
 
 # Database debugging
 sqlite3 ~/.mcp-memory-service/sqlite_vec.db ".tables"

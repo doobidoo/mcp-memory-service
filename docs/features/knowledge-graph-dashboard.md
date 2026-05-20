@@ -129,11 +129,8 @@ Memories are color-coded by type in the graph:
 The Knowledge Graph Dashboard is part of the HTTP dashboard server:
 
 ```bash
-# Start both MCP and HTTP servers
-./start_all_servers.sh
-
-# Or start HTTP server only
-python scripts/server/run_http_server.py
+# Start the HTTP dashboard server (background)
+memory launch
 ```
 
 **Default URL:** http://localhost:8000
@@ -295,7 +292,7 @@ curl -H "X-API-Key: your-api-key" \
    ```
 2. **Verify backend**: Graph is SQLite-only in v9.2.0, ensure you're using `sqlite_vec` or `hybrid` backend
 3. **Check migrations**: Run `python scripts/migration/add_relationship_type_column.py` to add `relationship_type` column
-4. **Restart server**: `./scripts/update_and_restart.sh`
+4. **Restart server**: `memory restart`
 
 ### Slow Performance
 
