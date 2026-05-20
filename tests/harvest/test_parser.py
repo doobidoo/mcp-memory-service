@@ -115,8 +115,8 @@ class TestTranscriptParser:
         assert len(messages) == 1
         assert "WAL mode" in messages[0].text
 
-    def test_very_long_text_filtered(self, tmp_path):
-        """Very long text blocks (>2000 chars) should be filtered as likely skill definitions."""
+    def test_very_long_text_not_filtered(self, tmp_path):
+        """Long text blocks are no longer filtered — extractor caps at MAX_CANDIDATE_CONTENT_LENGTH."""
         import json
         long_text = "x" * 2001
         lines = [
@@ -131,5 +131,5 @@ class TestTranscriptParser:
                 f.write(json.dumps(line) + '\n')
         parser = TranscriptParser()
         messages = parser.parse_file(filepath)
-        assert len(messages) == 1
-        assert "bug fix" in messages[0].text
+        assert len(messages) == 2
+        assert "bug fix" in messages[1].text
