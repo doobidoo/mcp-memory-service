@@ -33,7 +33,7 @@ The modern dashboard includes:
 
 To capture the dashboard for documentation:
 
-1. Ensure the HTTP server is running: `python scripts/run_http_server.py`
+1. Ensure the HTTP server is running: `memory launch`
 2. Wait for stats to load (shows actual memory count)
 3. Take full-page screenshot at 1920x1080 resolution
 4. Save as `dashboard-v3.3.0.png` in this directory

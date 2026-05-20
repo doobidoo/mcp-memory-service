@@ -25,13 +25,13 @@ export MCP_OAUTH_ENABLED=true
 
 ```bash
 # Start with OAuth enabled
-uv run python scripts/server/run_http_server.py
+memory launch
 
 # Or with HTTPS (recommended for production)
 export MCP_HTTPS_ENABLED=true
 export MCP_SSL_CERT_FILE=/path/to/cert.pem
 export MCP_SSL_KEY_FILE=/path/to/key.pem
-uv run python scripts/server/run_http_server.py
+memory launch
 ```
 
 ### 3. Test OAuth Endpoints
@@ -193,7 +193,7 @@ export MCP_OAUTH_ENABLED=false  # OAuth not required
 export MCP_ALLOW_ANONYMOUS_ACCESS=false  # Require authentication
 
 # Start server
-python scripts/server/run_http_server.py
+memory launch
 
 # Option 1: X-API-Key header (recommended, more secure)
 curl -H "X-API-Key: your-secret-key" \

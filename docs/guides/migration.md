@@ -140,7 +140,7 @@ export MCP_HTTP_ENABLED=true
 export MCP_HTTP_PORT=8000
 
 # Start HTTP server
-python scripts/run_http_server.py
+memory launch
 
 # Open browser to http://localhost:8000
 ```

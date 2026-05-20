@@ -16,15 +16,15 @@ mDNS service discovery allows MCP Memory Service instances to:
 
 ```bash
 # Basic setup (mDNS enabled by default)
-python scripts/run_http_server.py
+memory launch
 
 # With HTTPS (auto-generates certificates)
 export MCP_HTTPS_ENABLED=true
-python scripts/run_http_server.py
+memory launch
 
 # Custom service name
 export MCP_MDNS_SERVICE_NAME="Team Memory Service"
-python scripts/run_http_server.py
+memory launch
 ```
 
 ### 2. Configure Client for Auto-Discovery
@@ -77,7 +77,7 @@ The server can automatically generate self-signed certificates for development:
 
 ```bash
 export MCP_HTTPS_ENABLED=true
-python scripts/run_http_server.py
+memory launch
 ```
 
 Output:
@@ -97,7 +97,7 @@ For production deployments:
 export MCP_HTTPS_ENABLED=true
 export MCP_SSL_CERT_FILE="/path/to/your/cert.pem"
 export MCP_SSL_KEY_FILE="/path/to/your/key.pem"
-python scripts/run_http_server.py
+memory launch
 ```
 
 ## Service Discovery Process
@@ -220,7 +220,7 @@ Enable detailed logging:
 **Server:**
 ```bash
 export LOG_LEVEL=DEBUG
-python scripts/run_http_server.py
+memory launch
 ```
 
 **Client:**
@@ -261,12 +261,12 @@ Deploy multiple services with different names:
 # Development server
 export MCP_MDNS_SERVICE_NAME="Dev Memory Service"
 export MCP_HTTP_PORT=8000
-python scripts/run_http_server.py &
+memory launch
 
 # Staging server
 export MCP_MDNS_SERVICE_NAME="Staging Memory Service"
 export MCP_HTTP_PORT=8001
-python scripts/run_http_server.py &
+memory launch
 ```
 
 Clients will discover both and can select based on preferences.

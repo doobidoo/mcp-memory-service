@@ -59,13 +59,13 @@ export MCP_HYBRID_SYNC_OWNER=http   # only the HTTP server syncs when running al
 Stdio MCP server (integrates with Claude Desktop):
 
 ```
-uv run memory server
+memory server
 ```
 
-FastMCP HTTP server (for Claude Code / remote):
+HTTP server (background, recommended for Claude Code / remote / dashboard):
 
 ```
-uv run mcp-memory-server
+memory launch
 ```
 
 Configure Claude Desktop example (~/.claude/config.json):

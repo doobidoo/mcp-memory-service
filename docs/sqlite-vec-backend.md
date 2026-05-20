@@ -243,7 +243,7 @@ export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
    # Always connect to existing server (fails if none running)
    export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
    export MCP_HTTP_ENABLED=false
-   # Requires running: python scripts/run_http_server.py
+   # Requires running: memory launch
    ```
 
 3. **Direct WAL Mode Only**
@@ -287,7 +287,7 @@ export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
   }
 }
 ```
-*Note: Requires manually running `python scripts/run_http_server.py` first*
+*Note: Requires manually running `memory launch` first*
 
 **Option 3: WAL Mode Only (Simple)**
 ```json
@@ -431,7 +431,7 @@ print(asyncio.run(detect_server_coordination_mode()))
 **Manual HTTP Server Setup:**
 ```bash
 # Start HTTP server manually in separate terminal
-python scripts/run_http_server.py
+memory launch
 
 # Then start MCP clients (they'll auto-detect the running server)
 ```
@@ -552,7 +552,7 @@ For production with multi-device sync, use the **Hybrid** backend instead (local
 3. **HTTP Server Management**
    ```bash
    # Manual server control
-   python scripts/run_http_server.py  # Start manually
+   memory launch  # Start manually
    
    # Check server health
    curl http://localhost:8000/health

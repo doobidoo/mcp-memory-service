@@ -359,7 +359,7 @@ pip install -e ".[sqlite]"
 export MCP_MEMORY_SQLITE_PATH="/shared/mcp_memory/memory.db"
 export MCP_HTTP_ENABLED=true
 export MCP_HTTP_PORT=8000
-python scripts/server/run_http_server.py
+memory launch
 ```
 
 ## Development and Contributions

@@ -100,7 +100,7 @@ export MCP_HTTP_ENABLED=true
 export MCP_HTTP_HOST=0.0.0.0
 export MCP_HTTP_PORT=8000
 export MCP_API_KEY="your-secure-key"
-python scripts/server/run_http_server.py
+memory launch
 
 # Access points
 # API: http://server:8000/api/docs
