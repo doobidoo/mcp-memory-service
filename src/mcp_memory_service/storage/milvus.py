@@ -2334,6 +2334,117 @@ class MilvusMemoryStorage(MemoryStorage):
 
         return results
 
+    async def mark_superseded_batch(self, pairs: list[tuple[str, str]]) -> int:
+        """Mark memories as superseded in a single batch operation.
+
+        For each (winner_hash, loser_hash) pair, sets the loser's metadata
+        ``superseded_by`` field to the winner_hash. Uses batch fetch + batch
+        upsert for efficiency.
+
+        Args:
+            pairs: List of (winner_hash, loser_hash) tuples.
+
+        Returns:
+            Number of memories successfully marked.
+        """
+        if not pairs:
+            return 0
+        if not self._ensure_initialized():
+            return 0
+
+        # Collect all loser hashes for batch fetch
+        loser_hashes = list({loser for _, loser in pairs})
+
+        # Build a mapping: loser_hash -> winner_hash
+        # (if a loser appears multiple times, last winner wins)
+        loser_to_winner: Dict[str, str] = {loser: winner for winner, loser in pairs}
+
+        # -- Batch fetch all losers (including vectors to avoid re-encoding) --
+        existing_map: Dict[str, Memory] = {}
+        try:
+            fetched = await self._call_client(
+                "get",
+                collection_name=self.collection_name,
+                ids=loser_hashes,
+                output_fields=list(self._OUTPUT_FIELDS_WITH_VECTOR),
+            )
+            for row in (fetched or []):
+                mem = self._entity_to_memory(row, include_embedding=True)
+                if mem:
+                    existing_map[mem.content_hash] = mem
+        except Exception as exc:  # noqa: BLE001
+            logger.error("mark_superseded_batch: batch fetch failed: %s", exc)
+            return 0
+
+        if not existing_map:
+            return 0
+
+        # -- Build update entities (reuse existing vectors, no re-encoding) --
+        valid_losers: List[tuple] = []  # (loser_hash, existing, winner_hash)
+        for loser_hash, winner_hash in loser_to_winner.items():
+            existing = existing_map.get(loser_hash)
+            if existing is None:
+                logger.warning(
+                    "mark_superseded_batch: loser %s not found, skipping",
+                    loser_hash,
+                )
+                continue
+            valid_losers.append((loser_hash, existing, winner_hash))
+
+        if not valid_losers:
+            return 0
+
+        # Build entities with superseded_by in metadata, reusing existing vectors
+        entities: List[Dict[str, Any]] = []
+        for loser_hash, existing, winner_hash in valid_losers:
+            # Only pass the new field — _merge_updates handles merging internally
+            updates: Dict[str, Any] = {"metadata": {"superseded_by": winner_hash}}
+            merged, err = self._merge_updates(existing, updates)
+            if merged is None:
+                logger.warning(
+                    "mark_superseded_batch: merge failed for %s: %s",
+                    loser_hash, err,
+                )
+                continue
+
+            timestamps = self._compute_update_timestamps(
+                existing, updates, preserve_timestamps=True
+            )
+
+            # Reuse existing vector — content hasn't changed
+            embedding = existing.embedding
+            if not embedding:
+                # Fallback: generate embedding if vector wasn't fetched
+                try:
+                    embedding = self._generate_embedding(existing.content or "")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "mark_superseded_batch: embedding fallback failed for %s: %s",
+                        loser_hash, exc,
+                    )
+                    continue
+
+            entity = self._build_update_entity(existing, merged, timestamps, embedding)
+            entities.append(entity)
+
+        if not entities:
+            return 0
+
+        # -- Single batch upsert --
+        try:
+            await self._call_client(
+                "upsert",
+                collection_name=self.collection_name,
+                data=entities,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("mark_superseded_batch: batch upsert failed: %s", exc)
+            return 0
+
+        marked = len(entities)
+        logger.info("mark_superseded_batch: marked %d memories as superseded", marked)
+        return marked
+
     # -- Stats / misc --------------------------------------------------------
 
     async def get_stats(self) -> Dict[str, Any]:
