@@ -194,6 +194,54 @@ class SemanticReasoner:
             logger.error(f"Failed to infer transitive relationships: {e}")
             return []
 
+    async def abduct(self, effect_hash: str, max_depth: int = 2) -> List[Dict[str, Any]]:
+        """
+        Abductive reasoning: given an effect, find probable causes.
+
+        Strategy:
+        1. Find all memories connected to effect_hash via 'causes' or 'fixes' edges (incoming)
+        2. For each cause, find what OTHER effects it caused (siblings)
+        3. If multiple effects share the same cause pattern, boost confidence
+        4. Return ranked list of probable causes with confidence
+
+        Returns:
+            List of {cause_hash, confidence, evidence_count, shared_effects}
+        """
+        try:
+            # Step 1: Find incoming causes/fixes
+            causes = await self._get_connected(effect_hash, "causes", direction="incoming")
+            fixes = await self._get_connected(effect_hash, "fixes", direction="incoming")
+            all_causes = sorted(set(causes + fixes))
+
+            if not all_causes:
+                return []
+
+            # Step 2 & 3: For each cause, find sibling effects and compute confidence
+            results = []
+            for cause_hash in all_causes:
+                # Find other effects this cause produced (outgoing causes/fixes)
+                siblings_causes = await self._get_connected(cause_hash, "causes", direction="outgoing")
+                siblings_fixes = await self._get_connected(cause_hash, "fixes", direction="outgoing")
+                shared_effects = list(set(siblings_causes + siblings_fixes) - {effect_hash})
+
+                evidence_count = 1 + len(shared_effects)
+                # Confidence: base 0.5, boosted by shared effects (capped at 1.0)
+                confidence = min(1.0, 0.5 + 0.1 * len(shared_effects))
+
+                results.append({
+                    "cause_hash": cause_hash,
+                    "confidence": round(confidence, 3),
+                    "evidence_count": evidence_count,
+                    "shared_effects": shared_effects[:10],
+                })
+
+            results.sort(key=lambda x: x["confidence"], reverse=True)
+            return results
+
+        except Exception as e:
+            logger.error(f"Failed abductive reasoning for {effect_hash}: {e}")
+            return []
+
     async def suggest_relationships(self, hash: str) -> List[Dict[str, Any]]:
         """
         Suggest potential relationships for a memory based on shared neighbors.

@@ -75,7 +75,7 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
         return [types.TextContent(type="text", text="Error: action parameter is required")]
 
     # Validate action
-    valid_actions = ["connected", "path", "subgraph", "extract_entities", "infer", "suggest"]
+    valid_actions = ["connected", "path", "subgraph", "extract_entities", "infer", "suggest", "abduct"]
     if action not in valid_actions:
         return [types.TextContent(
             type="text",
@@ -159,6 +159,9 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
         elif action == "suggest":
             return await handle_suggest(arguments)
 
+        elif action == "abduct":
+            return await handle_abduct(arguments)
+
         else:
             # Should never reach here due to validation above
             return [types.TextContent(type="text", text=f"Error: Unknown action '{action}'")]
@@ -232,6 +235,36 @@ async def handle_suggest(arguments: dict) -> List[types.TextContent]:
         "success": True,
         "suggestions": suggestions,
         "count": len(suggestions)
+    }, indent=2))]
+
+
+async def handle_abduct(arguments: dict) -> List[types.TextContent]:
+    """Handle abduct action: find probable causes for an effect."""
+    graph = await get_graph_storage()
+    if graph is None:
+        return [types.TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": f"Graph operations not available for backend: {STORAGE_BACKEND}",
+            "causes": []
+        }, indent=2))]
+
+    hash_val = arguments.get("hash")
+    if not hash_val:
+        return [types.TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": "Missing required parameter: hash",
+            "causes": []
+        }, indent=2))]
+
+    from ...reasoning.inference import SemanticReasoner
+    reasoner = SemanticReasoner(graph)
+
+    max_depth = arguments.get("max_depth", 2)
+    causes = await reasoner.abduct(hash_val, max_depth=max_depth)
+    return [types.TextContent(type="text", text=json.dumps({
+        "success": True,
+        "causes": causes,
+        "count": len(causes)
     }, indent=2))]
 
 
