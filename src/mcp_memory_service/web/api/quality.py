@@ -469,26 +469,19 @@ async def get_quality_trends(days: int = 30, storage=Depends(get_storage), user:
         start_timestamp = start_date.timestamp()
         end_timestamp = end_date.timestamp()
 
-        # Retrieve memories in timeframe
-        try:
-            # Try to get memories by timeframe if supported
-            memories_result = await storage.recall_by_timeframe(
-                start_date.strftime("%Y-%m-%d"),
-                end_date.strftime("%Y-%m-%d"),
-                n_results=10000
-            )
-        except AttributeError:
-            # Fallback to all memories and filter
-            all_memories_result = await storage.search_all_memories()
-            memories_result = [
-                m for m in all_memories_result
-                if start_timestamp <= m.get('created_at', 0) <= end_timestamp
-            ]
+        # Retrieve all memories and filter by timeframe in Python.
+        # Note: storage.recall_by_timeframe is a server-tool handler, not a
+        # storage method; storage.search_all_memories never existed. Both
+        # previous calls raised AttributeError on every backend (issue #981).
+        all_memories = await storage.get_all_memories(limit=10000)
+        memories_in_range = [
+            m for m in all_memories
+            if start_timestamp <= m.created_at <= end_timestamp
+        ]
 
         # Group by day and calculate daily statistics
         daily_stats = {}
-        for mem_dict in memories_result:
-            memory = Memory.from_dict(mem_dict)
+        for memory in memories_in_range:
             created_date = datetime.fromtimestamp(memory.created_at).date()
             day_key = created_date.isoformat()
 
