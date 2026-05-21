@@ -301,6 +301,7 @@ class DreamInspiredConsolidator:
             if is_incremental:
                 if self.run_tracker is None:
                     db_path = self._resolve_tracker_db_path()
+                    db_path = Path(str(db_path)) if db_path else None
                     if db_path:
                         self.run_tracker = RunTracker(db_path)
                 if self.run_tracker and not self.run_tracker.try_acquire("incremental"):

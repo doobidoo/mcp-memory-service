@@ -15,7 +15,11 @@ logger = logging.getLogger(__name__)
 
 
 class RunTracker:
-    """Tracks consolidation run timestamps in a separate SQLite database.
+    """Track consolidation run timestamps per horizon.
+
+    Note: Uses synchronous SQLite intentionally. The consolidation_runs table
+    has at most 6 rows (one per horizon). All operations are single-row lookups
+    completing in <1ms — asyncio.to_thread() overhead would exceed actual I/O time.
 
     Schema: consolidation_runs(horizon TEXT PK, last_run_at TEXT,
             items_processed INTEGER, status TEXT, locked INTEGER)
