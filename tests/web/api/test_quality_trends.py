@@ -37,15 +37,23 @@ def _memory(content_hash: str, created_at: float, quality_score: float | None = 
 def mock_storage():
     now = time.time()
     one_day = 86400
-    memories = [
+    in_range = [
         _memory("in_range_1", now - 2 * one_day, quality_score=0.8),
         _memory("in_range_2", now - 5 * one_day, quality_score=0.6),
         _memory("in_range_3", now - 5 * one_day, quality_score=0.4),
-        _memory("out_of_range", now - 60 * one_day, quality_score=0.9),
         _memory("missing_score", now - 1 * one_day, quality_score=None),
     ]
+
+    async def _range(start_time, end_time, include_embeddings=False):
+        # Mirror real backends: DB-side BETWEEN, newest-first ordering.
+        filtered = [m for m in in_range if start_time <= m.created_at <= end_time]
+        return sorted(filtered, key=lambda m: m.created_at, reverse=True)
+
     storage = MagicMock()
-    storage.get_all_memories = AsyncMock(return_value=memories)
+    storage.get_memories_by_time_range = AsyncMock(side_effect=_range)
+    storage.get_all_memories = MagicMock(
+        side_effect=AssertionError("/trends must use get_memories_by_time_range, not get_all_memories")
+    )
     storage.recall_by_timeframe = MagicMock(
         side_effect=AssertionError("/trends must not call recall_by_timeframe (issue #981)")
     )
@@ -68,13 +76,22 @@ def test_trends_returns_200_without_attribute_error(client, mock_storage):
     """Issue #981: endpoint previously 500'd with AttributeError on every backend."""
     response = client.get("/api/quality/trends?days=30")
     assert response.status_code == 200, response.text
-    mock_storage.get_all_memories.assert_awaited_once()
+    mock_storage.get_memories_by_time_range.assert_awaited_once()
 
 
-def test_trends_filters_to_requested_window(client):
+def test_trends_passes_window_bounds_to_storage(client, mock_storage):
+    """The DB-side filter must receive the timeframe bounds, not be filtered in Python."""
+    client.get("/api/quality/trends?days=30")
+    call = mock_storage.get_memories_by_time_range.await_args
+    start = call.kwargs["start_time"]
+    end = call.kwargs["end_time"]
+    assert end - start == pytest.approx(30 * 86400, rel=1e-3)
+
+
+def test_trends_reflects_storage_window(client):
     response = client.get("/api/quality/trends?days=30")
     payload = response.json()
-    # Only 4 of 5 memories fall inside the 30-day window
+    # Storage mock returns 4 in-range memories
     assert payload["total_memories"] == 4
     assert payload["days_analyzed"] == 30
 
