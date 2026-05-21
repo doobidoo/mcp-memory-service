@@ -1,6 +1,6 @@
 # Contradiction Resolution Approaches
 
-**Source discussion:** [Issue #732 — Bridging Advanced Reasoning with MCP Memory Lifecycle](https://github.com/doobidoo/mcp-memory-service/issues/732#issuecomment-4506467185)
+**Source discussion:** [Issue #732 — Bridging Advanced Reasoning with MCP Memory Lifecycle](https://github.com/doobidoo/mcp-memory-service/issues/732#issuecomment-4506467185) · [Issue #983 — incremental consolidation](https://github.com/doobidoo/mcp-memory-service/issues/983)
 
 **Purpose:** Compare how agent memory systems detect, represent, and resolve contradictions — without prescribing a single winner. Use this as reference material when extending MCP Memory Service's lifecycle and reasoning layers.
 
@@ -155,11 +155,11 @@ Willow deliberately separates **cheap ingest gates** from **expensive semantic a
 
 These are tier choices, not design failures — defer until graph density or agent count forces the complexity.
 
-Reference implementation: [Willow 2.0 `memory_gate.py`](https://github.com/rudi193-cmd/willow-2.0/blob/master/sap/core/memory_gate.py), [`tension_scan`](https://github.com/rudi193-cmd/willow-2.0/blob/master/sap/sap_mcp.py).
+Reference implementation: Willow 2.0 (`memory_gate.py`, `tension_scan` in `sap_mcp.py`).
 
 ---
 
-## 6. MCP Memory Service mapping (RFC #732)
+## 6. MCP Memory Service mapping (RFC #732 + #983)
 
 | RFC #732 proposal | Suggested approach tier | Notes |
 |-------------------|------------------------|-------|
@@ -170,16 +170,36 @@ Reference implementation: [Willow 2.0 `memory_gate.py`](https://github.com/rudi1
 
 ### Consolidation gap (production feedback)
 
-From [#732 discussion](https://github.com/doobidoo/mcp-memory-service/issues/732#issuecomment-4506467185): operators running sqlite_vec at 3000+ memories with parallel sessions report **fragmentation** — many near-duplicate topic memories without automated synthesis.
+Sources: [#732 discussion](https://github.com/doobidoo/mcp-memory-service/issues/732#issuecomment-4506467185) (original gap) and [#983](https://github.com/doobidoo/mcp-memory-service/issues/983) (refined proposal after codebase audit).
 
-Proposed `memory_consolidate` shape (compatible with point invalidation):
+Operators running sqlite_vec at 3000+ memories with parallel sessions report **fragmentation** — many near-duplicate topic memories accumulating faster than manual curation scales.
 
-1. **Cluster** — semantic similarity ≥ threshold, same topic/entity, ≥3 memories
-2. **Synthesize** — merge into one consolidated memory (preserve facts, drop redundancy)
-3. **Lineage** — graph edge to sources; point-invalidate or archive sources (do not hard-delete)
-4. **Modes** — incremental (post-session, recent only) vs full (scheduled, all memories)
+**What already exists:** `memory_consolidate` is a shipped MCP tool. `DreamInspiredConsolidator` already covers clustering, synthesis, and lineage edges under the existing time horizons (`daily` / `weekly` / `monthly` / `quarterly` / `yearly`).
 
-This extends `memory_quality(action="maintain")` rather than replacing contradiction gates. Point invalidation + periodic consolidate is the natural pairing: gates prevent obvious conflicts on write; consolidate resolves drift and redundancy offline.
+**The actual delta (#983)** is not a new tool — it is an extension of the existing surface:
+
+```text
+memory_consolidate(action="run", time_horizon="incremental")
+```
+
+Where `incremental` means: process only memories created since the last consolidation timestamp; skip full clustering; run lightweight dedup + contradiction check + relative-date normalization on recent items; **skip the forgetting/archival phase** (archival stays on monthly+ horizons, not per-session); bounded to <10s so it is safe as a Stop-hook trigger.
+
+Five-point decomposition (conceptual — maps filhocf's original spec to current vs delta):
+
+| Step | Status | Notes |
+|------|--------|-------|
+| 1. **Cluster** | ✅ Implemented | `DreamInspiredConsolidator` semantic clustering |
+| 2. **Synthesize** | ✅ Implemented | Merge cluster into consolidated memory |
+| 3. **Lineage** | ✅ Implemented | Graph edges back to sources (not hard-delete) |
+| 4. **Incremental mode** | ❌ Delta (#983) | New `time_horizon="incremental"` — recent memories only, hook-callable |
+| 5. **Full mode** | ✅ Implemented | Existing daily→yearly horizons for heavier passes |
+
+Additional incremental-mode requirements from #983:
+
+- **Hook-callable** — safe to invoke from session Stop hooks without blocking the agent
+- **Relative-date normalization** — e.g. `"yesterday"` → `"2026-05-20"` during the pass
+
+Point invalidation + periodic consolidate remains the natural pairing: gates prevent obvious conflicts on write; consolidate resolves drift and redundancy offline.
 
 ---
 
@@ -192,7 +212,7 @@ Use this when choosing mechanisms for MCP Memory Service phases:
 | Fast ingest, small fleet | Lexical gates + bi-temporal point invalidation | Transitive closure |
 | Paraphrase detection | Offline semantic scan + consolidate | Per-ingest embedding compare |
 | Correct derived-fact propagation | Typed edges + closure (or lazy flags) | Keyword-only conflict tools |
-| Multi-session topic fragmentation | `memory_consolidate` with lineage edges | Eager closure on every write |
+| Multi-session topic fragmentation | `memory_consolidate(time_horizon="incremental")` on existing tool | New tool or eager closure on every write |
 | Audit trail / compliance | Bi-temporal rows (never hard-delete) | Silent overwrite |
 | 100k+ atoms | Lazy flags + indexed title search (trigram/GIN) | Unbounded ILIKE hot path |
 
@@ -202,7 +222,7 @@ Use this when choosing mechanisms for MCP Memory Service phases:
 
 1. **Edge typing contract** — Which edge types participate in closure? (`supports`, `contradicts`, `supersedes`, `derived_from`, …)
 2. **Invalidation default** — On CONTRADICTION, should dependents be eagerly invalidated, lazily flagged, or left to re-query?
-3. **Consolidate vs conflict** — Is synthesis a separate tool from `memory_conflicts`, or a post-pass that consumes conflict output?
+3. **Consolidate vs conflict** — Should incremental consolidation consume `memory_conflicts` output, or run its own lightweight dedup pass?
 4. **Ratification** — Who confirms LLM-classified TENSION pairs before invalidation? (Human, auto after N sessions, never auto?)
 5. **Entity scope** — Are contradictions global or scoped to entity/profile?
 
@@ -211,9 +231,9 @@ Use this when choosing mechanisms for MCP Memory Service phases:
 ## 9. References
 
 - [MCP Memory Service #732 — Bridging Advanced Reasoning with MCP Memory Lifecycle](https://github.com/doobidoo/mcp-memory-service/issues/732)
+- [MCP Memory Service #983 — incremental consolidation time_horizon](https://github.com/doobidoo/mcp-memory-service/issues/983)
 - [Honcho](https://github.com/plastic-labs/honcho) — entity-centric peers, representation layers, contradiction resolution over dialogue
-- [Willow 2.0 memory gate](https://github.com/rudi193-cmd/willow-2.0/blob/master/sap/core/memory_gate.py) — REDUNDANT/CONTRADICTION ingest heuristics
-- [Willow 2.0 tension_scan](https://github.com/rudi193-cmd/willow-2.0/blob/master/sap/sap_mcp.py) — offline semantic pair audit
+- [Willow 2.0](https://github.com/rudi193-cmd/willow-2.0) — REDUNDANT/CONTRADICTION ingest gates + offline `tension_scan` (worked example in §5)
 - [Bi-temporal data models](https://en.wikipedia.org/wiki/Bitemporal_modeling) — valid-time vs transaction-time (Willow uses valid-time via `valid_at`/`invalid_at`)
 
 ---
