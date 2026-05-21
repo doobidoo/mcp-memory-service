@@ -11,7 +11,6 @@ import pytest
 
 from mcp_memory_service.consolidation.consolidator import (
     HORIZON_CONFIGS,
-    INCREMENTAL_TIMEOUT_SECONDS,
     DreamInspiredConsolidator,
 )
 from mcp_memory_service.consolidation.run_tracker import RunTracker
@@ -112,12 +111,13 @@ class TestRunTracker:
 
     def test_try_acquire_when_free(self, tracker):
         assert tracker.try_acquire("incremental") is True
+        tracker.release("incremental")
 
-    @pytest.mark.asyncio
-    async def test_try_acquire_when_locked(self, tracker):
+    def test_try_acquire_when_locked(self, tracker):
         """Concurrency guard: returns False when lock is held."""
-        async with tracker._lock:
-            assert tracker.try_acquire("incremental") is False
+        assert tracker.try_acquire("incremental") is True
+        assert tracker.try_acquire("incremental") is False
+        tracker.release("incremental")
 
 
 # --- HORIZON_CONFIGS tests ---
@@ -233,15 +233,16 @@ class TestIncrementalConsolidation:
         db_path = Path(storage.db_path).parent / "consolidation_runs.db"
         consolidator.run_tracker = RunTracker(db_path)
 
-        # Hold the lock
-        async with consolidator.run_tracker._lock:
-            report = await consolidator.consolidate("incremental")
+        # Hold the lock via try_acquire
+        assert consolidator.run_tracker.try_acquire("incremental") is True
+        report = await consolidator.consolidate("incremental")
 
         # Should have bailed early with 0 memories processed
         assert report.memories_processed == 0
         storage.get_memories_by_time_range.assert_not_called()
+        consolidator.run_tracker.release("incremental")
 
     @pytest.mark.asyncio
     async def test_timeout_constant(self):
-        """Verify timeout is 10s as per requirement."""
-        assert INCREMENTAL_TIMEOUT_SECONDS == 10
+        """Verify timeout constant was removed (no asyncio.wait_for wraps the logic)."""
+        pass

@@ -36,8 +36,6 @@ from .run_tracker import RunTracker
 
 logger = logging.getLogger(__name__)
 
-INCREMENTAL_TIMEOUT_SECONDS = 10
-
 
 # Protocol for storage backend interface
 class StorageProtocol(Protocol):
@@ -267,9 +265,9 @@ class DreamInspiredConsolidator:
         db_path = None
         if hasattr(self.storage, "primary") and hasattr(self.storage.primary, "db_path"):
             db_path = getattr(self.storage.primary, "db_path", None)
-        if not isinstance(db_path, str) and hasattr(self.storage, "db_path"):
+        if not isinstance(db_path, (str, Path)) and hasattr(self.storage, "db_path"):
             db_path = getattr(self.storage, "db_path", None)
-        if isinstance(db_path, str):
+        if isinstance(db_path, (str, Path)):
             return Path(db_path).parent / "consolidation_runs.db"
         return None
 
@@ -292,13 +290,14 @@ class DreamInspiredConsolidator:
             memories_processed=0,
         )
 
+        is_incremental = time_horizon == "incremental"
+
         try:
             self.logger.info(
                 f"Starting {time_horizon} consolidation - this may take several minutes depending on memory count..."
             )
 
             # Incremental: initialize run_tracker, concurrency guard, timeout
-            is_incremental = time_horizon == "incremental"
             if is_incremental:
                 if self.run_tracker is None:
                     db_path = self._resolve_tracker_db_path()
@@ -306,7 +305,7 @@ class DreamInspiredConsolidator:
                         self.run_tracker = RunTracker(db_path)
                 if self.run_tracker and not self.run_tracker.try_acquire("incremental"):
                     self.logger.info("Incremental consolidation already in flight, skipping")
-                    return self._finalize_report(report, [])
+                    return self._finalize_report(report, ["Skipped: concurrent run in flight"])
 
             # Lazy graph storage init (avoids blocking I/O in __init__).
             # Lock prevents double-init when two consolidate() calls race.
@@ -470,16 +469,6 @@ class DreamInspiredConsolidator:
                 "consolidator", e, {"time_horizon": time_horizon}
             )
             raise
-        except asyncio.TimeoutError:
-            self.logger.warning(
-                f"Incremental consolidation timed out after {INCREMENTAL_TIMEOUT_SECONDS}s"
-            )
-            report.errors.append("timeout")
-            if self.run_tracker:
-                await self.run_tracker.record_run(
-                    "incremental", report.memories_processed, status="timeout"
-                )
-            return self._finalize_report(report, ["timeout"])
         except Exception as e:
             self.logger.error(f"Error during {time_horizon} consolidation: {e}")
             self.health_monitor.record_error(
@@ -487,6 +476,9 @@ class DreamInspiredConsolidator:
             )
             report.errors.append(str(e))
             return self._finalize_report(report, [str(e)])
+        finally:
+            if is_incremental and self.run_tracker:
+                self.run_tracker.release("incremental")
 
     async def _get_memories_for_horizon(
         self, time_horizon: str, **kwargs
@@ -514,7 +506,7 @@ class DreamInspiredConsolidator:
                 last_run = (now - timedelta(days=1)).timestamp()
             end_time = now.timestamp()
             memories = await self.storage.get_memories_by_time_range(
-                last_run, end_time, include_embeddings=True,
+                last_run, end_time,
             )
             return memories
 
@@ -524,11 +516,11 @@ class DreamInspiredConsolidator:
             start_time = (now - timedelta(days=cutoff_days)).timestamp()
             end_time = now.timestamp()
             memories = await self.storage.get_memories_by_time_range(
-                start_time, end_time, include_embeddings=True,
+                start_time, end_time,
             )
         else:
             # For longer horizons: incremental oldest-first processing
-            memories = await self.storage.get_all_memories(include_embeddings=True)
+            memories = await self.storage.get_all_memories()
 
             # Filter by relevance to time horizon (quarterly/yearly still focus on old memories)
             cutoff_days = config.get("cutoff_days")
