@@ -100,7 +100,7 @@ CONTRADICTION detected → UPDATE knowledge SET invalid_at = $now WHERE id IN (.
 → INSERT new atom with superseding summary
 ```
 
-At ~150 KB atoms on a single-operator fleet, point invalidation + periodic `tension_scan` has been sufficient. At 100k+, expect either lazy flags on dependents or a scheduled closure recompute — not because point invalidation is wrong, but because **read-side re-query** becomes the bottleneck if agents cache aggressively.
+At ~150k atoms on a single-operator fleet, point invalidation + periodic tension_scan has been sufficient. At 100k+, expect either lazy flags on dependents or a scheduled closure recompute — not because point invalidation is wrong, but because read-side re-query becomes the bottleneck if agents cache aggressively.
 
 ### 4.2 Transitive closure invalidation
 
