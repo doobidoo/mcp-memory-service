@@ -441,12 +441,13 @@ def test_discovery_advertises_offline_access_scope():
     assert "offline_access" in body["scopes_supported"]
 
 
-def test_protected_resource_metadata_advertises_offline_access():
+def test_protected_resource_metadata_excludes_offline_access():
+    """PRM scopes_supported MUST NOT advertise grant-behavior scopes per SEP-2207."""
     client = _discovery_client()
     response = client.get("/.well-known/oauth-protected-resource")
     assert response.status_code == 200
     body = response.json()
-    assert "offline_access" in body["scopes_supported"]
+    assert "offline_access" not in body["scopes_supported"]
 
 
 # ===========================================================================

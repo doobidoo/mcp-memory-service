@@ -42,7 +42,7 @@ async def oauth_protected_resource_metadata() -> OAuthProtectedResourceMetadata:
     return OAuthProtectedResourceMetadata(
         resource=OAUTH_ISSUER,
         authorization_servers=[OAUTH_ISSUER],
-        scopes_supported=["read", "write", "admin", "offline_access"],
+        scopes_supported=["read", "write", "admin"],
         bearer_methods_supported=["header"],
         resource_documentation=f"{OAUTH_ISSUER}/docs",
     )
