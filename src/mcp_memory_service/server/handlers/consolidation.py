@@ -47,13 +47,16 @@ async def handle_consolidate_memories(server, arguments: dict) -> List[types.Tex
         # Run consolidation (with timeout for incremental)
         if time_horizon == "incremental":
             import asyncio
-            from ..consolidation.consolidator import INCREMENTAL_TIMEOUT_SECONDS
+            INCREMENTAL_TIMEOUT_SECONDS = 10
             try:
                 report = await asyncio.wait_for(
                     server.consolidator.consolidate(time_horizon),
                     timeout=INCREMENTAL_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
+                # Advance last_run_at even on timeout to prevent infinite retry loop (#986)
+                if server.consolidator.run_tracker:
+                    await server.consolidator.run_tracker.record_run("incremental", 0)
                 return [types.TextContent(type="text", text="Incremental consolidation timed out (>10s). Partial progress saved.")]
         else:
             report = await server.consolidator.consolidate(time_horizon)
