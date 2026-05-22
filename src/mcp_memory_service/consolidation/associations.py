@@ -237,7 +237,12 @@ class CreativeAssociationEngine(ConsolidationBase):
         return concepts
     
     def _analyze_temporal_relationship(self, mem1: Memory, mem2: Memory) -> Optional[str]:
-        """Analyze temporal relationship between memories."""
+        """Analyze temporal relationship between memories.
+
+        Returns a label only when two memories are genuinely close in time
+        (within 7 days).  Wider gaps do not constitute meaningful temporal
+        proximity for association discovery.
+        """
         if not (mem1.created_at and mem2.created_at):
             return None
         
@@ -248,12 +253,8 @@ class CreativeAssociationEngine(ConsolidationBase):
             return "same_day"
         elif days_diff < 7:
             return "same_week"
-        elif days_diff < 30:
-            return "same_month"
-        elif days_diff < 365:
-            return "same_year"
         else:
-            return "different_years"
+            return None
     
     def _has_similar_structure(self, text1: str, text2: str) -> bool:
         """Check if texts have similar structural patterns."""
