@@ -496,17 +496,19 @@ The `:quality-cpu` image pre-exports both models at build time and ships only `o
 ---
 
 
-## Latest Release: **v10.63.0** (May 20, 2026)
+## Latest Release: **v10.64.0** (May 22, 2026)
 
-**Minor: Milvus low-priority overrides (completes #888) + Kiro CLI harvest fix**
+**Minor: Incremental memory consolidation + quality trends fix**
 
 **What's New:**
-- `feat(milvus)`: Completes Issue #888 — `search_by_tag_chronological`, `count_memories_by_tag`, `is_deleted`, `purge_deleted` natively implemented with server-side filter pushdown (@henry201605, PR #978)
-- `fix(harvest)`: Kiro CLI `AssistantMessage` kind support + remove redundant 2000-char filter — parse yield 36x improvement (@filhocf, PR #979)
+- `feat(consolidation)`: `memory_consolidate(action="run", time_horizon="incremental")` — processes only memories since the last run, DB-atomic lock, 10s timeout, safe to call from session Stop hooks (@filhocf, PR #985, closes #983)
+- `fix(web)`: `GET /api/quality/trends` no longer returns 500 on every backend — two stacked AttributeErrors fixed, now uses correct storage interface (PR #982, reported by @TonbiLX)
+- `docs(research)`: contradiction resolution approaches reference doc added for RFC #732 (@rudi193-cmd / Sean Campbell, PR #984)
 
 ---
 
 **Previous Releases**:
+- **v10.63.0** - feat(milvus): low-priority overrides completing #888 (search_by_tag_chronological, count_memories_by_tag, is_deleted, purge_deleted) + fix(harvest): Kiro CLI AssistantMessage + 36x parse yield improvement (PRs #978, #979)
 - **v10.62.0** - feat(milvus): native search_memories + retrieve_with_quality_boost + recall_memory (server-side filter pushdown, completes medium-priority #888) + fix(hooks): JSONL transcript parsing (PRs #970, #971)
 - **v10.61.0** - feat(milvus): native update_memory + update_memories_batch (1 round-trip batch upsert) + feat(sse): Last-Event-ID replay on /api/events reconnect (PRs #966, #953)
 - **v10.60.2** - fix(milvus): replace ANN search() with brute-force query() in semantic dedup — fixes Milvus Lite growing-segment visibility bug (#964, closes #938, @henry201605)

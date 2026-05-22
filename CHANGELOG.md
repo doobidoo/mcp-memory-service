@@ -10,6 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [10.64.0] - 2026-05-22
+
+### Added
+
+- **feat(consolidation): incremental time horizon for `memory_consolidate`** ([#985](https://github.com/doobidoo/mcp-memory-service/pull/985), closes [#983](https://github.com/doobidoo/mcp-memory-service/issues/983), @filhocf): New `time_horizon="incremental"` mode processes only memories created since the last consolidation run, enabling safe invocation from session Stop hooks with bounded latency. Uses a DB-based atomic lock (`BEGIN IMMEDIATE` + `locked` column) to prevent concurrent runs across multiple processes. Enforces a 10-second timeout via `asyncio.wait_for` at the handler level. Skips decay and forgetting phases (those remain on monthly/yearly horizons); runs clustering, compression, and association discovery on the incremental window. Bootstraps with a 24-hour window on first run, then advances a `created_at > last_run_at` cursor. New `consolidation/run_tracker.py` module tracks run state. 15 new unit tests added. Relates to RFC [#732](https://github.com/doobidoo/mcp-memory-service/issues/732).
+- **docs(research): contradiction resolution approaches reference** ([#984](https://github.com/doobidoo/mcp-memory-service/pull/984), @rudi193-cmd / Sean Campbell): New `docs/research/contradiction-resolution-approaches.md` — a system-neutral survey of invalidation models, detection mechanisms, and a decision guide for implementors, written in support of RFC #732.
+
+### Fixed
+
+- **fix(web): repair `GET /api/quality/trends` AttributeError** ([#982](https://github.com/doobidoo/mcp-memory-service/pull/982), closes [#981](https://github.com/doobidoo/mcp-memory-service/issues/981), reported by @TonbiLX): The endpoint raised a 500 on every storage backend due to two stacked bugs: `recall_by_timeframe` is a server-tool handler, not a storage method, and `search_all_memories` has never existed on the storage interface. Fixed by replacing both with `get_memories_by_time_range` using a DB-side BETWEEN filter. Quality trends endpoint now returns correct data.
+
+### Maintenance
+
+- **chore: migrate binaries to Git LFS + remove generated statistics** ([e08e606c](https://github.com/doobidoo/mcp-memory-service/commit/e08e606c)): Binary assets moved to Git LFS; generated statistics files removed from version control.
+- **chore: remove stale archive directories** ([14c742ff](https://github.com/doobidoo/mcp-memory-service/commit/14c742ff)): Deleted obsolete archive directories that accumulated in the repository.
+- **fix(docs): remove dead links to deleted archive files** ([bde77499](https://github.com/doobidoo/mcp-memory-service/commit/bde77499)): Documentation links pointing to the removed archive files cleaned up.
+
 ## [10.63.0] - 2026-05-20
 
 ### Added
