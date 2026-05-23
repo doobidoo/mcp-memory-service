@@ -302,14 +302,6 @@ function detectOverrides(content) {
   }
 }
 
-function extractTextFromParts(parts) {
-  if (!Array.isArray(parts)) return ""
-  return parts
-    .filter((p) => p?.type === "text" && p?.text)
-    .map((p) => p.text)
-    .join("\n")
-}
-
 function splitSentences(text) {
   const blocks = []
   let lastIndex = 0
@@ -725,6 +717,51 @@ const createPlugin = async ({ directory, client }) => {
     }
   }
 
+  const handleMessagePart = async (sessionID, part) => {
+    if (part.type !== "text") return
+    const text = part.text
+    if (!text || text.length === 0) return
+
+    if (!config.autoCapture.enabled) return
+    const overrides = detectOverrides(text)
+    if (overrides.forceSkip) return
+
+    let state = sessionState.get(sessionID)
+    if (!state) {
+      state = { projectName: projectNameFromDirectory(directory), memories: [], messages: [] }
+      sessionState.set(sessionID, state)
+    }
+
+    if (!state._capturedParts) state._capturedParts = new Set()
+    if (state._capturedParts.has(part.id)) return
+    state._capturedParts.add(part.id)
+
+    state.messages.push({ role: "unknown", content: text })
+
+    const detection = detectValuableContent(text, config)
+    const isValuable = overrides.forceRemember || detection.isValuable
+
+    if (isValuable) {
+      const projectName = state.projectName
+      const memoryType = overrides.forceRemember ? "note" : detection.memoryType
+      const tags = [
+        ...config.autoCapture.tags,
+        memoryType,
+        projectName.toLowerCase(),
+      ]
+      const maxLen = config.autoCapture.maxContentLength || 4000
+      const captureText = detection.matchedContent || text
+      const content = captureText.length > maxLen ? captureText.slice(0, maxLen - 3) + "..." : captureText
+
+      try {
+        await storeMemoryHttp(config, content, tags, memoryType)
+        await logInfo(`Auto-captured ${memoryType}`)
+      } catch (error) {
+        await logWarn(`Auto-capture failed: ${error.message}`)
+      }
+    }
+  }
+
   return {
     event: async ({ event }) => {
       if (event.type === "session.created") {
@@ -739,54 +776,13 @@ const createPlugin = async ({ directory, client }) => {
         await handleSessionEnd(sid, sdir)
         sessionState.delete(sid)
       }
-    },
 
-    "chat.message": async (input, output) => {
-      if (!config.autoCapture.enabled) return
-      const text = extractTextFromParts(output.parts || [])
-      if (!text) return
-
-      // Detect user overrides
-      const overrides = detectOverrides(text)
-      if (overrides.forceSkip) return
-
-      // Buffer messages for session-end analysis
-      if (output.message?.role === "user" || output.message?.role === "assistant") {
-        const sid = input.sessionID
-        let state = sessionState.get(sid)
-        if (!state) {
-          state = { projectName: projectNameFromDirectory(directory), memories: [], messages: [] }
-          sessionState.set(sid, state)
-        }
-        state.messages.push({ role: output.message.role, content: text })
-      }
-
-      // Auto-capture valuable content
-      const detection = detectValuableContent(text, config)
-      const isValuable = overrides.forceRemember || detection.isValuable
-
-      if (isValuable) {
-        const sid = input.sessionID
-        const state = sessionState.get(sid)
-        const projectName = state?.projectName || projectNameFromDirectory(directory)
-        const memoryType = overrides.forceRemember ? "note" : detection.memoryType
-        const tags = [
-          ...config.autoCapture.tags,
-          memoryType,
-          projectName.toLowerCase(),
-        ]
-        const maxLen = config.autoCapture.maxContentLength || 4000
-        const captureText = detection.matchedContent || text
-        const content = captureText.length > maxLen ? captureText.slice(0, maxLen - 3) + "..." : captureText
-
-        try {
-          await storeMemoryHttp(config, content, tags, memoryType)
-          await logInfo(`Auto-captured ${memoryType}`)
-        } catch (error) {
-          await logWarn(`Auto-capture failed: ${error.message}`)
-        }
+      if (event.type === "message.part.updated") {
+        await handleMessagePart(event.properties.sessionID, event.properties.part)
       }
     },
+
+
 
     "experimental.chat.system.transform": async (input, output) => {
       if (!input.sessionID) return
