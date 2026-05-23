@@ -43,7 +43,7 @@ class CreativeAssociationEngine(ConsolidationBase):
     
     Similar to how dreams create unexpected associations, this engine randomly
     pairs memories to discover non-obvious connections in the "sweet spot"
-    of moderate similarity (0.3-0.7 range).
+    of moderate similarity (0.45-0.7 range).
     """
     
     def __init__(self, config: ConsolidationConfig):

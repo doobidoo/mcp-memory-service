@@ -44,7 +44,7 @@ def consolidation_config(temp_archive_path):
         
         # Association settings
         associations_enabled=True,
-        min_similarity=0.3,
+        min_similarity=0.45,
         max_similarity=0.7,
         max_pairs_per_run=50,  # Smaller for tests
         
