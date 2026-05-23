@@ -14,7 +14,6 @@ Usage:
 Environment:
     GROQ_API_KEY           For Groq LLM (default, fastest)
     OPENAI_API_KEY         For OpenAI-compatible API (fallback)
-    GEMINI_API_KEY         For Google Gemini API (fallback)
 
 Output:
     YAML file at patterns/auto_generated/{locale}.yaml by default, with
@@ -37,10 +36,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.mcp_memory_service.harvest.parser import TranscriptParser, ParsedMessage
 from src.mcp_memory_service.harvest.extractor import PatternExtractor
 from src.mcp_memory_service.harvest.patterns import PATTERNS_DIR
-
+from src.mcp_memory_service.harvest.models import HARVEST_TYPES
 logger = logging.getLogger(__name__)
-
-HARVEST_TYPES = ["decision", "bug", "convention", "learning", "context"]
 LOW_YIELD_MAX_MATCHES = 3
 LOW_YIELD_MIN_MESSAGES = 50
 
@@ -97,8 +94,9 @@ class ProposedPattern:
 
     def to_yaml_entry(self, indent: int = 4) -> str:
         pad = " " * indent
+        escaped = self.pattern.replace("'", "''")
         return (
-            f"{pad}- pattern: '{self.pattern}'\n"
+            f"{pad}- pattern: '{escaped}'\n"
             f"{pad}  confidence: {self.confidence}\n"
         )
 
@@ -160,7 +158,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--llm",
         type=str,
-        choices=["groq", "openai", "gemini", "auto"],
+        choices=["groq", "openai", "auto"],
         default="auto",
         help="LLM provider to use (default: auto-detect from env vars)",
     )
@@ -212,15 +210,12 @@ def create_llm_client(llm_choice: str):
     """Create an LLM client based on available env vars."""
     groq_key = os.environ.get("GROQ_API_KEY")
     openai_key = os.environ.get("OPENAI_API_KEY")
-    gemini_key = os.environ.get("GEMINI_API_KEY")
 
     if llm_choice == "auto":
         if groq_key:
             llm_choice = "groq"
         elif openai_key:
             llm_choice = "openai"
-        elif gemini_key:
-            llm_choice = "gemini"
         else:
             return None
 
@@ -251,7 +246,8 @@ class _GroqClient:
             if system:
                 messages.append({"role": "system", "content": system})
             messages.append({"role": "user", "content": prompt})
-            models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+            model_override = os.environ.get("GROQ_MODEL")
+            models = [model_override] if model_override else ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
             for model in models:
                 try:
                     resp = self._client.chat.completions.create(
@@ -259,6 +255,7 @@ class _GroqClient:
                         messages=messages,
                         max_tokens=2000,
                         temperature=0.1,
+                        response_format={"type": "json_object"},
                     )
                     return resp.choices[0].message.content
                 except Exception as e:
@@ -285,6 +282,7 @@ class _OpenAIClient:
                 messages=messages,
                 max_tokens=2000,
                 temperature=0.1,
+                response_format={"type": "json_object"},
             )
             return resp.choices[0].message.content
         except Exception as e:
