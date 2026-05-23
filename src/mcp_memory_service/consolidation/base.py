@@ -47,7 +47,7 @@ class ConsolidationConfig:
     
     # Association settings
     associations_enabled: bool = True
-    min_similarity: float = 0.3
+    min_similarity: float = 0.45
     max_similarity: float = 0.7
     max_pairs_per_run: int = 100
     
