@@ -58,19 +58,23 @@ These messages were NOT captured by the existing regex patterns.
 Identify which contain genuine decisions, bugs, conventions, learnings, or context.
 
 For each message you identify, propose a regex pattern that would match it and
-similar phrases. Follow these guidelines:
+similar phrases. The pattern MUST be a proper regex, NOT a verbatim message copy.
 
-1. Use non-capturing groups (?:...) for alternatives
+Guidelines for GOOD regex patterns:
+1. Use non-capturing groups (?:...) for alternatives (e.g., \\b(?:decided|chose|opted)\\b)
 2. Use word boundaries \\b for whole-word matching
-3. Make patterns specific enough to avoid false positives, broad enough to generalize
-4. Prefer English patterns unless the locale has strong language-specific signals
+3. Include alternatives for common phrasings of the same concept
+4. Be specific enough to avoid false positives, broad enough to generalize
 5. For non-English locales, include both native and English alternatives
+
+GOOD example pattern: \\b(?:ich denke|ich glaube|meiner Meinung nach)\\b.*\\bsollten\\b
+BAD example pattern (DO NOT DO THIS): ich denke wir sollten das nochmal testen
 
 Respond ONLY with a JSON object:
 {{
   "patterns": {{
     "decision": [
-      {{"pattern": "regex_pattern_here", "confidence": 0.7, "example": "matching text", "source_message": "message that triggered it"}}
+      {{"pattern": "...", "confidence": 0.7, "example": "matching text", "source_message": "message that triggered it"}}
     ],
     "bug": [],
     "convention": [],
@@ -304,6 +308,7 @@ def parse_llm_response(text: str) -> Dict[str, List[ProposedPattern]]:
         logger.warning(f"Failed to parse LLM JSON: {e}")
         return {t: [] for t in HARVEST_TYPES}
 
+    RE_HAS_REGEX = re.compile(r'[\[(){}|?*+^$.\\]|\\[bBAzZ]|\\[wWsSdD]')
     raw_patterns = data.get("patterns", {})
     result: Dict[str, List[ProposedPattern]] = {}
     for mem_type in HARVEST_TYPES:
@@ -312,10 +317,14 @@ def parse_llm_response(text: str) -> Dict[str, List[ProposedPattern]]:
         for entry in entries:
             if not isinstance(entry, dict) or "pattern" not in entry:
                 continue
+            pattern = entry["pattern"]
+            if not RE_HAS_REGEX.search(pattern):
+                logger.warning(f"Rejected plain-text pattern (not a regex): {pattern[:60]}")
+                continue
             try:
-                re.compile(entry["pattern"], re.IGNORECASE)
+                re.compile(pattern, re.IGNORECASE)
             except re.error as e:
-                logger.warning(f"Invalid regex from LLM: {entry['pattern']}: {e}")
+                logger.warning(f"Invalid regex from LLM: {pattern}: {e}")
                 continue
             result[mem_type].append(ProposedPattern(
                 pattern=entry["pattern"],
