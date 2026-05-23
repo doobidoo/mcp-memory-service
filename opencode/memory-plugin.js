@@ -568,7 +568,7 @@ async function loadSessionMemories({ config, directory, logInfo, logWarn, health
   }
 }
 
-export const OpenCodeMemoryPlugin = async ({ directory, client }) => {
+const createPlugin = async ({ directory, client }) => {
   const config = await loadConfig(directory)
   const sessionState = new Map()
   const healthState = { checked: false }
@@ -817,3 +817,6 @@ export const OpenCodeMemoryPlugin = async ({ directory, client }) => {
     },
   }
 }
+
+export const OpenCodeMemoryPlugin = createPlugin
+export default { id: "opencode-memory", server: createPlugin }
