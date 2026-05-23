@@ -1,6 +1,15 @@
 import { readFile } from "node:fs/promises"
+import { appendFileSync } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
+
+const dbg = (msg) => {
+  try { appendFileSync("/tmp/opencode-memory-debug.log", JSON.stringify(msg) + "\n") } catch (_) {}
+}
+
+const logErr = (msg) => {
+  try { appendFileSync("/tmp/opencode-memory-errors.log", JSON.stringify(msg) + "\n") } catch (_) {}
+}
 
 const DEFAULT_CONFIG = {
   memoryService: {
@@ -566,15 +575,18 @@ const createPlugin = async ({ directory, client }) => {
   const healthState = { checked: false }
   const harvestFirstRun = { done: false }
   const appLog = client?.app?.log?.bind?.(client.app) || (() => {})
+  dbg({ phase: "createPlugin_start", hasClient: !!client, hasDir: !!directory })
 
   const logInfo = async (message) => {
     if (!config.output.verbose) return
-    await appLog({ body: { service: "opencode-memory", level: "info", message } }).catch(() => {})
+    dbg({ phase: "logInfo", message })
+    await appLog({ service: "opencode-memory", level: "info", message }).catch(() => {})
   }
 
   const logWarn = async (message) => {
     if (!config.output.verbose) return
-    await appLog({ body: { service: "opencode-memory", level: "warn", message } }).catch(() => {})
+    dbg({ phase: "logWarn", message })
+    await appLog({ service: "opencode-memory", level: "warn", message }).catch(() => {})
   }
 
   const refreshSession = (sessionID, sessionDirectory) => {
@@ -764,7 +776,10 @@ const createPlugin = async ({ directory, client }) => {
 
   return {
     event: async ({ event }) => {
+      dbg({ evt: event?.type, hasProps: !!event?.properties, keys: event?.properties ? Object.keys(event.properties) : [] })
+
       if (event.type === "session.created") {
+        dbg({ evt: "session.created", infoKeys: Object.keys(event.properties.info || {}) })
         const sid = event.properties.info.id
         const sdir = event.properties.info.directory || directory
         refreshSession(sid, sdir)
@@ -778,6 +793,7 @@ const createPlugin = async ({ directory, client }) => {
       }
 
       if (event.type === "message.part.updated") {
+        dbg({ evt: "message.part.updated", pt: event.properties?.part?.type, tid: event.properties?.part?.text?.length })
         await handleMessagePart(event.properties.sessionID, event.properties.part)
       }
     },
