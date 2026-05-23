@@ -1,8 +1,38 @@
 import { readFile } from "node:fs/promises"
 import { homedir } from "node:os"
+import https from "node:https"
 import path from "node:path"
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = process.env.NODE_TLS_REJECT_UNAUTHORIZED || "0"
+
+const tlsAgent = new https.Agent({ rejectUnauthorized: false })
+
+function httpsFetch(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const { method = "GET", headers = {}, body, signal } = options
+    const parsed = new URL(url)
+
+    const req = https.request(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
+        path: parsed.pathname + parsed.search,
+        method,
+        headers,
+        agent: tlsAgent,
+        signal,
+      },
+      (res) => {
+        let data = ""
+        res.on("data", (chunk) => { data += chunk })
+        res.on("end", () => resolve({ status: res.statusCode, statusText: res.statusMessage, text: () => Promise.resolve(data), ok: res.statusCode >= 200 && res.statusCode < 300 }))
+      },
+    )
+    req.on("error", reject)
+    if (body) req.write(body)
+    req.end()
+  })
+}
 
 const DEFAULT_CONFIG = {
   memoryService: {
@@ -173,11 +203,10 @@ async function requestJson(config, pathname, init = {}) {
   const timeout = setTimeout(() => controller.abort(), config.memoryService.timeoutMs)
 
   try {
-    const response = await fetch(buildUrl(config.memoryService.endpoint, pathname), {
+    const response = await httpsFetch(buildUrl(config.memoryService.endpoint, pathname), {
       ...init,
       headers: buildHeaders(config, init.headers || {}),
       signal: controller.signal,
-      tls: { rejectUnauthorized: false },
     })
 
     const text = await response.text()
