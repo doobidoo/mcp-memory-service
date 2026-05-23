@@ -16,7 +16,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
-- **feat(opencode): auto-capture + session-end write-back + harvest** — Ported Claude Code hook capabilities into the OpenCode in-process plugin. Adds `chat.message` hook for real-time auto-capture (decision/error/learning pattern detection, #skip/#remember overrides) and `event(session.deleted)` for full-session analysis + summary storage + optional harvest (POST /api/harvest). New config sections: `autoCapture`, `sessionEnd`, `harvest`. Existing session-start retrieval unchanged. (refs claude-hooks/core/session-end.js, auto-capture-hook.js, session-end-harvest.js)
 - **chore(deps): upgrade transitive dependencies** — `uv sync --upgrade` updated attrs, propcache, yarl, starlette, scikit-learn, scipy, zeroconf, and others to latest compatible versions.
 - **chore(docs): archive stale design plans** — Moved 7 design documents from `docs/plans/` to `docs/archive/` (Jan–Apr 2026). No content changes.
 
