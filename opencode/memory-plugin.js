@@ -3,6 +3,8 @@ import { appendFileSync } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
 
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = process.env.NODE_TLS_REJECT_UNAUTHORIZED || "0"
+
 const dbg = (msg) => {
   try { appendFileSync("/tmp/opencode-memory-debug.log", JSON.stringify(msg) + "\n") } catch (_) {}
 }
