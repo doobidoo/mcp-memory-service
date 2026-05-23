@@ -14,6 +14,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - **feat(harvest): LLM-based pattern discovery script for locale plugins** ([#992](https://github.com/doobidoo/mcp-memory-service/pull/992), closes [#909](https://github.com/doobidoo/mcp-memory-service/issues/909)): New `scripts/maintenance/discover_harvest_patterns.py` — a one-shot CLI tool that analyzes low-yield harvest sessions (<3 matches from ≥50 messages) and proposes new regex patterns via an optional LLM (Groq or OpenAI-compatible API). Outputs candidate patterns as YAML to `patterns/auto_generated/{locale}.yaml`, matching the existing locale plugin schema. Includes regex validation and plain-text rejection. See `scripts/maintenance/README.md` for usage.
 
+### Changed
+
+- **chore(deps): upgrade transitive dependencies** — `uv sync --upgrade` updated attrs, propcache, yarl, starlette, scikit-learn, scipy, zeroconf, and others to latest compatible versions.
+- **chore(docs): archive stale design plans** — Moved 7 design documents from `docs/plans/` to `docs/archive/` (Jan–Apr 2026). No content changes.
+
+### Maintenance
+
+- **chore(git): install and configure Git LFS** — 29 video assets (PNG screenshots, MP3 audio walkthroughs) and 2 documentation images now tracked via Git LFS. Run `git lfs pull` after cloning to retrieve binary content.
+- **chore(git): prune 24 stale local and 5 remote branches** — Cleaned up branches from merged PRs that were squash-merged and not deleted.
+
 ## [10.64.1] - 2026-05-23
 
 ### Fixed
