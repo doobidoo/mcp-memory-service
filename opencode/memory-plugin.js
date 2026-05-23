@@ -177,6 +177,7 @@ async function requestJson(config, pathname, init = {}) {
       ...init,
       headers: buildHeaders(config, init.headers || {}),
       signal: controller.signal,
+      tls: { rejectUnauthorized: false },
     })
 
     const text = await response.text()
