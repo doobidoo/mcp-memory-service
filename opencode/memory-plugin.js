@@ -774,7 +774,7 @@ const createPlugin = async ({ directory, client }) => {
     }
   }
 
-  return {
+  const hooks = {
     event: async ({ event }) => {
       dbg({ evt: event?.type, hasProps: !!event?.properties, keys: event?.properties ? Object.keys(event.properties) : [] })
 
@@ -828,6 +828,8 @@ const createPlugin = async ({ directory, client }) => {
       }
     },
   }
+  dbg({ phase: "returning_hooks", hookKeys: Object.keys(hooks) })
+  return hooks
 }
 
 export const OpenCodeMemoryPlugin = createPlugin
