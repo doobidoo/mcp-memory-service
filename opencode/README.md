@@ -1,22 +1,13 @@
 # OpenCode Memory Awareness Plugin
+Automatic memory retrieval, context injection, and write-back for OpenCode using the `mcp-memory-service` HTTP API.
 
-Automatic memory retrieval and context injection for OpenCode using the `mcp-memory-service` HTTP API.
+This integration provides:
 
-This integration is intentionally minimal in its first upstream form:
-- load relevant memories when an OpenCode session starts
-- inject memory context into `experimental.chat.system.transform`
-- inject condensed memory context into `experimental.session.compacting`
-
-It does **not** do automatic write-back or session harvesting yet. That is deferred to a later step so the first integration stays small, reviewable, and aligned with stable OpenCode plugin hooks.
-
-## Why HTTP Instead of Direct Python Imports?
-
-This plugin uses the documented HTTP API instead of importing Python internals directly.
-
-That keeps the integration:
-- host-agnostic
-- easier to configure across platforms
-- aligned with the public `mcp-memory-service` surface
+- **Session Start**: load relevant memories when an OpenCode session starts
+- **Auto-Capture**: detect and store valuable conversation content (decisions, errors, learnings) in real-time via `chat.message`
+- **Session-End**: consolidate full-session outcomes and store as summary memories when a session ends
+- **Harvest**: optional pattern-harvesting via `/api/harvest` at session end
+- **Compact Injection**: inject condensed memory context into `experimental.session.compacting`
 
 ## Prerequisites
 
@@ -116,10 +107,19 @@ On `session.created`, the plugin:
 - derives the project name from the working directory
 - runs a few semantic searches against the memory service
 - stores the best matches in per-session plugin state
-
-Then:
 - `experimental.chat.system.transform` injects full memory context into the system prompt
 - `experimental.session.compacting` injects a smaller memory summary into compaction context
+
+On `chat.message` (every new message), the plugin:
+- buffers user messages for session-end analysis
+- detects valuable patterns (decisions, errors, learnings, etc.) via regex
+- stores matched content immediately as memories via `POST /api/memories`
+- respects `#skip` (skip auto-capture) and `#remember` (force capture) overrides
+
+On `session.deleted`, the plugin:
+- analyzes all buffered messages for topics, decisions, insights, code changes, and next steps
+- stores a session summary memory with extracted analysis
+- optionally triggers pattern harvest via `POST /api/harvest` (opt-in, dry-run first-use safety)
 
 ## Verification
 
@@ -132,8 +132,8 @@ If `verbose` is enabled, the plugin writes structured logs through `client.app.l
 
 ## Limitations
 
-- read-only retrieval/injection only
 - depends on the HTTP API being reachable
 - relevance is intentionally simple and project-name driven in the first cut
-
-Future work can add richer retrieval, manual refresh, and safe write-back once the host lifecycle hooks are proven stable for that path.
+- auto-capture uses regex-based pattern detection (no LLM-based classification)
+- session-end consolidation may overlap with auto-capture entries (both write to `/api/memories`)
+- mid-conversation memory injection (when a user asks "what did we do before?") is not yet implemented

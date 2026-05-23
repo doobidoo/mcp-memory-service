@@ -22,6 +22,28 @@ const DEFAULT_CONFIG = {
     includeTimestamps: true,
     maxContentLength: 280,
   },
+  autoCapture: {
+    enabled: true,
+    minMessageLength: 100,
+    maxContentLength: 4000,
+    patterns: ["decision", "error", "learning", "implementation", "important", "code"],
+    tags: ["auto-capture"],
+  },
+  sessionEnd: {
+    enabled: true,
+    minSessionLength: 100,
+    maxMemoriesPerSession: 3,
+    tags: ["opencode-session", "session-summary"],
+  },
+  harvest: {
+    enabled: false,
+    dryRunOnFirstUse: true,
+    minSessionMessages: 10,
+    sessions: 1,
+    useLlm: false,
+    minConfidence: 0.6,
+    types: ["decision", "bug", "convention", "learning", "context"],
+  },
 }
 
 function pluginOptionOverrides(options = {}) {
@@ -74,6 +96,18 @@ function mergeConfig(base, overrides = {}) {
     output: {
       ...base.output,
       ...(overrides.output || {}),
+    },
+    autoCapture: {
+      ...base.autoCapture,
+      ...(overrides.autoCapture || {}),
+    },
+    sessionEnd: {
+      ...base.sessionEnd,
+      ...(overrides.sessionEnd || {}),
+    },
+    harvest: {
+      ...base.harvest,
+      ...(overrides.harvest || {}),
     },
   }
 }
@@ -260,6 +294,130 @@ function formatMemories(projectName, memories, config, options = {}) {
   return lines.join("\n")
 }
 
+function detectOverrides(content) {
+  if (!content) return { forceSkip: false, forceRemember: false }
+  const text = typeof content === "string" ? content : JSON.stringify(content)
+  return {
+    forceSkip: /\b#skip\b/i.test(text),
+    forceRemember: /\b#remember\b/i.test(text),
+  }
+}
+
+function extractTextFromParts(parts) {
+  if (!Array.isArray(parts)) return ""
+  return parts
+    .filter((p) => p?.type === "text" && p?.text)
+    .map((p) => p.text)
+    .join("\n")
+}
+
+function detectValuableContent(text, config) {
+  const patterns = config.autoCapture.patterns || DEFAULT_CONFIG.autoCapture.patterns
+  const minLength = config.autoCapture.minMessageLength || DEFAULT_CONFIG.autoCapture.minMessageLength
+  if (!text || text.length < minLength) return { isValuable: false, reason: "too short", memoryType: null, matchedPattern: null }
+
+  const matchers = {
+    decision: /\b(decided to|decision|chose to|will use|going with|opting for|better to|should use)\b/i,
+    error: /\b(error|bug|crash|failed|broken|exception|stack trace|regression|fixing)\b/i,
+    learning: /\b(learned|discovered|realized|turns out|insight|understanding|key finding|important to note)\b/i,
+    implementation: /\b(implemented|built|created|added|refactored|extracted|migrated|deployed)\b/i,
+    important: /\b(important|critical|notable|significant|worth noting|key takeaway)\b/i,
+    code: /```[\s\S]*?```/,
+  }
+
+  const lower = text.toLowerCase()
+  for (const [name, regex] of Object.entries(matchers)) {
+    if (!patterns.includes(name)) continue
+    if (regex.test(name === "code" ? text : lower)) {
+      return { isValuable: true, memoryType: name, matchedPattern: name, confidence: 0.8 }
+    }
+  }
+  return { isValuable: false, reason: "no pattern match", memoryType: null, matchedPattern: null, confidence: 0 }
+}
+
+function analyzeSessionMessages(messages) {
+  const analysis = {
+    topics: [],
+    decisions: [],
+    insights: [],
+    codeChanges: [],
+    nextSteps: [],
+    sessionLength: 0,
+    confidence: 0,
+  }
+
+  if (!messages?.length) return analysis
+
+  const text = messages.map((m) => m.content || "").join("\n")
+  analysis.sessionLength = text.length
+
+  const topicMatchers = {
+    implementation: /implement|building|create|adding/i,
+    debugging: /debug|bug|error|fix|issue|problem/i,
+    architecture: /architecture|design|structure|pattern|framework/i,
+    performance: /performance|optimization|speed|efficient/i,
+    testing: /test|testing|coverage|spec/i,
+    deployment: /deploy|production|release|ci/i,
+    configuration: /config|setup|environment|settings/i,
+    database: /database|schema|migration|query/i,
+    api: /api|endpoint|rest|service|interface/i,
+    ui: /ui|interface|component|styling/i,
+  }
+  for (const [topic, re] of Object.entries(topicMatchers)) {
+    if (re.test(text)) analysis.topics.push(topic)
+  }
+
+  const decisionRe = /\b(decided to|decision to|chose to|will use|going with|better to|we should)\b/i
+  for (const msg of messages) {
+    const c = msg.content || ""
+    if (decisionRe.test(c) && c.length > 20) analysis.decisions.push(c.trim().slice(0, 300))
+    if (/\b(learned|discovered|realized|turns out|insight)\b/i.test(c) && c.length > 20) analysis.insights.push(c.trim().slice(0, 300))
+    if (/\b(implemented|added|created|refactored|fixed|built)\b/i.test(c) && /```/.test(c)) analysis.codeChanges.push(c.trim().slice(0, 300))
+    if (/\b(next|todo|need to|should|plan to|continue|follow up)\b/i.test(c) && c.length > 15) analysis.nextSteps.push(c.trim().slice(0, 200))
+  }
+
+  analysis.decisions = analysis.decisions.slice(0, 3)
+  analysis.insights = analysis.insights.slice(0, 3)
+  analysis.codeChanges = analysis.codeChanges.slice(0, 4)
+  analysis.nextSteps = analysis.nextSteps.slice(0, 4)
+
+  const total = analysis.topics.length + analysis.decisions.length + analysis.insights.length + analysis.codeChanges.length + analysis.nextSteps.length
+  analysis.confidence = Math.min(1, total / 10)
+
+  return analysis
+}
+
+function deriveProjectPath(directory) {
+  if (!directory) return null
+  return directory.split(path.sep).join("-")
+}
+
+async function storeMemoryHttp(config, content, tags, memoryType, metadata = {}) {
+  const payload = {
+    content,
+    tags: [...new Set(tags.filter(Boolean).map((t) => String(t).toLowerCase()))],
+    memory_type: memoryType || "note",
+    metadata: {
+      source: "opencode-plugin",
+      ...metadata,
+      captured_at: new Date().toISOString(),
+    },
+  }
+  return requestJson(config, "/api/memories", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+}
+
+async function postHarvest(config, body) {
+  return requestJson(config, "/api/harvest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+}
+
 async function searchMemories(config, query, tags, limit) {
   // /api/search is semantic-only and ignores tag filters server-side
   // (see SemanticSearchRequest in src/mcp_memory_service/web/api/search.py).
@@ -358,6 +516,7 @@ export const OpenCodeMemoryPlugin = async ({ client, directory }, options = {}) 
   const config = await loadConfig(directory, options)
   const sessionState = new Map()
   const healthState = { checked: false }
+  const harvestFirstRun = { done: false }
   const appLog = client.app.log.bind(client.app)
 
   const logInfo = async (message) => {
@@ -384,6 +543,7 @@ export const OpenCodeMemoryPlugin = async ({ client, directory }, options = {}) 
       .then((result) => {
         sessionState.set(sessionID, {
           ...result,
+          messages: [],
           promise: null,
         })
       })
@@ -391,6 +551,7 @@ export const OpenCodeMemoryPlugin = async ({ client, directory }, options = {}) 
         sessionState.set(sessionID, {
           projectName: projectNameFromDirectory(sessionDirectory),
           memories: [],
+          messages: [],
           promise: null,
         })
         await logWarn(`Memory load failed: ${error.message}`)
@@ -399,6 +560,7 @@ export const OpenCodeMemoryPlugin = async ({ client, directory }, options = {}) 
     sessionState.set(sessionID, {
       projectName: projectNameFromDirectory(sessionDirectory),
       memories: [],
+      messages: [],
       promise: loadPromise,
     })
 
@@ -431,14 +593,139 @@ export const OpenCodeMemoryPlugin = async ({ client, directory }, options = {}) 
     return sessionState.get(sessionID)
   }
 
+  const handleSessionEnd = async (sessionID, sessionDirectory) => {
+    try {
+      const state = sessionState.get(sessionID) || { projectName: projectNameFromDirectory(sessionDirectory), messages: [] }
+
+      // --- Session-End Consolidation ---
+      if (config.sessionEnd.enabled && state.messages?.length > 0) {
+        const text = state.messages.map((m) => m.content || "").join("\n")
+        if (text.length >= (config.sessionEnd.minSessionLength || 100)) {
+          const analysis = analyzeSessionMessages(state.messages)
+          if (analysis.confidence >= 0.1) {
+            const tags = [
+              ...config.sessionEnd.tags,
+              state.projectName,
+              ...analysis.topics.slice(0, 3),
+              `confidence:${Math.round(analysis.confidence * 100)}`,
+            ]
+            const consolidation = [
+              `## Session Summary — ${state.projectName}`,
+              "",
+              `**Topics:** ${analysis.topics.join(", ") || "general"}`,
+              analysis.decisions.length ? `\n**Decisions:**\n${analysis.decisions.map((d) => `- ${d}`).join("\n")}` : "",
+              analysis.insights.length ? `\n**Insights:**\n${analysis.insights.map((d) => `- ${d}`).join("\n")}` : "",
+              analysis.codeChanges.length ? `\n**Code Changes:**\n${analysis.codeChanges.map((d) => `- ${d}`).join("\n")}` : "",
+              analysis.nextSteps.length ? `\n**Next Steps:**\n${analysis.nextSteps.map((d) => `- ${d}`).join("\n")}` : "",
+            ].filter(Boolean).join("\n")
+
+            try {
+              await storeMemoryHttp(config, consolidation, tags, "session-summary", {
+                session_analysis: {
+                  topics: analysis.topics,
+                  decisions_count: analysis.decisions.length,
+                  insights_count: analysis.insights.length,
+                  code_changes_count: analysis.codeChanges.length,
+                  next_steps_count: analysis.nextSteps.length,
+                  session_length: analysis.sessionLength,
+                  confidence: analysis.confidence,
+                },
+                session_id: sessionID,
+              })
+              await logInfo(`Session summary stored for ${state.projectName}`)
+            } catch (error) {
+              await logWarn(`Session summary store failed: ${error.message}`)
+            }
+          }
+        }
+      }
+
+      // --- Session-End Harvest ---
+      const harvestCfg = config.harvest
+      if (harvestCfg.enabled && state.messages?.length >= (harvestCfg.minSessionMessages || 10)) {
+        const projectPath = deriveProjectPath(sessionDirectory)
+        if (projectPath) {
+          const forcedDryRun = harvestCfg.dryRunOnFirstUse !== false && !harvestFirstRun.done
+          try {
+            const result = await postHarvest(config, {
+              sessions: harvestCfg.sessions || 1,
+              use_llm: !!harvestCfg.useLlm,
+              dry_run: forcedDryRun || !!harvestCfg.dryRun,
+              min_confidence: harvestCfg.minConfidence || 0.6,
+              types: Array.isArray(harvestCfg.types) ? harvestCfg.types : ["decision", "bug", "convention", "learning"],
+              project_path: projectPath,
+            })
+            const found = result?.results?.reduce((s, r) => s + (r.found || 0), 0) || 0
+            const stored = result?.results?.reduce((s, r) => s + (r.stored || 0), 0) || 0
+            await logInfo(`Harvest: ${found} candidates, ${stored} stored (dry_run=${forcedDryRun || !!result?.dry_run})`)
+            if (forcedDryRun) harvestFirstRun.done = true
+          } catch (error) {
+            await logWarn(`Harvest failed: ${error.message}`)
+          }
+        }
+      }
+    } catch (error) {
+      await logWarn(`Session end handler error: ${error.message}`)
+    }
+  }
+
   return {
     event: async ({ event }) => {
       if (event.type === "session.created") {
-        refreshSession(event.properties.info.id, event.properties.info.directory || directory)
+        const sid = event.properties.info.id
+        const sdir = event.properties.info.directory || directory
+        refreshSession(sid, sdir)
       }
 
       if (event.type === "session.deleted") {
-        sessionState.delete(event.properties.info.id)
+        const sid = event.properties.info.id
+        const sdir = event.properties.info.directory || directory
+        await handleSessionEnd(sid, sdir)
+        sessionState.delete(sid)
+      }
+    },
+
+    "chat.message": async (input, output) => {
+      if (!config.autoCapture.enabled) return
+      const text = extractTextFromParts(output.parts || [])
+      if (!text) return
+
+      // Detect user overrides
+      const overrides = detectOverrides(text)
+      if (overrides.forceSkip) return
+
+      // Buffer messages for session-end analysis
+      if (output.message?.role === "user") {
+        const sid = input.sessionID
+        let state = sessionState.get(sid)
+        if (!state) {
+          state = { projectName: projectNameFromDirectory(directory), memories: [], messages: [] }
+          sessionState.set(sid, state)
+        }
+        state.messages.push({ role: "user", content: text })
+      }
+
+      // Auto-capture valuable content
+      const detection = detectValuableContent(text, config)
+      const isValuable = overrides.forceRemember || detection.isValuable
+
+      if (isValuable) {
+        const projectName = projectNameFromDirectory(directory)
+        const memoryType = overrides.forceRemember ? "note" : detection.memoryType
+        const tags = [
+          ...config.autoCapture.tags,
+          memoryType,
+          projectName.toLowerCase(),
+        ]
+        const maxLen = config.autoCapture.maxContentLength || 4000
+        const content = text.length > maxLen ? text.slice(0, maxLen - 3) + "..." : text
+
+        try {
+          await storeMemoryHttp(config, content, tags, memoryType)
+          await logInfo(`Auto-captured ${memoryType}`)
+        } catch (error) {
+          await logWarn(`Auto-capture failed: ${error.message}`)
+        }
       }
     },
 
