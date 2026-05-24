@@ -180,7 +180,47 @@ The plugin writes a JSON snapshot to `~/.config/opencode/.memory-status.json` on
 }
 ```
 
-This file is intended to be consumed by an OpenCode TUI plugin that renders a live sidebar widget. Scaffold files for that widget ship with this repo (`opencode/memory-status-tui.tsx` + `opencode/build-tui-plugin.mjs`) but OpenCode 1.15.10 does not yet expose a loader for third-party TUI plugins — the file is forward-compatible for when that lands.
+This file is consumed by the TUI sidebar widget (next section) but is also useful for any external tool that wants the latest snapshot of memory activity.
+
+## TUI Sidebar Widget
+
+The repo ships a Solid TUI plugin (`opencode/memory-status-tui.tsx`) that renders a live "Memory" panel in the OpenCode sidebar showing project, loaded count, captured count, and the last action. It polls the status file every 1.5 seconds.
+
+**Install (one-time):**
+
+```bash
+# 1. Install babel deps once (used by the build script). They land in
+#    ~/.config/opencode/node_modules and are reused by future builds.
+cd ~/.config/opencode
+bun add @opentui/solid @opentui/core
+
+# 2. Compile and deploy.
+node /path/to/mcp-memory-service/opencode/build-tui-plugin.mjs
+```
+
+The build script writes the compiled file to `opencode/memory-status-tui.js` and mirrors it to `~/.config/opencode/plugins/memory-status-tui/index.js` (creates `package.json` if missing).
+
+**Register in `~/.config/opencode/tui.json`** (TUI plugins use a separate config file from server plugins):
+
+```json
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": [
+    "file:///Users/<you>/.config/opencode/plugins/memory-status-tui"
+  ]
+}
+```
+
+After restart, the sidebar shows a new section above Context:
+
+```
+Memory
+loaded 6 · captured 0
+mcp-memory-service
+Loaded 6 memories
+```
+
+**Key takeaway for plugin authors:** OpenCode splits config across two files. Server plugins (`{id, server}` exports) go in `opencode.json["plugin"]`. TUI plugins (`{id, tui}` exports) go in `tui.json["plugin"]`. Putting a TUI plugin in `opencode.json` triggers the loader error `must default export an object with server()`.
 
 ## Limitations
 
