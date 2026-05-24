@@ -316,7 +316,20 @@ cp opencode/memory-plugin.config.example.json ~/.config/opencode/memory-plugin.j
 
 OpenCode automatically loads local plugins from `~/.config/opencode/plugins/` and `.opencode/plugins/`.
 
-See [OpenCode integration guide](opencode/README.md) for configuration, project-local installs, and current limitations.
+Optional: register the `/memory` slash command in `~/.config/opencode/opencode.json` to query status, search, and health from inside the TUI:
+
+```json
+{
+  "command": {
+    "memory": {
+      "description": "Show MCP Memory Service status. Usage: /memory, /memory search <query>, /memory health",
+      "template": ""
+    }
+  }
+}
+```
+
+See [OpenCode integration guide](opencode/README.md) for configuration, project-local installs, slash command details, TUI toasts, and current limitations.
 
 > The current OpenCode integration ships as repository files for the local plugin directory. If you installed only the PyPI package, clone the repository once to copy the plugin files.
 >

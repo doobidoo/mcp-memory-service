@@ -21,8 +21,9 @@
   "autoCapture": {
     "enabled": true,
     "minMessageLength": 100,
+    "minSentenceLength": 40,
     "maxContentLength": 4000,
-    "patterns": ["decision", "error", "learning", "implementation", "important", "code"],
+    "patterns": ["decision", "error", "learning", "implementation", "important"],
     "tags": ["auto-capture"]
   },
   "sessionEnd": {
