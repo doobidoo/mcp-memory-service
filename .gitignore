@@ -234,3 +234,9 @@ results/
 docs/statistics/charts/
 docs/statistics/data/
 docs/statistics/REPOSITORY_STATISTICS.md
+
+# OpenCode TUI plugin build artifact (regenerate with opencode/build-tui-plugin.mjs)
+opencode/memory-status-tui.js
+
+# OpenCode session exports
+session-ses_*.md

@@ -4,8 +4,8 @@ Automatic memory retrieval, context injection, and write-back for OpenCode using
 This integration provides:
 
 - **Session Start**: load relevant memories when an OpenCode session starts
-- **Auto-Capture**: detect and store valuable conversation content (decisions, errors, learnings) in real-time via `chat.message`
-- **Session-End**: consolidate full-session outcomes and store as summary memories when a session ends
+- **Auto-Capture**: detect and store valuable conversation content (decisions, errors, learnings) in real-time via `message.part.updated`
+- **Session-End**: consolidate full-session outcomes via `session.idle` (incremental upsert that overwrites the previous summary so the latest state always wins)
 - **Harvest**: optional pattern-harvesting via `/api/harvest` at session end
 - **Compact Injection**: inject condensed memory context into `experimental.session.compacting`
 
@@ -110,16 +110,19 @@ On `session.created`, the plugin:
 - `experimental.chat.system.transform` injects full memory context into the system prompt
 - `experimental.session.compacting` injects a smaller memory summary into compaction context
 
-On `chat.message` (every new message), the plugin:
-- buffers user messages for session-end analysis
-- detects valuable patterns (decisions, errors, learnings, etc.) via regex
+On `message.part.updated` (every text part), the plugin:
+- buffers parts for session-end analysis (dedupes by part id)
+- detects valuable patterns (decisions, errors, learnings, etc.) via regex, ignoring fenced code blocks
+- requires `minSentenceLength` (default 40) before considering a sentence
 - stores matched content immediately as memories via `POST /api/memories`
 - respects `#skip` (skip auto-capture) and `#remember` (force capture) overrides
 
-On `session.deleted`, the plugin:
-- analyzes all buffered messages for topics, decisions, insights, code changes, and next steps
-- stores a session summary memory with extracted analysis
+On `session.idle` (after each assistant turn), the plugin:
+- analyzes buffered messages for topics, decisions, insights, code changes, next steps
+- stores a fresh session summary memory; deletes the previous one for this session via `DELETE /api/memories/<hash>` to avoid DB pollution
 - optionally triggers pattern harvest via `POST /api/harvest` (opt-in, dry-run first-use safety)
+
+`session.deleted` is also handled when received but tends to fire after the plugin's event subscribers have already been torn down, so it cannot be relied on as the only end-of-session trigger.
 
 ## Verification
 
@@ -129,6 +132,55 @@ On `session.deleted`, the plugin:
 4. Ask a question about the project and confirm the assistant can use prior context.
 
 If `verbose` is enabled, the plugin writes structured logs through `client.app.log()` under the `opencode-memory` service name.
+
+## Slash Command: `/memory`
+
+Register the command in `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "command": {
+    "memory": {
+      "description": "Show MCP Memory Service status. Usage: /memory, /memory search <query>, /memory health",
+      "template": ""
+    }
+  }
+}
+```
+
+Then in OpenCode:
+- `/memory` — current session status (project, loaded count, captured count, last action, last summary)
+- `/memory search <query>` — top 5 semantic matches for the query
+- `/memory health` — backend type, status, total memory count, endpoint
+
+The plugin intercepts the command via `command.execute.before`, fetches data from the memory service, and replaces the user message with a formatted block plus a "reply verbatim" instruction. One small LLM round-trip per call. If your default model adds commentary anyway, set `command.memory.model` to a smaller/cheaper model.
+
+## TUI Toasts
+
+The plugin shows transient toasts via `client.tui.showToast` in three situations (rate-limited to once per session):
+
+- on first memory load: `Loaded N memories for <project>`
+- on each auto-capture: `Captured <type> memory for <project>`
+- on first session summary store: `Storing session summary for <project>`
+
+`variant` must be one of `info | success | warning | error` — omitting it returns 400 from `/tui/show-toast`.
+
+## Status File Bridge
+
+The plugin writes a JSON snapshot to `~/.config/opencode/.memory-status.json` on each significant event (load, capture, summary). Schema:
+
+```json
+{
+  "projectName": "string",
+  "loadedCount": 0,
+  "capturedCount": 0,
+  "lastAction": "string",
+  "lastSummaryAt": "ISO timestamp",
+  "updatedAt": "ISO timestamp"
+}
+```
+
+This file is intended to be consumed by an OpenCode TUI plugin that renders a live sidebar widget. Scaffold files for that widget ship with this repo (`opencode/memory-status-tui.tsx` + `opencode/build-tui-plugin.mjs`) but OpenCode 1.15.10 does not yet expose a loader for third-party TUI plugins — the file is forward-compatible for when that lands.
 
 ## Limitations
 
