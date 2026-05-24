@@ -5,18 +5,6 @@ import path from "node:path"
 
 const STATUS_FILE = path.join(homedir(), ".config", "opencode", ".memory-status.json")
 
-async function writeStatus(patch) {
-  let current = {}
-  try {
-    current = JSON.parse(await readFile(STATUS_FILE, "utf8"))
-  } catch (_) {}
-  const next = { ...current, ...patch, updatedAt: new Date().toISOString() }
-  try {
-    await mkdir(path.dirname(STATUS_FILE), { recursive: true })
-    await writeFile(STATUS_FILE, JSON.stringify(next, null, 2))
-  } catch (_) {}
-}
-
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = process.env.NODE_TLS_REJECT_UNAUTHORIZED || "0"
 
 const tlsAgent = new https.Agent({ rejectUnauthorized: false })
@@ -613,6 +601,31 @@ const createPlugin = async ({ directory, client }) => {
   const sessionState = new Map()
   const healthState = { checked: false }
   const harvestFirstRun = { done: false }
+
+  // Per-instance status snapshot. Each plugin instance owns its own picture
+  // of memory activity and writes the whole object to disk on update so that
+  // a sibling plugin instance from a different project cannot leak fields
+  // into our snapshot via partial merges. The file therefore reflects the
+  // most recently active plugin instance — fine for the single-user case the
+  // TUI sidebar widget targets.
+  const status = {
+    projectName: projectNameFromDirectory(directory),
+    loadedCount: 0,
+    capturedCount: 0,
+    lastAction: "",
+    lastSummaryAt: null,
+    updatedAt: null,
+  }
+
+  const writeStatus = async (patch) => {
+    Object.assign(status, patch)
+    status.updatedAt = new Date().toISOString()
+    try {
+      await mkdir(path.dirname(STATUS_FILE), { recursive: true })
+      await writeFile(STATUS_FILE, JSON.stringify(status, null, 2))
+    } catch (_) {}
+  }
+
   const logInfo = async (message) => {
     if (!config.output.verbose) return
     try { await client?.app?.log?.({ service: "opencode-memory", level: "info", message }) } catch (_) {}
@@ -922,24 +935,29 @@ const createPlugin = async ({ directory, client }) => {
         } else if (sub === "health") {
           const h = await getHealth(config).catch((e) => ({ error: e.message }))
           const backend = h?.storage?.backend || h?.storage_backend || h?.backend || "unknown"
-          const status = h?.error ? `error: ${h.error}` : (h?.status || "healthy")
+          const healthStatus = h?.error ? `error: ${h.error}` : (h?.status || "healthy")
           const memCount = h?.statistics?.total_memories ?? h?.total_memories
           const lines = [`# Memory Service Health`, ""]
           lines.push(`- Backend: ${backend}`)
-          lines.push(`- Status: ${status}`)
+          lines.push(`- Status: ${healthStatus}`)
           if (memCount !== undefined) lines.push(`- Total memories: ${memCount}`)
           lines.push(`- Endpoint: ${config.memoryService.endpoint}`)
           block = lines.join("\n")
         } else {
-          let s = {}
-          try { s = JSON.parse(await readFile(STATUS_FILE, "utf8")) } catch (_) {}
+          // Read from this plugin instance's in-memory snapshot — not from
+          // STATUS_FILE — so the displayed status is always the current
+          // project's, even when another plugin instance (different project)
+          // is also running and overwriting the shared file.
+          const sessionMemories = input.sessionID
+            ? sessionState.get(input.sessionID)?.memories?.length
+            : undefined
           const lines = [`# Memory Status — ${projectName}`, ""]
-          lines.push(`- Project: ${s.projectName || projectName}`)
-          lines.push(`- Loaded this session: ${s.loadedCount ?? 0}`)
-          lines.push(`- Auto-captured: ${s.capturedCount ?? 0}`)
-          if (s.lastAction) lines.push(`- Last action: ${s.lastAction}`)
-          if (s.lastSummaryAt) lines.push(`- Last summary: ${s.lastSummaryAt}`)
-          if (s.updatedAt) lines.push(`- Updated: ${s.updatedAt}`)
+          lines.push(`- Project: ${status.projectName || projectName}`)
+          lines.push(`- Loaded this session: ${sessionMemories ?? status.loadedCount ?? 0}`)
+          lines.push(`- Auto-captured: ${status.capturedCount ?? 0}`)
+          if (status.lastAction) lines.push(`- Last action: ${status.lastAction}`)
+          if (status.lastSummaryAt) lines.push(`- Last summary: ${status.lastSummaryAt}`)
+          if (status.updatedAt) lines.push(`- Updated: ${status.updatedAt}`)
           lines.push("")
           lines.push("Usage: `/memory`, `/memory search <query>`, `/memory health`")
           block = lines.join("\n")

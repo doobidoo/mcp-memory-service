@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js"
 import { homedir } from "node:os"
 import path from "node:path"
-import fs from "node:fs"
+import { readFile } from "node:fs/promises"
 import type { TuiPlugin } from "@opencode-ai/plugin/dist/tui.js"
 
 const STATUS_FILE = path.join(homedir(), ".config", "opencode", ".memory-status.json")
@@ -16,25 +16,23 @@ type Status = {
   updatedAt?: string
 }
 
-function readStatus(): Status {
+async function readStatus(): Promise<Status> {
   try {
-    return JSON.parse(fs.readFileSync(STATUS_FILE, "utf8")) as Status
+    return JSON.parse(await readFile(STATUS_FILE, "utf8")) as Status
   } catch {
     return {}
   }
 }
 
 export const tui: TuiPlugin = async (api) => {
-  const [status, setStatus] = createSignal<Status>(readStatus())
+  const [status, setStatus] = createSignal<Status>(await readStatus())
 
-  const tick = () => {
-    try {
-      const raw = fs.readFileSync(STATUS_FILE, "utf8")
-      const parsed = JSON.parse(raw) as Status
-      setStatus(parsed)
-    } catch {
-      // file may not exist yet — keep previous state
-    }
+  // Async tick keeps the TUI event loop unblocked. setInterval ignores the
+  // returned Promise; overlapping ticks are harmless because each fully
+  // resolves before calling setStatus.
+  const tick = async () => {
+    const parsed = await readStatus()
+    setStatus(parsed)
   }
 
   const interval = setInterval(tick, POLL_MS)
