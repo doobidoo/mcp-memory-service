@@ -21,7 +21,7 @@ Restart mcp-memory-service — the plugin loads automatically via `entry_points`
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `MCP_PLUGIN_AUDIT_LOG_PATH` | `/tmp/mcp-memory-audit.jsonl` | Path to the audit log file |
-| `MCP_PLUGIN_AUDIT_LOG_PRIVACY_MODE` | `safe` | `safe` omits raw queries/tags/content; `raw` preserves the original debug fields for local-only inspection |
+| `MCP_PLUGIN_AUDIT_LOG_PRIVACY_MODE` | `safe` | `safe` omits raw queries/tags/content; `raw` preserves the original debug fields for local-only inspection. **Warning:** raw mode can write retrieval queries, tags and derived memory identifiers to disk; use it only for short-lived local debugging when you control the log destination. |
 | `MCP_PLUGIN_AUDIT_LOG_HMAC_KEY` | unset | Optional secret used to emit stable `hmac-sha256:*` query/memory identifiers in safe mode |
 
 ## Events

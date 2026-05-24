@@ -1,31 +1,24 @@
 import asyncio
-import importlib
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+import mcp_memory_plugin_audit_log as plugin
+
 
 class AuditLogPrivacyTest(unittest.TestCase):
-    def reload_plugin(self, tmp_path: Path, *, mode="safe", key=None):
-        env = {
-            "MCP_PLUGIN_AUDIT_LOG_PATH": str(tmp_path / "audit.jsonl"),
-            "MCP_PLUGIN_AUDIT_LOG_PRIVACY_MODE": mode,
-        }
-        if key is not None:
-            env["MCP_PLUGIN_AUDIT_LOG_HMAC_KEY"] = key
-
-        patcher = mock.patch.dict(os.environ, env, clear=False)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        if key is None:
-            os.environ.pop("MCP_PLUGIN_AUDIT_LOG_HMAC_KEY", None)
-
-        import mcp_memory_plugin_audit_log as plugin
-
-        return importlib.reload(plugin)
+    def configure_plugin(self, tmp_path: Path, *, mode="safe", key=""):
+        patchers = [
+            mock.patch.object(plugin, "AUDIT_LOG_PATH", tmp_path / "audit.jsonl"),
+            mock.patch.object(plugin, "PRIVACY_MODE", mode),
+            mock.patch.object(plugin, "HMAC_KEY", key or ""),
+        ]
+        for patcher in patchers:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return plugin
 
     @staticmethod
     def read_events(path: Path):
@@ -34,7 +27,7 @@ class AuditLogPrivacyTest(unittest.TestCase):
     def test_safe_mode_omits_raw_query_tags_and_content(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            plugin = self.reload_plugin(tmp_path, key="test-key")
+            plugin = self.configure_plugin(tmp_path, key="test-key")
 
             asyncio.run(plugin.on_store({
                 "content_hash": "raw-content-hash",
@@ -62,7 +55,7 @@ class AuditLogPrivacyTest(unittest.TestCase):
     def test_safe_mode_without_hmac_omits_stable_identifier_hashes(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            plugin = self.reload_plugin(tmp_path)
+            plugin = self.configure_plugin(tmp_path)
 
             asyncio.run(plugin.on_delete("predictable-content-hash"))
             asyncio.run(plugin.on_retrieve("find private customer note", []))
@@ -84,13 +77,47 @@ class AuditLogPrivacyTest(unittest.TestCase):
     def test_raw_mode_preserves_original_debug_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            plugin = self.reload_plugin(tmp_path, mode="raw")
+            plugin = self.configure_plugin(tmp_path, mode="raw")
 
             asyncio.run(plugin.on_retrieve("debug query", []))
 
             events = self.read_events(tmp_path / "audit.jsonl")
             self.assertEqual(events[0]["privacy_mode"], "raw")
             self.assertEqual(events[0]["query"], "debug query")
+
+    def test_empty_identifiers_with_hmac_do_not_claim_missing_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            plugin = self.configure_plugin(tmp_path, key="test-key")
+
+            asyncio.run(plugin.on_retrieve("", []))
+
+            events = self.read_events(tmp_path / "audit.jsonl")
+            self.assertEqual(events[0]["hash_algorithm"], "hmac-sha256")
+            self.assertNotIn("query_hash_hmac", events[0])
+            self.assertNotIn("identifier_hashes_omitted_reason", events[0])
+
+    def test_none_content_does_not_break_length_calculation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            plugin = self.configure_plugin(tmp_path, key="test-key")
+
+            asyncio.run(plugin.on_store({"content_hash": "abc", "content": None, "tags": None}))
+
+            events = self.read_events(tmp_path / "audit.jsonl")
+            self.assertEqual(events[0]["content_length"], 0)
+            self.assertEqual(events[0]["tag_count"], 0)
+
+    def test_register_normalizes_unknown_privacy_mode_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            plugin = self.configure_plugin(tmp_path, mode="surprise")
+            ctx = mock.Mock()
+
+            plugin.register(ctx)
+
+            self.assertEqual(plugin.PRIVACY_MODE, "safe")
+            self.assertEqual(ctx.on.call_count, 4)
 
 
 if __name__ == "__main__":

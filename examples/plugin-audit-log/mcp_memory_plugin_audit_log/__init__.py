@@ -40,6 +40,11 @@ HMAC_KEY = os.getenv("MCP_PLUGIN_AUDIT_LOG_HMAC_KEY", "")
 
 def register(ctx: Any) -> None:
     """Entry point called by PluginRegistry at startup."""
+    global PRIVACY_MODE
+    if PRIVACY_MODE not in ("safe", "raw"):
+        logger.warning("audit-log: unknown privacy mode %r; using safe", PRIVACY_MODE)
+        PRIVACY_MODE = "safe"
+
     logger.info(
         "audit-log plugin: registered (log=%s, privacy_mode=%s)",
         AUDIT_LOG_PATH,
@@ -52,12 +57,8 @@ def register(ctx: Any) -> None:
 
 
 def _privacy_mode() -> str:
-    """Return the active privacy mode, falling back to safe for bad config."""
-    if PRIVACY_MODE == "raw":
-        return "raw"
-    if PRIVACY_MODE != "safe":
-        logger.warning("audit-log: unknown privacy mode %r; using safe", PRIVACY_MODE)
-    return "safe"
+    """Return the active privacy mode."""
+    return PRIVACY_MODE
 
 
 def _hmac_hash(value: Any) -> str | None:
@@ -71,9 +72,8 @@ def _hmac_hash(value: Any) -> str | None:
     ).hexdigest()
 
 
-def _hash_metadata(*values: Any) -> dict[str, str | bool]:
+def _hash_metadata() -> dict[str, str | bool]:
     """Build common hash metadata for safe-mode events."""
-    hashes_present = bool(HMAC_KEY) and any(value not in (None, "") for value in values)
     metadata: dict[str, str | bool] = {
         "privacy_mode": "safe",
         "raw_query_included": False,
@@ -81,7 +81,7 @@ def _hash_metadata(*values: Any) -> dict[str, str | bool]:
         "raw_tags_included": False,
         "hash_algorithm": "hmac-sha256" if HMAC_KEY else "none",
     }
-    if not hashes_present:
+    if not HMAC_KEY:
         metadata["identifier_hashes_omitted_reason"] = "MCP_PLUGIN_AUDIT_LOG_HMAC_KEY not set"
     return metadata
 
@@ -114,16 +114,16 @@ async def on_store(memory_dict: dict) -> None:
             "hash": content_hash,
             "memory_type": memory_dict.get("memory_type", ""),
             "tags": memory_dict.get("tags", []),
-            "content_length": len(memory_dict.get("content", "")),
+            "content_length": len(memory_dict.get("content") or ""),
         })
         return
 
     event = {
-        **_hash_metadata(content_hash),
+        **_hash_metadata(),
         "memory_hash_hmac": _hmac_hash(content_hash),
         "memory_type": memory_dict.get("memory_type", ""),
         "tag_count": len(memory_dict.get("tags", []) or []),
-        "content_length": len(memory_dict.get("content", "")),
+        "content_length": len(memory_dict.get("content") or ""),
     }
     # Drop None values so missing keys are explicit via metadata, not null ids.
     await _write_event("store", {k: v for k, v in event.items() if v is not None})
@@ -136,7 +136,7 @@ async def on_delete(content_hash: str) -> None:
         return
 
     event = {
-        **_hash_metadata(content_hash),
+        **_hash_metadata(),
         "memory_hash_hmac": _hmac_hash(content_hash),
     }
     await _write_event("delete", {k: v for k, v in event.items() if v is not None})
@@ -153,7 +153,7 @@ async def on_retrieve(query: str, results: list[dict]) -> list[dict]:
         return results
 
     event = {
-        **_hash_metadata(query),
+        **_hash_metadata(),
         "query_hash_hmac": _hmac_hash(query),
         "query_length": len(query or ""),
         "result_count": len(results),
