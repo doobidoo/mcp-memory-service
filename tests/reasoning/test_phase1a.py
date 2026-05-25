@@ -26,7 +26,7 @@ import pytest
 # Module loading (matching tests/test_semantic_reasoner.py pattern)
 # ---------------------------------------------------------------------------
 
-_tests_dir = Path(__file__).parent.parent
+_tests_dir = Path(__file__).parent.parent.parent  # tests/reasoning -> tests -> repo root
 _graph_path = _tests_dir / "src" / "mcp_memory_service" / "storage" / "graph.py"
 _reasoning_path = _tests_dir / "src" / "mcp_memory_service" / "reasoning" / "inference.py"
 _handler_path = _tests_dir / "src" / "mcp_memory_service" / "server" / "handlers" / "graph.py"
