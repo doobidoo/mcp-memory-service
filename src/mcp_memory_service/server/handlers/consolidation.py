@@ -39,13 +39,27 @@ async def handle_consolidate_memories(server, arguments: dict) -> List[types.Tex
         if not time_horizon:
             return [types.TextContent(type="text", text="Error: time_horizon is required")]
 
-        if time_horizon not in ["daily", "weekly", "monthly", "quarterly", "yearly"]:
-            return [types.TextContent(type="text", text="Error: Invalid time_horizon. Must be one of: daily, weekly, monthly, quarterly, yearly")]
+        if time_horizon not in ["daily", "weekly", "monthly", "quarterly", "yearly", "incremental"]:
+            return [types.TextContent(type="text", text="Error: Invalid time_horizon. Must be one of: daily, weekly, monthly, quarterly, yearly, incremental")]
 
         logger.info(f"Starting {time_horizon} consolidation")
 
-        # Run consolidation
-        report = await server.consolidator.consolidate(time_horizon)
+        # Run consolidation (with timeout for incremental)
+        if time_horizon == "incremental":
+            import asyncio
+            INCREMENTAL_TIMEOUT_SECONDS = 10
+            try:
+                report = await asyncio.wait_for(
+                    server.consolidator.consolidate(time_horizon),
+                    timeout=INCREMENTAL_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                # Advance last_run_at on timeout to prevent infinite retry loop (#986)
+                if server.consolidator.run_tracker:
+                    await server.consolidator.run_tracker.record_run("incremental", 0)
+                return [types.TextContent(type="text", text="Incremental consolidation timed out (>10s). Partial progress saved.")]
+        else:
+            report = await server.consolidator.consolidate(time_horizon)
 
         # Format response
         result = f"""Consolidation completed successfully!
