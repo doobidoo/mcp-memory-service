@@ -13,6 +13,9 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
+# Cap to prevent O(N²) edge explosion for common entities
+MAX_LINKS_PER_ENTITY = 20
+
 
 def is_entity_linking_enabled() -> bool:
     """Check if entity linking is enabled via environment variable."""
@@ -44,16 +47,31 @@ class EntityLinker:
         edges_created = 0
         seen_pairs = set()
 
-        for entity_name in entities:
+        # Deduplicate entities to avoid redundant queries
+        unique_entities = list(dict.fromkeys(entities))
+
+        for entity_name in unique_entities:
             try:
                 existing_hashes = await graph_storage.find_memories_by_entity(entity_name)
             except Exception as e:
                 logger.debug(f"Failed to query entity '{entity_name}': {e}")
                 continue
 
+            # Defensive: handle None or non-iterable return
+            if not existing_hashes:
+                continue
+
+            # Cap links per entity to prevent O(N²) explosion
+            linked_count = 0
             for other_hash in existing_hashes:
                 if other_hash == memory_hash:
                     continue
+                if linked_count >= MAX_LINKS_PER_ENTITY:
+                    logger.debug(
+                        f"EntityLinker: hit cap ({MAX_LINKS_PER_ENTITY}) for entity '{entity_name}'"
+                    )
+                    break
+
                 # Canonical pair to avoid duplicates
                 pair = tuple(sorted([memory_hash, other_hash]))
                 if pair in seen_pairs:
@@ -71,6 +89,7 @@ class EntityLinker:
                     )
                     if ok:
                         edges_created += 1
+                        linked_count += 1
                 except Exception as e:
                     logger.debug(f"Failed to create shares_entity edge: {e}")
 
