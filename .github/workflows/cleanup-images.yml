@@ -50,10 +50,10 @@ jobs:
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - name: Delete untagged images from GHCR
       if: github.event.inputs.delete_untagged != 'false'
-      uses: actions/delete-package-versions@0d39a63126868f5eefaa47169615edd3c0f61e20 # v4
+      uses: actions/delete-package-versions@0d39a63126868f5eefaa47169615edd3c0f61e20 # v4.1.1
       continue-on-erro
       r: true
       with:
@@ -64,7 +64,7 @@ jobs:
         delete-only-untagged-versions: 'true'
     
     - name: Clean old GHCR versions (keep last N)
-      uses: actions/delete-package-versions@0d39a63126868f5eefaa47169615edd3c0f61e20 # v4
+      uses: actions/delete-package-versions@0d39a63126868f5eefaa47169615edd3c0f61e20 # v4.1.1
       continue-on-erro
       r: true
       with:
@@ -76,7 +76,7 @@ jobs:
         delete-only-pre-release-versions: 'false'
     
     - name: Clean buildcache tags older than 7 days
-      uses: snok/container-retention-policy@b56f4ff7539c1f94f01e5dc726671cd619aa8072 # v2
+      uses: snok/container-retention-policy@b56f4ff7539c1f94f01e5dc726671cd619aa8072 # v2.2.1
       continue-on-error: true
       with:
         image-names: mcp-memory-service
@@ -96,9 +96,9 @@ jobs:
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - name: Set up Python
-      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       wit
       h:
         python-version: '3.11'
