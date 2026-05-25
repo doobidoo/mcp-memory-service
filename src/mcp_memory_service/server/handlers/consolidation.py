@@ -54,7 +54,7 @@ async def handle_consolidate_memories(server, arguments: dict) -> List[types.Tex
                     timeout=INCREMENTAL_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
-                # Advance last_run_at on timeout to prevent infinite retry loop (#986)
+                # Advance last_run_at even on timeout to prevent infinite retry loop (#986)
                 if server.consolidator.run_tracker:
                     await server.consolidator.run_tracker.record_run("incremental", 0)
                 return [types.TextContent(type="text", text="Incremental consolidation timed out (>10s). Partial progress saved.")]
@@ -145,7 +145,7 @@ async def handle_consolidation_recommendations(server, arguments: dict) -> List[
         if not time_horizon:
             return [types.TextContent(type="text", text="Error: time_horizon is required")]
 
-        if time_horizon not in ["daily", "weekly", "monthly", "quarterly", "yearly"]:
+        if time_horizon not in ["daily", "weekly", "monthly", "quarterly", "yearly", "incremental"]:
             return [types.TextContent(type="text", text="Error: Invalid time_horizon")]
 
         # Get recommendations
@@ -261,7 +261,7 @@ async def handle_trigger_consolidation(server, arguments: dict) -> List[types.Te
         if not time_horizon:
             return [types.TextContent(type="text", text="Error: time_horizon is required")]
 
-        if time_horizon not in ["daily", "weekly", "monthly", "quarterly", "yearly"]:
+        if time_horizon not in ["daily", "weekly", "monthly", "quarterly", "yearly", "incremental"]:
             return [types.TextContent(type="text", text="Error: Invalid time_horizon")]
 
         # Trigger consolidation
