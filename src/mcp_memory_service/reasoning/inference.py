@@ -176,18 +176,24 @@ class SemanticReasoner:
         Raises:
             ValueError: If rel_type is non-traversable
         """
+        # Defensive coercion (MCP handler may pass strings/None)
+        max_hops = max(1, min(int(max_hops or 2), 4))
+        decay_factor = float(decay_factor or 1.0)
+
         if rel_type in NON_TRAVERSABLE:
             raise ValueError(
                 f"Edge type '{rel_type}' is non-traversable. "
                 f"Non-traversable types: {sorted(NON_TRAVERSABLE)}"
             )
+        if rel_type not in TRAVERSABLE_EDGE_TYPES:
+            logger.warning(f"Edge type '{rel_type}' not in TRAVERSABLE_EDGE_TYPES, proceeding anyway")
         if not hasattr(self.graph, 'transitive_closure'):
             logger.warning("GraphStorage does not support transitive_closure")
             return []
         try:
             results = await self.graph.transitive_closure(rel_type, max_hops)
             return [
-                (src, tgt, dist, decay_factor / dist)
+                (src, tgt, dist, decay_factor / max(dist, 1))
                 for src, tgt, dist in results
             ]
         except Exception as e:
@@ -204,9 +210,16 @@ class SemanticReasoner:
         3. If multiple effects share the same cause pattern, boost confidence
         4. Return ranked list of probable causes with confidence
 
+        Args:
+            effect_hash: The observed effect memory hash
+            max_depth: Maximum depth for cause traversal (1-4, default 2)
+
         Returns:
             List of {cause_hash, confidence, evidence_count, shared_effects}
         """
+        # Defensive coercion
+        max_depth = max(1, min(int(max_depth or 2), 4))
+
         try:
             # Step 1: Find incoming causes/fixes
             causes = await self._get_connected(effect_hash, "causes", direction="incoming")
