@@ -158,7 +158,7 @@ class SemanticReasoner:
         max_hops: int = 2
     ) -> List[Tuple[str, str, int]]:
         """
-        Find transitive relationships (A→B→C implies A→C).
+        Find transitive relationships (A->B->C implies A->C).
 
         Delegates to GraphStorage.transitive_closure which uses a recursive CTE
         for efficient in-database traversal.
@@ -173,7 +173,7 @@ class SemanticReasoner:
 
         Example:
             >>> inferred = await reasoner.infer_transitive("causes", max_hops=2)
-            [("hash1", "hash3", 2), ...]  # hash1→hash2→hash3
+            [("hash1", "hash3", 2), ...]  # hash1->hash2->hash3
         """
         if not hasattr(self.graph, 'transitive_closure'):
             logger.warning("GraphStorage does not support transitive_closure")
@@ -225,4 +225,45 @@ class SemanticReasoner:
 
         except Exception as e:
             logger.error(f"Failed to suggest relationships for {hash}: {e}")
+            return []
+
+    async def abduce(
+        self,
+        observation_hash: str,
+        rel_type: str,
+        max_hops: int = 1,
+    ) -> List[Dict[str, Any]]:
+        """
+        Abductive inference: find candidate explanations for an observation.
+
+        Given observation O and relationship type R, finds all memories A
+        where A -[R]-> O (direct or transitive). Returns candidates sorted
+        by distance ascending -- closest explanation first.
+
+        Args:
+            observation_hash: Hash of the memory to explain
+            rel_type: Relationship type to traverse backwards
+            max_hops: Maximum hops to search (1 = direct only)
+
+        Returns:
+            List of {"antecedent": str, "distance": int} dicts
+
+        Example:
+            >>> # If A causes B causes C, abduce("C", "causes", max_hops=2)
+            >>> # returns [{"antecedent": "B", "distance": 1},
+            >>> #          {"antecedent": "A", "distance": 2}]
+        """
+        max_hops = max(1, min(max_hops, 4))
+        try:
+            connected = await self.graph.find_connected(
+                memory_hash=observation_hash,
+                relationship_type=rel_type,
+                direction="incoming",
+                max_hops=max_hops,
+            )
+            results = [{"antecedent": h, "distance": d} for h, d in connected]
+            results.sort(key=lambda x: x["distance"])
+            return results
+        except Exception as e:
+            logger.error(f"Failed to abduce from {observation_hash}: {e}")
             return []
