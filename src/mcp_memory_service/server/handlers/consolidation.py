@@ -19,6 +19,7 @@ Memory consolidation, scheduler control, status monitoring, and recommendations.
 Extracted from server_impl.py Phase 2.2 refactoring.
 """
 
+import asyncio
 import logging
 import traceback
 from typing import List
@@ -46,7 +47,6 @@ async def handle_consolidate_memories(server, arguments: dict) -> List[types.Tex
 
         # Run consolidation (with timeout for incremental)
         if time_horizon == "incremental":
-            import asyncio
             INCREMENTAL_TIMEOUT_SECONDS = 10
             try:
                 report = await asyncio.wait_for(
