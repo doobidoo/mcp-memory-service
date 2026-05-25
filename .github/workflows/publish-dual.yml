@@ -22,13 +22,15 @@ jobs:
       contents: read
 
     steps:
-    - uses: actions/checkout@v6
-      with:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+    wit
+    h:
         fetch-depth: 0
 
     - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      wit
+      h:
         python-version: '3.11'
 
     - name: Install build dependencies
@@ -56,13 +58,15 @@ jobs:
       contents: read
 
     steps:
-    - uses: actions/checkout@v6
-      with:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+    wit
+    h:
         fetch-depth: 0
 
     - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      wit
+      h:
         python-version: '3.11'
 
     - name: Install build dependencies
@@ -101,8 +105,9 @@ jobs:
 
     steps:
     - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      wit
+      h:
         python-version: '3.11'
 
     - name: Wait for PyPI to update

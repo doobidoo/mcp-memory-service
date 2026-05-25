@@ -15,17 +15,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Lint Dockerfile (main)
-        uses: hadolint/hadolint-action@v3.3.0
-        with:
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        - name: Lint Dockerfile (main)
+        uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
+        wit
+        h:
           dockerfile: tools/docker/Dockerfile
           failure-threshold: warning
 
       - name: Lint Dockerfile.slim
-        uses: hadolint/hadolint-action@v3.3.0
-        with:
+        uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
+        wit
+        h:
           dockerfile: tools/docker/Dockerfile.slim
           failure-threshold: warning
 
@@ -33,7 +34,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Check for unused Docker ARGs
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        - name: Check for unused Docker ARGs
         run: bash scripts/ci/check_dockerfile_args.sh

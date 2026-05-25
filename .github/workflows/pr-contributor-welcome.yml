@@ -11,8 +11,9 @@ jobs:
   welcome:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/github-script@v9
-        with:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+      wit
+      h:
           script: |
             // Only post for non-owner contributors opening PRs; skip push/other events
             if (!context.payload.pull_request) { return; }

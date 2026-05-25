@@ -15,9 +15,8 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v6
-
-    - name: Determine quarter
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Determine quarter
       id: quarter
       run: |
         MONTH=$(date +%m)
@@ -36,8 +35,9 @@ jobs:
         echo "Detected: $QUARTER $YEAR"
 
     - name: Create roadmap review issue
-      uses: actions/github-script@v9
-      with:
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+      wit
+      h:
         script: |
           const quarter = '${{ steps.quarter.outputs.quarter }}';
           const year = '${{ steps.quarter.outputs.year }}';
