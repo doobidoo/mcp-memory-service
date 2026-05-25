@@ -75,7 +75,7 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
         return [types.TextContent(type="text", text="Error: action parameter is required")]
 
     # Validate action
-    valid_actions = ["connected", "path", "subgraph", "extract_entities", "infer", "suggest"]
+    valid_actions = ["connected", "path", "subgraph", "extract_entities", "infer", "suggest", "abduce"]
     if action not in valid_actions:
         return [types.TextContent(
             type="text",
@@ -159,6 +159,9 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
         elif action == "suggest":
             return await handle_suggest(arguments)
 
+        elif action == "abduce":
+            return await handle_abduce(arguments)
+
         else:
             # Should never reach here due to validation above
             return [types.TextContent(type="text", text=f"Error: Unknown action '{action}'")]
@@ -223,6 +226,38 @@ async def handle_suggest(arguments: dict) -> List[types.TextContent]:
         "success": True,
         "suggestions": suggestions,
         "count": len(suggestions)
+    }, indent=2))]
+
+
+async def handle_abduce(arguments: dict) -> List[types.TextContent]:
+    """Handle abduce action: find candidate explanations for an observation."""
+    graph = await get_graph_storage()
+    if graph is None:
+        return [types.TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": f"Graph operations not available for backend: {STORAGE_BACKEND}",
+            "antecedents": []
+        }, indent=2))]
+
+    observation = arguments.get("hash")
+    if not observation:
+        return [types.TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": "Missing required parameter: hash",
+            "antecedents": []
+        }, indent=2))]
+
+    from ...reasoning.inference import SemanticReasoner
+    reasoner = SemanticReasoner(graph)
+
+    rel_type = arguments.get("rel_type", "causes")
+    max_hops = arguments.get("max_hops", 1)
+
+    results = await reasoner.abduce(observation, rel_type, max_hops)
+    return [types.TextContent(type="text", text=json.dumps({
+        "success": True,
+        "antecedents": results,
+        "count": len(results)
     }, indent=2))]
 
 
