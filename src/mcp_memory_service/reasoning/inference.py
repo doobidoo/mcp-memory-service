@@ -253,7 +253,7 @@ class SemanticReasoner:
             >>> # returns [{"antecedent": "B", "distance": 1},
             >>> #          {"antecedent": "A", "distance": 2}]
         """
-        max_hops = max(1, min(max_hops, 4))
+        max_hops = max(1, min(int(max_hops or 1), 4))
         try:
             connected = await self.graph.find_connected(
                 memory_hash=observation_hash,
@@ -261,9 +261,7 @@ class SemanticReasoner:
                 direction="incoming",
                 max_hops=max_hops,
             )
-            results = [{"antecedent": h, "distance": d} for h, d in connected]
-            results.sort(key=lambda x: x["distance"])
-            return results
+            return [{"antecedent": h, "distance": d} for h, d in connected]
         except Exception as e:
             logger.error(f"Failed to abduce from {observation_hash}: {e}")
             return []
