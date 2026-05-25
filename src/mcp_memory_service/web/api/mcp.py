@@ -21,6 +21,11 @@ from ..oauth.middleware import require_read_access, AuthenticationResult
 
 logger = logging.getLogger(__name__)
 
+# Tools that mutate state — require 'write' scope even through MCP.
+# Read-only tools (retrieve_memory, recall_memory, search_by_tag,
+# check_database_health, list_memories) remain accessible with 'read' scope.
+_WRITE_TOOLS: frozenset = frozenset({"store_memory", "delete_memory"})
+
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
 
@@ -188,6 +193,24 @@ async def mcp_endpoint(
         elif request.method == "tools/call":
             tool_name = request.params.get("name") if request.params else None
             arguments = request.params.get("arguments", {}) if request.params else {}
+
+            # Scope enforcement: mutating tools require 'write' scope.
+            # A read-only OAuth token must not reach store_memory or
+            # delete_memory — the REST layer already enforces this boundary;
+            # MCP must match it (GHSA-2r68-g678-7qr3).
+            if tool_name in _WRITE_TOOLS and not user.has_scope("write"):
+                response = MCPResponse(
+                    id=request.id,
+                    error={
+                        "code": -32003,
+                        "message": "Insufficient scope: tool requires 'write' access",
+                        "data": {"required_scope": "write", "tool": tool_name}
+                    }
+                )
+                return JSONResponse(
+                    content=response.model_dump(exclude_none=True),
+                    status_code=403
+                )
 
             result = await handle_tool_call(storage, tool_name, arguments)
 
