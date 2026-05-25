@@ -43,7 +43,7 @@ class SemanticReasoner:
             raise ValueError("graph_storage must have shortest_path method")
         self.graph = graph_storage
 
-    async def _get_connected(self, hash: str, rel_type: str, direction: str = "both") -> List[str]:
+    async def _get_connected(self, hash: str, rel_type: str, direction: str = "both", max_hops: int = 1) -> List[str]:
         """
         Helper to fetch memories connected via specific relationship type.
 
@@ -51,6 +51,7 @@ class SemanticReasoner:
             hash: Source memory hash
             rel_type: Relationship type to filter
             direction: Direction to traverse ("outgoing", "incoming", "both")
+            max_hops: Maximum traversal depth (default 1 = direct connections only)
 
         Returns:
             List of connected memory hashes
@@ -61,7 +62,7 @@ class SemanticReasoner:
                 memory_hash=hash,
                 relationship_type=rel_type,
                 direction=direction,
-                max_hops=1
+                max_hops=max_hops
             )
             # Return only the memory hashes (strip distance info)
             # connected is List[Tuple[str, int]]
@@ -221,9 +222,9 @@ class SemanticReasoner:
         max_depth = max(1, min(int(max_depth or 2), 4))
 
         try:
-            # Step 1: Find incoming causes/fixes
-            causes = await self._get_connected(effect_hash, "causes", direction="incoming")
-            fixes = await self._get_connected(effect_hash, "fixes", direction="incoming")
+            # Step 1: Find incoming causes/fixes (using max_depth for traversal)
+            causes = await self._get_connected(effect_hash, "causes", direction="incoming", max_hops=max_depth)
+            fixes = await self._get_connected(effect_hash, "fixes", direction="incoming", max_hops=max_depth)
             all_causes = sorted(set(causes + fixes))
 
             if not all_causes:
@@ -246,6 +247,7 @@ class SemanticReasoner:
                     "confidence": round(confidence, 3),
                     "evidence_count": evidence_count,
                     "shared_effects": shared_effects[:10],
+                    "total_shared_effects": len(shared_effects),
                 })
 
             results.sort(key=lambda x: x["confidence"], reverse=True)
