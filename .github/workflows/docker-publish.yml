@@ -23,13 +23,14 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up Docker Buildx
+
+    - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-      - name: Log in to Docker Hub
+
+    - name: Log in to Docker Hub
       if: github.event_name != 'pull_request'
       uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
-      wit
-      h:
+      with:
         registry: ${{ env.REGISTRY }}
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
@@ -37,8 +38,7 @@ jobs:
     - name: Extract metadata (Standard)
       id: meta
       uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
-      wit
-      h:
+      with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
           type=ref,event=branch
@@ -51,8 +51,7 @@ jobs:
     - name: Build and push Standard Docker image
       id: build-and-push
       uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
-      wit
-      h:
+      with:
         context: .
         file: ./tools/docker/Dockerfile
         platforms: linux/amd64,linux/arm64
@@ -68,8 +67,7 @@ jobs:
     - name: Generate artifact attestation (Standard)
       if: github.event_name != 'pull_request'
       uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-      wit
-      h:
+      with:
         subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
         subject-digest: ${{ steps.build-and-push.outputs.digest }}
         push-to-registry: true
@@ -87,13 +85,14 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up Docker Buildx
+
+    - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-      - name: Log in to Docker Hub
+
+    - name: Log in to Docker Hub
       if: github.event_name != 'pull_request'
       uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
-      wit
-      h:
+      with:
         registry: ${{ env.REGISTRY }}
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
@@ -101,8 +100,7 @@ jobs:
     - name: Extract metadata (Slim)
       id: meta-slim
       uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
-      wit
-      h:
+      with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
           type=ref,event=branch,suffix=-slim
@@ -115,8 +113,7 @@ jobs:
     - name: Build and push Slim Docker image
       id: build-and-push-slim
       uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
-      wit
-      h:
+      with:
         context: .
         file: ./tools/docker/Dockerfile.slim
         platforms: linux/amd64,linux/arm64
@@ -132,8 +129,7 @@ jobs:
     - name: Generate artifact attestation (Slim)
       if: github.event_name != 'pull_request'
       uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-      wit
-      h:
+      with:
         subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
         subject-digest: ${{ steps.build-and-push-slim.outputs.digest }}
         push-to-registry: true
@@ -151,13 +147,14 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up Docker Buildx
+
+    - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-      - name: Log in to Docker Hub
+
+    - name: Log in to Docker Hub
       if: github.event_name != 'pull_request'
       uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
-      wit
-      h:
+      with:
         registry: ${{ env.REGISTRY }}
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
@@ -165,8 +162,7 @@ jobs:
     - name: Extract metadata (Quality CPU)
       id: meta-quality-cpu
       uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
-      wit
-      h:
+      with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
           type=ref,event=branch,suffix=-quality-cpu
@@ -179,8 +175,7 @@ jobs:
     - name: Build and push Quality CPU Docker image
       id: build-and-push-quality-cpu
       uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
-      wit
-      h:
+      with:
         context: .
         file: ./tools/docker/Dockerfile.quality-cpu
         # amd64 only: the builder stage installs CPU PyTorch (~750 MB) and
@@ -198,8 +193,7 @@ jobs:
     - name: Generate artifact attestation (Quality CPU)
       if: github.event_name != 'pull_request'
       uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-      wit
-      h:
+      with:
         subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
         subject-digest: ${{ steps.build-and-push-quality-cpu.outputs.digest }}
         push-to-registry: true

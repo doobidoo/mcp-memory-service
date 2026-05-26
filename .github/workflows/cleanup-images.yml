@@ -51,11 +51,11 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - name: Delete untagged images from GHCR
+    
+    - name: Delete untagged images from GHCR
       if: github.event.inputs.delete_untagged != 'false'
       uses: actions/delete-package-versions@0d39a63126868f5eefaa47169615edd3c0f61e20 # v4.1.1
-      continue-on-erro
-      r: true
+      continue-on-error: true
       with:
         package-name: 'mcp-memory-service'
         package-type: 'container'
@@ -65,8 +65,7 @@ jobs:
     
     - name: Clean old GHCR versions (keep last N)
       uses: actions/delete-package-versions@0d39a63126868f5eefaa47169615edd3c0f61e20 # v4.1.1
-      continue-on-erro
-      r: true
+      continue-on-error: true
       with:
         package-name: 'mcp-memory-service'
         package-type: 'container'
@@ -97,10 +96,10 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - name: Set up Python
+    
+    - name: Set up Python
       uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-      wit
-      h:
+      with:
         python-version: '3.11'
         cache: 'pip'
         cache-dependency-path: '**/pyproject.toml'

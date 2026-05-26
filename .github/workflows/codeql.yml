@@ -31,10 +31,10 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up Python
+
+    - name: Set up Python
       uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-      wit
-      h:
+      with:
         python-version: '3.11'
 
     # Install dependencies to improve CodeQL analysis accuracy
@@ -46,8 +46,7 @@ jobs:
     # Initialize CodeQL tools for scanning
     - name: Initialize CodeQL
       uses: github/codeql-action/init@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
-      wit
-      h:
+      with:
         languages: ${{ matrix.language }}
         # Query suites: security-extended includes more security checks
         queries: security-and-quality
@@ -58,10 +57,11 @@ jobs:
     # Python analysis works by scanning the source code directly
     - name: Autobuild
       uses: github/codeql-action/autobuild@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+
+    # Perform CodeQL Analysis
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
-      wit
-      h:
+      with:
         category: "/language:${{matrix.language}}"
         # Upload SARIF file for GitHub Security tab
         upload: true
