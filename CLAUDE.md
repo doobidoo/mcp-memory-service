@@ -201,11 +201,12 @@ src/mcp_memory_service/
 **FastAPI-based REST API and dashboard:**
 - **`app.py`** - Main FastAPI application
 - **`api/`** - REST endpoints mirroring MCP tools
+- **`api/mcp.py`** - MCP-over-HTTP transport
 - **`oauth/`** - OAuth 2.1 Dynamic Client Registration (v7.0.0+)
 - **`sse.py`** - Server-Sent Events for real-time updates
 - **`static/`** - Single-page dashboard application
 
-**Key Pattern:** HTTP API provides same functionality as MCP tools for team collaboration.
+**Key Pattern:** HTTP API provides same functionality as MCP tools for team collaboration. The MCP-over-HTTP endpoint is a thin protocol shim — its tool surface and dispatch logic are inherited from the shared `MemoryServer`.
 
 ### Quality System (`quality/`)
 
@@ -441,10 +442,11 @@ export MCP_EXTERNAL_EMBEDDING_API_KEY=sk-xxx  # Optional
 ### Common Development Tasks
 
 **Add a new MCP tool:**
-1. Add handler method to `src/mcp_memory_service/server_impl.py`
-2. Register tool in `MemoryServer.__init__` tool list
-3. Add tests in `tests/server/test_handlers.py`
-4. Update MCP schema if needed
+1. Add a handler function (or method) — these live in `src/mcp_memory_service/server/handlers/*.py` and follow the `async def handle_X(server, arguments) -> List[types.TextContent]` shape.
+2. Add a `types.Tool(...)` entry to `MemoryServer.list_tools()` in `src/mcp_memory_service/server_impl.py` with name, description, `inputSchema`, and `annotations`. Set `annotations=types.ToolAnnotations(readOnlyHint=True, ...)` if the tool does not mutate state — otherwise the HTTP `/mcp` layer will treat it as a write tool and require the OAuth `write` scope to call it (GHSA-2r68-g678-7qr3).
+3. Add a dispatch branch in `MemoryServer.call_tool()` routing the tool name to your handler.
+4. If you're renaming an existing tool, register the old name in `compat.DEPRECATED_TOOLS` so deprecated callers keep working.
+5. Add tests in `tests/server/test_handlers.py`.
 
 **Add a new storage backend:**
 1. Implement `BaseStorage` interface from `src/mcp_memory_service/storage/base.py`

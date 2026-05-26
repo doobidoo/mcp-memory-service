@@ -32,6 +32,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - **fix(harvest): expanduser() on MCP_HARVEST_SESSION_DIR**: Paths specified as `~/my-sessions` were not expanded to the full home directory path, causing session directory resolution to fail silently.
 
+- **fix(mcp): expose full v10 tool surface over HTTP** — `/mcp tools/list` previously advertised only 7 pre-v10 names (`store_memory`, `retrieve_memory`, `recall_memory`, `search_by_tag`, `delete_memory`, `check_database_health`, `list_memories`), forked from stdio around v4 and never resynced through the v10 consolidation. It now matches stdio's v10 surface: `memory_graph`, `memory_quality`, `memory_harvest`, `memory_conflicts`, `memory_resolve`, `memory_consolidate`, `memory_ingest`, `memory_update`, `memory_stats`, `memory_store_session`, `mistake_note_add`, and `mistake_note_search` are now reachable over HTTP. Pre-v10 names are no longer advertised but remain callable via the deprecation compat layer. `serverInfo.version` now reports the running package version instead of the stale `4.1.1` literal.
+
 - **fix(opencode): don't use https for http access**: Fix connection failure while using local `http` endpoint with the opencode plugin.
 
 ### CI

@@ -1,30 +1,58 @@
 """
-MCP (Model Context Protocol) endpoints for Claude Code integration.
+MCP (Model Context Protocol) endpoints for HTTP transport.
 
-This module provides MCP protocol endpoints that allow Claude Code clients
-to directly access memory operations using the MCP standard.
+The tool surface and dispatch logic come from the same `MemoryServer`
+instance the stdio transport uses (`server_impl.MemoryServer.list_tools`
+and `.call_tool`). This file is just the HTTP framing on top of that
+shared core — adding a tool requires no changes here.
 """
 
-import json
 import logging
-from typing import Dict, Any, Optional, Union
+from typing import Any, Dict, Optional, Union
+
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
-from ..dependencies import get_storage
-from ...utils.hashing import generate_content_hash
-# OAuth config no longer needed - auth is always enabled
-
-# Import OAuth dependencies only when needed
+from ..._version import __version__
+from ...compat import DEPRECATED_TOOLS
 from ..oauth.middleware import require_read_access, AuthenticationResult
 
 logger = logging.getLogger(__name__)
 
-# Tools that mutate state — require 'write' scope even through MCP.
-# Read-only tools (retrieve_memory, recall_memory, search_by_tag,
-# check_database_health, list_memories) remain accessible with 'read' scope.
-_WRITE_TOOLS: frozenset = frozenset({"store_memory", "delete_memory"})
+async def _requires_write(server, tool_name: Optional[str]) -> bool:
+    """Return True if calling this tool requires the 'write' scope.
+
+    Derived per-call from `server.list_tools()`: a tool counts as write
+    unless its annotations explicitly set `readOnlyHint=True`. This matches
+    the MCP spec's default ("destructive=True, readOnly=False" unless
+    declared otherwise) and keeps the set in lockstep with the canonical
+    tool list — adding a new tool to `MemoryServer.list_tools` automatically
+    applies the right scope check.
+
+    Conditional tools like `memory_consolidate` only appear in the list once
+    their gating state is satisfied, so we derive on each call rather than
+    caching (the alternative would risk a stale cache locked in before the
+    consolidator finished initializing).
+
+    Deprecated aliases (e.g. `store_memory` → `memory_store`) are resolved
+    to their v10 target before classification — without this a read-only
+    token could call `store_memory` and have it silently dispatched past
+    the scope gate (GHSA-2r68-g678-7qr3 regression risk).
+
+    Conservative default: a tool name we don't recognise is treated as
+    requiring write scope.
+    """
+    if not tool_name:
+        return False
+    target = tool_name
+    alias = DEPRECATED_TOOLS.get(tool_name)
+    if alias is not None:
+        target = alias[0]
+    for tool in await server.list_tools():
+        if tool.name == target:
+            return not (tool.annotations and getattr(tool.annotations, "readOnlyHint", False))
+    return True
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
@@ -40,9 +68,9 @@ class MCPRequest(BaseModel):
 class MCPResponse(BaseModel):
     """MCP protocol response structure.
 
-    Note: JSON-RPC 2.0 spec requires that successful responses EXCLUDE the 'error'
-    field entirely (not include it as null), and error responses EXCLUDE 'result'.
-    The exclude_none config ensures proper compliance.
+    JSON-RPC 2.0 requires successful responses to EXCLUDE the 'error' field
+    entirely (not include it as null) and error responses to EXCLUDE
+    'result'. `exclude_none` enforces this on serialization.
     """
     model_config = ConfigDict(exclude_none=True)
 
@@ -52,100 +80,46 @@ class MCPResponse(BaseModel):
     error: Optional[Dict[str, Any]] = None
 
 
-class MCPTool(BaseModel):
-    """MCP tool definition."""
-    name: str
-    description: str
-    inputSchema: Dict[str, Any]
+# Singleton MemoryServer shared across HTTP requests. Constructed lazily on
+# the first /mcp request so import-time cost is avoided. Storage init is
+# itself lazy inside MemoryServer, deferred to the first tool call that
+# needs it.
+_memory_server: Optional[Any] = None
 
 
-# Define MCP tools available
-MCP_TOOLS = [
-    MCPTool(
-        name="store_memory",
-        description="Store a new memory with optional tags, metadata, and client information",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "content": {"type": "string", "description": "The memory content to store"},
-                "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional tags for the memory"},
-                "memory_type": {"type": "string", "description": "Optional memory type (e.g., 'note', 'reminder', 'fact')"},
-                "metadata": {"type": "object", "description": "Additional metadata for the memory"},
-                "client_hostname": {"type": "string", "description": "Client machine hostname for source tracking"}
-            },
-            "required": ["content"]
-        }
-    ),
-    MCPTool(
-        name="retrieve_memory", 
-        description="Search and retrieve memories using semantic similarity",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search query for finding relevant memories"},
-                "limit": {"type": "integer", "description": "Maximum number of memories to return", "default": 10},
-                "similarity_threshold": {"type": "number", "description": "Minimum similarity score threshold (0.0-1.0)", "default": 0.7, "minimum": 0.0, "maximum": 1.0}
-            },
-            "required": ["query"]
-        }
-    ),
-    MCPTool(
-        name="recall_memory",
-        description="Retrieve memories using natural language time expressions and optional semantic search",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Natural language query specifying the time frame or content to recall"},
-                "n_results": {"type": "integer", "description": "Maximum number of results to return", "default": 5}
-            },
-            "required": ["query"]
-        }
-    ),
-    MCPTool(
-        name="search_by_tag",
-        description="Search memories by specific tags",
-        inputSchema={
-            "type": "object", 
-            "properties": {
-                "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to search for"},
-                "operation": {"type": "string", "enum": ["AND", "OR"], "description": "Tag search operation", "default": "AND"}
-            },
-            "required": ["tags"]
-        }
-    ),
-    MCPTool(
-        name="delete_memory",
-        description="Delete a specific memory by content hash",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "content_hash": {"type": "string", "description": "Hash of the memory to delete"}
-            },
-            "required": ["content_hash"]
-        }
-    ),
-    MCPTool(
-        name="check_database_health",
-        description="Check the health and status of the memory database",
-        inputSchema={
-            "type": "object",
-            "properties": {}
-        }
-    ),
-    MCPTool(
-        name="list_memories",
-        description="List memories with pagination and optional filtering",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "page": {"type": "integer", "description": "Page number (1-based)", "default": 1, "minimum": 1},
-                "page_size": {"type": "integer", "description": "Number of memories per page", "default": 10, "minimum": 1, "maximum": 100},
-                "tag": {"type": "string", "description": "Filter by specific tag"},
-                "memory_type": {"type": "string", "description": "Filter by memory type"}
-            }
-        }
-    ),
-]
+def _get_memory_server():
+    """Return the process-wide MemoryServer used by /mcp."""
+    global _memory_server
+    if _memory_server is None:
+        # `server_impl` and `server/__init__.py` have a top-level circular
+        # dependency. Force-load the `server` subpackage first so that
+        # `server_impl`'s top-level imports are satisfied before we touch
+        # `MemoryServer`. Without this, the lazy import here may fire while
+        # `server` is mid-load and raise "cannot import name 'main' from
+        # partially initialized module".
+        import mcp_memory_service.server  # noqa: F401
+        from ...server_impl import MemoryServer
+        _memory_server = MemoryServer()
+    return _memory_server
+
+
+def _tool_to_dict(tool) -> Dict[str, Any]:
+    """Convert an `mcp.types.Tool` to the wire shape MCP-over-HTTP returns."""
+    return {
+        "name": tool.name,
+        "description": tool.description,
+        "inputSchema": tool.inputSchema,
+    }
+
+
+def _wrap_tool_result(text_contents) -> Dict[str, Any]:
+    """Pack a `list[mcp.types.TextContent]` into an MCP `tools/call` result."""
+    return {
+        "content": [
+            {"type": "text", "text": tc.text}
+            for tc in text_contents
+        ]
+    }
 
 
 @router.post("/")
@@ -154,7 +128,7 @@ async def mcp_endpoint(
     request: MCPRequest,
     user: AuthenticationResult = Depends(require_read_access)
 ):
-    """Main MCP protocol endpoint for processing MCP requests."""
+    """Main MCP protocol endpoint. Delegates to the shared MemoryServer."""
     try:
         # JSON-RPC 2.0: a message without `id` is a Notification; the server
         # MUST NOT reply. MCP Streamable HTTP requires HTTP 202 Accepted with
@@ -163,30 +137,27 @@ async def mcp_endpoint(
         if request.id is None:
             return Response(status_code=202)
 
-        storage = get_storage()
+        server = _get_memory_server()
 
         if request.method == "initialize":
             response = MCPResponse(
                 id=request.id,
                 result={
                     "protocolVersion": "2024-11-05",
-                    "capabilities": {
-                        "tools": {}
-                    },
+                    "capabilities": {"tools": {}},
                     "serverInfo": {
                         "name": "mcp-memory-service",
-                        "version": "4.1.1"
-                    }
-                }
+                        "version": __version__,
+                    },
+                },
             )
             return JSONResponse(content=response.model_dump(exclude_none=True))
 
         elif request.method == "tools/list":
+            tools = await server.list_tools()
             response = MCPResponse(
                 id=request.id,
-                result={
-                    "tools": [tool.model_dump() for tool in MCP_TOOLS]
-                }
+                result={"tools": [_tool_to_dict(t) for t in tools]},
             )
             return JSONResponse(content=response.model_dump(exclude_none=True))
 
@@ -194,36 +165,26 @@ async def mcp_endpoint(
             tool_name = request.params.get("name") if request.params else None
             arguments = request.params.get("arguments", {}) if request.params else {}
 
-            # Scope enforcement: mutating tools require 'write' scope.
-            # A read-only OAuth token must not reach store_memory or
-            # delete_memory — the REST layer already enforces this boundary;
-            # MCP must match it (GHSA-2r68-g678-7qr3).
-            if tool_name in _WRITE_TOOLS and not user.has_scope("write"):
+            # Mutating tools require 'write' scope even through MCP. Read-only
+            # tools remain accessible with 'read' scope (GHSA-2r68-g678-7qr3).
+            if await _requires_write(server, tool_name) and not user.has_scope("write"):
                 response = MCPResponse(
                     id=request.id,
                     error={
                         "code": -32003,
                         "message": "Insufficient scope: tool requires 'write' access",
-                        "data": {"required_scope": "write", "tool": tool_name}
-                    }
+                        "data": {"required_scope": "write", "tool": tool_name},
+                    },
                 )
                 return JSONResponse(
                     content=response.model_dump(exclude_none=True),
-                    status_code=403
+                    status_code=403,
                 )
 
-            result = await handle_tool_call(storage, tool_name, arguments)
-
+            text_contents = await server.call_tool(tool_name, arguments)
             response = MCPResponse(
                 id=request.id,
-                result={
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": json.dumps(result)
-                        }
-                    ]
-                }
+                result=_wrap_tool_result(text_contents),
             )
             return JSONResponse(content=response.model_dump(exclude_none=True))
 
@@ -232,8 +193,8 @@ async def mcp_endpoint(
                 id=request.id,
                 error={
                     "code": -32601,
-                    "message": f"Method not found: {request.method}"
-                }
+                    "message": f"Method not found: {request.method}",
+                },
             )
             return JSONResponse(content=response.model_dump(exclude_none=True))
 
@@ -241,219 +202,9 @@ async def mcp_endpoint(
         logger.error(f"MCP endpoint error: {e}")
         response = MCPResponse(
             id=request.id,
-            error={
-                "code": -32603,
-                "message": f"Internal error: {str(e)}"
-            }
+            error={"code": -32603, "message": f"Internal error: {str(e)}"},
         )
         return JSONResponse(content=response.model_dump(exclude_none=True))
-
-
-async def handle_tool_call(storage, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle MCP tool calls and route to appropriate memory operations."""
-    
-    if tool_name == "store_memory":
-        from mcp_memory_service.models.memory import Memory
-        
-        content = arguments.get("content")
-        tags = arguments.get("tags", [])
-        memory_type = arguments.get("memory_type")
-        metadata = arguments.get("metadata", {})
-        client_hostname = arguments.get("client_hostname")
-        
-        # Ensure metadata is a dict
-        if isinstance(metadata, str):
-            try:
-                metadata = json.loads(metadata)
-            except (json.JSONDecodeError, ValueError):
-                metadata = {}
-        elif not isinstance(metadata, dict):
-            metadata = {}
-        
-        # Add client_hostname to metadata if provided
-        if client_hostname:
-            metadata["client_hostname"] = client_hostname
-        
-        content_hash = generate_content_hash(content)
-        
-        memory = Memory(
-            content=content,
-            content_hash=content_hash,
-            tags=tags,
-            memory_type=memory_type,
-            metadata=metadata
-        )
-        
-        success, message = await storage.store(memory)
-        
-        return {
-            "success": success,
-            "message": message,
-            "content_hash": memory.content_hash if success else None
-        }
-    
-    elif tool_name == "retrieve_memory":
-        query = arguments.get("query") or arguments.get("content")
-        limit = arguments.get("limit", 10)
-        similarity_threshold = arguments.get("similarity_threshold", 0.0)
-        
-        # Get results from storage (no similarity filtering at storage level)
-        results = await storage.retrieve(query=query, n_results=limit)
-        
-        # Apply similarity threshold filtering (same as API implementation)
-        if similarity_threshold is not None:
-            results = [
-                result for result in results
-                if result.relevance_score and result.relevance_score >= similarity_threshold
-            ]
-        
-        return {
-            "results": [
-                {
-                    "content": r.memory.content,
-                    "content_hash": r.memory.content_hash,
-                    "tags": r.memory.tags,
-                    "similarity_score": r.relevance_score,
-                    "created_at": r.memory.created_at_iso
-                }
-                for r in results
-            ],
-            "total_found": len(results)
-        }
-
-    elif tool_name == "recall_memory":
-        query = arguments.get("query") or arguments.get("content")
-        n_results = arguments.get("n_results", 5)
-
-        # Parse time expressions from query (same logic as stdio handler)
-        from mcp_memory_service.utils.time_parser import extract_time_expression, parse_time_expression
-        cleaned_query, (start_ts, end_ts) = extract_time_expression(query or "")
-        if start_ts is None and end_ts is None:
-            start_ts, end_ts = parse_time_expression(query or "")
-
-        # Use backend-optimized recall() if available (sqlite_vec, hybrid, cloudflare)
-        # Falls back to search_memories for backends without recall()
-        if hasattr(storage, 'recall'):
-            results = await storage.recall(
-                query=cleaned_query.strip() or None,
-                n_results=n_results,
-                start_timestamp=start_ts,
-                end_timestamp=end_ts,
-            )
-            memories = [r.memory for r in results]
-        else:
-            # Fallback: use search_memories with time bounds
-            after_iso = None
-            before_iso = None
-            if start_ts is not None:
-                from datetime import datetime, timezone
-                after_iso = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%Y-%m-%d")
-            if end_ts is not None:
-                from datetime import datetime, timezone
-                before_iso = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%Y-%m-%d")
-            result = await storage.search_memories(
-                query=cleaned_query.strip() or None,
-                mode="semantic", after=after_iso, before=before_iso, limit=n_results,
-            )
-            memories_list = result.get("memories", []) if isinstance(result, dict) else []
-            # Convert dicts to mock objects for uniform response
-            class _Mem:
-                def __init__(self, d):
-                    self.content = d.get("content", "")
-                    self.content_hash = d.get("content_hash", "")
-                    self.tags = d.get("tags", [])
-                    self.created_at_iso = d.get("created_at_iso", "")
-            memories = [_Mem(m) for m in memories_list]
-
-        return {
-            "results": [
-                {
-                    "content": m.content,
-                    "content_hash": m.content_hash,
-                    "tags": m.tags,
-                    "created_at": m.created_at_iso
-                }
-                for m in memories
-            ],
-            "total_found": len(memories)
-        }
-
-    elif tool_name == "search_by_tag":
-        tags = arguments.get("tags")
-        operation = arguments.get("operation", "AND")
-        
-        results = await storage.search_by_tags(tags=tags, operation=operation)
-        
-        return {
-            "results": [
-                {
-                    "content": memory.content,
-                    "content_hash": memory.content_hash,
-                    "tags": memory.tags,
-                    "created_at": memory.created_at_iso
-                }
-                for memory in results
-            ],
-            "total_found": len(results)
-        }
-    
-    elif tool_name == "delete_memory":
-        content_hash = arguments.get("content_hash")
-        
-        success, message = await storage.delete(content_hash)
-        
-        return {
-            "success": success,
-            "message": message
-        }
-    
-    elif tool_name == "check_database_health":
-        stats = await storage.get_stats()
-
-        return {
-            "status": "healthy",
-            "statistics": stats
-        }
-    
-    elif tool_name == "list_memories":
-        page = arguments.get("page", 1)
-        page_size = arguments.get("page_size", 10)
-        tag = arguments.get("tag")
-        memory_type = arguments.get("memory_type")
-        
-        # Calculate offset
-        offset = (page - 1) * page_size
-
-        # Use database-level filtering for better performance
-        tags_list = [tag] if tag else None
-        memories = await storage.get_all_memories(
-            limit=page_size,
-            offset=offset,
-            memory_type=memory_type,
-            tags=tags_list
-        )
-        
-        return {
-            "memories": [
-                {
-                    "content": memory.content,
-                    "content_hash": memory.content_hash,
-                    "tags": memory.tags,
-                    "memory_type": memory.memory_type,
-                    "metadata": memory.metadata,
-                    "created_at": memory.created_at_iso,
-                    "updated_at": memory.updated_at_iso
-                }
-                for memory in memories
-            ],
-            "page": page,
-            "page_size": page_size,
-            "total_found": len(memories)
-        }
-    
-    
-    else:
-        raise ValueError(f"Unknown tool: {tool_name}")
 
 
 @router.get("/tools")
@@ -461,23 +212,28 @@ async def list_mcp_tools(
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """List available MCP tools for discovery."""
+    server = _get_memory_server()
+    tools = await server.list_tools()
     return {
-        "tools": [tool.dict() for tool in MCP_TOOLS],
+        "tools": [_tool_to_dict(t) for t in tools],
         "protocol": "mcp",
-        "version": "1.0"
+        "version": "1.0",
     }
 
 
 @router.get("/health")
 async def mcp_health():
     """MCP-specific health check."""
-    storage = get_storage()
-    stats = await storage.get_stats()
-
+    server = _get_memory_server()
+    await server._ensure_storage_initialized()
+    stats = await server.storage.get_stats() if server.storage else {}
+    tools = await server.list_tools()
     return {
         "status": "healthy",
         "protocol": "mcp",
-        "tools_available": len(MCP_TOOLS),
-        "storage_backend": "sqlite-vec",
-        "statistics": stats
+        "tools_available": len(tools),
+        "storage_backend": (
+            server.storage.__class__.__name__ if server.storage else "uninitialized"
+        ),
+        "statistics": stats,
     }
