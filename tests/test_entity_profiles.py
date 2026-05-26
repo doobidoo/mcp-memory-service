@@ -31,6 +31,9 @@ def graph_db():
     conn.close()
     gs._connection = None
     yield gs
+    # Cleanup temp directory
+    import shutil
+    shutil.rmtree(tmp, ignore_errors=True)
 
 
 class TestCustomTermsExtraction:

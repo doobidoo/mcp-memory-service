@@ -66,9 +66,9 @@ class EntityExtractor:
         from ..config import MCP_ENTITY_CUSTOM_TERMS
         if MCP_ENTITY_CUSTOM_TERMS:
             custom_terms = [t.strip() for t in MCP_ENTITY_CUSTOM_TERMS.split(',') if t.strip()]
-            content_lower = content.lower()
             for term in custom_terms:
-                if term.lower() in content_lower:
+                # Word boundary match to avoid false positives (e.g., "roma" in "aroma")
+                if re.search(r'(?<![a-zA-Z0-9_-])' + re.escape(term) + r'(?![a-zA-Z0-9_-])', content, re.IGNORECASE):
                     _add(term, 'custom', 'config')
 
         return entities
@@ -90,7 +90,8 @@ class EntityExtractor:
         term_docs = defaultdict(set)  # term -> set of memory indices
         tokenize = _re.compile(r'[a-zA-Z]{3,}')
 
-        for idx, text in enumerate(memories):
+        for idx, item in enumerate(memories):
+            text = item.get('content', '') if isinstance(item, dict) else str(item)
             tokens = set(t.lower() for t in tokenize.findall(text))
             for token in tokens:
                 if token not in stopwords:

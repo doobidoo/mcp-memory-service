@@ -165,6 +165,8 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
         elif action == "list_entities":
             limit = int(arguments.get("limit", 50))
             graph = await get_graph_storage()
+            if not graph:
+                return [types.TextContent(type="text", text=json.dumps({"error": "graph storage not available"}))]
             entities = await graph.list_entities(limit=limit)
             return [types.TextContent(type="text", text=json.dumps({"entities": entities, "total": len(entities)}))]
 
@@ -173,6 +175,8 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
             if not entity_name:
                 return [types.TextContent(type="text", text=json.dumps({"error": "entity_name required"}))]
             graph = await get_graph_storage()
+            if not graph:
+                return [types.TextContent(type="text", text=json.dumps({"error": "graph storage not available"}))]
             profile = await graph.get_entity_profile(entity_name)
             memory_hashes = await graph.find_memories_by_entity(entity_name, limit=20)
             profile["memory_hashes"] = memory_hashes
