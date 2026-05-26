@@ -1311,8 +1311,26 @@ class MemoryServer:
             return await self.call_tool(name, arguments)
 
 
+    def local_only_tools(self) -> frozenset:
+        """Tool names that must not be exposed over remote transports.
+
+        These tools take a caller-controlled filesystem path
+        (`project_path`, `file_path`, `directory_path`) and read whatever
+        files they find there. The handlers were designed for a local
+        user who already has filesystem access on the host; exposing them
+        through an authenticated remote transport turns the auth boundary
+        into a confused-deputy primitive that can read any file the
+        server process can read.
+
+        The HTTP MCP shim filters these out of `tools/list` and rejects
+        `tools/call` for them (including their deprecated aliases). Stdio
+        keeps them since the caller already has the filesystem access the
+        handler would otherwise grant.
+        """
+        return frozenset({"memory_harvest", "memory_ingest"})
+
     async def list_tools(self) -> List[types.Tool]:
-        """Return the canonical v10 MCP tool list.
+        """Return the canonical MCP tool list.
 
         Both transports build their `tools/list` response from this method.
         The list only includes modern unified tools (18 total:
@@ -1323,6 +1341,10 @@ class MemoryServer:
         mistake_note_add, mistake_note_search). Deprecated tool names
         continue working through `compat.transform_deprecated_call` (see
         `call_tool`) but are not advertised here.
+
+        Transport-specific filtering (see `local_only_tools`) is applied
+        by individual transports — the canonical list itself is the same
+        for both.
         """
         logger.info("=== HANDLING LIST_TOOLS REQUEST ===")
         try:

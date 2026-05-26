@@ -20,6 +20,31 @@ from ..oauth.middleware import require_read_access, AuthenticationResult
 
 logger = logging.getLogger(__name__)
 
+def _is_local_only(server, tool_name: Optional[str]) -> bool:
+    """Return True if this tool name must not be exposed over HTTP.
+
+    Some handlers (currently `memory_harvest` and `memory_ingest`) read
+    arbitrary filesystem paths from caller-controlled arguments. They were
+    designed for a local user who already has filesystem access; exposing
+    them over an authenticated remote transport would turn the auth
+    boundary into a confused-deputy primitive that can read any file the
+    server process can read. The canonical list lives on `MemoryServer`
+    so any future local transport (e.g. a unix socket) inherits the same
+    restriction by importing the same source of truth.
+
+    Deprecated aliases (e.g. `ingest_document` → `memory_ingest`) are
+    resolved to their v10 target before classification — otherwise a
+    remote client could call the local-only tool through its old name.
+    """
+    if not tool_name:
+        return False
+    target = tool_name
+    alias = DEPRECATED_TOOLS.get(tool_name)
+    if alias is not None:
+        target = alias[0]
+    return target in server.local_only_tools()
+
+
 async def _requires_write(server, tool_name: Optional[str]) -> bool:
     """Return True if calling this tool requires the 'write' scope.
 
@@ -155,15 +180,30 @@ async def mcp_endpoint(
 
         elif request.method == "tools/list":
             tools = await server.list_tools()
+            local_only = server.local_only_tools()
             response = MCPResponse(
                 id=request.id,
-                result={"tools": [_tool_to_dict(t) for t in tools]},
+                result={"tools": [_tool_to_dict(t) for t in tools if t.name not in local_only]},
             )
             return JSONResponse(content=response.model_dump(exclude_none=True))
 
         elif request.method == "tools/call":
             tool_name = request.params.get("name") if request.params else None
             arguments = request.params.get("arguments", {}) if request.params else {}
+
+            # Local-only tools (e.g. memory_harvest, memory_ingest) read
+            # caller-supplied filesystem paths and must not reach a remote
+            # caller. Return method-not-found so the tool looks nonexistent
+            # to the HTTP client — matches what `tools/list` reports.
+            if _is_local_only(server, tool_name):
+                response = MCPResponse(
+                    id=request.id,
+                    error={
+                        "code": -32601,
+                        "message": f"Method not found: {tool_name}",
+                    },
+                )
+                return JSONResponse(content=response.model_dump(exclude_none=True))
 
             # Mutating tools require 'write' scope even through MCP. Read-only
             # tools remain accessible with 'read' scope (GHSA-2r68-g678-7qr3).
@@ -214,8 +254,9 @@ async def list_mcp_tools(
     """List available MCP tools for discovery."""
     server = _get_memory_server()
     tools = await server.list_tools()
+    local_only = server.local_only_tools()
     return {
-        "tools": [_tool_to_dict(t) for t in tools],
+        "tools": [_tool_to_dict(t) for t in tools if t.name not in local_only],
         "protocol": "mcp",
         "version": "1.0",
     }
