@@ -98,6 +98,33 @@ def test_ranked_weights_from_mapping_aliases():
 
 
 @pytest.mark.unit
+def test_compute_ranked_score_handles_null_quality_score():
+    now = time.time()
+    memory = Memory(
+        content="legacy memory without quality metadata",
+        content_hash=generate_content_hash("legacy memory without quality metadata"),
+        created_at=now - 3600,
+        metadata={"quality_score": None, "access_count": 0, "confidence": 1.0},
+    )
+    score, breakdown = compute_ranked_score(0.8, memory, now=now)
+    assert score >= 0.0
+    assert breakdown["quality_score"] == 0.0
+
+
+@pytest.mark.unit
+def test_time_decay_uses_exponential_not_linear_clamp():
+    now = time.time()
+    old = Memory(
+        content="very old",
+        content_hash=generate_content_hash("very old"),
+        created_at=now - 86400 * 120,
+        metadata={"confidence": 1.0, "last_accessed_at": now - 86400 * 90},
+    )
+    decay = time_decayed_confidence(old, now=now)
+    assert decay > 0.0
+
+
+@pytest.mark.unit
 def test_apply_ranked_rerank_reorders_candidates():
     now = time.time()
     high_semantic = MemoryQueryResult(

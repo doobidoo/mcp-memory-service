@@ -10,7 +10,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from mcp_memory_service.harvest.auto_capture import AutoCaptureService
+from mcp_memory_service.harvest.auto_capture import (
+    AutoCaptureService,
+    parent_hash_from_store_result,
+)
 from mcp_memory_service.models.ontology import validate_relationship
 
 
@@ -47,6 +50,24 @@ async def test_capture_dry_run_no_store():
     mock_service.store_memory.assert_not_called()
 
 
+@pytest.mark.unit
+def test_parent_hash_from_chunked_store_response():
+    result = {
+        "success": True,
+        "memories": [{"content_hash": "chunkhash123"}],
+    }
+    assert parent_hash_from_store_result(result) == "chunkhash123"
+
+
+@pytest.mark.unit
+def test_parent_hash_from_single_store_response():
+    result = {
+        "success": True,
+        "memory": {"content_hash": "singlehash456"},
+    }
+    assert parent_hash_from_store_result(result) == "singlehash456"
+
+
 @pytest.mark.asyncio
 async def test_capture_stores_and_links():
     mock_service = AsyncMock()
@@ -66,7 +87,7 @@ async def test_capture_stores_and_links():
             service._harvester,
             "_try_evolve",
             new_callable=AsyncMock,
-            return_value=False,
+            return_value=(False, None),
         ):
             result = await service.capture(
                 text,

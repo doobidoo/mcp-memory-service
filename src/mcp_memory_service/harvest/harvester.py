@@ -5,7 +5,7 @@ import logging
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 
 from .models import HarvestCandidate, HarvestConfig, HarvestResult
 from .parser import TranscriptParser
@@ -64,7 +64,7 @@ class SessionHarvester:
                 stored = 0
                 for candidate in result.candidates:
                     try:
-                        evolved = await self._try_evolve(candidate, config)
+                        evolved, _child_hash = await self._try_evolve(candidate, config)
                         if evolved:
                             stored += 1
                         else:
@@ -89,14 +89,14 @@ class SessionHarvester:
             results.append(result)
         return results
 
-    async def _try_evolve(self, candidate, config: "HarvestConfig") -> bool:
+    async def _try_evolve(self, candidate, config: "HarvestConfig") -> Tuple[bool, Optional[str]]:
         """Check for similar active memory; if found, evolve it.
 
-        Returns True if an existing memory was evolved, False if caller
-        should fall back to store_memory().
+        Returns (True, content_hash) if an existing memory was evolved,
+        otherwise (False, None).
         """
         if not hasattr(self.memory_service, "storage") or not self.memory_service.storage:
-            return False
+            return False, None
 
         try:
             similar = await self.memory_service.storage.retrieve(
@@ -106,10 +106,10 @@ class SessionHarvester:
             )
         except Exception as e:
             logger.debug(f"Similarity check failed, falling back to store: {e}")
-            return False
+            return False, None
 
         if not similar or similar[0].relevance_score <= config.similarity_threshold:
-            return False
+            return False, None
 
         existing_hash = similar[0].memory.content_hash
         try:
@@ -122,13 +122,13 @@ class SessionHarvester:
             )
             if ok:
                 logger.info(f"Evolved memory {existing_hash[:8]}→{new_hash[:8] if new_hash else '?'}")
-                return True
+                return True, new_hash or existing_hash
             else:
                 logger.debug(f"Evolution failed ({msg}), falling back to store")
-                return False
+                return False, None
         except Exception as e:
             logger.debug(f"Evolution error, falling back to store: {e}")
-            return False
+            return False, None
 
     def _resolve_sessions(self, config: HarvestConfig) -> List[Path]:
         """Find session files based on config."""

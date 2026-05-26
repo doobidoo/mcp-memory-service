@@ -239,18 +239,14 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
 
         # RFC #1008 §3: optional inline auto-capture from stored content
         from ...config import MCP_AUTO_EXTRACT_DEFAULT, MCP_AUTO_EXTRACT_MIN_CONFIDENCE
-        from ...harvest.auto_capture import AutoCaptureService
+        from ...harvest.auto_capture import AutoCaptureService, parent_hash_from_store_result
 
         auto_extract = arguments.get("auto_extract")
         if auto_extract is None:
             auto_extract = MCP_AUTO_EXTRACT_DEFAULT
 
         if auto_extract and content:
-            parent_hash = None
-            if "memories" in result:
-                parent_hash = result.get("original_hash")
-            elif "memory" in result:
-                parent_hash = result["memory"].get("content_hash")
+            parent_hash = parent_hash_from_store_result(result)
 
             capture_service = AutoCaptureService(
                 memory_service=server.memory_service,

@@ -61,7 +61,6 @@ def time_decayed_confidence(
 ) -> float:
     """Time-decayed confidence aligned with sqlite_vec._effective_confidence."""
     decay_window = float(os.environ.get("MEMORY_DECAY_WINDOW_DAYS", "30"))
-    decay_rate = 0.5
     ts_now = now or time.time()
 
     confidence = memory.metadata.get("confidence")
@@ -71,9 +70,9 @@ def time_decayed_confidence(
     last_accessed = memory.last_accessed_at or memory.metadata.get("last_accessed")
     created_at = memory.created_at
     reference = last_accessed or created_at or ts_now
-    days_since = (ts_now - reference) / 86400.0
-    staleness = days_since / decay_window
-    decay = max(0.0, 1.0 - staleness * decay_rate)
+    days_since = max(0.0, (ts_now - reference) / 86400.0)
+    retention = max(decay_window, 1.0)
+    decay = math.exp(-days_since / retention)
     return round(float(confidence or 1.0) * decay, 4)
 
 
@@ -95,7 +94,7 @@ def compute_ranked_score(
     semantic = max(0.0, min(1.0, float(semantic_score)))
     decay_score = time_decayed_confidence(memory, now=ts_now)
     access_score = normalized_access_score(memory.access_count)
-    quality_score = max(0.0, min(1.0, memory.quality_score))
+    quality_score = max(0.0, min(1.0, memory.quality_score or 0.0))
 
     final = (
         w.semantic * semantic

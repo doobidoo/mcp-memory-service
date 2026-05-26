@@ -149,6 +149,34 @@ def test_store_memory_allowed_with_write_scope(read_write_client):
 
 
 @pytest.mark.integration
+def test_memory_observe_in_write_scope_set():
+    """memory_observe must require write scope (GHSA-2r68-g678-7qr3)."""
+    from mcp_memory_service.web.mcp_write_scope import MCP_WRITE_TOOLS
+
+    assert "memory_observe" in MCP_WRITE_TOOLS
+
+
+@pytest.mark.integration
+def test_memory_observe_rejected_with_read_only_scope():
+    """read scope cannot invoke memory_observe when OAuth context is bound."""
+    from mcp_memory_service.web.mcp_write_scope import (
+        MCP_WRITE_TOOLS,
+        check_write_scope_for_tool,
+        set_mcp_auth_context,
+    )
+    from mcp_memory_service.web.oauth.middleware import AuthenticationResult
+
+    assert "memory_observe" in MCP_WRITE_TOOLS
+    set_mcp_auth_context(
+        AuthenticationResult(authenticated=True, scope="read", auth_method="test")
+    )
+    try:
+        assert check_write_scope_for_tool("memory_observe") is not None
+    finally:
+        set_mcp_auth_context(None)
+
+
+@pytest.mark.integration
 def test_read_tools_allowed_with_read_only_scope(read_only_client):
     """read scope can still call retrieve_memory, search_by_tag, list_memories."""
     for tool, args in [

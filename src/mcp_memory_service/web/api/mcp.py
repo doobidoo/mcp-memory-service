@@ -18,13 +18,14 @@ from ...utils.hashing import generate_content_hash
 
 # Import OAuth dependencies only when needed
 from ..oauth.middleware import require_read_access, AuthenticationResult
+from ..mcp_write_scope import MCP_WRITE_TOOLS
 
 logger = logging.getLogger(__name__)
 
 # Tools that mutate state — require 'write' scope even through MCP.
 # Read-only tools (retrieve_memory, recall_memory, search_by_tag,
 # check_database_health, list_memories) remain accessible with 'read' scope.
-_WRITE_TOOLS: frozenset = frozenset({"store_memory", "delete_memory"})
+_WRITE_TOOLS = MCP_WRITE_TOOLS
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 

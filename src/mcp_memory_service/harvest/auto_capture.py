@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -99,10 +100,16 @@ class AutoCaptureService:
 
         for candidate in candidates:
             try:
-                evolved = await self._harvester._try_evolve(candidate, config)
+                evolved, child_hash = await self._harvester._try_evolve(candidate, config)
                 if evolved:
                     result.evolved += 1
                     result.stored += 1
+                    if link_parent and parent_hash and child_hash:
+                        await _link_derived_from(
+                            parent_hash,
+                            child_hash,
+                            candidate.confidence,
+                        )
                     continue
 
                 tags = ["auto-capture"] + candidate.tags
@@ -136,6 +143,20 @@ class AutoCaptureService:
         return result
 
 
+def parent_hash_from_store_result(result: Dict[str, Any]) -> Optional[str]:
+    """Extract parent content_hash from a MemoryService store response."""
+    if not isinstance(result, dict) or not result.get("success"):
+        return None
+    if "memory" in result:
+        return result["memory"].get("content_hash")
+    if "memories" in result:
+        memories = result.get("memories") or []
+        if memories:
+            return memories[0].get("content_hash")
+        return result.get("original_hash")
+    return result.get("content_hash") or result.get("original_hash")
+
+
 def _hash_from_store_response(resp: Dict[str, Any]) -> Optional[str]:
     if "memory" in resp:
         return resp["memory"].get("content_hash")
@@ -153,6 +174,18 @@ async def _link_derived_from(parent_hash: str, child_hash: str, confidence: floa
         graph = await get_graph_storage()
         if not graph:
             return
+
+        existing = await graph.get_association(parent_hash, child_hash)
+        if existing:
+            types_raw = existing.get("connection_types", [])
+            if isinstance(types_raw, str):
+                try:
+                    types_raw = json.loads(types_raw)
+                except json.JSONDecodeError:
+                    types_raw = []
+            if "derived_from" in types_raw:
+                return
+
         await graph.store_association(
             source_hash=parent_hash,
             target_hash=child_hash,

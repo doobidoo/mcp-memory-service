@@ -389,10 +389,17 @@ class ServerRunManager:
                     await response(scope, receive, send)
                     return
                 # Auth check on /mcp
+                auth_result = None
                 if OAUTH_ENABLED or API_KEY:
-                    if not await _check_auth_from_scope(scope, receive, send):
+                    auth_result = await _authenticate_from_scope(scope, receive, send)
+                    if auth_result is None:
                         return
-                await session_manager.handle_request(scope, receive, send)
+                from ..web.mcp_write_scope import set_mcp_auth_context
+                set_mcp_auth_context(auth_result)
+                try:
+                    await session_manager.handle_request(scope, receive, send)
+                finally:
+                    set_mcp_auth_context(None)
             elif oauth_app and (
                 path.startswith("/.well-known/") or
                 path.startswith("/oauth/")
@@ -405,8 +412,8 @@ class ServerRunManager:
                 response = StarletteResponse("Not Found", status_code=404)
                 await response(scope, receive, send)
 
-        async def _check_auth_from_scope(scope, receive, send) -> bool:
-            """Validate auth on /mcp requests. Returns True if authorized."""
+        async def _authenticate_from_scope(scope, receive, send):
+            """Validate auth on /mcp requests. Returns AuthenticationResult or None."""
             from ..web.oauth.middleware import (
                 authenticate_bearer_token,
                 authenticate_api_key,
@@ -421,23 +428,20 @@ class ServerRunManager:
             is_bearer = auth_header.lower().startswith("bearer ")
             token = auth_header[7:] if is_bearer else ""
 
-            # Try Bearer token (OAuth)
             if is_bearer and OAUTH_ENABLED:
                 result = await authenticate_bearer_token(token)
                 if result.authenticated:
-                    return True
+                    return result
 
-            # Try API key via header
             if api_key_header and API_KEY:
                 result = authenticate_api_key(api_key_header)
                 if result.authenticated:
-                    return True
+                    return result
 
-            # Try Bearer token as API key fallback
             if is_bearer and API_KEY:
                 result = authenticate_api_key(token)
                 if result.authenticated:
-                    return True
+                    return result
 
             # Auth failed - send 401
             from ..config import OAUTH_ISSUER as _issuer
@@ -452,7 +456,7 @@ class ServerRunManager:
                 },
             )
             await response(scope, receive, send)
-            return False
+            return None
 
         # Re-read env at runtime; see run_sse() for rationale.
         from ..config import safe_get_int_env

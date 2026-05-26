@@ -2443,6 +2443,12 @@ Examples:
                 if arguments is None:
                     arguments = {}
 
+                from ..web.mcp_write_scope import check_write_scope_for_tool
+
+                scope_error = check_write_scope_for_tool(name)
+                if scope_error:
+                    return [types.TextContent(type="text", text=scope_error)]
+
                 logger.info(f"Processing tool: {name}")
                 if MCP_CLIENT == 'lm_studio':
                     print(f"Processing tool: {name}", file=sys.stdout, flush=True)
