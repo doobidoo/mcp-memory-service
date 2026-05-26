@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
+import http from "node:http"
 import https from "node:https"
 import path from "node:path"
 
@@ -14,14 +15,15 @@ function httpsFetch(url, options = {}) {
     const { method = "GET", headers = {}, body, signal } = options
     const parsed = new URL(url)
 
-    const req = https.request(
+    const isHttps = parsed.protocol === "https:"
+    const req = (isHttps ? https : http).request(
       {
         hostname: parsed.hostname,
-        port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
+        port: parsed.port || (isHttps ? 443 : 80),
         path: parsed.pathname + parsed.search,
         method,
         headers,
-        agent: tlsAgent,
+        agent: isHttps ? tlsAgent : undefined,
         signal,
       },
       (res) => {
