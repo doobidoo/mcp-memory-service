@@ -76,7 +76,6 @@ class EntityLinker:
                 pair = tuple(sorted([memory_hash, other_hash]))
                 if pair in seen_pairs:
                     continue
-                seen_pairs.add(pair)
 
                 try:
                     ok = await graph_storage.store_association(
@@ -88,6 +87,7 @@ class EntityLinker:
                         relationship_type="shares_entity",
                     )
                     if ok:
+                        seen_pairs.add(pair)
                         edges_created += 1
                         linked_count += 1
                 except Exception as e:
