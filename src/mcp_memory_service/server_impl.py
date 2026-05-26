@@ -1367,6 +1367,25 @@ class MemoryServer:
                                     "type": "string",
                                     "description": "Optional conversation identifier. When provided, semantic deduplication is skipped, allowing multiple incremental memories from the same conversation to be stored even if their content is topically similar. Exact duplicate hashes are still rejected."
                                 },
+                                "auto_extract": {
+                                    "type": "boolean",
+                                    "description": "When true, pattern-extract decisions/facts/learnings from content and store linked child memories (RFC #1008 §3). Defaults to MCP_AUTO_EXTRACT_DEFAULT env (false)."
+                                },
+                                "min_extract_confidence": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1,
+                                    "description": "Minimum confidence for auto_extract candidates (default 0.6)"
+                                },
+                                "extract_types": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Harvest types to extract (decision, bug, convention, learning, context)"
+                                },
+                                "role": {
+                                    "type": "string",
+                                    "description": "Speaker role hint for auto_extract pattern matching (default assistant)"
+                                },
                                 "metadata": {
                                     "type": "object",
                                     "description": "Optional metadata about the memory, including tags and type.",
@@ -1400,6 +1419,71 @@ class MemoryServer:
                         },
                         annotations=types.ToolAnnotations(
                             title="Store Memory",
+                            destructiveHint=False,
+                        ),
+                    ),
+                    types.Tool(
+                        name="memory_observe",
+                        description="""Observe conversation text and auto-extract durable learnings inline (RFC #1008 §3).
+
+Unlike memory_store, this does not persist the raw text unless store_source=true.
+Uses the same harvest pattern rules as memory_harvest, but in streaming fashion
+for live multi-session / always-on engines.
+
+Examples:
+{"content": "We decided to use WAL mode for concurrent SQLite access.", "dry_run": true}
+{"content": "User prefers dark mode for all dashboards.", "store_source": true}
+{"content": "Root cause was a race in the pool.", "conversation_id": "conv-42", "min_confidence": 0.7}""",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "content": {
+                                    "type": "string",
+                                    "description": "Conversation text to analyze"
+                                },
+                                "role": {
+                                    "type": "string",
+                                    "default": "assistant",
+                                    "description": "Speaker role hint (user or assistant)"
+                                },
+                                "conversation_id": {
+                                    "type": "string",
+                                    "description": "Optional conversation id for grouped storage"
+                                },
+                                "parent_hash": {
+                                    "type": "string",
+                                    "description": "Optional parent memory hash for derived_from graph links"
+                                },
+                                "store_source": {
+                                    "type": "boolean",
+                                    "default": False,
+                                    "description": "Also store the raw observed text as an observation memory"
+                                },
+                                "dry_run": {
+                                    "type": "boolean",
+                                    "default": False,
+                                    "description": "Extract only — do not persist candidates"
+                                },
+                                "min_confidence": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1,
+                                    "default": 0.6
+                                },
+                                "types": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Candidate types to extract"
+                                },
+                                "metadata": {
+                                    "type": "object",
+                                    "description": "Metadata when store_source=true"
+                                }
+                            },
+                            "required": ["content"]
+                        },
+                        annotations=types.ToolAnnotations(
+                            title="Observe and Auto-Capture",
                             destructiveHint=False,
                         ),
                     ),
@@ -2371,6 +2455,8 @@ Examples:
                 # Route to handler (using NEW tool names only)
                 if name == "memory_store":
                     return await self.handle_store_memory(arguments)
+                elif name == "memory_observe":
+                    return await self.handle_memory_observe(arguments)
                 elif name == "memory_store_session":
                     return await self.handle_store_session(arguments)
                 elif name == "memory_search":
@@ -2507,6 +2593,11 @@ Examples:
         """Store new memory (delegates to handler)."""
         from .server.handlers import memory as memory_handlers
         return await memory_handlers.handle_store_memory(self, arguments)
+
+    async def handle_memory_observe(self, arguments: dict) -> List[types.TextContent]:
+        """Inline auto-capture from conversation text (delegates to handler)."""
+        from .server.handlers import memory as memory_handlers
+        return await memory_handlers.handle_memory_observe(self, arguments)
 
     async def handle_store_session(self, arguments: dict) -> List[types.TextContent]:
         """Store a conversation session as one memory unit (delegates to handler)."""

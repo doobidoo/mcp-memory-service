@@ -1066,6 +1066,16 @@ if MCP_QUALITY_SYSTEM_ENABLED:
     logger.info(f"Quality Boost Search: enabled={MCP_QUALITY_BOOST_ENABLED}, weight={MCP_QUALITY_BOOST_WEIGHT}")
     logger.info(f"Quality Retention: high={MCP_QUALITY_RETENTION_HIGH}d, medium={MCP_QUALITY_RETENTION_MEDIUM}d, low={MCP_QUALITY_RETENTION_LOW_MIN}-{MCP_QUALITY_RETENTION_LOW_MAX}d")
 
+# Auto-capture (RFC #1008 §3) — inline extraction on memory_store / memory_observe
+MCP_AUTO_EXTRACT_DEFAULT = safe_get_bool_env('MCP_AUTO_EXTRACT_DEFAULT', False)
+MCP_AUTO_EXTRACT_MIN_CONFIDENCE = float(os.getenv('MCP_AUTO_EXTRACT_MIN_CONFIDENCE', '0.6'))
+if not 0.0 <= MCP_AUTO_EXTRACT_MIN_CONFIDENCE <= 1.0:
+    logger.warning(
+        "Invalid MCP_AUTO_EXTRACT_MIN_CONFIDENCE=%s, using 0.6",
+        MCP_AUTO_EXTRACT_MIN_CONFIDENCE,
+    )
+    MCP_AUTO_EXTRACT_MIN_CONFIDENCE = 0.6
+
 # =============================================================================
 # End Quality System Configuration
 # =============================================================================

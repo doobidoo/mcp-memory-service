@@ -5,6 +5,7 @@ from .parser import TranscriptParser, ParsedMessage
 from .extractor import PatternExtractor
 from .harvester import SessionHarvester
 from .classifier import HarvestClassifier
+from .auto_capture import AutoCaptureService, AutoCaptureResult
 
 __all__ = [
     "HarvestCandidate", "HarvestResult", "HarvestConfig",
@@ -12,4 +13,5 @@ __all__ = [
     "PatternExtractor",
     "SessionHarvester",
     "HarvestClassifier",
+    "AutoCaptureService", "AutoCaptureResult",
 ]

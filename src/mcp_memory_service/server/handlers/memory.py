@@ -237,11 +237,104 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 f"e.g. '{{\"{memory_type}\": []}}'."
             )
 
+        # RFC #1008 §3: optional inline auto-capture from stored content
+        from ...config import MCP_AUTO_EXTRACT_DEFAULT, MCP_AUTO_EXTRACT_MIN_CONFIDENCE
+        from ...harvest.auto_capture import AutoCaptureService
+
+        auto_extract = arguments.get("auto_extract")
+        if auto_extract is None:
+            auto_extract = MCP_AUTO_EXTRACT_DEFAULT
+
+        if auto_extract and content:
+            parent_hash = None
+            if "memories" in result:
+                parent_hash = result.get("original_hash")
+            elif "memory" in result:
+                parent_hash = result["memory"].get("content_hash")
+
+            capture_service = AutoCaptureService(
+                memory_service=server.memory_service,
+                min_confidence=arguments.get(
+                    "min_extract_confidence", MCP_AUTO_EXTRACT_MIN_CONFIDENCE
+                ),
+                types=arguments.get("extract_types"),
+            )
+            capture = await capture_service.capture(
+                content,
+                role=arguments.get("role", "assistant"),
+                parent_hash=parent_hash,
+                conversation_id=conversation_id,
+                dry_run=False,
+            )
+            if capture.candidates:
+                message += (
+                    f"\nAuto-capture: {capture.stored} stored, {capture.evolved} evolved "
+                    f"from {len(capture.candidates)} candidate(s)."
+                )
+
         return [types.TextContent(type="text", text=message)]
 
     except Exception as e:
         logger.error(f"Error storing memory: {str(e)}\n{traceback.format_exc()}")
         return [types.TextContent(type="text", text=f"Error storing memory: {str(e)}")]
+
+
+async def handle_memory_observe(server, arguments: dict) -> List[types.TextContent]:
+    """Observe conversation text and auto-extract facts/decisions without storing raw content."""
+    import json
+    from ...config import MCP_AUTO_EXTRACT_MIN_CONFIDENCE
+    from ...harvest.auto_capture import AutoCaptureService
+    from ...services.memory_service import normalize_tags
+
+    content = arguments.get("content")
+    if not content:
+        return [types.TextContent(type="text", text="Error: content is required")]
+
+    try:
+        await server._ensure_storage_initialized()
+
+        dry_run = arguments.get("dry_run", False)
+        store_source = arguments.get("store_source", False)
+        conversation_id = arguments.get("conversation_id")
+        parent_hash = arguments.get("parent_hash")
+
+        if store_source:
+            metadata = arguments.get("metadata", {})
+            tags = metadata.get("tags", "auto-capture-source")
+            store_result = await server.memory_service.store_memory(
+                content=content,
+                tags=normalize_tags(tags),
+                memory_type=metadata.get("type", "observation"),
+                metadata=metadata,
+                conversation_id=conversation_id,
+            )
+            if not store_result.get("success"):
+                return [types.TextContent(
+                    type="text",
+                    text=f"Error storing source: {store_result.get('error', 'unknown')}",
+                )]
+            if "memory" in store_result:
+                parent_hash = store_result["memory"].get("content_hash")
+
+        service = AutoCaptureService(
+            memory_service=server.memory_service,
+            min_confidence=arguments.get(
+                "min_confidence", MCP_AUTO_EXTRACT_MIN_CONFIDENCE
+            ),
+            types=arguments.get("types"),
+        )
+        capture = await service.capture(
+            content,
+            role=arguments.get("role", "assistant"),
+            parent_hash=parent_hash,
+            conversation_id=conversation_id,
+            dry_run=dry_run,
+        )
+        return [types.TextContent(type="text", text=json.dumps(capture.to_dict(), indent=2))]
+
+    except Exception as e:
+        logger.error(f"Error in memory_observe: {str(e)}\n{traceback.format_exc()}")
+        return [types.TextContent(type="text", text=f"Error in memory_observe: {str(e)}")]
 
 
 async def handle_store_session(server, arguments: dict) -> List[types.TextContent]:
