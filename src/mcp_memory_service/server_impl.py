@@ -1473,6 +1473,7 @@ MODES:
 - semantic (default): Finds conceptually similar content even if exact words differ
 - exact: Finds memories containing the exact query string
 - hybrid: Combines semantic similarity with quality scoring
+- ranked: Multi-signal fusion — semantic + time decay + access frequency + quality (RFC #1008)
 
 TIME FILTERS (can combine with other filters):
 - time_expr: Natural language like "yesterday", "last week", "2 days ago", "last month"
@@ -1496,6 +1497,7 @@ Examples:
 {"time_expr": "last week", "limit": 20}
 {"query": "database config", "time_expr": "yesterday"}
 {"query": "architecture decisions", "tags": ["important"], "quality_boost": 0.3}
+{"query": "recent deployment decisions", "mode": "ranked", "limit": 10}
 {"after": "2024-01-01", "before": "2024-06-30", "limit": 50}
 {"query": "error handling", "include_debug": true}""",
                         inputSchema={
@@ -1507,7 +1509,7 @@ Examples:
                                 },
                                 "mode": {
                                     "type": "string",
-                                    "enum": ["semantic", "exact", "hybrid"],
+                                    "enum": ["semantic", "exact", "hybrid", "ranked"],
                                     "default": "semantic",
                                     "description": "Search mode"
                                 },
@@ -1549,6 +1551,11 @@ Examples:
                                     "maximum": 1,
                                     "default": 0,
                                     "description": "Quality weight for reranking (0.0-1.0)"
+                                },
+                                "ranking_weights": {
+                                    "type": "object",
+                                    "description": "Optional multi-signal weights for ranked mode (semantic/time_decay/access_frequency/quality or w1-w4; default 0.6/0.2/0.1/0.1)",
+                                    "additionalProperties": {"type": "number"}
                                 },
                                 "limit": {
                                     "type": "integer",

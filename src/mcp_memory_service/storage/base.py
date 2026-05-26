@@ -216,6 +216,41 @@ class MemoryStorage(ABC):
         # Step 4: Return top N
         return candidates[:n_results]
 
+    async def retrieve_with_ranked_signals(
+        self,
+        query: str,
+        n_results: int = 10,
+        tags: Optional[List[str]] = None,
+        ranking_weights: Optional[Dict[str, float]] = None,
+        include_superseded: bool = False,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+    ) -> List[MemoryQueryResult]:
+        """Retrieve memories reranked by multi-signal scoring (RFC #1008 §2).
+
+        Over-fetches semantic candidates, then fuses:
+        semantic similarity + time-decayed confidence + log-normalized access
+        frequency + quality score.
+        """
+        from ..search.ranked import RankedSearchWeights, apply_ranked_rerank
+
+        oversample_factor = 3
+        candidates = await self.retrieve(
+            query,
+            n_results * oversample_factor,
+            tags=tags,
+            include_superseded=include_superseded,
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+        if not candidates:
+            return []
+
+        weights = RankedSearchWeights.from_mapping(ranking_weights)
+        apply_ranked_rerank(candidates, weights=weights)
+        return candidates[:n_results]
+
     @abstractmethod
     async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
         """Search memories by tags with optional time filtering.
@@ -998,6 +1033,7 @@ class MemoryStorage(ABC):
         tags: Optional[List[str]] = None,
         tag_match: str = "any",
         quality_boost: float = 0.0,
+        ranking_weights: Optional[Dict[str, float]] = None,
         limit: int = 10,
         include_debug: bool = False,
         include_superseded: bool = False
@@ -1011,7 +1047,9 @@ class MemoryStorage(ABC):
 
         Args:
             query: Search query string (required for semantic/exact modes, optional for time-only)
-            mode: Search mode - "semantic" (default), "exact", or "hybrid"
+            mode: Search mode - "semantic" (default), "exact", "hybrid", or "ranked"
+            ranking_weights: Optional weight overrides for ranked mode
+                (semantic/time_decay/access_frequency/quality or w1-w4)
             time_expr: Natural language time filter (e.g., "last week", "yesterday", "2 days ago")
             after: Return memories created after this ISO date (YYYY-MM-DD)
             before: Return memories created before this ISO date (YYYY-MM-DD)
@@ -1032,6 +1070,7 @@ class MemoryStorage(ABC):
             - semantic: Vector similarity search (default) - finds conceptually similar content
             - exact: Case-insensitive substring match - finds memories where content contains the query string
             - hybrid: Semantic search with quality-based reranking
+            - ranked: Multi-signal fusion (semantic + decay + access + quality, RFC #1008)
 
         Time Filters:
             - time_expr: Natural language like "yesterday", "last week", "2 days ago", "last month"
@@ -1083,13 +1122,13 @@ class MemoryStorage(ABC):
         """
         try:
             # Validate mode
-            if mode not in ("semantic", "exact", "hybrid"):
+            if mode not in ("semantic", "exact", "hybrid", "ranked"):
                 return {
                     "memories": [],
                     "total": 0,
                     "query": query,
                     "mode": mode,
-                    "error": f"Invalid mode: {mode}. Must be 'semantic', 'exact', or 'hybrid'"
+                    "error": f"Invalid mode: {mode}. Must be 'semantic', 'exact', 'hybrid', or 'ranked'"
                 }
 
             # Validate quality_boost
@@ -1177,7 +1216,7 @@ class MemoryStorage(ABC):
                 ]
                 pre_filter_count = len(results)
 
-            elif mode in ("semantic", "hybrid"):
+            elif mode in ("semantic", "hybrid", "ranked"):
                 # Vector similarity search
                 if not query and not start_time and not end_time and not tags:
                     return {
@@ -1189,55 +1228,67 @@ class MemoryStorage(ABC):
                     }
 
                 if query:
-                    # Determine fetch limit (over-fetch when post-filtering is needed)
-                    fetch_limit = limit
-                    if quality_boost > 0 and mode == "hybrid":
-                        fetch_limit = limit * 3
-                    # Over-fetch when time filters are present AND using a path that
-                    # cannot pass start_time/end_time to SQL (hybrid/quality_boost).
-                    # Standard semantic retrieve() already filters at SQL level.
-                    if (start_time is not None or end_time is not None) and (quality_boost > 0 or mode == "hybrid"):
-                        fetch_limit = max(fetch_limit, limit * 5)
+                    if mode == "ranked":
+                        results = await self.retrieve_with_ranked_signals(
+                            query,
+                            n_results=limit,
+                            tags=tags,
+                            ranking_weights=ranking_weights,
+                            include_superseded=include_superseded,
+                            start_time=start_time,
+                            end_time=end_time,
+                        )
+                        pre_filter_count = len(results)
+                    else:
+                        # Determine fetch limit (over-fetch when post-filtering is needed)
+                        fetch_limit = limit
+                        if quality_boost > 0 and mode == "hybrid":
+                            fetch_limit = limit * 3
+                        # Over-fetch when time filters are present AND using a path that
+                        # cannot pass start_time/end_time to SQL (hybrid/quality_boost).
+                        # Standard semantic retrieve() already filters at SQL level.
+                        if (start_time is not None or end_time is not None) and (quality_boost > 0 or mode == "hybrid"):
+                            fetch_limit = max(fetch_limit, limit * 5)
 
-                    # Choose search method based on mode and available features
-                    if mode == "hybrid" and hasattr(self, 'retrieve_hybrid'):
-                        # Use hybrid search (BM25 + Vector)
-                        from ..config import MCP_HYBRID_SEARCH_ENABLED
-                        if MCP_HYBRID_SEARCH_ENABLED:
-                            results = await self.retrieve_hybrid(
-                                query,
-                                n_results=fetch_limit,
-                                include_superseded=include_superseded
-                            )
-                        else:
-                            # Fall back to semantic if hybrid disabled in config
-                            logger.warning("Hybrid search requested but disabled in config, using semantic")
-                            if quality_boost > 0:
-                                results = await self.retrieve_with_quality_boost(
+                        # Choose search method based on mode and available features
+                        if mode == "hybrid" and hasattr(self, 'retrieve_hybrid'):
+                            # Use hybrid search (BM25 + Vector)
+                            from ..config import MCP_HYBRID_SEARCH_ENABLED
+                            if MCP_HYBRID_SEARCH_ENABLED:
+                                results = await self.retrieve_hybrid(
                                     query,
                                     n_results=fetch_limit,
-                                    tags=tags,
-                                    quality_boost=True,
-                                    quality_weight=quality_boost,
                                     include_superseded=include_superseded
                                 )
                             else:
-                                results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded, start_time=start_time, end_time=end_time)
-                    elif quality_boost > 0:
-                        # Use quality-boosted retrieval
-                        results = await self.retrieve_with_quality_boost(
-                            query,
-                            n_results=fetch_limit,
-                            tags=tags,
-                            quality_boost=True,
-                            quality_weight=quality_boost,
-                            include_superseded=include_superseded
-                        )
-                    else:
-                        # Standard semantic search
-                        results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded, start_time=start_time, end_time=end_time)
+                                # Fall back to semantic if hybrid disabled in config
+                                logger.warning("Hybrid search requested but disabled in config, using semantic")
+                                if quality_boost > 0:
+                                    results = await self.retrieve_with_quality_boost(
+                                        query,
+                                        n_results=fetch_limit,
+                                        tags=tags,
+                                        quality_boost=True,
+                                        quality_weight=quality_boost,
+                                        include_superseded=include_superseded
+                                    )
+                                else:
+                                    results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded, start_time=start_time, end_time=end_time)
+                        elif quality_boost > 0:
+                            # Use quality-boosted retrieval
+                            results = await self.retrieve_with_quality_boost(
+                                query,
+                                n_results=fetch_limit,
+                                tags=tags,
+                                quality_boost=True,
+                                quality_weight=quality_boost,
+                                include_superseded=include_superseded
+                            )
+                        else:
+                            # Standard semantic search
+                            results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded, start_time=start_time, end_time=end_time)
 
-                    pre_filter_count = len(results)
+                        pre_filter_count = len(results)
                 else:
                     # Time-only or tag-only search - try optimized path first (Issue #374)
                     use_optimized_search = False
@@ -1331,6 +1382,7 @@ class MemoryStorage(ABC):
                     },
                     "tag_filter": tags,
                     "quality_boost": quality_boost,
+                    "ranking_weights": ranking_weights,
                     "pre_filter_count": pre_filter_count,
                     "post_filter_count": len(memories),
                     "limit": limit

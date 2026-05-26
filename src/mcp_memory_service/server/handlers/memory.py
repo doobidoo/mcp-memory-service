@@ -845,6 +845,7 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             tags=tags,
             tag_match=arguments.get("tag_match", "any"),
             quality_boost=arguments.get("quality_boost", 0.0),
+            ranking_weights=arguments.get("ranking_weights"),
             limit=limit,
             include_debug=arguments.get("include_debug", False),
             include_superseded=arguments.get("include_superseded", False)
@@ -865,7 +866,7 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
         if (
             fallback_enabled
             and query
-            and arguments.get("mode", "semantic") in ("semantic", "hybrid")
+            and arguments.get("mode", "semantic") in ("semantic", "hybrid", "ranked")
             and len(memories) < _FALLBACK_MIN_RESULTS
         ):
             # Check if existing results have low scores
