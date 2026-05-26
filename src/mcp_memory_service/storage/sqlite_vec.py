@@ -1600,7 +1600,7 @@ SOLUTIONS:
 
         return [(r if r is not None else (False, "Skipped")) for r in results]
 
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False) -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None) -> List[MemoryQueryResult]:
         """Retrieve memories using semantic search."""
         try:
             if not self.conn:
@@ -1645,6 +1645,10 @@ SOLUTIONS:
                     tags = tags[:_MAX_TAGS_FOR_SEARCH]
 
                 k_value = min(embedding_count, _MAX_TAG_SEARCH_CANDIDATES)
+            elif start_time is not None or end_time is not None:
+                # Time filters are applied post-vector-search on the JOIN result,
+                # so we must scan more candidates to avoid missing time-relevant memories.
+                k_value = min(embedding_count, _MAX_TAG_SEARCH_CANDIDATES)
             else:
                 # CRITICAL: Cap k_value even without tags to prevent DoS
                 # An attacker could request n_results=1000000 to trigger
@@ -1687,6 +1691,16 @@ SOLUTIONS:
 
                 superseded_filter = "" if include_superseded else " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
 
+                # Time filter applied at SQL level (not post-filter) to avoid
+                # missing time-relevant memories outside the top-K vector results.
+                time_conditions = ""
+                if start_time is not None:
+                    time_conditions += " AND m.created_at >= ?"
+                    params.append(start_time)
+                if end_time is not None:
+                    time_conditions += " AND m.created_at <= ?"
+                    params.append(end_time)
+
                 sql = f'''
                     SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
                            m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
@@ -1697,7 +1711,7 @@ SOLUTIONS:
                         FROM memory_embeddings
                         WHERE content_embedding MATCH ? AND k = ?
                     ) e ON m.id = e.rowid
-                    WHERE m.deleted_at IS NULL{superseded_filter}{tag_conditions}
+                    WHERE m.deleted_at IS NULL{superseded_filter}{tag_conditions}{time_conditions}
                     ORDER BY e.distance
                     LIMIT ?
                 '''

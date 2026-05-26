@@ -101,7 +101,7 @@ class MemoryStorage(ABC):
         return final_results
     
     @abstractmethod
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False) -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None) -> List[MemoryQueryResult]:
         """Retrieve memories by semantic search.
 
         Args:
@@ -1125,6 +1125,9 @@ class MemoryStorage(ABC):
                 if after:
                     try:
                         after_date = datetime.fromisoformat(after)
+                        # Treat naive datetimes as UTC (created_at in DB is time.time() = UTC)
+                        if after_date.tzinfo is None:
+                            after_date = after_date.replace(tzinfo=timezone.utc)
                         start_time = after_date.timestamp()
                     except ValueError:
                         return {
@@ -1138,6 +1141,9 @@ class MemoryStorage(ABC):
                 if before:
                     try:
                         before_date = datetime.fromisoformat(before)
+                        # Treat naive datetimes as UTC (created_at in DB is time.time() = UTC)
+                        if before_date.tzinfo is None:
+                            before_date = before_date.replace(tzinfo=timezone.utc)
                         end_time = before_date.timestamp()
                     except ValueError:
                         return {
@@ -1187,6 +1193,10 @@ class MemoryStorage(ABC):
                     fetch_limit = limit
                     if quality_boost > 0 and mode == "hybrid":
                         fetch_limit = limit * 3
+                    # Over-fetch when time filters are present to compensate for
+                    # post-filter discarding results outside the time window
+                    if start_time is not None or end_time is not None:
+                        fetch_limit = max(fetch_limit, limit * 5)
 
                     # Choose search method based on mode and available features
                     if mode == "hybrid" and hasattr(self, 'retrieve_hybrid'):
@@ -1211,7 +1221,7 @@ class MemoryStorage(ABC):
                                     include_superseded=include_superseded
                                 )
                             else:
-                                results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded)
+                                results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded, start_time=start_time, end_time=end_time)
                     elif quality_boost > 0:
                         # Use quality-boosted retrieval
                         results = await self.retrieve_with_quality_boost(
@@ -1224,7 +1234,7 @@ class MemoryStorage(ABC):
                         )
                     else:
                         # Standard semantic search
-                        results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded)
+                        results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded, start_time=start_time, end_time=end_time)
 
                     pre_filter_count = len(results)
                 else:
