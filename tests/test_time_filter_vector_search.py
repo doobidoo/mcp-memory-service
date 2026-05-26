@@ -30,6 +30,8 @@ async def storage():
     await s.initialize()
     yield s
     # Cleanup
+    if s.conn:
+        s.conn.close()
     import shutil
     shutil.rmtree(tmp_dir, ignore_errors=True)
 

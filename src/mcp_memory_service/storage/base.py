@@ -1193,9 +1193,10 @@ class MemoryStorage(ABC):
                     fetch_limit = limit
                     if quality_boost > 0 and mode == "hybrid":
                         fetch_limit = limit * 3
-                    # Over-fetch when time filters are present to compensate for
-                    # post-filter discarding results outside the time window
-                    if start_time is not None or end_time is not None:
+                    # Over-fetch when time filters are present AND using a path that
+                    # cannot pass start_time/end_time to SQL (hybrid/quality_boost).
+                    # Standard semantic retrieve() already filters at SQL level.
+                    if (start_time is not None or end_time is not None) and (quality_boost > 0 or mode == "hybrid"):
                         fetch_limit = max(fetch_limit, limit * 5)
 
                     # Choose search method based on mode and available features
