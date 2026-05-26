@@ -62,4 +62,38 @@ class EntityExtractor:
         for tag in tags:
             _add(tag, 'tag', 'metadata')
 
+        # Custom terms matching from config
+        from ..config import MCP_ENTITY_CUSTOM_TERMS
+        if MCP_ENTITY_CUSTOM_TERMS:
+            custom_terms = [t.strip() for t in MCP_ENTITY_CUSTOM_TERMS.split(',') if t.strip()]
+            content_lower = content.lower()
+            for term in custom_terms:
+                if term.lower() in content_lower:
+                    _add(term, 'custom', 'config')
+
         return entities
+
+    @staticmethod
+    def extract_frequent_terms(memories: list, min_count: int = 5) -> list:
+        """Extract terms appearing in >= min_count distinct memories."""
+        import re as _re
+        from collections import defaultdict
+
+        stopwords = frozenset([
+            'the', 'and', 'for', 'with', 'that', 'this', 'from', 'are', 'was',
+            'were', 'been', 'have', 'has', 'had', 'not', 'but', 'what', 'all',
+            'can', 'will', 'just', 'should', 'now', 'than', 'then', 'also',
+            'into', 'its', 'you', 'your', 'they', 'them', 'their', 'which',
+            'when', 'how', 'who', 'where', 'there', 'here', 'more', 'some',
+        ])
+
+        term_docs = defaultdict(set)  # term -> set of memory indices
+        tokenize = _re.compile(r'[a-zA-Z]{3,}')
+
+        for idx, text in enumerate(memories):
+            tokens = set(t.lower() for t in tokenize.findall(text))
+            for token in tokens:
+                if token not in stopwords:
+                    term_docs[token].add(idx)
+
+        return [term for term, docs in term_docs.items() if len(docs) >= min_count]

@@ -1245,6 +1245,10 @@ MCP_INSIGHT_CARDS_ENABLED = safe_get_bool_env('MCP_INSIGHT_CARDS_ENABLED', False
 # 0 = unlimited (scans all memories — may be slow on large corpora).
 MAINTAIN_SCAN_LIMIT = safe_get_int_env('MCP_MAINTAIN_SCAN_LIMIT', 2000, min_value=0)
 
+# Custom entity terms (comma-separated). Supplements regex extraction.
+# Example: MCP_ENTITY_CUSTOM_TERMS=roma-connect,kiro,api-gateway
+MCP_ENTITY_CUSTOM_TERMS = os.environ.get("MCP_ENTITY_CUSTOM_TERMS", "")
+
 # =============================================================================
 # Configuration Validation
 # =============================================================================

@@ -740,6 +740,25 @@ class GraphStorage:
             logger.error(f"Failed to store entity link: {e}")
             return False
 
+    async def list_entities(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """List all known entities with count and types."""
+        try:
+            conn = await self._get_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT target_hash as entity_name, COUNT(*) as count, MAX(created_at) as last_activity
+                    FROM memory_graph WHERE relationship_type = 'has_entity'
+                    GROUP BY target_hash ORDER BY count DESC LIMIT ?
+                """, (limit,))
+                return [{"entity_name": row['entity_name'], "count": row['count'],
+                         "last_activity": row['last_activity']} for row in cursor.fetchall()]
+            finally:
+                cursor.close()
+        except sqlite3.Error as e:
+            logger.error(f"Failed to list entities: {e}")
+            return []
+
     async def find_memories_by_entity(self, entity_name: str, limit: int = 20) -> List[str]:
         """Find memory hashes linked to a given entity name."""
         if not entity_name:

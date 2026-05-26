@@ -162,6 +162,22 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
         elif action == "abduct":
             return await handle_abduct(arguments)
 
+        elif action == "list_entities":
+            limit = int(arguments.get("limit", 50))
+            graph = await get_graph_storage()
+            entities = await graph.list_entities(limit=limit)
+            return [types.TextContent(type="text", text=json.dumps({"entities": entities, "total": len(entities)}))]
+
+        elif action == "entity_profile":
+            entity_name = arguments.get("entity_name", "")
+            if not entity_name:
+                return [types.TextContent(type="text", text=json.dumps({"error": "entity_name required"}))]
+            graph = await get_graph_storage()
+            profile = await graph.get_entity_profile(entity_name)
+            memory_hashes = await graph.find_memories_by_entity(entity_name, limit=20)
+            profile["memory_hashes"] = memory_hashes
+            return [types.TextContent(type="text", text=json.dumps(profile))]
+
         else:
             # Should never reach here due to validation above
             return [types.TextContent(type="text", text=f"Error: Unknown action '{action}'")]
