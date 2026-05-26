@@ -11,13 +11,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from mcp_memory_service.harvest.auto_capture import AutoCaptureService
-from mcp_memory_service.harvest.parser import ParsedMessage
 from mcp_memory_service.models.ontology import validate_relationship
 
 
 @pytest.mark.unit
-def test_derived_from_relationship_valid():
-    assert validate_relationship("derived_from") is True
+def test_auto_capture_link_uses_valid_relationship_type():
+    """Graph edges must use ontology-valid relationship_type (see test_ontology.py)."""
+    assert validate_relationship("follows") is True
+    assert validate_relationship("derived_from") is False
 
 
 @pytest.mark.unit

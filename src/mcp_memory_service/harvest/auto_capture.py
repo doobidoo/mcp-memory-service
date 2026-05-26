@@ -158,7 +158,8 @@ async def _link_derived_from(parent_hash: str, child_hash: str, confidence: floa
             target_hash=child_hash,
             similarity=min(max(confidence, 0.0), 1.0),
             connection_types=["derived_from", "auto_capture"],
-            relationship_type="derived_from",
+            relationship_type="follows",
+            metadata={"extraction": "auto_capture"},
         )
     except Exception as exc:
         logger.debug("Auto-capture graph link skipped: %s", exc)
