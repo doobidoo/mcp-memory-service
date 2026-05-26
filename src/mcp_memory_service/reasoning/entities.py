@@ -35,7 +35,7 @@ class EntityExtractor:
         seen: set = set()
 
         def _add(name: str, etype: str, source: str):
-            key = (name.lower(), etype)
+            key = name.lower()
             if key not in seen:
                 seen.add(key)
                 entities.append(Entity(name=name, entity_type=etype, source=source))

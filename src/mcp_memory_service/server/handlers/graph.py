@@ -75,7 +75,7 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
         return [types.TextContent(type="text", text="Error: action parameter is required")]
 
     # Validate action
-    valid_actions = ["connected", "path", "subgraph", "extract_entities", "infer", "suggest", "abduct"]
+    valid_actions = ["connected", "path", "subgraph", "extract_entities", "infer", "suggest", "abduct", "list_entities", "entity_profile"]
     if action not in valid_actions:
         return [types.TextContent(
             type="text",
@@ -163,7 +163,10 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
             return await handle_abduct(arguments)
 
         elif action == "list_entities":
-            limit = int(arguments.get("limit", 50))
+            try:
+                limit = int(arguments.get("limit", 50))
+            except (ValueError, TypeError):
+                limit = 50
             graph = await get_graph_storage()
             if not graph:
                 return [types.TextContent(type="text", text=json.dumps({"error": "graph storage not available"}))]
@@ -178,6 +181,8 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
             if not graph:
                 return [types.TextContent(type="text", text=json.dumps({"error": "graph storage not available"}))]
             profile = await graph.get_entity_profile(entity_name)
+            if not profile:
+                return [types.TextContent(type="text", text=json.dumps({"error": f"entity '{entity_name}' not found"}))]
             memory_hashes = await graph.find_memories_by_entity(entity_name, limit=20)
             profile["memory_hashes"] = memory_hashes
             return [types.TextContent(type="text", text=json.dumps(profile))]
