@@ -133,33 +133,46 @@ if not os.getenv('DEBUG_MODE'):
         logging.getLogger(module_name).setLevel(logging.WARNING)
 
 class MemoryServer:
-    def __init__(self):
-        """Initialize the server with hardware-aware configuration."""
+    def __init__(
+        self,
+        storage=None,
+        consolidator=None,
+        consolidation_scheduler=None,
+    ):
+        """Initialize the server with hardware-aware configuration.
+
+        All keyword arguments are optional dependency-injection slots for
+        an outer host (e.g. the HTTP transport in `web/api/mcp.py`) that
+        has already built these objects and wants the MemoryServer to
+        share them rather than bootstrap a second set. Passing `storage`
+        skips the lazy storage-init path and treats the server as fully
+        initialized from construction. The stdio entry point
+        (`async_main`) calls `MemoryServer()` with no args and gets the
+        existing lazy-init behavior.
+        """
         self.server = Server(SERVER_NAME)
         self.system_info = get_system_info()
-        
+
         # Initialize query time tracking
         self.query_times = deque(maxlen=50)  # Keep last 50 query times for averaging
-        
+
         # Initialize progress tracking
         self.current_progress = {}  # Track ongoing operations
-        
+
         # Initialize integrity monitor (if enabled)
         self.integrity_monitor = None
 
-        # Initialize consolidation system (if enabled)
-        self.consolidator = None
-        self.consolidation_scheduler = None
-        if CONSOLIDATION_ENABLED:
+        # Initialize consolidation system. Caller-provided instances win;
+        # otherwise the lazy path inside `_ensure_storage_initialized`
+        # builds them (only when CONSOLIDATION_ENABLED).
+        self.consolidator = consolidator
+        self.consolidation_scheduler = consolidation_scheduler
+        if CONSOLIDATION_ENABLED and self.consolidator is None:
             try:
-                self.consolidator = None  # Will be initialized after storage
-                self.consolidation_scheduler = None  # Will be initialized after consolidator
                 logger.info("Consolidation system will be initialized after storage")
             except Exception as e:
                 logger.error(f"Failed to initialize consolidation config: {e}")
-                self.consolidator = None
-                self.consolidation_scheduler = None
-        
+
         try:
             # Initialize paths
             logger.info(f"Creating directories if they don't exist...")
@@ -169,19 +182,30 @@ class MemoryServer:
             logger.info(f"Initializing on {platform.system()} {platform.machine()} with Python {platform.python_version()}")
             logger.info(f"Using accelerator: {self.system_info.accelerator}")
 
-            # DEFER STORAGE INITIALIZATION - Initialize storage lazily when needed
-            # This prevents hanging during server startup due to embedding model loading
-            logger.info(f"Deferring {STORAGE_BACKEND} storage initialization to prevent hanging")
-            if MCP_CLIENT == 'lm_studio':
-                print(f"Deferring {STORAGE_BACKEND} storage initialization to prevent startup hanging", file=sys.stdout, flush=True)
-            self.storage = None
-            self.memory_service = None
-            self._storage_initialized = False
+            if storage is not None:
+                # Caller injected an already-initialized storage; adopt it
+                # directly and skip the deferred-init path entirely.
+                self.storage = storage
+                self.memory_service = MemoryService(storage)
+                self._storage_initialized = True
+                logger.info(
+                    f"Using caller-provided {storage.__class__.__name__} storage; "
+                    f"deferred init skipped"
+                )
+            else:
+                # DEFER STORAGE INITIALIZATION - Initialize storage lazily when needed
+                # This prevents hanging during server startup due to embedding model loading
+                logger.info(f"Deferring {STORAGE_BACKEND} storage initialization to prevent hanging")
+                if MCP_CLIENT == 'lm_studio':
+                    print(f"Deferring {STORAGE_BACKEND} storage initialization to prevent startup hanging", file=sys.stdout, flush=True)
+                self.storage = None
+                self.memory_service = None
+                self._storage_initialized = False
 
         except Exception as e:
             logger.error(f"Initialization error: {str(e)}")
             logger.error(traceback.format_exc())
-            
+
             # Set storage to None to prevent any hanging
             self.storage = None
             self.memory_service = None
@@ -2307,6 +2331,7 @@ Examples:
                     inputSchema={"type": "object", "properties": {}, "required": []},
                     annotations=types.ToolAnnotations(
                         title="Memory Conflicts",
+                        readOnlyHint=True,
                         destructiveHint=False,
                     ),
                 ),
@@ -2357,6 +2382,10 @@ Examples:
                         },
                         "required": ["query"],
                     },
+                    annotations=types.ToolAnnotations(
+                        title="Search Mistake Notes",
+                        readOnlyHint=True,
+                    ),
                 ),
             ]
             tools.extend(mistake_tools)

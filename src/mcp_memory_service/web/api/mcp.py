@@ -74,7 +74,17 @@ async def _requires_write(server, tool_name: Optional[str]) -> bool:
     alias = DEPRECATED_TOOLS.get(tool_name)
     if alias is not None:
         target = alias[0]
-    for tool in await server.list_tools():
+    # Fail closed if list_tools() raises during classification: the request
+    # MUST NOT be allowed through the scope gate just because we couldn't
+    # introspect the surface. A read-only token gets a clean -32003/403;
+    # call_tool would also fail, but the wrong response code there masks
+    # the scope decision.
+    try:
+        tools = await server.list_tools()
+    except Exception:
+        logger.exception("list_tools() raised during write-scope classification — failing closed")
+        return True
+    for tool in tools:
         if tool.name == target:
             return not (tool.annotations and getattr(tool.annotations, "readOnlyHint", False))
     return True
@@ -113,7 +123,12 @@ _memory_server: Optional[Any] = None
 
 
 def _get_memory_server():
-    """Return the process-wide MemoryServer used by /mcp."""
+    """Return the process-wide MemoryServer used by /mcp.
+
+    The HTTP REST layer already initializes a `MemoryStorage` (and
+    optionally a consolidator + scheduler) in its FastAPI lifespan, so
+    use those.
+    """
     global _memory_server
     if _memory_server is None:
         # `server_impl` and `server/__init__.py` have a top-level circular
@@ -124,7 +139,23 @@ def _get_memory_server():
         # partially initialized module".
         import mcp_memory_service.server  # noqa: F401
         from ...server_impl import MemoryServer
-        _memory_server = MemoryServer()
+        from ..dependencies import get_storage
+
+        cons, sched = None, None
+        try:
+            from ...api.client import get_consolidator, get_scheduler
+            cons = get_consolidator()
+            sched = get_scheduler()
+        except (ImportError, AttributeError):
+            # The HTTP lifespan may not have set these — consolidation is
+            # feature-gated by CONSOLIDATION_ENABLED; absence is fine.
+            pass
+
+        _memory_server = MemoryServer(
+            storage=get_storage(),
+            consolidator=cons,
+            consolidation_scheduler=sched,
+        )
     return _memory_server
 
 
@@ -190,6 +221,25 @@ async def mcp_endpoint(
         elif request.method == "tools/call":
             tool_name = request.params.get("name") if request.params else None
             arguments = request.params.get("arguments", {}) if request.params else {}
+
+            # A `tools/call` without a `name` is a malformed request — reject
+            # it before any other dispatch. Without this guard a missing
+            # name reaches `call_tool(None, {})` which raises ValueError; the
+            # outer catch returns HTTP 200 with an internal-error string,
+            # and (worse) the write-scope check would have already
+            # short-circuited on a falsy name.
+            if not tool_name:
+                response = MCPResponse(
+                    id=request.id,
+                    error={
+                        "code": -32602,
+                        "message": "Invalid params: 'name' is required for tools/call",
+                    },
+                )
+                return JSONResponse(
+                    content=response.model_dump(exclude_none=True),
+                    status_code=400,
+                )
 
             # Local-only tools (e.g. memory_harvest, memory_ingest) read
             # caller-supplied filesystem paths and must not reach a remote
