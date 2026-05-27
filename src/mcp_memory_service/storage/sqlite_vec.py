@@ -1871,7 +1871,9 @@ SOLUTIONS:
 
             results = await self._execute_with_retry(search_fts)
 
-            logger.debug(f"BM25 search found {len(results)} results for query: {query_clean}")
+            # Sanitize for logging to prevent log injection/forgery via control chars
+            query_for_log = re.sub(r'[\r\n\t\x00-\x1f\x7f]+', ' ', query_clean).strip()
+            logger.debug(f"BM25 search found {len(results)} results for query: {query_for_log}")
             return results
 
         except Exception as e:
