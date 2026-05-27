@@ -1,0 +1,39 @@
+spec_version: "0.1.0"
+name: mcp-memory-service
+version: "10.66.1"
+description: >
+  Open-source persistent memory backend for AI agent pipelines. Provides a
+  self-hosted REST API, MCP transport, OAuth 2.1, CLI, and web dashboard that
+  lets agents store decisions, share causal knowledge graphs, and retrieve
+  context in under 5 ms — without cloud lock-in. Works with LangGraph, CrewAI,
+  AutoGen, Claude Desktop, OpenCode, and any HTTP client. Embeddings run locally
+  via ONNX; memory never leaves your infrastructure.
+author: doobidoo
+license: Apache-2.0
+
+model:
+  preferred: anthropic:claude-sonnet-4-6
+  constraints:
+    temperature: 0.2
+    max_tokens: 8192
+
+skills:
+  - memory-store
+  - memory-retrieve
+  - memory-search
+  - knowledge-graph
+  - memory-consolidation
+
+runtime:
+  max_turns: 50
+  timeout: 600
+
+compliance:
+  risk_tier: standard
+  supervision:
+    human_in_the_loop: destructive
+    kill_switch: true
+  recordkeeping:
+    audit_logging: true
+  data_governance:
+    pii_handling: redact
