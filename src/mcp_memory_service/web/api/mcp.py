@@ -325,8 +325,45 @@ async def handle_tool_call(storage, tool_name: str, arguments: Dict[str, Any]) -
         query = arguments.get("query") or arguments.get("content")
         n_results = arguments.get("n_results", 5)
 
-        # Use storage recall_memory method which handles time expressions
-        memories = await storage.recall_memory(query=query, n_results=n_results)
+        # Parse time expressions from query (same logic as stdio handler)
+        from mcp_memory_service.utils.time_parser import extract_time_expression, parse_time_expression
+        cleaned_query, (start_ts, end_ts) = extract_time_expression(query or "")
+        if start_ts is None and end_ts is None:
+            start_ts, end_ts = parse_time_expression(query or "")
+
+        # Use backend-optimized recall() if available (sqlite_vec, hybrid, cloudflare)
+        # Falls back to search_memories for backends without recall()
+        if hasattr(storage, 'recall'):
+            results = await storage.recall(
+                query=cleaned_query.strip() or None,
+                n_results=n_results,
+                start_timestamp=start_ts,
+                end_timestamp=end_ts,
+            )
+            memories = [r.memory for r in results]
+        else:
+            # Fallback: use search_memories with time bounds
+            after_iso = None
+            before_iso = None
+            if start_ts is not None:
+                from datetime import datetime, timezone
+                after_iso = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+            if end_ts is not None:
+                from datetime import datetime, timezone
+                before_iso = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+            result = await storage.search_memories(
+                query=cleaned_query.strip() or None,
+                mode="semantic", after=after_iso, before=before_iso, limit=n_results,
+            )
+            memories_list = result.get("memories", []) if isinstance(result, dict) else []
+            # Convert dicts to mock objects for uniform response
+            class _Mem:
+                def __init__(self, d):
+                    self.content = d.get("content", "")
+                    self.content_hash = d.get("content_hash", "")
+                    self.tags = d.get("tags", [])
+                    self.created_at_iso = d.get("created_at_iso", "")
+            memories = [_Mem(m) for m in memories_list]
 
         return {
             "results": [
