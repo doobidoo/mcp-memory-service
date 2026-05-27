@@ -2667,12 +2667,21 @@ Examples:
         # Resolve project directory
         project_path = arguments.get("project_path")
         if not project_path:
-            # Default: ~/.claude/projects/ — auto-detect from cwd
-            cwd = _Path.cwd()
-            claude_projects = _Path.home() / ".claude" / "projects"
-            # Convert cwd to Claude's project dir naming: replace path sep with -
-            project_dir_name = str(cwd).replace(os.sep, "-")
-            project_path = claude_projects / project_dir_name
+            # Check env var override first (supports any CLI)
+            env_override = os.environ.get("MCP_HARVEST_SESSION_DIR")
+            if env_override:
+                project_path = _Path(env_override)
+            else:
+                # Default: Claude Code project dir from cwd
+                cwd = _Path.cwd()
+                claude_projects = _Path.home() / ".claude" / "projects"
+                project_dir_name = str(cwd).replace(os.sep, "-")
+                project_path = claude_projects / project_dir_name
+                # Fallback: Kiro CLI sessions if Claude path doesn't exist
+                if not project_path.exists():
+                    kiro_sessions = _Path.home() / ".kiro" / "sessions" / "cli"
+                    if kiro_sessions.exists():
+                        project_path = kiro_sessions
         else:
             project_path = _Path(project_path)
 

@@ -136,6 +136,35 @@ separators with `-`, mirroring the Python side
 directory under `~/.claude/projects/`. The endpoint rejects absolute paths
 and `..` components (CodeQL #383/#384).
 
+### Multi-CLI support (Kiro CLI, etc.)
+
+When `project_path` is not provided to the `memory_harvest` MCP tool, the
+server resolves the session directory in this order:
+
+1. **`MCP_HARVEST_SESSION_DIR`** environment variable — explicit override,
+   works with any CLI. Set it in your systemd service or shell profile.
+2. **`~/.claude/projects/{cwd}`** — default for Claude Code users.
+3. **`~/.kiro/sessions/cli/`** — fallback if the Claude path doesn't exist.
+   Kiro CLI stores sessions as JSONL files in this directory; the parser
+   auto-detects the format from the `"kind"` field in each line.
+
+For Kiro CLI users running the memory service as a systemd unit:
+
+```ini
+# ~/.config/systemd/user/mcp-memory-service.service
+[Service]
+Environment=MCP_HARVEST_SESSION_DIR=/home/youruser/.kiro/sessions/cli
+```
+
+Or pass it explicitly in each call:
+
+```json
+{"project_path": "/home/youruser/.kiro/sessions/cli", "sessions": 1}
+```
+
+The JSONL parser supports both formats transparently — no configuration
+needed beyond pointing to the correct directory.
+
 ## Tests
 
 ```bash
