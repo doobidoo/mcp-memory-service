@@ -1000,7 +1000,8 @@ class MemoryStorage(ABC):
         quality_boost: float = 0.0,
         limit: int = 10,
         include_debug: bool = False,
-        include_superseded: bool = False
+        include_superseded: bool = False,
+        ranking_weights: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Any]:
         """
         Unified memory search with flexible modes and filters.
@@ -1032,6 +1033,7 @@ class MemoryStorage(ABC):
             - semantic: Vector similarity search (default) - finds conceptually similar content
             - exact: Case-insensitive substring match - finds memories where content contains the query string
             - hybrid: Semantic search with quality-based reranking
+            - ranked: Semantic search with multi-signal reranking (time decay + access frequency + quality)
 
         Time Filters:
             - time_expr: Natural language like "yesterday", "last week", "2 days ago", "last month"
@@ -1083,13 +1085,13 @@ class MemoryStorage(ABC):
         """
         try:
             # Validate mode
-            if mode not in ("semantic", "exact", "hybrid"):
+            if mode not in ("semantic", "exact", "hybrid", "ranked"):
                 return {
                     "memories": [],
                     "total": 0,
                     "query": query,
                     "mode": mode,
-                    "error": f"Invalid mode: {mode}. Must be 'semantic', 'exact', or 'hybrid'"
+                    "error": f"Invalid mode: {mode}. Must be 'semantic', 'exact', 'hybrid', or 'ranked'"
                 }
 
             # Validate quality_boost
@@ -1157,7 +1159,30 @@ class MemoryStorage(ABC):
             # Perform search based on mode
             results = []
 
-            if mode == "exact":
+            if mode == "ranked":
+                # Multi-signal ranked search — feeds into shared post-filter tail
+                if not query:
+                    return {
+                        "memories": [],
+                        "total": 0,
+                        "query": query,
+                        "mode": mode,
+                        "error": "query required for ranked mode"
+                    }
+                from ..reasoning.ranked_search import apply_ranked_rerank, RankedSearchWeights
+                oversample = limit * 3
+                candidates = await self.retrieve(
+                    query, n_results=oversample, tags=tags,
+                    include_superseded=include_superseded,
+                    start_time=start_time, end_time=end_time,
+                )
+                if candidates:
+                    weights = RankedSearchWeights.from_dict(ranking_weights)
+                    candidates = apply_ranked_rerank(candidates, weights=weights)
+                results = candidates
+                pre_filter_count = len(results)
+
+            elif mode == "exact":
                 # Exact string match
                 if not query:
                     return {
