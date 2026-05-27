@@ -2,6 +2,11 @@
 
 Provides NLIClassifier with heuristic fallback (no ML deps required)
 and detect_contradictions_nli 4-stage pipeline function.
+
+NOTE: This PR delivers the heuristic-only phase. The transformers backend
+(cross-encoder/nli-deberta-v3-small) will be implemented in a follow-up PR
+once the pipeline is validated in production with heuristic confidence scores.
+Install with `pip install .[nli]` when the transformers backend lands.
 """
 
 import logging
@@ -88,50 +93,78 @@ async def detect_contradictions_nli(
     Stage 2: Embedding pre-filter (similarity band 0.4-0.75)
     Stage 3: NLI classification
     Stage 4: Conflict registration
+
+    Args:
+        storage: MemoryStorage instance (has get_by_hash, search_memories).
+                 Graph ops accessed via get_graph_storage() helper.
+
+    Security: This function writes to the graph (store_association) when dry_run=False.
+    It must only be called from write-scoped contexts (e.g., handle_store_memory).
     """
     result = {"pairs_detected": 0, "nli_calls": 0, "conflicts_registered": 0}
+
+    # Master kill-switch
+    if not os.environ.get("MCP_NLI_ENABLED", "false").lower() in ("1", "true", "yes"):
+        return result
 
     if memory_hash is None:
         return result
 
     # Get the source memory
-    mem_a = await storage.get_memory(memory_hash)
+    mem_a = await storage.get_by_hash(memory_hash)
     if mem_a is None:
         return result
 
-    entities_a = mem_a.metadata.get("entities", []) if mem_a.metadata else []
+    entities_a = (mem_a.metadata or {}).get("entities", [])
     if not entities_a:
+        return result
+
+    # Get graph storage for entity lookups and edge creation
+    try:
+        from mcp_memory_service.server.handlers.graph import get_graph_storage
+        graph = await get_graph_storage()
+    except Exception:
+        graph = None
+
+    if not graph:
         return result
 
     # Stage 1: Entity overlap gate
     candidate_hashes = set()
     for entity in entities_a:
-        hashes = await storage.find_memories_by_entity(entity)
-        if hashes:
-            candidate_hashes.update(hashes)
+        try:
+            hashes = await graph.find_memories_by_entity(entity)
+            if hashes:
+                candidate_hashes.update(hashes)
+        except Exception:
+            continue
     candidate_hashes.discard(memory_hash)
 
     if not candidate_hashes:
         return result
 
     # Stage 2: Embedding pre-filter — get candidates in similarity band
-    search_result = await storage.search_memories(mem_a.content)
+    try:
+        search_result = await storage.search_memories(query=mem_a.content, limit=20)
+    except Exception:
+        search_result = {}
+
     band_hashes = set()
     band_memories = {}
-    if search_result and "memories" in search_result:
-        for m in search_result["memories"]:
-            h = m.get("content_hash")
-            score = m.get("similarity_score", 0)
-            if h in candidate_hashes and 0.4 <= score <= 0.75:
-                band_hashes.add(h)
-                band_memories[h] = m
+    memories_list = search_result.get("memories", []) if isinstance(search_result, dict) else []
+    for m in memories_list:
+        h = m.get("content_hash")
+        score = m.get("similarity_score", 0)
+        if h in candidate_hashes and 0.4 <= score <= 0.75:
+            band_hashes.add(h)
+            band_memories[h] = m
 
     if not band_hashes:
         return result
 
     # Stage 3: NLI classification
     classifier = NLIClassifier(backend="heuristic")
-    threshold = float(os.environ.get("MCP_NLI_CONFIDENCE_THRESHOLD", "0.7"))
+    confidence_threshold = float(os.environ.get("MCP_NLI_CONFIDENCE_THRESHOLD", "0.4"))
 
     contradictions = []
     for h in band_hashes:
@@ -139,7 +172,7 @@ async def detect_contradictions_nli(
         nli_result = await classifier.classify(mem_a.content, mem_b_data["content"])
         result["nli_calls"] += 1
 
-        if nli_result.label == "contradiction" and nli_result.confidence > 0.0:
+        if nli_result.label == "contradiction" and nli_result.confidence >= confidence_threshold:
             contradictions.append((h, mem_b_data, nli_result))
 
     result["pairs_detected"] = len(contradictions)
@@ -148,9 +181,13 @@ async def detect_contradictions_nli(
     if not dry_run and contradictions:
         for h, mem_b_data, nli_res in contradictions:
             try:
-                await storage.add_graph_edge(
-                    memory_hash, h, "contradicts",
-                    {"confidence": nli_res.confidence, "method": "nli_heuristic"}
+                await graph.store_association(
+                    source_hash=memory_hash,
+                    target_hash=h,
+                    similarity=nli_res.confidence,
+                    connection_types=["contradiction"],
+                    relationship_type="contradicts",
+                    metadata={"confidence": nli_res.confidence, "method": "nli_heuristic"},
                 )
                 result["conflicts_registered"] += 1
             except Exception as e:

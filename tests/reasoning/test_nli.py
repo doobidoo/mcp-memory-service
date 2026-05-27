@@ -102,6 +102,10 @@ class TestNLIClassifier:
 class TestContradictionPipeline:
     """Test the 4-stage NLI contradiction pipeline."""
 
+    @pytest.fixture(autouse=True)
+    def enable_nli(self, monkeypatch):
+        monkeypatch.setenv("MCP_NLI_ENABLED", "true")
+
     def test_pipeline_import(self):
         """Pipeline must be importable from reasoning."""
         from mcp_memory_service.reasoning.nli import detect_contradictions_nli
@@ -113,15 +117,17 @@ class TestContradictionPipeline:
         from mcp_memory_service.reasoning.nli import detect_contradictions_nli
 
         storage = AsyncMock()
-        storage.get_memory.return_value = MagicMock(
+        storage.get_by_hash.return_value = MagicMock(
             content="Service A is running",
             content_hash="hash_a",
             metadata={"entities": ["service_a"]},
         )
-        # No entity overlap — find_memories_by_entity returns empty
-        storage.find_memories_by_entity = AsyncMock(return_value=[])
 
-        result = await detect_contradictions_nli(storage, memory_hash="hash_a", dry_run=True)
+        mock_graph = AsyncMock()
+        mock_graph.find_memories_by_entity = AsyncMock(return_value=[])
+
+        with patch("mcp_memory_service.server.handlers.graph.get_graph_storage", new_callable=AsyncMock, return_value=mock_graph):
+            result = await detect_contradictions_nli(storage, memory_hash="hash_a", dry_run=True)
         assert result["nli_calls"] == 0
 
     @pytest.mark.asyncio
@@ -135,25 +141,19 @@ class TestContradictionPipeline:
             metadata={"entities": ["mcp-memory-service"]},
             created_at=1000.0,
         )
-        mem_b = MagicMock(
-            content="mcp-memory-service version is 10.66.0",
-            content_hash="hash_b",
-            metadata={"entities": ["mcp-memory-service"]},
-            created_at=2000.0,
-        )
 
         storage = AsyncMock()
-        storage.get_memory.return_value = mem_a
-        storage.find_memories_by_entity = AsyncMock(return_value=["hash_b"])
-        storage.get_memory_by_hash = AsyncMock(return_value=mem_b)
-        # Embedding pre-filter: returns hash_b in similarity band
+        storage.get_by_hash.return_value = mem_a
         storage.search_memories = AsyncMock(return_value={
-            "memories": [{"content_hash": "hash_b", "similarity_score": 0.55, "content": mem_b.content, "created_at": 2000.0}]
+            "memories": [{"content_hash": "hash_b", "similarity_score": 0.55, "content": "mcp-memory-service version is 10.66.0", "created_at": 2000.0}]
         })
-        storage.add_graph_edge = AsyncMock(return_value=True)
-        storage.update_memory_metadata = AsyncMock(return_value=True)
 
-        result = await detect_contradictions_nli(storage, memory_hash="hash_a", dry_run=False)
+        mock_graph = AsyncMock()
+        mock_graph.find_memories_by_entity = AsyncMock(return_value=["hash_b"])
+        mock_graph.store_association = AsyncMock(return_value=True)
+
+        with patch("mcp_memory_service.server.handlers.graph.get_graph_storage", new_callable=AsyncMock, return_value=mock_graph):
+            result = await detect_contradictions_nli(storage, memory_hash="hash_a", dry_run=False)
         assert result["pairs_detected"] >= 1
         assert result["nli_calls"] >= 1
 
@@ -168,22 +168,18 @@ class TestContradictionPipeline:
             metadata={"entities": ["python"]},
             created_at=1000.0,
         )
-        mem_b = MagicMock(
-            content="Python was created by Guido van Rossum",
-            content_hash="hash_b",
-            metadata={"entities": ["python"]},
-            created_at=2000.0,
-        )
 
         storage = AsyncMock()
-        storage.get_memory.return_value = mem_a
-        storage.find_memories_by_entity = AsyncMock(return_value=["hash_b"])
-        storage.get_memory_by_hash = AsyncMock(return_value=mem_b)
+        storage.get_by_hash.return_value = mem_a
         storage.search_memories = AsyncMock(return_value={
-            "memories": [{"content_hash": "hash_b", "similarity_score": 0.5, "content": mem_b.content, "created_at": 2000.0}]
+            "memories": [{"content_hash": "hash_b", "similarity_score": 0.5, "content": "Python was created by Guido van Rossum", "created_at": 2000.0}]
         })
 
-        result = await detect_contradictions_nli(storage, memory_hash="hash_a", dry_run=True)
+        mock_graph = AsyncMock()
+        mock_graph.find_memories_by_entity = AsyncMock(return_value=["hash_b"])
+
+        with patch("mcp_memory_service.server.handlers.graph.get_graph_storage", new_callable=AsyncMock, return_value=mock_graph):
+            result = await detect_contradictions_nli(storage, memory_hash="hash_a", dry_run=True)
         assert result["pairs_detected"] == 0
 
 

@@ -2811,12 +2811,26 @@ Examples:
         return [types.TextContent(type="text", text="\n".join(lines))]
 
     async def handle_memory_resolve(self, arguments: dict) -> List[types.TextContent]:
-        """Resolve a memory conflict."""
+        """Resolve a memory conflict. Accepts single pair or batch (hashes list)."""
         await self._ensure_storage_initialized()
+
+        # Batch mode: list of {winner_hash, loser_hash} dicts
+        hashes = arguments.get("hashes")
+        if hashes and isinstance(hashes, list):
+            results = []
+            for pair in hashes:
+                w = pair.get("winner_hash", "")
+                l = pair.get("loser_hash", "")
+                if w and l:
+                    ok, msg = await self.storage.resolve_conflict(w, l)
+                    results.append(msg)
+            return [types.TextContent(type="text", text=f"Resolved {len(results)} conflict(s):\n" + "\n".join(results))]
+
+        # Single mode (backward compat)
         winner = arguments.get("winner_hash", "")
         loser = arguments.get("loser_hash", "")
         if not winner or not loser:
-            return [types.TextContent(type="text", text="Error: winner_hash and loser_hash required")]
+            return [types.TextContent(type="text", text="Error: winner_hash and loser_hash required (or pass hashes list for batch)")]
 
         ok, msg = await self.storage.resolve_conflict(winner, loser)
         return [types.TextContent(type="text", text=msg)]

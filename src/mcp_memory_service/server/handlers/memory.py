@@ -237,6 +237,19 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 f"e.g. '{{\"{memory_type}\": []}}'."
             )
 
+        # Phase 3: NLI contradiction check on store (opt-in, single memories only)
+        nli_on_store = os.environ.get("MCP_NLI_ON_STORE", "false").lower() == "true"
+        if nli_on_store and result.get("success") and "memory" in result:
+            try:
+                from ...reasoning.nli import detect_contradictions_nli
+                mem_hash = result["memory"].get("content_hash")
+                if mem_hash:
+                    nli_result = await detect_contradictions_nli(server.storage, memory_hash=mem_hash, dry_run=False)
+                    if nli_result.get("pairs_detected", 0) > 0:
+                        message += f"\n⚠️ Contradiction detected: {nli_result['pairs_detected']} conflict(s) registered."
+            except Exception as e:
+                logger.debug(f"NLI on-store check failed: {e}")
+
         return [types.TextContent(type="text", text=message)]
 
     except Exception as e:
