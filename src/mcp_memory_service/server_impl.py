@@ -1568,7 +1568,7 @@ Examples:
                             },
                             "mode": {
                                 "type": "string",
-                                "enum": ["semantic", "exact", "hybrid"],
+                                "enum": ["semantic", "exact", "hybrid", "ranked"],
                                 "default": "semantic",
                                 "description": "Search mode"
                             },
@@ -1610,6 +1610,16 @@ Examples:
                                 "maximum": 1,
                                 "default": 0,
                                 "description": "Quality weight for reranking (0.0-1.0)"
+                            },
+                            "ranking_weights": {
+                                "type": "object",
+                                "description": "Custom weights for ranked mode (keys: semantic, time_decay, access_frequency, quality). Values are normalized to sum=1.0.",
+                                "properties": {
+                                    "semantic": {"type": "number"},
+                                    "time_decay": {"type": "number"},
+                                    "access_frequency": {"type": "number"},
+                                    "quality": {"type": "number"}
+                                }
                             },
                             "limit": {
                                 "type": "integer",
