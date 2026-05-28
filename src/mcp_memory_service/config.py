@@ -1307,4 +1307,21 @@ def validate_config() -> list:
         pass  # Invalid floats already handled by module-level validation
 
     return issues
+
+# =============================================================================
+# Auto-capture (RFC #1008 §3) — inline extraction on memory_store / memory_observe
+# =============================================================================
+
+MCP_AUTO_EXTRACT_DEFAULT = safe_get_bool_env('MCP_AUTO_EXTRACT_DEFAULT', False)
+try:
+    MCP_AUTO_EXTRACT_MIN_CONFIDENCE = float(os.getenv('MCP_AUTO_EXTRACT_MIN_CONFIDENCE', '0.6'))
+except (TypeError, ValueError):
+    MCP_AUTO_EXTRACT_MIN_CONFIDENCE = 0.6
+if not 0.0 <= MCP_AUTO_EXTRACT_MIN_CONFIDENCE <= 1.0:
+    logger.warning(
+        "Invalid MCP_AUTO_EXTRACT_MIN_CONFIDENCE=%s, using 0.6",
+        MCP_AUTO_EXTRACT_MIN_CONFIDENCE,
+    )
+    MCP_AUTO_EXTRACT_MIN_CONFIDENCE = 0.6
+
 # =============================================================================

@@ -878,6 +878,26 @@ class TestHandleGetRawEmbedding:
         assert "content" in text.lower() or "required" in text.lower()
 
 
+class TestMemoryObserveHandler:
+    """Integration tests for memory_observe (RFC #1008 §3)."""
+
+    @pytest.mark.asyncio
+    async def test_memory_observe_dry_run(self):
+        server = MemoryServer()
+        result = await server.handle_memory_observe({
+            "content": "I decided to use WAL mode for concurrent SQLite access in production.",
+            "dry_run": True,
+        })
+        assert isinstance(result, list)
+        assert "found" in result[0].text.lower()
+
+    @pytest.mark.asyncio
+    async def test_memory_observe_missing_content(self):
+        server = MemoryServer()
+        result = await server.handle_memory_observe({})
+        assert "error" in result[0].text.lower()
+
+
 # Summary Test: Verify all 17 handlers are covered
 class TestHandlerCoverageComplete:
     """

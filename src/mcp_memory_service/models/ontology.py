@@ -190,6 +190,10 @@ RELATIONSHIPS: Final[Dict[str, Dict[str, List[str]]]] = {
         "description": "A is related to B (generic association)",
         "valid_patterns": ["any → any"]
     },
+    "derived_from": {
+        "description": "Target was extracted or synthesized from source",
+        "valid_patterns": ["any → any"]
+    },
     "shares_entity": {
         "description": "A and B share a common entity (auto-linked)",
         "valid_patterns": ["any → any"]
