@@ -200,3 +200,133 @@ async def test_mistake_note_add_handles_store_dedup_rejection(memory_service):
     assert r2["status"] == "updated", f"Expected 'updated' but got '{r2['status']}': {r2.get('message','')}"
     assert r2["failure_count"] == 2
     assert r2["content_hash"] == first_hash
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_mistake_note_update_failure_count(memory_service):
+    """Update failure_count on an existing mistake note."""
+    r1 = await memory_service.mistake_note_add(
+        error_pattern="Forgot to run tests before push",
+        context_signature="CI/CD workflow",
+        incorrect_action="Pushed without testing",
+        correct_action="Always run pytest before git push",
+    )
+    assert r1["status"] == "created"
+    content_hash = r1["content_hash"]
+
+    result = await memory_service.mistake_note_update(
+        content_hash=content_hash,
+        failure_count=5,
+    )
+    assert result["status"] == "updated"
+    assert result["content_hash"] == content_hash
+
+    # Verify the update persisted
+    mem = await memory_service.storage.get_by_hash(content_hash)
+    meta = mem.metadata if isinstance(mem.metadata, dict) else {}
+    assert meta.get("failure_count") == 5
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_mistake_note_update_content_fields(memory_service):
+    """Update content fields (correct_action) on an existing mistake note."""
+    r1 = await memory_service.mistake_note_add(
+        error_pattern="Used wrong branch",
+        context_signature="Git workflow",
+        incorrect_action="Committed to main",
+        correct_action="Create feature branch first",
+    )
+    content_hash = r1["content_hash"]
+
+    result = await memory_service.mistake_note_update(
+        content_hash=content_hash,
+        correct_action="Create feature branch and open PR",
+    )
+    assert result["status"] == "updated"
+    # Content change = new hash (delete + re-store)
+    new_hash = result["content_hash"]
+
+    # Old hash should be gone
+    old_mem = await memory_service.storage.get_by_hash(content_hash)
+    assert old_mem is None
+
+    # New hash should have updated content
+    new_mem = await memory_service.storage.get_by_hash(new_hash)
+    assert new_mem is not None
+    assert "Create feature branch and open PR" in new_mem.content
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_mistake_note_update_nonexistent(memory_service):
+    """Updating a nonexistent hash should return error."""
+    result = await memory_service.mistake_note_update(
+        content_hash="nonexistent_hash_abc123",
+        failure_count=10,
+    )
+    assert result["status"] == "error"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_mistake_note_update_wrong_type(memory_service):
+    """Updating a non-mistake memory should return error."""
+    store_result = await memory_service.store_memory(
+        content="Regular observation",
+        memory_type="observation",
+        tags="test",
+    )
+    content_hash = store_result.get("memory", {}).get("content_hash", "")
+
+    result = await memory_service.mistake_note_update(
+        content_hash=content_hash,
+        failure_count=5,
+    )
+    assert result["status"] == "error"
+    assert "not a mistake note" in result["message"].lower()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_mistake_note_delete(memory_service):
+    """Delete an existing mistake note."""
+    r1 = await memory_service.mistake_note_add(
+        error_pattern="Obsolete pattern",
+        context_signature="Old context",
+        incorrect_action="Old wrong",
+        correct_action="Old right",
+    )
+    content_hash = r1["content_hash"]
+
+    result = await memory_service.mistake_note_delete(content_hash=content_hash)
+    assert result["status"] == "deleted"
+
+    # Verify it's gone
+    mem = await memory_service.storage.get_by_hash(content_hash)
+    assert mem is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_mistake_note_delete_nonexistent(memory_service):
+    """Deleting a nonexistent hash should return error."""
+    result = await memory_service.mistake_note_delete(content_hash="nonexistent_hash_xyz")
+    assert result["status"] == "error"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_mistake_note_delete_wrong_type(memory_service):
+    """Deleting a non-mistake memory should return error."""
+    store_result = await memory_service.store_memory(
+        content="Regular memory not a mistake",
+        memory_type="observation",
+        tags="test",
+    )
+    content_hash = store_result.get("memory", {}).get("content_hash", "")
+
+    result = await memory_service.mistake_note_delete(content_hash=content_hash)
+    assert result["status"] == "error"
+    assert "not a mistake note" in result["message"].lower()

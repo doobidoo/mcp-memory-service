@@ -2393,6 +2393,33 @@ Examples:
                         readOnlyHint=True,
                     ),
                 ),
+                types.Tool(
+                    name="mistake_note_update",
+                    description="Update fields of an existing mistake note. Can update failure_count, error_pattern, context_signature, incorrect_action, or correct_action. Content changes create a new hash (delete + re-store).",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "content_hash": {"type": "string", "description": "Content hash of the mistake note to update"},
+                            "failure_count": {"type": "integer", "description": "New failure count"},
+                            "error_pattern": {"type": "string", "description": "Updated error pattern"},
+                            "context_signature": {"type": "string", "description": "Updated context"},
+                            "incorrect_action": {"type": "string", "description": "Updated incorrect action"},
+                            "correct_action": {"type": "string", "description": "Updated correct action"},
+                        },
+                        "required": ["content_hash"],
+                    },
+                ),
+                types.Tool(
+                    name="mistake_note_delete",
+                    description="Delete a mistake note by content hash. Only deletes memories with memory_type='mistake'.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "content_hash": {"type": "string", "description": "Content hash of the mistake note to delete"},
+                        },
+                        "required": ["content_hash"],
+                    },
+                ),
             ]
             tools.extend(mistake_tools)
             logger.info(f"Added {len(mistake_tools)} mistake note tools")
@@ -2481,6 +2508,12 @@ Examples:
             elif name == "mistake_note_search":
                 logger.info("Calling handle_mistake_note_search")
                 return await self.handle_mistake_note_search(arguments)
+            elif name == "mistake_note_update":
+                logger.info("Calling handle_mistake_note_update")
+                return await self.handle_mistake_note_update(arguments)
+            elif name == "mistake_note_delete":
+                logger.info("Calling handle_mistake_note_delete")
+                return await self.handle_mistake_note_delete(arguments)
 
             # Legacy handlers (for tools that haven't been fully migrated yet)
             # These will be removed once all old tool definitions are removed
@@ -2923,6 +2956,27 @@ Examples:
         result = await self.memory_service.mistake_note_search(
             query=arguments.get("query", ""),
             limit=arguments.get("limit", 5),
+        )
+        return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
+
+    async def handle_mistake_note_update(self, arguments: dict) -> List[types.TextContent]:
+        """Update fields of an existing mistake note."""
+        await self._ensure_storage_initialized()
+        result = await self.memory_service.mistake_note_update(
+            content_hash=arguments.get("content_hash", ""),
+            failure_count=arguments.get("failure_count"),
+            error_pattern=arguments.get("error_pattern"),
+            context_signature=arguments.get("context_signature"),
+            incorrect_action=arguments.get("incorrect_action"),
+            correct_action=arguments.get("correct_action"),
+        )
+        return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
+
+    async def handle_mistake_note_delete(self, arguments: dict) -> List[types.TextContent]:
+        """Delete a mistake note by content hash."""
+        await self._ensure_storage_initialized()
+        result = await self.memory_service.mistake_note_delete(
+            content_hash=arguments.get("content_hash", ""),
         )
         return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
 

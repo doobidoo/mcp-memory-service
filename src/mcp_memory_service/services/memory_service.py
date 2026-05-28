@@ -957,3 +957,124 @@ class MemoryService:
 
         except Exception as e:
             return {"notes": [], "count": 0, "error": str(e)}
+
+    async def mistake_note_update(
+        self,
+        content_hash: str,
+        failure_count: Optional[int] = None,
+        error_pattern: Optional[str] = None,
+        context_signature: Optional[str] = None,
+        incorrect_action: Optional[str] = None,
+        correct_action: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Update fields of an existing mistake note.
+
+        Args:
+            content_hash: Hash of the mistake note to update
+            failure_count: New failure count (optional)
+            error_pattern: Updated error pattern (optional)
+            context_signature: Updated context (optional)
+            incorrect_action: Updated incorrect action (optional)
+            correct_action: Updated correct action (optional)
+
+        Returns:
+            Dictionary with operation result
+        """
+        try:
+            mem = await self.storage.get_by_hash(content_hash)
+            if not mem:
+                return {"status": "error", "message": f"No memory found with hash {content_hash}"}
+
+            mem_type = getattr(mem, 'memory_type', None) or (mem.metadata or {}).get("type")
+            if mem_type != "mistake":
+                return {"status": "error", "message": f"Memory {content_hash} is not a mistake note (type={mem_type})"}
+
+            content_changed = any(f is not None for f in [error_pattern, context_signature, incorrect_action, correct_action])
+
+            if content_changed:
+                # Content update requires delete + re-store (hash changes with content)
+                current = _parse_mistake_content(mem.content)
+                new_content = (
+                    f"Pattern: {error_pattern or current['error_pattern']}\n"
+                    f"Context: {context_signature or current['context_signature']}\n"
+                    f"Wrong: {incorrect_action or current['incorrect_action']}\n"
+                    f"Right: {correct_action or current['correct_action']}"
+                )
+                meta = mem.metadata if isinstance(mem.metadata, dict) else {}
+                if failure_count is not None:
+                    meta["failure_count"] = failure_count
+
+                await self.delete_memory(content_hash)
+                result = await self.store_memory(
+                    content=new_content,
+                    tags="mistake-note,error-replay",
+                    memory_type="mistake",
+                    metadata=meta,
+                )
+                new_hash = ""
+                if isinstance(result, dict) and result.get("success"):
+                    m = result.get("memory", {})
+                    new_hash = m.get("content_hash", "") if isinstance(m, dict) else ""
+                return {"status": "updated", "content_hash": new_hash or content_hash}
+
+            # Metadata-only update (failure_count)
+            if failure_count is not None:
+                meta = mem.metadata if isinstance(mem.metadata, dict) else {}
+                meta["failure_count"] = failure_count
+                await self.storage.update_memory_metadata(
+                    content_hash=content_hash,
+                    updates={"metadata": meta},
+                    preserve_timestamps=False,
+                )
+                return {"status": "updated", "content_hash": content_hash}
+
+            return {"status": "error", "message": "No fields to update"}
+
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    async def mistake_note_delete(self, content_hash: str) -> Dict[str, Any]:
+        """
+        Delete a mistake note by content hash.
+
+        Args:
+            content_hash: Hash of the mistake note to delete
+
+        Returns:
+            Dictionary with operation result
+        """
+        try:
+            mem = await self.storage.get_by_hash(content_hash)
+            if not mem:
+                return {"status": "error", "message": f"No memory found with hash {content_hash}"}
+
+            mem_type = getattr(mem, 'memory_type', None) or (mem.metadata or {}).get("type")
+            if mem_type != "mistake":
+                return {"status": "error", "message": f"Memory {content_hash} is not a mistake note (type={mem_type})"}
+
+            await self.delete_memory(content_hash)
+            return {"status": "deleted", "content_hash": content_hash}
+
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+
+def _parse_mistake_content(content: str) -> Dict[str, str]:
+    """Parse structured mistake note content into fields."""
+    fields = {
+        "error_pattern": "",
+        "context_signature": "",
+        "incorrect_action": "",
+        "correct_action": "",
+    }
+    for line in content.split("\n"):
+        if line.startswith("Pattern: "):
+            fields["error_pattern"] = line[9:]
+        elif line.startswith("Context: "):
+            fields["context_signature"] = line[9:]
+        elif line.startswith("Wrong: "):
+            fields["incorrect_action"] = line[7:]
+        elif line.startswith("Right: "):
+            fields["correct_action"] = line[7:]
+    return fields
