@@ -226,3 +226,16 @@ class TestUnimplementedBackendWarning:
         assert result.label == "neutral"
         assert result.confidence == 0.0
         assert "some_unknown_backend" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_warning_logged_only_once_in_batch(self, caplog):
+        """Warning should only be emitted once per classifier instance, not per call."""
+        import logging
+        from mcp_memory_service.reasoning.nli import NLIClassifier
+        classifier = NLIClassifier(backend="transformers")
+        pairs = [("A", "B"), ("C", "D"), ("E", "F")]
+        with caplog.at_level(logging.WARNING):
+            results = await classifier.classify_batch(pairs)
+        assert len(results) == 3
+        assert all(r.label == "neutral" for r in results)
+        assert caplog.text.count("not implemented") == 1
