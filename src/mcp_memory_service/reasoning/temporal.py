@@ -14,6 +14,11 @@ class TemporalEdge:
     valid_from: Optional[float] = None
     valid_until: Optional[float] = None
 
+    def __post_init__(self):
+        if self.valid_from is not None and self.valid_until is not None:
+            if self.valid_from > self.valid_until:
+                raise ValueError("valid_from cannot be greater than valid_until")
+
 
 async def store_temporal_association(
     graph, source_hash: str, target_hash: str,
@@ -24,7 +29,9 @@ async def store_temporal_association(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Store association with temporal bounds in metadata."""
-    meta = metadata or {}
+    if valid_from is not None and valid_until is not None and valid_from > valid_until:
+        raise ValueError("valid_from cannot be greater than valid_until")
+    meta = dict(metadata) if metadata else {}
     if valid_from is not None:
         meta["valid_from"] = valid_from
     if valid_until is not None:
@@ -50,12 +57,9 @@ def filter_temporal_edges(edges: List[TemporalEdge], as_of: Optional[float] = No
     return result
 
 
-def classify_temporal_relationship(
-    edge_a_valid_until: Optional[float],
-    edge_b_valid_from: Optional[float],
-) -> str:
+def classify_temporal_relationship(edge_a: TemporalEdge, edge_b: TemporalEdge) -> str:
     """Classify if two edges represent evolution or contradiction."""
-    if edge_a_valid_until is not None and edge_b_valid_from is not None:
-        if edge_a_valid_until <= edge_b_valid_from:
+    if edge_a.valid_until is not None and edge_b.valid_from is not None:
+        if edge_a.valid_until <= edge_b.valid_from:
             return "evolution"
     return "contradiction"

@@ -10,6 +10,12 @@ class TestTemporalEdgeStorage:
         from mcp_memory_service.reasoning.temporal import TemporalEdge
         assert TemporalEdge is not None
 
+    def test_invalid_temporal_range_raises(self):
+        from mcp_memory_service.reasoning.temporal import TemporalEdge
+        now = time.time()
+        with pytest.raises(ValueError, match="valid_from cannot be greater"):
+            TemporalEdge(source="a", target="b", valid_from=now, valid_until=now - 86400)
+
     @pytest.mark.asyncio
     async def test_store_with_valid_from(self):
         from mcp_memory_service.reasoning.temporal import store_temporal_association
@@ -39,10 +45,35 @@ class TestTemporalEdgeStorage:
         )
         assert result is True
 
+    @pytest.mark.asyncio
+    async def test_store_does_not_mutate_caller_metadata(self):
+        from mcp_memory_service.reasoning.temporal import store_temporal_association
+        graph = AsyncMock()
+        graph.store_association = AsyncMock(return_value=True)
+        original_meta = {"key": "value"}
+        now = time.time()
+        await store_temporal_association(
+            graph, source_hash="a", target_hash="b",
+            similarity=0.8, connection_types=["semantic"],
+            valid_from=now, metadata=original_meta,
+        )
+        assert "valid_from" not in original_meta
+
+    @pytest.mark.asyncio
+    async def test_store_invalid_range_raises(self):
+        from mcp_memory_service.reasoning.temporal import store_temporal_association
+        graph = AsyncMock()
+        now = time.time()
+        with pytest.raises(ValueError):
+            await store_temporal_association(
+                graph, source_hash="a", target_hash="b",
+                similarity=0.8, connection_types=["semantic"],
+                valid_from=now, valid_until=now - 86400,
+            )
+
 
 class TestPointInTimeQuery:
-    @pytest.mark.asyncio
-    async def test_filter_by_as_of(self):
+    def test_filter_by_as_of(self):
         from mcp_memory_service.reasoning.temporal import filter_temporal_edges, TemporalEdge
         now = time.time()
         edges = [
@@ -56,8 +87,7 @@ class TestPointInTimeQuery:
         assert "b" not in targets
         assert "c" in targets and "d" in targets
 
-    @pytest.mark.asyncio
-    async def test_filter_before_valid_from(self):
+    def test_filter_before_valid_from(self):
         from mcp_memory_service.reasoning.temporal import filter_temporal_edges, TemporalEdge
         now = time.time()
         edges = [
@@ -68,8 +98,7 @@ class TestPointInTimeQuery:
         assert len(active) == 1
         assert active[0].target == "c"
 
-    @pytest.mark.asyncio
-    async def test_no_filter_without_as_of(self):
+    def test_no_filter_without_as_of(self):
         from mcp_memory_service.reasoning.temporal import filter_temporal_edges, TemporalEdge
         edges = [
             TemporalEdge(source="a", target="b", valid_from=0, valid_until=1),
@@ -80,20 +109,18 @@ class TestPointInTimeQuery:
 
 
 class TestTemporalContradictionAwareness:
-    @pytest.mark.asyncio
-    async def test_superseded_is_evolution(self):
-        from mcp_memory_service.reasoning.temporal import classify_temporal_relationship
+    def test_superseded_is_evolution(self):
+        from mcp_memory_service.reasoning.temporal import classify_temporal_relationship, TemporalEdge
         now = time.time()
-        result = classify_temporal_relationship(
-            edge_a_valid_until=now - 86400, edge_b_valid_from=now - 86400,
-        )
+        edge_a = TemporalEdge(source="a", target="b", valid_until=now - 86400)
+        edge_b = TemporalEdge(source="a", target="c", valid_from=now - 86400)
+        result = classify_temporal_relationship(edge_a, edge_b)
         assert result == "evolution"
 
-    @pytest.mark.asyncio
-    async def test_overlapping_is_contradiction(self):
-        from mcp_memory_service.reasoning.temporal import classify_temporal_relationship
+    def test_overlapping_is_contradiction(self):
+        from mcp_memory_service.reasoning.temporal import classify_temporal_relationship, TemporalEdge
         now = time.time()
-        result = classify_temporal_relationship(
-            edge_a_valid_until=None, edge_b_valid_from=now - 86400,
-        )
+        edge_a = TemporalEdge(source="a", target="b", valid_until=None)
+        edge_b = TemporalEdge(source="a", target="c", valid_from=now - 86400)
+        result = classify_temporal_relationship(edge_a, edge_b)
         assert result == "contradiction"
