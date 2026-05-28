@@ -1170,11 +1170,12 @@ class MemoryStorage(ABC):
                         "error": "query required for ranked mode"
                     }
                 from ..reasoning.ranked_search import apply_ranked_rerank, RankedSearchWeights
-                oversample = limit * 3
+                # Over-fetch without pre-filtering: the shared tail applies
+                # tag_match and time filters uniformly (fixes #1028 review).
+                oversample = limit * 5 if (tags or start_time or end_time) else limit * 3
                 candidates = await self.retrieve(
-                    query, n_results=oversample, tags=tags,
+                    query, n_results=oversample,
                     include_superseded=include_superseded,
-                    start_time=start_time, end_time=end_time,
                 )
                 if candidates:
                     weights = RankedSearchWeights.from_dict(ranking_weights)
