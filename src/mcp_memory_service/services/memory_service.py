@@ -1005,28 +1005,35 @@ class MemoryService:
                 if failure_count is not None:
                     meta["failure_count"] = failure_count
 
-                await self.delete_memory(content_hash)
+                # Store new version FIRST to prevent data loss if store fails
                 result = await self.store_memory(
                     content=new_content,
                     tags="mistake-note,error-replay",
                     memory_type="mistake",
                     metadata=meta,
                 )
+                if not (isinstance(result, dict) and result.get("success")):
+                    return {"status": "error", "message": f"Failed to store updated note: {result}"}
+
                 new_hash = ""
-                if isinstance(result, dict) and result.get("success"):
-                    m = result.get("memory", {})
-                    new_hash = m.get("content_hash", "") if isinstance(m, dict) else ""
+                m = result.get("memory", {})
+                new_hash = m.get("content_hash", "") if isinstance(m, dict) else ""
+
+                # Only delete old after new is safely stored
+                await self.delete_memory(content_hash)
                 return {"status": "updated", "content_hash": new_hash or content_hash}
 
             # Metadata-only update (failure_count)
             if failure_count is not None:
                 meta = mem.metadata if isinstance(mem.metadata, dict) else {}
                 meta["failure_count"] = failure_count
-                await self.storage.update_memory_metadata(
+                success, msg = await self.storage.update_memory_metadata(
                     content_hash=content_hash,
                     updates={"metadata": meta},
                     preserve_timestamps=False,
                 )
+                if not success:
+                    return {"status": "error", "message": f"Metadata update failed: {msg}"}
                 return {"status": "updated", "content_hash": content_hash}
 
             return {"status": "error", "message": "No fields to update"}
@@ -1053,7 +1060,9 @@ class MemoryService:
             if mem_type != "mistake":
                 return {"status": "error", "message": f"Memory {content_hash} is not a mistake note (type={mem_type})"}
 
-            await self.delete_memory(content_hash)
+            result = await self.delete_memory(content_hash)
+            if not (isinstance(result, dict) and result.get("success")):
+                return {"status": "error", "message": f"Delete failed: {result.get('error', 'unknown')}"}
             return {"status": "deleted", "content_hash": content_hash}
 
         except Exception as e:
