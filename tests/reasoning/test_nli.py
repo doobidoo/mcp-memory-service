@@ -196,3 +196,33 @@ class TestMemoryResolveBatch:
         from mcp_memory_service.reasoning.nli import NLIResult
         # If we get here without import error, the module structure is correct
         assert True
+
+
+# ─── Unimplemented backend warning Tests ──────────────────────────────────────
+
+class TestUnimplementedBackendWarning:
+    """Test that unimplemented backends emit a warning."""
+
+    @pytest.mark.asyncio
+    async def test_transformers_backend_logs_warning(self, caplog):
+        """Backend 'transformers' should log warning and return neutral."""
+        import logging
+        from mcp_memory_service.reasoning.nli import NLIClassifier
+        classifier = NLIClassifier(backend="transformers")
+        with caplog.at_level(logging.WARNING):
+            result = await classifier.classify("A is true", "A is false")
+        assert result.label == "neutral"
+        assert result.confidence == 0.0
+        assert "not implemented" in caplog.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_unknown_backend_logs_warning(self, caplog):
+        """Any unknown backend should log warning and return neutral."""
+        import logging
+        from mcp_memory_service.reasoning.nli import NLIClassifier
+        classifier = NLIClassifier(backend="some_unknown_backend")
+        with caplog.at_level(logging.WARNING):
+            result = await classifier.classify("premise", "hypothesis")
+        assert result.label == "neutral"
+        assert result.confidence == 0.0
+        assert "some_unknown_backend" in caplog.text

@@ -50,6 +50,11 @@ class NLIClassifier:
         """Classify relationship between two texts."""
         if self.backend == "heuristic":
             return self._heuristic_classify(premise, hypothesis)
+        logger.warning(
+            "NLI backend '%s' is not implemented; returning neutral. "
+            "Only 'heuristic' is currently supported.",
+            self.backend,
+        )
         return NLIResult(label="neutral", confidence=0.0)
 
     async def classify_batch(self, pairs: List[Tuple[str, str]]) -> List[NLIResult]:
