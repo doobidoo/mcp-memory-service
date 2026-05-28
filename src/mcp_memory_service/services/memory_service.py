@@ -878,7 +878,7 @@ class MemoryService:
                 # Handle race condition: store's semantic dedup rejected, but we can
                 # still increment the existing note it found (#1034)
                 error_msg = str(result.get("error", ""))
-                match = re.search(r"semantically similar to ([a-f0-9]+)", error_msg)
+                match = re.search(r"semantically similar to ([a-f0-9]+)", error_msg, re.IGNORECASE)
                 if match:
                     existing_hash = match.group(1)
                     existing = await self.storage.get_by_hash(existing_hash)
