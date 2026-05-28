@@ -9,6 +9,7 @@ all memory operations, eliminating the DRY violation and ensuring consistent beh
 import json
 import logging
 import math
+import re
 import sys
 from typing import Dict, List, Optional, Any, Union
 
@@ -874,6 +875,30 @@ class MemoryService:
             )
 
             if not result.get("success"):
+                # Handle race condition: store's semantic dedup rejected, but we can
+                # still increment the existing note it found (#1034)
+                error_msg = str(result.get("error", ""))
+                match = re.search(r"semantically similar to ([a-f0-9]+)", error_msg)
+                if match:
+                    existing_hash = match.group(1)
+                    existing = await self.storage.get_by_hash(existing_hash)
+                    if existing:
+                        old_meta = existing.metadata or {}
+                        if isinstance(old_meta, str):
+                            old_meta = json.loads(old_meta) if old_meta else {}
+                        count = old_meta.get("failure_count", 1) + 1
+                        old_meta["failure_count"] = count
+                        await self.storage.update_memory_metadata(
+                            content_hash=existing_hash,
+                            updates={"metadata": old_meta},
+                            preserve_timestamps=False,
+                        )
+                        return {
+                            "status": "updated",
+                            "content_hash": existing_hash,
+                            "failure_count": count,
+                            "message": f"Existing mistake note updated (seen {count} times)",
+                        }
                 return {"status": "error", "message": f"Failed to store: {result}"}
 
             content_hash = ""

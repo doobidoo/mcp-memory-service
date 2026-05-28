@@ -155,3 +155,48 @@ async def test_mistake_note_high_threshold_no_dedup(memory_service):
 
     assert r2["status"] == "created"
     assert r2["failure_count"] == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_mistake_note_add_handles_store_dedup_rejection(memory_service):
+    """When store_memory rejects with semantic duplicate, should increment existing note.
+
+    Regression test for #1034: retrieve_memories misses (score < threshold),
+    but store_memory's own dedup catches it and rejects. Without the fix,
+    this returns status='error'. With the fix, it increments failure_count.
+    """
+    # Create first note normally
+    r1 = await memory_service.mistake_note_add(
+        error_pattern="Post to GitHub without approval",
+        context_signature="GitHub communication",
+        incorrect_action="Posted without showing draft",
+        correct_action="Always show draft and wait for OK",
+    )
+    assert r1["status"] == "created"
+    first_hash = r1["content_hash"]
+
+    # Mock store_memory to simulate dedup rejection pointing to first note
+    original_store = memory_service.store_memory
+
+    async def mock_store(*args, **kwargs):
+        return {"success": False, "error": f"Duplicate content detected (semantically similar to {first_hash})"}
+
+    # High threshold so retrieve_memories won't match
+    with patch("mcp_memory_service.config.MCP_MISTAKE_NOTE_DEDUP_THRESHOLD", 0.99):
+        memory_service.store_memory = mock_store
+        try:
+            r2 = await memory_service.mistake_note_add(
+                error_pattern="Posted on GitHub without user approval",
+                context_signature="GitHub external communication",
+                incorrect_action="Created issue without draft review",
+                correct_action="Show draft EN+PT-BR, wait for explicit OK",
+            )
+        finally:
+            memory_service.store_memory = original_store
+
+    # Without fix: status="error", message="Failed to store: ..."
+    # With fix: status="updated", failure_count=2
+    assert r2["status"] == "updated", f"Expected 'updated' but got '{r2['status']}': {r2.get('message','')}"
+    assert r2["failure_count"] == 2
+    assert r2["content_hash"] == first_hash
