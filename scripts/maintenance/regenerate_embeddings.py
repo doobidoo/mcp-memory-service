@@ -49,6 +49,9 @@ async def regenerate_embeddings():
 
         # Get count first
         if hasattr(actual_storage, 'conn'):
+            # Tolerate corrupted UTF-8 from file sync corruption (Insync/OneDrive + WAL)
+            actual_storage.conn.text_factory = lambda b: b.decode('utf-8', errors='replace')
+
             cursor = actual_storage.conn.execute('SELECT COUNT(*) FROM memories')
             total_count = cursor.fetchone()[0]
             logger.info(f"Found {total_count} memories to process")
