@@ -47,9 +47,9 @@ class TestMultiStrategySearch:
                 {"content_hash": "c", "content": "memory c", "similarity_score": 0.7},
             ]
         })
-        storage.search_by_tag = AsyncMock(return_value=[
-            MagicMock(content_hash="b", content="memory b"),
-            MagicMock(content_hash="d", content="memory d"),
+        storage.search_by_tag_chronological = AsyncMock(return_value=[
+            MagicMock(content_hash="b", content="memory b", tags=["important"]),
+            MagicMock(content_hash="d", content="memory d", tags=["important"]),
         ])
         result = await multi_strategy_search(
             storage, query="test query", limit=5,
@@ -67,7 +67,7 @@ class TestMultiStrategySearch:
         storage.search_memories = AsyncMock(return_value={
             "memories": [{"content_hash": "a", "content": "ok", "similarity_score": 0.9}]
         })
-        storage.search_by_tag = AsyncMock(side_effect=Exception("broken"))
+        storage.search_by_tag_chronological = AsyncMock(side_effect=Exception("broken"))
         result = await multi_strategy_search(
             storage, query="test", limit=5, strategies=["semantic", "tag"],
         )
