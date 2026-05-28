@@ -116,9 +116,18 @@ class TestBurst12TaxonomyHierarchy:
 class TestBurst13RelationshipTypes:
     """Tests for Burst 1.3: Relationship Types Definition"""
 
-    def test_six_relationship_types_defined(self):
-        """Should have exactly 7 relationship types (including shares_entity)"""
-        expected_types = {"causes", "fixes", "contradicts", "supports", "follows", "related", "shares_entity"}
+    def test_relationship_types_defined(self):
+        """Should include core Burst 1.3 types plus derived_from (auto-capture / insights)."""
+        expected_types = {
+            "causes",
+            "fixes",
+            "contradicts",
+            "supports",
+            "follows",
+            "related",
+            "derived_from",
+            "shares_entity",
+        }
         actual_types = set(RELATIONSHIPS.keys())
         assert actual_types == expected_types
 
