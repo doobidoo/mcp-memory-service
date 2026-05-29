@@ -32,6 +32,7 @@ from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime, timezone
 
 from mcp_memory_service.models.ontology import is_symmetric_relationship, validate_relationship
+from mcp_memory_service.compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +186,7 @@ class GraphStorage:
             return False
 
         if source_hash == target_hash:
-            logger.warning(f"Cannot create self-loop: {source_hash}")
+            logger.warning(f"Cannot create self-loop: {_sanitize_log_value(source_hash)}")
             return False
 
         # Validate similarity score bounds
@@ -225,9 +226,9 @@ class GraphStorage:
                             VALUES (?, ?, ?, ?, ?, ?, ?)
                         """, (target_hash, source_hash, similarity, connection_types_json,
                               metadata_json, created_at, relationship_type))
-                        logger.debug(f"Stored bidirectional association: {source_hash} ↔ {target_hash} (type: {relationship_type})")
+                        logger.debug(f"Stored bidirectional association: {_sanitize_log_value(source_hash)} ↔ {_sanitize_log_value(target_hash)} (type: {_sanitize_log_value(relationship_type)})")
                     else:
-                        logger.debug(f"Stored directed association: {source_hash} → {target_hash} (type: {relationship_type})")
+                        logger.debug(f"Stored directed association: {_sanitize_log_value(source_hash)} → {_sanitize_log_value(target_hash)} (type: {_sanitize_log_value(relationship_type)})")
 
                     conn.commit()
                 finally:
@@ -637,7 +638,7 @@ class GraphStorage:
                     "created_at": result['created_at']
                 }
             else:
-                logger.debug(f"No association found: {source_hash} ↔ {target_hash}")
+                logger.debug(f"No association found: {_sanitize_log_value(source_hash)} ↔ {_sanitize_log_value(target_hash)}")
                 return None
 
         except sqlite3.Error as e:
