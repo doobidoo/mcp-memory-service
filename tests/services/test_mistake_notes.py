@@ -60,6 +60,25 @@ async def test_mistake_note_add_creates_new(memory_service):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+@pytest.mark.parametrize("correct_action", ["", "   ", "\n\t "])
+async def test_mistake_note_add_rejects_empty_correct_action(memory_service, correct_action):
+    """Empty/whitespace-only correct_action should be rejected, not stored (#1055)."""
+    result = await memory_service.mistake_note_add(
+        error_pattern="Error with no remediation",
+        context_signature="some context",
+        incorrect_action="Did the wrong thing",
+        correct_action=correct_action,
+    )
+    assert result["status"] == "error"
+    assert "correct_action" in result["message"]
+
+    # Nothing should have been stored
+    search = await memory_service.mistake_note_search(query="Error with no remediation", limit=10)
+    assert search["count"] == 0
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_mistake_note_add_dedup_increments_count(memory_service):
     """Adding a similar mistake should increment failure_count.
 
@@ -256,6 +275,32 @@ async def test_mistake_note_update_content_fields(memory_service):
     new_mem = await memory_service.storage.get_by_hash(new_hash)
     assert new_mem is not None
     assert "Create feature branch and open PR" in new_mem.content
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("correct_action", ["", "   ", "\n\t "])
+async def test_mistake_note_update_rejects_blanking_correct_action(memory_service, correct_action):
+    """Updating correct_action to empty/whitespace should be rejected (#1055)."""
+    r1 = await memory_service.mistake_note_add(
+        error_pattern="Pattern to keep",
+        context_signature="Git workflow",
+        incorrect_action="Committed to main",
+        correct_action="Create feature branch first",
+    )
+    content_hash = r1["content_hash"]
+
+    result = await memory_service.mistake_note_update(
+        content_hash=content_hash,
+        correct_action=correct_action,
+    )
+    assert result["status"] == "error"
+    assert "correct_action" in result["message"]
+
+    # Original note must be untouched
+    mem = await memory_service.storage.get_by_hash(content_hash)
+    assert mem is not None
+    assert "Create feature branch first" in mem.content
 
 
 @pytest.mark.unit

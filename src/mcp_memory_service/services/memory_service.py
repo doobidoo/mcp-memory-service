@@ -827,6 +827,14 @@ class MemoryService:
         """
         from ..config import MCP_MISTAKE_NOTE_DEDUP_THRESHOLD
 
+        # A mistake note's value is its remediation. Reject empty correct_action —
+        # JSON-schema `required` enforces presence, not non-emptiness (issue #1055).
+        if not (correct_action or "").strip():
+            return {
+                "status": "error",
+                "message": "correct_action must not be empty — a mistake note requires a remediation, not just an error pattern",
+            }
+
         content = (
             f"Pattern: {error_pattern}\n"
             f"Context: {context_signature}\n"
@@ -981,6 +989,13 @@ class MemoryService:
         Returns:
             Dictionary with operation result
         """
+        # Don't allow an existing note's remediation to be blanked (issue #1055).
+        if correct_action is not None and not correct_action.strip():
+            return {
+                "status": "error",
+                "message": "correct_action must not be empty — a mistake note requires a remediation, not just an error pattern",
+            }
+
         try:
             mem = await self.storage.get_by_hash(content_hash)
             if not mem:
