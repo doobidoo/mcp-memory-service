@@ -98,6 +98,9 @@ class AutoCaptureService:
         config = harvest_config or harvest_config_from_env()
         self._harvester.memory_service = self.memory_service
 
+        # Pre-create graph instance once for the entire loop
+        graph = _get_graph_instance()
+
         for candidate in candidates:
             try:
                 evolved, child_hash = await self._harvester._try_evolve(candidate, config)
@@ -109,6 +112,7 @@ class AutoCaptureService:
                             parent_hash,
                             child_hash,
                             candidate.confidence,
+                            graph=graph,
                         )
                     continue
 
@@ -136,7 +140,7 @@ class AutoCaptureService:
                     result.stored_hashes.append(child_hash)
                     result.stored += 1
                     if link_parent and parent_hash:
-                        await _link_derived_from(parent_hash, child_hash, candidate.confidence)
+                        await _link_derived_from(parent_hash, child_hash, candidate.confidence, graph=graph)
             except Exception as exc:
                 logger.warning("Auto-capture store failed: %s", exc)
 
@@ -168,15 +172,24 @@ def _hash_from_store_response(resp: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-async def _link_derived_from(parent_hash: str, child_hash: str, confidence: float) -> None:
-    """Best-effort graph edge: child derived from parent."""
+def _get_graph_instance():
+    """Create a GraphStorage instance if backend supports it, else None."""
     try:
         from ..config import SQLITE_VEC_PATH, STORAGE_BACKEND
         from ..storage.graph import GraphStorage
 
         if STORAGE_BACKEND not in ("sqlite_vec", "hybrid"):
-            return
-        graph = GraphStorage(SQLITE_VEC_PATH)
+            return None
+        return GraphStorage(SQLITE_VEC_PATH)
+    except Exception:
+        return None
+
+
+async def _link_derived_from(parent_hash: str, child_hash: str, confidence: float, graph=None) -> None:
+    """Best-effort graph edge: child derived from parent."""
+    try:
+        if not graph:
+            graph = _get_graph_instance()
         if not graph:
             return
 

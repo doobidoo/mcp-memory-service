@@ -301,7 +301,7 @@ async def handle_memory_observe(server, arguments: dict) -> List[types.TextConte
     """Observe conversation text and auto-extract facts/decisions without storing raw content."""
     import json
     from ...config import MCP_AUTO_EXTRACT_MIN_CONFIDENCE
-    from ...harvest.auto_capture import AutoCaptureService
+    from ...harvest.auto_capture import AutoCaptureService, parent_hash_from_store_result
     from ...services.memory_service import normalize_tags
 
     content = arguments.get("content")
@@ -331,9 +331,7 @@ async def handle_memory_observe(server, arguments: dict) -> List[types.TextConte
                     type="text",
                     text=f"Error storing source: {store_result.get('error', 'unknown')}",
                 )]
-            stored_memory = store_result.get("memory")
-            if isinstance(stored_memory, dict):
-                parent_hash = stored_memory.get("content_hash")
+            parent_hash = parent_hash_from_store_result(store_result)
 
         min_conf = arguments.get("min_confidence")
         if min_conf is None:
