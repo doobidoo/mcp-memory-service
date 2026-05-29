@@ -2823,33 +2823,110 @@ Examples:
             memory_service=memory_service
         )
 
-        if config.dry_run:
-            results = harvester.harvest(config)
-        else:
-            results = await harvester.harvest_and_store(config)
+        # When use_llm=True: run heuristic-only first (fast), then dispatch LLM in background
+        import asyncio
 
-        output = {
-            "dry_run": config.dry_run,
-            "results": [
-                {
-                    "session_id": r.session_id,
-                    "total_messages": r.total_messages,
-                    "found": r.found,
-                    "stored": r.stored,
-                    "by_type": r.by_type,
-                    "candidates": [
-                        {
-                            "type": c.memory_type,
-                            "content": c.content[:MAX_CANDIDATE_PREVIEW_LENGTH],
-                            "confidence": round(c.confidence, 2),
-                            "tags": c.tags,
-                        }
-                        for c in r.candidates
-                    ]
-                }
-                for r in results
-            ]
-        }
+        if config.use_llm:
+            # Phase 1: fast heuristic harvest (no LLM) — returns within timeout
+            config_fast = HarvestConfig(
+                sessions=config.sessions,
+                session_ids=config.session_ids,
+                types=config.types,
+                min_confidence=config.min_confidence,
+                dry_run=config.dry_run,
+                project_path=config.project_path,
+                use_llm=False,  # heuristic only
+            )
+
+            if config.dry_run:
+                results = await asyncio.to_thread(harvester.harvest, config_fast)
+            else:
+                results = await harvester.harvest_and_store(config_fast)
+
+            # Phase 2: dispatch LLM classification as background task
+
+            async def _background_llm_classify():
+                """Re-harvest with LLM in background — refines and stores results."""
+                try:
+                    bg_harvester = SessionHarvester(
+                        project_dir=project_path,
+                        memory_service=self.memory_service if not config.dry_run else None,
+                    )
+                    config_llm = HarvestConfig(
+                        sessions=config.sessions,
+                        session_ids=config.session_ids,
+                        types=config.types,
+                        min_confidence=config.min_confidence,
+                        dry_run=config.dry_run,
+                        project_path=config.project_path,
+                        use_llm=True,
+                    )
+                    if config.dry_run:
+                        await asyncio.to_thread(bg_harvester.harvest, config_llm)
+                    else:
+                        await bg_harvester.harvest_and_store(config_llm)
+                    logger.info("Background LLM harvest completed successfully")
+                except Exception as e:
+                    logger.error(f"Background LLM harvest failed: {e}")
+
+            if not config.dry_run:
+                await self._ensure_storage_initialized()
+            asyncio.create_task(_background_llm_classify())
+
+            # Build output with background status
+            output = {
+                "dry_run": config.dry_run,
+                "llm_status": "background_started",
+                "message": "Heuristic results returned immediately. LLM classification running in background.",
+                "results": [
+                    {
+                        "session_id": r.session_id,
+                        "total_messages": r.total_messages,
+                        "found": r.found,
+                        "stored": r.stored,
+                        "by_type": r.by_type,
+                        "candidates": [
+                            {
+                                "type": c.memory_type,
+                                "content": c.content[:MAX_CANDIDATE_PREVIEW_LENGTH],
+                                "confidence": round(c.confidence, 2),
+                                "tags": c.tags,
+                            }
+                            for c in r.candidates
+                        ]
+                    }
+                    for r in results
+                ]
+            }
+        else:
+            # Original flow: no LLM, synchronous
+            if config.dry_run:
+                results = await asyncio.to_thread(harvester.harvest, config)
+            else:
+                results = await harvester.harvest_and_store(config)
+
+            output = {
+                "dry_run": config.dry_run,
+                "results": [
+                    {
+                        "session_id": r.session_id,
+                        "total_messages": r.total_messages,
+                        "found": r.found,
+                        "stored": r.stored,
+                        "by_type": r.by_type,
+                        "candidates": [
+                            {
+                                "type": c.memory_type,
+                                "content": c.content[:MAX_CANDIDATE_PREVIEW_LENGTH],
+                                "confidence": round(c.confidence, 2),
+                                "tags": c.tags,
+                            }
+                            for c in r.candidates
+                        ]
+                    }
+                    for r in results
+                ]
+            }
 
         return [types.TextContent(type="text", text=json.dumps(output, indent=2))]
 
