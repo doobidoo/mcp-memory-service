@@ -258,6 +258,11 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
         if auto_extract is None:
             auto_extract = MCP_AUTO_EXTRACT_DEFAULT
 
+        # Recursion guard: skip auto-extract for memories produced by auto-capture itself
+        metadata_arg = arguments.get("metadata") or {}
+        if isinstance(metadata_arg, dict) and metadata_arg.get("source") == "auto_capture":
+            auto_extract = False
+
         if auto_extract and content:
             try:
                 parent_hash = parent_hash_from_store_result(result)

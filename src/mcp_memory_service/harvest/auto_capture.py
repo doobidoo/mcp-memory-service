@@ -171,9 +171,12 @@ def _hash_from_store_response(resp: Dict[str, Any]) -> Optional[str]:
 async def _link_derived_from(parent_hash: str, child_hash: str, confidence: float) -> None:
     """Best-effort graph edge: child derived from parent."""
     try:
-        from ..server.handlers.graph import get_graph_storage
+        from ..config import SQLITE_VEC_PATH, STORAGE_BACKEND
+        from ..storage.graph import GraphStorage
 
-        graph = await get_graph_storage()
+        if STORAGE_BACKEND not in ("sqlite_vec", "hybrid"):
+            return
+        graph = GraphStorage(SQLITE_VEC_PATH)
         if not graph:
             return
 
