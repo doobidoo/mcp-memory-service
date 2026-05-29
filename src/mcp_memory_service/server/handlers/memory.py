@@ -259,28 +259,31 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
             auto_extract = MCP_AUTO_EXTRACT_DEFAULT
 
         if auto_extract and content:
-            parent_hash = parent_hash_from_store_result(result)
+            try:
+                parent_hash = parent_hash_from_store_result(result)
 
-            min_conf = arguments.get("min_extract_confidence")
-            if min_conf is None:
-                min_conf = MCP_AUTO_EXTRACT_MIN_CONFIDENCE
-            capture_service = AutoCaptureService(
-                memory_service=server.memory_service,
-                min_confidence=min_conf,
-                types=arguments.get("extract_types"),
-            )
-            capture = await capture_service.capture(
-                content,
-                role=arguments.get("role") or "assistant",
-                parent_hash=parent_hash,
-                conversation_id=conversation_id,
-                dry_run=False,
-            )
-            if capture.candidates:
-                message += (
-                    f"\nAuto-capture: {capture.stored} stored, {capture.evolved} evolved "
-                    f"from {len(capture.candidates)} candidate(s)."
+                min_conf = arguments.get("min_extract_confidence")
+                if min_conf is None:
+                    min_conf = MCP_AUTO_EXTRACT_MIN_CONFIDENCE
+                capture_service = AutoCaptureService(
+                    memory_service=server.memory_service,
+                    min_confidence=min_conf,
+                    types=arguments.get("extract_types"),
                 )
+                capture = await capture_service.capture(
+                    content,
+                    role=arguments.get("role") or "assistant",
+                    parent_hash=parent_hash,
+                    conversation_id=conversation_id,
+                    dry_run=False,
+                )
+                if capture.candidates:
+                    message += (
+                        f"\nAuto-capture: {capture.stored} stored, {capture.evolved} evolved "
+                        f"from {len(capture.candidates)} candidate(s)."
+                    )
+            except Exception as cap_err:
+                logger.warning("auto-capture failed: %s", cap_err)
 
         return [types.TextContent(type="text", text=message)]
 
