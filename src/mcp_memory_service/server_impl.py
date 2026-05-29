@@ -2866,12 +2866,16 @@ Examples:
                     else:
                         await bg_harvester.harvest_and_store(config_llm)
                     logger.info("Background LLM harvest completed successfully")
-                except Exception as e:
-                    logger.error(f"Background LLM harvest failed: {e}")
+                except Exception:
+                    logger.exception("Background LLM harvest failed")
 
             if not config.dry_run:
                 await self._ensure_storage_initialized()
-            asyncio.create_task(_background_llm_classify())
+            if not hasattr(self, "_background_tasks"):
+                self._background_tasks = set()
+            task = asyncio.create_task(_background_llm_classify())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
 
             # Build output with background status
             output = {
