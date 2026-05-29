@@ -12,6 +12,8 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 
+import httpx
+
 from .models import HarvestCandidate
 
 logger = logging.getLogger(__name__)
@@ -78,17 +80,47 @@ class ClassificationResult:
 class HarvestClassifier:
     """LLM-based classifier for harvest candidates.
 
-    Uses Groq API (fast, cheap) with fallback to skip classification
-    if no LLM is available. Integrates with existing GroqAgentBridge.
+    Uses an OpenAI-compatible endpoint when ``HARVEST_LLM_BASE_URL`` is set
+    (Ollama, vLLM, DeepSeek, LiteLLM, OpenAI, …) and otherwise falls back to
+    Groq. If neither is available, classification is skipped and regex
+    candidates are returned unfiltered.
     """
 
     def __init__(self, groq_api_key: Optional[str] = None):
-        self._groq_bridge = None
+        self._bridge = None
+        self._compat = False
         self._api_key = groq_api_key or os.environ.get("GROQ_API_KEY")
+        # Optional OpenAI-compatible endpoint. When HARVEST_LLM_BASE_URL is set it
+        # takes precedence over Groq, so harvest classification works against a
+        # local/offline model (e.g. Ollama) with no Groq key required.
+        self._llm_base_url = os.environ.get("HARVEST_LLM_BASE_URL")
+        self._llm_model = os.environ.get("HARVEST_LLM_MODEL")
+        self._llm_api_key = os.environ.get("HARVEST_LLM_API_KEY")
 
     def _ensure_initialized(self):
-        """Lazy-init Groq bridge."""
-        if self._groq_bridge is not None:
+        """Lazy-init the LLM bridge: OpenAI-compatible endpoint if configured, else Groq."""
+        if self._bridge is not None:
+            return True
+
+        # Prefer an OpenAI-compatible endpoint when configured — enables local/offline
+        # classification (Ollama, vLLM, …) with no Groq dependency or API key.
+        if self._llm_base_url:
+            if not self._llm_model:
+                logger.warning(
+                    "HARVEST_LLM_BASE_URL set but HARVEST_LLM_MODEL is missing — "
+                    "OpenAI-compatible classification unavailable"
+                )
+                return False
+            self._bridge = _OpenAICompatClassifierBridge(
+                base_url=self._llm_base_url,
+                model=self._llm_model,
+                api_key=self._llm_api_key,
+            )
+            self._compat = True
+            logger.info(
+                "Harvest classifier: OpenAI-compatible bridge initialized (%s)",
+                self._llm_base_url,
+            )
             return True
 
         if not self._api_key:
@@ -97,7 +129,7 @@ class HarvestClassifier:
 
         try:
             from groq import Groq
-            self._groq_bridge = _GroqClassifierBridge(api_key=self._api_key)
+            self._bridge = _GroqClassifierBridge(api_key=self._api_key)
             logger.info("Harvest classifier: Groq bridge initialized")
             return True
         except ImportError:
@@ -154,10 +186,14 @@ class HarvestClassifier:
             context=context[:2000],
         )
 
-        models = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
+        models = (
+            [self._llm_model]
+            if self._compat
+            else ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
+        )
         for model in models:
             try:
-                result = self._groq_bridge.call_model(
+                result = self._bridge.call_model(
                     prompt=prompt,
                     model=model,
                     max_tokens=300,
@@ -238,9 +274,9 @@ class HarvestClassifier:
         prompt = DEDUP_PROMPT_TEMPLATE.format(candidates_text=candidates_text)
 
         try:
-            result = self._groq_bridge.call_model(
+            result = self._bridge.call_model(
                 prompt=prompt,
-                model="llama-3.1-8b-instant",
+                model=(self._llm_model if self._compat else "llama-3.1-8b-instant"),
                 max_tokens=100,
                 temperature=0.0,
                 system_message="You deduplicate memories. Respond only with a JSON array of indices.",
@@ -291,4 +327,71 @@ class _GroqClassifierBridge:
                 "tokens_used": response.usage.total_tokens,
             }
         except Exception as e:
+            return {"status": "error", "error": str(e)}
+
+
+class _OpenAICompatClassifierBridge:
+    """Thin sync wrapper around any OpenAI-compatible /v1/chat/completions endpoint.
+
+    Exposes the same ``call_model`` interface as :class:`_GroqClassifierBridge`, so the
+    classifier works unchanged against Ollama, vLLM, DeepSeek, LiteLLM, or OpenAI itself.
+    Mirrors the request shape used by the quality system's
+    ``AIQualityEvaluator._score_with_openai_compatible``.
+    """
+
+    def __init__(self, base_url: str, model: str, api_key: Optional[str] = None):
+        self._base_url = base_url.rstrip("/")
+        self._model = model
+        self._api_key = api_key or "none"
+        self._client = httpx.Client(timeout=30.0)
+
+    def call_model(self, prompt: str, model: str = "",
+                   max_tokens: int = 300, temperature: float = 0.1,
+                   system_message: Optional[str] = None) -> dict:
+        """Call the endpoint and return a result dict matching _GroqClassifierBridge."""
+        model = model or self._model
+
+        messages = []
+        if system_message:
+            messages.append({"role": "system", "content": system_message})
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {"model": model, "messages": messages}
+        # OpenAI's gpt-5.x family rejects max_tokens/temperature (HTTP 400) and needs
+        # headroom for reasoning tokens before emitting output — mirror the quality
+        # system (see ai_evaluator._score_with_openai_compatible, issue #797).
+        if model.startswith("gpt-5"):
+            payload["max_completion_tokens"] = max(max_tokens, 800)
+        else:
+            payload["max_tokens"] = max_tokens
+            payload["temperature"] = temperature
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._api_key}",
+        }
+
+        try:
+            response = self._client.post(
+                f"{self._base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            content = data["choices"][0]["message"]["content"]
+            usage = data.get("usage") or {}
+            return {
+                "status": "success",
+                "response": content,
+                "model": model,
+                "tokens_used": usage.get("total_tokens", 0),
+            }
+        except httpx.HTTPStatusError as e:
+            # Keep "429" in the message so the classifier's rate-limit fallback triggers.
+            return {
+                "status": "error",
+                "error": f"HTTP {e.response.status_code}: {e.response.text[:200]}",
+            }
+        except (httpx.RequestError, KeyError, IndexError, TypeError, ValueError) as e:
             return {"status": "error", "error": str(e)}
