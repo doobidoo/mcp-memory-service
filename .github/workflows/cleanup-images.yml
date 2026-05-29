@@ -1,16 +1,15 @@
 name: Cleanup Old Docker Images
 
 on:
-  # Run after successful releases
-  workflow_run:
-    workflows: ["Main CI/CD Pipeline", "Docker Publish (Tags)", "Publish and Test (Tags)"]
-    types:
-      - completed
-  
+  # NOTE: Intentionally NOT triggered on `workflow_run` after releases.
+  # Running cleanup immediately after a publish is what caused issue #1044 —
+  # it raced the multi-arch push and stripped per-platform manifests. Cleanup
+  # is housekeeping; weekly + manual is sufficient and avoids racing publishes.
+
   # Run weekly on Sunday at 2 AM UTC
   schedule:
     - cron: '0 2 * * 0'
-  
+
   # Allow manual trigger with options
   workflow_dispatch:
     inputs:
@@ -29,11 +28,6 @@ on:
         required: false
         type: string
         default: '3'
-      delete_untagged:
-        description: 'Delete untagged images'
-        required: false
-        type: boolean
-        default: true
 
 env:
   DOCKER_IMAGE: doobidoo/mcp-memory-service
@@ -52,28 +46,31 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
     
-    - name: Delete untagged images from GHCR
-      if: github.event.inputs.delete_untagged != 'false'
-      uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
+    # Multi-arch-safe cleanup (issue #1044).
+    #
+    # The previous `actions/delete-package-versions` steps deleted "untagged"
+    # versions with `min-versions-to-keep: 0`. In a multi-arch image the
+    # per-platform manifests (linux/amd64, linux/arm64) are UNTAGGED children
+    # of the tagged index — that action treated them as orphans and deleted
+    # them, leaving the tagged index pointing at digests that no longer exist
+    # → `manifest unknown` (404) on `docker pull` for every multi-arch tag.
+    #
+    # dataaxiom/ghcr-cleanup-action resolves the multi-arch reference graph
+    # first and NEVER deletes a manifest referenced by a tagged index, so
+    # `delete-untagged` is safe here. `delete-ghost-images` / `delete-partial-images`
+    # additionally clean up the indexes already broken by the old workflow.
+    - name: Cleanup GHCR (multi-arch safe)
+      uses: dataaxiom/ghcr-cleanup-action@f092b48ba3b604b2a83690dc4b2bbb3392e1045f # v1.2.1
       continue-on-error: true
       with:
-        package-name: 'mcp-memory-service'
-        package-type: 'container'
+        package: mcp-memory-service
         token: ${{ secrets.GITHUB_TOKEN }}
-        min-versions-to-keep: 0
-        delete-only-untagged-versions: 'true'
-    
-    - name: Clean old GHCR versions (keep last N)
-      uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
-      continue-on-error: true
-      with:
-        package-name: 'mcp-memory-service'
-        package-type: 'container'
-        token: ${{ secrets.GITHUB_TOKEN }}
-        min-versions-to-keep: ${{ github.event.inputs.keep_versions || '5' }}
-        ignore-versions: '^(latest|slim|main|v[0-9]+\.[0-9]+\.[0-9]+)$'
-        delete-only-pre-release-versions: 'false'
-    
+        delete-untagged: true
+        delete-ghost-images: true
+        delete-partial-images: true
+        exclude-tags: 'latest,slim,main,stable'
+        dry-run: ${{ github.event.inputs.dry_run || 'false' }}
+
     - name: Clean buildcache tags older than 7 days
       uses: snok/container-retention-policy@3b0972b2276b171b212f8c4efbca59ebba26eceb # v3.0.1
       continue-on-error: true
@@ -397,7 +394,6 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Retention Policy" >> $GITHUB_STEP_SUMMARY
         echo "- **Protected tags**: latest, slim, main, stable" >> $GITHUB_STEP_SUMMARY
-        echo "- **Version tags**: Keep last ${{ github.event.inputs.keep_versions || '5' }} versions" >> $GITHUB_STEP_SUMMARY
+        echo "- **GHCR**: multi-arch-safe cleanup — untagged/ghost/partial images deleted, manifests referenced by a tagged index always preserved (issue #1044)" >> $GITHUB_STEP_SUMMARY
         echo "- **Build cache**: Delete after 7 days" >> $GITHUB_STEP_SUMMARY
-        echo "- **Test/dev tags**: Delete after 30 days" >> $GITHUB_STEP_SUMMARY
-        echo "- **Untagged images**: Delete immediately" >> $GITHUB_STEP_SUMMARY
+        echo "- **Docker Hub version tags**: Keep last ${{ github.event.inputs.keep_versions || '5' }} versions" >> $GITHUB_STEP_SUMMARY
