@@ -14,6 +14,7 @@ from typing import List, Optional
 
 import httpx
 
+from ..compat import _sanitize_log_value
 from .models import HarvestCandidate
 
 logger = logging.getLogger(__name__)
@@ -113,15 +114,12 @@ class HarvestClassifier:
         if self._bridge is not None:
             return True
 
-        # Prefer an OpenAI-compatible endpoint when configured — enables local/offline
-        # classification (Ollama, vLLM, …) with no Groq dependency or API key.
-        if self._llm_base_url:
-            if not self._llm_model:
-                logger.warning(
-                    "HARVEST_LLM_BASE_URL set but HARVEST_LLM_MODEL is missing — "
-                    "OpenAI-compatible classification unavailable"
-                )
-                return False
+        # Prefer an OpenAI-compatible endpoint when fully configured — enables
+        # local/offline classification (Ollama, vLLM, …) with no Groq dependency.
+        # If the base URL is set but the model is missing, fall through to the Groq
+        # path so a present GROQ_API_KEY still works (issue #1053: "keep Groq as the
+        # default backward-compatible path").
+        if self._llm_base_url and self._llm_model:
             self._bridge = _OpenAICompatClassifierBridge(
                 base_url=self._llm_base_url,
                 model=self._llm_model,
@@ -130,9 +128,14 @@ class HarvestClassifier:
             self._compat = True
             logger.info(
                 "Harvest classifier: OpenAI-compatible bridge initialized (%s)",
-                self._llm_base_url,
+                _sanitize_log_value(self._llm_base_url),
             )
             return True
+        if self._llm_base_url and not self._llm_model:
+            logger.warning(
+                "HARVEST_LLM_BASE_URL set but HARVEST_LLM_MODEL is missing — "
+                "falling back to Groq if available"
+            )
 
         if not self._api_key:
             logger.warning("No GROQ_API_KEY — LLM classification unavailable")
@@ -354,7 +357,6 @@ class _OpenAICompatClassifierBridge:
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._api_key = api_key or "none"
-        self._client = httpx.Client(timeout=30.0)
 
     def call_model(self, prompt: str, model: str = "",
                    max_tokens: int = 300, temperature: float = 0.1,
@@ -383,13 +385,18 @@ class _OpenAICompatClassifierBridge:
         }
 
         try:
-            response = self._client.post(
-                f"{self._base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
+            # Per-request client so the connection pool / file descriptors are always
+            # released — the bridge is held on HarvestClassifier for its lifetime with
+            # no cleanup hook, and harvest classification is sequential (not a hot
+            # batch path), so pooling buys little here. (Review note on #1053.)
+            with httpx.Client(timeout=30.0) as client:
+                response = client.post(
+                    f"{self._base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
             content = data["choices"][0]["message"]["content"]
             usage = data.get("usage") or {}
             return {
