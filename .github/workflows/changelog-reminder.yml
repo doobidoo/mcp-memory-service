@@ -1,0 +1,108 @@
+name: Changelog Reminder
+
+# Soft gate (non-blocking): when a PR changes shipping code under src/ but does
+# not touch CHANGELOG.md, post a sticky reminder to add an entry under
+# [Unreleased]. This never fails the check — it only nudges. Escape hatches:
+#   - add the `skip-changelog` label to suppress (CI-only/refactor/no-op cases)
+#   - touch CHANGELOG.md and the reminder auto-resolves
+# The release agent (github-release-manager) remains the backstop that compiles
+# the final CHANGELOG at release time.
+#
+# Security: all PR-controlled data (labels, file paths) is read via the GitHub
+# REST API into JS variables inside actions/github-script — never interpolated
+# into a shell `run:` step — so there is no workflow command-injection surface.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  changelog-reminder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const MARKER = "<!-- changelog-reminder -->";
+            const pr = context.payload.pull_request;
+            if (!pr) { return; }
+
+            const prNumber = pr.number;
+            const labels = (pr.labels || []).map(l => l.name);
+            const skip = labels.includes("skip-changelog");
+
+            // Collect changed files (paginated).
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              per_page: 100,
+            });
+            const paths = files.map(f => f.filename);
+            const touchedSrc = paths.some(p => p.startsWith("src/"));
+            const touchedChangelog = paths.includes("CHANGELOG.md");
+
+            // Find any existing reminder comment by this workflow.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              per_page: 100,
+            });
+            const existing = comments.find(c => (c.body || "").includes(MARKER));
+
+            // Reminder needed only when shipping code changed, CHANGELOG was not
+            // touched, and the author did not opt out via label.
+            const needsReminder = touchedSrc && !touchedChangelog && !skip;
+
+            if (!needsReminder) {
+              // Auto-resolve: drop a stale reminder if the condition cleared.
+              if (existing) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                });
+              }
+              return;
+            }
+
+            const body = [
+              MARKER,
+              "### Changelog reminder",
+              "",
+              "This PR changes code under `src/` but does not touch `CHANGELOG.md`.",
+              "Please add a one-line entry under the `## [Unreleased]` heading, following",
+              "[Keep a Changelog](https://keepachangelog.com/) (`### Added` / `### Fixed` / `### Changed`):",
+              "",
+              "```markdown",
+              "## [Unreleased]",
+              "",
+              "### Fixed",
+              "",
+              "- short description of the change (issue #NNN, PR #MMM, @your-handle)",
+              "```",
+              "",
+              "**This is a non-blocking reminder** — it will not fail CI.",
+              "If no entry is warranted (CI-only, internal refactor, no user-visible change),",
+              "add the `skip-changelog` label and this comment disappears.",
+            ].join("\n");
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body,
+              });
+            }
