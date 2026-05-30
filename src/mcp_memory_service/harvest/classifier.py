@@ -97,6 +97,17 @@ class HarvestClassifier:
         self._llm_model = os.environ.get("HARVEST_LLM_MODEL")
         self._llm_api_key = os.environ.get("HARVEST_LLM_API_KEY")
 
+    # Backward-compat alias: the bridge attribute used to be ``_groq_bridge``.
+    # Existing tests (and any external code) inject a bridge via that name, so keep
+    # it working — it maps to the now-provider-agnostic ``_bridge``.
+    @property
+    def _groq_bridge(self):
+        return self._bridge
+
+    @_groq_bridge.setter
+    def _groq_bridge(self, value):
+        self._bridge = value
+
     def _ensure_initialized(self):
         """Lazy-init the LLM bridge: OpenAI-compatible endpoint if configured, else Groq."""
         if self._bridge is not None:
