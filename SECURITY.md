@@ -6,9 +6,9 @@ We actively maintain and provide security updates for the following versions of 
 
 | Version | Supported          | Notes |
 | ------- | ------------------ | ----- |
-| 8.x.x   | :white_check_mark: | Current stable release - full support |
-| 7.x.x   | :white_check_mark: | Previous stable - security fixes only |
-| < 7.0   | :x:                | No longer supported |
+| 11.x.x  | :white_check_mark: | Current stable release - full support |
+| 10.x.x  | :white_check_mark: | Previous stable - security fixes only |
+| < 10.0  | :x:                | No longer supported |
 
 ## Reporting a Vulnerability
 
@@ -18,16 +18,16 @@ We take the security of MCP Memory Service seriously. If you discover a security
 
 **For sensitive security issues**, please use one of these private reporting methods:
 
-1. **GitHub Security Advisory** (Preferred):
-   - Navigate to the [Security Advisories](https://github.com/doobidoo/mcp-memory-service/security/advisories) page
-   - Click "Report a vulnerability"
+1. **Codeberg Issue** (Preferred):
+   - Open a confidential [issue on Codeberg](https://codeberg.org/doobidoo/mcp-memory-service/issues) (Codeberg/Forgejo has no Security Advisories feature)
+   - Mark it as confidential and note it is a security report
    - Provide detailed information about the vulnerability
 
 2. **Direct Contact**:
-   - Open a GitHub Discussion with `[SECURITY]` prefix for initial contact
+   - Open a Codeberg issue with `[SECURITY]` prefix for initial contact
    - We'll provide a secure communication channel for details
 
-**For non-sensitive security concerns**, you may open a regular GitHub issue.
+**For non-sensitive security concerns**, you may open a regular Codeberg issue.
 
 ### What to Include
 
@@ -154,7 +154,7 @@ Security patches are released as:
 - **Out-of-band releases** for critical vulnerabilities
 
 Security advisories are published at:
-- [GitHub Security Advisories](https://github.com/doobidoo/mcp-memory-service/security/advisories)
+- [Codeberg Issues](https://codeberg.org/doobidoo/mcp-memory-service/issues)
 - [CHANGELOG.md](CHANGELOG.md) with `[SECURITY]` tag
 - Release notes for affected versions
 
@@ -181,7 +181,7 @@ We recognize security researchers who help make MCP Memory Service more secure:
 ## Contact
 
 For security concerns that don't fit the above categories:
-- **General Security Questions**: [GitHub Discussions](https://github.com/doobidoo/mcp-memory-service/discussions)
+- **General Security Questions**: [Codeberg issue](https://codeberg.org/doobidoo/mcp-memory-service/issues)
 - **Project Security**: See reporting instructions above
 
 ---

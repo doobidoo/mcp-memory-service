@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Report an issue (Codeberg)
-    url: https://codeberg.org/doobidoo/mcp-memory-service/issues
-    about: This repository is a mirror. Bug reports, feature requests, and pull requests are handled on Codeberg.
-  - name: Documentation and Wiki
+  - name: 📚 Documentation & Wiki
     url: https://codeberg.org/doobidoo/mcp-memory-service/wiki
-    about: Setup guides, troubleshooting, and advanced usage
-  - name: Search existing issues
-    url: https://codeberg.org/doobidoo/mcp-memory-service/issues?state=all
-    about: Check whether your issue has already been reported or solved
+    about: Check the Wiki for setup guides, troubleshooting, and advanced usage
+  - name: 💬 Codeberg Issues
+    url: https://codeberg.org/doobidoo/mcp-memory-service/issues
+    about: Ask questions, share ideas, or discuss general topics with the community
+  - name: 🔍 Search Existing Issues
+    url: https://codeberg.org/doobidoo/mcp-memory-service/issues
+    about: Check if your issue has already been reported or solved

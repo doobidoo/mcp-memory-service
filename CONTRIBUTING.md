@@ -51,7 +51,7 @@ Fix bugs, implement features, or improve performance.
 Help make the project accessible to more users (future goal).
 
 ### 💬 Community Support
-Answer questions in Issues, Discussions, or help other users.
+Answer questions in Issues or help other users.
 
 ## Getting Started
 
@@ -280,7 +280,7 @@ When adding features or making significant changes:
 4. Update AGENTS.md or CLAUDE.md if development workflow changes
 
 **Advanced Workflow Automation**:
-- See [Context Provider Workflow Automation](https://github.com/doobidoo/mcp-memory-service/wiki/Context-Provider-Workflow-Automation) for automating development workflows with intelligent patterns
+- See [Context Provider Workflow Automation](https://codeberg.org/doobidoo/mcp-memory-service/wiki/Context-Provider-Workflow-Automation) for automating development workflows with intelligent patterns
 
 ### API Documentation
 
@@ -355,7 +355,7 @@ The following areas require extra care. PRs touching them receive additional scr
 
 ### Handling a security vulnerability
 
-Do **not** open a public issue. Use GitHub's private [Security Advisories](https://github.com/doobidoo/mcp-memory-service/security/advisories/new) to report vulnerabilities confidentially.
+Do **not** open a public issue. Report vulnerabilities confidentially by opening a private [issue on Codeberg](https://codeberg.org/doobidoo/mcp-memory-service/issues) (mark it as confidential).
 
 ## Autonomous Agents & AI-Generated PRs
 
@@ -433,15 +433,15 @@ For feature requests, describe:
 
 ### Getting Help
 
-- **Documentation**: Check the [Wiki](https://github.com/doobidoo/mcp-memory-service/wiki) first
-- **Issues**: Search existing [issues](https://github.com/doobidoo/mcp-memory-service/issues) before creating new ones
-- **Discussions**: Use [GitHub Discussions](https://github.com/doobidoo/mcp-memory-service/discussions) for questions
+- **Documentation**: Check the [Wiki](https://codeberg.org/doobidoo/mcp-memory-service/wiki) first
+- **Issues**: Search existing [issues](https://codeberg.org/doobidoo/mcp-memory-service/issues) before creating new ones
+- **Discussions**: Open an [issue on Codeberg](https://codeberg.org/doobidoo/mcp-memory-service/issues) for questions
 - **Response Time**: Maintainers typically respond within 2-3 days
 
 ### Communication Channels
 
-- **GitHub Issues**: Bug reports and feature requests
-- **GitHub Discussions**: General questions and community discussion
+- **Codeberg Issues**: Bug reports and feature requests
+- **Codeberg Issues**: General questions and community discussion via issues
 - **Pull Requests**: Code contributions and reviews
 
 ### For AI Agents
@@ -449,7 +449,7 @@ For feature requests, describe:
 If you're an AI coding assistant, also check:
 - [AGENTS.md](AGENTS.md) - Generic AI agent instructions
 - [CLAUDE.md](CLAUDE.md) - Claude-specific guidelines
-- [Context Provider Workflow Automation](https://github.com/doobidoo/mcp-memory-service/wiki/Context-Provider-Workflow-Automation) - Automate development workflows with intelligent patterns
+- [Context Provider Workflow Automation](https://codeberg.org/doobidoo/mcp-memory-service/wiki/Context-Provider-Workflow-Automation) - Automate development workflows with intelligent patterns
 
 ## Recognition
 
@@ -473,4 +473,4 @@ We value all contributions! Contributors are:
 
 Thank you for contributing to MCP Memory Service! Your efforts help make AI assistants more capable and useful for everyone. 🚀
 
-If you have questions not covered here, please open a [Discussion](https://github.com/doobidoo/mcp-memory-service/discussions) or check our [Wiki](https://github.com/doobidoo/mcp-memory-service/wiki).
+If you have questions not covered here, please open an [issue on Codeberg](https://codeberg.org/doobidoo/mcp-memory-service/issues) or check our [Wiki](https://codeberg.org/doobidoo/mcp-memory-service/wiki).
