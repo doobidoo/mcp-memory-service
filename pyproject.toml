@@ -123,7 +123,7 @@ milvus = [
     # is the default in a venv since Python 3.12 dropped it from ensurepip.
     # Declaring the bound unconditionally covers both: it guarantees setuptools
     # is present and keeps it on a version that still ships pkg_resources.
-    "setuptools<82",
+    "setuptools<84",
     "mcp-memory-service[ml]",
 ]
 # Full installation including all optional dependencies
