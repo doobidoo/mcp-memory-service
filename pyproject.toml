@@ -47,7 +47,7 @@ dependencies = [
     "cryptography>=46.0.6",
     "fastapi>=0.115.5",
     "httpx>=0.24.0",
-    "mcp>=1.8.0,<2.0.0",
+    "mcp>=1.8.0,<3.0.0",
     "numpy>=1.24.0",
     "psutil>=5.9.0",
     "PyJWT[crypto]>=2.12.0",
@@ -109,7 +109,7 @@ milvus = [
     # job was a GitHub workflow and was never ported to Forgejo, so a break would be silent.
     # Do not widen this bound until a Milvus CI job runs green against 3.x — see issue #261.
     # A bulk uv-group bump (#976) already widened it to <4.0.0 once by accident.
-    "pymilvus>=2.5.0,<3.0.0",
+    "pymilvus>=2.5.0,<4.0.0",
     "milvus-lite>=2.4.10",
     # The default embedding path has been ONNX-first since v11, and [ml] below
     # only brings torch/sentence-transformers. Without onnxruntime a Milvus-only
@@ -123,7 +123,7 @@ milvus = [
     # is the default in a venv since Python 3.12 dropped it from ensurepip.
     # Declaring the bound unconditionally covers both: it guarantees setuptools
     # is present and keeps it on a version that still ships pkg_resources.
-    "setuptools<82",
+    "setuptools<85",
     "mcp-memory-service[ml]",
 ]
 # Full installation including all optional dependencies
