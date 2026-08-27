@@ -126,8 +126,10 @@ async function parseTranscript(transcriptPath) {
             return null;
         }
 
-        // Find last user and assistant messages
-        let lastUser = null;
+        // Pair the last assistant turn with the user message that precedes it.
+        // Two independent backward scans can mis-pair when the user already typed
+        // their next prompt before the Stop hook reads the transcript (Q2 + A1).
+        let assistantIndex = -1;
         let lastAssistant = null;
 
         for (let i = transcript.length - 1; i >= 0; i--) {
@@ -137,14 +139,30 @@ async function parseTranscript(transcriptPath) {
             const role = msg.message?.role || msg.role || msg.type;
             const content = msg.message?.content ?? msg.content;
 
-            if (!lastAssistant && role === 'assistant') {
-                lastAssistant = extractTextContent(content);
+            if (role === 'assistant') {
+                const text = extractTextContent(content);
+                if (text) {
+                    lastAssistant = text;
+                    assistantIndex = i;
+                    break;
+                }
             }
-            if (!lastUser && role === 'user') {
-                lastUser = extractTextContent(content);
-            }
+        }
 
-            if (lastUser && lastAssistant) break;
+        let lastUser = null;
+        if (assistantIndex > 0) {
+            for (let i = assistantIndex - 1; i >= 0; i--) {
+                const msg = transcript[i];
+                const role = msg.message?.role || msg.role || msg.type;
+                const content = msg.message?.content ?? msg.content;
+
+                if (role !== 'user') continue;
+                // Claude Code stores tool results under the user role; skip those.
+                if (isToolResultOnly(content)) continue;
+
+                lastUser = extractTextContent(content);
+                if (lastUser) break;
+            }
         }
 
         return {
@@ -156,6 +174,14 @@ async function parseTranscript(transcriptPath) {
         console.error('[auto-capture] Failed to parse transcript:', error.message);
         return null;
     }
+}
+
+/**
+ * True when a user-role envelope is only tool_result blocks (no real prompt text).
+ */
+function isToolResultOnly(content) {
+    if (!Array.isArray(content) || content.length === 0) return false;
+    return content.every(block => block && block.type === 'tool_result');
 }
 
 /**
