@@ -44,14 +44,47 @@ class NLIClassifier:
         """Classify relationship between two texts."""
         if self.backend == "heuristic":
             return self._heuristic_classify(premise, hypothesis)
+        if self.backend in ("cascade", "llm"):
+            return await self._llm_classify(premise, hypothesis)
         if not self._warned_unimplemented:
             logger.warning(
                 "NLI backend '%s' is not implemented; returning neutral. "
-                "Only 'heuristic' is currently supported.",
+                "Only 'heuristic' and 'cascade' are supported.",
                 self.backend,
             )
             self._warned_unimplemented = True
         return NLIResult(label="neutral", confidence=0.0)
+
+    async def _llm_classify(self, premise: str, hypothesis: str) -> NLIResult:
+        """LLM-based NLI via the harvest provider chain (cascade fallback).
+
+        Reuses HarvestRewriter._call_llm, which resolves the configured
+        provider chain (HARVEST_LLM_PROVIDERS) with fallback. Any failure
+        degrades gracefully to the heuristic classifier.
+        """
+        try:
+            from ..harvest.rewriter import HarvestRewriter
+
+            rewriter = HarvestRewriter()
+            prompt = (
+                "Classify the relationship between Statement A and Statement B.\n"
+                "Answer with EXACTLY one word: entailment, contradiction, or neutral.\n\n"
+                f"Statement A: {premise[:500]}\n"
+                f"Statement B: {hypothesis[:500]}\n\n"
+                "Classification:"
+            )
+            timeout = float(os.environ.get("MCP_NLI_LLM_TIMEOUT", "30"))
+            response = await rewriter._call_llm(prompt, timeout)
+            if not response or not response.strip():
+                return self._heuristic_classify(premise, hypothesis)
+
+            label = response.strip().lower().split()[0]
+            if label not in ("entailment", "contradiction", "neutral"):
+                label = "neutral"
+            return NLIResult(label=label, confidence=0.9 if label != "neutral" else 0.3)
+        except Exception as e:
+            logger.debug("LLM NLI failed (%s); falling back to heuristic", e)
+            return self._heuristic_classify(premise, hypothesis)
 
     async def classify_batch(self, pairs: List[Tuple[str, str]]) -> List[NLIResult]:
         """Batch classification."""
