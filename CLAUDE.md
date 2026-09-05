@@ -51,7 +51,7 @@ Quick reference; each rule is expanded in the sections below. Violations cause r
   ```
   If the ancestor check fails, stop and investigate. Do not force. Note that some shells mangle `merge-base --is-ancestor "$A" "$B"`; if it reports "Not a valid object name" on a ref that clearly exists, run it through Python's `subprocess` rather than debugging the ref.
 - **Codeberg is a frozen archive** at `codeberg.org/doobidoo/mcp-memory-service`. It holds no secrets, receives no pushes, and its CI is dead. It stays readable so old links resolve. Do not resume mirroring to it: Codeberg's ToU § 2 (1) 7 bars projects written mostly with generative AI tools, this account was warned under that clause on 2026-08-27, and a mirror is still sharing a project.
-- **Issue and PR numbers below #341 are Codeberg numbers.** GitHub will happily auto-link `#123` in old CHANGELOG and README entries to a GitHub issue of that number, which is a different thing entirely. When citing history, say "Codeberg #123" or link the full URL.
+- **Issue and PR numbers below #341 are Codeberg numbers.** GitHub will happily auto-link `#123` in old CHANGELOG and README entries to a GitHub issue of that number, which is a different thing entirely. When citing history, say "Codeberg #123" or link the full URL. [`docs/codeberg-issue-map.md`](docs/codeberg-issue-map.md) resolves every one of them. The issues that were still open on 2026-09-05 were re-created on GitHub and carry the label `migrated:codeberg`.
 - **GHSA identifiers** (e.g. `GHSA-2r68-g678-7qr3`) are just advisory IDs and remain valid references.
 - **Authorship voice.** Commit messages, PR descriptions, CHANGELOG entries, issue/PR comments, and release notes are written in the maintainer's or contributor's own voice.
 
