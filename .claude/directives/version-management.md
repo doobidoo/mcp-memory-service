@@ -66,6 +66,32 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 PyPI's JSON endpoint lags the upload by a minute or two, so a stale version there right
 after a green publish job is cache, not failure — re-check before concluding anything.
 
+### A release can publish half of itself
+
+v11.11.0 on 2026-09-05: `Test` and `Publish to PyPI (main + lite)` green, `Publish
+Docker images` red at `docker login` with `unauthorized: incorrect username or
+password`. Both secrets were set (masked as `***` in the log, so neither was empty);
+the values were wrong. `DOCKER_PASSWORD` has to be a Docker Hub **access token**, not
+the account password.
+
+This looks nothing like the v11.8.1 failure above — there is a run, and two of three
+jobs are green — but for Docker users the effect is the same, and worse in one respect:
+`latest` kept pointing at the previous build, so the most-used tag served a version with
+three open critical advisories and nothing about the tag said so.
+
+Recover with a job re-run, never a dispatch:
+
+```bash
+gh run rerun <run-id> --failed
+```
+
+That repeats only the failed job and keeps `github.ref_name` at the tag, so the image
+tags still derive correctly. A `workflow_dispatch` from `main` would push junk `main`
+tags and clobber `latest`.
+
+**Create the release object last**, after the artifacts are verified. A release with
+notes looks finished, which is exactly what hid v11.8.1 for a day.
+
 `release.yml` has a `workflow_dispatch` fallback, but it is **PyPI catch-up only**: the
 Docker job derives its image tags from `github.ref_name`, so a manual dispatch from
 `main` pushes junk `main` tags and clobbers `latest`.
