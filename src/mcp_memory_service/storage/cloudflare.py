@@ -29,13 +29,9 @@ import httpx
 from .base import MemoryStorage
 from ..models.memory import Memory, MemoryQueryResult
 from ..config import CLOUDFLARE_MAX_CONTENT_LENGTH
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
 
 
 def normalize_tags_for_search(tags: List[str]) -> List[str]:
@@ -65,7 +61,7 @@ def normalize_operation(operation: Optional[str]) -> str:
         normalized = "AND"
 
     if normalized not in {"AND", "OR"}:
-        logger.warning(f"Unsupported operation '{operation}'; defaulting to AND")
+        logger.warning("Unsupported operation '%s'; defaulting to AND", _sanitize_log_value(operation))
         normalized = "AND"
 
     return normalized
@@ -207,7 +203,7 @@ class CloudflareStorage(MemoryStorage):
                 if response.status_code == 429:
                     if attempt < self.max_retries:
                         delay = self.base_delay * (2 ** attempt)
-                        logger.warning(f"Rate limited, retrying in {delay}s (attempt {attempt + 1}/{self.max_retries + 1})")
+                        logger.warning("Rate limited, retrying in %ss (attempt %s/%s)", delay, attempt + 1, self.max_retries + 1)
                         await asyncio.sleep(delay)
                         continue
                     else:
@@ -217,7 +213,7 @@ class CloudflareStorage(MemoryStorage):
                 if response.status_code >= 500:
                     if attempt < self.max_retries:
                         delay = self.base_delay * (2 ** attempt)
-                        logger.warning(f"Server error {response.status_code}, retrying in {delay}s")
+                        logger.warning("Server error %s, retrying in %ss", response.status_code, delay)
                         await asyncio.sleep(delay)
                         continue
                 
@@ -227,7 +223,7 @@ class CloudflareStorage(MemoryStorage):
             except (httpx.NetworkError, httpx.TimeoutException) as e:
                 if attempt < self.max_retries:
                     delay = self.base_delay * (2 ** attempt)
-                    logger.warning(f"Network error: {e}, retrying in {delay}s")
+                    logger.warning("Network error: %s, retrying in %ss", _sanitize_log_value(e), delay)
                     await asyncio.sleep(delay)
                     continue
                 raise
@@ -262,7 +258,7 @@ class CloudflareStorage(MemoryStorage):
                 raise ValueError(f"Workers AI embedding failed: {result}")
                 
         except Exception as e:
-            logger.error(f"Failed to generate embedding with Workers AI: {e}")
+            logger.error("Failed to generate embedding with Workers AI: %s", _sanitize_log_value(e))
             # TODO: Implement fallback to local sentence-transformers
             raise ValueError(f"Embedding generation failed: {e}")
     
@@ -288,7 +284,7 @@ class CloudflareStorage(MemoryStorage):
             logger.info("Cloudflare storage backend initialized successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize Cloudflare storage: {e}")
+            logger.error("Failed to initialize Cloudflare storage: %s", _sanitize_log_value(e))
             raise
     
     async def _migrate_d1_schema(self) -> None:
@@ -309,7 +305,7 @@ class CloudflareStorage(MemoryStorage):
             result = response.json()
 
             if not result.get("success"):
-                logger.warning(f"Schema check failed (table may not exist yet): {result}")
+                logger.warning("Schema check failed (table may not exist yet): %s", _sanitize_log_value(result))
                 return  # Table doesn't exist yet, will be created by _initialize_d1_schema
 
             # Parse column names from PRAGMA response
@@ -359,14 +355,14 @@ class CloudflareStorage(MemoryStorage):
                 result = response.json()
 
                 if not result.get("success"):
-                    logger.warning(f"Failed to create deleted_at index (non-fatal): {result}")
+                    logger.warning("Failed to create deleted_at index (non-fatal): %s", _sanitize_log_value(result))
                 else:
                     logger.info("Successfully created deleted_at index")
 
-            logger.info(f"Schema migration completed successfully. Added columns: {', '.join(migrations_needed)}")
+            logger.info("Schema migration completed successfully. Added columns: %s", _sanitize_log_value(', '.join(migrations_needed)))
 
         except Exception as e:
-            logger.error(f"Schema migration failed: {e}")
+            logger.error("Schema migration failed: %s", _sanitize_log_value(e))
             # Don't raise - let initialization continue, error will surface later if needed
 
     async def _add_column_with_retry(self, column: str, max_attempts: int = 3) -> None:
@@ -396,7 +392,7 @@ class CloudflareStorage(MemoryStorage):
 
         for attempt in range(1, max_attempts + 1):
             try:
-                logger.info(f"Adding '{column}' column (attempt {attempt}/{max_attempts})...")
+                logger.info("Adding '%s' column (attempt %s/%s)...", column, attempt, max_attempts)
 
                 # Execute ALTER TABLE
                 payload = {"sql": alter_sql}
@@ -408,14 +404,14 @@ class CloudflareStorage(MemoryStorage):
 
                     # Check if column already exists error
                     if "duplicate column name" in error_msg.lower() or "already exists" in error_msg.lower():
-                        logger.info(f"Column '{column}' already exists (migration already applied)")
+                        logger.info("Column '%s' already exists (migration already applied)", column)
                         return
 
                     raise ValueError(f"ALTER TABLE failed: {error_msg}")
 
                 # Wait for D1 metadata sync (known D1 limitation)
                 if attempt < max_attempts:
-                    logger.info(f"Waiting for D1 metadata sync...")
+                    logger.info("Waiting for D1 metadata sync...")
                     await asyncio.sleep(2)  # Give D1 time to sync metadata
 
                 # Verify column is actually usable by checking schema again
@@ -428,17 +424,17 @@ class CloudflareStorage(MemoryStorage):
                     columns = [row["name"] for row in result["result"][0]["results"] if "name" in row]
 
                     if column in columns:
-                        logger.info(f"Successfully added '{column}' column and verified it's usable")
+                        logger.info("Successfully added '%s' column and verified it's usable", column)
                         return
                     else:
-                        logger.warning(f"Column '{column}' not found in schema after ALTER TABLE (attempt {attempt})")
+                        logger.warning("Column '%s' not found in schema after ALTER TABLE (attempt %s)", column, attempt)
                         if attempt < max_attempts:
-                            logger.info(f"Retrying column addition due to D1 metadata sync issue...")
+                            logger.info("Retrying column addition due to D1 metadata sync issue...")
                             await asyncio.sleep(2 ** attempt)  # Exponential backoff
                             continue
 
             except Exception as e:
-                logger.warning(f"Column addition attempt {attempt} failed: {e}")
+                logger.warning("Column addition attempt %s failed: %s", attempt, _sanitize_log_value(e))
                 if attempt < max_attempts:
                     await asyncio.sleep(2 ** attempt)  # Exponential backoff
                     continue
@@ -517,7 +513,7 @@ class CloudflareStorage(MemoryStorage):
             if not result.get("success"):
                 raise ValueError(f"Vectorize index not accessible: {result}")
                 
-            logger.info(f"Vectorize index verified: {self.vectorize_index}")
+            logger.info("Vectorize index verified: %s", _sanitize_log_value(self.vectorize_index))
             
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
@@ -529,7 +525,7 @@ class CloudflareStorage(MemoryStorage):
         try:
             # Try to list objects (empty list is fine)
             await self._retry_request("GET", f"{self.r2_url}?max-keys=1")
-            logger.info(f"R2 bucket verified: {self.r2_bucket}")
+            logger.info("R2 bucket verified: %s", _sanitize_log_value(self.r2_bucket))
             
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
@@ -576,11 +572,11 @@ class CloudflareStorage(MemoryStorage):
             # Store metadata in D1
             await self._store_d1_memory(memory, vector_id, content_size, r2_key, stored_content)
             
-            logger.info(f"Successfully stored memory: {memory.content_hash}")
+            logger.info("Successfully stored memory: %s", _sanitize_log_value(memory.content_hash))
             return True, f"Memory stored successfully (vector_id: {vector_id})"
             
         except Exception as e:
-            logger.error(f"Failed to store memory {memory.content_hash}: {e}")
+            logger.error("Failed to store memory %s: %s", _sanitize_log_value(memory.content_hash), _sanitize_log_value(e))
             return False, f"Storage failed: {str(e)}"
     
     async def _store_vectorize_vector(self, vector_id: str, embedding: List[float], metadata: Dict[str, Any]) -> None:
@@ -612,12 +608,12 @@ class CloudflareStorage(MemoryStorage):
             )
             
             # Log response status for debugging (avoid logging headers/body for security)
-            logger.info(f"Vectorize response status: {response.status_code}")
+            logger.info("Vectorize response status: %s", response.status_code)
             response_text = response.text
             if response.status_code != 200:
                 # Only log response body on errors, and truncate to avoid credential exposure
                 truncated_response = response_text[:200] + "..." if len(response_text) > 200 else response_text
-                logger.warning(f"Vectorize error response (truncated): {truncated_response}")
+                logger.warning("Vectorize error response (truncated): %s", _sanitize_log_value(truncated_response))
             
             if response.status_code != 200:
                 raise ValueError(f"HTTP {response.status_code}: {response_text}")
@@ -628,10 +624,10 @@ class CloudflareStorage(MemoryStorage):
                 
         except Exception as e:
             # Add more detailed error logging
-            logger.error(f"Vectorize insert failed: {e}")
-            logger.error(f"Vector data was: {vector_data}")
-            logger.error(f"NDJSON content: {ndjson_content.strip()}")
-            logger.error(f"URL was: {self.vectorize_url}/upsert")
+            logger.error("Vectorize insert failed: %s", _sanitize_log_value(e))
+            logger.error("Vector data was: %s", _sanitize_log_value(vector_data))
+            logger.error("NDJSON content: %s", _sanitize_log_value(ndjson_content.strip()))
+            logger.error("URL was: %s/upsert", _sanitize_log_value(self.vectorize_url))
             raise ValueError(f"Failed to store vector: {e}")
     
     async def _store_d1_memory(self, memory: Memory, vector_id: str, content_size: int, r2_key: Optional[str], stored_content: str) -> None:
@@ -770,13 +766,13 @@ class CloudflareStorage(MemoryStorage):
                 try:
                     await self._persist_access_metadata(result.memory)
                 except Exception as e:
-                    logger.warning(f"Failed to persist access metadata: {e}")
+                    logger.warning("Failed to persist access metadata: %s", _sanitize_log_value(e))
 
-            logger.info(f"Retrieved {len(results)} memories for query")
+            logger.info("Retrieved %s memories for query", len(results))
             return results
             
         except Exception as e:
-            logger.error(f"Failed to retrieve memories: {e}")
+            logger.error("Failed to retrieve memories: %s", _sanitize_log_value(e))
             return []
     
     async def _load_memory_from_match(self, match: Dict[str, Any]) -> Optional[Memory]:
@@ -787,7 +783,7 @@ class CloudflareStorage(MemoryStorage):
             content_hash = metadata.get("content_hash")
             
             if not content_hash:
-                logger.warning(f"No content_hash in vector metadata: {vector_id}")
+                logger.warning("No content_hash in vector metadata: %s", _sanitize_log_value(vector_id))
                 return None
             
             # Load from D1
@@ -797,7 +793,7 @@ class CloudflareStorage(MemoryStorage):
             result = response.json()
             
             if not result.get("success") or not result.get("result", [{}])[0].get("results"):
-                logger.warning(f"Memory not found in D1: {content_hash}")
+                logger.warning("Memory not found in D1: %s", _sanitize_log_value(content_hash))
                 return None
             
             row = result["result"][0]["results"][0]
@@ -834,7 +830,7 @@ class CloudflareStorage(MemoryStorage):
             return memory
             
         except Exception as e:
-            logger.error(f"Failed to load memory from match: {e}")
+            logger.error("Failed to load memory from match: %s", _sanitize_log_value(e))
             return None
     
     async def _load_r2_content(self, r2_key: str) -> str:
@@ -968,7 +964,7 @@ class CloudflareStorage(MemoryStorage):
             return memory
             
         except Exception as e:
-            logger.error(f"Failed to load memory from row: {e}")
+            logger.error("Failed to load memory from row: %s", _sanitize_log_value(e))
             return None
     
     async def delete(self, content_hash: str) -> Tuple[bool, str]:
@@ -1005,11 +1001,11 @@ class CloudflareStorage(MemoryStorage):
             if not result.get("success"):
                 raise ValueError(f"Failed to delete from D1: {result}")
             
-            logger.info(f"Successfully deleted memory: {content_hash}")
+            logger.info("Successfully deleted memory: %s", _sanitize_log_value(content_hash))
             return True, "Memory deleted successfully"
 
         except Exception as e:
-            logger.error(f"Failed to delete memory {content_hash}: {e}")
+            logger.error("Failed to delete memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(e))
             return False, f"Deletion failed: {str(e)}"
 
     async def get_by_exact_content(self, content: str) -> List[Memory]:
@@ -1038,7 +1034,7 @@ class CloudflareStorage(MemoryStorage):
             return memories
 
         except Exception as e:
-            logger.error(f"Error in exact content match (Cloudflare): {str(e)}")
+            logger.error("Error in exact content match (Cloudflare): %s", _sanitize_log_value(str(e)))
             return []
 
     async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
@@ -1087,7 +1083,7 @@ class CloudflareStorage(MemoryStorage):
             return memory
 
         except Exception as e:
-            logger.error(f"Failed to get memory by hash {content_hash}: {e}")
+            logger.error("Failed to get memory by hash %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(e))
             return None
 
     async def _delete_vectorize_vector(self, vector_id: str) -> None:
@@ -1099,7 +1095,7 @@ class CloudflareStorage(MemoryStorage):
         result = response.json()
 
         if not result.get("success"):
-            logger.warning(f"Failed to delete vector from Vectorize: {result}")
+            logger.warning("Failed to delete vector from Vectorize: %s", _sanitize_log_value(result))
 
     async def delete_vectors_by_ids(self, vector_ids: List[str]) -> Dict[str, Any]:
         """Delete multiple vectors from Vectorize by their IDs."""
@@ -1116,9 +1112,9 @@ class CloudflareStorage(MemoryStorage):
         try:
             response = await self._retry_request("DELETE", f"{self.r2_url}/{r2_key}")
             if response.status_code not in [200, 204, 404]:  # 404 is fine if already deleted
-                logger.warning(f"Failed to delete R2 content: {response.status_code}")
+                logger.warning("Failed to delete R2 content: %s", response.status_code)
         except Exception as e:
-            logger.warning(f"Failed to delete R2 content {r2_key}: {e}")
+            logger.warning("Failed to delete R2 content %s: %s", _sanitize_log_value(r2_key), _sanitize_log_value(e))
     
     async def delete_by_tag(self, tag: str) -> Tuple[int, str]:
         """Delete memories by tag."""
@@ -1132,11 +1128,11 @@ class CloudflareStorage(MemoryStorage):
                 if success:
                     deleted_count += 1
             
-            logger.info(f"Deleted {deleted_count} memories with tag: {_sanitize_log_value(tag)}")
+            logger.info("Deleted %s memories with tag: %s", deleted_count, _sanitize_log_value(tag))
             return deleted_count, f"Deleted {deleted_count} memories"
 
         except Exception as e:
-            logger.error(f"Failed to delete by tag {_sanitize_log_value(tag)}: {e}")
+            logger.error("Failed to delete by tag %s: %s", _sanitize_log_value(tag), _sanitize_log_value(e))
             return 0, f"Deletion failed: {str(e)}"
 
     async def delete_by_tags(self, tags: List[str]) -> Tuple[int, str, List[str]]:
@@ -1188,11 +1184,11 @@ class CloudflareStorage(MemoryStorage):
                     deleted_count += 1
                     deleted_hashes.append(content_hash)
 
-            logger.info(f"Deleted {deleted_count} memories matching tags: {tags}")
+            logger.info("Deleted %s memories matching tags: %s", deleted_count, _sanitize_log_value(tags))
             return deleted_count, f"Successfully deleted {deleted_count} memories matching {len(tags)} tag(s)", deleted_hashes
 
         except Exception as e:
-            logger.error(f"Failed to delete by tags {tags}: {e}")
+            logger.error("Failed to delete by tags %s: %s", _sanitize_log_value(tags), _sanitize_log_value(e))
             return 0, f"Deletion failed: {str(e)}", []
 
     async def delete_by_timeframe(self, start_date: date, end_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
@@ -1240,7 +1236,7 @@ class CloudflareStorage(MemoryStorage):
             return deleted_count, f"Deleted {deleted_count} memories from {start_date} to {end_date}" + (f" with tag '{tag}'" if tag else "")
 
         except Exception as e:
-            logger.error(f"Error deleting by timeframe in Cloudflare: {str(e)}")
+            logger.error("Error deleting by timeframe in Cloudflare: %s", _sanitize_log_value(str(e)))
             return 0, f"Error: {str(e)}"
 
     async def delete_before_date(self, before_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
@@ -1287,7 +1283,7 @@ class CloudflareStorage(MemoryStorage):
             return deleted_count, f"Deleted {deleted_count} memories before {before_date}" + (f" with tag '{tag}'" if tag else "")
 
         except Exception as e:
-            logger.error(f"Error deleting before date in Cloudflare: {str(e)}")
+            logger.error("Error deleting before date in Cloudflare: %s", _sanitize_log_value(str(e)))
             return 0, f"Error: {str(e)}"
 
     async def cleanup_duplicates(self) -> Tuple[int, str]:
@@ -1325,11 +1321,11 @@ class CloudflareStorage(MemoryStorage):
                     deleted = result["result"][0]["meta"].get("changes", 0)
                     total_deleted += deleted
             
-            logger.info(f"Cleaned up {total_deleted} duplicate memories")
+            logger.info("Cleaned up %s duplicate memories", total_deleted)
             return total_deleted, f"Removed {total_deleted} duplicates"
             
         except Exception as e:
-            logger.error(f"Failed to cleanup duplicates: {e}")
+            logger.error("Failed to cleanup duplicates: %s", _sanitize_log_value(e))
             return 0, f"Cleanup failed: {str(e)}"
 
     async def _persist_access_metadata(self, memory: Memory):
@@ -1421,11 +1417,11 @@ class CloudflareStorage(MemoryStorage):
             if "tags" in updates:
                 await self._update_memory_tags(content_hash, updates["tags"])
             
-            logger.info(f"Successfully updated memory metadata: {content_hash}")
+            logger.info("Successfully updated memory metadata: %s", _sanitize_log_value(content_hash))
             return True, "Memory metadata updated successfully"
             
         except Exception as e:
-            logger.error(f"Failed to update memory metadata {content_hash}: {e}")
+            logger.error("Failed to update memory metadata %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(e))
             return False, f"Update failed: {str(e)}"
     
     async def _update_memory_tags(self, content_hash: str, new_tags: List[str]) -> None:
@@ -1491,7 +1487,7 @@ class CloudflareStorage(MemoryStorage):
             )
             result = response.json()
             if not result.get("success"):
-                logger.error(f"Tombstone purge lookup failed: {_sanitize_log_value(result.get('errors'))}")
+                logger.error("Tombstone purge lookup failed: %s", _sanitize_log_value(result.get('errors')))
                 break
 
             rows = result["result"][0].get("results", [])
@@ -1515,7 +1511,7 @@ class CloudflareStorage(MemoryStorage):
             if not result.get("success"):
                 # Stop here rather than delete the memories anyway: a D1 that just
                 # failed a write is no state in which to keep purging.
-                logger.error(f"Tombstone tag purge failed: {_sanitize_log_value(result.get('errors'))}")
+                logger.error("Tombstone tag purge failed: %s", _sanitize_log_value(result.get('errors')))
                 break
 
             delete_sql = "DELETE FROM memories WHERE deleted_at IS NOT NULL AND deleted_at < ? AND id <= ?"
@@ -1525,7 +1521,7 @@ class CloudflareStorage(MemoryStorage):
             )
             result = response.json()
             if not result.get("success"):
-                logger.error(f"Tombstone purge failed: {_sanitize_log_value(result.get('errors'))}")
+                logger.error("Tombstone purge failed: %s", _sanitize_log_value(result.get('errors')))
                 break
 
             total_purged += len(rows)
@@ -1594,7 +1590,7 @@ class CloudflareStorage(MemoryStorage):
             }
 
         except Exception as e:
-            logger.error(f"Failed to get stats: {e}")
+            logger.error("Failed to get stats: %s", _sanitize_log_value(e))
             return {
                 "total_memories": 0,
                 "unique_tags": 0,
@@ -1618,7 +1614,7 @@ class CloudflareStorage(MemoryStorage):
             return []
 
         except Exception as e:
-            logger.error(f"Failed to get all tags: {e}")
+            logger.error("Failed to get all tags: %s", _sanitize_log_value(e))
             return []
 
     async def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:
@@ -1641,7 +1637,7 @@ class CloudflareStorage(MemoryStorage):
             return []
 
         except Exception as e:
-            logger.error(f"Failed to get tags with counts: {e}")
+            logger.error("Failed to get tags with counts: %s", _sanitize_log_value(e))
             return []
     
     async def get_recent_memories(self, n: int = 10) -> List[Memory]:
@@ -1659,11 +1655,11 @@ class CloudflareStorage(MemoryStorage):
                     if memory:
                         memories.append(memory)
 
-            logger.info(f"Retrieved {len(memories)} recent memories")
+            logger.info("Retrieved %s recent memories", len(memories))
             return memories
 
         except Exception as e:
-            logger.error(f"Failed to get recent memories: {e}")
+            logger.error("Failed to get recent memories: %s", _sanitize_log_value(e))
             return []
 
     async def get_largest_memories(self, n: int = 10) -> List[Memory]:
@@ -1681,11 +1677,11 @@ class CloudflareStorage(MemoryStorage):
                     if memory:
                         memories.append(memory)
 
-            logger.info(f"Retrieved {len(memories)} largest memories")
+            logger.info("Retrieved %s largest memories", len(memories))
             return memories
 
         except Exception as e:
-            logger.error(f"Failed to get largest memories: {e}")
+            logger.error("Failed to get largest memories: %s", _sanitize_log_value(e))
             return []
 
     async def _fetch_d1_timestamps(self, cutoff_timestamp: Optional[float] = None) -> List[float]:
@@ -1738,11 +1734,11 @@ class CloudflareStorage(MemoryStorage):
                 cutoff_timestamp = cutoff.timestamp()
 
             timestamps = await self._fetch_d1_timestamps(cutoff_timestamp)
-            logger.info(f"Retrieved {len(timestamps)} memory timestamps")
+            logger.info("Retrieved %s memory timestamps", len(timestamps))
             return timestamps
 
         except Exception as e:
-            logger.error(f"Failed to get memory timestamps: {e}")
+            logger.error("Failed to get memory timestamps: %s", _sanitize_log_value(e))
             return []
 
     def sanitized(self, tags):
@@ -1793,12 +1789,12 @@ class CloudflareStorage(MemoryStorage):
 
             time_where = " AND ".join(time_conditions) if time_conditions else ""
 
-            logger.info(f"Recall - Time filtering conditions: {time_where}, params: {params}")
+            logger.info("Recall - Time filtering conditions: %s, params: %s", _sanitize_log_value(time_where), _sanitize_log_value(params))
 
             # Determine search strategy
             if query and query.strip():
                 # Combined semantic search with time filtering
-                logger.info(f"Recall - Using semantic search with query: '{query}'")
+                logger.info("Recall - Using semantic search with query: '%s'", _sanitize_log_value(query))
 
                 try:
                     # Generate query embedding
@@ -1843,15 +1839,15 @@ class CloudflareStorage(MemoryStorage):
                             )
                             results.append(query_result)
 
-                    logger.info(f"Recall - Retrieved {len(results)} memories with semantic search and time filtering")
+                    logger.info("Recall - Retrieved %s memories with semantic search and time filtering", len(results))
                     return results[:n_results]  # Ensure we don't exceed n_results
 
                 except Exception as e:
-                    logger.error(f"Recall - Semantic search failed, falling back to time-based search: {e}")
+                    logger.error("Recall - Semantic search failed, falling back to time-based search: %s", _sanitize_log_value(e))
                     # Fall through to time-based search
 
             # Time-based search only (or fallback)
-            logger.info(f"Recall - Using time-based search only")
+            logger.info("Recall - Using time-based search only")
 
             # Build D1 query for time-based retrieval
             if time_where:
@@ -1883,11 +1879,11 @@ class CloudflareStorage(MemoryStorage):
                         )
                         results.append(query_result)
 
-            logger.info(f"Recall - Retrieved {len(results)} memories with time-based search")
+            logger.info("Recall - Retrieved %s memories with time-based search", len(results))
             return results
 
         except Exception as e:
-            logger.error(f"Recall failed: {e}")
+            logger.error("Recall failed: %s", _sanitize_log_value(e))
             return []
 
     async def get_all_memories(
@@ -1977,11 +1973,11 @@ class CloudflareStorage(MemoryStorage):
                     if memory:
                         memories.append(memory)
 
-            logger.debug(f"Retrieved {len(memories)} memories from D1")
+            logger.debug("Retrieved %s memories from D1", len(memories))
             return memories
 
         except Exception as e:
-            logger.error(f"Error getting all memories: {str(e)}")
+            logger.error("Error getting all memories: %s", _sanitize_log_value(str(e)))
             return []
 
     def _row_to_memory(self, row: Dict[str, Any]) -> Memory:
@@ -2047,7 +2043,7 @@ class CloudflareStorage(MemoryStorage):
                 if memory:
                     memories.append(memory)
 
-        logger.debug(f"Bulk loaded {len(memories)} memories from D1")
+        logger.debug("Bulk loaded %s memories from D1", len(memories))
         return memories
 
     async def get_all_memories_cursor(self, limit: int = None, cursor: float = None, memory_type: Optional[str] = None, tags: Optional[List[str]] = None) -> List[Memory]:
@@ -2117,11 +2113,11 @@ class CloudflareStorage(MemoryStorage):
                     if memory:
                         memories.append(memory)
 
-            logger.debug(f"Retrieved {len(memories)} memories from D1 with cursor-based pagination")
+            logger.debug("Retrieved %s memories from D1 with cursor-based pagination", len(memories))
             return memories
 
         except Exception as e:
-            logger.error(f"Error getting memories with cursor: {str(e)}")
+            logger.error("Error getting memories with cursor: %s", _sanitize_log_value(str(e)))
             return []
 
     async def get_memories_updated_since(self, timestamp: float, limit: int = 100) -> List[Memory]:
@@ -2156,7 +2152,7 @@ class CloudflareStorage(MemoryStorage):
             result = response.json()
 
             if not result.get("success"):
-                logger.warning(f"Failed to get updated memories: {result.get('error')}")
+                logger.warning("Failed to get updated memories: %s", _sanitize_log_value(result.get('error')))
                 return []
 
             memories = []
@@ -2166,11 +2162,11 @@ class CloudflareStorage(MemoryStorage):
                     if memory:
                         memories.append(memory)
 
-            logger.debug(f"Retrieved {len(memories)} memories updated since timestamp {timestamp}")
+            logger.debug("Retrieved %s memories updated since timestamp %s", len(memories), timestamp)
             return memories
 
         except Exception as e:
-            logger.error(f"Error getting updated memories: {e}")
+            logger.error("Error getting updated memories: %s", _sanitize_log_value(e))
             return []
 
     async def get_memories_by_time_range(
@@ -2215,7 +2211,7 @@ class CloudflareStorage(MemoryStorage):
             result = response.json()
 
             if not result.get("success"):
-                logger.error(f"D1 query failed: {result}")
+                logger.error("D1 query failed: %s", _sanitize_log_value(result))
                 return []
 
             memories = []
@@ -2225,11 +2221,11 @@ class CloudflareStorage(MemoryStorage):
                     if memory:
                         memories.append(memory)
 
-            logger.info(f"Retrieved {len(memories)} memories in time range {start_time}-{end_time}")
+            logger.info("Retrieved %s memories in time range %s-%s", len(memories), start_time, end_time)
             return memories
 
         except Exception as e:
-            logger.error(f"Error getting memories by time range: {str(e)}")
+            logger.error("Error getting memories by time range: %s", _sanitize_log_value(str(e)))
             return []
 
     async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: str = "default") -> int:
@@ -2295,7 +2291,7 @@ class CloudflareStorage(MemoryStorage):
             return 0
 
         except Exception as e:
-            logger.error(f"Error counting memories: {str(e)}")
+            logger.error("Error counting memories: %s", _sanitize_log_value(str(e)))
             return 0
 
     async def close(self) -> None:

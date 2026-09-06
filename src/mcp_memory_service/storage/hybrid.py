@@ -34,6 +34,7 @@ from .base import MemoryStorage
 from .sqlite_vec import SqliteVecMemoryStorage
 from .cloudflare import CloudflareStorage
 from ..models.memory import Memory, MemoryQueryResult
+from ..compat import _sanitize_log_value
 
 # Import SSE for real-time progress updates
 try:
@@ -228,7 +229,7 @@ class BackgroundSyncService:
 
         self.is_running = True
         self.sync_task = asyncio.create_task(self._sync_loop())
-        logger.info(f"Background sync service started with {self.sync_interval}s interval")
+        logger.info("Background sync service started with %ss interval", self.sync_interval)
 
     async def stop(self):
         """Stop the background sync service and process remaining operations."""
@@ -247,7 +248,7 @@ class BackgroundSyncService:
                 break
 
         if remaining_operations:
-            logger.info(f"Processing {len(remaining_operations)} remaining operations before shutdown")
+            logger.info("Processing %s remaining operations before shutdown", len(remaining_operations))
             await self._process_operations_batch(remaining_operations)
 
         # Cancel the sync task
@@ -268,7 +269,7 @@ class BackgroundSyncService:
                 self.operation_queue.put(operation),
                 timeout=5.0
             )
-            logger.debug(f"Enqueued {operation.operation} operation")
+            logger.debug("Enqueued %s operation", _sanitize_log_value(operation.operation))
         except asyncio.TimeoutError:
             # Queue full and can't add within timeout - fallback to immediate sync
             logger.warning("Sync queue full (timeout), processing operation immediately")
@@ -317,7 +318,7 @@ class BackgroundSyncService:
                 )
                 data = resp.json()
                 if not data.get("success"):
-                    logger.warning(f"Secondary hash fetch failed: {data.get('errors')}")
+                    logger.warning("Secondary hash fetch failed: %s", _sanitize_log_value(data.get('errors')))
                     return None
                 batch = data["result"][0].get("results", [])
                 if not batch:
@@ -327,7 +328,7 @@ class BackgroundSyncService:
                 if len(batch) < limit:
                     break
             except Exception as e:
-                logger.warning(f"Could not fetch secondary hashes for dedupe: {e}")
+                logger.warning("Could not fetch secondary hashes for dedupe: %s", _sanitize_log_value(e))
                 return None
         return hashes
 
@@ -345,7 +346,7 @@ class BackgroundSyncService:
                 await self.secondary.get_stats()  # Simple health check
                 cloudflare_available = True
             except Exception as e:
-                logger.warning(f"Cloudflare not available during force sync: {e}")
+                logger.warning("Cloudflare not available during force sync: %s", _sanitize_log_value(e))
                 self.sync_stats['cloudflare_available'] = False
                 return {
                     'status': 'partial',
@@ -363,10 +364,7 @@ class BackgroundSyncService:
             if secondary_hashes is not None:
                 new_memories = [m for m in primary_memories if m.content_hash not in secondary_hashes]
                 skipped_count = len(primary_memories) - len(new_memories)
-                logger.info(
-                    f"Dedupe: {skipped_count} of {len(primary_memories)} memories already on secondary, "
-                    f"pushing {len(new_memories)}"
-                )
+                logger.info("Dedupe: %s of %s memories already on secondary, pushing %s", skipped_count, len(primary_memories), len(new_memories))
             else:
                 new_memories = primary_memories
                 skipped_count = 0
@@ -379,10 +377,10 @@ class BackgroundSyncService:
                     if success:
                         return True, None
                     else:
-                        logger.debug(f"Failed to sync memory to secondary: {message}")
+                        logger.debug("Failed to sync memory to secondary: %s", _sanitize_log_value(message))
                         return False, message
                 except Exception as e:
-                    logger.debug(f"Exception syncing memory to secondary: {e}")
+                    logger.debug("Exception syncing memory to secondary: %s", _sanitize_log_value(e))
                     return False, str(e)
 
             # Process memories concurrently in batches
@@ -398,7 +396,7 @@ class BackgroundSyncService:
                 for result in results:
                     if isinstance(result, Exception):
                         failed_count += 1
-                        logger.debug(f"Exception in batch sync: {result}")
+                        logger.debug("Exception in batch sync: %s", _sanitize_log_value(result))
                     elif isinstance(result, tuple):
                         success, _ = result
                         if success:
@@ -410,10 +408,7 @@ class BackgroundSyncService:
             self.sync_stats['last_sync_duration'] = sync_duration
             self.sync_stats['cloudflare_available'] = cloudflare_available
 
-            logger.info(
-                f"Force sync completed: {synced_count} synced, {failed_count} failed, "
-                f"{skipped_count} skipped (already on secondary) in {sync_duration:.2f}s"
-            )
+            logger.info("Force sync completed: %s synced, %s failed, %s skipped (already on secondary) in %.2fs", synced_count, failed_count, skipped_count, sync_duration)
 
             return {
                 'status': 'completed',
@@ -426,7 +421,7 @@ class BackgroundSyncService:
             }
 
         except Exception as e:
-            logger.error(f"Error during force sync: {e}")
+            logger.error("Error during force sync: %s", _sanitize_log_value(e))
             return {
                 'status': 'error',
                 'error': str(e),
@@ -530,7 +525,7 @@ class BackgroundSyncService:
             }
 
         except Exception as e:
-            logger.error(f"Failed to check Cloudflare capacity: {e}")
+            logger.error("Failed to check Cloudflare capacity: %s", _sanitize_log_value(e))
             return {
                 'error': str(e),
                 'vector_count': self.cloudflare_stats.get('vector_count', 0),
@@ -564,11 +559,11 @@ class BackgroundSyncService:
                 await asyncio.sleep(5)  # Check every 5 seconds
 
             except Exception as e:
-                logger.error(f"Error in sync loop: {e}")
+                logger.error("Error in sync loop: %s", _sanitize_log_value(e))
                 self.consecutive_failures += 1
 
                 if self.consecutive_failures >= self.max_consecutive_failures:
-                    logger.warning(f"Too many consecutive sync failures ({self.consecutive_failures}), backing off for {self.backoff_time}s")
+                    logger.warning("Too many consecutive sync failures (%s), backing off for %ss", self.consecutive_failures, self.backoff_time)
                     await asyncio.sleep(self.backoff_time)
                     self.backoff_time = min(self.backoff_time * 2, 1800)  # Max 30 minutes
                 else:
@@ -600,24 +595,21 @@ class BackgroundSyncService:
             if backend is None:
                 continue
             if not hasattr(backend, 'purge_deleted'):
-                logger.debug(f"{label.capitalize()} storage does not support tombstone purging")
+                logger.debug("%s storage does not support tombstone purging", label.capitalize())
                 continue
             try:
                 purged_count = await backend.purge_deleted(
                     older_than_days=self.tombstone_retention_days
                 )
                 if purged_count > 0:
-                    logger.info(
-                        f"Purged {purged_count} {label} tombstones older than "
-                        f"{self.tombstone_retention_days} days"
-                    )
+                    logger.info("Purged %s %s tombstones older than %s days", purged_count, label, self.tombstone_retention_days)
                     self.sync_stats['tombstones_purged'] = self.sync_stats.get('tombstones_purged', 0) + purged_count
             except Exception as e:
-                logger.error(f"Error purging old {label} tombstones: {e}")
+                logger.error("Error purging old %s tombstones: %s", label, _sanitize_log_value(e))
 
     async def _process_operations_batch(self, operations: List[SyncOperation]):
         """Process a batch of sync operations."""
-        logger.debug(f"Processing batch of {len(operations)} sync operations")
+        logger.debug("Processing batch of %s sync operations", len(operations))
 
         for operation in operations:
             try:
@@ -645,7 +637,7 @@ class BackgroundSyncService:
 
         if is_limit_error:
             # Don't retry limit errors - they won't succeed
-            logger.error(f"Cloudflare limit error for {operation.operation}: {error}")
+            logger.error("Cloudflare limit error for %s: %s", _sanitize_log_value(operation.operation), _sanitize_log_value(error))
             self.sync_stats['operations_failed'] += 1
 
             # Update capacity tracking
@@ -664,7 +656,7 @@ class BackgroundSyncService:
 
         if is_temporary_error or operation.retries < operation.max_retries:
             # Retry temporary errors
-            logger.warning(f"Temporary error for {operation.operation} (retry {operation.retries + 1}/{operation.max_retries}): {error}")
+            logger.warning("Temporary error for %s (retry %s/%s): %s", _sanitize_log_value(operation.operation), operation.retries + 1, operation.max_retries, _sanitize_log_value(error))
             operation.retries += 1
 
             if operation.retries < operation.max_retries:
@@ -672,11 +664,11 @@ class BackgroundSyncService:
                 await asyncio.sleep(min(2 ** operation.retries, 60))  # Max 60 second delay
                 self.failed_operations.append(operation)
             else:
-                logger.error(f"Max retries reached for {operation.operation}")
+                logger.error("Max retries reached for %s", _sanitize_log_value(operation.operation))
                 self.sync_stats['operations_failed'] += 1
         else:
             # Permanent error - don't retry
-            logger.error(f"Permanent error for {operation.operation}: {error}")
+            logger.error("Permanent error for %s: %s", _sanitize_log_value(operation.operation), _sanitize_log_value(error))
             self.sync_stats['operations_failed'] += 1
 
     async def _process_single_operation(self, operation: SyncOperation):
@@ -686,7 +678,7 @@ class BackgroundSyncService:
                 # Validate memory before syncing
                 is_valid, validation_error = await self.validate_memory_for_cloudflare(operation.memory)
                 if not is_valid:
-                    logger.warning(f"Memory validation failed for sync: {validation_error}")
+                    logger.warning("Memory validation failed for sync: %s", _sanitize_log_value(validation_error))
                     # Don't retry if it's a hard limit
                     if "exceeds Cloudflare limit" in validation_error or "limit of" in validation_error:
                         self.sync_stats['operations_failed'] += 1
@@ -710,10 +702,7 @@ class BackgroundSyncService:
                     metadata_size_kb = len(metadata_json.encode('utf-8')) / 1024
 
                     if metadata_size_kb > 9.5:  # 9.5KB safety margin (Cloudflare limit is 10KB)
-                        logger.warning(
-                            f"Skipping Cloudflare sync for {operation.content_hash[:16]}: "
-                            f"metadata too large ({metadata_size_kb:.2f}KB > 9.5KB limit)"
-                        )
+                        logger.warning("Skipping Cloudflare sync for %s: metadata too large (%.2fKB > 9.5KB limit)", _sanitize_log_value(operation.content_hash[:16]), metadata_size_kb)
                         self.sync_stats['operations_failed'] += 1
                         return  # Skip this update permanently (too large for Cloudflare)
 
@@ -739,7 +728,7 @@ class BackgroundSyncService:
                     if not success:
                         raise Exception(f"Delete by timeframe failed: {message}")
                     self.sync_stats['operations_synced'] += 1
-                    logger.debug(f"Synced delete_by_timeframe: {message}")
+                    logger.debug("Synced delete_by_timeframe: %s", _sanitize_log_value(message))
                 else:
                     raise ValueError("delete_by_timeframe operation missing start_date or end_date")
 
@@ -753,7 +742,7 @@ class BackgroundSyncService:
                     if not success:
                         raise Exception(f"Delete before date failed: {message}")
                     self.sync_stats['operations_synced'] += 1
-                    logger.debug(f"Synced delete_before_date: {message}")
+                    logger.debug("Synced delete_before_date: %s", _sanitize_log_value(message))
                 else:
                     raise ValueError("delete_before_date operation missing before_date")
 
@@ -792,13 +781,13 @@ class BackgroundSyncService:
             if self.failed_operations:
                 retry_operations = list(self.failed_operations)
                 self.failed_operations.clear()
-                logger.info(f"Retrying {len(retry_operations)} failed operations")
+                logger.info("Retrying %s failed operations", len(retry_operations))
                 await self._process_operations_batch(retry_operations)
 
             # Perform a lightweight health check
             try:
                 healthy = await self._probe_secondary()
-                logger.debug(f"Secondary storage health check passed: {healthy}")
+                logger.debug("Secondary storage health check passed: %s", healthy)
                 self.sync_stats['cloudflare_available'] = bool(healthy)
 
                 # Capacity monitoring counts rows on the secondary, which on D1 is a
@@ -816,16 +805,16 @@ class BackgroundSyncService:
                 if healthy and self.drift_check_enabled:
                     time_since_last_check = time.time() - self.last_drift_check_time
                     if time_since_last_check >= self.drift_check_interval:
-                        logger.info(f"Running periodic drift check (interval: {self.drift_check_interval}s)")
+                        logger.info("Running periodic drift check (interval: %ss)", self.drift_check_interval)
                         drift_stats = await self._detect_and_sync_drift()
-                        logger.info(f"Drift check complete: {drift_stats}")
+                        logger.info("Drift check complete: %s", drift_stats)
 
             except Exception as e:
-                logger.warning(f"Secondary storage health check failed: {e}")
+                logger.warning("Secondary storage health check failed: %s", _sanitize_log_value(e))
                 self.sync_stats['cloudflare_available'] = False
 
         except Exception as e:
-            logger.error(f"Error during periodic sync: {e}")
+            logger.error("Error during periodic sync: %s", _sanitize_log_value(e))
 
     async def _detect_and_sync_drift(self, dry_run: bool = False) -> Dict[str, int]:
         """
@@ -847,7 +836,7 @@ class BackgroundSyncService:
         if not self.drift_check_enabled:
             return {'checked': 0, 'drift_detected': 0, 'synced': 0, 'failed': 0}
 
-        logger.info(f"Starting drift detection scan (dry_run={dry_run})...")
+        logger.info("Starting drift detection scan (dry_run=%s)...", dry_run)
         stats = {'checked': 0, 'drift_detected': 0, 'synced': 0, 'failed': 0}
 
         try:
@@ -868,7 +857,7 @@ class BackgroundSyncService:
                 cf_memories = await self.secondary.get_all_memories(limit=batch_size)
                 cf_updated = [m for m in cf_memories if m.updated_at and m.updated_at >= time_threshold]
 
-            logger.info(f"Found {len(cf_updated)} memories updated in Cloudflare since last check")
+            logger.info("Found %s memories updated in Cloudflare since last check", len(cf_updated))
 
             # Compare with local versions
             for cf_memory in cf_updated:
@@ -879,13 +868,13 @@ class BackgroundSyncService:
                     if not local_memory:
                         # Memory missing locally - sync it
                         stats['drift_detected'] += 1
-                        logger.debug(f"Memory {cf_memory.content_hash[:8]} missing locally, syncing...")
+                        logger.debug("Memory %s missing locally, syncing...", _sanitize_log_value(cf_memory.content_hash[:8]))
                         if not dry_run:
                             success, _ = await self.primary.store(cf_memory)
                             if success:
                                 stats['synced'] += 1
                         else:
-                            logger.info(f"[DRY RUN] Would sync missing memory: {cf_memory.content_hash[:8]}")
+                            logger.info("[DRY RUN] Would sync missing memory: %s", _sanitize_log_value(cf_memory.content_hash[:8]))
                             stats['synced'] += 1
                         continue
 
@@ -896,10 +885,7 @@ class BackgroundSyncService:
                     # Allow 1 second tolerance for timestamp precision
                     if abs(cf_updated_at - local_updated_at) > 1.0:
                         stats['drift_detected'] += 1
-                        logger.debug(
-                            f"Drift detected for {cf_memory.content_hash[:8]}: "
-                            f"Cloudflare={cf_updated_at:.2f}, Local={local_updated_at:.2f}"
-                        )
+                        logger.debug("Drift detected for %s: Cloudflare=%.2f, Local=%.2f", _sanitize_log_value(cf_memory.content_hash[:8]), cf_updated_at, local_updated_at)
 
                         # Use "newer timestamp wins" strategy
                         if cf_updated_at > local_updated_at:
@@ -920,11 +906,11 @@ class BackgroundSyncService:
                                 )
                                 if success:
                                     stats['synced'] += 1
-                                    logger.info(f"Synced metadata from Cloudflare → local: {cf_memory.content_hash[:8]}")
+                                    logger.info("Synced metadata from Cloudflare → local: %s", _sanitize_log_value(cf_memory.content_hash[:8]))
                                 else:
                                     stats['failed'] += 1
                             else:
-                                logger.info(f"[DRY RUN] Would sync metadata from Cloudflare → local: {cf_memory.content_hash[:8]}")
+                                logger.info("[DRY RUN] Would sync metadata from Cloudflare → local: %s", _sanitize_log_value(cf_memory.content_hash[:8]))
                                 stats['synced'] += 1
                         else:
                             # Local is newer - update Cloudflare
@@ -940,13 +926,13 @@ class BackgroundSyncService:
                                 )
                                 await self.enqueue_operation(operation)
                                 stats['synced'] += 1
-                                logger.info(f"Queued metadata sync from local → Cloudflare: {local_memory.content_hash[:8]}")
+                                logger.info("Queued metadata sync from local → Cloudflare: %s", _sanitize_log_value(local_memory.content_hash[:8]))
                             else:
-                                logger.info(f"[DRY RUN] Would queue metadata sync from local → Cloudflare: {local_memory.content_hash[:8]}")
+                                logger.info("[DRY RUN] Would queue metadata sync from local → Cloudflare: %s", _sanitize_log_value(local_memory.content_hash[:8]))
                                 stats['synced'] += 1
 
                 except Exception as e:
-                    logger.warning(f"Error checking drift for memory: {e}")
+                    logger.warning("Error checking drift for memory: %s", _sanitize_log_value(e))
                     stats['failed'] += 1
                     continue
 
@@ -957,13 +943,10 @@ class BackgroundSyncService:
                 self.sync_stats['drift_detected_count'] += stats['drift_detected']
                 self.sync_stats['drift_synced_count'] += stats['synced']
 
-            logger.info(
-                f"Drift detection complete: checked={stats['checked']}, "
-                f"drift_detected={stats['drift_detected']}, synced={stats['synced']}, failed={stats['failed']}"
-            )
+            logger.info("Drift detection complete: checked=%s, drift_detected=%s, synced=%s, failed=%s", stats['checked'], stats['drift_detected'], stats['synced'], stats['failed'])
 
         except Exception as e:
-            logger.error(f"Error during drift detection: {e}")
+            logger.error("Error during drift detection: %s", _sanitize_log_value(e))
 
         return stats
 
@@ -1070,7 +1053,7 @@ class HybridMemoryStorage(MemoryStorage):
                     logger.info("Initial sync scheduled to run after server startup")
 
             except Exception as e:
-                logger.warning(f"Failed to initialize secondary storage: {e}")
+                logger.warning("Failed to initialize secondary storage: %s", _sanitize_log_value(e))
                 self.secondary = None
 
         self.initialized = True
@@ -1119,10 +1102,10 @@ class HybridMemoryStorage(MemoryStorage):
             primary_count = primary_stats.get('total_memories') or 0
             secondary_count = secondary_stats.get('total_memories') or 0
 
-            logger.info(f"{sync_type.capitalize()} sync: Local={primary_count}, Cloudflare={secondary_count}")
+            logger.info("%s sync: Local=%s, Cloudflare=%s", sync_type.capitalize(), primary_count, secondary_count)
 
             if secondary_count <= primary_count:
-                logger.info(f"No new memories to sync from Cloudflare ({sync_type} sync)")
+                logger.info("No new memories to sync from Cloudflare (%s sync)", sync_type)
                 return {
                     'success': True,
                     'memories_synced': 0,
@@ -1141,12 +1124,12 @@ class HybridMemoryStorage(MemoryStorage):
 
             # Get all local hashes once for O(1) lookup
             local_hashes = await self.primary.get_all_content_hashes()
-            logger.info(f"Pulling {missing_count} potential memories from Cloudflare...")
+            logger.info("Pulling %s potential memories from Cloudflare...", missing_count)
 
             while True:
                 try:
                     # Get batch from Cloudflare using cursor-based pagination
-                    logger.debug(f"Fetching batch: cursor={cursor}, batch_size={batch_size}")
+                    logger.debug("Fetching batch: cursor=%s, batch_size=%s", cursor, batch_size)
 
                     if hasattr(self.secondary, 'get_all_memories_cursor'):
                         cloudflare_memories = await self.secondary.get_all_memories_cursor(
@@ -1160,10 +1143,10 @@ class HybridMemoryStorage(MemoryStorage):
                         )
 
                     if not cloudflare_memories:
-                        logger.debug(f"No more memories from Cloudflare at cursor {cursor}")
+                        logger.debug("No more memories from Cloudflare at cursor %s", cursor)
                         break
 
-                    logger.debug(f"Processing batch of {len(cloudflare_memories)} memories")
+                    logger.debug("Processing batch of %s memories", len(cloudflare_memories))
                     batch_checked = 0
                     batch_missing = 0
                     batch_synced = 0
@@ -1187,13 +1170,13 @@ class HybridMemoryStorage(MemoryStorage):
                                     if cf_deleted_at is None and cf_memory.metadata:
                                         cf_deleted_at = cf_memory.metadata.get('deleted_at')
                                     if cf_deleted_at is not None:
-                                        logger.debug(f"Memory {cf_memory.content_hash[:8]} is soft-deleted in Cloudflare, skipping")
+                                        logger.debug("Memory %s is soft-deleted in Cloudflare, skipping", _sanitize_log_value(cf_memory.content_hash[:8]))
                                         return ('skipped_deleted', cf_memory.content_hash, None)
 
                                     # Check if memory was soft-deleted locally (tombstone check)
                                     # This prevents re-syncing memories that were intentionally deleted
                                     if hasattr(self.primary, 'is_deleted') and await self.primary.is_deleted(cf_memory.content_hash):
-                                        logger.debug(f"Memory {cf_memory.content_hash[:8]} was deleted locally, skipping cloud sync")
+                                        logger.debug("Memory %s was deleted locally, skipping cloud sync", _sanitize_log_value(cf_memory.content_hash[:8]))
                                         # Propagate deletion to cloud if sync service available
                                         if self.sync_service:
                                             operation = SyncOperation(operation='delete', content_hash=cf_memory.content_hash)
@@ -1212,7 +1195,7 @@ class HybridMemoryStorage(MemoryStorage):
                                             self.initial_sync_completed = synced_count
 
                                         if synced_count % 10 == 0:
-                                            logger.info(f"{sync_type.capitalize()} sync progress: {synced_count}/{missing_count} memories synced")
+                                            logger.info("%s sync progress: %s/%s memories synced", sync_type.capitalize(), synced_count, missing_count)
 
                                             # Broadcast SSE progress event
                                             if broadcast_sse and SSE_AVAILABLE:
@@ -1224,11 +1207,11 @@ class HybridMemoryStorage(MemoryStorage):
                                                     )
                                                     await sse_manager.broadcast_event(progress_event)
                                                 except Exception as e:
-                                                    logger.debug(f"Failed to broadcast SSE progress: {e}")
+                                                    logger.debug("Failed to broadcast SSE progress: %s", _sanitize_log_value(e))
 
                                         return ('synced', cf_memory.content_hash, None)
                                     else:
-                                        logger.warning(f"Failed to sync memory {cf_memory.content_hash}: {message}")
+                                        logger.warning("Failed to sync memory %s: %s", _sanitize_log_value(cf_memory.content_hash), _sanitize_log_value(message))
                                         return ('failed', cf_memory.content_hash, message)
                                 elif enable_drift_check and self.sync_service and self.sync_service.drift_check_enabled:
                                     # Memory exists - check for metadata drift
@@ -1239,7 +1222,7 @@ class HybridMemoryStorage(MemoryStorage):
 
                                         # If Cloudflare version is newer, sync metadata
                                         if cf_updated > local_updated + 1.0:
-                                            logger.debug(f"Metadata drift detected: {cf_memory.content_hash[:8]}")
+                                            logger.debug("Metadata drift detected: %s", _sanitize_log_value(cf_memory.content_hash[:8]))
                                             success, _ = await self.primary.update_memory_metadata(
                                                 cf_memory.content_hash,
                                                 {
@@ -1256,11 +1239,11 @@ class HybridMemoryStorage(MemoryStorage):
                                             if success:
                                                 batch_synced += 1
                                                 synced_count += 1
-                                                logger.debug(f"Synced metadata for: {cf_memory.content_hash[:8]}")
+                                                logger.debug("Synced metadata for: %s", _sanitize_log_value(cf_memory.content_hash[:8]))
                                                 return ('drift_synced', cf_memory.content_hash, None)
                                 return ('skipped', cf_memory.content_hash, None)
                             except Exception as e:
-                                logger.warning(f"Error syncing memory {cf_memory.content_hash}: {e}")
+                                logger.warning("Error syncing memory %s: %s", _sanitize_log_value(cf_memory.content_hash), _sanitize_log_value(e))
                                 return ('error', cf_memory.content_hash, str(e))
 
                     # Process batch in parallel
@@ -1268,32 +1251,32 @@ class HybridMemoryStorage(MemoryStorage):
                     results = await asyncio.gather(*tasks, return_exceptions=True)
                     for result in results:
                         if isinstance(result, Exception):
-                            logger.error(f"Error during {sync_type} sync batch processing: {result}")
+                            logger.error("Error during %s sync batch processing: %s", sync_type, _sanitize_log_value(result))
 
-                    logger.debug(f"Batch complete: checked={batch_checked}, missing={batch_missing}, synced={batch_synced}")
+                    logger.debug("Batch complete: checked=%s, missing=%s, synced=%s", batch_checked, batch_missing, batch_synced)
 
                     # Track consecutive empty batches
                     if batch_synced == 0:
                         consecutive_empty_batches += 1
-                        logger.debug(f"Empty batch: consecutive={consecutive_empty_batches}/{HYBRID_MAX_EMPTY_BATCHES}")
+                        logger.debug("Empty batch: consecutive=%s/%s", consecutive_empty_batches, HYBRID_MAX_EMPTY_BATCHES)
                     else:
                         consecutive_empty_batches = 0
 
                     # Log progress summary
                     if processed_count > 0 and processed_count % 100 == 0:
-                        logger.info(f"Sync progress: processed={processed_count}, synced={synced_count}/{missing_count}")
+                        logger.info("Sync progress: processed=%s, synced=%s/%s", processed_count, synced_count, missing_count)
 
                     # Update cursor for next batch
                     if cloudflare_memories and hasattr(self.secondary, 'get_all_memories_cursor'):
                         cursor = min(memory.created_at for memory in cloudflare_memories if memory.created_at)
-                        logger.debug(f"Next cursor: {cursor}")
+                        logger.debug("Next cursor: %s", cursor)
 
                     # Early break conditions
                     if consecutive_empty_batches >= HYBRID_MAX_EMPTY_BATCHES and synced_count > 0:
-                        logger.info(f"Completed after {consecutive_empty_batches} empty batches - {synced_count}/{missing_count} synced")
+                        logger.info("Completed after %s empty batches - %s/%s synced", consecutive_empty_batches, synced_count, missing_count)
                         break
                     elif processed_count >= secondary_count and synced_count == 0:
-                        logger.info(f"No missing memories after checking all {processed_count} memories")
+                        logger.info("No missing memories after checking all %s memories", processed_count)
                         break
 
                     await asyncio.sleep(0.01)
@@ -1301,15 +1284,15 @@ class HybridMemoryStorage(MemoryStorage):
                 except Exception as e:
                     # Handle Cloudflare D1 errors
                     if "400" in str(e) and not hasattr(self.secondary, 'get_all_memories_cursor'):
-                        logger.error(f"D1 OFFSET limitation at processed_count={processed_count}: {e}")
+                        logger.error("D1 OFFSET limitation at processed_count=%s: %s", processed_count, _sanitize_log_value(e))
                         logger.warning("Cloudflare D1 OFFSET limits reached - sync incomplete")
                         break
                     else:
-                        logger.error(f"Error during {sync_type} sync: {e}")
+                        logger.error("Error during %s sync: %s", sync_type, _sanitize_log_value(e))
                         break
 
             time_taken = time.time() - sync_start_time
-            logger.info(f"{sync_type.capitalize()} sync completed: {synced_count} memories in {time_taken:.2f}s")
+            logger.info("%s sync completed: %s memories in %.2fs", sync_type.capitalize(), synced_count, time_taken)
 
             # Broadcast SSE completion event
             if broadcast_sse and SSE_AVAILABLE and missing_count > 0:
@@ -1322,7 +1305,7 @@ class HybridMemoryStorage(MemoryStorage):
                     )
                     await sse_manager.broadcast_event(completion_event)
                 except Exception as e:
-                    logger.debug(f"Failed to broadcast SSE completion: {e}")
+                    logger.debug("Failed to broadcast SSE completion: %s", _sanitize_log_value(e))
 
             return {
                 'success': True,
@@ -1333,7 +1316,7 @@ class HybridMemoryStorage(MemoryStorage):
             }
 
         except Exception as e:
-            logger.error(f"{sync_type.capitalize()} sync failed: {e}")
+            logger.error("%s sync failed: %s", sync_type.capitalize(), _sanitize_log_value(e))
             return {
                 'success': False,
                 'memories_synced': 0,
@@ -1384,12 +1367,12 @@ class HybridMemoryStorage(MemoryStorage):
             if synced_count == 0 and self.initial_sync_total > 0:
                 # All memories were already present - this is a successful "no-op" sync
                 self.initial_sync_completed = self.initial_sync_total
-                logger.info(f"Sync completed successfully: All {self.initial_sync_total} memories were already present locally")
+                logger.info("Sync completed successfully: All %s memories were already present locally", self.initial_sync_total)
 
             self.initial_sync_finished = True
 
         except Exception as e:
-            logger.error(f"Initial sync failed: {e}")
+            logger.error("Initial sync failed: %s", _sanitize_log_value(e))
             # Don't fail initialization if initial sync fails
             logger.warning("Continuing with hybrid storage despite initial sync failure")
         finally:
@@ -1615,7 +1598,7 @@ class HybridMemoryStorage(MemoryStorage):
                     try:
                         await self.sync_service.enqueue_operation(operation)
                     except Exception as e:
-                        logger.warning(f"Failed to queue sync for {memory.content_hash}: {e}")
+                        logger.warning("Failed to queue sync for %s: %s", _sanitize_log_value(memory.content_hash), _sanitize_log_value(e))
 
         return results
 
@@ -1793,7 +1776,7 @@ class HybridMemoryStorage(MemoryStorage):
             except asyncio.CancelledError:
                 logger.debug("Initial sync task cancelled during shutdown")
             except Exception as e:
-                logger.debug(f"Initial sync task error during shutdown: {e}")
+                logger.debug("Initial sync task error during shutdown: %s", _sanitize_log_value(e))
 
         # Stop sync service first
         if self.sync_service:
@@ -1807,7 +1790,7 @@ class HybridMemoryStorage(MemoryStorage):
                 else:
                     self.primary.close()
             except Exception as e:
-                logger.error(f"Error closing primary storage: {e}")
+                logger.error("Error closing primary storage: %s", _sanitize_log_value(e))
 
         if self.secondary and hasattr(self.secondary, 'close'):
             try:
@@ -1816,7 +1799,7 @@ class HybridMemoryStorage(MemoryStorage):
                 else:
                     self.secondary.close()
             except Exception as e:
-                logger.error(f"Error closing secondary storage: {e}")
+                logger.error("Error closing secondary storage: %s", _sanitize_log_value(e))
 
         logger.info("Hybrid memory storage shutdown completed")
 
@@ -1902,7 +1885,7 @@ class HybridMemoryStorage(MemoryStorage):
             }
 
         except Exception as e:
-            logger.error(f"Failed to pause sync: {e}")
+            logger.error("Failed to pause sync: %s", _sanitize_log_value(e))
             return {
                 'success': False,
                 'message': f'Failed to pause sync: {str(e)}'
@@ -1937,7 +1920,7 @@ class HybridMemoryStorage(MemoryStorage):
             }
 
         except Exception as e:
-            logger.error(f"Failed to resume sync: {e}")
+            logger.error("Failed to resume sync: %s", _sanitize_log_value(e))
             return {
                 'success': False,
                 'message': f'Failed to resume sync: {str(e)}'
