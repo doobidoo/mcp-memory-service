@@ -926,7 +926,7 @@ class CloudflareStorage(MemoryStorage):
                 "Failed to search memories by tags %s with operation %s: %s",
                 [_sanitize_log_value(t) for t in tags],
                 _sanitize_log_value(operation),
-                e
+                _sanitize_log_value(e)
             )
             return []
     

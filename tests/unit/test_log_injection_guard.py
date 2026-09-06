@@ -53,6 +53,22 @@ GUARDED_LEVELS = ("info", "warning", "error", "debug", "critical")
 
 SANITIZER = "_sanitize_log_value"
 
+# Names this codebase gives to data it did not produce itself. A %-argument
+# mentioning one of these is expected to be wrapped. Deliberately a short
+# denylist rather than a rule about all arguments: counters and durations are
+# safe and wrapping them is the noise #1119 set out to avoid.
+EXTERNAL_NAMES = frozenset({
+    "e", "err", "error", "errors", "exc", "exception",
+    "result", "response", "payload", "data",
+    "content", "content_hash", "tag", "tags",
+    "query", "params", "path", "message", "msg",
+})
+
+# Fields of an outside object that cannot carry injectable text. An HTTP status
+# is an integer in a fixed range, so `response.status_code` is not the `response`
+# the denylist above is aimed at.
+SAFE_ATTRIBUTES = frozenset({"status_code"})
+
 # The shell gate's own pattern: `grep -En 'logger\.(info|...)\(f"'`, minus any
 # line that already mentions the sanitizer.
 GATE_PATTERN = re.compile(r'logger\.(?:' + "|".join(GUARDED_LEVELS) + r')\(f"')
@@ -98,6 +114,38 @@ def _unsanitised_placeholders(call: ast.Call) -> bool:
     return False
 
 
+def _external_arguments(call: ast.Call) -> bool:
+    """True if a %-argument names outside data and is not wrapped."""
+    for argument in call.args[1:]:
+        if _is_sanitised(argument):
+            continue
+        source = ast.unparse(argument)
+        if source.rsplit(".", 1)[-1] in SAFE_ATTRIBUTES:
+            continue
+        tokens = set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", source))
+        if tokens & EXTERNAL_NAMES and not (tokens & {SANITIZER}):
+            return True
+    return False
+
+
+def _lazy_findings(source: str) -> list[str]:
+    """Unsanitised outside data handed to a %-style logger call.
+
+    Moving off f-strings takes the values out of reach of the two scans above,
+    so this one reads the arguments. It cannot decide on its own what came from
+    outside -- that is the judgement the gate lacks and the reason #1119 needed
+    a person -- so it works off EXTERNAL_NAMES: names this codebase uses for
+    data it did not produce. It catches the regression that matters (an
+    exception or payload logged raw) and stays quiet about counters.
+    """
+    tree = ast.parse(source)
+    return [
+        f"{node.lineno}: logger.{node.func.attr}(...)"
+        for node in ast.walk(tree)
+        if _is_guarded_logger_call(node) and _external_arguments(node)
+    ]
+
+
 def _ast_findings(source: str) -> list[str]:
     """Unsanitised f-string logger calls, found structurally rather than by line."""
     tree = ast.parse(source)
@@ -134,6 +182,33 @@ def test_no_unsanitised_interpolation_into_logs(module):
         f"{module}: {len(findings)} unsanitised interpolations into logger calls\n  "
         + "\n  ".join(findings[:15])
     )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("module", GUARDED_MODULES)
+def test_no_unsanitised_outside_data_in_lazy_log_calls(module):
+    """The %-style calls this issue introduced must still wrap outside data."""
+    findings = _lazy_findings(_read(module))
+    assert not findings, (
+        f"{module}: {len(findings)} logger calls passing outside data unwrapped\n  "
+        + "\n  ".join(findings[:15])
+    )
+
+
+@pytest.mark.unit
+def test_lazy_scan_catches_what_the_other_two_cannot():
+    """The gap Greptile found on this PR: no f-string, so no f-string finding."""
+    sample = 'logger.error("failed: %s", e)\n'
+    assert not _gate_findings(sample)
+    assert not _ast_findings(sample)
+    assert _lazy_findings(sample)
+    assert not _lazy_findings('logger.error("failed: %s", _sanitize_log_value(e))\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_leaves_internal_scalars_alone():
+    """Counters and durations stay unwrapped; demanding otherwise is the noise."""
+    assert not _lazy_findings('logger.info("synced %s in %.2fs", synced_count, elapsed)\n')
 
 
 @pytest.mark.unit
