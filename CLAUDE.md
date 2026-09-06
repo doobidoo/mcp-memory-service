@@ -24,6 +24,28 @@ Quick reference; each rule is expanded in the sections below. Violations cause r
 12. **Report outcomes faithfully.** "Tests pass" means you ran them and saw them pass; if a step was skipped or failed, say so with the output.
 13. **Write in the maintainer's or contributor's own voice.** Commit messages, PR descriptions, CHANGELOG entries, issue/PR comments, and release notes read as authored by the maintainer or contributor.
 
+## Answering vs Acting
+
+- A question is a question, not a work order. Answer first; only act when asked.
+- Don't ask what you can determine yourself — read the code, run the command, check the API, then report.
+- Never omit or soften factual personal/professional details in CV/portfolio work unless explicitly told to; include everything verifiable.
+
+## Verification Standards
+
+- Never treat an HTTP 200 as proof of deployment. Verify by fetching the specific artifact/content and diffing against expected output (Cloudflare falls back to index.html on 404).
+- Before filing an issue or PR, search existing open/closed issues for duplicates and read-back the created item to confirm content.
+- After posting a comment, release note, or wiki edit, re-fetch it and quote the live text as evidence.
+
+## Memory Discipline
+
+At the end of any session that produces a decision, root cause, or reusable lesson, persist it to MCP Memory without being asked. MEMORY.md stays pointer-only — store the content in the memory service and reference it by sub-doc pointer.
+
+## Shell & Git Safety
+
+- Always run git operations with an explicit `-C <path>` or confirm `pwd` first; never assume the current tree is the intended worktree.
+- Quote all shell variables and prefer `bash -c` over zsh for loops; word-splitting has produced false PASS results in verification loops.
+- Bulk tag pushes are limited to 2 refs at a time by the repo ruleset — batch accordingly.
+
 ## Critical Directives
 
 **IMPORTANT**: Before working with this project, read:
@@ -60,8 +82,9 @@ Before merging or releasing:
 1. **Verify CI is green on the target branch** (GitHub Actions). `gh run list --branch <branch>` or the Actions tab.
 2. **Update `site/index.html` version strings** whenever MAJOR.MINOR changes (i.e. every MINOR or MAJOR release — PATCH releases are exempt). The `version-drift-check` CI gate enforces this and will fail if skipped. Update ALL occurrences: `<title>`, `<meta og:title>`, hero badge, "What's New" section, release link `href`. Use `grep -n "v11\." site/index.html` to find them. This is MANDATORY — not optional for "incremental" releases. The site auto-deploys to Cloudflare Pages (mcpmemory.services) when the change lands on main (`.github/workflows/deploy-site.yml`).
 3. **Bump `claude-hooks/.claude-plugin/plugin.json` if the hooks changed.** The Claude Code plugin carries its own version, and the Marketplace cache is keyed on it, so a hook fix released without a manifest bump never reaches installed users. The `plugin-version-check` CI gate enforces this on release changes (`scripts/ci/check_plugin_version.sh`): it fails when `claude-hooks/` changed since the last commit that moved the manifest version. v11.6.0 shipped a hook fix this way (#170).
-4. Clean up merged branches after release (`git branch -d`, `git push origin --delete`).
-5. Follow the release workflow — never manually bump versions.
+4. **After the tag push, run `bash scripts/release/verify_artifacts.sh X.Y.Z`.** It checks both PyPI distributions by version and all four Docker tags plus `latest` by digest, so a half-published release (v11.11.0: PyPI green, Docker dead at login, `latest` stale) cannot pass for a finished one. Exit must be 0 before the release object is created.
+5. Clean up merged branches after release (`git branch -d`, `git push origin --delete`).
+6. Follow the release workflow — never manually bump versions.
 
 ## Overview
 
@@ -348,6 +371,7 @@ Work is not "done" until the relevant checks below have been run and pass. Repor
 - [ ] CI is green on the target branch (GitHub Actions).
 - [ ] Version bumped via the release workflow (never by hand) — keeps `pyproject.toml`, `_version.py`, CHANGELOG, and the GitHub release in sync.
 - [ ] `site/index.html` version strings updated if MAJOR.MINOR changed (see the Release Workflow Checklist).
+- [ ] `bash scripts/release/verify_artifacts.sh X.Y.Z` exits 0 after the tag push, before the release object exists.
 
 **After finishing a task:** save key learnings/decisions to the MCP Memory Server, tagged `mcp-memory-service` first (per the Auto-Save rule).
 
@@ -393,18 +417,24 @@ https://github.com/doobidoo/mcp-memory-service/wiki
 When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
 
 Key routing rules:
-- Product ideas/brainstorming → invoke /office-hours
-- Strategy/scope → invoke /plan-ceo-review
-- Architecture → invoke /plan-eng-review
-- Design system/plan review → invoke /design-consultation or /plan-design-review
-- Full review pipeline → invoke /autoplan
-- Bugs/errors → invoke /investigate
-- QA/testing site behavior → invoke /qa or /qa-only
-- Code review/diff check → invoke /review
-- Visual polish → invoke /design-review
-- Ship/deploy/PR → invoke /ship or /land-and-deploy
-- Save progress → invoke /context-save
-- Resume context → invoke /context-restore
+- Codebase / architecture question → invoke /graphify (see the graphify section below)
+- Contributor issue, PR comment, feature proposal, off-platform message → invoke /contributor-triage
+- Reviewing an incoming PR diff → invoke /pr-review
+- Release or version bump → invoke /release, never bump by hand
+- Server won't start, MCP tools hang, sync or backend trouble → invoke /memory-service-doctor
+- Evaluating an external repo, tool, or MCP server for adoption → invoke /repo-adoption-eval
+- Architecture, workflow, sequence or state diagrams → invoke /archify
+- Drafting prose (posts, comments, emails, release notes) → invoke /human-writing; for LinkedIn specifically, /linkedin-draft
+- Bugs and unexpected behavior → invoke superpowers:systematic-debugging before proposing a fix
+- New feature or behavior change → invoke superpowers:brainstorming before writing code
+
+Skills named here must exist and be enabled. The older `(gstack)` routes
+(/office-hours, /plan-*, /autoplan, /investigate, /qa, /review, /ship,
+/land-and-deploy, /context-save, /context-restore and ~45 more) were **deleted** on
+2026-09-06 — the whole bundle was disabled and unused, and it is gone from
+`~/.claude/skills`. `/codeberg-pr-review` was replaced by `/pr-review` the same day.
+If a route here does not resolve, check `~/.claude/skills` and the `skillOverrides`
+block in `~/.claude/settings.json` before assuming the skill is missing.
 
 ## graphify
 
