@@ -991,7 +991,7 @@ async def _format_beliefs_section(arguments: dict, storage) -> str:
 async def handle_memory_search(server, arguments: dict) -> List[types.TextContent]:
     """Unified handler for memory search with flexible modes and filters."""
     import json
-    from ...services.memory_service import normalize_tags
+    from ...services.memory_service import MemoryService, normalize_tags
 
     try:
         # Initialize storage lazily when needed
@@ -1128,6 +1128,16 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             # unfiltered results for an explicit filter would be a silent lie;
             # an empty result set is the honest answer.
             memories = [m for m in memories if m.get("content_hash") in entity_hashes]
+            total = len(memories)
+            result["memories"] = memories
+            result["total"] = total
+
+        # Plugins must see the final unified-search result after fallback and
+        # entity filtering, matching the legacy MemoryService retrieval path.
+        if isinstance(server.memory_service, MemoryService):
+            memories = await server.memory_service.apply_retrieve_plugins(
+                query, memories
+            )
             total = len(memories)
             result["memories"] = memories
             result["total"] = total

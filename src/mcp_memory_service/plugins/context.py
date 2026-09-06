@@ -11,6 +11,8 @@ HookName = Literal["on_store", "on_delete", "on_retrieve", "on_consolidate"]
 # on_store(memory_dict: dict) -> None
 # on_delete(content_hash: str) -> None
 # on_retrieve(query: str, results: list[dict]) -> list[dict]  (can rerank)
+# Retrieval entry points fire this after their filters and fallbacks, so the
+# callback receives the exact result set that will be formatted for the caller.
 # on_consolidate(report: dict) -> None
 HookFn = Callable[..., Awaitable[Any]]
 

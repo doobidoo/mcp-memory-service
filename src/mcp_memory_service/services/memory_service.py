@@ -272,6 +272,19 @@ class MemoryService:
         self._plugin_registry = PluginRegistry(PluginContext(storage=storage, service=self))
         self._plugin_registry.discover_and_register()
 
+    async def apply_retrieve_plugins(
+        self, query: Optional[str], results: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Apply retrieval plugins through the shared result boundary.
+
+        Every retrieval entry point must call this after completing its own
+        filtering and fallback work so plugins observe the final result set.
+        """
+        modified = await self._plugin_registry.fire(
+            "on_retrieve", query or "", results
+        )
+        return modified if isinstance(modified, list) else results
+
     async def list_memories(
         self,
         page: int = 1,
@@ -597,9 +610,7 @@ class MemoryService:
                     except Exception as e:
                         logger.debug(f"Background quality scoring for retrieved memory failed silently: {e}")
 
-            modified = await self._plugin_registry.fire('on_retrieve', query, results)
-            if isinstance(modified, list):
-                results = modified
+            results = await self.apply_retrieve_plugins(query, results)
 
             return {
                 "memories": results,
