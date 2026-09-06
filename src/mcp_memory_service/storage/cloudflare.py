@@ -1499,8 +1499,10 @@ class CloudflareStorage(MemoryStorage):
                 break
             max_id = rows[-1]["id"]
 
-            # Join rows first: D1 does not guarantee the schema's ON DELETE CASCADE
-            # is enforced, and an orphaned memory_tags row would outlive its memory.
+            # Join rows first. D1 enforces foreign keys the way `PRAGMA foreign_keys = on`
+            # does, so the schema's ON DELETE CASCADE would take these rows with the
+            # memories below; deleting them explicitly keeps the purge from depending on
+            # that, and bounds the work each batch does.
             tags_sql = (
                 "DELETE FROM memory_tags WHERE memory_id IN "
                 "(SELECT id FROM memories WHERE deleted_at IS NOT NULL AND deleted_at < ? AND id <= ?)"
@@ -1511,8 +1513,8 @@ class CloudflareStorage(MemoryStorage):
             )
             result = response.json()
             if not result.get("success"):
-                # Stop here rather than delete the memories anyway: that would leave
-                # behind exactly the orphaned join rows this ordering exists to avoid.
+                # Stop here rather than delete the memories anyway: a D1 that just
+                # failed a write is no state in which to keep purging.
                 logger.error(f"Tombstone tag purge failed: {_sanitize_log_value(result.get('errors'))}")
                 break
 
