@@ -38,29 +38,29 @@ DATE_READABLE=$(date +"%Y-%m-%d %H:%M:%S")
 
 # Run pyscn analysis
 echo "Running pyscn analysis..."
-REPORT_FILE=".pyscn/reports/analyze_${TIMESTAMP}.html"
+RUN_MARKER=$(mktemp)
 
-if pyscn analyze . --output "$REPORT_FILE" > /tmp/pyscn_metrics.log 2>&1; then
+if pyscn analyze --json --no-open . > /tmp/pyscn_metrics.log 2>&1; then
     echo -e "${GREEN}✓${NC} Analysis complete"
 else
+    rm -f "$RUN_MARKER"
     echo -e "${RED}❌ Analysis failed${NC}"
     cat /tmp/pyscn_metrics.log
     exit 1
 fi
 
-# Extract metrics from HTML report
-HEALTH_SCORE=$(grep -o 'Health Score: [0-9]*' "$REPORT_FILE" | head -1 | grep -o '[0-9]*' || echo "0")
-COMPLEXITY_SCORE=$(grep -o '<span class="score-value">[0-9]*</span>' "$REPORT_FILE" | head -1 | sed 's/<[^>]*>//g' || echo "0")
-DEAD_CODE_SCORE=$(grep -o '<span class="score-value">[0-9]*</span>' "$REPORT_FILE" | sed -n '2p' | sed 's/<[^>]*>//g' || echo "0")
-DUPLICATION_SCORE=$(grep -o '<span class="score-value">[0-9]*</span>' "$REPORT_FILE" | sed -n '3p' | sed 's/<[^>]*>//g' || echo "0")
-COUPLING_SCORE=$(grep -o '<span class="score-value">[0-9]*</span>' "$REPORT_FILE" | sed -n '4p' | sed 's/<[^>]*>//g' || echo "100")
-DEPENDENCIES_SCORE=$(grep -o '<span class="score-value">[0-9]*</span>' "$REPORT_FILE" | sed -n '5p' | sed 's/<[^>]*>//g' || echo "0")
-ARCHITECTURE_SCORE=$(grep -o '<span class="score-value">[0-9]*</span>' "$REPORT_FILE" | sed -n '6p' | sed 's/<[^>]*>//g' || echo "0")
+JSON_FILE=$(find .pyscn/reports -type f -name 'analyze_*.json' -newer "$RUN_MARKER" -print | sort | tail -1)
+rm -f "$RUN_MARKER"
+if [ -z "$JSON_FILE" ]; then
+    echo -e "${RED}❌ Analysis produced no new JSON report${NC}"
+    exit 1
+fi
 
-AVG_COMPLEXITY=$(grep -o '<div class="metric-value">[0-9.]*</div>' "$REPORT_FILE" | sed -n '3p' | sed 's/<[^>]*>//g' || echo "0")
-MAX_COMPLEXITY=$(grep -o '<div class="metric-value">[0-9]*</div>' "$REPORT_FILE" | sed -n '3p' | sed 's/<[^>]*>//g' || echo "0")
-DUPLICATION_PCT=$(grep -o '<div class="metric-value">[0-9.]*%</div>' "$REPORT_FILE" | head -1 | sed 's/<[^>]*>//g' || echo "0%")
-DEAD_CODE_ISSUES=$(grep -o '<div class="metric-value">[0-9]*</div>' "$REPORT_FILE" | sed -n '4p' | sed 's/<[^>]*>//g' || echo "0")
+METRICS=$(python3 "$(dirname "$0")/read_pyscn_summary.py" "$JSON_FILE") || exit 1
+IFS=$'\t' read -r HEALTH_SCORE COMPLEXITY_SCORE DEAD_CODE_SCORE DUPLICATION_SCORE \
+    COUPLING_SCORE DEPENDENCIES_SCORE ARCHITECTURE_SCORE AVG_COMPLEXITY \
+    MAX_COMPLEXITY DUPLICATION_NUM DEAD_CODE_ISSUES <<< "$METRICS"
+DUPLICATION_PCT="${DUPLICATION_NUM}%"
 
 echo ""
 echo -e "${BLUE}=== Metrics Extracted ===${NC}"
@@ -110,7 +110,7 @@ if [ $(wc -l < "$CSV_FILE") -gt 2 ]; then
             echo ""
             echo "Recommended actions:"
             echo "  1. Review recent changes: git log --since='$PREV_DATE'"
-            echo "  2. Compare reports: open $REPORT_FILE"
+            echo "  2. Compare reports: $JSON_FILE"
             echo "  3. Create GitHub issue to track regression"
         fi
     else
