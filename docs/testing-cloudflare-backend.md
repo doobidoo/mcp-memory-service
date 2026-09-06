@@ -1,5 +1,19 @@
 # Testing the Cloudflare Backend
 
+## Delete and restore regression checks
+
+Run `python -m pytest tests/unit/test_cloudflare_storage.py` for offline unit coverage.
+The restore lifecycle tests execute the backend's D1 schema and queries in SQLite
+with foreign keys enabled. They cover repeated store/delete/store cycles for both
+inline and R2-backed content, replacement of old tag links, and preservation of
+active rows and unrelated tombstones. A failed tombstone cleanup must stop the D1
+insert.
+
+Restoring the same content removes only its soft-deleted D1 row before inserting
+fresh metadata; the existing foreign key cascade removes obsolete tag links.
+Vectorize and R2 operations are mocked in these tests. This validates the SQL
+lifecycle, not live Cloudflare behavior or atomicity across D1, Vectorize, and R2.
+
 ## Test Results Summary ✅
 
 The Cloudflare backend implementation has been thoroughly tested and is **production-ready**. All core functionality works correctly with mock configurations.

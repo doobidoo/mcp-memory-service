@@ -15,6 +15,7 @@
 """Tests for Cloudflare storage backend."""
 
 import asyncio
+import sqlite3
 from datetime import date
 from typing import List
 from unittest.mock import Mock, AsyncMock, patch
@@ -162,8 +163,9 @@ class TestCloudflareStorage:
             # Mock Vectorize storage (bypasses HTTP client) - must be AsyncMock for async method
             with patch.object(cloudflare_storage, '_store_vectorize_vector', new_callable=AsyncMock):
                 with patch.object(cloudflare_storage, '_retry_request') as mock_request:
-                    # Need 5 responses: 1 for memory insert + 2 tags * 2 calls each (insert + link)
+                    # Need 6 responses: tombstone purge + memory insert + 2 calls per tag
                     mock_request.side_effect = [
+                        mock_d1_response,  # Purge matching tombstone
                         mock_d1_response,  # Insert memory
                         mock_d1_response,  # Insert tag "test"
                         mock_d1_response,  # Link tag "test"
@@ -177,7 +179,7 @@ class TestCloudflareStorage:
                     assert "successfully" in message.lower()
 
                     # Verify all D1 calls were made
-                    assert mock_request.call_count == 5
+                    assert mock_request.call_count == 6
     
     @pytest.mark.asyncio
     async def test_store_memory_large_content(self, cloudflare_storage):
@@ -873,3 +875,85 @@ class TestCloudflareTimeBasedDeletion:
             assert memories[1].content_hash == "hash2"
             assert memories[1].memory_type == "reference"
             assert memories[1].metadata == {"source": "test"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("large_content", [False, True])
+async def test_restore_deleted_memory_sql_lifecycle(cloudflare_storage, monkeypatch, large_content):
+    """Exercise actual D1 SQL, including tombstone uniqueness and cascading tags."""
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.execute("PRAGMA foreign_keys = ON")
+
+    async def query_d1(method, url, **kwargs):
+        assert method == "POST" and url == f"{cloudflare_storage.d1_url}/query"
+        payload = kwargs["json"]
+        try:
+            sql = payload["sql"]
+            if sql.count(";") > 1:
+                db.executescript(sql)
+                rows, row_id = [], 0
+            else:
+                cursor = db.execute(sql, payload.get("params", []))
+                rows = [dict(row) for row in cursor.fetchall()]
+                row_id = cursor.lastrowid
+            db.commit()
+            result = {"success": True, "result": [{"results": rows, "meta": {"last_row_id": row_id}}]}
+        except sqlite3.Error as error:
+            result = {"success": False, "errors": [str(error)]}
+        return Mock(json=Mock(return_value=result))
+
+    monkeypatch.setattr(cloudflare_storage, "_retry_request", query_d1)
+    for name in ("_store_vectorize_vector", "_delete_vectorize_vector", "_store_r2_content", "_delete_r2_content"):
+        monkeypatch.setattr(cloudflare_storage, name, AsyncMock())
+    monkeypatch.setattr(cloudflare_storage, "_generate_embedding", AsyncMock(return_value=[0.1]))
+    try:
+        await cloudflare_storage._initialize_d1_schema()
+        content = "restorable" * (cloudflare_storage.large_content_threshold if large_content else 1)
+        memory = Memory(content=content, content_hash=generate_content_hash(content), tags=["old"])
+        assert (await cloudflare_storage.store(memory))[0]
+        original_id = db.execute("SELECT id FROM memories").fetchone()[0]
+        original_row = tuple(db.execute("SELECT * FROM memories").fetchone())
+        assert not (await cloudflare_storage.store(memory))[0]
+        assert tuple(db.execute("SELECT * FROM memories").fetchone()) == original_row
+        assert (await cloudflare_storage.delete(memory.content_hash))[0]
+        assert db.execute("SELECT deleted_at FROM memories").fetchone()[0] is not None
+
+        # A different content hash must keep its tombstone and retention window.
+        db.execute(
+            "INSERT INTO memories (content_hash, content, created_at, created_at_iso, deleted_at) "
+            "VALUES ('unrelated', 'unrelated', 1, '1970-01-01T00:00:01Z', 2)"
+        )
+        db.commit()
+        for tags in (["new"], []):
+            memory.tags = tags
+            success, message = await cloudflare_storage.store(memory)
+            assert success, message
+            row = db.execute(
+                "SELECT * FROM memories WHERE content_hash = ?", [memory.content_hash]
+            ).fetchone()
+            assert db.execute(
+                "SELECT deleted_at FROM memories WHERE content_hash = 'unrelated'"
+            ).fetchone()[0] == 2
+            assert row["deleted_at"] is None
+            assert row["id"] != original_id
+            stored_tags = db.execute("SELECT t.name FROM tags t JOIN memory_tags mt ON t.id = mt.tag_id").fetchall()
+            assert [r[0] for r in stored_tags] == tags
+            assert row["tags"] == (",".join(tags) if tags else None)
+            assert bool(row["r2_key"]) == large_content
+            assert (await cloudflare_storage.delete(memory.content_hash))[0]
+    finally:
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_tombstone_cleanup_stops_d1_insert(cloudflare_storage, sample_memory):
+    response = Mock()
+    response.json.return_value = {"success": False, "errors": ["D1 unavailable"]}
+    with patch.object(cloudflare_storage, "_retry_request", return_value=response) as request:
+        with pytest.raises(ValueError, match="Failed to remove memory tombstone"):
+            await cloudflare_storage._store_d1_memory(
+                sample_memory, sample_memory.content_hash, len(sample_memory.content),
+                None, sample_memory.content,
+            )
+        assert request.call_count == 1

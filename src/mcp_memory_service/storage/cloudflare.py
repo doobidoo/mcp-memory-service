@@ -635,7 +635,21 @@ class CloudflareStorage(MemoryStorage):
             raise ValueError(f"Failed to store vector: {e}")
     
     async def _store_d1_memory(self, memory: Memory, vector_id: str, content_size: int, r2_key: Optional[str], stored_content: str) -> None:
-        """Store memory metadata in D1."""
+        """Store memory metadata in D1, replacing only a matching tombstone."""
+        # Soft deletion retains unique keys. Release them before re-inserting the
+        # same content; the foreign key cascade also removes obsolete tag links.
+        # Active memories and tombstones for other content must remain untouched.
+        response = await self._retry_request(
+            "POST", f"{self.d1_url}/query",
+            json={
+                "sql": "DELETE FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL",
+                "params": [memory.content_hash],
+            },
+        )
+        result = response.json()
+        if not result.get("success"):
+            raise ValueError(f"Failed to remove memory tombstone in D1: {result}")
+
         # Insert memory record.
         # The `tags` TEXT column is a denormalized cache required by `delete_by_tags`
         # and `delete_by_timeframe`, both of which query it with LIKE patterns.
