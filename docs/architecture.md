@@ -291,6 +291,10 @@ Automatic detection and optimization for different platforms:
 4. Filtered results returned chronologically
 ```
 
+Calendar expressions such as `today`, `last week`, and explicit dates use UTC
+boundaries, matching the UTC epoch timestamps stored by every backend and making
+results independent of the server host's local timezone.
+
 ## Performance Optimizations
 
 ### Model Caching

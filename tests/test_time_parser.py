@@ -1,22 +1,23 @@
 """
 Unit tests for time_parser module
 """
-import pytest
-from datetime import datetime, date, timedelta
-import time
-
-import sys
 import os
+import sys
+import time
+from datetime import date, datetime, timedelta, timezone
+
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from mcp_memory_service.utils.time_parser import (
-    parse_time_expression,
     extract_time_expression,
-    get_time_of_day_range,
     get_last_period_range,
-    get_this_period_range,
     get_month_range,
-    get_named_period_range
+    get_named_period_range,
+    get_this_period_range,
+    get_time_of_day_range,
+    parse_time_expression,
 )
 
 
@@ -30,9 +31,9 @@ class TestTimeParser:
         assert start_ts is not None
         assert end_ts is not None
         
-        yesterday = date.today() - timedelta(days=1)
-        start_dt = datetime.fromtimestamp(start_ts)
-        end_dt = datetime.fromtimestamp(end_ts)
+        yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
+        end_dt = datetime.fromtimestamp(end_ts, tz=timezone.utc)
         
         assert start_dt.date() == yesterday
         assert end_dt.date() == yesterday
@@ -42,14 +43,14 @@ class TestTimeParser:
         
         # Test "3 days ago"
         start_ts, end_ts = parse_time_expression("3 days ago")
-        three_days_ago = date.today() - timedelta(days=3)
-        start_dt = datetime.fromtimestamp(start_ts)
+        three_days_ago = datetime.now(timezone.utc).date() - timedelta(days=3)
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
         assert start_dt.date() == three_days_ago
         
         # Test "today"
         start_ts, end_ts = parse_time_expression("today")
-        start_dt = datetime.fromtimestamp(start_ts)
-        assert start_dt.date() == date.today()
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
+        assert start_dt.date() == datetime.now(timezone.utc).date()
     
     def test_relative_weeks(self):
         """Test parsing relative week expressions"""
@@ -57,15 +58,15 @@ class TestTimeParser:
         assert start_ts is not None
         assert end_ts is not None
         
-        start_dt = datetime.fromtimestamp(start_ts)
-        end_dt = datetime.fromtimestamp(end_ts)
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
+        end_dt = datetime.fromtimestamp(end_ts, tz=timezone.utc)
         
         # Should be a Monday to Sunday range
         assert start_dt.weekday() == 0  # Monday
         assert end_dt.weekday() == 6    # Sunday
         
         # Should be roughly 2 weeks ago
-        days_ago = (date.today() - start_dt.date()).days
+        days_ago = (datetime.now(timezone.utc).date() - start_dt.date()).days
         assert 14 <= days_ago <= 20  # Allow some flexibility for week boundaries
     
     def test_relative_months(self):
@@ -74,8 +75,8 @@ class TestTimeParser:
         assert start_ts is not None
         assert end_ts is not None
         
-        start_dt = datetime.fromtimestamp(start_ts)
-        end_dt = datetime.fromtimestamp(end_ts)
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
+        end_dt = datetime.fromtimestamp(end_ts, tz=timezone.utc)
         
         # Should be first to last day of the month
         assert start_dt.day == 1
@@ -87,7 +88,7 @@ class TestTimeParser:
         start_ts, end_ts = parse_time_expression("03/15/2024")
         assert start_ts is not None
         
-        start_dt = datetime.fromtimestamp(start_ts)
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
         assert start_dt.year == 2024
         assert start_dt.month == 3
         assert start_dt.day == 15
@@ -95,17 +96,17 @@ class TestTimeParser:
         # Test YYYY-MM-DD format
         start_ts, end_ts = parse_time_expression("2024-06-15")
         assert start_ts is not None
-        start_dt = datetime.fromtimestamp(start_ts)
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
         assert start_dt.date() == date(2024, 6, 15)
     
     def test_month_names(self):
         """Test parsing month names"""
-        current_year = datetime.now().year
-        current_month = datetime.now().month
+        current_year = datetime.now(timezone.utc).year
+        current_month = datetime.now(timezone.utc).month
         
         # Test a past month
         start_ts, end_ts = parse_time_expression("january")
-        start_dt = datetime.fromtimestamp(start_ts)
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
 
         # Should be this year's January if we're in/past January, otherwise last year's
         # Matches implementation logic: month_num <= current_month
@@ -120,8 +121,8 @@ class TestTimeParser:
         assert start_ts is not None
         assert end_ts is not None
         
-        start_dt = datetime.fromtimestamp(start_ts)
-        end_dt = datetime.fromtimestamp(end_ts)
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
+        end_dt = datetime.fromtimestamp(end_ts, tz=timezone.utc)
         
         # Summer is roughly June 21 to September 22
         assert start_dt.month == 6
@@ -133,8 +134,8 @@ class TestTimeParser:
         start_ts, end_ts = parse_time_expression("christmas")
         assert start_ts is not None
         
-        start_dt = datetime.fromtimestamp(start_ts)
-        end_dt = datetime.fromtimestamp(end_ts)
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
+        end_dt = datetime.fromtimestamp(end_ts, tz=timezone.utc)
         
         # Christmas window should include Dec 25 +/- a few days
         assert start_dt.month == 12
@@ -145,10 +146,10 @@ class TestTimeParser:
         """Test time of day parsing"""
         # Test "yesterday morning"
         start_ts, end_ts = parse_time_expression("yesterday morning")
-        start_dt = datetime.fromtimestamp(start_ts)
-        end_dt = datetime.fromtimestamp(end_ts)
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
+        end_dt = datetime.fromtimestamp(end_ts, tz=timezone.utc)
         
-        yesterday = date.today() - timedelta(days=1)
+        yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
         assert start_dt.date() == yesterday
         assert 5 <= start_dt.hour <= 6  # Morning starts at 5 AM
         assert 11 <= end_dt.hour <= 12  # Morning ends before noon
@@ -159,8 +160,8 @@ class TestTimeParser:
         assert start_ts is not None
         assert end_ts is not None
         
-        start_dt = datetime.fromtimestamp(start_ts)
-        end_dt = datetime.fromtimestamp(end_ts)
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
+        end_dt = datetime.fromtimestamp(end_ts, tz=timezone.utc)
         
         assert start_dt.month == 1
         assert end_dt.month == 3
@@ -170,10 +171,10 @@ class TestTimeParser:
         start_ts, end_ts = parse_time_expression("first quarter of 2024")
         assert start_ts is not None
         
-        start_dt = datetime.fromtimestamp(start_ts)
-        end_dt = datetime.fromtimestamp(end_ts)
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
+        end_dt = datetime.fromtimestamp(end_ts, tz=timezone.utc)
         
-        assert start_dt == datetime(2024, 1, 1, 0, 0, 0)
+        assert start_dt == datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         assert end_dt.year == 2024
         assert end_dt.month == 3
         assert end_dt.day == 31
@@ -221,18 +222,18 @@ class TestTimeParser:
         """Test 'this X' period expressions"""
         # This week
         start_ts, end_ts = parse_time_expression("this week")
-        start_dt = datetime.fromtimestamp(start_ts)
-        end_dt = datetime.fromtimestamp(end_ts)
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
+        end_dt = datetime.fromtimestamp(end_ts, tz=timezone.utc)
         
         # Should include today
-        today = date.today()
+        today = datetime.now(timezone.utc).date()
         assert start_dt.date() <= today <= end_dt.date()
         
         # This month
         start_ts, end_ts = parse_time_expression("this month")
-        start_dt = datetime.fromtimestamp(start_ts)
-        assert start_dt.month == datetime.now().month
-        assert start_dt.year == datetime.now().year
+        start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
+        assert start_dt.month == datetime.now(timezone.utc).month
+        assert start_dt.year == datetime.now(timezone.utc).year
     
     def test_recent_expressions(self):
         """Test 'recent' and similar expressions"""

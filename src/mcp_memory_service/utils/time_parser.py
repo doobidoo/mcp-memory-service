@@ -16,12 +16,15 @@
 Natural language time expression parser for MCP Memory Service.
 
 This module provides utilities to parse and understand various time expressions
-for retrieving memories based on when they were stored.
+for retrieving memories based on when they were stored. Calendar boundaries are
+interpreted in UTC to match stored epoch timestamps.
 """
-import re
 import logging
-from datetime import datetime, timedelta, date, time
-from typing import Tuple, Optional, Dict
+import re
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Dict, Optional, Tuple
+
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +79,25 @@ PATTERNS = {
 }
 
 _MAX_TIME_QUERY_LEN = 500  # guard against ReDoS on user-supplied input
+
+
+def _utc_now() -> datetime:
+    """Return the current instant with an explicit UTC timezone."""
+    return datetime.now(timezone.utc)
+
+
+def _utc_today() -> date:
+    """Return the current UTC calendar date."""
+    return _utc_now().date()
+
+
+def _timestamp_range(start_dt: datetime, end_dt: datetime) -> Tuple[float, float]:
+    """Convert calendar boundaries to epochs using UTC for naive values."""
+    if start_dt.tzinfo is None:
+        start_dt = start_dt.replace(tzinfo=timezone.utc)
+    if end_dt.tzinfo is None:
+        end_dt = end_dt.replace(tzinfo=timezone.utc)
+    return start_dt.timestamp(), end_dt.timestamp()
 
 def _calculate_season_date_range(
     period: str,
@@ -151,9 +173,9 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
                 specific_date = date(int(year), int(month), int(day))
                 start_dt = datetime.combine(specific_date, time.min)
                 end_dt = datetime.combine(specific_date, time.max)
-                return start_dt.timestamp(), end_dt.timestamp()
+                return _timestamp_range(start_dt, end_dt)
             except ValueError as e:
-                logger.warning(f"Invalid date: {e}")
+                logger.warning("Invalid date: %s", _sanitize_log_value(e))
                 return None, None
             
         # Check for specific dates (MM/DD/YYYY)
@@ -162,7 +184,7 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
             month, day, year = specific_date_match.groups()
             month = int(month)
             day = int(day)
-            current_year = datetime.now().year
+            current_year = _utc_now().year
             year = int(year) if year else current_year
             # Handle 2-digit years
             if year and year < 100:
@@ -172,9 +194,9 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
                 specific_date = date(year, month, day)
                 start_dt = datetime.combine(specific_date, time.min)
                 end_dt = datetime.combine(specific_date, time.max)
-                return start_dt.timestamp(), end_dt.timestamp()
+                return _timestamp_range(start_dt, end_dt)
             except ValueError as e:
-                logger.warning(f"Invalid date: {e}")
+                logger.warning("Invalid date: %s", _sanitize_log_value(e))
                 return None, None
         
         # Relative days: "X days ago", "yesterday", "today"
@@ -187,7 +209,7 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
             else:
                 days = int(days_ago_match.group(1))
                 
-            target_date = date.today() - timedelta(days=days)
+            target_date = _utc_today() - timedelta(days=days)
             
             # Check for time of day modifiers
             time_of_day_match = PATTERNS["time_of_day"].search(query)
@@ -198,25 +220,25 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
                 # Return the full day
                 start_dt = datetime.combine(target_date, time.min)
                 end_dt = datetime.combine(target_date, time.max)
-                return start_dt.timestamp(), end_dt.timestamp()
+                return _timestamp_range(start_dt, end_dt)
         
         # Relative weeks: "X weeks ago"
         weeks_ago_match = PATTERNS["relative_weeks"].search(query)
         if weeks_ago_match:
             weeks = int(weeks_ago_match.group(1))
-            target_date = date.today() - timedelta(weeks=weeks)
+            target_date = _utc_today() - timedelta(weeks=weeks)
             # Get the start of the week (Monday)
             start_date = target_date - timedelta(days=target_date.weekday())
             end_date = start_date + timedelta(days=6)
             start_dt = datetime.combine(start_date, time.min)
             end_dt = datetime.combine(end_date, time.max)
-            return start_dt.timestamp(), end_dt.timestamp()
+            return _timestamp_range(start_dt, end_dt)
         
         # Relative months: "X months ago"
         months_ago_match = PATTERNS["relative_months"].search(query)
         if months_ago_match:
             months = int(months_ago_match.group(1))
-            current = datetime.now()
+            current = _utc_now()
             # Calculate target month
             year = current.year
             month = current.month - months
@@ -235,17 +257,17 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
                 
             start_dt = datetime.combine(first_day, time.min)
             end_dt = datetime.combine(last_day, time.max)
-            return start_dt.timestamp(), end_dt.timestamp()
+            return _timestamp_range(start_dt, end_dt)
         
         # Relative years: "X years ago"
         years_ago_match = PATTERNS["relative_years"].search(query)
         if years_ago_match:
             years = int(years_ago_match.group(1))
-            current_year = datetime.now().year
+            current_year = _utc_now().year
             target_year = current_year - years
             start_dt = datetime(target_year, 1, 1, 0, 0, 0)
             end_dt = datetime(target_year, 12, 31, 23, 59, 59)
-            return start_dt.timestamp(), end_dt.timestamp()
+            return _timestamp_range(start_dt, end_dt)
 
         # "Last N X" expressions (e.g., "last 3 days", "last 2 weeks")
         # Check this BEFORE "last_period" to match more specific pattern first
@@ -284,7 +306,7 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
         if half_year_match:
             half = half_year_match.group(1)
             year_str = half_year_match.group(2)
-            year = int(year_str) if year_str else datetime.now().year
+            year = int(year_str) if year_str else _utc_now().year
             
             if half.lower() == "first":
                 start_dt = datetime(year, 1, 1, 0, 0, 0)
@@ -293,14 +315,14 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
                 start_dt = datetime(year, 7, 1, 0, 0, 0)
                 end_dt = datetime(year, 12, 31, 23, 59, 59)
                 
-            return start_dt.timestamp(), end_dt.timestamp()
+            return _timestamp_range(start_dt, end_dt)
         
         # Quarter expressions
         quarter_match = PATTERNS["quarter"].search(query)
         if quarter_match:
             quarter = quarter_match.group(1).lower()
             year_str = quarter_match.group(2)
-            year = int(year_str) if year_str else datetime.now().year
+            year = int(year_str) if year_str else _utc_now().year
             
             # Map textual quarter to number
             quarter_num = {"first": 1, "1st": 1, "second": 2, "2nd": 2, 
@@ -315,21 +337,21 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
             else:
                 end_dt = datetime(year, quarter_month + 3, 1, 0, 0, 0) - timedelta(seconds=1)
                 
-            return start_dt.timestamp(), end_dt.timestamp()
+            return _timestamp_range(start_dt, end_dt)
         
         # Recent/fuzzy time expressions
         recent_match = PATTERNS["recent"].search(query)
         if recent_match:
             # Default to last 7 days for "recent"
-            end_dt = datetime.now()
+            end_dt = _utc_now()
             start_dt = end_dt - timedelta(days=7)
-            return start_dt.timestamp(), end_dt.timestamp()
+            return _timestamp_range(start_dt, end_dt)
             
         # If no time expression is found, return None for both timestamps
         return None, None
         
     except Exception as e:
-        logger.error(f"Error parsing time expression: {e}")
+        logger.error("Error parsing time expression: %s", _sanitize_log_value(e))
         return None, None
 
 def get_time_of_day_range(target_date: date, time_period: str) -> Tuple[float, float]:
@@ -355,17 +377,17 @@ def get_time_of_day_range(target_date: date, time_period: str) -> Tuple[float, f
             else:
                 end_dt = datetime.combine(target_date, time(end_hour, 59, 59))
                 
-        return start_dt.timestamp(), end_dt.timestamp()
+        return _timestamp_range(start_dt, end_dt)
     else:
         # Fallback to full day
         start_dt = datetime.combine(target_date, time.min)
         end_dt = datetime.combine(target_date, time.max)
-        return start_dt.timestamp(), end_dt.timestamp()
+        return _timestamp_range(start_dt, end_dt)
 
 def get_last_period_range(period: str) -> Tuple[float, float]:
     """Get timestamp range for 'last X' expressions."""
-    now = datetime.now()
-    today = date.today()
+    now = _utc_now()
+    today = _utc_today()
     
     if period == "day":
         # Last day = yesterday
@@ -436,12 +458,12 @@ def get_last_period_range(period: str) -> Tuple[float, float]:
         end_dt = now
         start_dt = end_dt - timedelta(days=1)
         
-    return start_dt.timestamp(), end_dt.timestamp()
+    return _timestamp_range(start_dt, end_dt)
 
 def get_last_n_periods_range(n: int, period: str) -> Tuple[float, float]:
     """Get timestamp range for 'last N X' expressions (e.g., 'last 3 days')."""
-    now = datetime.now()
-    today = date.today()
+    now = _utc_now()
+    today = _utc_today()
 
     # Normalize period to singular form
     period = period.rstrip('s')  # Remove trailing 's' if present
@@ -460,7 +482,7 @@ def get_last_n_periods_range(n: int, period: str) -> Tuple[float, float]:
         end_dt = now
     elif period == "month":
         # Last N months means from N months ago first day 00:00 until now
-        current = datetime.now()
+        current = _utc_now()
         year = current.year
         month = current.month - n
 
@@ -483,12 +505,12 @@ def get_last_n_periods_range(n: int, period: str) -> Tuple[float, float]:
         start_dt = datetime.combine(start_date, time.min)
         end_dt = now
 
-    return start_dt.timestamp(), end_dt.timestamp()
+    return _timestamp_range(start_dt, end_dt)
 
 def get_this_period_range(period: str) -> Tuple[float, float]:
     """Get timestamp range for 'this X' expressions."""
-    now = datetime.now()
-    today = date.today()
+    now = _utc_now()
+    today = _utc_today()
     
     if period == "day":
         # This day = today
@@ -529,7 +551,7 @@ def get_this_period_range(period: str) -> Tuple[float, float]:
         end_dt = now
         start_dt = datetime.combine(today, time.min)
         
-    return start_dt.timestamp(), end_dt.timestamp()
+    return _timestamp_range(start_dt, end_dt)
 
 def get_month_range(month_name: str) -> Tuple[float, float]:
     """Get timestamp range for a named month."""
@@ -542,10 +564,10 @@ def get_month_range(month_name: str) -> Tuple[float, float]:
     
     if month_name in month_map:
         month_num = month_map[month_name]
-        current_year = datetime.now().year
+        current_year = _utc_now().year
         
         # If the month is in the future for this year, use last year
-        current_month = datetime.now().month
+        current_month = _utc_now().month
         year = current_year if month_num <= current_month else current_year - 1
         
         # Get first and last day of the month
@@ -557,16 +579,17 @@ def get_month_range(month_name: str) -> Tuple[float, float]:
             
         start_dt = datetime.combine(first_day, time.min)
         end_dt = datetime.combine(last_day, time.max)
-        return start_dt.timestamp(), end_dt.timestamp()
+        return _timestamp_range(start_dt, end_dt)
     else:
         return None, None
 
 def get_named_period_range(period_name: str) -> Tuple[Optional[float], Optional[float]]:
     """Get timestamp range for named periods like holidays."""
     period_name = period_name.lower().replace("_", " ")
-    current_year = datetime.now().year
-    current_month = datetime.now().month
-    current_day = datetime.now().day
+    current = _utc_now()
+    current_year = current.year
+    current_month = current.month
+    current_day = current.day
     
     if period_name in NAMED_PERIODS:
         info = NAMED_PERIODS[period_name]
@@ -601,7 +624,7 @@ def get_named_period_range(period_name: str) -> Tuple[Optional[float], Optional[
             
             start_dt = datetime.combine(start_date, time.min)
             end_dt = datetime.combine(end_date, time.max)
-            return start_dt.timestamp(), end_dt.timestamp()
+            return _timestamp_range(start_dt, end_dt)
             
         elif "start_month" in info and "end_month" in info:
             # Season or date range
@@ -653,7 +676,7 @@ def get_named_period_range(period_name: str) -> Tuple[Optional[float], Optional[
                         start_dt = datetime(current_year - 1, start_month, start_day)
                         end_dt = datetime(current_year - 1, end_month, end_day, 23, 59, 59)
             
-            return start_dt.timestamp(), end_dt.timestamp()
+            return _timestamp_range(start_dt, end_dt)
     
     # If no match found
     return None, None
