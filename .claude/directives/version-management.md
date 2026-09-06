@@ -54,17 +54,23 @@ A release is done when it is installable, not when the tag exists. After the tag
 check the publish endpoints directly:
 
 ```bash
-# both distributions, not just the main one
-curl -s https://pypi.org/pypi/mcp-memory-service/json      | jq -r .info.version
-curl -s https://pypi.org/pypi/mcp-memory-service-lite/json | jq -r .info.version
-
-# all four image tags: X.Y.Z, X.Y.Z-slim, X.Y, X.Y-slim
-curl -s -o /dev/null -w '%{http_code}\n' \
-  https://hub.docker.com/v2/repositories/doobidoo/mcp-memory-service/tags/X.Y.Z
+bash scripts/release/verify_artifacts.sh X.Y.Z
 ```
 
-PyPI's JSON endpoint lags the upload by a minute or two, so a stale version there right
-after a green publish job is cache, not failure — re-check before concluding anything.
+It verifies both PyPI distributions by `.info.version`, all four image tags
+(`X.Y.Z`, `X.Y.Z-slim`, `X.Y`, `X.Y-slim`) by tag name, and that `X.Y`, `X.Y-slim` and
+`latest` resolve to the same **digests** as the exact version tags. Nothing in it treats
+an HTTP status code as evidence. It is read-only, so re-running it is free and is the
+intended way to confirm a `gh run rerun --failed` actually recovered the release.
+
+Pending checks are polled until a deadline (`--timeout`, default 600s) because PyPI's
+JSON endpoint lags the upload by a minute or two — a stale version there right after a
+green publish job is cache, not failure. Docker Hub also rate-limits anonymous callers,
+and a throttled response looks exactly like a missing tag, which is the other reason the
+checks retry instead of concluding on a single probe.
+
+Exit 0 means every artifact is present and consistent. Exit 1 prints each unmet check
+with what was actually observed — do not create the release object until it is 0.
 
 ### A release can publish half of itself
 
