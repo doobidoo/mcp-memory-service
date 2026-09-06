@@ -114,19 +114,14 @@ each truncated to 150 characters. Chunk content itself is capped at 500 characte
 snippet concatenation, useful for deciding where to drill in — not a summarization of the
 entity.
 
-### Known limitations
+### Query-scoped entity selection
 
-- **Entity selection is not query-scoped.** `memory_explore` takes the first
-  `max_entities` entities the graph returns and uses your query only to choose which chunks
-  hang off them. On a store with more entities than `max_entities`, it will not reliably
-  surface the ones relevant to your query. Tracked as
-  [#220](https://codeberg.org/doobidoo/mcp-memory-service/issues/220).
-- **An entity with no chunk matching your query inherits the query's top chunks**, and its
-  `summary` is built from them, with nothing in the response marking it as a fallback. Same
-  issue.
-
-Until #220 is resolved, treat `memory_explore` as "what do I know about, broadly" rather
-than "what do I know about X".
+`memory_explore` selects entities linked to the retrieved query chunks, starting with the
+highest-relevance chunks and stopping at `max_entities`. If none of those chunks has an
+entity link, it falls back to the graph's global entity list so partially populated graphs
+remain discoverable. A fallback entity receives an empty `top_chunks` list and summary
+unless one of its linked memories is present in the query results; unrelated query chunks
+are never attached to it.
 
 ## Which to reach for
 

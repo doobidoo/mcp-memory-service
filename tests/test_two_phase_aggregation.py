@@ -1,4 +1,6 @@
 """Tests for two-phase aggregation logic (PR #78)."""
+import json
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -102,6 +104,98 @@ class TestBuildKnowledgeMap:
         assert len(result) == 1
         assert result[0]["entity_id"] == "python"
         assert result[0]["name"] == "python"
+
+    @pytest.mark.asyncio
+    async def test_unmatched_entity_does_not_inherit_query_chunks(self):
+        from mcp_memory_service.server.handlers.graph import _build_knowledge_map
+
+        graph = AsyncMock()
+        graph.find_memories_by_entity = AsyncMock(return_value=["other-hash"])
+        graph.get_entity_profile = AsyncMock(return_value={"count": 2})
+        entities = [{"entity_name": "unrelated"}]
+        chunks = [{"hash": "query-hash", "content": "query result", "relevance": 0.9}]
+
+        result = await _build_knowledge_map(graph, entities, chunks, chunks_per_entity=3)
+
+        assert result[0]["top_chunks"] == []
+        assert result[0]["summary"] == ""
+        assert result[0]["relation_count"] == 2
+
+
+class TestSelectExploreEntities:
+    @pytest.mark.asyncio
+    async def test_uses_entities_linked_to_highest_relevance_chunks(self):
+        from mcp_memory_service.server.handlers.graph import _select_explore_entities
+
+        graph = AsyncMock()
+        graph.get_entities_for_memory = AsyncMock(
+            side_effect=lambda memory_hash: {
+                "high": ["Python", "Testing"],
+                "low": ["Testing", "python", "SQLite"],
+            }[memory_hash]
+        )
+        graph.list_entities = AsyncMock(return_value=[{"entity_name": "Global"}])
+        chunks = [
+            {"hash": "low", "relevance": 0.2},
+            {"hash": "high", "relevance": 0.9},
+        ]
+
+        result = await _select_explore_entities(graph, chunks, max_entities=4)
+
+        assert result == [
+            {"entity_name": "Python"},
+            {"entity_name": "Testing"},
+            {"entity_name": "SQLite"},
+        ]
+        graph.list_entities.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_global_entities_when_chunks_have_no_links(self):
+        from mcp_memory_service.server.handlers.graph import _select_explore_entities
+
+        graph = AsyncMock()
+        graph.get_entities_for_memory = AsyncMock(return_value=[])
+        graph.list_entities = AsyncMock(return_value=[{"entity_name": "Global", "count": 3}])
+
+        result = await _select_explore_entities(
+            graph, [{"hash": "query-hash", "relevance": 0.9}], max_entities=1
+        )
+
+        assert result == [{"entity_name": "Global", "count": 3}]
+        graph.list_entities.assert_awaited_once_with(limit=1)
+
+
+class TestMemoryExploreEntitySelection:
+    @pytest.mark.asyncio
+    async def test_handler_uses_entities_linked_to_retrieved_chunks(self, monkeypatch):
+        from mcp_memory_service.server.handlers import graph as graph_handlers
+
+        candidate = MagicMock()
+        candidate.memory.content_hash = "query-hash"
+        candidate.memory.content = "A query-matching memory."
+        candidate.relevance_score = 0.9
+        server = MagicMock()
+        server.storage.retrieve = AsyncMock(return_value=[candidate])
+
+        graph = AsyncMock()
+        graph.get_entities_for_memory = AsyncMock(return_value=["Relevant"])
+        graph.list_entities = AsyncMock(return_value=[{"entity_name": "Global"}])
+        graph.find_memories_by_entity = AsyncMock(return_value=["query-hash"])
+        graph.get_entity_profile = AsyncMock(
+            return_value={"count": 1, "entity_types": ["topic"]}
+        )
+        monkeypatch.setattr(
+            graph_handlers, "get_graph_storage", AsyncMock(return_value=graph)
+        )
+
+        response = await graph_handlers.handle_memory_explore(
+            server, {"query": "relevant query", "max_entities": 5}
+        )
+        payload = json.loads(response[0].text)
+
+        assert [entity["name"] for entity in payload["entities"]] == ["Relevant"]
+        assert payload["entities"][0]["top_chunks"][0]["hash"] == "query-hash"
+        graph.list_entities.assert_not_awaited()
 
 
 class TestHydrateChunks:

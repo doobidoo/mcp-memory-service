@@ -23,7 +23,7 @@ Provides graph database operations including:
 
 import json
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from mcp import types
 from ...scoring import composite_score, score_components
@@ -640,6 +640,47 @@ async def _retrieve_candidates(storage, query: str, n_results: int, tags, store)
     return await storage.retrieve(query, **kwargs)
 
 
+async def _select_explore_entities(
+    graph: Any,
+    chunk_pool: List[Dict[str, Any]],
+    max_entities: int,
+) -> List[Dict[str, Any]]:
+    """Select entities linked to the highest-relevance retrieved chunks.
+
+    Keep the historical global list as a fallback for stores whose retrieved
+    memories have no entity links yet. The knowledge-map builder still leaves
+    those fallback entities' chunks empty instead of implying a false link.
+    """
+    if not graph or max_entities <= 0:
+        return []
+
+    entities = []
+    seen = set()
+    ranked_chunks = sorted(
+        chunk_pool,
+        key=lambda chunk: chunk.get("relevance") or 0.0,
+        reverse=True,
+    )
+    for chunk in ranked_chunks:
+        memory_hash = chunk.get("hash")
+        if not memory_hash:
+            continue
+        for name in await graph.get_entities_for_memory(memory_hash):
+            if not name:
+                continue
+            entity_id = normalize_entity_id(name)
+            if entity_id in seen:
+                continue
+            seen.add(entity_id)
+            entities.append({"entity_name": name})
+            if len(entities) >= max_entities:
+                return entities
+
+    if entities:
+        return entities
+    return await graph.list_entities(limit=max_entities)
+
+
 async def _build_knowledge_map(graph, entities_raw, chunk_pool, chunks_per_entity, scoring=None):
     """Assemble the memory_explore response shape from discovered entities.
 
@@ -664,17 +705,13 @@ async def _build_knowledge_map(graph, entities_raw, chunk_pool, chunks_per_entit
             entity_hashes = await graph.find_memories_by_entity(name)
             entity_chunks = [chunk_by_hash[h] for h in entity_hashes if h in chunk_by_hash]
 
-        # Fallback: use full chunk_pool if no entity-specific chunks found
-        if not entity_chunks:
-            entity_chunks = chunk_pool
-
         # Rank by relevance descending, take top N
         ranked = sorted(entity_chunks, key=lambda c: c.get("relevance") or 0.0, reverse=True)
         top_chunks = ranked[:chunks_per_entity]
 
         # Opt-in composite scoring (Issue #55)
         if scoring == "composite":
-            entity_degree = ent.get("count", 0)
+            entity_degree = ent.get("count", profile.get("count", 0))
             # Batch proximity: one find_connected per entity (not per chunk)
             proximity_map = {}
             if graph and top_chunks:
@@ -708,7 +745,7 @@ async def _build_knowledge_map(graph, entities_raw, chunk_pool, chunks_per_entit
             "name": name,
             "entity_type": entity_types[0] if entity_types else "",
             "summary": summary,
-            "relation_count": ent.get("count", 0),
+            "relation_count": ent.get("count", profile.get("count", 0)),
             "top_chunks": top_chunks,
         })
     return knowledge_map
@@ -756,9 +793,11 @@ async def handle_memory_explore(server, arguments: dict) -> List[types.TextConte
             if r.relevance_score >= min_score
         ]
 
-        # 2. Entity discovery (real graph degree) — None when backend has no graph.
+        # 2. Entity discovery — scoped to entities linked from retrieved chunks.
         graph = await get_graph_storage()
-        entities_raw = await graph.list_entities(limit=max_entities) if graph else []
+        entities_raw = await _select_explore_entities(
+            graph, chunk_pool, max_entities
+        )
 
         knowledge_map = await _build_knowledge_map(
             graph, entities_raw, chunk_pool, chunks_per_entity, scoring=scoring
