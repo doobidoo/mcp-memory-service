@@ -140,13 +140,17 @@ class TestSelectExploreEntities:
             {"hash": "high", "relevance": 0.9},
         ]
 
-        result = await _select_explore_entities(graph, chunks, max_entities=4)
+        result, entity_chunk_map = await _select_explore_entities(graph, chunks, max_entities=4)
 
         assert result == [
             {"entity_name": "Python"},
             {"entity_name": "Testing"},
             {"entity_name": "SQLite"},
         ]
+        # entity_chunk_map tracks which chunks link to each entity
+        assert "Python" in entity_chunk_map
+        assert "Testing" in entity_chunk_map
+        assert "SQLite" in entity_chunk_map
         graph.list_entities.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -157,11 +161,12 @@ class TestSelectExploreEntities:
         graph.get_entities_for_memory = AsyncMock(return_value=[])
         graph.list_entities = AsyncMock(return_value=[{"entity_name": "Global", "count": 3}])
 
-        result = await _select_explore_entities(
+        result, entity_chunk_map = await _select_explore_entities(
             graph, [{"hash": "query-hash", "relevance": 0.9}], max_entities=1
         )
 
         assert result == [{"entity_name": "Global", "count": 3}]
+        assert entity_chunk_map == {}  # no chunks linked to any entity
         graph.list_entities.assert_awaited_once_with(limit=1)
 
 
