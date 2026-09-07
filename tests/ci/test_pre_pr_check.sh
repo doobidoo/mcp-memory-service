@@ -90,9 +90,13 @@ test_selection_matches_ci() {
   local ci="$REPO_ROOT/.github/workflows/ci.yml"
   [ -f "$ci" ] || { echo "   ci.yml not found"; return 1; }
   local ignore
-  for ignore in tests/consolidation tests/benchmarks tests/integration; do
+  for ignore in tests/benchmarks tests/integration/test_cli_interfaces.py; do
     grep -q -- "--ignore=$ignore" "$ci" || { echo "   ci.yml no longer ignores $ignore"; return 1; }
     grep -q -- "--ignore=$ignore" "$GATE" || { echo "   gate does not ignore $ignore"; return 1; }
+  done
+  # #1145: consolidation and integration run everywhere now; neither side may drop them again.
+  for ignore in tests/consolidation tests/integration; do
+    grep -q -- "--ignore=$ignore \\\\" "$GATE" && { echo "   gate ignores $ignore, CI runs it"; return 1; }
   done
   grep -q -- '-m "not benchmark"' "$GATE" || { echo "   gate does not deselect benchmark marker"; return 1; }
 }
