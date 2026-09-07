@@ -393,19 +393,30 @@ class DreamInspiredConsolidator:
                     await self._handle_compression_results(compression_results)
 
                 # 6. Controlled forgetting (if enabled and appropriate)
+                # Forgetting gets its own candidate selector that reaches beyond
+                # the horizon window into the stale tail (#1124).
                 forgetting_results = []
                 if self.config.forgetting_enabled and check_horizon_requirements(
                     time_horizon, "forgetting", self.ENABLED_PHASES
                 ):
                     self.logger.info("🗂️ Phase 5/6: Applying controlled forgetting...")
                     performance_start = time.time()
-                    access_patterns = await self._get_access_patterns()
-                    forgetting_results = await self.forgetting_engine.process(
-                        memories,
-                        relevance_scores,
-                        access_patterns=access_patterns,
-                        time_horizon=time_horizon,
+                    forgetting_candidates = await self._get_forgetting_candidates(
+                        time_horizon
                     )
+                    if forgetting_candidates:
+                        forgetting_scores = await self._update_relevance_scores(
+                            forgetting_candidates, time_horizon
+                        )
+                        access_patterns = await self._get_access_patterns()
+                        forgetting_results = await self.forgetting_engine.process(
+                            forgetting_candidates,
+                            forgetting_scores,
+                            access_patterns=access_patterns,
+                            time_horizon=time_horizon,
+                        )
+                    else:
+                        self.logger.info("No stale-tail candidates for forgetting")
                     report.memories_archived = len(
                         [
                             r
@@ -512,6 +523,43 @@ class DreamInspiredConsolidator:
             memories = self._take_oldest_batch(memories)
 
         return memories
+
+    async def _get_forgetting_candidates(
+        self, time_horizon: str, **kwargs
+    ) -> List[Memory]:
+        """Get forgetting candidates that reach beyond the horizon window.
+
+        After #325 every horizon means its documented window, so nothing older
+        than 365 days enters a yearly run's candidate set.  This method gives
+        the forgetting phase its own selector: memories older than the horizon's
+        cutoff, bounded by ``batch_size`` so a run stays finite.
+
+        The ``forgetting_min_age_days`` config (default 365) acts as a floor:
+        nothing younger than that is considered stale enough for archival.
+        """
+        now = datetime.now(timezone.utc)
+
+        window = HORIZON_CONFIGS[time_horizon]["window"]
+        horizon_cutoff = (now - window).timestamp()
+        min_age_days = max(
+            getattr(self.config, "forgetting_min_age_days", 365),
+            window.days,
+        )
+        min_age_cutoff = (now - timedelta(days=min_age_days)).timestamp()
+
+        # Query memories older than the horizon cutoff (the stale tail)
+        candidates = await self.storage.get_memories_by_time_range(
+            min_age_cutoff, horizon_cutoff, include_embeddings=True,
+        )
+
+        if self.config.incremental_mode and len(candidates) > self.config.batch_size:
+            candidates = self._take_oldest_batch(candidates)
+
+        self.logger.info(
+            f"Forgetting candidates: {len(candidates)} memories older than "
+            f"{window.days}d (min age floor: {min_age_days}d)"
+        )
+        return candidates
 
     def _take_oldest_batch(self, memories: List[Memory]) -> List[Memory]:
         """Narrow a window to the oldest `batch_size` memories in it.

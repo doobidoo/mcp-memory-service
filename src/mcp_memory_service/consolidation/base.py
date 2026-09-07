@@ -66,6 +66,7 @@ class ConsolidationConfig:
     relevance_threshold: float = 0.1
     access_threshold_days: int = 90
     archive_location: Optional[str] = None
+    forgetting_min_age_days: int = 365  # Floor for forgetting candidate age; stale tail reachable past horizon window
 
     # Incremental consolidation settings
     batch_size: int = 500  # Memories to process per consolidation run
