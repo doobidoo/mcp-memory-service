@@ -101,7 +101,9 @@ for target in "${SCAN_TARGETS[@]}"; do
       DRIFT_LINES+=("$line  →  expected v$CANONICAL (or excluded path)")
       FOUND=1
     fi
-  done < <(grep -rEn 'v?[0-9]+\.[0-9]+\.[0-9]+' "$target" --include='*.md' --include='*.html' 2>/dev/null || true)
+  # -H: GNU grep omits the filename when -r lands on a single file, so `file`
+  # became the line number on Linux and the path excludes never matched there.
+  done < <(grep -rHEn 'v?[0-9]+\.[0-9]+\.[0-9]+' "$target" --include='*.md' --include='*.html' 2>/dev/null || true)
 done
 
 if [ $FOUND -eq 0 ]; then
