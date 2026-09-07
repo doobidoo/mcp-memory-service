@@ -583,23 +583,16 @@ class MemoryStorage(ABC):
                 # Optimized path: time-only filtering (no tags)
                 if hasattr(self, 'get_memories_by_time_range'):
                     use_optimized = True
+                    from ..utils.time_parser import parse_boundary  # inline import
                     try:
                         # Convert date strings to timestamps
                         if after:
-                            after_date = datetime.fromisoformat(after)
-                            # Treat naive datetimes as UTC (created_at in DB is time.time() = UTC)
-                            if after_date.tzinfo is None:
-                                after_date = after_date.replace(tzinfo=timezone.utc)
-                            start_time = after_date.timestamp()
+                            start_time = parse_boundary(after)
                         else:
                             start_time = 0.0
 
                         if before:
-                            before_date = datetime.fromisoformat(before)
-                            # Treat naive datetimes as UTC (created_at in DB is time.time() = UTC)
-                            if before_date.tzinfo is None:
-                                before_date = before_date.replace(tzinfo=timezone.utc)
-                            end_time = before_date.timestamp()
+                            end_time = parse_boundary(before)
                         else:
                             end_time = datetime.now(timezone.utc).timestamp()
 
@@ -1180,7 +1173,7 @@ class MemoryStorage(ABC):
             # Parse time expression if provided
             if time_expr:
                 try:
-                    from ..utils.time_parser import parse_time_expression
+                    from ..utils.time_parser import parse_time_expression  # inline import
                     # Parse time range from natural language
                     start_timestamp, end_timestamp = parse_time_expression(time_expr)
                     if start_timestamp is not None:
@@ -1193,13 +1186,10 @@ class MemoryStorage(ABC):
 
             # Use explicit after/before if no time_expr
             if not time_expr:
+                from ..utils.time_parser import parse_boundary  # inline import
                 if after:
                     try:
-                        after_date = datetime.fromisoformat(after)
-                        # Treat naive datetimes as UTC (created_at in DB is time.time() = UTC)
-                        if after_date.tzinfo is None:
-                            after_date = after_date.replace(tzinfo=timezone.utc)
-                        start_time = after_date.timestamp()
+                        start_time = parse_boundary(after)
                     except ValueError:
                         return {
                             "memories": [],
@@ -1211,11 +1201,7 @@ class MemoryStorage(ABC):
 
                 if before:
                     try:
-                        before_date = datetime.fromisoformat(before)
-                        # Treat naive datetimes as UTC (created_at in DB is time.time() = UTC)
-                        if before_date.tzinfo is None:
-                            before_date = before_date.replace(tzinfo=timezone.utc)
-                        end_time = before_date.timestamp()
+                        end_time = parse_boundary(before)
                     except ValueError:
                         return {
                             "memories": [],

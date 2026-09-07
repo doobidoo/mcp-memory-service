@@ -1807,8 +1807,8 @@ class MilvusMemoryStorage(MemoryStorage):
         if not self._ensure_initialized():
             return 0, "Milvus storage not initialized"
 
-        start_ts = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc).timestamp()
-        end_ts = datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc).timestamp()
+        start_ts = datetime.combine(start_date, datetime.min.time()).timestamp()
+        end_ts = datetime.combine(end_date, datetime.max.time()).timestamp()
         time_filter = f"created_at >= {start_ts} and created_at <= {end_ts}"
 
         tag_filter = ""
@@ -1835,7 +1835,7 @@ class MilvusMemoryStorage(MemoryStorage):
         if not self._ensure_initialized():
             return 0, "Milvus storage not initialized"
 
-        before_ts = datetime.combine(before_date, datetime.min.time(), tzinfo=timezone.utc).timestamp()
+        before_ts = datetime.combine(before_date, datetime.min.time()).timestamp()
         time_filter = f"created_at < {before_ts}"
 
         tag_filter = ""
@@ -2528,15 +2528,15 @@ class MilvusMemoryStorage(MemoryStorage):
         if not time_expr:
             if after:
                 try:
-                    from datetime import datetime as _dt
-                    start_time = _dt.fromisoformat(after).timestamp()
+                    from ..utils.time_parser import parse_boundary  # inline import
+                    start_time = parse_boundary(after)
                 except ValueError:
                     return {"memories": [], "total": 0, "query": query, "mode": mode,
                             "error": f"Invalid after date: {after}"}
             if before:
                 try:
-                    from datetime import datetime as _dt
-                    end_time = _dt.fromisoformat(before).timestamp()
+                    from ..utils.time_parser import parse_boundary  # inline import
+                    end_time = parse_boundary(before)
                 except ValueError:
                     return {"memories": [], "total": 0, "query": query, "mode": mode,
                             "error": f"Invalid before date: {before}"}

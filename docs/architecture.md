@@ -291,6 +291,12 @@ Automatic detection and optimization for different platforms:
 4. Filtered results returned chronologically
 ```
 
+Calendar expressions such as `today`, `last week`, and a bare date resolve against the
+**host's local calendar day**, and the date-based deletion paths use the same boundaries, so
+recalling and deleting "2026-09-04" cover the same memories. Timestamps themselves are stored
+as UTC epochs; only the calendar boundary is local. An explicit ISO datetime passed to the
+`after`/`before` search filters is still read as UTC when it carries no offset.
+
 ## Performance Optimizations
 
 ### Model Caching

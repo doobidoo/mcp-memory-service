@@ -20,8 +20,10 @@ for retrieving memories based on when they were stored.
 """
 import re
 import logging
-from datetime import datetime, timedelta, date, time
+from datetime import datetime, timedelta, date, time, timezone
 from typing import Tuple, Optional, Dict
+
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +155,7 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
                 end_dt = datetime.combine(specific_date, time.max)
                 return start_dt.timestamp(), end_dt.timestamp()
             except ValueError as e:
-                logger.warning(f"Invalid date: {e}")
+                logger.warning("Invalid date: %s", _sanitize_log_value(e))
                 return None, None
             
         # Check for specific dates (MM/DD/YYYY)
@@ -174,7 +176,7 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
                 end_dt = datetime.combine(specific_date, time.max)
                 return start_dt.timestamp(), end_dt.timestamp()
             except ValueError as e:
-                logger.warning(f"Invalid date: {e}")
+                logger.warning("Invalid date: %s", _sanitize_log_value(e))
                 return None, None
         
         # Relative days: "X days ago", "yesterday", "today"
@@ -329,7 +331,7 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
         return None, None
         
     except Exception as e:
-        logger.error(f"Error parsing time expression: {e}")
+        logger.error("Error parsing time expression: %s", _sanitize_log_value(e))
         return None, None
 
 def get_time_of_day_range(target_date: date, time_period: str) -> Tuple[float, float]:
@@ -721,3 +723,18 @@ def extract_time_expression(query: str) -> Tuple[str, Tuple[Optional[float], Opt
     cleaned_query = re.sub(r'\s+', ' ', cleaned_query).strip()
     
     return cleaned_query, (start_ts, end_ts)
+
+def parse_boundary(value: str) -> float:
+    """Epoch for an ``after=``/``before=`` filter string.
+
+    A bare ``YYYY-MM-DD`` is a calendar day and resolves against the host's local
+    day, matching what "today"/"yesterday" and the date-based deletion paths use.
+    A datetime with a time component is an instant, and is read as UTC unless it
+    carries its own offset.
+    """
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is not None:
+        return dt.timestamp()
+    if len(value.strip()) == 10:  # date only: host-local calendar day
+        return dt.timestamp()
+    return dt.replace(tzinfo=timezone.utc).timestamp()

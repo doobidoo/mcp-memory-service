@@ -280,8 +280,8 @@ class DeleteMixin:
             if not self.conn:
                 return 0, "Database not initialized"
 
-            start_ts = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc).timestamp()
-            end_ts = datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc).timestamp()
+            start_ts = datetime.combine(start_date, datetime.min.time()).timestamp()
+            end_ts = datetime.combine(end_date, datetime.max.time()).timestamp()
 
             def _select_timeframe():
                 if tag:
@@ -323,7 +323,7 @@ class DeleteMixin:
             if not self.conn:
                 return 0, "Database not initialized"
 
-            before_ts = datetime.combine(before_date, datetime.min.time(), tzinfo=timezone.utc).timestamp()
+            before_ts = datetime.combine(before_date, datetime.min.time()).timestamp()
 
             def _select_before_date():
                 if tag:
