@@ -432,3 +432,58 @@ class TestRuntimeWarning:
         assert quality_warnings_second == [], (
             f"Should not repeat fallback warning on second init, got: {quality_warnings_second}"
         )
+
+    def test_warning_emitted_once_per_process_not_once_per_instance(self, monkeypatch, caplog):
+        """A second, freshly built mixin must not repeat the fallback warning.
+
+        The module comment promises the warning fires once per process, but the
+        guard only consulted the per-instance flag, so the module-level
+        `_HASH_FALLBACK_WARNED` was written and never read. Production never
+        noticed, because `_STORAGE_CACHE` yields one instance per process --
+        this pins the documented behaviour for the case where it does not.
+        """
+        from mcp_memory_service.storage.mixins.embeddings import EmbeddingsMixin
+
+        monkeypatch.setattr(
+            "mcp_memory_service.storage.mixins.embeddings.SENTENCE_TRANSFORMERS_AVAILABLE",
+            False,
+        )
+        monkeypatch.setattr(
+            "mcp_memory_service.storage.mixins.embeddings.SentenceTransformer", None
+        )
+        monkeypatch.delenv("MCP_EXTERNAL_EMBEDDING_URL", raising=False)
+        monkeypatch.setenv("MCP_MEMORY_USE_ONNX", "0")
+
+        def build_mixin():
+            mixin = EmbeddingsMixin()
+            mixin.embedding_model_name = "all-MiniLM-L6-v2"
+            mixin.embedding_dimension = 384
+            mixin.embedding_model = None
+            mixin.enable_cache = False
+            mixin.conn = None
+            mixin._run_in_thread = AsyncMock(return_value=None)
+            return mixin
+
+        import asyncio
+
+        def fallback_warnings():
+            return [
+                r for r in caplog.records
+                if r.levelno >= logging.WARNING
+                and ("hash" in r.message.lower() or "quality" in r.message.lower())
+            ]
+
+        with caplog.at_level(logging.WARNING):
+            asyncio.run(build_mixin()._initialize_embedding_model())
+        assert fallback_warnings(), "Should warn on the first instance"
+
+        caplog.clear()
+
+        # A different instance, with no per-instance flag set on it.
+        with caplog.at_level(logging.WARNING):
+            asyncio.run(build_mixin()._initialize_embedding_model())
+
+        assert fallback_warnings() == [], (
+            "Fallback warning must not repeat for a second instance in the same "
+            f"process, got: {fallback_warnings()}"
+        )

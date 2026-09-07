@@ -261,7 +261,7 @@ class EmbeddingsMixin:
             _st_flag = getattr(_st_mod, 'SENTENCE_TRANSFORMERS_AVAILABLE', False) if _st_mod else SENTENCE_TRANSFORMERS_AVAILABLE
             _st_available = _st_flag or SentenceTransformer is not None
             if not _st_available:
-                if not getattr(self, '_hash_fallback_warned', False):
+                if not (_HASH_FALLBACK_WARNED or getattr(self, '_hash_fallback_warned', False)):
                     logger.warning(
                         "No embedding backend available; using hash embeddings (reduced quality). "
                         "Install ML dependencies for semantic search: pip install mcp-memory-service[ml]. "
@@ -372,7 +372,7 @@ class EmbeddingsMixin:
         except Exception as e:
             logger.error(f"Failed to initialize embedding model: {str(e)}")
             logger.error(traceback.format_exc())
-            if not getattr(self, '_hash_fallback_warned', False):
+            if not (_HASH_FALLBACK_WARNED or getattr(self, '_hash_fallback_warned', False)):
                 logger.warning(
                     "No embedding backend available; using hash embeddings (reduced quality). "
                     "Install ML dependencies for semantic search: pip install mcp-memory-service[ml]. "
