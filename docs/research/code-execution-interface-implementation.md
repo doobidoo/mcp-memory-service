@@ -55,7 +55,7 @@ await memoryClient.callTool('retrieve_memory', {
 - ✅ Async/await throughout for performance
 - ✅ Strong type hints (Python 3.10+)
 - ✅ Multiple storage backends (SQLite-Vec, Cloudflare, Hybrid)
-- ✅ Existing HTTP client (`HTTPClientStorage`) demonstrates remote access pattern
+- ✅ The REST API and the MCP-over-HTTP shim (`web/api/mcp.py`) already provide remote access
 
 **Current Entry Points:**
 ```python

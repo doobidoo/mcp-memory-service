@@ -440,45 +440,13 @@ class MemoryServer:
                 logger.info("   EMBEDDING_MODEL: %s", CLOUDFLARE_EMBEDDING_MODEL)
             
             if STORAGE_BACKEND == 'sqlite_vec':
-                # Check for multi-client coordination mode
-                from .utils.port_detection import ServerCoordinator
-                coordinator = ServerCoordinator()
-                coordination_mode = await coordinator.detect_mode()
-                
-                logger.info("🔧 EAGER INIT: SQLite-vec - detected coordination mode: %s", _sanitize_log_value(coordination_mode))
-                
-                if coordination_mode == "http_client":
-                    # Use HTTP client to connect to existing server
-                    from .storage.http_client import HTTPClientStorage
-                    self.storage = HTTPClientStorage()
-                    logger.info("✅ EAGER INIT: Using HTTP client storage")
-                elif coordination_mode == "http_server":
-                    # Try to auto-start HTTP server for coordination
-                    from .utils.http_server_manager import auto_start_http_server_if_needed
-                    server_started = await auto_start_http_server_if_needed()
-                    
-                    if server_started:
-                        # Wait a moment for the server to be ready, then use HTTP client
-                        await asyncio.sleep(2)
-                        from .storage.http_client import HTTPClientStorage
-                        self.storage = HTTPClientStorage()
-                        logger.info("✅ EAGER INIT: Started HTTP server and using HTTP client storage")
-                    else:
-                        # Fall back to direct SQLite-vec storage
-                        from . import storage
-                        import importlib
-                        storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
-                        SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
-                        self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
-                        logger.info("✅ EAGER INIT: HTTP server auto-start failed, using direct SQLite-vec storage")
-                else:
-                    # Import sqlite-vec storage module (supports dynamic class replacement)
-                    from . import storage
-                    import importlib
-                    storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
-                    SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
-                    self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
-                    logger.info("✅ EAGER INIT: Using direct SQLite-vec storage at %s", SQLITE_VEC_PATH)
+                # Import sqlite-vec storage module (supports dynamic class replacement)
+                from . import storage
+                import importlib
+                storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
+                SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
+                self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
+                logger.info("✅ EAGER INIT: Using direct SQLite-vec storage at %s", SQLITE_VEC_PATH)
             elif STORAGE_BACKEND == 'cloudflare':
                 # Initialize Cloudflare storage
                 logger.info("☁️  EAGER INIT: Importing CloudflareStorage...")
@@ -635,43 +603,12 @@ class MemoryServer:
                     logger.info("   EMBEDDING_MODEL: %s", CLOUDFLARE_EMBEDDING_MODEL)
                 
                 if STORAGE_BACKEND == 'sqlite_vec':
-                    # Check for multi-client coordination mode
-                    from .utils.port_detection import ServerCoordinator
-                    coordinator = ServerCoordinator()
-                    coordination_mode = await coordinator.detect_mode()
-                    
-                    logger.info("🔧 LAZY INIT: SQLite-vec - detected coordination mode: %s", _sanitize_log_value(coordination_mode))
-                    
-                    if coordination_mode == "http_client":
-                        # Use HTTP client to connect to existing server
-                        from .storage.http_client import HTTPClientStorage
-                        self.storage = HTTPClientStorage()
-                        logger.info("✅ LAZY INIT: Using HTTP client storage")
-                    elif coordination_mode == "http_server":
-                        # Try to auto-start HTTP server for coordination
-                        from .utils.http_server_manager import auto_start_http_server_if_needed
-                        server_started = await auto_start_http_server_if_needed()
-                        
-                        if server_started:
-                            # Wait a moment for the server to be ready, then use HTTP client
-                            await asyncio.sleep(2)
-                            from .storage.http_client import HTTPClientStorage
-                            self.storage = HTTPClientStorage()
-                            logger.info("✅ LAZY INIT: Started HTTP server and using HTTP client storage")
-                        else:
-                            # Fall back to direct SQLite-vec storage
-                            import importlib
-                            storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
-                            SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
-                            self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
-                            logger.info("✅ LAZY INIT: HTTP server auto-start failed, using direct SQLite-vec storage at: %s", SQLITE_VEC_PATH)
-                    else:
-                        # Use direct SQLite-vec storage (with WAL mode for concurrent access)
-                        import importlib
-                        storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
-                        SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
-                        self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
-                        logger.info("✅ LAZY INIT: Created SQLite-vec storage at: %s", SQLITE_VEC_PATH)
+                    # Use direct SQLite-vec storage (with WAL mode for concurrent access)
+                    import importlib
+                    storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
+                    SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
+                    self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
+                    logger.info("✅ LAZY INIT: Created SQLite-vec storage at: %s", SQLITE_VEC_PATH)
                 elif STORAGE_BACKEND == 'cloudflare':
                     # Cloudflare backend using Vectorize, D1, and R2
                     logger.info("☁️  LAZY INIT: Importing CloudflareStorage...")

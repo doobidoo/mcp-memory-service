@@ -147,12 +147,14 @@ class MemoryStorage(ABC):
 - Minimal memory footprint and dependencies
 - **Use cases**: Development, single-device deployments, or as primary in Hybrid backend
 
-#### HTTP Client Backend (`storage/http_client.py`)
-- Remote storage via HTTP API for distributed architectures
-- Enables client-server deployments with centralized memory
-- Bearer token authentication with API key support
-- Automatic retry logic with exponential backoff
-- **Use cases**: Multi-client shared memory, remote MCP servers, load balancing
+#### Multi-client access
+There is no separate client backend. Several MCP clients on one machine share a
+SQLite-vec database through WAL mode plus `busy_timeout` (see `MCP_MEMORY_SQLITE_PRAGMAS`),
+and remote or many-client setups run one HTTP server that everyone talks to
+(`memory launch`, then the REST API or the MCP-over-HTTP shim in `web/api/mcp.py`).
+Details: [integration/multi-client.md](integration/multi-client.md). A proxy backend
+(`storage/http_client.py`) that auto-detected a running HTTP server existed until v11.11;
+it had been unable to start since v7.5.0 and was removed.
 
 > **Historical note:** Earlier releases supported a ChromaDB backend. It was removed in v8.0.0. See [guides/chromadb-migration.md](guides/chromadb-migration.md) if you still have legacy data to migrate.
 

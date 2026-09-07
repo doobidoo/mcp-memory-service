@@ -19,6 +19,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 Thanks to eunwoo song for the retrieval fix below (#1128) and to timkjr for the two consolidation fixes (#1087, #1088), both carried over from pull requests opened on Codeberg before the move.
 
+### Removed
+
+- **HTTPClientStorage and the HTTP coordination mode (#1155, closes #1078).** `storage/http_client.py`, `utils/http_server_manager.py` and the `ServerCoordinator` auto-detection are gone. The mode had not been able to start since v7.5.0: the class lacked four abstract methods, and the detection probe asked `/health` while the server answers under `/api/health`, so every process fell back to direct SQLite anyway. It also carried no authentication and no TLS, so it could not have reached an `MCP_API_KEY`-gated server even if it had run. Multi-client access is WAL mode for several local clients and one shared HTTP server for everything else; the docs that still described the auto-detection now say so, and `docs/architecture.md` no longer claims Bearer-token support for a backend that had none.
+
 ### Fixed
 
 - **fix(storage): apply eligibility filters before the nearest-neighbour limit (#1128, eunwoo song, closes #1077).** `recall()` and `retrieve()` asked sqlite-vec for the k nearest embeddings first and filtered afterwards, so soft-deleted rows, rows outside the requested time window, and rows excluded by tag or supersession consumed the candidate budget before a valid match could be seen. With enough excluded neighbours the result set came back short or empty even though matching memories existed. Both queries now restrict the KNN scan to eligible rowids, so k counts only memories that can actually be returned. The tests run against real sqlite-vec with 4,100 excluded neighbours crowding five valid ones, which is what distinguishes a fix here from a fix that merely reorders the same failure.

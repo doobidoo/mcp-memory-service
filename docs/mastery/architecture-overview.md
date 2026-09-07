@@ -17,7 +17,6 @@ This document summarizes the Memory Service architecture, components, data flow,
     - SQLite-vec: `src/mcp_memory_service/storage/sqlite_vec.py` (default for dev / single-user).
     - Cloudflare: `src/mcp_memory_service/storage/cloudflare.py` (Vectorize + D1 + optional R2).
     - Hybrid: `src/mcp_memory_service/storage/hybrid.py` (local SQLite-vec reads + background Cloudflare sync — recommended for production).
-    - HTTP client: `src/mcp_memory_service/storage/http_client.py` (multi-client coordination).
   - Historical: ChromaDB was supported prior to v8.0.0; see [guides/chromadb-migration.md](../guides/chromadb-migration.md).
 - CLI:
   - Entry points: `memory`, `memory-server`, `mcp-memory-server` (pyproject scripts).
@@ -32,7 +31,7 @@ This document summarizes the Memory Service architecture, components, data flow,
 2. Server resolves the configured backend via `config.py` and lazy/eager initializes storage.
 3. For SQLite-vec:
    - Embeddings generated via `sentence-transformers` (or ONNX disabled path) and stored alongside content and metadata in SQLite; vector search via `vec0` virtual table.
-   - WAL mode + busy timeouts for concurrent access; optional HTTP coordination for multi-client scenarios.
+   - WAL mode + busy timeouts for concurrent access; many clients share one HTTP server instead (see integration/multi-client.md).
 4. For Cloudflare: Vectorize (vectors), D1 (metadata), R2 (large content); HTTPx for API calls.
 5. For Hybrid: reads served from local SQLite-vec; writes mirror to Cloudflare via a background sync task (see `MCP_HYBRID_SYNC_OWNER`).
 6. Results map back to `Memory`/`MemoryQueryResult` and are returned to the MCP client.
@@ -42,7 +41,6 @@ This document summarizes the Memory Service architecture, components, data flow,
 - Stdio MCP (`server.py`):
   - Uses `mcp.server.Server` and registers tools/prompts for memory operations, diagnostics, and analysis.
   - Client-aware logging (`DualStreamHandler`) to keep JSON wire clean for Claude Desktop; richer stdout for LM Studio.
-  - Coordination: detects if an HTTP sidecar is needed for multi-client access; starts/uses `HTTPClientStorage` when appropriate.
 
 - FastMCP (`mcp_server.py`):
   - Wraps storage via `lifespan` context; exposes core tools like `memory_store`, `memory_search`, `memory_list`, `memory_delete`, `memory_health` using `@mcp.tool()`.
