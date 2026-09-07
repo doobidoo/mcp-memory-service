@@ -73,7 +73,7 @@ class TestEmbeddingDimensionCache:
             'MCP_EXTERNAL_EMBEDDING_MODEL': 'test-model-768',
             'MCP_MEMORY_STORAGE_BACKEND': 'sqlite_vec'
         }):
-            with patch('src.mcp_memory_service.embeddings.external_api.get_external_embedding_model', return_value=mock_model):
+            with patch('mcp_memory_service.embeddings.external_api.get_external_embedding_model', return_value=mock_model):
                 # First initialization - loads and caches model with 768 dimensions
                 storage1 = SqliteVecMemoryStorage(temp_db_path)
                 await storage1.initialize()
@@ -115,7 +115,7 @@ class TestEmbeddingDimensionCache:
             'MCP_MEMORY_USE_ONNX': 'true',
             'MCP_MEMORY_STORAGE_BACKEND': 'sqlite_vec'
         }):
-            with patch('src.mcp_memory_service.embeddings.get_onnx_embedding_model', return_value=mock_onnx_model):
+            with patch('mcp_memory_service.embeddings.get_onnx_embedding_model', return_value=mock_onnx_model):
                 # First initialization - loads and caches ONNX model with 512 dimensions
                 storage1 = SqliteVecMemoryStorage(temp_db_path)
                 await storage1.initialize()

@@ -177,7 +177,7 @@ class TestRecallMemory:
             _make_hit(content_hash="h1", content="recent stuff", distance=0.85),
         ])
 
-        with patch("src.mcp_memory_service.utils.time_parser.parse_time_expression") as mock_parse:
+        with patch("mcp_memory_service.utils.time_parser.parse_time_expression") as mock_parse:
             mock_parse.return_value = (time.time() - 86400, time.time())
             results = await storage.recall_memory("what happened yesterday", n_results=5)
 
@@ -396,7 +396,7 @@ class TestSearchMemories:
         ])
 
         with patch(
-            "src.mcp_memory_service.reasoning.ranked_search.apply_ranked_rerank"
+            "mcp_memory_service.reasoning.ranked_search.apply_ranked_rerank"
         ) as mock_rerank:
             mock_rerank.side_effect = lambda results, weights=None: results
             result = await storage.search_memories(query="test", mode="ranked")

@@ -342,25 +342,13 @@ class TestQualityEvaluator:
             }
         )
 
-        # Two things were wrong with the previous target,
-        # 'src.mcp_memory_service.quality.onnx_ranker.get_onnx_ranker_model'.
-        #
-        # It patched the defining module rather than the using one. ai_evaluator
-        # does `from .onnx_ranker import get_onnx_ranker_model`, so rebinding the
+        # Patch the using module, not the defining one. ai_evaluator does
+        # `from .onnx_ranker import get_onnx_ranker_model`, so rebinding the
         # name in onnx_ranker never reaches the evaluator's own reference.
-        #
-        # And it patched a different module object than the one under test. This
-        # file imports through the `src.` prefix, and since src/ has no
-        # __init__.py that resolves as a namespace package -- so
-        # src.mcp_memory_service.* and mcp_memory_service.* are two distinct
-        # copies of the package. The patch applied cleanly to a copy nothing was
-        # using.
-        #
-        # The target below matches this file's own imports. That the tests reach
-        # the package through a shadow copy at all is a separate problem, filed
-        # on its own.
+        # The target must also match this file's own imports (no `src.`
+        # prefix -- that resolved to a shadow copy nothing used, see #1120).
         with patch(
-            'src.mcp_memory_service.quality.ai_evaluator.get_onnx_ranker_model',
+            'mcp_memory_service.quality.ai_evaluator.get_onnx_ranker_model',
             return_value=None,
         ):
             score = await evaluator.evaluate_quality("test query", memory)

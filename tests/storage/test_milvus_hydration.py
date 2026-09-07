@@ -233,7 +233,7 @@ class TestLogHydrationStats:
     def test_debug_counter_when_all_hydrated(self, caplog):
         storage = _make_storage()
         memories = [self._make_memory([0.1, 0.2, 0.3, 0.4]) for _ in range(3)]
-        with caplog.at_level("DEBUG", logger="src.mcp_memory_service.storage.milvus"):
+        with caplog.at_level("DEBUG", logger="mcp_memory_service.storage.milvus"):
             storage._log_hydration_stats(memories, hydrated=3)
         debug_lines = [r for r in caplog.records if r.levelname == "DEBUG"]
         assert any(
@@ -244,7 +244,7 @@ class TestLogHydrationStats:
     def test_warning_when_total_positive_but_zero_hydrated(self, caplog):
         storage = _make_storage()
         memories = [self._make_memory(None) for _ in range(3)]
-        with caplog.at_level("WARNING", logger="src.mcp_memory_service.storage.milvus"):
+        with caplog.at_level("WARNING", logger="mcp_memory_service.storage.milvus"):
             storage._log_hydration_stats(memories, hydrated=0)
         warn_lines = [r for r in caplog.records if r.levelname == "WARNING"]
         assert len(warn_lines) == 1, (
@@ -254,7 +254,7 @@ class TestLogHydrationStats:
 
     def test_no_warning_on_empty_result_set(self, caplog):
         storage = _make_storage()
-        with caplog.at_level("WARNING", logger="src.mcp_memory_service.storage.milvus"):
+        with caplog.at_level("WARNING", logger="mcp_memory_service.storage.milvus"):
             storage._log_hydration_stats([], hydrated=0)
         assert not any(r.levelname == "WARNING" for r in caplog.records)
 
@@ -262,7 +262,7 @@ class TestLogHydrationStats:
         storage = _make_storage()
         secret_vector = [0.1337, 0.4242, 0.9999, 0.5555]
         memories = [self._make_memory(secret_vector)]
-        with caplog.at_level("DEBUG", logger="src.mcp_memory_service.storage.milvus"):
+        with caplog.at_level("DEBUG", logger="mcp_memory_service.storage.milvus"):
             storage._log_hydration_stats(memories, hydrated=1)
         joined = " ".join(r.getMessage() for r in caplog.records)
         for value in secret_vector:
