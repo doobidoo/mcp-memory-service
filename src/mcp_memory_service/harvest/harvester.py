@@ -110,20 +110,6 @@ class SessionHarvester:
 
         return kept
 
-    async def _is_duplicate_of_existing(self, content: str) -> bool:
-        """Check if content is semantically similar to existing memories."""
-        if not self._memory_service:
-            return False
-        try:
-            results = await self._memory_service.search(query=content, limit=1)
-            if results and len(results) > 0:
-                top = results[0]
-                similarity = top.get("similarity", top.get("score", 0))
-                return similarity > 0.85
-        except Exception:
-            pass
-        return False
-
     def harvest(self, config: HarvestConfig) -> List[HarvestResult]:
         """Parse sessions and extract candidates (synchronous, no storage)."""
         session_files = self._resolve_sessions(config)
