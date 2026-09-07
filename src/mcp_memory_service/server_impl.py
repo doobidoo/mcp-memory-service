@@ -2471,8 +2471,11 @@ class MemoryServer:
                             preserve_timestamps=False,
                         )
                         return
-        except Exception:
-            pass
+        except Exception as e:
+            # A swallowed failure here left the counter unreset, so the fresh-start
+            # trigger fired on every call with nothing in the log to say why.
+            logger.warning("Session counter reset for %s failed: %s",
+                           _sanitize_log_value(agent_id), _sanitize_log_value(e))
 
     async def handle_get_bootstrap_profile(self, arguments: dict) -> List[types.TextContent]:
         """Generate a behavioral bootstrap profile for ephemeral agents."""

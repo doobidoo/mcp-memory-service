@@ -260,6 +260,7 @@ class ConsolidationScheduler:
                 'clusters_created': report.clusters_created,
                 'memories_compressed': report.memories_compressed,
                 'memories_archived': report.memories_archived,
+                'beliefs': belief_stats,
                 'errors': report.errors
             }
             
