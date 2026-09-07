@@ -720,8 +720,16 @@ async def _build_knowledge_map(graph, entities_raw, chunk_pool, chunks_per_entit
                     try:
                         connected = await graph.find_connected(first_hash, max_hops=3)
                         proximity_map = {h: d for h, d in connected}
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        # Not a defect: hop stays None a few lines down and the
+                        # proximity term drops out of the composite score. Logged
+                        # because when it fails for every entity the score looks
+                        # like relevance alone, with nothing saying why.
+                        logger.debug(
+                            "Proximity lookup failed for entity %s: %s",
+                            _sanitize_log_value(name),
+                            _sanitize_log_value(exc),
+                        )
             for c in top_chunks:
                 rel = c.get("relevance") or 0.0
                 hop = proximity_map.get(c.get("hash"))
@@ -860,8 +868,14 @@ async def _hydrate_chunks(storage, memory_hashes, scoring=None, graph=None, enti
             try:
                 connected = await graph.find_connected(chunks[0]["hash"], max_hops=3)
                 proximity_map = {h: d for h, d in connected}
-            except Exception:
-                pass
+            except Exception as exc:
+                # Same as in _build_knowledge_map: the proximity term drops out
+                # rather than the call failing, so this only needs to be visible.
+                logger.debug(
+                    "Proximity lookup failed for chunk %s: %s",
+                    _sanitize_log_value(chunks[0]["hash"]),
+                    _sanitize_log_value(exc),
+                )
         for c in chunks:
             rel = c["relevance"] if c["relevance"] is not None else 0.0
             hop = proximity_map.get(c["hash"])

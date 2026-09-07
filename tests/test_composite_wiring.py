@@ -1,5 +1,7 @@
 """Tests for composite scoring opt-in wiring in memory_explore/memory_detail."""
 
+import logging
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -71,6 +73,49 @@ class TestBuildKnowledgeMapScoring:
         for chunk in result[0]["top_chunks"]:
             assert "composite_score" in chunk
             assert chunk["score_components"]["proximity"] == 0.0
+
+
+class TestProximityFailureIsVisible:
+    """A failed proximity lookup drops a scoring term; it must not be silent."""
+
+    @pytest.mark.asyncio
+    async def test_build_knowledge_map_logs_the_failure_at_debug(
+        self, mock_graph, sample_entities, sample_chunks, caplog
+    ):
+        mock_graph.find_connected = AsyncMock(side_effect=RuntimeError("graph offline"))
+
+        with caplog.at_level(
+            logging.DEBUG, logger="mcp_memory_service.server.handlers.graph"
+        ):
+            result = await _build_knowledge_map(
+                mock_graph, sample_entities, sample_chunks, 3, scoring="composite"
+            )
+
+        # Still scores, just without the proximity term.
+        assert all("composite_score" in c for c in result[0]["top_chunks"])
+        assert any(
+            "Proximity lookup failed" in r.message and "python" in r.message
+            for r in caplog.records
+        ), caplog.text
+
+    @pytest.mark.asyncio
+    async def test_log_value_is_sanitized(
+        self, mock_graph, sample_chunks, caplog
+    ):
+        """An entity name is user-controlled, so it cannot forge a log line."""
+        mock_graph.find_connected = AsyncMock(side_effect=RuntimeError("graph offline"))
+        entities = [{"entity_name": "py\nINFO: forged", "count": 5}]
+
+        with caplog.at_level(
+            logging.DEBUG, logger="mcp_memory_service.server.handlers.graph"
+        ):
+            await _build_knowledge_map(
+                mock_graph, entities, sample_chunks, 3, scoring="composite"
+            )
+
+        records = [r for r in caplog.records if "Proximity lookup failed" in r.message]
+        assert records
+        assert "\n" not in records[0].message
 
 
 class TestHydrateChunksScoring:
