@@ -711,7 +711,7 @@ async def _build_knowledge_map(graph, entities_raw, chunk_pool, chunks_per_entit
 
         # Opt-in composite scoring (Issue #55)
         if scoring == "composite":
-            entity_degree = ent.get("count", profile.get("count", 0))
+            entity_degree = ent.get("count", profile.get("memory_count", 0))
             # Batch proximity: one find_connected per entity (not per chunk)
             proximity_map = {}
             if graph and top_chunks:
@@ -745,7 +745,7 @@ async def _build_knowledge_map(graph, entities_raw, chunk_pool, chunks_per_entit
             "name": name,
             "entity_type": entity_types[0] if entity_types else "",
             "summary": summary,
-            "relation_count": ent.get("count", profile.get("count", 0)),
+            "relation_count": ent.get("count", profile.get("memory_count", 0)),
             "top_chunks": top_chunks,
         })
     return knowledge_map

@@ -11,7 +11,7 @@ def mock_graph():
     g.common_neighbors = AsyncMock(return_value=[])
     g.get_entities_for_memory = AsyncMock(return_value=[])
     g.find_connected = AsyncMock(return_value=[])
-    g.get_entity_profile = AsyncMock(return_value={"count": 5, "memory_count": 5})
+    g.get_entity_profile = AsyncMock(return_value={"memory_count": 5})
     g.list_entities = AsyncMock(return_value=[
         {"entity_name": "python", "count": 10},
         {"entity_name": "testing", "count": 5},
@@ -97,7 +97,7 @@ class TestBuildKnowledgeMap:
         from mcp_memory_service.server.handlers.graph import _build_knowledge_map
         graph = AsyncMock()
         graph.find_memories_by_entity = AsyncMock(return_value=["hash1"])
-        graph.get_entity_profile = AsyncMock(return_value={"count": 10, "entity_types": ["language"]})
+        graph.get_entity_profile = AsyncMock(return_value={"memory_count": 10, "entity_types": ["language"]})
         entities = [{"entity_name": "python", "count": 10}]
         chunks = [{"hash": "hash1", "content": "about python", "relevance": 0.9}]
         result = await _build_knowledge_map(graph, entities, chunk_pool=chunks, chunks_per_entity=3)
@@ -111,7 +111,7 @@ class TestBuildKnowledgeMap:
 
         graph = AsyncMock()
         graph.find_memories_by_entity = AsyncMock(return_value=["other-hash"])
-        graph.get_entity_profile = AsyncMock(return_value={"count": 2})
+        graph.get_entity_profile = AsyncMock(return_value={"memory_count": 2})
         entities = [{"entity_name": "unrelated"}]
         chunks = [{"hash": "query-hash", "content": "query result", "relevance": 0.9}]
 
@@ -182,7 +182,7 @@ class TestMemoryExploreEntitySelection:
         graph.list_entities = AsyncMock(return_value=[{"entity_name": "Global"}])
         graph.find_memories_by_entity = AsyncMock(return_value=["query-hash"])
         graph.get_entity_profile = AsyncMock(
-            return_value={"count": 1, "entity_types": ["topic"]}
+            return_value={"memory_count": 1, "entity_types": ["topic"]}
         )
         monkeypatch.setattr(
             graph_handlers, "get_graph_storage", AsyncMock(return_value=graph)
