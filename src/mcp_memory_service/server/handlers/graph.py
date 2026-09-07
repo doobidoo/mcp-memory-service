@@ -736,8 +736,11 @@ async def _build_knowledge_map(
                     try:
                         connected = await graph.find_connected(first_hash, max_hops=3)
                         proximity_map = {h: d for h, d in connected}
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # Proximity is the opt-in composite term; hop=None is
+                        # handled below, so only the term is lost (#1154).
+                        logger.debug("find_connected failed for entity %s: %s",
+                                     _sanitize_log_value(name), _sanitize_log_value(e))
             for c in top_chunks:
                 rel = c.get("relevance") or 0.0
                 hop = proximity_map.get(c.get("hash"))
@@ -881,8 +884,11 @@ async def _hydrate_chunks(storage, memory_hashes, scoring=None, graph=None, enti
             try:
                 connected = await graph.find_connected(chunks[0]["hash"], max_hops=3)
                 proximity_map = {h: d for h, d in connected}
-            except Exception:
-                pass
+            except Exception as e:
+                # No entity name in scope here; the seed hash identifies the
+                # batch. Only the proximity term is lost (#1154).
+                logger.debug("find_connected failed from %s: %s",
+                             _sanitize_log_value(chunks[0]["hash"]), _sanitize_log_value(e))
         for c in chunks:
             rel = c["relevance"] if c["relevance"] is not None else 0.0
             hop = proximity_map.get(c["hash"])
