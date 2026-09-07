@@ -106,6 +106,12 @@ cmd_prepare() {
   br="$(git -C "$r" branch --show-current 2>/dev/null)"
   br="${br:-HEAD}"
   stamp="$(date +%y%m%d-%H%M%S)"
+  # Two prepares inside one second collided on the branch name and the second
+  # one failed silently; suffix until both the branch and the path are free.
+  local base="$stamp" n=0
+  while git -C "$r" show-ref -q --verify "refs/heads/wt/$stamp" || [ -e "$(dirname "$r")/$(basename "$r")--wt-$stamp" ]; do
+    n=$((n + 1)); stamp="$base-$n"
+  done
   dest="$(dirname "$r")/$(basename "$r")--wt-$stamp"
   git -C "$r" worktree add -q -b "wt/$stamp" "$dest" "$br" >&2 2>/dev/null || return 1
   # Heavy/secret untracked deps are gitignored -> absent in a fresh worktree.

@@ -71,6 +71,31 @@ jobs:
     - name: Run the JS test suites
       run: bash scripts/ci/run_hooks_tests.sh
 
+  shell-tests:
+    runs-on: ubuntu-latest
+    name: Shell Tests (tests/ci/) + Dead Refs (docs/)
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    # tests/ci/*.sh are the tests for the gate scripts themselves and ran in no
+    # workflow at all until this job existed, so a gate change passed check 3 with
+    # a test CI never executed (issue #1153). They fake pyscn and tolerate a
+    # missing gh, so the runner image is enough.
+    - name: Run the shell test suites
+      run: |
+        status=0
+        for t in tests/ci/*.sh; do
+          echo "::group::$t"
+          bash "$t" || { echo "FAILED: $t"; status=1; }
+          echo "::endgroup::"
+        done
+        exit $status
+    # check_dead_refs.sh was documented as a CI gate and wired nowhere
+    # (issue #1121). It scans docs/ and README.md for references to removed
+    # features, ports and commands.
+    - name: Check active docs for dead references
+      run: bash scripts/ci/check_dead_refs.sh
+
   test:
     runs-on: ubuntu-latest
     name: Tests + Coverage
