@@ -205,7 +205,20 @@ test_files=$(echo "$all_changed" | grep -Ec '^tests/.*\.(py|sh)$' || true)
 # Count code files directly from changed_files
 code_files=$(echo "$changed_files" | grep -c '\.py$' || true)
 
-if [ $code_files -gt 0 ] && [ $test_files -eq 0 ]; then
+# Dead-code removal has no new behavior to cover, so demanding a test file for it
+# made the gate unpassable for exactly the cleanup it keeps asking for. Anything
+# that adds real behavior still needs a test -- see lib/is_cleanup_only.py.
+if [ "$MODE" = "staged" ]; then
+    py_diff=$(git diff --cached -- '*.py')
+else
+    py_diff=$(gh pr diff $PR_NUMBER)
+fi
+cleanup_only=false
+if [ -n "$py_diff" ] && printf '%s' "$py_diff" | python3 "$SCRIPT_DIR/lib/is_cleanup_only.py"; then
+    cleanup_only=true
+fi
+
+if [ $code_files -gt 0 ] && [ $test_files -eq 0 ] && [ "$cleanup_only" = false ]; then
     warnings+=("No test files added/modified despite $code_files code file(s) changed")
     if [ $exit_code -eq 0 ]; then
         exit_code=1
@@ -213,6 +226,9 @@ if [ $code_files -gt 0 ] && [ $test_files -eq 0 ]; then
 fi
 echo "Code files changed: $code_files"
 echo "Test files changed: $test_files"
+if [ $code_files -gt 0 ] && [ "$cleanup_only" = true ]; then
+    echo "Cleanup-only change (no added behavior) - test requirement not applied"
+fi
 echo ""
 
 # Check 4: Breaking changes

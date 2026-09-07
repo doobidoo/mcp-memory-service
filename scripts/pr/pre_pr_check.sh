@@ -94,15 +94,15 @@ bash scripts/pr/quality_gate.sh --staged --with-pyscn
 QUALITY_GATE_EXIT=$?
 set -e
 if [ $QUALITY_GATE_EXIT -eq 0 ]; then
-    check_status "Quality gate (complexity ≤8, no security issues)" 0
+    check_status "Quality gate (complexity, security, test coverage, breaking changes)" 0
 elif [ $QUALITY_GATE_EXIT -eq 3 ]; then
     # Gemini CLI missing — the gate ran nothing. Reporting this as a pass made
     # the whole check meaningless on machines without the CLI.
-    check_status "Quality gate (complexity ≤8, no security issues)" 3
+    check_status "Quality gate (complexity, security, test coverage, breaking changes)" 3
     echo -e "${YELLOW}   Complexity and security were not evaluated locally — CI still checks them${NC}"
 else
-    check_status "Quality gate (complexity ≤8, no security issues)" 1
-    echo -e "${RED}   Fix high-complexity functions or security issues before creating PR${NC}"
+    check_status "Quality gate (complexity, security, test coverage, breaking changes)" 1
+    echo -e "${RED}   See the FINDINGS list above - it names the check that failed${NC}"
 fi
 
 # Check 3: Run test suite with coverage
