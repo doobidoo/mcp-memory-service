@@ -1264,9 +1264,6 @@ memory_quality {"action": "maintain", "dry_run": false} (dry_run defaults to tru
 stores nothing). Unavailable on the Cloudflare backend.
 Guide: docs/guides/token-efficient-retrieval.md
 
-KNOWN LIMITATION: entity selection is not query-scoped — the first max_entities entities in
-the graph are used, and your query only decides which chunks hang off them (#220).
-
 USE THIS WHEN:
 - User wants a high-level overview ("what do I know about X", "map out", "explore")
 - Need entities + their relationships rather than raw memory chunks
