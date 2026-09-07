@@ -11,7 +11,6 @@ Install with `pip install .[nli]` when the transformers backend lands.
 
 import logging
 import os
-import re
 from dataclasses import dataclass
 from typing import List, Tuple
 

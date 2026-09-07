@@ -25,7 +25,6 @@ Licensed under the Apache License, Version 2.0
 """
 import os
 import sys
-import secrets
 from pathlib import Path
 from typing import Optional
 import time

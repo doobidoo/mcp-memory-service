@@ -15,7 +15,6 @@ from typing import List, Optional
 from .belief import (
     CONFIDENCE_FLOOR,
     LAMBDA,
-    PROVENANCE_FLOOR,
     derive_confidence,
     should_promote,
     should_supersede,

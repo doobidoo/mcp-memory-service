@@ -6,22 +6,18 @@ import logging
 import os
 import sys
 import platform
-import re
 import time
 import random
 import threading
 import asyncio
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Set, Callable
+from typing import List, Any, Optional, Set, Callable
 
 try:
     import sqlite_vec
-    from sqlite_vec import serialize_float32
     SQLITE_VEC_AVAILABLE = True
 except ImportError:
     SQLITE_VEC_AVAILABLE = False
 
-from ..base import MemoryStorage
 from ...models.memory import Memory
 from ...config import SQLITEVEC_MAX_CONTENT_LENGTH
 

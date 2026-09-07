@@ -1,7 +1,7 @@
 """Utilities for bootstrap profile generation — dedup and ranking."""
 
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Dict, List, Optional
 
 
 def _simple_similarity(a: str, b: str) -> float:

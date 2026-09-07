@@ -4,7 +4,6 @@ import sqlite3
 import logging
 import re
 import traceback
-import time
 import os
 import asyncio
 from pathlib import Path

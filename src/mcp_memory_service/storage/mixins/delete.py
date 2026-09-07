@@ -3,11 +3,9 @@
 import sqlite3
 import logging
 import time
-import traceback
 from datetime import datetime, date, timezone
 from typing import List, Tuple, Optional
 
-from ...models.memory import Memory
 
 logger = logging.getLogger(__name__)
 

@@ -229,7 +229,7 @@ class HarvestRewriter:
     def rewrite_sync(self, text: str, suggested_type: str = "observation", already_extracted: list = None) -> Optional[RewriteResult]:
         """Synchronous wrapper for rewrite (works inside running event loop)."""
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 future = pool.submit(asyncio.run, self.rewrite(text, suggested_type, already_extracted))
                 # Must exceed the actual per-request HTTP timeout times the
@@ -271,7 +271,7 @@ class HarvestRewriter:
     def rewrite_batch_sync(self, items: list) -> list:
         """Synchronous wrapper for rewrite_batch."""
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 future = pool.submit(asyncio.run, self.rewrite_batch(items))
                 # See rewrite_sync: must exceed the per-call timeout times

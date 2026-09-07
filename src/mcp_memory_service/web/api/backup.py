@@ -23,7 +23,6 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
-from mcp_memory_service.config import OAUTH_ENABLED
 
 # OAuth authentication imports
 from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult

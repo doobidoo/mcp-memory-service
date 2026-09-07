@@ -7,7 +7,7 @@ import os
 import struct
 import sys
 import traceback
-from typing import List, Optional
+from typing import List
 
 try:
     from sentence_transformers import SentenceTransformer

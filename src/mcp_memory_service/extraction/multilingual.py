@@ -4,7 +4,7 @@ Applies locale-driven NER patterns from YAML configuration files.
 All patterns are pre-compiled at init time for performance.
 """
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional
 
 from ..config.locale import get_active_locales

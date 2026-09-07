@@ -2202,12 +2202,6 @@ class MemoryServer:
         from .server.handlers import mistake_notes as mistake_handlers
         return await mistake_handlers.handle_mistake_note_delete(self, arguments)
 
-        """Delete a mistake note by content hash."""
-        await self._ensure_storage_initialized()
-        result = await self.memory_service.mistake_note_delete(
-            content_hash=arguments.get("content_hash", ""),
-        )
-        return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
     # ─── Session Legacy & Bootstrap Profile Handlers ──────────────
 
     async def handle_commit_session_legacy(self, arguments: dict) -> List[types.TextContent]:
