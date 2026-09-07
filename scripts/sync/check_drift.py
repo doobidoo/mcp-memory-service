@@ -30,10 +30,10 @@ import argparse
 from pathlib import Path
 
 # Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
 
-from src.mcp_memory_service.storage.hybrid import HybridMemoryStorage
-from src.mcp_memory_service import config as app_config
+from mcp_memory_service.storage.hybrid import HybridMemoryStorage
+from mcp_memory_service import config as app_config
 
 # Set up logging
 logging.basicConfig(

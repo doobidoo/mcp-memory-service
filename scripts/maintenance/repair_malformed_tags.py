@@ -38,9 +38,9 @@ from datetime import datetime
 from typing import List, Tuple, Set, Dict
 
 # Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
 
-from src.mcp_memory_service.config import SQLITE_VEC_PATH
+from mcp_memory_service.config import SQLITE_VEC_PATH
 
 # Configure logging
 logging.basicConfig(

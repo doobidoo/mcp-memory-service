@@ -34,8 +34,8 @@ try:
     from mcp_memory_service.utils.gpu_detection import detect_gpu as shared_detect_gpu
 except ImportError:
     # Fallback for scripts directory context
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-    from src.mcp_memory_service.utils.gpu_detection import detect_gpu as shared_detect_gpu
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
+    from mcp_memory_service.utils.gpu_detection import detect_gpu as shared_detect_gpu
 
 class EnvironmentVerifier:
     def __init__(self):

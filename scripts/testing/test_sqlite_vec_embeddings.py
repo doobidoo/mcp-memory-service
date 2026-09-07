@@ -15,11 +15,11 @@ import traceback
 from datetime import datetime
 
 # Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
 
-from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-from src.mcp_memory_service.models.memory import Memory
-from src.mcp_memory_service.utils.hashing import generate_content_hash
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.utils.hashing import generate_content_hash
 
 # Configure logging
 logging.basicConfig(
