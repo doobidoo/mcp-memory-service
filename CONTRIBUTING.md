@@ -90,7 +90,7 @@ Answer questions in Issues or help other users.
 
 3. **Install dependencies**:
    ```bash
-   python install.py
+   python scripts/installation/install.py
    ```
    This will automatically detect your platform and install appropriate dependencies.
 
