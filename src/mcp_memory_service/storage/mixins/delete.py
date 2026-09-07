@@ -3,7 +3,7 @@
 import sqlite3
 import logging
 import time
-from datetime import datetime, date, timezone
+from datetime import datetime, date
 from typing import List, Tuple, Optional
 
 
