@@ -15,9 +15,9 @@ import pytest_asyncio
 pymilvus = pytest.importorskip("pymilvus")
 milvus_lite = pytest.importorskip("milvus_lite")
 
-from src.mcp_memory_service.models.memory import Memory  # noqa: E402
-from src.mcp_memory_service.storage.milvus import MilvusMemoryStorage  # noqa: E402
-from src.mcp_memory_service.utils.hashing import generate_content_hash  # noqa: E402
+from mcp_memory_service.models.memory import Memory  # noqa: E402
+from mcp_memory_service.storage.milvus import MilvusMemoryStorage  # noqa: E402
+from mcp_memory_service.utils.hashing import generate_content_hash  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -722,7 +722,7 @@ def test_store_survives_cross_loop_init(milvus_db_path):
     invoke RPC on closed channel!``. We exercise that exact pattern here.
     """
     import uuid as _uuid
-    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+    from mcp_memory_service.utils.hashing import generate_content_hash as _ch
 
     name = f"mcp_xloop_{_uuid.uuid4().hex[:8]}"
     storage = MilvusMemoryStorage(uri=str(milvus_db_path), collection_name=name)
@@ -758,7 +758,7 @@ async def test_store_reports_failure_on_closed_client(storage):
     *not* recreate the client automatically. A closed/torn client is a
     visible failure mode the caller must see.
     """
-    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+    from mcp_memory_service.utils.hashing import generate_content_hash as _ch
 
     assert storage.client is not None
     storage.client.close()  # emulate a torn channel
@@ -780,7 +780,7 @@ async def test_three_calls_with_500ms_gaps(storage):
     a separate JSON-RPC request. All three must succeed; the client must
     remain live throughout; reads must see every write.
     """
-    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+    from mcp_memory_service.utils.hashing import generate_content_hash as _ch
 
     stored_hashes = []
     for idx in range(3):
@@ -804,7 +804,7 @@ async def test_ten_stores_interleaved_with_sleep(storage):
     must all be persisted and all retrievable. Guards against silent data
     loss where ``store`` reports success but the write never lands.
     """
-    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+    from mcp_memory_service.utils.hashing import generate_content_hash as _ch
 
     planned = []
     for idx in range(10):
@@ -842,7 +842,7 @@ async def test_persists_across_sequential_calls(storage):
     respawned between calls. With one ``MilvusClient`` per storage instance
     for life, two sequential stores must both land in the same daemon.
     """
-    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+    from mcp_memory_service.utils.hashing import generate_content_hash as _ch
 
     planned = ["probe A", "probe B"]
     for idx, content in enumerate(planned):
@@ -873,7 +873,7 @@ async def test_client_not_recreated_between_calls(storage):
     across CRUD calls. Recreating the client mid-lifetime would spawn a
     fresh Milvus Lite daemon and orphan previously-stored data.
     """
-    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+    from mcp_memory_service.utils.hashing import generate_content_hash as _ch
 
     assert storage.client is not None
     initial_id = id(storage.client)
@@ -1028,7 +1028,7 @@ async def test_get_by_exact_content_server_side_filter(storage, monkeypatch):
     materialize every row into Python (previously it fetched up to 16384 rows
     and did substring matching in a loop).
     """
-    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+    from mcp_memory_service.utils.hashing import generate_content_hash as _ch
 
     # 20 distinct memories, one of which we'll search for by unique substring.
     for i in range(20):
@@ -1066,7 +1066,7 @@ async def test_get_by_exact_content_server_side_filter(storage, monkeypatch):
 @pytest.mark.asyncio
 async def test_get_by_exact_content_case_insensitive(storage):
     """Matches sqlite_vec's LIKE … COLLATE NOCASE semantics."""
-    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+    from mcp_memory_service.utils.hashing import generate_content_hash as _ch
 
     content = "Hello World case-sensitivity probe"
     m = Memory(content=content, content_hash=_ch(content), tags=["case"])
@@ -1082,7 +1082,7 @@ async def test_query_memories_returns_most_recent_first(storage):
     """Sorted pagination must work on the FULL matching set, not on whichever
     window Milvus happens to return first. Regression for the 16384-cap bug.
     """
-    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+    from mcp_memory_service.utils.hashing import generate_content_hash as _ch
 
     stored = []
     for i in range(5):
@@ -1108,7 +1108,7 @@ async def test_query_memories_returns_most_recent_first(storage):
 
 @pytest.mark.asyncio
 async def test_query_memories_pagination(storage):
-    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+    from mcp_memory_service.utils.hashing import generate_content_hash as _ch
 
     hashes = []
     for i in range(10):
@@ -1139,7 +1139,7 @@ def test_memory_to_entity_timestamps_consistent(milvus_db_path):
     they were derived from two separate clock reads.
     """
     from datetime import datetime as _dt, timezone as _tz
-    from src.mcp_memory_service.utils.hashing import generate_content_hash as _ch
+    from mcp_memory_service.utils.hashing import generate_content_hash as _ch
 
     storage = MilvusMemoryStorage(
         uri=str(milvus_db_path),
@@ -1178,7 +1178,7 @@ def test_embedding_cache_does_not_collide():
     must produce (and return) different embeddings — covers the silent-wrong-
     embedding risk of 64-bit hash collisions.
     """
-    from src.mcp_memory_service.storage import milvus as milvus_mod
+    from mcp_memory_service.storage import milvus as milvus_mod
 
     # Reset cache to isolate this test from others in the session.
     with milvus_mod._EMBEDDING_CACHE_LOCK:
@@ -1199,7 +1199,7 @@ def test_embedding_cache_bounded():
     """Inserting 2000 unique entries must not push the cache past its max
     size — the LRU evicts the oldest.
     """
-    from src.mcp_memory_service.storage import milvus as milvus_mod
+    from mcp_memory_service.storage import milvus as milvus_mod
 
     with milvus_mod._EMBEDDING_CACHE_LOCK:
         milvus_mod._EMBEDDING_CACHE.clear()

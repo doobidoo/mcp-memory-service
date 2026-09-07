@@ -11,9 +11,9 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 import httpx
 
-from src.mcp_memory_service.quality.config import QualityConfig
-from src.mcp_memory_service.quality.ai_evaluator import QualityEvaluator
-from src.mcp_memory_service.models.memory import Memory
+from mcp_memory_service.quality.config import QualityConfig
+from mcp_memory_service.quality.ai_evaluator import QualityEvaluator
+from mcp_memory_service.models.memory import Memory
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ class TestScoreWithOpenAICompatible:
         ev._onnx_models = {}
         ev._groq_bridge = None
         ev._initialized = True
-        from src.mcp_memory_service.quality.implicit_signals import ImplicitSignalsEvaluator
+        from mcp_memory_service.quality.implicit_signals import ImplicitSignalsEvaluator
         ev._implicit_evaluator = ImplicitSignalsEvaluator()
         return ev
 
@@ -288,7 +288,7 @@ class TestOpenAICompatFallback:
         ev._onnx_models = {}
         ev._groq_bridge = None
         ev._initialized = True
-        from src.mcp_memory_service.quality.implicit_signals import ImplicitSignalsEvaluator
+        from mcp_memory_service.quality.implicit_signals import ImplicitSignalsEvaluator
         ev._implicit_evaluator = ImplicitSignalsEvaluator()
 
         with patch.object(
@@ -311,7 +311,7 @@ class TestOpenAICompatFallback:
         ev._onnx_models = {}
         ev._groq_bridge = None
         ev._initialized = True
-        from src.mcp_memory_service.quality.implicit_signals import ImplicitSignalsEvaluator
+        from mcp_memory_service.quality.implicit_signals import ImplicitSignalsEvaluator
         ev._implicit_evaluator = ImplicitSignalsEvaluator()
 
         memory = _make_memory()

@@ -20,11 +20,11 @@ try:
 except ImportError:
     SQLITE_VEC_AVAILABLE = False
 
-from src.mcp_memory_service.models.memory import Memory, MemoryQueryResult
-from src.mcp_memory_service.utils.hashing import generate_content_hash
+from mcp_memory_service.models.memory import Memory, MemoryQueryResult
+from mcp_memory_service.utils.hashing import generate_content_hash
 
 if SQLITE_VEC_AVAILABLE:
-    from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+    from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
 # Skip all tests if sqlite-vec is not available
 pytestmark = pytest.mark.skipif(not SQLITE_VEC_AVAILABLE, reason="sqlite-vec not available")

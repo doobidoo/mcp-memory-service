@@ -13,8 +13,8 @@ import time
 from datetime import datetime, timedelta
 from typing import List
 
-from src.mcp_memory_service.models.memory import Memory
-from src.mcp_memory_service.utils.hashing import generate_content_hash
+from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.utils.hashing import generate_content_hash
 
 # Skip tests if sqlite-vec is not available
 try:
@@ -24,18 +24,18 @@ except ImportError:
     SQLITE_VEC_AVAILABLE = False
 
 if SQLITE_VEC_AVAILABLE:
-    from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+    from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
 # Import Cloudflare storage for testing (may be skipped if not configured)
 try:
-    from src.mcp_memory_service.storage.cloudflare import CloudflareMemoryStorage
+    from mcp_memory_service.storage.cloudflare import CloudflareMemoryStorage
     CLOUDFLARE_AVAILABLE = True
 except ImportError:
     CLOUDFLARE_AVAILABLE = False
 
 # Import Hybrid storage
 try:
-    from src.mcp_memory_service.storage.hybrid import HybridMemoryStorage
+    from mcp_memory_service.storage.hybrid import HybridMemoryStorage
     HYBRID_AVAILABLE = SQLITE_VEC_AVAILABLE  # Hybrid requires SQLite-vec
 except ImportError:
     HYBRID_AVAILABLE = False

@@ -26,13 +26,13 @@ milvus_lite = pytest.importorskip("milvus_lite")
 # cache). CI images that pin the Milvus extra will have it installed.
 sentence_transformers = pytest.importorskip("sentence_transformers")
 
-from src.mcp_memory_service.consolidation.base import ConsolidationConfig  # noqa: E402
-from src.mcp_memory_service.consolidation.consolidator import (  # noqa: E402
+from mcp_memory_service.consolidation.base import ConsolidationConfig  # noqa: E402
+from mcp_memory_service.consolidation.consolidator import (  # noqa: E402
     DreamInspiredConsolidator,
 )
-from src.mcp_memory_service.models.memory import Memory  # noqa: E402
-from src.mcp_memory_service.storage.milvus import MilvusMemoryStorage  # noqa: E402
-from src.mcp_memory_service.utils.hashing import generate_content_hash  # noqa: E402
+from mcp_memory_service.models.memory import Memory  # noqa: E402
+from mcp_memory_service.storage.milvus import MilvusMemoryStorage  # noqa: E402
+from mcp_memory_service.utils.hashing import generate_content_hash  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

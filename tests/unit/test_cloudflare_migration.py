@@ -13,7 +13,7 @@ The migration system must handle:
 
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
-from src.mcp_memory_service.storage.cloudflare import CloudflareStorage
+from mcp_memory_service.storage.cloudflare import CloudflareStorage
 
 
 @pytest.fixture

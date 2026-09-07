@@ -12,9 +12,9 @@ import pytest_asyncio
 pymilvus = pytest.importorskip("pymilvus")
 milvus_lite = pytest.importorskip("milvus_lite")
 
-from src.mcp_memory_service.models.memory import Memory
-from src.mcp_memory_service.storage.milvus import MilvusMemoryStorage
-from src.mcp_memory_service.utils.hashing import generate_content_hash
+from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.storage.milvus import MilvusMemoryStorage
+from mcp_memory_service.utils.hashing import generate_content_hash
 
 
 @pytest.fixture(autouse=True)

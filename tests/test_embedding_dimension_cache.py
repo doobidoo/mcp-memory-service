@@ -23,7 +23,7 @@ except ImportError:
     SQLITE_VEC_AVAILABLE = False
 
 if SQLITE_VEC_AVAILABLE:
-    from src.mcp_memory_service.storage.sqlite_vec import (
+    from mcp_memory_service.storage.sqlite_vec import (
         SqliteVecMemoryStorage,
         _MODEL_CACHE,
         _DIMENSION_CACHE,

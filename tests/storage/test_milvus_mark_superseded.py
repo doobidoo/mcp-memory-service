@@ -18,8 +18,8 @@ import pytest
 pytest.importorskip("pymilvus")
 pytest.importorskip("sentence_transformers")
 
-from src.mcp_memory_service.models.memory import Memory  # noqa: E402
-from src.mcp_memory_service.storage.milvus import MilvusMemoryStorage  # noqa: E402
+from mcp_memory_service.models.memory import Memory  # noqa: E402
+from mcp_memory_service.storage.milvus import MilvusMemoryStorage  # noqa: E402
 
 
 # -- Fixtures ----------------------------------------------------------------

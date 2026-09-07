@@ -12,12 +12,12 @@ import asyncio
 from unittest.mock import Mock, patch, AsyncMock
 from pathlib import Path
 
-from src.mcp_memory_service.quality.config import QualityConfig
-from src.mcp_memory_service.quality.onnx_ranker import ONNXRankerModel, get_onnx_ranker_model
-from src.mcp_memory_service.quality.implicit_signals import ImplicitSignalsEvaluator
-from src.mcp_memory_service.quality.ai_evaluator import QualityEvaluator
-from src.mcp_memory_service.quality.scorer import QualityScorer
-from src.mcp_memory_service.models.memory import Memory
+from mcp_memory_service.quality.config import QualityConfig
+from mcp_memory_service.quality.onnx_ranker import ONNXRankerModel, get_onnx_ranker_model
+from mcp_memory_service.quality.implicit_signals import ImplicitSignalsEvaluator
+from mcp_memory_service.quality.ai_evaluator import QualityEvaluator
+from mcp_memory_service.quality.scorer import QualityScorer
+from mcp_memory_service.models.memory import Memory
 
 
 class TestQualityConfig:
@@ -571,9 +571,9 @@ class TestQualityAPILayer:
     @pytest.mark.asyncio
     async def test_rate_memory_mcp_tool(self):
         """Test rate_memory MCP tool."""
-        from src.mcp_memory_service.server import MemoryServer
-        from src.mcp_memory_service.models.memory import Memory
-        from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+        from mcp_memory_service.server import MemoryServer
+        from mcp_memory_service.models.memory import Memory
+        from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
         # Create temporary database
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -614,9 +614,9 @@ class TestQualityAPILayer:
     @pytest.mark.asyncio
     async def test_get_memory_quality_mcp_tool(self):
         """Test get_memory_quality MCP tool."""
-        from src.mcp_memory_service.server import MemoryServer
-        from src.mcp_memory_service.models.memory import Memory
-        from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+        from mcp_memory_service.server import MemoryServer
+        from mcp_memory_service.models.memory import Memory
+        from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
         # Create temporary database
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -656,9 +656,9 @@ class TestQualityAPILayer:
     @pytest.mark.asyncio
     async def test_analyze_quality_distribution_mcp_tool(self):
         """Test analyze_quality_distribution MCP tool."""
-        from src.mcp_memory_service.server import MemoryServer
-        from src.mcp_memory_service.models.memory import Memory
-        from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+        from mcp_memory_service.server import MemoryServer
+        from mcp_memory_service.models.memory import Memory
+        from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
         # Create temporary database
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -700,13 +700,13 @@ class TestQualityAPILayer:
     @pytest.mark.asyncio
     async def test_rate_memory_http_endpoint(self):
         """Test POST /api/quality/memories/{hash}/rate HTTP endpoint."""
-        from src.mcp_memory_service.web.app import app
-        from src.mcp_memory_service.web.dependencies import get_storage
-        from src.mcp_memory_service.web.oauth.middleware import (
+        from mcp_memory_service.web.app import app
+        from mcp_memory_service.web.dependencies import get_storage
+        from mcp_memory_service.web.oauth.middleware import (
             require_write_access, require_read_access, AuthenticationResult
         )
-        from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-        from src.mcp_memory_service.models.memory import Memory
+        from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+        from mcp_memory_service.models.memory import Memory
 
         # Create temporary database
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -755,13 +755,13 @@ class TestQualityAPILayer:
     @pytest.mark.asyncio
     async def test_get_quality_http_endpoint(self):
         """Test GET /api/quality/memories/{hash} HTTP endpoint."""
-        from src.mcp_memory_service.web.app import app
-        from src.mcp_memory_service.web.dependencies import get_storage
-        from src.mcp_memory_service.web.oauth.middleware import (
+        from mcp_memory_service.web.app import app
+        from mcp_memory_service.web.dependencies import get_storage
+        from mcp_memory_service.web.oauth.middleware import (
             require_write_access, require_read_access, AuthenticationResult
         )
-        from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-        from src.mcp_memory_service.models.memory import Memory
+        from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+        from mcp_memory_service.models.memory import Memory
 
         # Create temporary database
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -812,13 +812,13 @@ class TestQualityAPILayer:
     @pytest.mark.asyncio
     async def test_distribution_http_endpoint(self):
         """Test GET /api/quality/distribution HTTP endpoint."""
-        from src.mcp_memory_service.web.app import app
-        from src.mcp_memory_service.web.dependencies import get_storage
-        from src.mcp_memory_service.web.oauth.middleware import (
+        from mcp_memory_service.web.app import app
+        from mcp_memory_service.web.dependencies import get_storage
+        from mcp_memory_service.web.oauth.middleware import (
             require_write_access, require_read_access, AuthenticationResult
         )
-        from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-        from src.mcp_memory_service.models.memory import Memory
+        from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+        from mcp_memory_service.models.memory import Memory
 
         # Create temporary database
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -878,8 +878,8 @@ class TestQualityAPILayer:
     @pytest.mark.asyncio
     async def test_async_background_scoring(self):
         """Test async quality scoring doesn't block."""
-        from src.mcp_memory_service.quality.async_scorer import AsyncQualityScorer
-        from src.mcp_memory_service.models.memory import Memory
+        from mcp_memory_service.quality.async_scorer import AsyncQualityScorer
+        from mcp_memory_service.models.memory import Memory
 
         scorer = AsyncQualityScorer()
 

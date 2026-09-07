@@ -23,9 +23,9 @@ from unittest.mock import Mock, AsyncMock, patch
 import httpx
 import pytest
 
-from src.mcp_memory_service.storage.cloudflare import CloudflareStorage
-from src.mcp_memory_service.models.memory import Memory
-from src.mcp_memory_service.utils.hashing import generate_content_hash
+from mcp_memory_service.storage.cloudflare import CloudflareStorage
+from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.utils.hashing import generate_content_hash
 
 
 @pytest.fixture
