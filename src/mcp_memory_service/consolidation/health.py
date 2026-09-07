@@ -58,9 +58,10 @@ class HealthAlert:
 
 class ConsolidationHealthMonitor:
     """Monitors health of the consolidation system."""
-    
-    def __init__(self, config=None):
+
+    def __init__(self, config=None, consolidator=None):
         self.config = config
+        self.consolidator = consolidator
         self.logger = logging.getLogger(__name__)
         
         # Health metrics storage
@@ -213,14 +214,31 @@ class ConsolidationHealthMonitor:
     
     async def _check_decay_calculator_health(self) -> Dict[str, Any]:
         """Check decay calculator health."""
+        checks = {}
+        status = HealthStatus.HEALTHY
+
+        # Validate retention periods from config
+        retention_periods = getattr(self.config, 'retention_periods', None)
+        if retention_periods and isinstance(retention_periods, dict) and len(retention_periods) > 0:
+            checks['retention_periods'] = f'configured ({len(retention_periods)} types)'
+        else:
+            checks['retention_periods'] = 'missing'
+            status = HealthStatus.DEGRADED
+
+        # Validate decay algorithm config
+        decay_rate = getattr(self.config, 'decay_rate', None)
+        if decay_rate is not None and 0 < decay_rate < 1:
+            checks['decay_algorithm'] = 'functional'
+        else:
+            checks['decay_algorithm'] = f'rate={decay_rate}'
+
+        checks['configuration'] = 'valid' if status == HealthStatus.HEALTHY else 'degraded'
+
         return {
-            'checks': {
-                'configuration': 'valid',
-                'retention_periods': 'configured',
-                'decay_algorithm': 'functional'
-            },
+            'status': status.value,
+            'checks': checks,
             'metrics': {
-                'recent_calculations': len([h for h in self.performance_history 
+                'recent_calculations': len([h for h in self.performance_history
                                           if h.get('component') == 'decay_calculator'
                                           and h.get('timestamp', datetime.min) > datetime.now() - timedelta(hours=1)])
             }
@@ -228,19 +246,34 @@ class ConsolidationHealthMonitor:
     
     async def _check_association_engine_health(self) -> Dict[str, Any]:
         """Check association engine health."""
-        recent_associations = len([h for h in self.performance_history 
+        checks = {}
+        status = HealthStatus.HEALTHY
+
+        # Validate similarity thresholds from config
+        sim_threshold = getattr(self.config, 'similarity_threshold', None)
+        if sim_threshold is not None and 0 < sim_threshold < 1:
+            checks['similarity_thresholds'] = f'configured ({sim_threshold})'
+        else:
+            checks['similarity_thresholds'] = f'unexpected: {sim_threshold}'
+
+        # Check if association engine is available via consolidator
+        if self.consolidator and hasattr(self.consolidator, 'association_engine'):
+            checks['concept_extraction'] = 'functional'
+            checks['association_discovery'] = 'active'
+        else:
+            checks['concept_extraction'] = 'unavailable'
+            checks['association_discovery'] = 'inactive'
+            status = HealthStatus.DEGRADED
+
+        recent_associations = len([h for h in self.performance_history
                                  if h.get('component') == 'association_engine'
                                  and h.get('timestamp', datetime.min) > datetime.now() - timedelta(hours=1)])
-        
+
         return {
-            'checks': {
-                'similarity_thresholds': 'configured',
-                'concept_extraction': 'functional',
-                'association_discovery': 'active'
-            },
+            'status': status.value,
+            'checks': checks,
             'metrics': {
                 'recent_associations_discovered': recent_associations,
-                'similarity_range': '0.3-0.7'
             }
         }
     
@@ -276,60 +309,212 @@ class ConsolidationHealthMonitor:
     
     async def _check_compression_engine_health(self) -> Dict[str, Any]:
         """Check compression engine health."""
-        return {
-            'checks': {
-                'summary_generation': 'functional',
-                'concept_extraction': 'active',
-                'compression_ratio': 'optimal'
-            },
-            'metrics': {
-                'recent_compressions': len([h for h in self.performance_history 
+        checks = {}
+        status = HealthStatus.HEALTHY
+
+        # Check if compression engine is available via consolidator
+        if self.consolidator and hasattr(self.consolidator, 'compression_engine'):
+            checks['summary_generation'] = 'functional'
+            checks['concept_extraction'] = 'active'
+        else:
+            checks['summary_generation'] = 'unavailable'
+            checks['concept_extraction'] = 'inactive'
+            status = HealthStatus.DEGRADED
+
+        # Check LLM availability for summarization
+        llm_available = getattr(self.config, 'llm_api_key', None) is not None
+        checks['llm_backend'] = 'configured' if llm_available else 'missing (hash fallback)'
+
+        recent_compressions = len([h for h in self.performance_history
                                           if h.get('component') == 'compression_engine'
                                           and h.get('timestamp', datetime.min) > datetime.now() - timedelta(hours=1)])
+
+        return {
+            'status': status.value,
+            'checks': checks,
+            'metrics': {
+                'recent_compressions': recent_compressions,
             }
         }
     
     async def _check_forgetting_engine_health(self) -> Dict[str, Any]:
         """Check forgetting engine health."""
-        return {
-            'checks': {
-                'archive_storage': 'accessible',
-                'relevance_thresholds': 'configured',
-                'controlled_forgetting': 'safe'
-            },
-            'metrics': {
-                'recent_archival_operations': len([h for h in self.performance_history 
+        import os
+        from pathlib import Path
+
+        checks = {}
+        status = HealthStatus.HEALTHY
+
+        # Check archive storage accessibility
+        archive_location = getattr(self.config, 'archive_location', None) or '~/.mcp_memory_archive'
+        archive_path = Path(os.path.expanduser(archive_location))
+        if archive_path.exists() and os.access(archive_path, os.W_OK):
+            checks['archive_storage'] = 'accessible'
+        elif archive_path.exists():
+            checks['archive_storage'] = 'exists but not writable'
+            status = HealthStatus.DEGRADED
+        else:
+            checks['archive_storage'] = f'path does not exist: {archive_path}'
+            status = HealthStatus.DEGRADED
+
+        # Check relevance thresholds from config
+        relevance_threshold = getattr(self.config, 'relevance_threshold', None)
+        if relevance_threshold is not None and 0 < relevance_threshold < 1:
+            checks['relevance_thresholds'] = f'configured ({relevance_threshold})'
+        else:
+            checks['relevance_thresholds'] = f'unexpected: {relevance_threshold}'
+
+        # Check if forgetting engine is available via consolidator
+        if self.consolidator and hasattr(self.consolidator, 'forgetting_engine'):
+            checks['controlled_forgetting'] = 'active'
+        else:
+            checks['controlled_forgetting'] = 'unavailable'
+            status = HealthStatus.DEGRADED
+
+        recent_archival = len([h for h in self.performance_history
                                                  if h.get('component') == 'forgetting_engine'
                                                  and h.get('timestamp', datetime.min) > datetime.now() - timedelta(hours=1)])
+
+        return {
+            'status': status.value,
+            'checks': checks,
+            'metrics': {
+                'recent_archival_operations': recent_archival,
             }
         }
     
     async def _check_scheduler_health(self) -> Dict[str, Any]:
-        """Check scheduler health."""
+        """Check scheduler health.
+
+        When a ConsolidationScheduler reference is available (passed as
+        ``scheduler_ref`` or attached to the consolidator), the check inspects
+        the live APScheduler instance.  Otherwise it falls back to config-level
+        validation so disabled schedulers are reported as *degraded* rather than
+        the hardcoded *healthy* that the old stubs returned.
+        """
+        checks = {}
+        status = HealthStatus.HEALTHY
+
+        # Locate the scheduler instance (may be None if scheduling is off)
+        scheduler = getattr(self, '_scheduler_ref', None)
+        if scheduler is None and self.consolidator is not None:
+            scheduler = getattr(self.consolidator, 'scheduler', None)
+
+        # Check if scheduling is enabled in config
+        schedule_config = getattr(self.config, 'schedule_config', None)
+        if schedule_config and isinstance(schedule_config, dict):
+            disabled_count = sum(1 for v in schedule_config.values() if v == 'disabled')
+            all_disabled = disabled_count == len(schedule_config)
+            checks['config'] = f'{len(schedule_config)} horizons, {disabled_count} disabled'
+        else:
+            all_disabled = True
+            checks['config'] = 'no schedule config'
+
+        if scheduler is not None and hasattr(scheduler, 'scheduler') and scheduler.scheduler is not None:
+            apscheduler = scheduler.scheduler
+            if apscheduler.running:
+                checks['scheduler_running'] = 'active'
+                jobs = apscheduler.get_jobs()
+                checks['scheduled_jobs'] = f'{len(jobs)} jobs'
+                checks['job_scheduling'] = 'functional'
+
+                # Check last execution times
+                last_executions = getattr(scheduler, 'last_execution_times', {})
+                if last_executions:
+                    most_recent = max(last_executions.values())
+                    age = (datetime.now() - most_recent).total_seconds()
+                    checks['last_execution'] = f'{age:.0f}s ago'
+                else:
+                    checks['last_execution'] = 'never (no runs yet)'
+
+                # Execution stats
+                execution_stats = getattr(scheduler, 'execution_stats', {})
+                checks['execution_stats'] = (
+                    f"{execution_stats.get('total_jobs', 0)} total, "
+                    f"{execution_stats.get('successful_jobs', 0)} ok, "
+                    f"{execution_stats.get('failed_jobs', 0)} failed"
+                )
+            else:
+                checks['scheduler_running'] = 'stopped'
+                checks['job_scheduling'] = 'inactive'
+                status = HealthStatus.UNHEALTHY
+        elif all_disabled:
+            # All horizons disabled — report degraded, not healthy
+            checks['scheduler_running'] = 'disabled by config'
+            checks['job_scheduling'] = 'inactive'
+            status = HealthStatus.DEGRADED
+        else:
+            # Scheduling enabled but no scheduler instance — something is wrong
+            checks['scheduler_running'] = 'not initialized'
+            checks['job_scheduling'] = 'unavailable'
+            status = HealthStatus.UNHEALTHY
+
         return {
-            'checks': {
-                'scheduler_running': 'active',
-                'job_scheduling': 'functional',
-                'cron_expressions': 'valid'
-            },
-            'metrics': {
-                'scheduled_jobs': 'configured',
-                'last_execution': 'recent'
-            }
+            'status': status.value,
+            'checks': checks,
+            'metrics': {}
         }
     
     async def _check_storage_backend_health(self) -> Dict[str, Any]:
         """Check storage backend health."""
+        import time
+
+        checks = {}
+        status = HealthStatus.HEALTHY
+
+        # Get storage backend via consolidator
+        storage = None
+        if self.consolidator and hasattr(self.consolidator, 'storage'):
+            storage = self.consolidator.storage
+
+        if storage is None:
+            checks['storage_connection'] = 'not initialized'
+            checks['read_operations'] = 'unavailable'
+            checks['write_operations'] = 'unavailable'
+            return {
+                'status': HealthStatus.UNHEALTHY.value,
+                'checks': checks,
+                'metrics': {}
+            }
+
+        # Ping storage with a read operation
+        start = time.monotonic()
+        try:
+            # Try a lightweight search to verify connectivity
+            if hasattr(storage, 'search'):
+                await storage.search('__health_check_ping__', top_k=1)
+            checks['storage_connection'] = 'connected'
+            checks['read_operations'] = 'functional'
+        except Exception as e:
+            checks['storage_connection'] = f'error: {type(e).__name__}'
+            checks['read_operations'] = 'failing'
+            status = HealthStatus.UNHEALTHY
+
+        response_ms = (time.monotonic() - start) * 1000
+
+        # Check write capability (just verify the method exists, don't actually write)
+        if hasattr(storage, 'store') or hasattr(storage, 'add_memory'):
+            checks['write_operations'] = 'functional'
+        else:
+            checks['write_operations'] = 'method missing'
+            status = HealthStatus.DEGRADED
+
+        # Response time assessment
+        if response_ms > 5000:
+            checks['response_time'] = f'critical: {response_ms:.0f}ms'
+            status = HealthStatus.CRITICAL
+        elif response_ms > 1000:
+            checks['response_time'] = f'slow: {response_ms:.0f}ms'
+            if status == HealthStatus.HEALTHY:
+                status = HealthStatus.DEGRADED
+        else:
+            checks['response_time'] = f'{response_ms:.0f}ms'
+
         return {
-            'checks': {
-                'storage_connection': 'connected',
-                'read_operations': 'functional', 
-                'write_operations': 'functional',
-                'backup_integrity': 'verified'
-            },
+            'status': status.value,
+            'checks': checks,
             'metrics': {
-                'response_time_ms': 'normal',
-                'storage_utilization': 'optimal'
+                'response_time_ms': round(response_ms, 1),
             }
         }
     

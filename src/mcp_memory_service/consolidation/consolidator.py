@@ -164,8 +164,8 @@ class DreamInspiredConsolidator:
             typed_edges_enabled=TYPED_EDGES_ENABLED,
         )
 
-        # Initialize health monitoring
-        self.health_monitor = ConsolidationHealthMonitor(config)
+        # Initialize health monitoring (pass self so checks inspect live components)
+        self.health_monitor = ConsolidationHealthMonitor(config, consolidator=self)
 
         # Initialize run tracker for incremental consolidation
         self.run_tracker: Optional[RunTracker] = None
