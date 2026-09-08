@@ -419,3 +419,48 @@ class TestDreamInspiredConsolidator:
         # but both should complete successfully
         assert report1.performance_metrics["success"] is True
         assert report2.performance_metrics["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_forgetting_candidates_query_stale_tail(self, mock_storage, consolidation_config):
+        """Verify _get_forgetting_candidates queries the stale tail [0, min_age_cutoff].
+
+        Codeberg #325: the forgetting phase must reach back to time zero
+        (everything older than the floor), not just the window between
+        ``min_age_cutoff`` and ``horizon_cutoff``.  Without the fix the
+        start_time would be ``min_age_cutoff`` (non-zero).
+        """
+        from mcp_memory_service.consolidation.consolidator import HORIZON_CONFIGS
+        from datetime import datetime, timedelta, timezone
+
+        # Use a config with a known forgetting_min_age_days
+        consolidation_config.forgetting_min_age_days = 30
+
+        consolidator = DreamInspiredConsolidator(mock_storage, consolidation_config)
+
+        # Spy on get_memories_by_time_range to capture the arguments
+        captured_args = {}
+        original_fn = mock_storage.get_memories_by_time_range
+
+        async def _spy(start_time, end_time, include_embeddings=False):
+            captured_args["start_time"] = start_time
+            captured_args["end_time"] = end_time
+            return await original_fn(start_time, end_time, include_embeddings=include_embeddings)
+
+        mock_storage.get_memories_by_time_range = _spy
+
+        await consolidator._get_forgetting_candidates("weekly")
+
+        # The stale-tail query must start at 0.0, NOT at min_age_cutoff
+        assert captured_args["start_time"] == 0.0, (
+            f"Expected start_time=0.0 (stale tail), got {captured_args['start_time']}"
+        )
+
+        # end_time should be approximately now - min_age_days
+        window_days = HORIZON_CONFIGS["weekly"]["window"].days  # 7
+        min_age_days = max(consolidation_config.forgetting_min_age_days, window_days)
+        now = datetime.now(timezone.utc)
+        expected_end = (now - timedelta(days=min_age_days)).timestamp()
+
+        assert abs(captured_args["end_time"] - expected_end) < 5.0, (
+            f"end_time {captured_args['end_time']} too far from expected {expected_end}"
+        )
