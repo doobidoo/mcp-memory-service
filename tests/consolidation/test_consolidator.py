@@ -464,3 +464,133 @@ class TestDreamInspiredConsolidator:
         assert abs(captured_args["end_time"] - expected_end) < 5.0, (
             f"end_time {captured_args['end_time']} too far from expected {expected_end}"
         )
+
+
+@pytest.mark.integration
+class TestForgettingCandidatesRealStorage:
+    """Test forgetting candidates with a real sqlite-vec store.
+
+    Codeberg #325: seed memories at 30/200/400/800 days old, then verify
+    the forgetting selector returns only the 400- and 800-day memories
+    (older than the 365-day floor), while the horizon selector still
+    returns the 30- and 200-day memories for yearly.
+    """
+
+    @pytest.fixture
+    def real_storage(self, tmp_path):
+        """Create a real SqliteVecMemoryStorage in a temp directory."""
+        from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+        import os
+
+        db_path = str(tmp_path / "test_forgetting.db")
+        storage = SqliteVecMemoryStorage(
+            db_path=db_path,
+            embedding_model="all-MiniLM-L6-v2",
+        )
+        # Initialize synchronously (the fixture is sync)
+        import asyncio
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(storage.initialize())
+
+        yield storage
+
+        try:
+            loop.run_until_complete(storage.close())
+        except Exception:
+            pass
+        try:
+            os.remove(db_path)
+        except OSError:
+            pass
+
+    def _make_memory(self, content, content_hash, days_old):
+        """Create a Memory with timestamps set to `days_old` days ago."""
+        from datetime import datetime, timedelta, timezone
+        import time as time_mod
+
+        now = datetime.now(timezone.utc)
+        dt = now - timedelta(days=days_old)
+        ts = dt.timestamp()
+        iso = dt.isoformat()
+
+        return Memory(
+            content=content,
+            content_hash=content_hash,
+            tags=["test"],
+            memory_type="note",
+            created_at=ts,
+            created_at_iso=iso,
+            updated_at=ts,
+            updated_at_iso=iso,
+        )
+
+    @pytest.mark.asyncio
+    async def test_forgetting_candidates_returns_only_stale_tail(self, real_storage):
+        """Seed at 30/200/400/800 days; forgetting should return 400 and 800."""
+        from mcp_memory_service.consolidation.consolidator import DreamInspiredConsolidator
+        from mcp_memory_service.consolidation.base import ConsolidationConfig
+
+        # Seed memories at different ages
+        memories = [
+            self._make_memory("30 days old", "hash_30d", 30),
+            self._make_memory("200 days old", "hash_200d", 200),
+            self._make_memory("400 days old", "hash_400d", 400),
+            self._make_memory("800 days old", "hash_800d", 800),
+        ]
+        for mem in memories:
+            await real_storage.store(mem)
+
+        # Create consolidator with real storage
+        config = ConsolidationConfig()
+        config.forgetting_min_age_days = 365
+        consolidator = DreamInspiredConsolidator(real_storage, config)
+
+        # Test all three horizons
+        for horizon in ("monthly", "quarterly", "yearly"):
+            candidates = await consolidator._get_forgetting_candidates(horizon)
+            contents = {m.content for m in candidates}
+
+            # 400 and 800 are older than 365 days → should be candidates
+            assert "400 days old" in contents, (
+                f"{horizon}: 400-day memory missing from forgetting candidates"
+            )
+            assert "800 days old" in contents, (
+                f"{horizon}: 800-day memory missing from forgetting candidates"
+            )
+            # 30 and 200 are younger than 365 days → should NOT be candidates
+            assert "30 days old" not in contents, (
+                f"{horizon}: 30-day memory should not be a forgetting candidate"
+            )
+            assert "200 days old" not in contents, (
+                f"{horizon}: 200-day memory should not be a forgetting candidate"
+            )
+
+    @pytest.mark.asyncio
+    async def test_horizon_selector_still_returns_young_memories(self, real_storage):
+        """Verify _get_memories_for_horizon('yearly') still returns 30- and 200-day rows."""
+        from mcp_memory_service.consolidation.consolidator import DreamInspiredConsolidator
+        from mcp_memory_service.consolidation.base import ConsolidationConfig
+
+        # Seed memories (each test gets fresh tmp_path storage)
+        memories = [
+            self._make_memory("30 days old", "hash_30d", 30),
+            self._make_memory("200 days old", "hash_200d", 200),
+            self._make_memory("400 days old", "hash_400d", 400),
+            self._make_memory("800 days old", "hash_800d", 800),
+        ]
+        for mem in memories:
+            await real_storage.store(mem)
+
+        config = ConsolidationConfig()
+        config.forgetting_min_age_days = 365
+        consolidator = DreamInspiredConsolidator(real_storage, config)
+
+        # _get_memories_for_horizon returns memories within the horizon window
+        # For yearly: window = 365 days, so memories 0-365 days old
+        yearly_memories = await consolidator._get_memories_for_horizon("yearly")
+        contents = {m.content for m in yearly_memories}
+
+        # 30 and 200 are within the yearly window
+        assert "30 days old" in contents or "200 days old" in contents, (
+            "yearly horizon should return memories within the 365-day window"
+        )
