@@ -22,7 +22,8 @@ rather than passed.
 
 Environment:
     MCP_QUALITY_LLM_URL      base URL, default http://127.0.0.1:11437/v1
-    MCP_QUALITY_LLM_MODEL    model id; default is the first one the endpoint lists
+    MCP_QUALITY_LLM_MODEL    model id; when unset the first advertised model is
+                             used, with all remaining models as fallbacks
     MCP_QUALITY_LLM_API_KEY  optional bearer token
     MCP_QUALITY_LLM_TIMEOUT  seconds per request, default 180
 
@@ -64,15 +65,28 @@ def _request(path: str, payload=None):
         return json.load(response)
 
 
-def resolve_model() -> str:
-    """Configured model, else the first one the endpoint advertises."""
+def _list_models() -> list[dict]:
+    """Return models the endpoint advertises, empty list on failure."""
+    try:
+        return _request("/models").get("data") or []
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def resolve_model() -> tuple[str, list[str]]:
+    """Primary model and fallback list.
+
+    When MCP_QUALITY_LLM_MODEL is set, it is the primary with no fallbacks.
+    Otherwise the first advertised model is primary and the rest are fallbacks.
+    """
     configured = os.environ.get("MCP_QUALITY_LLM_MODEL")
     if configured:
-        return configured
-    listed = _request("/models").get("data") or []
+        return configured, []
+    listed = _list_models()
     if not listed:
         raise RuntimeError("endpoint lists no models")
-    return listed[0]["id"]
+    ids = [m["id"] for m in listed]
+    return ids[0], ids[1:]
 
 
 def _chat(payload: dict) -> dict:
@@ -106,16 +120,27 @@ def main() -> int:
         print("llm_prompt: empty prompt on stdin", file=sys.stderr)
         return EXIT_NO_BACKEND
     try:
-        model = resolve_model()
-        reply = complete(prompt, model)
-    except Exception as exc:  # noqa: BLE001 - any failure means "no backend"
+        primary, fallbacks = resolve_model()
+    except Exception as exc:  # noqa: BLE001
         print(f"llm_prompt: {_base_url()} unusable: {exc}", file=sys.stderr)
         return EXIT_NO_BACKEND
-    if not reply:
-        print(f"llm_prompt: {model} returned an empty reply", file=sys.stderr)
-        return EXIT_NO_BACKEND
-    print(reply)
-    return 0
+
+    last_exc: Exception | None = None
+    for model in [primary, *fallbacks]:
+        try:
+            reply = complete(prompt, model)
+        except urllib.error.HTTPError:
+            raise  # 400 = bad prompt, don't fallback
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            continue
+        if reply:
+            print(reply)
+            return 0
+
+    failed_on = primary if last_exc is None else f"{primary} (+{len(fallbacks)} fallbacks)"
+    print(f"llm_prompt: {failed_on} returned empty or failed: {last_exc}", file=sys.stderr)
+    return EXIT_NO_BACKEND
 
 
 if __name__ == "__main__":
