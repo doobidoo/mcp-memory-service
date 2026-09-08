@@ -603,6 +603,10 @@ def _check_already_running(base_url: str, port: int) -> int | None:
             f"verify manually at {base_url}/api/health, or run "
             "'memory stop' first if you want to force a restart."
         )
+        click.echo(
+            "Not restarting an already-running process based on an "
+            "unverifiable health check."
+        )
         return existing_pid
 
     # PID exists but server is unhealthy — kill stale process on port
