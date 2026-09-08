@@ -22,13 +22,18 @@ rather than passed.
 
 Environment:
     MCP_QUALITY_LLM_URL      base URL, default http://127.0.0.1:11437/v1
-    MCP_QUALITY_LLM_MODEL    model id; default is the first one the endpoint lists
+    MCP_QUALITY_LLM_MODEL    model id; when unset, probe listed models in order
     MCP_QUALITY_LLM_API_KEY  optional bearer token
     MCP_QUALITY_LLM_TIMEOUT  seconds per request, default 180
 
 Exit codes:
     0  reply printed on stdout
     3  no usable backend (unreachable endpoint, no model, empty reply)
+
+Pass ``--resolve-model`` to print the first model that completes a small probe.
+This lets callers pin later requests to a working model when an endpoint lists
+models that are present but unavailable (for example, an oMLX model returning
+HTTP 507 while another listed model is ready).
 """
 
 import json
@@ -64,15 +69,15 @@ def _request(path: str, payload=None):
         return json.load(response)
 
 
-def resolve_model() -> str:
-    """Configured model, else the first one the endpoint advertises."""
+def model_candidates() -> list[str]:
+    """Return the configured model or every model advertised by the endpoint."""
     configured = os.environ.get("MCP_QUALITY_LLM_MODEL")
     if configured:
-        return configured
+        return [configured]
     listed = _request("/models").get("data") or []
     if not listed:
         raise RuntimeError("endpoint lists no models")
-    return listed[0]["id"]
+    return [item["id"] for item in listed]
 
 
 def _chat(payload: dict) -> dict:
@@ -88,25 +93,52 @@ def _chat(payload: dict) -> dict:
 
 def complete(prompt: str, model: str) -> str:
     """One chat completion, with thinking disabled where the server accepts it."""
-    body = _chat({
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0,
-        # Qwen3 emits <think> blocks that swamp the parseable markers the gates
-        # grep for. Servers that reject the hint get a plain retry.
-        "chat_template_kwargs": {"enable_thinking": False},
-    })
+    body = _chat(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0,
+            # Qwen3 emits <think> blocks that swamp the parseable markers the gates
+            # grep for. Servers that reject the hint get a plain retry.
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+    )
     text = body["choices"][0]["message"].get("content") or ""
     return THINK_BLOCK.sub("", text).strip()
 
 
+def resolve_usable_model() -> str:
+    """Return the first candidate that successfully completes the readiness probe."""
+    failures = []
+    for model in model_candidates():
+        try:
+            if complete("reply with READY", model):
+                return model
+            failures.append(f"{model}: empty reply")
+        except Exception as exc:  # noqa: BLE001 - continue to the next candidate
+            failures.append(f"{model}: {exc}")
+    raise RuntimeError(
+        "no listed model completed the readiness probe (" + "; ".join(failures) + ")"
+    )
+
+
 def main() -> int:
+    if sys.argv[1:] == ["--resolve-model"]:
+        try:
+            print(resolve_usable_model())
+            return 0
+        except Exception as exc:  # noqa: BLE001 - any failure means "no backend"
+            print(f"llm_prompt: {_base_url()} unusable: {exc}", file=sys.stderr)
+            return EXIT_NO_BACKEND
+    if sys.argv[1:]:
+        print(f"llm_prompt: unknown option: {' '.join(sys.argv[1:])}", file=sys.stderr)
+        return EXIT_NO_BACKEND
     prompt = sys.stdin.read()
     if not prompt.strip():
         print("llm_prompt: empty prompt on stdin", file=sys.stderr)
         return EXIT_NO_BACKEND
     try:
-        model = resolve_model()
+        model = model_candidates()[0]
         reply = complete(prompt, model)
     except Exception as exc:  # noqa: BLE001 - any failure means "no backend"
         print(f"llm_prompt: {_base_url()} unusable: {exc}", file=sys.stderr)

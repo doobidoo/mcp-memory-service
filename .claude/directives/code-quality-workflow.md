@@ -92,6 +92,18 @@ bash scripts/quality/weekly_quality_review.sh
 
 ## Pre-commit Hook Setup
 
+### Local analysis model selection
+
+The local quality gate reads `MCP_QUALITY_LLM_URL` (default
+`http://127.0.0.1:11437/v1`) and probes the models advertised by that endpoint
+in order. It pins the first model that completes the readiness request and names
+it in the gate output. Set `MCP_QUALITY_LLM_MODEL` to require a specific model,
+and `MCP_QUALITY_LLM_API_KEY` when the endpoint requires a bearer token.
+
+If an oMLX endpoint returns HTTP 507 for one listed model, that model may be
+unavailable even when disk space is healthy. Leave `MCP_QUALITY_LLM_MODEL`
+unset to try the remaining advertised models, or set it to a known working ID.
+
 ```bash
 # Recommended: Groq for fast, non-interactive checks
 export GROQ_API_KEY="your-groq-api-key"  # Primary (200-300ms, no OAuth)
