@@ -26,9 +26,10 @@ from pydantic import BaseModel, Field
 
 from ...storage.base import MemoryStorage
 from ...models.memory import Memory, MemoryQueryResult
+from ...services.memory_service import MemoryService
 # OAuth config no longer needed - auth is always enabled
 from ...utils.time_parser import parse_time_expression
-from ..dependencies import get_storage
+from ..dependencies import get_storage, get_memory_service
 from .memories import MemoryResponse, memory_to_response
 from ..sse import sse_manager, create_search_completed_event
 
@@ -45,6 +46,39 @@ logger = logging.getLogger(__name__)
 def _sanitize_log_value(value: object) -> str:
     """Sanitize a user-provided value for safe inclusion in log messages."""
     return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
+
+def _memory_to_plugin_dict(memory: Memory) -> dict:
+    """Convert a Memory object to the dict format used by retrieve plugins."""
+    return {
+        "content": memory.content,
+        "content_hash": memory.content_hash,
+        "tags": memory.tags,
+        "memory_type": memory.memory_type,
+        "metadata": memory.metadata,
+        "created_at": memory.created_at,
+        "updated_at": memory.updated_at,
+        "created_at_iso": memory.created_at_iso,
+        "updated_at_iso": memory.updated_at_iso,
+    }
+
+
+def _memory_from_plugin_dict(d: dict) -> Memory:
+    """Reconstruct a Memory object from a plugin-modified dict."""
+    return Memory(
+        content=d.get("content", ""),
+        content_hash=d.get("content_hash", ""),
+        tags=d.get("tags", []),
+        memory_type=d.get("memory_type"),
+        metadata={k: v for k, v in d.items()
+                  if k not in ("content", "content_hash", "tags",
+                               "memory_type", "created_at", "updated_at",
+                               "created_at_iso", "updated_at_iso")},
+        created_at=d.get("created_at"),
+        created_at_iso=d.get("created_at_iso"),
+        updated_at=d.get("updated_at"),
+        updated_at_iso=d.get("updated_at_iso"),
+    )
 
 
 # Request Models
@@ -110,6 +144,7 @@ def memory_to_search_result(memory: Memory, reason: str = None) -> SearchResult:
 async def semantic_search(
     request: SemanticSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """
@@ -160,6 +195,19 @@ async def semantic_search(
             # Take top N after reranking
             query_results = query_results[:request.n_results]
 
+        # Apply retrieve plugins (rerank / augment) before serialization
+        plugin_dicts = [
+            {**_memory_to_plugin_dict(r.memory), "similarity_score": r.relevance_score}
+            for r in query_results
+        ]
+        plugin_dicts = await memory_service.apply_retrieve_plugins(request.query, plugin_dicts)
+        query_results = [
+            MemoryQueryResult(
+                memory=_memory_from_plugin_dict(d),
+                relevance_score=d.get("similarity_score"),
+            )
+            for d in plugin_dicts
+        ]
 
         # Convert to search results
         search_results = []
@@ -205,6 +253,7 @@ async def semantic_search(
 async def tag_search(
     request: TagSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """
@@ -239,6 +288,12 @@ async def tag_search(
                 memory for memory in memories
                 if tag_set.issubset(set(memory.tags))
             ]
+
+        # Apply retrieve plugins (rerank / augment) before serialization
+        plugin_query = f"Tags: {', '.join(request.tags)}"
+        plugin_dicts = [_memory_to_plugin_dict(m) for m in memories]
+        plugin_dicts = await memory_service.apply_retrieve_plugins(plugin_query, plugin_dicts)
+        memories = [_memory_from_plugin_dict(d) for d in plugin_dicts]
 
         # Convert to search results
         match_type = "ALL" if request.match_all else "ANY"
@@ -287,6 +342,7 @@ async def tag_search(
 async def time_search(
     request: TimeSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """
@@ -326,6 +382,20 @@ async def time_search(
         # Limit results
         filtered_memories = query_results[:request.n_results]
 
+        # Apply retrieve plugins (rerank / augment) before serialization
+        plugin_dicts = [
+            {**_memory_to_plugin_dict(r.memory), "similarity_score": r.relevance_score}
+            for r in filtered_memories
+        ]
+        plugin_dicts = await memory_service.apply_retrieve_plugins(request.query, plugin_dicts)
+        filtered_memories = [
+            MemoryQueryResult(
+                memory=_memory_from_plugin_dict(d),
+                relevance_score=d.get("similarity_score"),
+            )
+            for d in plugin_dicts
+        ]
+
         # Convert to search results
         search_results = [
             memory_query_result_to_search_result(result)
@@ -357,6 +427,7 @@ async def find_similar(
     content_hash: str,
     n_results: int = Query(default=10, ge=1, le=100, description="Number of similar memories to find"),
     storage: MemoryStorage = Depends(get_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """
@@ -389,6 +460,21 @@ async def find_similar(
             result for result in similar_results
             if result.memory.content_hash != content_hash
         ][:n_results]
+
+        # Apply retrieve plugins (rerank / augment) before serialization
+        plugin_query = f"Similar to: {target_memory.content[:80]}"
+        plugin_dicts = [
+            {**_memory_to_plugin_dict(r.memory), "similarity_score": r.relevance_score}
+            for r in filtered_results
+        ]
+        plugin_dicts = await memory_service.apply_retrieve_plugins(plugin_query, plugin_dicts)
+        filtered_results = [
+            MemoryQueryResult(
+                memory=_memory_from_plugin_dict(d),
+                relevance_score=d.get("similarity_score"),
+            )
+            for d in plugin_dicts
+        ]
 
         # Convert to search results
         search_results = [
