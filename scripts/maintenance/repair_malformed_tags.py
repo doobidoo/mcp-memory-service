@@ -40,7 +40,7 @@ from typing import List, Tuple, Set, Dict
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.mcp_memory_service.config import SQLITE_VEC_PATH
+from mcp_memory_service.config import SQLITE_VEC_PATH
 
 # Configure logging
 logging.basicConfig(

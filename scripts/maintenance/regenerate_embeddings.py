@@ -17,8 +17,8 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.mcp_memory_service.storage.factory import create_storage_instance
-from src.mcp_memory_service.config import SQLITE_VEC_PATH
+from mcp_memory_service.storage.factory import create_storage_instance
+from mcp_memory_service.config import SQLITE_VEC_PATH
 
 logging.basicConfig(
     level=logging.INFO,
@@ -113,7 +113,7 @@ async def regenerate_embeddings():
                     memory_id = result[0]
 
                     # Insert embedding
-                    from src.mcp_memory_service.storage.sqlite_vec import serialize_float32
+                    from mcp_memory_service.storage.sqlite_vec import serialize_float32
                     actual_storage.conn.execute(
                         'INSERT OR REPLACE INTO memory_embeddings(rowid, content_embedding) VALUES (?, ?)',
                         (memory_id, serialize_float32(embedding))

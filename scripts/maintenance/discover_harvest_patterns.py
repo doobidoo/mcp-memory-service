@@ -33,10 +33,10 @@ from typing import List, Optional, Dict, Tuple
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.mcp_memory_service.harvest.parser import TranscriptParser, ParsedMessage
-from src.mcp_memory_service.harvest.extractor import PatternExtractor
-from src.mcp_memory_service.harvest.patterns import PATTERNS_DIR
-from src.mcp_memory_service.harvest.models import HARVEST_TYPES
+from mcp_memory_service.harvest.parser import TranscriptParser, ParsedMessage
+from mcp_memory_service.harvest.extractor import PatternExtractor
+from mcp_memory_service.harvest.patterns import PATTERNS_DIR
+from mcp_memory_service.harvest.models import HARVEST_TYPES
 logger = logging.getLogger(__name__)
 LOW_YIELD_MAX_MATCHES = 3
 LOW_YIELD_MIN_MESSAGES = 50
