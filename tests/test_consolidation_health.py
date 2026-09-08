@@ -192,17 +192,21 @@ class TestAssociationEngineHealth:
 
 class TestClusteringEngineHealth:
     def test_healthy_with_hdbscan(self):
+        from mcp_memory_service.consolidation.clustering import SKLEARN_AVAILABLE
         cfg = _make_config(clustering_algorithm="hdbscan")
         monitor = ConsolidationHealthMonitor(config=cfg)
         result = _run(monitor._check_clustering_engine_health())
         assert "checks" in result
-        assert result["checks"]["sklearn"] == "available"
+        expected = "available" if SKLEARN_AVAILABLE else "unavailable"
+        assert result["checks"]["sklearn"] == expected
 
     def test_healthy_with_fuzzy_cmeans(self):
+        from mcp_memory_service.consolidation.clustering import SKLEARN_AVAILABLE
         cfg = _make_config(clustering_algorithm="fuzzy_cmeans")
         monitor = ConsolidationHealthMonitor(config=cfg)
         result = _run(monitor._check_clustering_engine_health())
-        assert result["checks"]["sklearn"] == "available"
+        expected = "available" if SKLEARN_AVAILABLE else "unavailable"
+        assert result["checks"]["sklearn"] == expected
 
 
 # ---------------------------------------------------------------------------
