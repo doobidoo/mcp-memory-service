@@ -5038,11 +5038,12 @@ body.dark-mode .quality-tier-low,
     max-width: 280px;
     max-height: 50vh;
     overflow: auto;
-    background: rgba(10, 12, 20, 0.72);
-    backdrop-filter: blur(6px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    font-size: 0.78rem;
-    opacity: 0.9;
+    background: rgba(10, 12, 20, 0.88);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.82rem;
 }
 
 .graph-legend-overlay.hidden {
@@ -5322,6 +5323,25 @@ body.dark-mode .quality-tier-low,
 #graphFullscreenModal:fullscreen,
 #graphFullscreenModal:-webkit-full-screen {
     background: #01010a;
+}
+#graphFullscreenModal:fullscreen .graph-fullscreen-header,
+#graphFullscreenModal:-webkit-full-screen .graph-fullscreen-header {
+    background: rgba(10, 12, 20, 0.85);
+    backdrop-filter: blur(8px);
+}
+#graphFullscreenModal:fullscreen .graph-fullscreen-filters,
+#graphFullscreenModal:-webkit-full-screen .graph-fullscreen-filters {
+    background: rgba(10, 12, 20, 0.7);
+}
+#graphFullscreenModal:fullscreen .btn-secondary,
+#graphFullscreenModal:-webkit-full-screen .btn-secondary {
+    background: rgba(255, 255, 255, 0.15);
+    color: var(--text-primary);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+#graphFullscreenModal:fullscreen .btn-secondary:hover,
+#graphFullscreenModal:-webkit-full-screen .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.25);
 }
 
 .graph-fullscreen-header {
