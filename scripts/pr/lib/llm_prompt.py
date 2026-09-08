@@ -20,15 +20,22 @@ shell quality gates so complexity and security analysis run against a local
 model instead of a paid API, and so a missing backend is reported as skipped
 rather than passed.
 
+When MCP_QUALITY_LLM_MODEL is not set, the helper tries every model the
+endpoint advertises (in listed order) until one succeeds.  This avoids a
+single broken model (e.g. oMLX returning 507 Insufficient Storage for a
+quantisation that cannot load) silently disabling the entire gate.
+
 Environment:
     MCP_QUALITY_LLM_URL      base URL, default http://127.0.0.1:11437/v1
-    MCP_QUALITY_LLM_MODEL    model id; default is the first one the endpoint lists
+    MCP_QUALITY_LLM_MODEL    model id; if unset, tries all listed models.
+                              Pin this when the endpoint hosts a mix of
+                              working and broken models (e.g. oMLX 507s).
     MCP_QUALITY_LLM_API_KEY  optional bearer token
     MCP_QUALITY_LLM_TIMEOUT  seconds per request, default 180
 
 Exit codes:
-    0  reply printed on stdout
-    3  no usable backend (unreachable endpoint, no model, empty reply)
+    0  reply printed on stdout (model name on stderr)
+    3  no usable backend (unreachable endpoint, no model, all candidates failed)
 """
 
 import json
@@ -64,15 +71,15 @@ def _request(path: str, payload=None):
         return json.load(response)
 
 
-def resolve_model() -> str:
-    """Configured model, else the first one the endpoint advertises."""
+def resolve_model() -> list[str]:
+    """Return candidate models to try: configured model first, then all listed."""
     configured = os.environ.get("MCP_QUALITY_LLM_MODEL")
     if configured:
-        return configured
+        return [configured]
     listed = _request("/models").get("data") or []
     if not listed:
         raise RuntimeError("endpoint lists no models")
-    return listed[0]["id"]
+    return [m["id"] for m in listed]
 
 
 def _chat(payload: dict) -> dict:
@@ -106,16 +113,24 @@ def main() -> int:
         print("llm_prompt: empty prompt on stdin", file=sys.stderr)
         return EXIT_NO_BACKEND
     try:
-        model = resolve_model()
-        reply = complete(prompt, model)
+        candidates = resolve_model()
     except Exception as exc:  # noqa: BLE001 - any failure means "no backend"
         print(f"llm_prompt: {_base_url()} unusable: {exc}", file=sys.stderr)
         return EXIT_NO_BACKEND
-    if not reply:
-        print(f"llm_prompt: {model} returned an empty reply", file=sys.stderr)
-        return EXIT_NO_BACKEND
-    print(reply)
-    return 0
+    last_exc = None
+    for model in candidates:
+        try:
+            reply = complete(prompt, model)
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            continue
+        if reply:
+            print(f"llm_prompt: using model {model}", file=sys.stderr)
+            print(reply)
+            return 0
+    err = last_exc or "empty reply from all candidates"
+    print(f"llm_prompt: {_base_url()} unusable: {err}", file=sys.stderr)
+    return EXIT_NO_BACKEND
 
 
 if __name__ == "__main__":

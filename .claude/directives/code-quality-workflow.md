@@ -90,6 +90,26 @@ bash scripts/quality/weekly_quality_review.sh
 - **PR Quality Gate**: `--with-pyscn` flag for comprehensive analysis
 - **Periodic**: Weekly pyscn analysis with trend tracking
 
+## Quality Gate LLM Configuration
+
+The PR quality gate (`quality_gate.sh`) uses `scripts/pr/lib/llm_prompt.py` for
+complexity and security analysis.  It talks to a local OpenAI-compatible endpoint
+(default `http://127.0.0.1:11437/v1`).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCP_QUALITY_LLM_URL` | `http://127.0.0.1:11437/v1` | Base URL of the LLM endpoint |
+| `MCP_QUALITY_LLM_MODEL` | *(auto)* | Pin a specific model id. **Set this if the endpoint hosts a mix of working and broken models** — e.g. oMLX returning HTTP 507 for a quantisation that cannot load. |
+| `MCP_QUALITY_LLM_API_KEY` | *(none)* | Bearer token for authenticated endpoints |
+| `MCP_QUALITY_LLM_TIMEOUT` | `180` | Seconds per request |
+
+When `MCP_QUALITY_LLM_MODEL` is not set, the helper tries every model the
+endpoint advertises (in listed order) until one succeeds.  This avoids a single
+broken model silently disabling the gate.
+
+**Symptom:** Gate exits 3 and prints `unusable` — check the model name on stderr;
+if it is the first listed model, pin a working one with `MCP_QUALITY_LLM_MODEL`.
+
 ## Pre-commit Hook Setup
 
 ```bash

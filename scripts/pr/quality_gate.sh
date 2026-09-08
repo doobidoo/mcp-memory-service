@@ -67,7 +67,7 @@ if [ "$LLM_BACKEND" = "gemini" ]; then
         echo "   Skipped, NOT passed: complexity and security were not evaluated."
         exit $EXIT_SKIPPED
     fi
-elif ! echo "reply with READY" | python3 "$LLM_HELPER" > /dev/null 2>&1; then
+elif ! _ready_stderr=$(echo "reply with READY" | python3 "$LLM_HELPER" 2>&1 1>/dev/null); then
     echo "WARNING: no local analysis model reachable - skipping AI-based quality checks."
     echo "   Tried ${MCP_QUALITY_LLM_URL:-http://127.0.0.1:11437/v1} via $LLM_HELPER."
     echo "   Skipped, NOT passed: complexity and security were not evaluated."
@@ -77,6 +77,9 @@ elif ! echo "reply with READY" | python3 "$LLM_HELPER" > /dev/null 2>&1; then
     # the status code, and pre_pr_check.sh used to report this as a green check.
     exit $EXIT_SKIPPED
 fi
+
+# Extract model name from the READY probe's stderr
+_llm_model_used=$(echo "$_ready_stderr" | grep -o 'using model .*' | head -1 | sed 's/using model //')
 
 # analyze <prompt> - one model call, empty output on failure so callers stay simple.
 analyze() {
@@ -92,7 +95,11 @@ if [ "$MODE" = "staged" ]; then
 else
     echo "=== PR Quality Gate for #$PR_NUMBER ==="
 fi
-echo "Analysis backend: $LLM_BACKEND"
+if [ -n "$_llm_model_used" ]; then
+    echo "Analysis backend: $LLM_BACKEND ($_llm_model_used)"
+else
+    echo "Analysis backend: $LLM_BACKEND"
+fi
 echo ""
 
 exit_code=0
