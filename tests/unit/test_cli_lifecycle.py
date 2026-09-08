@@ -307,3 +307,20 @@ def test_launch_help_text_security_warning():
     assert '--host' in result.output, "Help should show --host option"
     # Check that the help text mentions security concerns
     # The fix adds a warning about binding to non-loopback hosts
+
+
+def test_check_already_running_returns_pid_on_healthy():
+    """Test that _check_already_running returns the existing PID when healthy.
+
+    This exercises the extracted helper introduced in the lifecycle refactoring.
+    Without the refactoring, this function does not exist.
+    """
+    from mcp_memory_service.cli.lifecycle import _check_already_running
+
+    with (
+        patch('mcp_memory_service.cli.lifecycle._read_pid', return_value=12345),
+        patch('mcp_memory_service.cli.lifecycle._probe_health') as mock_probe,
+    ):
+        mock_probe.return_value = ({"status": "healthy"}, False)
+        result = _check_already_running("http://127.0.0.1:8000", 8000)
+        assert result == 12345
