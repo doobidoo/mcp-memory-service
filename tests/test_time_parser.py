@@ -126,6 +126,39 @@ class TestTimeParser:
         # Summer is roughly June 21 to September 22
         assert start_dt.month == 6
         assert end_dt.month == 9
+
+    @pytest.mark.parametrize(
+        ("season", "expected_start", "expected_end"),
+        [
+            ("spring", date(2026, 3, 20), date(2026, 6, 20)),
+            ("summer", date(2025, 6, 21), date(2025, 9, 22)),
+            ("fall", date(2025, 9, 23), date(2025, 12, 20)),
+            ("winter", date(2025, 12, 21), date(2026, 3, 19)),
+        ],
+    )
+    def test_last_seasons_are_most_recent_completed_occurrences(
+        self, monkeypatch, season, expected_start, expected_end
+    ):
+        """Test that "last" never selects a future or stale season."""
+        today = date(2026, 9, 8)
+
+        class FixedDate(date):
+            @classmethod
+            def today(cls):
+                return cls.fromordinal(today.toordinal())
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 9, 8, 12, tzinfo=tz)
+
+        monkeypatch.setitem(parse_time_expression.__globals__, "date", FixedDate)
+        monkeypatch.setitem(parse_time_expression.__globals__, "datetime", FixedDateTime)
+
+        start_ts, end_ts = parse_time_expression(f"last {season}")
+
+        assert datetime.fromtimestamp(start_ts).date() == expected_start  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == expected_end  # noqa: DTZ006
     
     def test_holidays(self):
         """Test parsing holiday names"""
