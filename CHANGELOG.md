@@ -25,6 +25,15 @@ Thanks to eunwoo song for the retrieval fix below (#1128) and to timkjr for the 
 
 ### Fixed
 
+- **`memory launch` now matches the supervised HTTP launcher (#1116).** HTTPS
+  launches without explicit certificate paths reuse the packaged self-signed
+  certificate generator, including configured additional IP and hostname SANs.
+  Certificate generation failures now stop both launch paths instead of letting
+  the legacy script downgrade an HTTPS configuration to HTTP.
+  The shipped launchd plist now runs `memory launch --foreground`, and the
+  service guide explains that a `KeepAlive` agent must be unloaded before
+  `memory stop` can remain stopped.
+
 - **fix(storage): apply eligibility filters before the nearest-neighbour limit (#1128, eunwoo song, closes #1077).** `recall()` and `retrieve()` asked sqlite-vec for the k nearest embeddings first and filtered afterwards, so soft-deleted rows, rows outside the requested time window, and rows excluded by tag or supersession consumed the candidate budget before a valid match could be seen. With enough excluded neighbours the result set came back short or empty even though matching memories existed. Both queries now restrict the KNN scan to eligible rowids, so k counts only memories that can actually be returned. The tests run against real sqlite-vec with 4,100 excluded neighbours crowding five valid ones, which is what distinguishes a fix here from a fix that merely reorders the same failure.
 - **fix(consolidation): map recommendation values onto the API's public contract (#1087, timkjr).** `/api/consolidation/recommendations/{time_horizon}` sanitized its output against an allowlist of uppercase values, but `DreamInspiredConsolidator.get_consolidation_recommendations()` has always returned lowercase snake_case ones (`consolidation_beneficial`, `optional`, `no_action`, `error`). Nothing ever matched, so every call returned `"recommendation": "UNKNOWN"` regardless of the consolidator's actual assessment. The values are now mapped explicitly, with the CWE-209 fallback kept for anything unrecognised. Traces back to Codeberg #328, ported here from Codeberg PR #339.
 - **fix(consolidation): derive DBSCAN's eps from the data's own k-distance curve (#1088, timkjr).** `eps` was computed from dataset size alone (`0.5 - n/10000`, clamped), which bakes in an assumption about how far apart an embedding model puts unrelated text. all-MiniLM-L6-v2 keeps unrelated content at a narrow, elevated baseline similarity, so density-reachability chained memories into one giant cluster — observed at 989 of 1,104 memories in a single cluster with coherence 0.461. `eps` now comes from the knee of the sorted k-distance curve (Ester et al., 1996), computed with `NearestNeighbors` rather than a full n×n distance matrix. Ported from Codeberg PR #340.
@@ -1357,4 +1366,3 @@ First release published from Codeberg (Forgejo). It bundles the post-migration b
 ### Fixed
 
 - **[#687] `Get-McpApiKey` returned first character of API key instead of full key**: A Gemini-suggested refactor in v10.36.3 replaced a working implementation with `($matches[1], $matches[2], $matches[3] | Where-Object { $_ -ne $null })[0]`. Unmatched regex capture groups are absent from `$matches` (not `$null`), so when only one group matched the comma expression produced a single-element string, which PowerShell enumerated to its `Char` array — making `[0]` return `'b'` instead of `bxvWZwrI...`. This broke `manage_service.ps1 status` for all Windows users: Version and Backend showed `(unavailable - set MCP_API_KEY in .env for details)` even when the key was correctly configured. Fixed by replacing the comma expression with an explicit `if/elseif` chain using `$matches.ContainsKey(N)` and `[string]` casts. Verified live: returns full 43-character key string, `manage_service.ps1 status` correctly displays Version and Backend.
-

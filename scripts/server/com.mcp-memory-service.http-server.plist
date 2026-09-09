@@ -9,8 +9,9 @@
     <array>
         <string>/Users/hkr/.local/bin/uv</string>
         <string>run</string>
-        <string>python</string>
-        <string>scripts/server/run_http_server.py</string>
+        <string>memory</string>
+        <string>launch</string>
+        <string>--foreground</string>
     </array>
 
     <key>WorkingDirectory</key>
