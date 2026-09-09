@@ -342,7 +342,7 @@ def generate_self_signed_certificate(
                 if end_date > datetime.now(timezone.utc) + timedelta(days=7):
                     return str(cert_file), str(key_file)
             except (IndexError, ValueError, subprocess.SubprocessError):
-                pass
+                pass  # Existing certificate is unreadable or invalid; replace it.
 
         san_entries = [
             "DNS:memory.local",
@@ -360,7 +360,7 @@ def generate_self_signed_certificate(
             if local_ip != "127.0.0.1":
                 san_entries.append(f"IP:{local_ip}")
         except OSError:
-            pass
+            pass  # Network discovery is optional; the fixed local SANs remain.
         finally:
             if udp_socket is not None:
                 udp_socket.close()
