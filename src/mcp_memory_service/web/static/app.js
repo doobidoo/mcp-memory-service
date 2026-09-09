@@ -70,7 +70,7 @@ class MemoryDashboard {
     };
 
     constructor() {
-        this.apiBase = '/api';
+        this.apiBase = 'api';
         this.eventSource = null;
         this.memories = [];
         this.currentView = 'dashboard';
@@ -229,7 +229,7 @@ class MemoryDashboard {
     async ensureFallbackTranslations() {
         if (Object.keys(this.fallbackTranslations).length > 0) return;
         try {
-            const response = await fetch('/static/i18n/en.json');
+            const response = await fetch('static/i18n/en.json');
             if (response.ok) {
                 this.fallbackTranslations = await response.json();
             }
@@ -244,7 +244,7 @@ class MemoryDashboard {
      */
     async detectAvailableLanguages() {
         try {
-            const response = await fetch('/api/languages');
+            const response = await fetch('api/languages');
             if (response.ok) {
                 const data = await response.json();
                 this.supportedLanguages = data.languages || ['en'];
@@ -261,7 +261,7 @@ class MemoryDashboard {
     async loadLanguageMetadata() {
         for (const lang of this.supportedLanguages) {
             try {
-                const response = await fetch(`/static/i18n/${lang}.json`);
+            const response = await fetch(`static/i18n/${lang}.json`);
                 if (response.ok) {
                     const data = await response.json();
                     this.languageMetadata[lang] = {
@@ -354,7 +354,7 @@ class MemoryDashboard {
      */
     async loadTranslations(lang) {
         try {
-            const response = await fetch(`/static/i18n/${lang}.json`);
+            const response = await fetch(`static/i18n/${lang}.json`);
             if (response.ok) {
                 this.translations = await response.json();
                 this.currentLang = lang;
@@ -700,7 +700,7 @@ class MemoryDashboard {
 
         try {
             // Build SSE URL with query parameter auth (EventSource API doesn't support custom headers)
-            const sseUrl = new URL(`${this.apiBase}/events`, window.location.origin);
+            const sseUrl = new URL(`${this.apiBase}/events`, document.baseURI);
             if (this.authState.apiKey) {
                 sseUrl.searchParams.set('api_key', this.authState.apiKey);
             } else if (this.authState.oauthToken) {
@@ -3691,7 +3691,7 @@ class MemoryDashboard {
         if (oauthBtn) {
             oauthBtn.addEventListener('click', () => {
                 // Redirect to OAuth authorization endpoint
-                window.location.href = '/oauth/authorize';
+                window.location.href = 'oauth/authorize';
             });
         }
     }
@@ -3922,7 +3922,7 @@ class MemoryDashboard {
                 }
             } catch (apiErr) {
                 // /server/status unavailable (server still down or auth-gated) — try /api/health as a liveness probe
-                const response = await fetch('/api/health');
+                const response = await fetch('api/health');
                 if (response.ok && preRestartPid == null && preRestartVersion == null) {
                     if (statusEl) { statusEl.textContent = 'Server is back online! Reloading...'; }
                     setTimeout(() => { window.location.reload(); }, 1500);

@@ -192,6 +192,7 @@ docker run -d -p 8000:8000 \
 | `MCP_MEMORY_STORAGE_BACKEND` | `sqlite_vec` | Storage backend (`sqlite_vec`, `cloudflare`, `hybrid`) |
 | `MCP_HTTP_HOST` | `0.0.0.0` | HTTP server bind address |
 | `MCP_HTTP_PORT` | `8000` | HTTP server port |
+| `MCP_HTTP_ROOT_PATH` | empty | External path prefix removed by a reverse proxy, such as `/memory` |
 | `MCP_STANDALONE_MODE` | `false` | Enable standalone HTTP mode |
 | `MCP_API_KEY` | `none` | API key for authentication |
 

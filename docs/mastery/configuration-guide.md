@@ -47,9 +47,23 @@ Cloudflare options (required unless otherwise noted):
 - `MCP_HTTP_ENABLED`: `true|false` to enable HTTP interface.
 - `MCP_HTTP_HOST`: Bind address (default `0.0.0.0`).
 - `MCP_HTTP_PORT`: Port (default `8000`).
+- `MCP_HTTP_ROOT_PATH`: External path prefix when a reverse proxy strips the
+  prefix before forwarding (for example, `/memory`). Defaults to empty.
 - `MCP_CORS_ORIGINS`: Comma-separated origins (default `*`).
 - `MCP_SSE_HEARTBEAT`: SSE heartbeat interval seconds (default 30).
 - `MCP_API_KEY`: Optional API key for HTTP.
+
+For a proxy that exposes the service at `https://host.example/memory/` and
+forwards the request without `/memory`, set:
+
+```bash
+MCP_HTTP_ROOT_PATH=/memory
+```
+
+The dashboard, static assets, REST/SSE requests, API documentation, and
+auto-detected OAuth endpoint URLs then use the same prefix. If OAuth uses a
+public hostname, continue to set `MCP_OAUTH_ISSUER` to the complete external
+issuer URL, including the prefix.
 
 TLS:
 
@@ -95,4 +109,3 @@ TLS:
   - Ensure required variables are set or the process exits with a clear error and checklist.
 - Hybrid (recommended for production):
   - Uses SQLite-vec for 5 ms local reads with background Cloudflare sync. Requires all `CLOUDFLARE_*` variables. Set `MCP_HYBRID_SYNC_OWNER=http` when running alongside an MCP server so only the HTTP server syncs.
-

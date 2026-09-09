@@ -4,7 +4,7 @@ import secrets
 import logging
 
 from .base import safe_get_int_env, safe_get_bool_env, get_base_directory
-from .transport import HTTPS_ENABLED, HTTP_HOST, HTTP_PORT
+from .transport import HTTPS_ENABLED, HTTP_HOST, HTTP_PORT, HTTP_ROOT_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -261,9 +261,9 @@ def get_oauth_issuer() -> str:
 
     # Only include port if it's not the standard port for the scheme
     if (scheme == "https" and HTTP_PORT != 443) or (scheme == "http" and HTTP_PORT != 80):
-        return f"{scheme}://{host}:{HTTP_PORT}"
+        return f"{scheme}://{host}:{HTTP_PORT}{HTTP_ROOT_PATH}"
     else:
-        return f"{scheme}://{host}"
+        return f"{scheme}://{host}{HTTP_ROOT_PATH}"
 
 # OAuth issuer URL - CRITICAL for reverse proxy deployments
 # Production: Set MCP_OAUTH_ISSUER to external URL (e.g., "https://api.example.com")
