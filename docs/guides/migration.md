@@ -273,7 +273,7 @@ If migration failed or corrupted data:
 1. **Restore from backup:**
    ```bash
    # If you created a backup
-   python scripts/restore_memories.py migration_backup.json
+   ./scripts/backup/backup_sqlite_vec.sh
    ```
 
 2. **Rollback to ChromaDB:**

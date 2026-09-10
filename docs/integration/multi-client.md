@@ -409,7 +409,7 @@ netstat -an | grep :8000
 
 1. **Backup existing data:**
    ```bash
-   python scripts/backup_memories.py
+   ./scripts/backup/backup_sqlite_vec.sh
    ```
 
 2. **Enable the shared HTTP server:**
