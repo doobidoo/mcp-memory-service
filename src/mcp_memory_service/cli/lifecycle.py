@@ -73,10 +73,17 @@ def _read_pid() -> int | None:
         # Support both old format (just an int) and new format (JSON with metadata)
         try:
             pid_info = json.loads(content)
-            pid = pid_info.get("pid", int(content)) if isinstance(pid_info, dict) else int(pid_info)
         except (ValueError, TypeError):
-            pid = int(content)
-    except (ValueError, OSError):
+            pid_info = content
+
+        if isinstance(pid_info, dict):
+            pid_value = pid_info.get("pid")
+            if pid_value is None:
+                return None
+        else:
+            pid_value = pid_info
+        pid = int(pid_value)
+    except (ValueError, TypeError, OSError):
         return None
     if _is_process_alive(pid):
         # Validate against stale PID files (PID reuse after reboot)

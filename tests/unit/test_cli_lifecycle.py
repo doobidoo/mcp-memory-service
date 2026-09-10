@@ -307,3 +307,49 @@ def test_launch_help_text_security_warning():
     assert '--host' in result.output, "Help should show --host option"
     # Check that the help text mentions security concerns
     # The fix adds a warning about binding to non-loopback hosts
+
+
+
+def test_read_pid_accepts_json_metadata_for_live_process(tmp_path, monkeypatch):
+    """A live managed child must survive JSON PID metadata validation."""
+    import json
+    import subprocess
+
+    from mcp_memory_service.cli import lifecycle
+
+    # Match the launcher's stable command-line prefix without importing the
+    # real uvicorn application: a tiny temporary module keeps the child alive.
+    (tmp_path / "uvicorn.py").write_text("import time\ntime.sleep(60)\n")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(tmp_path)
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "mcp_memory_service.web.app:app"],
+        cwd=tmp_path,
+        env=env,
+    )
+
+    pid_path = tmp_path / "server.pid"
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: pid_path)
+    monkeypatch.setattr(lifecycle, "_ensure_dirs", lambda: None)
+
+    try:
+        lifecycle._write_pid(proc.pid)
+        metadata_text = pid_path.read_text()
+        metadata = json.loads(metadata_text)
+        assert metadata["pid"] == proc.pid
+        assert lifecycle._is_stale_pid(pid_path) is False
+        assert lifecycle._read_pid() == proc.pid
+
+        # The structured format must not regress support for pre-metadata PID files.
+        pid_path.write_text(str(proc.pid))
+        assert lifecycle._read_pid() == proc.pid
+        pid_path.write_text(metadata_text)
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+
+    assert lifecycle._is_stale_pid(pid_path) is True

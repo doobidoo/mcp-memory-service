@@ -25,6 +25,8 @@ Thanks to eunwoo song for the retrieval fix below (#1128) and to timkjr for the 
 
 ### Fixed
 
+- **CLI lifecycle JSON PID metadata parsing (#1210)**: `memory launch` now reads the structured PID file written by `_write_pid()` without eagerly evaluating the legacy integer fallback. A second launch therefore recognizes the live managed process instead of treating it as stale and replacing it. Legacy integer PID files remain supported.
+
 - **Tag search now honors `match_all=True` (#1196).** The MCP `search_by_tag` path applies AND matching through storage instead of returning OR results labelled `ALL`. Default ANY matching, tag normalization, and empty queries retain their existing behavior. Regression tests assert exact result sets against real SQLite storage.
 
 - **fix(storage): apply eligibility filters before the nearest-neighbour limit (#1128, eunwoo song, closes #1077).** `recall()` and `retrieve()` asked sqlite-vec for the k nearest embeddings first and filtered afterwards, so soft-deleted rows, rows outside the requested time window, and rows excluded by tag or supersession consumed the candidate budget before a valid match could be seen. With enough excluded neighbours the result set came back short or empty even though matching memories existed. Both queries now restrict the KNN scan to eligible rowids, so k counts only memories that can actually be returned. The tests run against real sqlite-vec with 4,100 excluded neighbours crowding five valid ones, which is what distinguishes a fix here from a fix that merely reorders the same failure.
