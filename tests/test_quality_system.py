@@ -916,6 +916,62 @@ class TestQualityAPILayer:
         finally:
             await scorer.stop()
 
+    @pytest.mark.asyncio
+    async def test_initialization_does_not_block_event_loop(self):
+        """Model initialization runs off the loop, so other tasks keep running.
+
+        The previous test disables the evaluator to keep the minutes-long
+        torch.onnx.export out of CI. This one keeps the evaluator ENABLED and
+        replaces only the leaf load (get_onnx_ranker_model) with a slow, blocking
+        stub, so the real async init path runs — the fix under test is that this
+        path no longer freezes the event loop.
+
+        A heartbeat task ticks every 10ms while a batch evaluation triggers first
+        init. If init ran synchronously on the loop (the bug) the heartbeat cannot
+        tick during the stub's sleep; running it in a thread lets the heartbeat
+        advance. This is red without the change: the stub blocks the loop and the
+        tick count is 0.
+        """
+        def slow_get_ranker(model_name=None, device="auto"):
+            time.sleep(0.5)  # stands in for the real torch.onnx.export of DeBERTa
+
+            class _Ranker:
+                def score_quality_batch(self, pairs):
+                    return [0.5] * len(pairs)
+
+                def score_quality(self, query, content):
+                    return 0.5
+
+            return _Ranker()
+
+        evaluator = QualityEvaluator(
+            QualityConfig(enabled=True, ai_provider='local', fallback_enabled=False)
+        )
+
+        ticks = 0
+
+        async def heartbeat():
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        heartbeat_task = asyncio.create_task(heartbeat())
+        try:
+            with patch(
+                'mcp_memory_service.quality.ai_evaluator.get_onnx_ranker_model',
+                slow_get_ranker,
+            ):
+                memories = [Memory(content="x", content_hash="h", metadata={})]
+                await evaluator.evaluate_quality_batch("query", memories)
+        finally:
+            heartbeat_task.cancel()
+
+        # The loop kept scheduling the heartbeat through the 0.5s init. 20 ticks
+        # is a wide margin below the ~50 a free loop manages, above the 0 a
+        # blocked loop allows.
+        assert ticks >= 20, f"event loop was blocked during init: {ticks} ticks"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
