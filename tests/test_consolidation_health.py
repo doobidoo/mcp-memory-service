@@ -217,19 +217,20 @@ class TestClusteringEngineHealth:
 class TestCompressionEngineHealth:
     def test_healthy_with_no_llm(self):
         cfg = _make_config()
-        consolidator = _make_consolidator(compression_engine=SimpleNamespace(llm_client=None))
+        consolidator = _make_consolidator()
         monitor = ConsolidationHealthMonitor(config=cfg, consolidator=consolidator)
         result = _run(monitor._check_compression_engine_health())
         assert result["status"] == HealthStatus.HEALTHY.value
-        assert "hash fallback" in result["checks"]["llm_backend"]
+        assert result["checks"]["summary_generation"] == "functional"
+        assert result["checks"]["concept_extraction"] == "active"
 
-    def test_healthy_with_llm_configured(self):
+    def test_healthy_with_consolidator(self):
         cfg = _make_config()
-        engine = SimpleNamespace(llm_client=object())
-        consolidator = _make_consolidator(compression_engine=engine)
+        consolidator = _make_consolidator()
         monitor = ConsolidationHealthMonitor(config=cfg, consolidator=consolidator)
         result = _run(monitor._check_compression_engine_health())
-        assert "configured" in result["checks"]["llm_backend"]
+        assert result["checks"]["summary_generation"] == "functional"
+        assert result["checks"]["concept_extraction"] == "active"
 
     def test_healthy_without_consolidator(self):
         cfg = _make_config()
