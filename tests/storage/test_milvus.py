@@ -1211,41 +1211,40 @@ def test_embedding_cache_does_not_collide():
     must produce (and return) different embeddings — covers the silent-wrong-
     embedding risk of 64-bit hash collisions.
     """
-    from mcp_memory_service.storage import milvus as milvus_mod
-
+    from mcp_memory_service.storage import shared as shared_mod
     # Reset cache to isolate this test from others in the session.
-    with milvus_mod._EMBEDDING_CACHE_LOCK:
-        milvus_mod._EMBEDDING_CACHE.clear()
+    with shared_mod._EMBEDDING_CACHE_LOCK:
+        shared_mod._EMBEDDING_CACHE.clear()
 
     key_a = "model::hello"
     key_b = "model::world"
-    milvus_mod._embedding_cache_put(key_a, [1.0, 2.0, 3.0])
-    milvus_mod._embedding_cache_put(key_b, [4.0, 5.0, 6.0])
+    shared_mod._embedding_cache_put(key_a, [1.0, 2.0, 3.0])
+    shared_mod._embedding_cache_put(key_b, [4.0, 5.0, 6.0])
 
-    assert milvus_mod._embedding_cache_get(key_a) == [1.0, 2.0, 3.0]
-    assert milvus_mod._embedding_cache_get(key_b) == [4.0, 5.0, 6.0]
+    assert shared_mod._embedding_cache_get(key_a) == [1.0, 2.0, 3.0]
+    assert shared_mod._embedding_cache_get(key_b) == [4.0, 5.0, 6.0]
     # Distinct keys → distinct embeddings, not shared cells.
-    assert milvus_mod._embedding_cache_get(key_a) is not milvus_mod._embedding_cache_get(key_b)
+    assert shared_mod._embedding_cache_get(key_a) is not shared_mod._embedding_cache_get(key_b)
 
 
 def test_embedding_cache_bounded():
     """Inserting 2000 unique entries must not push the cache past its max
     size — the LRU evicts the oldest.
     """
-    from mcp_memory_service.storage import milvus as milvus_mod
+    from mcp_memory_service.storage import shared as shared_mod
 
-    with milvus_mod._EMBEDDING_CACHE_LOCK:
-        milvus_mod._EMBEDDING_CACHE.clear()
+    with shared_mod._EMBEDDING_CACHE_LOCK:
+        shared_mod._EMBEDDING_CACHE.clear()
 
-    max_size = milvus_mod._EMBEDDING_CACHE_MAX
+    max_size = shared_mod._EMBEDDING_CACHE_MAX
     for i in range(2000):
-        milvus_mod._embedding_cache_put(f"model::entry-{i}", [float(i)])
+        shared_mod._embedding_cache_put(f"model::entry-{i}", [float(i)])
 
-    assert milvus_mod._embedding_cache_size() <= max_size
+    assert shared_mod._embedding_cache_size() <= max_size
     # Oldest entries should have been evicted.
-    assert milvus_mod._embedding_cache_get("model::entry-0") is None
+    assert shared_mod._embedding_cache_get("model::entry-0") is None
     # Newest entries should still be resident.
-    assert milvus_mod._embedding_cache_get("model::entry-1999") == [1999.0]
+    assert shared_mod._embedding_cache_get("model::entry-1999") == [1999.0]
 
 
 # -- BM25 / enable_analyzer schema validation (PR #762 review) -------------
