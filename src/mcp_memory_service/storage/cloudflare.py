@@ -33,6 +33,8 @@ from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
+_MAX_TAG_SEARCH_CANDIDATES = 4096
+
 
 def normalize_tags_for_search(tags: List[str]) -> List[str]:
     """Deduplicate and filter empty tag strings.
@@ -729,7 +731,11 @@ class CloudflareStorage(MemoryStorage):
             # Search Vectorize (without namespace for now)
             search_payload = {
                 "vector": query_embedding,
-                "topK": n_results,
+                "topK": (
+                    min(n_results * 3, _MAX_TAG_SEARCH_CANDIDATES)
+                    if tags
+                    else n_results
+                ),
                 "returnMetadata": "all",
                 "returnValues": False
             }
@@ -760,6 +766,9 @@ class CloudflareStorage(MemoryStorage):
                         relevance_score=match.get("score", 0.0)
                     )
                     results.append(query_result)
+
+            if tags:
+                results = results[:n_results]
 
             # Persist updated metadata for accessed memories
             for result in results:
