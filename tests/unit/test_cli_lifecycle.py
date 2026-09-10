@@ -19,10 +19,19 @@ Tests verify the new launch/stop/restart/info/health/logs commands
 are properly registered and functional.
 """
 
-import sys
 import os
-from unittest.mock import patch, MagicMock
+import socket
+import subprocess
+import sys
+import textwrap
+from unittest.mock import MagicMock
+
 from click.testing import CliRunner
+
+from mcp_memory_service.cli import lifecycle
+
+
+_REAL_KILL_PROCESS = lifecycle._kill_process
 
 # The _kill_process real-signal guard and MCP_HTTP_PORT/HOST pinning live
 # in conftest.py's autouse _lifecycle_process_safety_net fixture -- it
@@ -68,6 +77,157 @@ def test_stop_command_structure():
     param_names = [p.name for p in stop.params]
     assert 'http_host' in param_names
     assert 'http_port' in param_names
+    assert 'force' in param_names
+
+
+def _unused_local_port():
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        return listener.getsockname()[1]
+
+
+def _start_listener(command, env=None):
+    proc = subprocess.Popen(
+        command,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert proc.stdout.readline().strip() == "ready"
+    return proc
+
+
+def _foreign_listener(port):
+    code = textwrap.dedent(
+        """
+        import socket
+        import time
+
+        listener = socket.socket()
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", PORT))
+        listener.listen()
+        print("ready", flush=True)
+        time.sleep(60)
+        """
+    ).replace("PORT", str(port))
+    return _start_listener([sys.executable, "-c", code])
+
+
+def _memory_server_listener(tmp_path, port):
+    module_dir = tmp_path / "uvicorn"
+    module_dir.mkdir()
+    (module_dir / "__init__.py").write_text("")
+    (module_dir / "__main__.py").write_text(
+        textwrap.dedent(
+            """
+            import socket
+            import sys
+            import time
+
+            port = int(sys.argv[sys.argv.index("--port") + 1])
+            listener = socket.socket()
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", port))
+            listener.listen()
+            print("ready", flush=True)
+            time.sleep(60)
+            """
+        )
+    )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(tmp_path)
+    return _start_listener(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "mcp_memory_service.web.app:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        env=env,
+    )
+
+
+def test_memory_server_command_requires_launcher_app_position():
+    """An unrelated Uvicorn process must not match on a later argument."""
+    assert lifecycle._is_memory_server_command(
+        [sys.executable, "-m", "uvicorn", "mcp_memory_service.web.app:app"]
+    )
+    assert not lifecycle._is_memory_server_command(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "unrelated.web:app",
+            "--app-dir",
+            "mcp_memory_service.fake",
+        ]
+    )
+
+
+def test_stop_refuses_to_kill_foreign_listener_without_force(monkeypatch, tmp_path):
+    """A missing PID file must not make stop kill an unrelated service."""
+    port = _unused_local_port()
+    proc = _foreign_listener(port)
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: tmp_path / "server.pid")
+
+    try:
+        result = CliRunner().invoke(lifecycle.stop, ["--port", str(port)])
+
+        assert result.exit_code != 0
+        assert str(proc.pid) in result.output
+        assert sys.executable in result.output
+        assert "Refusing to stop" in result.output
+        assert "--force" in result.output
+        assert proc.poll() is None
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_stop_kills_untracked_memory_server_listener(monkeypatch, tmp_path):
+    """The lost-PID recovery path still stops a launcher-shaped process."""
+    port = _unused_local_port()
+    proc = _memory_server_listener(tmp_path, port)
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: tmp_path / "server.pid")
+    monkeypatch.setattr(lifecycle, "_kill_process", _REAL_KILL_PROCESS)
+
+    try:
+        result = CliRunner().invoke(lifecycle.stop, ["--port", str(port)])
+
+        assert result.exit_code == 0, result.output
+        proc.wait(timeout=5)
+        assert "Server stopped" in result.output
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            proc.wait(timeout=5)
+
+
+def test_stop_force_kills_foreign_listener(monkeypatch, tmp_path):
+    """The explicit force escape hatch can terminate a foreign listener."""
+    port = _unused_local_port()
+    proc = _foreign_listener(port)
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: tmp_path / "server.pid")
+    monkeypatch.setattr(lifecycle, "_kill_process", _REAL_KILL_PROCESS)
+
+    try:
+        result = CliRunner().invoke(
+            lifecycle.stop, ["--port", str(port), "--force"]
+        )
+
+        assert result.exit_code == 0, result.output
+        proc.wait(timeout=5)
+        assert "Server stopped" in result.output
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            proc.wait(timeout=5)
     
 
 
