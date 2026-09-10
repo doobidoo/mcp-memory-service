@@ -342,14 +342,6 @@ class ConsolidationHealthMonitor:
         checks['summary_generation'] = 'functional'
         checks['concept_extraction'] = 'active'
 
-        # Check LLM availability by inspecting the compression engine's LLM client
-        llm_configured = False
-        if self.consolidator is not None:
-            engine = getattr(self.consolidator, 'compression_engine', None)
-            if engine is not None:
-                llm_configured = getattr(engine, 'llm_client', None) is not None
-        checks['llm_backend'] = 'configured' if llm_configured else 'hash fallback'
-
         recent_compressions = _count_recent(
             self.performance_history, 'compression_engine'
         )
@@ -411,60 +403,19 @@ class ConsolidationHealthMonitor:
         """
         checks = {}
         status = HealthStatus.HEALTHY
-
-        # Locate the scheduler instance (may be None if scheduling is off)
         scheduler = self._scheduler_ref
 
-        # Read schedule_config from the scheduler (the authoritative source)
-        schedule_config = None
-        if scheduler is not None:
-            schedule_config = getattr(scheduler, 'schedule_config', None)
-        if schedule_config is None and self.config is not None:
-            schedule_config = getattr(self.config, 'schedule_config', None)
-
-        if schedule_config and isinstance(schedule_config, dict):
-            disabled_count = sum(1 for v in schedule_config.values() if v == 'disabled')
-            all_disabled = disabled_count == len(schedule_config)
-            checks['config'] = f'{len(schedule_config)} horizons, {disabled_count} disabled'
-        else:
-            all_disabled = True
-            checks['config'] = 'no schedule config'
+        schedule_config = self._resolve_schedule_config(scheduler)
+        all_disabled = self._apply_schedule_config_check(checks, schedule_config)
 
         if scheduler is not None and hasattr(scheduler, 'scheduler') and scheduler.scheduler is not None:
-            apscheduler = scheduler.scheduler
-            if apscheduler.running:
-                checks['scheduler_running'] = 'active'
-                jobs = apscheduler.get_jobs()
-                checks['scheduled_jobs'] = f'{len(jobs)} jobs'
-                checks['job_scheduling'] = 'functional'
-
-                # Check last execution times
-                last_executions = getattr(scheduler, 'last_execution_times', {})
-                if last_executions:
-                    most_recent = max(last_executions.values())
-                    age = (datetime.now() - most_recent).total_seconds()
-                    checks['last_execution'] = f'{age:.0f}s ago'
-                else:
-                    checks['last_execution'] = 'never (no runs yet)'
-
-                # Execution stats
-                execution_stats = getattr(scheduler, 'execution_stats', {})
-                checks['execution_stats'] = (
-                    f"{execution_stats.get('total_jobs', 0)} total, "
-                    f"{execution_stats.get('successful_jobs', 0)} ok, "
-                    f"{execution_stats.get('failed_jobs', 0)} failed"
-                )
-            else:
-                checks['scheduler_running'] = 'stopped'
-                checks['job_scheduling'] = 'inactive'
-                status = HealthStatus.UNHEALTHY
+            status = self._check_apscheduler_jobs(
+                scheduler.scheduler, scheduler, checks)
         elif all_disabled:
-            # All horizons disabled — report degraded, not healthy
             checks['scheduler_running'] = 'disabled by config'
             checks['job_scheduling'] = 'inactive'
             status = HealthStatus.DEGRADED
         else:
-            # Scheduling enabled but no scheduler instance — something is wrong
             checks['scheduler_running'] = 'not initialized'
             checks['job_scheduling'] = 'unavailable'
             status = HealthStatus.UNHEALTHY
@@ -475,12 +426,60 @@ class ConsolidationHealthMonitor:
             'metrics': {}
         }
 
+    def _resolve_schedule_config(self, scheduler) -> Optional[dict]:
+        """Get schedule_config from scheduler or config."""
+        if scheduler is not None:
+            config = getattr(scheduler, 'schedule_config', None)
+            if config is not None:
+                return config
+        if self.config is not None:
+            return getattr(self.config, 'schedule_config', None)
+        return None
+
+    @staticmethod
+    def _apply_schedule_config_check(
+            checks: dict, schedule_config: Optional[dict]) -> bool:
+        """Populate checks['config'], return True if all horizons disabled."""
+        if schedule_config and isinstance(schedule_config, dict):
+            disabled = sum(1 for v in schedule_config.values() if v == 'disabled')
+            checks['config'] = (
+                f'{len(schedule_config)} horizons, {disabled} disabled')
+            return disabled == len(schedule_config)
+        checks['config'] = 'no schedule config'
+        return True
+
+    @staticmethod
+    def _check_apscheduler_jobs(apscheduler, scheduler, checks: dict) -> HealthStatus:
+        """Inspect a running APScheduler instance."""
+        if not apscheduler.running:
+            checks['scheduler_running'] = 'stopped'
+            checks['job_scheduling'] = 'inactive'
+            return HealthStatus.UNHEALTHY
+
+        checks['scheduler_running'] = 'active'
+        checks['scheduled_jobs'] = f'{len(apscheduler.get_jobs())} jobs'
+        checks['job_scheduling'] = 'functional'
+
+        last_executions = getattr(scheduler, 'last_execution_times', {})
+        if last_executions:
+            age = (datetime.now() - max(last_executions.values())).total_seconds()
+            checks['last_execution'] = f'{age:.0f}s ago'
+        else:
+            checks['last_execution'] = 'never (no runs yet)'
+
+        stats = getattr(scheduler, 'execution_stats', {})
+        checks['execution_stats'] = (
+            f"{stats.get('total_jobs', 0)} total, "
+            f"{stats.get('successful_jobs', 0)} ok, "
+            f"{stats.get('failed_jobs', 0)} failed"
+        )
+        return HealthStatus.HEALTHY
+
     async def _check_storage_backend_health(self) -> Dict[str, Any]:
         """Check storage backend health."""
         checks = {}
         status = HealthStatus.HEALTHY
 
-        # Get storage backend via consolidator
         storage = None
         if self.consolidator is not None:
             storage = getattr(self.consolidator, 'storage', None)
@@ -495,46 +494,9 @@ class ConsolidationHealthMonitor:
                 'metrics': {}
             }
 
-        # Ping storage with a lightweight read operation
-        start = time.monotonic()
-        try:
-            if hasattr(storage, 'count_all_memories'):
-                count = await storage.count_all_memories()
-                checks['storage_connection'] = 'connected'
-                checks['read_operations'] = 'functional'
-                checks['memory_count'] = count
-            elif hasattr(storage, 'get_stats'):
-                stats = await storage.get_stats()
-                checks['storage_connection'] = 'connected'
-                checks['read_operations'] = 'functional'
-                checks['memory_count'] = stats.get('total_memories', 'unknown')
-            else:
-                checks['storage_connection'] = 'no ping method'
-                checks['read_operations'] = 'unverifiable'
-        except Exception as e:
-            checks['storage_connection'] = f'error: {type(e).__name__}'
-            checks['read_operations'] = 'failing'
-            status = HealthStatus.UNHEALTHY
-
-        response_ms = (time.monotonic() - start) * 1000
-
-        # Check write capability (just verify the method exists, don't actually write)
-        if hasattr(storage, 'store') or hasattr(storage, 'add_memory'):
-            checks['write_operations'] = 'functional'
-        else:
-            checks['write_operations'] = 'method missing'
-            status = HealthStatus.DEGRADED
-
-        # Response time assessment
-        if response_ms > 5000:
-            checks['response_time'] = f'critical: {response_ms:.0f}ms'
-            status = HealthStatus.CRITICAL
-        elif response_ms > 1000:
-            checks['response_time'] = f'slow: {response_ms:.0f}ms'
-            if status == HealthStatus.HEALTHY:
-                status = HealthStatus.DEGRADED
-        else:
-            checks['response_time'] = f'{response_ms:.0f}ms'
+        status, response_ms = await self._ping_storage(storage, checks)
+        self._check_write_capability(storage, checks, status)
+        status = self._check_response_time(response_ms, checks, status)
 
         return {
             'status': status.value,
@@ -543,6 +505,64 @@ class ConsolidationHealthMonitor:
                 'response_time_ms': round(response_ms, 1),
             }
         }
+
+    @staticmethod
+    async def _ping_storage(
+            storage, checks: dict) -> tuple[HealthStatus, float]:
+        """Ping storage and populate connection/read checks."""
+        status = HealthStatus.HEALTHY
+        start = time.monotonic()
+        try:
+            if hasattr(storage, 'get_stats'):
+                stats = await storage.get_stats()
+                has_error = ('error' in stats
+                             or stats.get('status') == 'error')
+                if has_error:
+                    checks['storage_connection'] = 'error'
+                    checks['read_operations'] = 'failing'
+                    status = HealthStatus.UNHEALTHY
+                else:
+                    checks['storage_connection'] = 'connected'
+                    checks['read_operations'] = 'functional'
+                    checks['memory_count'] = stats.get(
+                        'total_memories', 'unknown')
+            elif hasattr(storage, 'count_all_memories'):
+                count = await storage.count_all_memories()
+                checks['storage_connection'] = 'connected'
+                checks['read_operations'] = 'functional'
+                checks['memory_count'] = count
+            else:
+                checks['storage_connection'] = 'no ping method'
+                checks['read_operations'] = 'unverifiable'
+        except Exception as e:
+            checks['storage_connection'] = f'error: {type(e).__name__}'
+            checks['read_operations'] = 'failing'
+            status = HealthStatus.UNHEALTHY
+        response_ms = (time.monotonic() - start) * 1000
+        return status, response_ms
+
+    @staticmethod
+    def _check_write_capability(storage, checks: dict, status: HealthStatus) -> None:
+        """Verify storage has a write method."""
+        if hasattr(storage, 'store') or hasattr(storage, 'add_memory'):
+            checks['write_operations'] = 'functional'
+        else:
+            checks['write_operations'] = 'method missing'
+
+    @staticmethod
+    def _check_response_time(
+            response_ms: float, checks: dict, status: HealthStatus) -> HealthStatus:
+        """Assess response time and mutate status if degraded/critical."""
+        if response_ms > 5000:
+            checks['response_time'] = f'critical: {response_ms:.0f}ms'
+            return HealthStatus.CRITICAL
+        if response_ms > 1000:
+            checks['response_time'] = f'slow: {response_ms:.0f}ms'
+            if status == HealthStatus.HEALTHY:
+                return HealthStatus.DEGRADED
+        else:
+            checks['response_time'] = f'{response_ms:.0f}ms'
+        return status
 
     async def _generate_health_recommendations(self) -> List[str]:
         """Generate health recommendations based on current system state."""

@@ -134,3 +134,26 @@ class TestHealthMonitorRealStorage:
         monitor2 = ConsolidationHealthMonitor(bad_config, consolidator=None)
         result2 = await monitor2._check_association_engine_health()
         assert result2['status'] == HealthStatus.DEGRADED.value
+
+    @pytest.mark.asyncio
+    async def test_closed_storage_reports_unhealthy(self, real_storage, health_config):
+        """After close(), get_stats() returns an error dict — health must be UNHEALTHY."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        # Wrap real storage in a mock consolidator
+        consolidator = MagicMock()
+        consolidator.storage = real_storage
+
+        monitor = ConsolidationHealthMonitor(health_config, consolidator=consolidator)
+
+        # Sanity: healthy before close
+        result_before = await monitor._check_storage_backend_health()
+        assert result_before['status'] == HealthStatus.HEALTHY.value
+
+        # Close the connection (close is async)
+        await real_storage.close()
+
+        # get_stats() should now return an error dict
+        result_after = await monitor._check_storage_backend_health()
+        assert result_after['status'] == HealthStatus.UNHEALTHY.value
+        assert result_after['checks']['read_operations'] == 'failing'
