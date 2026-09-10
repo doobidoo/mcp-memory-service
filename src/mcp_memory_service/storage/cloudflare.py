@@ -1582,11 +1582,9 @@ class CloudflareStorage(MemoryStorage):
                 }
 
             return {
-                "total_memories": 0,
-                "unique_tags": 0,
-                "memories_this_week": 0,
                 "storage_backend": "cloudflare",
-                "status": "operational"
+                "status": "error",
+                "error": "D1 stats query returned no successful result row",
             }
 
         except Exception as e:

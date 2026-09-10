@@ -641,6 +641,19 @@ class MilvusMemoryStorage(MemoryStorage):
             kwargs["token"] = self.token
         self.client = MilvusClient(**kwargs)
 
+    async def health_probe(self) -> bool:
+        """Perform a cheap concrete client operation without stats fallbacks."""
+        if not self._ensure_initialized():
+            return False
+        try:
+            return bool(
+                await self._call_client(
+                    "has_collection", collection_name=self.collection_name
+                )
+            )
+        except Exception:
+            return False
+
     async def _call_client(self, method_name: str, *args, **kwargs):
         """Invoke ``self.client.<method_name>(*args, **kwargs)`` safely.
 

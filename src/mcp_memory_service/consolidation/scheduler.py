@@ -60,6 +60,9 @@ class ConsolidationScheduler:
             'successful_jobs': 0,
             'failed_jobs': 0
         }
+        # Health checks must inspect the live scheduler rather than a literal
+        # "active" placeholder.
+        self.consolidator.health_monitor.scheduler = self
         
         # Initialize scheduler if APScheduler is available
         if APSCHEDULER_AVAILABLE and enabled:
@@ -394,6 +397,7 @@ class ConsolidationScheduler:
             
             # Update configuration
             self.schedule_config = new_schedule_config
+            self.consolidator.health_monitor.schedule_config = new_schedule_config
             
             # Re-schedule jobs
             self._schedule_consolidation_jobs()

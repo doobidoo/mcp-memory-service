@@ -15,6 +15,8 @@
 """Health monitoring and error handling for consolidation system."""
 
 import logging
+import os
+import tempfile
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
@@ -59,8 +61,13 @@ class HealthAlert:
 class ConsolidationHealthMonitor:
     """Monitors health of the consolidation system."""
     
-    def __init__(self, config=None):
+    def __init__(
+        self, config=None, consolidator=None, scheduler=None, schedule_config=None
+    ):
         self.config = config
+        self.consolidator = consolidator
+        self.scheduler = scheduler
+        self.schedule_config = schedule_config or {}
         self.logger = logging.getLogger(__name__)
         
         # Health metrics storage
@@ -213,11 +220,22 @@ class ConsolidationHealthMonitor:
     
     async def _check_decay_calculator_health(self) -> Dict[str, Any]:
         """Check decay calculator health."""
+        periods = getattr(self.config, 'retention_periods', None)
+        calculator = (
+            getattr(self.consolidator, 'decay_calculator', None)
+            if self.consolidator else None
+        )
         return {
+            'status': (
+                HealthStatus.HEALTHY.value
+                if periods
+                and all(value > 0 for value in periods.values())
+                and calculator
+                else HealthStatus.UNHEALTHY.value
+            ),
             'checks': {
-                'configuration': 'valid',
-                'retention_periods': 'configured',
-                'decay_algorithm': 'functional'
+                'retention_periods': periods if periods else 'invalid',
+                'decay_algorithm': 'present' if calculator else 'unverifiable'
             },
             'metrics': {
                 'recent_calculations': len([h for h in self.performance_history 
@@ -232,15 +250,30 @@ class ConsolidationHealthMonitor:
                                  if h.get('component') == 'association_engine'
                                  and h.get('timestamp', datetime.min) > datetime.now() - timedelta(hours=1)])
         
+        minimum = getattr(self.config, 'min_similarity', None)
+        maximum = getattr(self.config, 'max_similarity', None)
+        engine = (
+            getattr(self.consolidator, 'association_engine', None)
+            if self.consolidator else None
+        )
+        valid = (
+            isinstance(minimum, (int, float))
+            and isinstance(maximum, (int, float))
+            and 0 <= minimum < maximum <= 1
+        )
         return {
+            'status': (
+                HealthStatus.HEALTHY.value
+                if valid and engine else HealthStatus.UNHEALTHY.value
+            ),
             'checks': {
-                'similarity_thresholds': 'configured',
-                'concept_extraction': 'functional',
-                'association_discovery': 'active'
+                'similarity_bounds': (minimum, maximum) if valid else 'invalid',
+                'association_engine': 'present' if engine else 'unverifiable'
             },
             'metrics': {
                 'recent_associations_discovered': recent_associations,
-                'similarity_range': '0.3-0.7'
+                'min_similarity': minimum,
+                'max_similarity': maximum,
             }
         }
     
@@ -255,17 +288,29 @@ class ConsolidationHealthMonitor:
         from .clustering import SKLEARN_AVAILABLE, resolve_clustering_algorithm
 
         configured = self.config.clustering_algorithm
+        engine = (
+            getattr(self.consolidator, 'clustering_engine', None)
+            if self.consolidator else None
+        )
         try:
             algorithm = resolve_clustering_algorithm(configured)
         except ConsolidationError:
             algorithm = f"unsatisfiable: '{configured}' needs scikit-learn"
 
+        healthy = not algorithm.startswith("unsatisfiable:") and engine is not None
         return {
+            'status': (
+                HealthStatus.HEALTHY.value
+                if healthy else HealthStatus.UNHEALTHY.value
+            ),
             'checks': {
                 'clustering_algorithm': algorithm,
+                'clustering_engine': 'present' if engine else 'unverifiable',
                 'sklearn': 'available' if SKLEARN_AVAILABLE else 'unavailable',
-                'minimum_cluster_size': 'configured',
-                'embedding_processing': 'functional'
+                'minimum_cluster_size': getattr(
+                    self.config, 'min_cluster_size', 'unverifiable'
+                ),
+                'embedding_processing': 'unverifiable'
             },
             'metrics': {
                 'recent_clusters_created': len([h for h in self.performance_history 
@@ -275,12 +320,38 @@ class ConsolidationHealthMonitor:
         }
     
     async def _check_compression_engine_health(self) -> Dict[str, Any]:
-        """Check compression engine health."""
+        """Check compression engine health.
+
+        Compression is local: statistical summarisation over clusters, with no
+        external service behind it. An attached engine and a usable summary
+        bound are therefore the whole of what can be observed, and a
+        deployment where both hold has nothing wrong with it.
+        """
+        enabled = bool(getattr(self.config, 'compression_enabled', False))
+        engine = (
+            getattr(self.consolidator, 'compression_engine', None)
+            if self.consolidator else None
+        )
+        summary_length = getattr(self.config, 'max_summary_length', None)
+        valid = (
+            isinstance(summary_length, int)
+            and not isinstance(summary_length, bool)
+            and summary_length > 0
+        )
         return {
+            'status': (
+                HealthStatus.HEALTHY.value if not enabled else (
+                    HealthStatus.HEALTHY.value if engine and valid
+                    else HealthStatus.UNHEALTHY.value
+                )
+            ),
             'checks': {
-                'summary_generation': 'functional',
-                'concept_extraction': 'active',
-                'compression_ratio': 'optimal'
+                'compression': (
+                    'disabled by configuration' if not enabled else (
+                        'engine present' if engine else 'engine not attached'
+                    )
+                ),
+                'max_summary_length': summary_length if valid else 'invalid'
             },
             'metrics': {
                 'recent_compressions': len([h for h in self.performance_history 
@@ -291,11 +362,57 @@ class ConsolidationHealthMonitor:
     
     async def _check_forgetting_engine_health(self) -> Dict[str, Any]:
         """Check forgetting engine health."""
+        enabled = bool(getattr(self.config, 'forgetting_enabled', False))
+        archive = getattr(self.config, 'archive_location', None)
+        relevance = getattr(self.config, 'relevance_threshold', None)
+        access_days = getattr(self.config, 'access_threshold_days', None)
+        engine = (
+            getattr(self.consolidator, 'forgetting_engine', None)
+            if self.consolidator else None
+        )
+        # ControlledForgettingEngine expands '~' before it writes here
+        # (forgetting.py), so a probe that does not expand it reports a
+        # working archive directory as unwritable.
+        archive_path = os.path.expanduser(archive) if archive else None
+        writable = False
+        if archive_path and os.path.isdir(archive_path):
+            path = None
+            try:
+                fd, path = tempfile.mkstemp(prefix='.health-', dir=archive_path)
+                os.close(fd)
+                writable = True
+            except OSError:
+                pass
+            finally:
+                if path:
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
+        valid = (
+            isinstance(relevance, (int, float))
+            and 0 <= relevance <= 1
+            and isinstance(access_days, (int, float))
+            and access_days > 0
+        )
         return {
+            'status': (
+                HealthStatus.HEALTHY.value if not enabled else (
+                    HealthStatus.HEALTHY.value if writable and valid and engine
+                    else HealthStatus.UNHEALTHY.value
+                )
+            ),
             'checks': {
-                'archive_storage': 'accessible',
-                'relevance_thresholds': 'configured',
-                'controlled_forgetting': 'safe'
+                'archive_storage': (
+                    'disabled by configuration' if not enabled else (
+                        'writable' if writable else 'not writable'
+                    )
+                ),
+                'thresholds': (
+                    {'relevance': relevance, 'access_days': access_days}
+                    if valid else 'invalid'
+                ),
+                'controlled_forgetting': 'engine present' if engine else 'unverifiable'
             },
             'metrics': {
                 'recent_archival_operations': len([h for h in self.performance_history 
@@ -306,32 +423,127 @@ class ConsolidationHealthMonitor:
     
     async def _check_scheduler_health(self) -> Dict[str, Any]:
         """Check scheduler health."""
+        live_config = getattr(
+            self.scheduler, 'schedule_config', self.schedule_config
+        ) if self.scheduler else self.schedule_config
+        all_disabled = bool(live_config) and all(
+            value == 'disabled' for value in live_config.values()
+        )
+        if self.scheduler is None:
+            return {
+                'status': (
+                    HealthStatus.HEALTHY.value if all_disabled
+                    else HealthStatus.UNHEALTHY.value
+                ),
+                'checks': {
+                    'scheduler': (
+                        'disabled by configuration' if all_disabled
+                        else 'scheduler not attached'
+                    )
+                },
+                'metrics': {'schedule_config': live_config},
+            }
+        status = await self.scheduler.get_scheduler_status()
+        if not status.get('enabled'):
+            return {
+                'status': (
+                    HealthStatus.HEALTHY.value if all_disabled
+                    else HealthStatus.UNHEALTHY.value
+                ),
+                'checks': {
+                    'scheduler': (
+                        'disabled by configuration' if all_disabled
+                        else status.get('reason', 'scheduler unavailable')
+                    )
+                },
+                'metrics': status,
+            }
+        if not status.get('running'):
+            return {
+                'status': HealthStatus.UNHEALTHY.value,
+                'checks': {'scheduler': 'enabled but not running'},
+                'metrics': status,
+            }
+        if not live_config:
+            return {
+                'status': HealthStatus.UNHEALTHY.value,
+                'checks': {
+                    'scheduler': (
+                        'running with no observable schedule configuration'
+                    )
+                },
+                'metrics': status,
+            }
+        expected = {
+            f"consolidation_{horizon}"
+            for horizon, value in live_config.items()
+            if value != 'disabled'
+        }
+        actual = {
+            job.get('id')
+            for job in status.get('jobs', [])
+            if job.get('id', '').startswith('consolidation_')
+        }
+        missing, unexpected = expected - actual, actual - expected
+        if missing or unexpected:
+            return {
+                'status': HealthStatus.UNHEALTHY.value,
+                'checks': {
+                    'scheduler': 'configured jobs do not match running jobs',
+                    'missing_jobs': sorted(missing),
+                    'unexpected_jobs': sorted(unexpected),
+                },
+                'metrics': {
+                    'schedule_config': live_config,
+                    'scheduled_jobs': len(actual),
+                },
+            }
         return {
+            'status': HealthStatus.HEALTHY.value,
             'checks': {
-                'scheduler_running': 'active',
-                'job_scheduling': 'functional',
-                'cron_expressions': 'valid'
+                'scheduler_running': 'running',
+                'configured_jobs': sorted(expected),
+                'scheduled_jobs': sorted(actual),
             },
             'metrics': {
-                'scheduled_jobs': 'configured',
-                'last_execution': 'recent'
-            }
+                'scheduled_jobs': len(actual),
+                'last_execution': self.scheduler.last_execution_times,
+                'execution_stats': self.scheduler.execution_stats,
+            },
         }
     
     async def _check_storage_backend_health(self) -> Dict[str, Any]:
         """Check storage backend health."""
-        return {
-            'checks': {
-                'storage_connection': 'connected',
-                'read_operations': 'functional', 
-                'write_operations': 'functional',
-                'backup_integrity': 'verified'
-            },
-            'metrics': {
-                'response_time_ms': 'normal',
-                'storage_utilization': 'optimal'
+        storage = (
+            getattr(self.consolidator, 'storage', None)
+            if self.consolidator else None
+        )
+        probe = getattr(storage, 'health_probe', None) if storage else None
+        if not callable(probe):
+            return {
+                'status': HealthStatus.DEGRADED.value,
+                'checks': {'storage': 'unverifiable: no health probe'},
+                'metrics': {},
             }
-        }
+        try:
+            if await probe():
+                return {
+                    'status': HealthStatus.HEALTHY.value,
+                    'checks': {'storage': 'health probe reachable'},
+                    'metrics': {},
+                }
+            return {
+                'status': HealthStatus.UNHEALTHY.value,
+                'checks': {'storage': 'health probe failed'},
+                'metrics': {},
+            }
+        except Exception as exc:
+            return {
+                'status': HealthStatus.UNHEALTHY.value,
+                'checks': {'storage': 'unreachable'},
+                'metrics': {},
+                'error': str(exc),
+            }
     
     async def _generate_health_recommendations(self) -> List[str]:
         """Generate health recommendations based on current system state."""

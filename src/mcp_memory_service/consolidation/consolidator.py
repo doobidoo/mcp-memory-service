@@ -30,7 +30,12 @@ from .forgetting import ControlledForgettingEngine
 from .health import ConsolidationHealthMonitor
 from ..models.memory import Memory
 from ..storage.graph import GraphStorage
-from ..config import GRAPH_STORAGE_MODE, CONSOLIDATION_STORE_ASSOCIATIONS, TYPED_EDGES_ENABLED
+from ..config import (
+    CONSOLIDATION_SCHEDULE,
+    CONSOLIDATION_STORE_ASSOCIATIONS,
+    GRAPH_STORAGE_MODE,
+    TYPED_EDGES_ENABLED,
+)
 from .relationship_inference import RelationshipInferenceEngine
 from .run_tracker import RunTracker
 from ..compat import _sanitize_log_value
@@ -165,7 +170,9 @@ class DreamInspiredConsolidator:
         )
 
         # Initialize health monitoring
-        self.health_monitor = ConsolidationHealthMonitor(config)
+        self.health_monitor = ConsolidationHealthMonitor(
+            config, consolidator=self, schedule_config=CONSOLIDATION_SCHEDULE
+        )
 
         # Initialize run tracker for incremental consolidation
         self.run_tracker: Optional[RunTracker] = None

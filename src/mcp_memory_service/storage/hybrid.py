@@ -963,6 +963,16 @@ class HybridMemoryStorage(MemoryStorage):
     - Full compatibility with the MemoryStorage interface
     """
 
+    async def health_probe(self) -> bool:
+        """Reflect primary health without changing offline-first secondary sync."""
+        probe = getattr(self.primary, "health_probe", None)
+        if not callable(probe):
+            return False
+        try:
+            return bool(await probe())
+        except Exception:
+            return False
+
     @property
     def max_content_length(self) -> Optional[int]:
         """

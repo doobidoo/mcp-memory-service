@@ -326,7 +326,9 @@ class MemoryStorage(ABC):
             stats = await self.get_stats()
         except Exception:
             return False
-        return stats.get("status") != "error" if isinstance(stats, dict) else bool(stats)
+        if isinstance(stats, dict):
+            return stats.get("status") != "error" and not stats.get("error")
+        return bool(stats)
 
     async def purge_deleted(self, older_than_days: int = 30) -> int:
         """
