@@ -248,32 +248,57 @@ except StorageError as e:
 
 ### Writing Tests
 
-- Place tests in `tests/` directory
-- Name test files with `test_` prefix
-- Use descriptive test names
-- Include both positive and negative test cases
-- Mock external dependencies
+- Place tests in `tests/` directory (it mirrors `src/`), name the file `test_*.py`
+- A change under `src/` comes with a test that is **red without the change**. CI
+  checks this (`tests-prove-fix` runs your added or changed tests against the base
+  branch's `src/` and fails if they pass there). Run both sides yourself and paste
+  them into the PR:
+  ```bash
+  git stash -- src/ && .venv/bin/pytest tests/<your file> -q; git stash pop   # must fail
+  .venv/bin/pytest tests/<your file> -q                                        # must pass
+  ```
+- Drive the real code path. Use the sqlite-vec storage through the `temp_db_path`
+  fixture, the real tool registry, the real handler. Mock only network and
+  external services (Cloudflare, Groq, Gemini). A mock of the function under test
+  proves nothing about it, and a mock that mirrors the bug is green on both sides.
+- Pure removals need no test; the check recognises a deletion-only diff.
+- Include both positive and negative cases, and the error path
 
-Example test:
+Example test, run against the real storage (the fixtures come from `tests/conftest.py`):
 ```python
 import pytest
-from mcp_memory_service.storage import SqliteVecStorage
+
+from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+from mcp_memory_service.utils.hashing import generate_content_hash
+
 
 @pytest.mark.asyncio
-async def test_store_memory_success():
-    """Test successful memory storage."""
-    storage = SqliteVecStorage(":memory:")
-    result = await storage.store("test content", tags=["test"])
-    assert result is not None
-    assert "hash" in result
+async def test_store_then_retrieve(temp_db_path, unique_content):
+    storage = SqliteVecMemoryStorage(f"{temp_db_path}/test.db")
+    await storage.initialize()
+    try:
+        content = unique_content("memory about authentication")
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["auth"],
+        )
+        success, message = await storage.store(memory)
+        assert success, message
+
+        results = await storage.retrieve("authentication", n_results=1)
+        assert results[0].memory.content == content
+    finally:
+        await storage.close()
 ```
 
 ### Test Coverage
 
-- Aim for >80% code coverage
-- Focus on critical paths and edge cases
+- Focus on the behavior the change adds or fixes, then its edge cases
 - Test error handling scenarios
-- Include integration tests where appropriate
+- `tests/integration` starts the HTTP app; `tests/consolidation` runs the
+  maintenance pipeline. Both run in CI, so a test there is not optional coverage
 
 ## Documentation
 

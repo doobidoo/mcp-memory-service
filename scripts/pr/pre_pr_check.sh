@@ -120,14 +120,12 @@ fi
 # handling below never ran and a failing suite looked like the gate itself
 # crashing with no message.
 # The selection mirrors .github/workflows/ci.yml so that a green gate here
-# means the same thing CI will say. Benchmarks, consolidation and integration
-# are excluded there (heavy, network, or services the runner lacks); running
-# them here made the gate fail locally on tests CI never executes.
+# means the same thing CI will say (tests/ci/test_pre_pr_check.sh pins the two
+# together). Benchmarks stay out; test_cli_interfaces.py shells to `uv run`.
 set +e
 COVERAGE_OUTPUT=$($PYTEST_BIN tests/ -q --tb=short \
-    --ignore=tests/consolidation \
     --ignore=tests/benchmarks \
-    --ignore=tests/integration \
+    --ignore=tests/integration/test_cli_interfaces.py \
     -m "not benchmark" \
     --timeout=120 \
     --cov=src/mcp_memory_service \

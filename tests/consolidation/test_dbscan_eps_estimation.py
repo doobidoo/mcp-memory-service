@@ -23,6 +23,10 @@ part.
 import numpy as np
 import pytest
 
+# _estimate_eps uses sklearn.neighbors.NearestNeighbors (see module docstring).
+# The lean [sqlite] install has no scikit-learn; the ml-extras CI job does.
+pytest.importorskip("sklearn", reason="scikit-learn is required for the eps estimation tests")
+
 from mcp_memory_service.consolidation.clustering import SemanticClusteringEngine
 
 

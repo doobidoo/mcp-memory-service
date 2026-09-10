@@ -81,6 +81,10 @@ jobs:
     # workflow at all until this job existed, so a gate change passed check 3 with
     # a test CI never executed (issue #1153). They fake pyscn and tolerate a
     # missing gh, so the runner image is enough.
+    # tests/ci/test_check_tests_prove_fix.sh runs pytest inside a stub repo and
+    # the script it covers passes --timeout, hence the two packages.
+    - name: Install pytest for the prove-fix shell test
+      run: python3 -m pip install --quiet pytest pytest-timeout
     - name: Run the shell test suites
       run: |
         status=0
@@ -95,6 +99,38 @@ jobs:
     # features, ports and commands.
     - name: Check active docs for dead references
       run: bash scripts/ci/check_dead_refs.sh
+
+  tests-prove-fix:
+    runs-on: ubuntu-latest
+    name: Changed tests fail without the change
+    timeout-minutes: 20
+    # A src/ change needs a test, and that test has to be red against the base
+    # branch. Two consolidation PRs arrived with no test at all and a green board,
+    # because CI did not run tests/consolidation; and a test that passes with and
+    # without the fix is the shape of a mock that encodes the bug it should catch.
+    # Maintainers exempt a PR with the skip-prove-fix label and re-run the job
+    # (label changes do not re-trigger it). scripts/ci/check_tests_prove_fix.sh
+    # has the details and tests/ci/test_check_tests_prove_fix.sh covers it.
+    if: >-
+      github.event_name == 'pull_request' &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-prove-fix')
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+
+    - name: Install dependencies
+      run: |
+        python3 -m pip install --upgrade pip
+        python3 -m pip install -e ".[dev,sqlite]"
+
+    - name: Run the changed tests against the base branch
+      env:
+        MCP_API_KEY: ""
+        MCP_OAUTH_ENABLED: "false"
+        MCP_ALLOW_ANONYMOUS_ACCESS: "true"
+        BASE_REF: ${{ github.base_ref }}
+      run: bash scripts/ci/check_tests_prove_fix.sh "origin/$BASE_REF"
 
   test:
     runs-on: ubuntu-latest
@@ -119,19 +155,20 @@ jobs:
         MCP_API_KEY: ""
         MCP_OAUTH_ENABLED: "false"
         MCP_ALLOW_ANONYMOUS_ACCESS: "true"
-      # Scope: deterministic suite on this minimal self-hosted runner.
-      # - tests/integration excluded: those shell out to `uv`, hit the network, or
-      #   need services not present in the runner image.
-      # - tests/consolidation, tests/benchmarks and `-m "not benchmark"` excluded
-      #   (benchmark fixture / heavy).
+      # Scope: everything except benchmarks and one file.
+      # - tests/consolidation and tests/integration used to be skipped wholesale
+      #   as "heavy"; they take 1.4s and 50s. 489 tests never ran on a PR, and two
+      #   consolidation PRs went green with no test at all (issue #1145).
+      # - tests/integration/test_cli_interfaces.py shells out to `uv run`, which
+      #   is not installed here and would resolve the whole lock file if it were.
+      # - tests/benchmarks and `-m "not benchmark"` excluded (benchmark fixture).
       # - coverage is report-only for now (no --cov-fail-under): re-introduce a gate
-      #   once the deterministic-subset baseline is known and stable.
+      #   once the baseline is known and stable.
       # - no -x: report all failures, not just the first.
       run: |
         python3 -m pytest tests/ \
-          --ignore=tests/consolidation \
           --ignore=tests/benchmarks \
-          --ignore=tests/integration \
+          --ignore=tests/integration/test_cli_interfaces.py \
           -m "not benchmark" \
           --cov=mcp_memory_service \
           --cov-report=term-missing:skip-covered \
@@ -192,9 +229,11 @@ jobs:
       # built for live in tests/unit/, not in tests/quality/, so narrowing this to
       # the quality suite would have missed every one of them. No coverage flags —
       # `test` already reports coverage and a second report would just be noise.
+      # tests/integration stays out here: it starts HTTP servers and gains nothing
+      # from the ml extras, and `test` runs it. tests/consolidation is in because
+      # its DBSCAN eps tests need scikit-learn, which only this job installs.
       run: |
         python3 -m pytest tests/ \
-          --ignore=tests/consolidation \
           --ignore=tests/benchmarks \
           --ignore=tests/integration \
           -m "not benchmark" \

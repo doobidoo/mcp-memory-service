@@ -61,8 +61,10 @@ def test_all_api_routes_registered():
     """
     from mcp_memory_service.web.app import app
 
-    # Get all registered routes
-    routes = [route.path for route in app.routes]
+    # Read the routes from the OpenAPI schema, not from app.routes: since
+    # starlette 1.x an included router shows up there as an _IncludedRouter
+    # without a .path, and the schema is the public view of what is mounted.
+    routes = list(app.openapi()["paths"])
 
     # Essential routes that should always be present
     essential_routes = [
