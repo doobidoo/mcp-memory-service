@@ -249,6 +249,39 @@ async def test_search_by_tag_exact_not_substring(storage):
 
 
 @pytest.mark.asyncio
+async def test_search_by_tag_with_trailing_backslash(storage):
+    """Regression for #1107: a tag ending in a backslash must survive the filter.
+
+    Escaping only the quote let a trailing backslash consume the closing quote
+    of the interpolated literal, so Milvus rejected the whole expression. This
+    drives the real tag filter through Milvus Lite, which a test that only
+    inspects the expression string cannot.
+    """
+    mem_backslash = Memory(
+        content="Backslash tag memory",
+        content_hash=generate_content_hash("Backslash tag memory"),
+        tags=["foo\\", "C:\\Users\\hkr"],
+    )
+    mem_plain = Memory(
+        content="Plain tag memory",
+        content_hash=generate_content_hash("Plain tag memory"),
+        tags=["foo"],
+    )
+    for m in (mem_backslash, mem_plain):
+        ok, msg = await storage.store(m, skip_semantic_dedup=True)
+        assert ok, msg
+
+    hits = {m.content_hash for m in await storage.search_by_tag(["foo\\"])}
+    assert hits == {mem_backslash.content_hash}
+
+    hits = {m.content_hash for m in await storage.search_by_tag(["C:\\Users\\hkr"])}
+    assert hits == {mem_backslash.content_hash}
+
+    hits = {m.content_hash for m in await storage.search_by_tag(["foo"])}
+    assert hits == {mem_plain.content_hash}
+
+
+@pytest.mark.asyncio
 async def test_search_by_tags_and_or(storage):
     a = Memory(
         content="Memory A", content_hash=generate_content_hash("Memory A"),

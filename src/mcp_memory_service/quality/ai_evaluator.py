@@ -39,6 +39,7 @@ class QualityEvaluator:
         self._groq_bridge = None
         self._httpx_client: Optional[httpx.AsyncClient] = None
         self._initialized = False
+        self._init_lock = asyncio.Lock()
 
     def _load_fallback_rankers(self):
         """Load the comma-separated model list used by fallback scoring."""
@@ -143,6 +144,25 @@ class QualityEvaluator:
 
         self._initialized = True
 
+    async def _ensure_initialized_async(self):
+        """Run _ensure_initialized off the event loop.
+
+        On first use with a local provider, _ensure_initialized performs a real
+        torch.onnx.export of DeBERTa — synchronous and minutes long. Called
+        directly from an async method it blocks the whole loop: nothing else on
+        it runs, and AsyncQualityScorer.stop()'s own ``wait_for`` timeout cannot
+        fire because a blocked loop cannot schedule it. Running the load in a
+        worker thread keeps the loop free. The lock stops two concurrent callers
+        from each starting an export; the flag is re-checked inside it so only
+        the first pays the cost.
+        """
+        if self._initialized:
+            return
+        async with self._init_lock:
+            if self._initialized:
+                return
+            await asyncio.to_thread(self._ensure_initialized)
+
     async def evaluate_quality(self, query: str, memory: Memory) -> float:
         """
         Evaluate memory quality using multi-tier approach.
@@ -159,7 +179,7 @@ class QualityEvaluator:
             # initialization, not after — see _ensure_initialized.
             return 0.5
 
-        self._ensure_initialized()
+        await self._ensure_initialized_async()
 
         # Try tiers in order based on configuration
         provider_used = None
@@ -260,7 +280,7 @@ class QualityEvaluator:
         if not self.config.enabled:
             return [0.5] * len(memories)
 
-        self._ensure_initialized()
+        await self._ensure_initialized_async()
 
         # Tier 1: Local ONNX batched scoring
         if self.config.ai_provider in ['local', 'auto']:
