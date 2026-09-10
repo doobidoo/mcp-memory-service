@@ -67,12 +67,13 @@ if [ "$LLM_BACKEND" = "gemini" ]; then
         echo "   Skipped, NOT passed: complexity and security were not evaluated."
         exit $EXIT_SKIPPED
     fi
-elif ! RESOLVED_MODEL=$(python3 "$LLM_HELPER" --resolve-model 2>/dev/null); then
-    echo "WARNING: no local analysis model reachable - skipping AI-based quality checks."
+elif ! RESOLVED_MODEL=$(python3 "$LLM_HELPER" --resolve-model); then
+    echo "WARNING: no usable local analysis model - skipping AI-based quality checks."
     echo "   Tried ${MCP_QUALITY_LLM_URL:-http://127.0.0.1:11437/v1} via $LLM_HELPER."
     echo "   Skipped, NOT passed: complexity and security were not evaluated."
-    echo "   Start the local endpoint, point MCP_QUALITY_LLM_URL at another one,"
-    echo "   or set MCP_QUALITY_LLM=gemini to use the Gemini CLI."
+    echo "   Check the endpoint/model error above, choose a working MCP_QUALITY_LLM_MODEL,"
+    echo "   or point MCP_QUALITY_LLM_URL at a usable endpoint."
+    echo "   Set MCP_QUALITY_LLM=gemini to use the Gemini CLI instead."
     # Exit 3 = skipped, distinct from 0 (passed) and 1 (failed). Callers only see
     # the status code, and pre_pr_check.sh used to report this as a green check.
     exit $EXIT_SKIPPED

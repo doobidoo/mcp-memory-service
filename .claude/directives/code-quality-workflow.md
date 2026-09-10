@@ -90,9 +90,7 @@ bash scripts/quality/weekly_quality_review.sh
 - **PR Quality Gate**: `--with-pyscn` flag for comprehensive analysis
 - **Periodic**: Weekly pyscn analysis with trend tracking
 
-## Pre-commit Hook Setup
-
-### Local analysis model selection
+## PR Quality Gate: Local Model Selection
 
 The local quality gate reads `MCP_QUALITY_LLM_URL` (default
 `http://127.0.0.1:11437/v1`) and probes the models advertised by that endpoint
@@ -103,6 +101,8 @@ and `MCP_QUALITY_LLM_API_KEY` when the endpoint requires a bearer token.
 If an oMLX endpoint returns HTTP 507 for one listed model, that model may be
 unavailable even when disk space is healthy. Leave `MCP_QUALITY_LLM_MODEL`
 unset to try the remaining advertised models, or set it to a known working ID.
+
+## Pre-commit Hook Setup
 
 ```bash
 # Recommended: Groq for fast, non-interactive checks

@@ -22,7 +22,7 @@ rather than passed.
 
 Environment:
     MCP_QUALITY_LLM_URL      base URL, default http://127.0.0.1:11437/v1
-    MCP_QUALITY_LLM_MODEL    model id; when unset, probe listed models in order
+    MCP_QUALITY_LLM_MODEL    model id; prompt mode defaults to first listed model
     MCP_QUALITY_LLM_API_KEY  optional bearer token
     MCP_QUALITY_LLM_TIMEOUT  seconds per request, default 180
 
@@ -30,10 +30,12 @@ Exit codes:
     0  reply printed on stdout
     3  no usable backend (unreachable endpoint, no model, empty reply)
 
-Pass ``--resolve-model`` to print the first model that completes a small probe.
-This lets callers pin later requests to a working model when an endpoint lists
-models that are present but unavailable (for example, an oMLX model returning
-HTTP 507 while another listed model is ready).
+Pass ``--resolve-model`` to probe candidates in order and print the first usable
+model. An explicit ``MCP_QUALITY_LLM_MODEL`` limits the probe to that model.
+Without this option, prompt mode uses the configured model or the first listed
+model without probing alternatives. The quality gate resolves and exports a
+working model first, pinning subsequent analysis calls to it even when other
+listed models are unavailable (for example, return HTTP 507).
 """
 
 import json
@@ -93,16 +95,14 @@ def _chat(payload: dict) -> dict:
 
 def complete(prompt: str, model: str) -> str:
     """One chat completion, with thinking disabled where the server accepts it."""
-    body = _chat(
-        {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0,
-            # Qwen3 emits <think> blocks that swamp the parseable markers the gates
-            # grep for. Servers that reject the hint get a plain retry.
-            "chat_template_kwargs": {"enable_thinking": False},
-        }
-    )
+    body = _chat({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0,
+        # Qwen3 emits <think> blocks that swamp the parseable markers the gates
+        # grep for. Servers that reject the hint get a plain retry.
+        "chat_template_kwargs": {"enable_thinking": False},
+    })
     text = body["choices"][0]["message"].get("content") or ""
     return THINK_BLOCK.sub("", text).strip()
 
