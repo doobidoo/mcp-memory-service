@@ -5,6 +5,8 @@
 
 console.log('⚡ app.js loading - TOP OF FILE');
 
+const baseAwareUrl = (path) => new URL(path.replace(/^\//, ''), document.baseURI).toString();
+
 class MemoryDashboard {
     // Delay between individual file uploads to avoid overwhelming the server (ms)
     static INDIVIDUAL_UPLOAD_DELAY = 500;
@@ -70,7 +72,7 @@ class MemoryDashboard {
     };
 
     constructor() {
-        this.apiBase = '/api';
+        this.apiBase = baseAwareUrl('api').replace(/\/$/, '');
         this.eventSource = null;
         this.memories = [];
         this.currentView = 'dashboard';
@@ -229,7 +231,7 @@ class MemoryDashboard {
     async ensureFallbackTranslations() {
         if (Object.keys(this.fallbackTranslations).length > 0) return;
         try {
-            const response = await fetch('/static/i18n/en.json');
+            const response = await fetch(baseAwareUrl('static/i18n/en.json'));
             if (response.ok) {
                 this.fallbackTranslations = await response.json();
             }
@@ -244,7 +246,7 @@ class MemoryDashboard {
      */
     async detectAvailableLanguages() {
         try {
-            const response = await fetch('/api/languages');
+            const response = await fetch(baseAwareUrl('api/languages'));
             if (response.ok) {
                 const data = await response.json();
                 this.supportedLanguages = data.languages || ['en'];
@@ -261,7 +263,7 @@ class MemoryDashboard {
     async loadLanguageMetadata() {
         for (const lang of this.supportedLanguages) {
             try {
-                const response = await fetch(`/static/i18n/${lang}.json`);
+                const response = await fetch(baseAwareUrl(`static/i18n/${lang}.json`));
                 if (response.ok) {
                     const data = await response.json();
                     this.languageMetadata[lang] = {
@@ -354,7 +356,7 @@ class MemoryDashboard {
      */
     async loadTranslations(lang) {
         try {
-            const response = await fetch(`/static/i18n/${lang}.json`);
+            const response = await fetch(baseAwareUrl(`static/i18n/${lang}.json`));
             if (response.ok) {
                 this.translations = await response.json();
                 this.currentLang = lang;
@@ -3691,7 +3693,7 @@ class MemoryDashboard {
         if (oauthBtn) {
             oauthBtn.addEventListener('click', () => {
                 // Redirect to OAuth authorization endpoint
-                window.location.href = '/oauth/authorize';
+                window.location.href = baseAwareUrl('oauth/authorize');
             });
         }
     }
@@ -3922,7 +3924,7 @@ class MemoryDashboard {
                 }
             } catch (apiErr) {
                 // /server/status unavailable (server still down or auth-gated) — try /api/health as a liveness probe
-                const response = await fetch('/api/health');
+                const response = await fetch(baseAwareUrl('api/health'));
                 if (response.ok && preRestartPid == null && preRestartVersion == null) {
                     if (statusEl) { statusEl.textContent = 'Server is back online! Reloading...'; }
                     setTimeout(() => { window.location.reload(); }, 1500);

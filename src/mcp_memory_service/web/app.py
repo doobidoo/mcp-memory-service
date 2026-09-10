@@ -21,6 +21,7 @@ Provides REST API and Server-Sent Events using SQLite-vec backend.
 import asyncio
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from typing import Optional, Any
 
@@ -36,6 +37,7 @@ except (ImportError, AttributeError):
 from ..config import (
     HTTP_PORT,
     HTTP_HOST,
+    MCP_HTTP_ROOT_PATH,
     CORS_ORIGINS,
     MDNS_ENABLED,
     HTTPS_ENABLED,
@@ -66,6 +68,38 @@ from .api.harvest import router as harvest_router
 from .sse import sse_manager
 
 logger = logging.getLogger(__name__)
+
+
+# Root-absolute URL prefixes in the two documents this application renders.
+# The trailing (?!/) is what keeps a protocol-relative URL - href="//cdn.example
+# .com/x" - from being rewritten into the path href="/cdn.example.com/x". All
+# three quote forms of fetch() are covered so that a later edit to either
+# template does not silently drop out of the rewrite.
+_DOCUMENT_BASE_PATTERNS = tuple(
+    (re.compile(pattern), replacement)
+    for pattern, replacement in (
+        (r'href="/(?!/)', 'href="'),
+        (r"window\.location\.href='/(?!/)", "window.location.href='"),
+        (r"fetch\('/(?!/)", "fetch('"),
+        (r'fetch\("/(?!/)', 'fetch("'),
+        (r"fetch\(`/(?!/)", "fetch(`"),
+    )
+)
+
+
+def _with_document_base(html: str) -> str:
+    """Inject the validated proxy mount prefix into server-rendered HTML.
+
+    This is a string transform over the two documents this repository owns,
+    not a general HTML rewriter: it rewrites the root-absolute URLs those
+    templates actually contain into document-relative ones, so they resolve
+    against the injected ``<base href>``. Absolute and protocol-relative URLs
+    are left alone.
+    """
+    base = f"/{MCP_HTTP_ROOT_PATH.strip('/')}/" if MCP_HTTP_ROOT_PATH else "/"
+    for pattern, replacement in _DOCUMENT_BASE_PATTERNS:
+        html = pattern.sub(replacement, html)
+    return html.replace("<head>", f'<head><base href="{base}">', 1)
 
 # Global storage instance
 storage: Optional["MemoryStorage"] = None
@@ -270,7 +304,8 @@ def create_app() -> FastAPI:
         version=__version__,
         lifespan=lifespan,
         docs_url="/api/docs",
-        redoc_url="/api/redoc"
+        redoc_url="/api/redoc",
+        root_path=MCP_HTTP_ROOT_PATH,
     )
     
     # CORS middleware
@@ -1058,7 +1093,7 @@ def create_app() -> FastAPI:
     @app.get("/api-overview", response_class=HTMLResponse)
     async def api_overview():
         """Serve the API documentation overview page."""
-        return get_api_overview_html()
+        return _with_document_base(get_api_overview_html())
 
     @app.get("/", response_class=HTMLResponse)
     async def dashboard():
@@ -1071,14 +1106,14 @@ def create_app() -> FastAPI:
             if os.path.exists(dashboard_path):
                 # Read and serve the migrated dashboard
                 with open(dashboard_path, 'r', encoding='utf-8') as f:
-                    return f.read()
+                    return _with_document_base(f.read())
             else:
                 # Fallback to original template if dashboard not found
-                return html_template
+                return _with_document_base(html_template)
         except Exception as e:
             # Error fallback to original template
             logger.warning(f"Error loading migrated dashboard: {e}")
-            return html_template
+            return _with_document_base(html_template)
 
     @app.get("/api/languages")
     async def get_available_languages():

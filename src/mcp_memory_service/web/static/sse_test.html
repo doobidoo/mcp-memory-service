@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <base href="../">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MCP Memory Service - SSE Test</title>
@@ -213,7 +214,7 @@
             
             addLogEntry('🔌 Connecting to SSE stream...', 'connection');
             
-            eventSource = new EventSource('/api/events');
+            eventSource = new EventSource(new URL('api/events', document.baseURI));
             
             eventSource.onopen = function(event) {
                 updateStatus(true);
@@ -336,7 +337,7 @@
                     metadata: { source: 'sse_test_page' }
                 };
                 
-                const storeResponse = await fetch('/api/memories', {
+                const storeResponse = await fetch(new URL('api/memories', document.baseURI), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(testMemory)
@@ -348,7 +349,7 @@
                     
                     // Wait a moment, then perform a search
                     setTimeout(async () => {
-                        const searchResponse = await fetch('/api/search', {
+                        const searchResponse = await fetch(new URL('api/search', document.baseURI), {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ query: 'SSE test memory', n_results: 3 })
@@ -360,7 +361,7 @@
                             // Wait another moment, then delete the memory
                             setTimeout(async () => {
                                 if (result.content_hash) {
-                                    const deleteResponse = await fetch(`/api/memories/${result.content_hash}`, {
+                                    const deleteResponse = await fetch(new URL(`api/memories/${result.content_hash}`, document.baseURI), {
                                         method: 'DELETE'
                                     });
                                     
