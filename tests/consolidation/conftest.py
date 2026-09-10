@@ -4,7 +4,7 @@ import pytest
 import tempfile
 import shutil
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 import numpy as np
 from unittest.mock import AsyncMock
@@ -202,8 +202,24 @@ def mock_storage(sample_memories):
             }
 
 
-        async def get_all_memories(self, include_embeddings: bool = False) -> List[Memory]:
-            return list(self.memories.values())
+        async def get_all_memories(
+            self, limit=None, offset=0, memory_type=None, tags=None,
+            tag_match="any", stale_days=None, include_embeddings=False,
+            store="default",
+        ) -> List[Memory]:
+            memories = sorted(
+                self.memories.values(),
+                key=lambda mem: (mem.created_at or 0, mem.content_hash),
+                reverse=True,
+            )
+            if stale_days is not None:
+                cutoff = datetime.now(timezone.utc).timestamp() - stale_days * 86400
+                memories = [
+                    mem for mem in memories if (mem.created_at or 0) < cutoff
+                ]
+            return memories[offset:] if limit is None else memories[
+                offset : offset + limit
+            ]
 
         async def get_memories_by_time_range(self, start_time: float, end_time: float, include_embeddings: bool = False) -> List[Memory]:
             return [
@@ -314,8 +330,24 @@ def mock_large_storage(large_memory_set):
                 days_ago = np.random.randint(1, 30)
                 self.access_patterns[mem.content_hash] = datetime.now() - timedelta(days=days_ago)
 
-        async def get_all_memories(self, include_embeddings: bool = False) -> List[Memory]:
-            return list(self.memories.values())
+        async def get_all_memories(
+            self, limit=None, offset=0, memory_type=None, tags=None,
+            tag_match="any", stale_days=None, include_embeddings=False,
+            store="default",
+        ) -> List[Memory]:
+            memories = sorted(
+                self.memories.values(),
+                key=lambda mem: (mem.created_at or 0, mem.content_hash),
+                reverse=True,
+            )
+            if stale_days is not None:
+                cutoff = datetime.now(timezone.utc).timestamp() - stale_days * 86400
+                memories = [
+                    mem for mem in memories if (mem.created_at or 0) < cutoff
+                ]
+            return memories[offset:] if limit is None else memories[
+                offset : offset + limit
+            ]
 
         async def get_memories_by_time_range(self, start_time: float, end_time: float, include_embeddings: bool = False) -> List[Memory]:
             return [

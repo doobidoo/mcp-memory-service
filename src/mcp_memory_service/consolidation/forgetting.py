@@ -24,6 +24,7 @@ import hashlib
 
 from .base import ConsolidationBase, ConsolidationConfig
 from .decay import RelevanceScore
+from ..compat import _sanitize_log_value
 from ..models.memory import Memory
 
 @dataclass
@@ -69,7 +70,49 @@ class ControlledForgettingEngine(ConsolidationBase):
         
         for archive_dir in [self.daily_archive, self.compressed_archive, self.metadata_archive]:
             archive_dir.mkdir(exist_ok=True)
-    
+
+        # memory hash -> newest archival time, read lazily from the log.
+        self._archive_index: Optional[Dict[str, float]] = None
+
+    def _load_archive_index(self) -> Dict[str, float]:
+        """Map memory hash to the newest time it was archived.
+
+        Archiving deliberately leaves the memory in storage, so the same
+        record is offered again on the next traversal of the stale tail.
+        Without this index every traversal would write another copy of a
+        record that has not changed, and the archive would grow without
+        bound on a corpus that does not change either.
+        """
+        if self._archive_index is not None:
+            return self._archive_index
+
+        index: Dict[str, float] = {}
+        log_file = self.metadata_archive / "forgetting_log.jsonl"
+        if log_file.exists():
+            with open(log_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        if entry.get('action') != 'archived':
+                            continue
+                        memory_hash = entry['memory_hash']
+                        archived_at = datetime.fromisoformat(
+                            entry['timestamp']
+                        ).timestamp()
+                    except (ValueError, TypeError, KeyError) as e:
+                        self.logger.warning(
+                            "Skipping unreadable forgetting log entry: %s",
+                            _sanitize_log_value(e)
+                        )
+                        continue
+                    index[memory_hash] = max(index.get(memory_hash, 0.0), archived_at)
+
+        self._archive_index = index
+        return index
+
     async def process(self, memories: List[Memory], relevance_scores: List[RelevanceScore], **kwargs) -> List[ForgettingResult]:
         """Identify and process memories for controlled forgetting."""
         if not self._validate_memories(memories):
@@ -81,20 +124,27 @@ class ControlledForgettingEngine(ConsolidationBase):
         # Get access patterns from kwargs
         access_patterns = kwargs.get('access_patterns', {})
         time_horizon = kwargs.get('time_horizon', 'monthly')
-        
+        # Archive-only callers get archival and nothing else: no candidate is
+        # marked deletable and no candidate reaches the delete or the
+        # compress-in-place branch, both of which remove the row from storage.
+        archive_only = bool(kwargs.get('archive_only', False))
+
         # Identify forgetting candidates
         candidates = await self._identify_forgetting_candidates(
-            memories, score_lookup, access_patterns, time_horizon
+            memories, score_lookup, access_patterns, time_horizon,
+            archive_only=archive_only,
         )
-        
+
         if not candidates:
             self.logger.info("No memories identified for forgetting")
             return []
-        
+
         # Process candidates
         results = []
         for candidate in candidates:
-            result = await self._process_forgetting_candidate(candidate)
+            result = await self._process_forgetting_candidate(
+                candidate, archive_only=archive_only
+            )
             results.append(result)
         
         # Log forgetting summary
@@ -111,7 +161,8 @@ class ControlledForgettingEngine(ConsolidationBase):
         memories: List[Memory],
         score_lookup: Dict[str, RelevanceScore],
         access_patterns: Dict[str, datetime],
-        time_horizon: str
+        time_horizon: str,
+        archive_only: bool = False,
     ) -> List[ForgettingCandidate]:
         """
         Identify memories that are candidates for forgetting.
@@ -222,7 +273,9 @@ class ControlledForgettingEngine(ConsolidationBase):
                     # Still allow deletion for expired temporary memories and duplicates
                     if not ('expired_temporary' in forgetting_reasons or 'potential_duplicate' in forgetting_reasons):
                         can_delete_final = False
-                
+                if archive_only:
+                    can_delete_final = False
+
                 candidate = ForgettingCandidate(
                     memory=memory,
                     relevance_score=relevance_score,
@@ -305,11 +358,19 @@ class ControlledForgettingEngine(ConsolidationBase):
         
         return False
     
-    async def _process_forgetting_candidate(self, candidate: ForgettingCandidate) -> ForgettingResult:
+    async def _process_forgetting_candidate(
+        self, candidate: ForgettingCandidate, archive_only: bool = False
+    ) -> ForgettingResult:
         """Process a single forgetting candidate."""
         memory = candidate.memory
-        
+
         try:
+            if archive_only:
+                # Archival leaves the memory in storage; deletion and
+                # compression do not. An archive-only caller is not entitled
+                # to either, whatever the candidate's reasons say.
+                return await self._archive_memory(candidate)
+
             # Determine action based on candidate properties
             if candidate.can_be_deleted and 'potential_duplicate' in candidate.forgetting_reasons:
                 # Delete obvious duplicates or expired temporary content
@@ -336,7 +397,22 @@ class ControlledForgettingEngine(ConsolidationBase):
     async def _archive_memory(self, candidate: ForgettingCandidate) -> ForgettingResult:
         """Archive a memory to the filesystem."""
         memory = candidate.memory
-        
+
+        # Already archived and untouched since: the traversal has simply come
+        # back around to it. Writing it again would duplicate the record.
+        archived_at = self._load_archive_index().get(memory.content_hash)
+        if archived_at is not None and (memory.updated_at or 0) <= archived_at:
+            return ForgettingResult(
+                memory_hash=memory.content_hash,
+                action_taken='skipped',
+                archive_path=None,
+                compressed_version=None,
+                metadata={
+                    'reason': 'already_archived',
+                    'archived_at': archived_at,
+                }
+            )
+
         # Create archive filename with timestamp and hash
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         short_hash = memory.content_hash[:12]
@@ -375,7 +451,8 @@ class ControlledForgettingEngine(ConsolidationBase):
         
         # Create metadata entry
         await self._create_metadata_entry(memory, archive_file, 'archived')
-        
+        self._load_archive_index()[memory.content_hash] = datetime.now().timestamp()
+
         return ForgettingResult(
             memory_hash=memory.content_hash,
             action_taken='archived',

@@ -60,6 +60,18 @@ class RunTracker:
         finally:
             conn.close()
 
+    async def get_items_processed(self, horizon: str) -> int:
+        """Return the durable cursor stored for a horizon, or zero."""
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            row = conn.execute(
+                "SELECT items_processed FROM consolidation_runs WHERE horizon = ?",
+                (horizon,),
+            ).fetchone()
+            return int(row[0]) if row else 0
+        finally:
+            conn.close()
+
     async def record_run(
         self, horizon: str, items_processed: int, status: str = "success"
     ) -> None:

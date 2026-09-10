@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import asyncio
 import logging
+import os
 import time
 
 from .base import ConsolidationConfig, ConsolidationReport, ConsolidationError
@@ -35,12 +36,21 @@ from .relationship_inference import RelationshipInferenceEngine
 from .run_tracker import RunTracker
 from ..compat import _sanitize_log_value
 
+# Last-resort location for the forgetting cursor, on a backend that has no
+# database path of its own to sit next to.
+from ..config import BASE_DIR
+
 logger = logging.getLogger(__name__)
 
 
 # Protocol for storage backend interface
 class StorageProtocol(Protocol):
-    async def get_all_memories(self) -> List[Memory]: pass
+    async def get_all_memories(
+        self, limit: int | None = None, offset: int = 0,
+        memory_type: str | None = None, tags: List[str] | None = None,
+        tag_match: str = "any", stale_days: int | None = None,
+        include_embeddings: bool = False, store: str | None = "default",
+    ) -> List[Memory]: ...
     async def get_memories_by_time_range(
         self, start_time: float, end_time: float
     ) -> List[Memory]:
@@ -169,6 +179,12 @@ class DreamInspiredConsolidator:
 
         # Initialize run tracker for incremental consolidation
         self.run_tracker: Optional[RunTracker] = None
+
+        # Separate tracker for the forgetting cursor. Forgetting can fall back
+        # to a path incremental consolidation would never have chosen, so it is
+        # kept off self.run_tracker: the incremental lock and its last-run
+        # window must not start living in a file forgetting picked.
+        self._forgetting_run_tracker: Optional[RunTracker] = None
 
         # Graph storage initialized lazily in consolidate() to avoid
         # blocking I/O in __init__ (Milvus backend needs async init).
@@ -311,6 +327,10 @@ class DreamInspiredConsolidator:
                 report.memories_processed = len(memories)
 
                 if not memories:
+                    if self.config.forgetting_enabled and check_horizon_requirements(
+                        time_horizon, "forgetting", self.ENABLED_PHASES
+                    ):
+                        await self._run_forgetting_phase(time_horizon, report)
                     self.logger.info(
                         "No memories to process for %s consolidation",
                         _sanitize_log_value(time_horizon)
@@ -399,26 +419,16 @@ class DreamInspiredConsolidator:
                 ):
                     self.logger.info("🗂️ Phase 5/6: Applying controlled forgetting...")
                     performance_start = time.time()
-                    access_patterns = await self._get_access_patterns()
-                    forgetting_results = await self.forgetting_engine.process(
-                        memories,
-                        relevance_scores,
-                        access_patterns=access_patterns,
-                        time_horizon=time_horizon,
+                    forgetting_results = await self._run_forgetting_phase(
+                        time_horizon, report
                     )
-                    report.memories_archived = len(
-                        [
-                            r
-                            for r in forgetting_results
-                            if r.action_taken in ["archived", "deleted"]
-                        ]
-                    )
+                    # _run_forgetting_phase applies the results and sets
+                    # report.memories_archived, so that the empty-horizon path
+                    # above -- which reaches it without coming through here --
+                    # reports the same number.
                     self.logger.info(
                         f"✓ Forgetting completed in {time.time() - performance_start:.1f}s, processed {len(forgetting_results)} candidates"
                     )
-
-                    # Apply forgetting results to storage
-                    await self._apply_forgetting_results(forgetting_results)
 
                 # 6b. Prune orphaned graph edges (#632)
                 orphaned = await self._prune_orphaned_graph_edges()
@@ -538,12 +548,18 @@ class DreamInspiredConsolidator:
         return memories
 
     async def _update_relevance_scores(
-        self, memories: List[Memory], time_horizon: str
+        self, memories: List[Memory], time_horizon: str,
+        access_patterns: Optional[Dict[str, datetime]] = None,
     ) -> List:
-        """Calculate and update relevance scores for memories."""
+        """Calculate and update relevance scores for memories.
+
+        ``access_patterns`` lets a caller that already holds them supply them,
+        so a single phase does not scan the whole access table twice.
+        """
         # Get connection and access data
         connections = await self._get_memory_connections()
-        access_patterns = await self._get_access_patterns()
+        if access_patterns is None:
+            access_patterns = await self._get_access_patterns()
 
         # Calculate relevance scores
         relevance_scores = await self.decay_calculator.process(
@@ -845,6 +861,81 @@ class DreamInspiredConsolidator:
                     f"Failed to store compressed memory for cluster "
                     f"{result.cluster_id}: {msg}"
                 )
+
+    def _resolve_forgetting_tracker(self) -> RunTracker:
+        """Return the tracker that holds the forgetting cursor.
+
+        The incremental tracker is reused when one exists, so both cursors sit
+        in the same database on the backends that have one. When it does not --
+        Cloudflare and Milvus have no ``db_path`` for
+        ``_resolve_tracker_db_path()`` to use -- the fallback is stored
+        separately rather than on ``self.run_tracker``: the incremental path
+        reads that attribute for its in-flight lock and its last-run window,
+        and neither belongs in a file the forgetting phase chose.
+        """
+        if self.run_tracker is not None:
+            return self.run_tracker
+        if self._forgetting_run_tracker is None:
+            tracker_path = self._resolve_tracker_db_path()
+            if tracker_path is None:
+                archive_location = getattr(self.config, "archive_location", None)
+                tracker_path = (
+                    Path(os.path.expanduser(archive_location)).parent
+                    / "forgetting-runs.sqlite"
+                    if archive_location
+                    else Path(BASE_DIR) / "forgetting-runs.sqlite"
+                )
+            self._forgetting_run_tracker = RunTracker(tracker_path)
+        return self._forgetting_run_tracker
+
+    async def _run_forgetting_phase(self, time_horizon, report):
+        """Archive one durable, storage-bounded page of the stale tail.
+
+        Applies the results and sets ``report.memories_archived``; the caller
+        does not repeat either.
+
+        The engine is run with ``archive_only=True``. The page is a slice of
+        the stale tail taken at an arbitrary cursor, so the engine's
+        within-batch heuristics -- ``potential_duplicate`` in particular, which
+        fires on 80% word overlap between two memories that happen to share a
+        page -- decide nothing about deletion here. Archival leaves the memory
+        in storage, which is also what makes the cursor and the idempotence
+        guard necessary.
+        """
+        tracker = self._resolve_forgetting_tracker()
+        offset = await tracker.get_items_processed("forgetting")
+        candidates = await self.storage.get_all_memories(
+            limit=self.config.batch_size, offset=offset,
+            stale_days=self.config.access_threshold_days, include_embeddings=True,
+        )
+        if offset and not candidates:
+            offset = 0
+            candidates = await self.storage.get_all_memories(
+                limit=self.config.batch_size, offset=0,
+                stale_days=self.config.access_threshold_days, include_embeddings=True,
+            )
+        # One access-pattern read for both consumers: scoring and the engine
+        # want the same table, and it is a full scan on every backend.
+        access_patterns = await self._get_access_patterns()
+        scores = await self._update_relevance_scores(
+            candidates, time_horizon, access_patterns=access_patterns,
+        )
+        results = await self.forgetting_engine.process(
+            candidates, scores, access_patterns=access_patterns,
+            time_horizon=time_horizon, archive_only=True,
+        )
+        await self._apply_forgetting_results(results)
+        # archive_only leaves 'archived' and 'skipped' as the only outcomes,
+        # so the count is archivals and not archivals-plus-deletions.
+        report.memories_archived = len(
+            [r for r in results if r.action_taken == "archived"]
+        )
+        await tracker.record_run(
+            "forgetting",
+            0 if len(candidates) < self.config.batch_size
+            else offset + len(candidates),
+        )
+        return results
 
     async def _apply_forgetting_results(self, forgetting_results) -> None:
         """Apply forgetting results to the storage backend."""
