@@ -5,6 +5,7 @@ Uses ms-marco-MiniLM-L-6-v2 model for relevance scoring.
 Exports the model from transformers to ONNX format on first use.
 """
 
+import inspect
 import logging
 import os
 import threading
@@ -271,16 +272,28 @@ class ONNXRankerModel:
             dynamic_axes = {name: {0: "batch", 1: "sequence"} for name in input_names}
             dynamic_axes["logits"] = {0: "batch"}
 
+            export_kwargs = {
+                "input_names": input_names,
+                "output_names": ["logits"],
+                "dynamic_axes": dynamic_axes,
+                "opset_version": 14,
+                "do_constant_folding": True,
+                "export_params": True,
+            }
+            # torch 2.9 flipped torch.onnx.export's ``dynamo`` default to True,
+            # routing this legacy argument set through the torch.export-based
+            # exporter, where the DeBERTa export fails (issue #1101, hit on
+            # torch 2.13). Pin the legacy exporter — but only where the
+            # parameter exists: torch < 2.5 has no ``dynamo`` and would raise
+            # TypeError on the keyword, and pyproject allows torch >= 2.0.
+            if "dynamo" in inspect.signature(torch.onnx.export).parameters:
+                export_kwargs["dynamo"] = False
+
             torch.onnx.export(
                 model,
                 model_inputs,
                 str(onnx_path),
-                input_names=input_names,
-                output_names=["logits"],
-                dynamic_axes=dynamic_axes,
-                opset_version=14,
-                do_constant_folding=True,
-                export_params=True
+                **export_kwargs
             )
 
         # Save tokenizer config for loading

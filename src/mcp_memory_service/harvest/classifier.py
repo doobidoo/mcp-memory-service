@@ -86,6 +86,8 @@ class HarvestClassifier:
     classification (#178).
     """
 
+    _CALL_TIMEOUT = 20.0  # seconds per LLM call
+
     def __init__(self, groq_api_key: Optional[str] = None):
         self._groq_bridge = None
         self._api_key = groq_api_key or os.environ.get("GROQ_API_KEY")
@@ -175,7 +177,7 @@ class HarvestClassifier:
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         messages = [{"role": "system", "content": system_message}, {"role": "user", "content": prompt}]
-        with httpx.Client(timeout=10.0) as client:
+        with httpx.Client(timeout=self._CALL_TIMEOUT) as client:
             resp = client.post(
                 f"{base_url}/chat/completions",
                 headers=headers,

@@ -24,6 +24,8 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional, Any
 
+from ..compat import _sanitize_log_value
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -95,14 +97,15 @@ async def oauth_cleanup_background_task():
             storage = get_oauth_storage()
             cleanup_stats = await storage.cleanup_expired()
             if cleanup_stats["expired_codes_cleaned"] > 0 or cleanup_stats["expired_tokens_cleaned"] > 0:
-                logger.info(f"OAuth cleanup: removed {cleanup_stats['expired_codes_cleaned']} codes, "
-                           f"{cleanup_stats['expired_tokens_cleaned']} tokens")
+                logger.info("OAuth cleanup: removed %s codes, %s tokens",
+                            _sanitize_log_value(cleanup_stats['expired_codes_cleaned']),
+                            _sanitize_log_value(cleanup_stats['expired_tokens_cleaned']))
 
         except asyncio.CancelledError:
             logger.info("OAuth cleanup task cancelled")
             break
         except Exception as e:
-            logger.error(f"Error in OAuth cleanup task: {e}")
+            logger.error("Error in OAuth cleanup task: %s", _sanitize_log_value(e))
             # Continue running even if there's an error
 
 
@@ -155,7 +158,7 @@ async def lifespan(app: FastAPI):
                     logger.info("Consolidation scheduler disabled (all schedules set to 'disabled')")
 
             except Exception as e:
-                logger.error(f"Failed to initialize consolidation system: {e}")
+                logger.error("Failed to initialize consolidation system: %s", _sanitize_log_value(e))
                 consolidation_scheduler = None
         else:
             logger.info("Consolidation system disabled")
@@ -188,7 +191,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("mDNS support not available (zeroconf not installed)")
                 mdns_advertiser = None
             except Exception as e:
-                logger.error(f"Error starting mDNS advertisement: {e}")
+                logger.error("Error starting mDNS advertisement: %s", _sanitize_log_value(e))
                 mdns_advertiser = None
         else:
             logger.info("mDNS service advertisement disabled")
@@ -204,13 +207,13 @@ async def lifespan(app: FastAPI):
                 logger.warning("Backup scheduler not available (backup module not installed)")
                 backup_scheduler = None
             except Exception as e:
-                logger.error(f"Error starting backup scheduler: {e}")
+                logger.error("Error starting backup scheduler: %s", _sanitize_log_value(e))
                 backup_scheduler = None
         else:
             logger.info("Backup scheduler disabled")
 
     except Exception as e:
-        logger.error(f"Failed to initialize storage: {e}")
+        logger.error("Failed to initialize storage: %s", _sanitize_log_value(e))
         raise
     
     yield
@@ -224,7 +227,7 @@ async def lifespan(app: FastAPI):
             await consolidation_scheduler.stop()
             logger.info("Consolidation scheduler stopped")
         except Exception as e:
-            logger.error(f"Error stopping consolidation scheduler: {e}")
+            logger.error("Error stopping consolidation scheduler: %s", _sanitize_log_value(e))
 
     # Stop backup scheduler
     if backup_scheduler:
@@ -232,7 +235,7 @@ async def lifespan(app: FastAPI):
             await backup_scheduler.stop()
             logger.info("Backup scheduler stopped")
         except Exception as e:
-            logger.error(f"Error stopping backup scheduler: {e}")
+            logger.error("Error stopping backup scheduler: %s", _sanitize_log_value(e))
 
     # Stop mDNS advertisement
     if mdns_advertiser:
@@ -240,7 +243,7 @@ async def lifespan(app: FastAPI):
             await mdns_advertiser.stop()
             logger.info("mDNS service advertisement stopped")
         except Exception as e:
-            logger.error(f"Error stopping mDNS advertisement: {e}")
+            logger.error("Error stopping mDNS advertisement: %s", _sanitize_log_value(e))
 
     # Stop OAuth cleanup task
     if oauth_cleanup_task:
@@ -251,7 +254,7 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             logger.info("OAuth cleanup task cancelled successfully")
         except Exception as e:
-            logger.error(f"Error stopping OAuth cleanup task: {e}")
+            logger.error("Error stopping OAuth cleanup task: %s", _sanitize_log_value(e))
 
     # Stop SSE manager
     await sse_manager.stop()
@@ -296,54 +299,54 @@ def create_app() -> FastAPI:
     # Include API routers
     logger.info("Including API routers...")
     app.include_router(health_router, prefix="/api", tags=["health"])
-    logger.info(f"✓ Included health router with {len(health_router.routes)} routes")
+    logger.info("✓ Included health router with %s routes", _sanitize_log_value(len(health_router.routes)))
     app.include_router(memories_router, prefix="/api", tags=["memories"])
-    logger.info(f"✓ Included memories router with {len(memories_router.routes)} routes")
+    logger.info("✓ Included memories router with %s routes", _sanitize_log_value(len(memories_router.routes)))
     app.include_router(search_router, prefix="/api", tags=["search"])
-    logger.info(f"✓ Included search router with {len(search_router.routes)} routes")
+    logger.info("✓ Included search router with %s routes", _sanitize_log_value(len(search_router.routes)))
     app.include_router(manage_router, prefix="/api/manage", tags=["management"])
-    logger.info(f"✓ Included manage router with {len(manage_router.routes)} routes")
+    logger.info("✓ Included manage router with %s routes", _sanitize_log_value(len(manage_router.routes)))
     app.include_router(analytics_router, prefix="/api/analytics", tags=["analytics"])
-    logger.info(f"✓ Included analytics router with {len(analytics_router.routes)} routes")
+    logger.info("✓ Included analytics router with %s routes", _sanitize_log_value(len(analytics_router.routes)))
     app.include_router(events_router, prefix="/api", tags=["events"])
-    logger.info(f"✓ Included events router with {len(events_router.routes)} routes")
+    logger.info("✓ Included events router with %s routes", _sanitize_log_value(len(events_router.routes)))
     app.include_router(sync_router, prefix="/api", tags=["sync"])
-    logger.info(f"✓ Included sync router with {len(sync_router.routes)} routes")
+    logger.info("✓ Included sync router with %s routes", _sanitize_log_value(len(sync_router.routes)))
     app.include_router(backup_router, prefix="/api", tags=["backup"])
-    logger.info(f"✓ Included backup router with {len(backup_router.routes)} routes")
+    logger.info("✓ Included backup router with %s routes", _sanitize_log_value(len(backup_router.routes)))
     app.include_router(quality_router, prefix="/api/quality", tags=["quality"])
-    logger.info(f"✓ Included quality router with {len(quality_router.routes)} routes")
+    logger.info("✓ Included quality router with %s routes", _sanitize_log_value(len(quality_router.routes)))
     try:
         app.include_router(documents_router, prefix="/api/documents", tags=["documents"])
-        logger.info(f"✓ Included documents router with {len(documents_router.routes)} routes")
+        logger.info("✓ Included documents router with %s routes", _sanitize_log_value(len(documents_router.routes)))
     except Exception as e:
-        logger.error(f"✗ Failed to include documents router: {e}")
+        logger.error("✗ Failed to include documents router: %s", _sanitize_log_value(e))
         import traceback  # inline import: only reached on this router-import failure
         logger.error(traceback.format_exc())
 
     # Include consolidation router
     app.include_router(consolidation_router, tags=["consolidation"])
-    logger.info(f"✓ Included consolidation router with {len(consolidation_router.routes)} routes")
+    logger.info("✓ Included consolidation router with %s routes", _sanitize_log_value(len(consolidation_router.routes)))
 
     # Include server management router
     app.include_router(server_router, prefix="/api/server", tags=["server-management"])
-    logger.info(f"✓ Included server router with {len(server_router.routes)} routes")
+    logger.info("✓ Included server router with %s routes", _sanitize_log_value(len(server_router.routes)))
 
     # Include configuration router
     app.include_router(configuration_router, prefix="/api", tags=["configuration"])
-    logger.info(f"✓ Included configuration router with {len(configuration_router.routes)} routes")
+    logger.info("✓ Included configuration router with %s routes", _sanitize_log_value(len(configuration_router.routes)))
 
     # Include OAuth status router (always available, returns disabled status if OAuth off)
     app.include_router(oauth_status_router, prefix="/api", tags=["oauth-status"])
-    logger.info(f"✓ Included OAuth status router with {len(oauth_status_router.routes)} routes")
+    logger.info("✓ Included OAuth status router with %s routes", _sanitize_log_value(len(oauth_status_router.routes)))
 
     # Include conflicts router (P3 conflict detection)
     app.include_router(conflicts_router, prefix="/api", tags=["conflicts"])
-    logger.info(f"✓ Included conflicts router with {len(conflicts_router.routes)} routes")
+    logger.info("✓ Included conflicts router with %s routes", _sanitize_log_value(len(conflicts_router.routes)))
 
     # Include session harvest router (Issue #630)
     app.include_router(harvest_router, tags=["harvest"])
-    logger.info(f"✓ Included harvest router with {len(harvest_router.routes)} routes")
+    logger.info("✓ Included harvest router with %s routes", _sanitize_log_value(len(harvest_router.routes)))
 
     # Include MCP protocol router
     app.include_router(mcp_router, tags=["mcp-protocol"])
@@ -1077,7 +1080,7 @@ def create_app() -> FastAPI:
                 return html_template
         except Exception as e:
             # Error fallback to original template
-            logger.warning(f"Error loading migrated dashboard: {e}")
+            logger.warning("Error loading migrated dashboard: %s", _sanitize_log_value(e))
             return html_template
 
     @app.get("/api/languages")
@@ -1107,7 +1110,7 @@ def create_app() -> FastAPI:
             return {"languages": languages}
 
         except Exception as e:
-            logger.error(f"Error scanning i18n directory: {e}")
+            logger.error("Error scanning i18n directory: %s", _sanitize_log_value(e))
             return {"languages": ["en"]}  # Fallback to English on error
 
     return app
