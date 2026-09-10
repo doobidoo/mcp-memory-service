@@ -395,13 +395,10 @@ class DreamInspiredConsolidator:
                 # 6. Controlled forgetting (if enabled and appropriate)
                 # Forgetting gets its own candidate selector that reaches beyond
                 # the horizon window into the stale tail (Codeberg #325).
-                forgetting_results = []
                 if self.config.forgetting_enabled and check_horizon_requirements(
                     time_horizon, "forgetting", self.ENABLED_PHASES
                 ):
-                    forgetting_results = await self._run_forgetting_phase(
-                        time_horizon, report
-                    )
+                    await self._run_forgetting_phase(time_horizon, report)
 
                 # 6b. Prune orphaned graph edges (#632)
                 orphaned = await self._prune_orphaned_graph_edges()
