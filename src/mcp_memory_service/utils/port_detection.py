@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import socket
-import asyncio
 import logging
 from typing import Optional
 from ..config import HTTP_PORT
