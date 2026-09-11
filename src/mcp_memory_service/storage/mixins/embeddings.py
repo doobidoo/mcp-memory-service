@@ -233,7 +233,8 @@ class EmbeddingsMixin:
                         # logging plain success — otherwise the requested model is silently
                         # ignored and the user is unaware they are getting MiniLM-384 (#143).
                         requested_base = (self.embedding_model_name or '').split('/')[-1]
-                        if requested_base != 'all-MiniLM-L6-v2':
+                        served_default = getattr(onnx_model, '_is_default_model', True)
+                        if requested_base != 'all-MiniLM-L6-v2' and served_default:
                             logger.warning(
                                 "ONNX backend does not honor the requested embedding model '%s'; "
                                 "it only serves all-MiniLM-L6-v2 (%s-dim). The requested model is "
