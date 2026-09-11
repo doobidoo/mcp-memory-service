@@ -22,7 +22,7 @@ import logging
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from ...models.memory import Memory, MemoryQueryResult
 from ...services.memory_service import MemoryService
@@ -133,7 +133,18 @@ async def _apply_retrieve_plugins(
     """Expose the final HTTP result rows to the shared retrieval hook."""
     rows = [_search_result_to_plugin_row(result) for result in results]
     rows = await memory_service.apply_retrieve_plugins(query, rows)
-    return [_plugin_row_to_search_result(row) for row in rows]
+    restored = []
+    for row in rows:
+        try:
+            restored.append(_plugin_row_to_search_result(row))
+        except ValidationError:
+            # PluginRegistry.fire already keeps a broken plugin from taking
+            # retrieval down; a row it hands back must not do so one step later.
+            logger.warning(
+                "Dropping malformed retrieval-plugin row %s",
+                _sanitize_log_value(row.get("content_hash")),
+            )
+    return restored
 
 
 @router.post("/search", response_model=SearchResponse, tags=["search"])
@@ -349,8 +360,9 @@ async def time_search(
 
         # Retrieve memories within time range (with larger candidate pool if semantic query provided)
         candidate_pool_size = _TIME_SEARCH_CANDIDATE_POOL_SIZE if request.semantic_query else request.n_results
+        semantic_query = request.semantic_query.strip() if request.semantic_query else ""
         query_results = await storage.recall(
-            query=request.semantic_query.strip() if request.semantic_query and request.semantic_query.strip() else None,
+            query=semantic_query or None,
             n_results=candidate_pool_size,
             start_timestamp=start_ts,
             end_timestamp=end_ts
@@ -358,7 +370,7 @@ async def time_search(
 
         # If semantic query was provided, results are already ranked by relevance
         # Otherwise, sort by recency (newest first)
-        if not (request.semantic_query and request.semantic_query.strip()):
+        if not semantic_query:
             query_results.sort(key=lambda r: r.memory.created_at or 0.0, reverse=True)
 
         # Limit results
@@ -374,13 +386,8 @@ async def time_search(
         for result in search_results:
             result.relevance_reason = f"Time match: {request.query}"
 
-        plugin_query = (
-            request.semantic_query.strip()
-            if request.semantic_query and request.semantic_query.strip()
-            else request.query
-        )
         search_results = await _apply_retrieve_plugins(
-            memory_service, plugin_query, search_results
+            memory_service, semantic_query or request.query, search_results
         )
         processing_time = (time.time() - start_time) * 1000
 
