@@ -6564,6 +6564,10 @@ class MemoryDashboard {
         // Escape key (for the non-OS-fullscreen fallback path)
         this.fullscreenEscapeHandler = (e) => {
             if (e.key === 'Escape') this.exitGraphFullscreen();
+            if (e.key === 'l') {
+                e.preventDefault();
+                this.toggleGraphLegend();
+            }
         };
         document.addEventListener('keydown', this.fullscreenEscapeHandler);
     }

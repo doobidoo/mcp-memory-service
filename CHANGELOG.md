@@ -25,12 +25,7 @@ Thanks to eunwoo song for the retrieval fix below (#1128) and to timkjr for the 
 
 ### Fixed
 
-- **Recover local ONNX embeddings from CoreML runtime failures (#1105).** A failing
-  CoreML session is rebuilt with `CPUExecutionProvider`, retries the same batch
-  once, and stays on CPU for subsequent store and search calls. The model and
-  embedding dimension are unchanged. `MCP_MEMORY_ONNX_PROVIDERS` also lets users
-  pin an available provider list without editing installed files; for example,
-  `CPUExecutionProvider` avoids CoreML entirely. Restart after changing the setting.
+- **Tag search now honors `match_all=True` (#1196).** The MCP `search_by_tag` path applies AND matching through storage instead of returning OR results labelled `ALL`. Default ANY matching, tag normalization, and empty queries retain their existing behavior. Regression tests assert exact result sets against real SQLite storage.
 
 - **fix(storage): apply eligibility filters before the nearest-neighbour limit (#1128, eunwoo song, closes #1077).** `recall()` and `retrieve()` asked sqlite-vec for the k nearest embeddings first and filtered afterwards, so soft-deleted rows, rows outside the requested time window, and rows excluded by tag or supersession consumed the candidate budget before a valid match could be seen. With enough excluded neighbours the result set came back short or empty even though matching memories existed. Both queries now restrict the KNN scan to eligible rowids, so k counts only memories that can actually be returned. The tests run against real sqlite-vec with 4,100 excluded neighbours crowding five valid ones, which is what distinguishes a fix here from a fix that merely reorders the same failure.
 - **fix(consolidation): map recommendation values onto the API's public contract (#1087, timkjr).** `/api/consolidation/recommendations/{time_horizon}` sanitized its output against an allowlist of uppercase values, but `DreamInspiredConsolidator.get_consolidation_recommendations()` has always returned lowercase snake_case ones (`consolidation_beneficial`, `optional`, `no_action`, `error`). Nothing ever matched, so every call returned `"recommendation": "UNKNOWN"` regardless of the consolidator's actual assessment. The values are now mapped explicitly, with the CWE-209 fallback kept for anything unrecognised. Traces back to Codeberg #328, ported here from Codeberg PR #339.

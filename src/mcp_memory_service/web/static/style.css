@@ -5038,15 +5038,26 @@ body.dark-mode .quality-tier-low,
     max-width: 280px;
     max-height: 50vh;
     overflow: auto;
-    background: rgba(10, 12, 20, 0.72);
-    backdrop-filter: blur(6px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    font-size: 0.78rem;
-    opacity: 0.9;
+    background: rgba(20, 24, 40, 0.92);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 0.82rem;
+    color: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
 }
 
 .graph-legend-overlay.hidden {
     display: none;
+}
+
+.graph-legend-overlay h4 {
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.graph-legend-overlay .legend-label {
+    color: rgba(255, 255, 255, 0.88);
 }
 
 .graph-container {
@@ -5393,7 +5404,7 @@ body.dark-mode .quality-tier-low,
 }
 
 #graphFullscreenLegend .legend-item {
-    color: var(--text-primary);
+    color: rgba(255, 255, 255, 0.88);
 }
 
 /* Graph Controls */
