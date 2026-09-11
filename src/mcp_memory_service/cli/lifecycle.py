@@ -804,7 +804,7 @@ def stop(http_host, http_port, force):
     port_pid = _find_process_on_port(port)
     stopped = False
 
-    if pid and port_pid == pid:
+    if pid and port_pid in (None, pid):
         click.echo(f"Stopping PID {pid}...")
         if _stop_process_on_port(port, pid, force):
             _remove_pid()

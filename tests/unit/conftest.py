@@ -43,6 +43,7 @@ def _lifecycle_process_safety_net(monkeypatch, tmp_path):
     os.environ.get("MCP_HTTP_PORT", "8000") directly at call time, which
     is exactly when this fixture's monkeypatch.setenv is in effect."""
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     from mcp_memory_service.cli import lifecycle
     monkeypatch.setattr(lifecycle, "_kill_process", _refuse_real_kill)
     monkeypatch.setenv("MCP_HTTP_HOST", "127.0.0.1")

@@ -236,7 +236,12 @@ def test_stop_does_not_kill_pid_file_process_on_different_port(monkeypatch, tmp_
     kill_process = MagicMock(return_value=True)
     monkeypatch.setattr(lifecycle, "_pid_file", lambda: tmp_path / "server.pid")
     monkeypatch.setattr(lifecycle, "_read_pid", lambda: 4321)
-    monkeypatch.setattr(lifecycle, "_find_process_on_port", lambda value: None)
+    monkeypatch.setattr(lifecycle, "_find_process_on_port", lambda value: 9876)
+    monkeypatch.setattr(
+        lifecycle,
+        "_process_command_line",
+        lambda pid: [sys.executable, "-c", "foreign listener"],
+    )
     monkeypatch.setattr(lifecycle, "_kill_process", kill_process)
     monkeypatch.setattr(
         lifecycle, "_probe_health", lambda *args, **kwargs: (None, False)
@@ -244,9 +249,30 @@ def test_stop_does_not_kill_pid_file_process_on_different_port(monkeypatch, tmp_
 
     result = CliRunner().invoke(lifecycle.stop, ["--port", str(port)])
 
-    assert result.exit_code == 0, result.output
-    assert "does not own port" in result.output
+    assert result.exit_code != 0, result.output
+    assert "Refusing to stop PID 9876" in result.output
     kill_process.assert_not_called()
+
+
+def test_stop_falls_back_to_pid_file_when_port_owner_is_unknown(monkeypatch, tmp_path):
+    """A known MCP server PID can be stopped when port probing is unavailable."""
+    port = _unused_local_port()
+    kill_process = MagicMock(return_value=True)
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: tmp_path / "server.pid")
+    monkeypatch.setattr(lifecycle, "_read_pid", lambda: 4321)
+    monkeypatch.setattr(lifecycle, "_find_process_on_port", lambda value: None)
+    monkeypatch.setattr(
+        lifecycle,
+        "_process_command_line",
+        lambda pid: [sys.executable, "-m", "uvicorn", "mcp_memory_service.web.app:app"],
+    )
+    monkeypatch.setattr(lifecycle, "_kill_process", kill_process)
+
+    result = CliRunner().invoke(lifecycle.stop, ["--port", str(port)])
+
+    assert result.exit_code == 0, result.output
+    assert "Server stopped" in result.output
+    kill_process.assert_called_once_with(4321)
 
 
 def test_launch_refuses_to_kill_foreign_listener(monkeypatch):
