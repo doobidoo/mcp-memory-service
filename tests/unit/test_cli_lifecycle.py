@@ -228,6 +228,57 @@ def test_stop_force_kills_foreign_listener(monkeypatch, tmp_path):
         if proc.poll() is None:
             proc.terminate()
             proc.wait(timeout=5)
+
+
+def test_stop_does_not_kill_pid_file_process_on_different_port(monkeypatch, tmp_path):
+    """A PID file must not override the requested port ownership check."""
+    port = _unused_local_port()
+    kill_process = MagicMock(return_value=True)
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: tmp_path / "server.pid")
+    monkeypatch.setattr(lifecycle, "_read_pid", lambda: 4321)
+    monkeypatch.setattr(lifecycle, "_find_process_on_port", lambda value: None)
+    monkeypatch.setattr(lifecycle, "_kill_process", kill_process)
+    monkeypatch.setattr(
+        lifecycle, "_probe_health", lambda *args, **kwargs: (None, False)
+    )
+
+    result = CliRunner().invoke(lifecycle.stop, ["--port", str(port)])
+
+    assert result.exit_code == 0, result.output
+    assert "does not own port" in result.output
+    kill_process.assert_not_called()
+
+
+def test_launch_refuses_to_kill_foreign_listener(monkeypatch):
+    """Launch must use the same command-line ownership check as stop."""
+    port = _unused_local_port()
+    kill_process = MagicMock(return_value=True)
+    monkeypatch.setattr(lifecycle, "_read_pid", lambda: None)
+    monkeypatch.setattr(lifecycle, "_find_process_on_port", lambda value: 4321)
+    monkeypatch.setattr(
+        lifecycle,
+        "_process_command_line",
+        lambda pid: [sys.executable, "-c", "foreign listener"],
+    )
+    monkeypatch.setattr(lifecycle, "_kill_process", kill_process)
+    monkeypatch.setattr(lifecycle, "_ensure_dirs", lambda: None)
+    monkeypatch.setattr(lifecycle, "_log_file", lambda: MagicMock())
+    monkeypatch.setattr("builtins.open", lambda *args, **kwargs: MagicMock())
+    monkeypatch.setattr(lifecycle, "_write_pid", lambda pid, scheme="http": None)
+    monkeypatch.setattr(
+        lifecycle.subprocess, "Popen", MagicMock(return_value=MagicMock(pid=1234))
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "_probe_health",
+        lambda *args, **kwargs: ({"status": "healthy"}, False),
+    )
+
+    result = CliRunner().invoke(lifecycle.launch, ["--port", str(port)])
+
+    assert result.exit_code != 0
+    assert "Refusing to stop" in result.output
+    kill_process.assert_not_called()
     
 
 

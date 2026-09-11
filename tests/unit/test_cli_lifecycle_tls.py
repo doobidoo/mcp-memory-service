@@ -558,6 +558,7 @@ class TestLaunchDoesNotClobberTlsBlockedServer:
         # 424242 on whatever machine runs this test. Never let a unit test
         # call the real _kill_process with a fabricated PID.
         monkeypatch.setattr(lifecycle, "_kill_process", mock.Mock(return_value=True))
+        monkeypatch.setattr(lifecycle, "_stop_process_on_port", mock.Mock(return_value=True))
         monkeypatch.setattr(lifecycle, "_probe_health", lambda url, timeout=3: (None, True))
 
         runner = CliRunner()

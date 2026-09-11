@@ -652,8 +652,7 @@ def launch(ctx, http_host, http_port, detach, storage_backend, debug):
     # Kill stale process on the port if any
     port_pid = _find_process_on_port(port)
     if port_pid and port_pid != existing_pid:
-        click.echo(f"Freeing port {port} (stale PID {port_pid})...")
-        _kill_process(port_pid)
+        _stop_process_on_port(port, port_pid, force=False)
         time.sleep(0.5)
 
     if not detach:
@@ -805,14 +804,15 @@ def stop(http_host, http_port, force):
     port_pid = _find_process_on_port(port)
     stopped = False
 
-    if pid:
+    if pid and port_pid == pid:
         click.echo(f"Stopping PID {pid}...")
-        if _kill_process(pid):
-            click.echo("Process terminated.")
-        else:
-            click.echo(f"Could not terminate PID {pid}.", err=True)
-        _remove_pid()
-        stopped = True
+        if _stop_process_on_port(port, pid, force):
+            _remove_pid()
+            stopped = True
+    elif pid:
+        click.echo(
+            f"Refusing to stop PID {pid}: it does not own port {port}."
+        )
 
     if port_pid and port_pid != pid:
         stopped = _stop_process_on_port(port, port_pid, force) or stopped

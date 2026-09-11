@@ -21,7 +21,7 @@ def _refuse_real_kill(pid):
 
 
 @pytest.fixture(autouse=True)
-def _lifecycle_process_safety_net(monkeypatch):
+def _lifecycle_process_safety_net(monkeypatch, tmp_path):
     """Structural guard, not per-test discipline: any test anywhere under
     tests/unit/ that reaches lifecycle._kill_process without mocking it
     gets a loud AssertionError instead of a real signal -- this is the
@@ -42,6 +42,7 @@ def _lifecycle_process_safety_net(monkeypatch):
     lifecycle.py's own commands never read that cached value, they call
     os.environ.get("MCP_HTTP_PORT", "8000") directly at call time, which
     is exactly when this fixture's monkeypatch.setenv is in effect."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     from mcp_memory_service.cli import lifecycle
     monkeypatch.setattr(lifecycle, "_kill_process", _refuse_real_kill)
     monkeypatch.setenv("MCP_HTTP_HOST", "127.0.0.1")
