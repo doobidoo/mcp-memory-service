@@ -95,13 +95,18 @@ def _read_pid() -> int | None:
     return None
 
 
-def _write_pid(pid: int, scheme: str = "http") -> None:
+def _write_pid(
+    pid: int, scheme: str = "http", port: int | None = None
+) -> None:
     _ensure_dirs()
-    # Record PID alongside process creation time and cmdline hint to detect
-    # stale PID files after reboot or PID reuse. The scheme records what the
-    # server was actually launched with, so later commands probe the right
-    # one instead of re-deriving it -- see _recorded_scheme().
+    # Record PID alongside the port, process creation time, and cmdline hint.
+    # The port is ground truth for stop: a PID file must not make a process
+    # serving a different port look like the requested server. The scheme
+    # records what the server was actually launched with, so later commands
+    # probe the right one instead of re-deriving it -- see _recorded_scheme().
     pid_info = {"pid": pid, "scheme": scheme}
+    if port is not None:
+        pid_info["port"] = port
     try:
         import psutil  # inline import: deferred so this third-party dependency doesn't load at module import time, matching this module's fast-load design
         proc = psutil.Process(pid)
@@ -427,6 +432,29 @@ def _recorded_scheme() -> str | None:
     return scheme if scheme in ("http", "https") else None
 
 
+def _recorded_port() -> int | None:
+    """Return the server port recorded in the PID file, if available.
+
+    Older PID files do not contain a port. Returning None for those files
+    preserves the legacy command-line ownership fallback in ``stop``.
+    """
+    pid_path = _pid_file()
+    try:
+        pid_info = json.loads(pid_path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(pid_info, dict):
+        return None
+    port = pid_info.get("port")
+    if isinstance(port, bool) or port is None:
+        return None
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return None
+    return port if 1 <= port <= 65535 else None
+
+
 def _base_url(host: str, port: int, scheme: str | None = None) -> str:
     scheme = scheme or _recorded_scheme() or ("https" if _is_https_enabled() else "http")
     return f"{scheme}://{host}:{port}"
@@ -725,7 +753,7 @@ def launch(ctx, http_host, http_port, detach, storage_backend, debug):
         log_err_handle.close()
         raise
 
-    _write_pid(proc.pid, scheme=tls.scheme)
+    _write_pid(proc.pid, scheme=tls.scheme, port=port)
 
     # Poll health endpoint until server is ready
     click.echo("Waiting for server to start...")
@@ -801,10 +829,16 @@ def stop(http_host, http_port, force):
     port = http_port or int(os.environ.get("MCP_HTTP_PORT", "8000"))
 
     pid = _read_pid()
+    recorded_port = _recorded_port()
     port_pid = _find_process_on_port(port)
     stopped = False
 
-    if pid and port_pid in (None, pid):
+    if pid and recorded_port is not None and recorded_port != port:
+        click.echo(
+            f"Refusing to stop PID {pid}: PID file records port "
+            f"{recorded_port}, not requested port {port}."
+        )
+    elif pid and port_pid in (None, pid):
         click.echo(f"Stopping PID {pid}...")
         if _stop_process_on_port(port, pid, force):
             _remove_pid()

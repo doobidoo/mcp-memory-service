@@ -430,7 +430,9 @@ class TestLaunchDoesNotClobberTlsBlockedServer:
             lifecycle, "_log_file", lambda: mock.MagicMock(with_suffix=lambda s: mock.MagicMock())
         )
         monkeypatch.setattr("builtins.open", lambda *a, **k: mock.MagicMock())
-        monkeypatch.setattr(lifecycle, "_write_pid", lambda pid, scheme="http": None)
+        monkeypatch.setattr(
+            lifecycle, "_write_pid", lambda pid, scheme="http", port=None: None
+        )
         monkeypatch.setattr(lifecycle.time, "sleep", lambda s: None)
 
         proc = mock.Mock()
@@ -490,7 +492,9 @@ class TestLaunchDoesNotClobberTlsBlockedServer:
             lifecycle, "_log_file", lambda: mock.MagicMock(with_suffix=lambda s: mock.MagicMock())
         )
         monkeypatch.setattr("builtins.open", lambda *a, **k: mock.MagicMock())
-        monkeypatch.setattr(lifecycle, "_write_pid", lambda pid, scheme="http": None)
+        monkeypatch.setattr(
+            lifecycle, "_write_pid", lambda pid, scheme="http", port=None: None
+        )
         monkeypatch.setattr(lifecycle.time, "sleep", lambda s: None)
 
         proc = mock.Mock()
@@ -540,7 +544,9 @@ class TestLaunchDoesNotClobberTlsBlockedServer:
             lifecycle, "_log_file", lambda: mock.MagicMock(with_suffix=lambda s: mock.MagicMock())
         )
         monkeypatch.setattr("builtins.open", lambda *a, **k: mock.MagicMock())
-        monkeypatch.setattr(lifecycle, "_write_pid", lambda pid, scheme="http": None)
+        monkeypatch.setattr(
+            lifecycle, "_write_pid", lambda pid, scheme="http", port=None: None
+        )
         monkeypatch.setattr(lifecycle.time, "sleep", lambda s: None)
 
         proc = mock.Mock()
@@ -585,7 +591,9 @@ class TestLaunchDoesNotClobberTlsBlockedServer:
             lifecycle, "_log_file", lambda: mock.MagicMock(with_suffix=lambda s: mock.MagicMock())
         )
         monkeypatch.setattr("builtins.open", lambda *a, **k: mock.MagicMock())
-        monkeypatch.setattr(lifecycle, "_write_pid", lambda pid, scheme="http": None)
+        monkeypatch.setattr(
+            lifecycle, "_write_pid", lambda pid, scheme="http", port=None: None
+        )
         monkeypatch.setattr(lifecycle.time, "sleep", lambda s: None)
 
         proc = mock.Mock()
