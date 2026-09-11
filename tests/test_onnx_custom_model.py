@@ -71,3 +71,41 @@ def test_org_prefixed_model_name_uses_basename(monkeypatch):
     m = _make_without_io(monkeypatch, "sentence-transformers/all-MiniLM-L6-v2")
     # basename is the default model -> S3 path
     assert m._is_default_model is True
+
+
+def test_none_model_name_falls_back_to_default(monkeypatch):
+    """A None model_name normalises to the default (no crash downstream)."""
+    m = _make_without_io(monkeypatch, None)
+    assert m.model_name == "all-MiniLM-L6-v2"
+    assert m._is_default_model is True
+
+
+def test_resolve_model_path_default_vs_custom(monkeypatch, tmp_path):
+    """_resolve_model_path returns the S3 layout for default, custom dir otherwise."""
+    from mcp_memory_service.embeddings import onnx_embeddings as mod
+
+    default = _make_without_io(monkeypatch, "all-MiniLM-L6-v2")
+    assert default._resolve_model_path() == (
+        default.DOWNLOAD_PATH / default.EXTRACTED_FOLDER_NAME / "model.onnx"
+    )
+
+    custom = _make_without_io(monkeypatch, "paraphrase-multilingual-MiniLM-L12-v2")
+    # point the custom dir at a tmp layout with onnx/model.onnx
+    custom._model_dir = tmp_path
+    (tmp_path / "onnx").mkdir()
+    (tmp_path / "onnx" / "model.onnx").write_bytes(b"stub")
+    assert custom._resolve_model_path() == tmp_path / "onnx" / "model.onnx"
+
+
+def test_find_onnx_file_ignores_quantized_variants(monkeypatch, tmp_path):
+    """Only the canonical model.onnx is selected, not model_quantized.onnx."""
+    m = _make_without_io(monkeypatch, "some-multilingual-model")
+    m._model_dir = tmp_path
+    onnx_dir = tmp_path / "onnx"
+    onnx_dir.mkdir()
+    (onnx_dir / "model_quantized.onnx").write_bytes(b"q")
+    # no canonical model.onnx yet -> None (won't silently pick the quantized one)
+    assert m._find_onnx_file() is None
+    (onnx_dir / "model.onnx").write_bytes(b"full")
+    assert m._find_onnx_file() == onnx_dir / "model.onnx"
+

@@ -89,7 +89,7 @@ class ONNXEmbeddingModel:
         if not TOKENIZERS_AVAILABLE:
             raise ImportError("Tokenizers is required but not installed. Install with: pip install tokenizers")
         
-        self.model_name = model_name
+        self.model_name = model_name or self.MODEL_NAME
         self._preferred_providers = preferred_providers or ['CPUExecutionProvider']
         self._model = None
         self._tokenizer = None
@@ -97,7 +97,7 @@ class ONNXEmbeddingModel:
         # Decide the loading strategy. The default model keeps the original
         # S3 tar.gz path (fully backward compatible). A non-default model is
         # resolved from the Hugging Face Hub instead.
-        base = (model_name or self.MODEL_NAME).split('/')[-1]
+        base = self.model_name.split('/')[-1]
         self._is_default_model = (base == self.MODEL_NAME)
         if self._is_default_model:
             self._hf_repo = None
@@ -205,8 +205,9 @@ class ONNXEmbeddingModel:
             snapshot_download(
                 repo_id=self._hf_repo,
                 local_dir=str(self._model_dir),
-                allow_patterns=["*.onnx", "tokenizer.json", "tokenizer_config.json",
-                                "config.json", "special_tokens_map.json", "*.txt"],
+                allow_patterns=["model.onnx", "onnx/model.onnx", "tokenizer.json",
+                                "tokenizer_config.json", "config.json",
+                                "special_tokens_map.json"],
             )
         except Exception as e:
             logger.error(f"Failed to download ONNX model from {self._hf_repo}: {e}")
@@ -216,23 +217,34 @@ class ONNXEmbeddingModel:
             raise RuntimeError(f"No .onnx file found in downloaded repo {self._hf_repo}")
         logger.info("ONNX model ready for use")
 
+    def _resolve_model_path(self):
+        """Return the model.onnx path for the active model (default or custom)."""
+        if self._is_default_model:
+            return self.DOWNLOAD_PATH / self.EXTRACTED_FOLDER_NAME / "model.onnx"
+        return self._find_onnx_file()
+
     def _find_onnx_file(self):
-        """Locate the model.onnx within the custom model dir (root or onnx/)."""
+        """Locate the full-precision model.onnx within the custom model dir.
+
+        Prefers the canonical ``model.onnx`` (repo root or ``onnx/``). Quantized
+        variants (model_quantized/int8/uint8/...) are deliberately NOT auto-
+        selected, as they change the embedding numerics; callers that want them
+        should point MCP_ONNX_MODEL_REPO at a repo whose canonical file is that
+        variant.
+        """
         for cand in (self._model_dir / "model.onnx",
                      self._model_dir / "onnx" / "model.onnx"):
             if cand.exists():
                 return cand
-        # any .onnx as last resort (e.g. model_quantized.onnx)
-        hits = list(self._model_dir.rglob("*.onnx"))
-        return hits[0] if hits else None
+        return None
 
     def _init_model(self):
         """Initialize ONNX model and tokenizer."""
         if self._is_default_model:
-            model_path = self.DOWNLOAD_PATH / self.EXTRACTED_FOLDER_NAME / "model.onnx"
+            model_path = self._resolve_model_path()
             tokenizer_path = self.DOWNLOAD_PATH / self.EXTRACTED_FOLDER_NAME / "tokenizer.json"
         else:
-            model_path = self._find_onnx_file()
+            model_path = self._resolve_model_path()
             tokenizer_path = self._model_dir / "tokenizer.json"
 
         if not model_path or not Path(model_path).exists():
@@ -256,6 +268,9 @@ class ONNXEmbeddingModel:
         
         # Get model info
         self.embedding_dimension = self._model.get_outputs()[0].shape[-1]
+        # Not every exported model takes token_type_ids (some drop it). Record
+        # the accepted input names so encode() only feeds supported tensors.
+        self._input_names = {i.name for i in self._model.get_inputs()}
         logger.info(f"ONNX model loaded. Embedding dimension: {self.embedding_dimension}")
     
     def encode(self, texts: Union[str, List[str]], convert_to_numpy: bool = True) -> np.ndarray:
@@ -289,12 +304,15 @@ class ONNXEmbeddingModel:
             attention_mask[i, :length] = enc.attention_mask
             token_type_ids[i, :length] = enc.type_ids
         
-        # Run inference
+        # Run inference — only feed inputs the model actually declares.
         ort_inputs = {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "token_type_ids": token_type_ids,
         }
+        accepted = getattr(self, "_input_names", None)
+        if accepted is not None:
+            ort_inputs = {k: v for k, v in ort_inputs.items() if k in accepted}
         
         session = self._model
         try:
@@ -308,7 +326,7 @@ class ONNXEmbeddingModel:
                 "CoreML inference failed; retrying with CPUExecutionProvider: %s",
                 _sanitize_log_value(exc),
             )
-            model_path = self.DOWNLOAD_PATH / self.EXTRACTED_FOLDER_NAME / "model.onnx"
+            model_path = self._resolve_model_path()
             session = ort.InferenceSession(
                 str(model_path), providers=["CPUExecutionProvider"]
             )
