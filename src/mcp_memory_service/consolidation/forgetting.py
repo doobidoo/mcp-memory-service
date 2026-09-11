@@ -293,24 +293,23 @@ class ControlledForgettingEngine(ConsolidationBase):
         if content == other_content:
             return True
 
-        # Very similar content (simple check)
-        if len(content) > 50 and len(other_content) > 50:
-            # Check if one is a substring of the other with high overlap
-            if content in other_content or other_content in content:
-                return True
+        # Very similar content (simple check): only worth testing on longer texts
+        if min(len(content), len(other_content)) <= 50:
+            return False
 
-            # Check word overlap
-            words1 = set(content.split())
-            words2 = set(other_content.split())
+        # Check if one is a substring of the other with high overlap
+        if content in other_content or other_content in content:
+            return True
 
-            if len(words1) > 5 and len(words2) > 5:
-                overlap = len(words1.intersection(words2))
-                union = len(words1.union(words2))
+        # Check word overlap
+        words1 = set(content.split())
+        words2 = set(other_content.split())
+        if min(len(words1), len(words2)) <= 5:
+            return False
 
-                if overlap / union > 0.8:  # 80% word overlap
-                    return True
-
-        return False
+        overlap = len(words1.intersection(words2))
+        union = len(words1.union(words2))
+        return overlap / union > 0.8  # 80% word overlap
 
     @staticmethod
     def _keep_rank(memory: Memory, score_lookup: Dict[str, "RelevanceScore"]):

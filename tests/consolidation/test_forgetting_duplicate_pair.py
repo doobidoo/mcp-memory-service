@@ -17,6 +17,13 @@ from datetime import datetime, timedelta, timezone
 from mcp_memory_service.consolidation.forgetting import ControlledForgettingEngine
 from mcp_memory_service.consolidation.decay import RelevanceScore
 from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.utils.hashing import generate_content_hash
+
+try:
+    import sqlite_vec  # noqa: F401
+    SQLITE_VEC_AVAILABLE = True
+except ImportError:
+    SQLITE_VEC_AVAILABLE = False
 
 
 ORIGINAL = (
@@ -98,3 +105,71 @@ class TestDuplicatePairSurvivor:
         """Control: a memory with no twin is never deleted as a duplicate."""
         deleted = await self._deleted(engine, [_mem(ORIGINAL, "hash_only")])
         assert deleted == []
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(not SQLITE_VEC_AVAILABLE, reason="sqlite-vec not available")
+class TestDuplicateSurvivorInRealStorage:
+    """End-to-end through the real sqlite-vec backend.
+
+    The unit tests above stop at `action_taken == "deleted"`. This change decides what
+    gets deleted from storage, so this test walks the whole path: real
+    `SqliteVecMemoryStorage`, real `generate_content_hash` hashes (storage keys on the
+    real hash and so does the fix), `forgetting_engine.process()` followed by
+    `DreamInspiredConsolidator._apply_forgetting_results()`, then counts what is left.
+    Pre-fix, three stored near-duplicates end as zero rows.
+    """
+
+    async def _survivors_after_forgetting(self, tmp_path, consolidation_config, contents):
+        from mcp_memory_service.consolidation.consolidator import (
+            DreamInspiredConsolidator,
+        )
+        from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+
+        storage = SqliteVecMemoryStorage(str(tmp_path / "t.db"))
+        await storage.initialize()
+        try:
+            # Oldest first, so the survivor-choice on a score tie is exercised too.
+            for days_old, content in enumerate(reversed(contents), start=1):
+                memory = _mem(content, generate_content_hash(content), days_old=days_old)
+                # skip_semantic_dedup: the bug's precondition is near-duplicates that
+                # are already in storage (accumulated outside the dedup time window).
+                success, message = await storage.store(memory, skip_semantic_dedup=True)
+                assert success, message
+
+            consolidator = DreamInspiredConsolidator(storage, consolidation_config)
+            memories = await storage.get_all_memories()
+            assert len(memories) == len(contents)
+            scores = [_score(m.content_hash) for m in memories]
+            results = await consolidator.forgetting_engine.process(
+                memories, scores, access_patterns={}, time_horizon="weekly"
+            )
+            await consolidator._apply_forgetting_results(results)
+            return await storage.get_all_memories()
+        finally:
+            if storage.conn:
+                storage.conn.close()
+
+    @pytest.mark.asyncio
+    async def test_three_near_duplicates_leave_one_row_in_storage(
+        self, tmp_path, consolidation_config
+    ):
+        survivors = await self._survivors_after_forgetting(
+            tmp_path, consolidation_config, [ORIGINAL, FOLLOW_UP, THIRD]
+        )
+        assert len(survivors) == 1, (
+            f"expected exactly one row left in sqlite-vec storage after deduplicating "
+            f"3 near-duplicates, found {len(survivors)}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_near_duplicate_pair_leaves_one_row_in_storage(
+        self, tmp_path, consolidation_config
+    ):
+        survivors = await self._survivors_after_forgetting(
+            tmp_path, consolidation_config, [ORIGINAL, FOLLOW_UP]
+        )
+        assert len(survivors) == 1, (
+            f"expected exactly one row left in sqlite-vec storage after deduplicating "
+            f"a near-duplicate pair, found {len(survivors)}"
+        )
