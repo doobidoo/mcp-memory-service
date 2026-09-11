@@ -28,8 +28,8 @@ from pathlib import Path
 # Add parent directory to path so we can import from the src directory
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.mcp_memory_service.storage.chroma import ChromaMemoryStorage
-from src.mcp_memory_service.config import CHROMA_PATH, BACKUPS_PATH
+from mcp_memory_service.storage.chroma import ChromaMemoryStorage
+from mcp_memory_service.config import CHROMA_PATH, BACKUPS_PATH
 
 # Configure logging
 logging.basicConfig(

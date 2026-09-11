@@ -15,8 +15,8 @@ from pathlib import Path
 # Add project root to sys.path so 'src' package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.mcp_memory_service.storage.cloudflare import CloudflareStorage
-from src.mcp_memory_service.models.memory import Memory
+from mcp_memory_service.storage.cloudflare import CloudflareStorage
+from mcp_memory_service.models.memory import Memory
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

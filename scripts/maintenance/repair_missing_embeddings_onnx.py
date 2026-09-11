@@ -5,8 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.mcp_memory_service.storage.factory import create_storage_instance
-from src.mcp_memory_service.config import SQLITE_VEC_PATH
+from mcp_memory_service.storage.factory import create_storage_instance
+from mcp_memory_service.config import SQLITE_VEC_PATH
 from sqlite_vec import serialize_float32
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
