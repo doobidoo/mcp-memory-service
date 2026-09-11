@@ -74,9 +74,13 @@ class ONNXEmbeddingModel:
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", preferred_providers: Optional[List[str]] = None):
         """
         Initialize ONNX embedding model.
-        
+
         Args:
-            model_name: Name of the model (currently only all-MiniLM-L6-v2 supported)
+            model_name: Name of the model. 'all-MiniLM-L6-v2' uses the bundled
+                Chroma S3 archive. Any other name is fetched from the Hugging
+                Face Hub as 'onnx-community/<model>-ONNX' (or the exact repo set
+                via MCP_ONNX_MODEL_REPO), enabling e.g. multilingual models
+                without torch. See issue: ONNX honor MCP_EMBEDDING_MODEL.
             preferred_providers: List of ONNX execution providers in order of preference
         """
         if not ONNX_AVAILABLE:
@@ -89,7 +93,25 @@ class ONNXEmbeddingModel:
         self._preferred_providers = preferred_providers or ['CPUExecutionProvider']
         self._model = None
         self._tokenizer = None
-        
+
+        # Decide the loading strategy. The default model keeps the original
+        # S3 tar.gz path (fully backward compatible). A non-default model is
+        # resolved from the Hugging Face Hub instead.
+        base = (model_name or self.MODEL_NAME).split('/')[-1]
+        self._is_default_model = (base == self.MODEL_NAME)
+        if self._is_default_model:
+            self._hf_repo = None
+            self._model_dir = self.DOWNLOAD_PATH / self.EXTRACTED_FOLDER_NAME
+        else:
+            # onnx-community publishes pre-exported ONNX for common sentence
+            # transformers. Allow an explicit override for other repos/layouts.
+            self._hf_repo = os.environ.get(
+                'MCP_ONNX_MODEL_REPO', f"onnx-community/{base}-ONNX"
+            )
+            self._model_dir = (
+                Path.home() / ".cache" / "mcp_memory" / "onnx_models" / base
+            )
+
         # Download model if needed
         self._download_model_if_needed()
         
@@ -98,6 +120,11 @@ class ONNXEmbeddingModel:
     
     def _download_model_if_needed(self):
         """Download and extract ONNX model if not present."""
+        # Custom (non-default) model: resolve from the Hugging Face Hub.
+        if not self._is_default_model:
+            self._download_from_hf_if_needed()
+            return
+
         if not self.DOWNLOAD_PATH.exists():
             self.DOWNLOAD_PATH.mkdir(parents=True, exist_ok=True)
         
@@ -145,14 +172,72 @@ class ONNXEmbeddingModel:
         
         logger.info("ONNX model ready for use")
     
+    def _download_from_hf_if_needed(self):
+        """Fetch a pre-exported ONNX model from the Hugging Face Hub.
+
+        Downloads only the ONNX weights + tokenizer (no torch) into
+        ``self._model_dir``. Layout on the Hub is typically ``onnx/model.onnx``
+        (quantized variants exist) plus ``tokenizer.json``/``config.json`` at the
+        repo root. Resolved files are located later by ``_init_model``.
+        """
+        self._model_dir.mkdir(parents=True, exist_ok=True)
+        # Already present?
+        if self._find_onnx_file() and (self._model_dir / "tokenizer.json").exists():
+            logger.info(f"ONNX model already available at {self._model_dir}")
+            return
+
+        if os.environ.get('MCP_MEMORY_ONNX_ALLOW_DOWNLOAD', '1').lower() in ('0', 'false', 'no'):
+            raise RuntimeError(
+                "ONNX model is not cached and downloads are disabled "
+                "(MCP_MEMORY_ONNX_ALLOW_DOWNLOAD=0)."
+            )
+
+        try:
+            from huggingface_hub import snapshot_download
+        except ImportError as e:
+            raise ImportError(
+                "huggingface_hub is required to fetch a custom ONNX embedding "
+                "model. Install with: pip install huggingface_hub"
+            ) from e
+
+        logger.info(f"Downloading ONNX model '{self.model_name}' from HF repo {self._hf_repo}")
+        try:
+            snapshot_download(
+                repo_id=self._hf_repo,
+                local_dir=str(self._model_dir),
+                allow_patterns=["*.onnx", "tokenizer.json", "tokenizer_config.json",
+                                "config.json", "special_tokens_map.json", "*.txt"],
+            )
+        except Exception as e:
+            logger.error(f"Failed to download ONNX model from {self._hf_repo}: {e}")
+            raise RuntimeError(f"Could not download ONNX model {self._hf_repo}: {e}")
+
+        if not self._find_onnx_file():
+            raise RuntimeError(f"No .onnx file found in downloaded repo {self._hf_repo}")
+        logger.info("ONNX model ready for use")
+
+    def _find_onnx_file(self):
+        """Locate the model.onnx within the custom model dir (root or onnx/)."""
+        for cand in (self._model_dir / "model.onnx",
+                     self._model_dir / "onnx" / "model.onnx"):
+            if cand.exists():
+                return cand
+        # any .onnx as last resort (e.g. model_quantized.onnx)
+        hits = list(self._model_dir.rglob("*.onnx"))
+        return hits[0] if hits else None
+
     def _init_model(self):
         """Initialize ONNX model and tokenizer."""
-        model_path = self.DOWNLOAD_PATH / self.EXTRACTED_FOLDER_NAME / "model.onnx"
-        tokenizer_path = self.DOWNLOAD_PATH / self.EXTRACTED_FOLDER_NAME / "tokenizer.json"
-        
-        if not model_path.exists():
-            raise FileNotFoundError(f"ONNX model not found at {model_path}")
-        
+        if self._is_default_model:
+            model_path = self.DOWNLOAD_PATH / self.EXTRACTED_FOLDER_NAME / "model.onnx"
+            tokenizer_path = self.DOWNLOAD_PATH / self.EXTRACTED_FOLDER_NAME / "tokenizer.json"
+        else:
+            model_path = self._find_onnx_file()
+            tokenizer_path = self._model_dir / "tokenizer.json"
+
+        if not model_path or not Path(model_path).exists():
+            raise FileNotFoundError(f"ONNX model not found for '{self.model_name}'")
+
         if not tokenizer_path.exists():
             raise FileNotFoundError(f"Tokenizer not found at {tokenizer_path}")
         
