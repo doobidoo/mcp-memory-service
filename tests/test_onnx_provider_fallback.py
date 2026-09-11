@@ -146,11 +146,28 @@ def test_invalid_provider_pin_is_rejected(
     onnx_cache: Path,
     monkeypatch: pytest.MonkeyPatch,
     providers: str,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setenv("MCP_MEMORY_ONNX_PROVIDERS", providers)
-    assert get_onnx_embedding_model() is None
-    assert "MCP_MEMORY_ONNX_PROVIDERS" in caplog.text
+    with pytest.raises(ValueError, match="MCP_MEMORY_ONNX_PROVIDERS"):
+        get_onnx_embedding_model()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("providers", ["MissingExecutionProvider", f"{CPU},", ","])
+async def test_invalid_provider_pin_stops_storage_initialization(
+    onnx_cache: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    providers: str,
+    temp_db_path: str,
+) -> None:
+    monkeypatch.setenv("MCP_MEMORY_ONNX_PROVIDERS", providers)
+    monkeypatch.setenv("MCP_MEMORY_ALLOW_HASH_EMBEDDINGS", "1")
+    storage = SqliteVecMemoryStorage(f"{temp_db_path}/invalid-provider.db")
+    try:
+        with pytest.raises(RuntimeError, match="MCP_MEMORY_ONNX_PROVIDERS"):
+            await storage.initialize()
+    finally:
+        await storage.close()
 
 
 def test_cpu_errors_are_not_retried(

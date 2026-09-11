@@ -157,7 +157,10 @@ class ONNXEmbeddingModel:
             raise FileNotFoundError(f"Tokenizer not found at {tokenizer_path}")
         
         # Initialize ONNX session
-        logger.info(f"Loading ONNX model with providers: {self._preferred_providers}")
+        logger.info(
+            "Loading ONNX model with providers: %s",
+            _sanitize_log_value(self._preferred_providers),
+        )
         self._model = ort.InferenceSession(
             str(model_path),
             providers=self._preferred_providers
@@ -280,6 +283,9 @@ def get_onnx_embedding_model(model_name: str = "all-MiniLM-L6-v2") -> Optional[O
         
     Returns:
         ONNXEmbeddingModel instance or None if ONNX is not available
+
+    Raises:
+        ValueError: If MCP_MEMORY_ONNX_PROVIDERS contains unavailable provider names.
     """
     if not ONNX_AVAILABLE:
         logger.warning("ONNX Runtime not available")
@@ -289,8 +295,8 @@ def get_onnx_embedding_model(model_name: str = "all-MiniLM-L6-v2") -> Optional[O
         logger.warning("Tokenizers not available")
         return None
     
+    preferred_providers = _get_preferred_providers()
     try:
-        preferred_providers = _get_preferred_providers()
         logger.info(
             "Creating ONNX model with providers: %s",
             _sanitize_log_value(preferred_providers),
