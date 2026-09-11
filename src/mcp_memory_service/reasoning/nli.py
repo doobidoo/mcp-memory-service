@@ -11,6 +11,7 @@ Install with `pip install .[nli]` when the transformers backend lands.
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import List, Tuple
 
@@ -78,9 +79,14 @@ class NLIClassifier:
             if not response or not response.strip():
                 return self._heuristic_classify(premise, hypothesis)
 
-            label = response.strip().lower().split()[0]
+            # Parse the label: take the first alphabetic token, stripped of
+            # punctuation (so "Contradiction." -> "contradiction"). An unknown
+            # or garbled label falls back to the heuristic classifier rather
+            # than being returned as a (wrong) answer — see PR description.
+            first = response.strip().lower().split()[0] if response.strip().split() else ""
+            label = re.sub(r"[^a-z]", "", first)
             if label not in ("entailment", "contradiction", "neutral"):
-                label = "neutral"
+                return self._heuristic_classify(premise, hypothesis)
             return NLIResult(label=label, confidence=0.9 if label != "neutral" else 0.3)
         except Exception as e:
             logger.debug("LLM NLI failed (%s); falling back to heuristic", e)
@@ -198,7 +204,7 @@ async def detect_contradictions_nli(
         return result
 
     # Stage 3: NLI classification
-    classifier = NLIClassifier(backend="heuristic")
+    classifier = NLIClassifier(backend="auto")
     confidence_threshold = float(os.environ.get("MCP_NLI_CONFIDENCE_THRESHOLD", "0.4"))
 
     contradictions = []

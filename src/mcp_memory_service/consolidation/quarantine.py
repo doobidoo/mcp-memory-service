@@ -59,7 +59,7 @@ async def check_beliefs_on_store(storage, belief_service, content: str, content_
     if not beliefs:
         return None
 
-    classifier = NLIClassifier(backend="heuristic")
+    classifier = NLIClassifier(backend="auto")
 
     for belief in beliefs[:20]:
         result = await classifier.classify(belief["content"], content)
