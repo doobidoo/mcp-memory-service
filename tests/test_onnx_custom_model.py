@@ -1,0 +1,73 @@
+"""Tests for ONNX backend honoring a custom embedding model.
+
+The ONNX backend used to be hardcoded to all-MiniLM-L6-v2 (Chroma S3), so any
+other MCP_EMBEDDING_MODEL was silently ignored under USE_ONNX. These tests pin
+the routing logic that decides between the default S3 path and a Hugging Face
+Hub download for a custom model.
+
+They exercise the routing decision only (no network / no model load), so they
+run anywhere ONNX Runtime + tokenizers are importable.
+"""
+
+import pytest
+
+try:
+    import onnxruntime  # noqa: F401  (probe)
+    import tokenizers  # noqa: F401  (probe)
+    DEPS_AVAILABLE = True
+except ImportError:
+    DEPS_AVAILABLE = False
+
+pytestmark = pytest.mark.skipif(
+    not DEPS_AVAILABLE, reason="Requires onnxruntime + tokenizers"
+)
+
+
+def _make_without_io(monkeypatch, model_name, env=None):
+    """Instantiate ONNXEmbeddingModel with download + init stubbed out.
+
+    We only want to assert the routing attributes computed in __init__, not
+    perform any network access or ONNX session creation.
+    """
+    from mcp_memory_service.embeddings import onnx_embeddings as mod
+
+    for key, val in (env or {}).items():
+        monkeypatch.setenv(key, val)
+
+    monkeypatch.setattr(mod.ONNXEmbeddingModel, "_download_model_if_needed", lambda self: None)
+    monkeypatch.setattr(mod.ONNXEmbeddingModel, "_init_model", lambda self: None)
+    return mod.ONNXEmbeddingModel(model_name=model_name)
+
+
+def test_default_model_uses_s3_path(monkeypatch):
+    """all-MiniLM-L6-v2 keeps the original bundled S3 archive path."""
+    m = _make_without_io(monkeypatch, "all-MiniLM-L6-v2")
+    assert m._is_default_model is True
+    assert m._hf_repo is None
+
+
+def test_custom_model_resolves_to_onnx_community(monkeypatch):
+    """A non-default model resolves to onnx-community/<base>-ONNX on the Hub."""
+    m = _make_without_io(monkeypatch, "paraphrase-multilingual-MiniLM-L12-v2")
+    assert m._is_default_model is False
+    assert m._hf_repo == "onnx-community/paraphrase-multilingual-MiniLM-L12-v2-ONNX"
+    # custom model must NOT reuse the default MiniLM cache dir
+    assert m._model_dir.name == "paraphrase-multilingual-MiniLM-L12-v2"
+
+
+def test_custom_model_repo_override(monkeypatch):
+    """MCP_ONNX_MODEL_REPO overrides the default HF repo resolution."""
+    m = _make_without_io(
+        monkeypatch,
+        "some-model",
+        env={"MCP_ONNX_MODEL_REPO": "myorg/some-model-onnx"},
+    )
+    assert m._is_default_model is False
+    assert m._hf_repo == "myorg/some-model-onnx"
+
+
+def test_org_prefixed_model_name_uses_basename(monkeypatch):
+    """A org/name model uses only the basename for repo + cache resolution."""
+    m = _make_without_io(monkeypatch, "sentence-transformers/all-MiniLM-L6-v2")
+    # basename is the default model -> S3 path
+    assert m._is_default_model is True

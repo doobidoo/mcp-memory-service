@@ -112,7 +112,10 @@ nli = [
 # hash pseudo-vectors (see issue #162).
 sqlite = [
     "onnxruntime>=1.14.1",
-    "tokenizers>=0.22.2"
+    "tokenizers>=0.22.2",
+    # Needed to fetch pre-exported ONNX models (onnx-community/<model>-ONNX)
+    # when a non-default MCP_EMBEDDING_MODEL is requested under USE_ONNX.
+    "huggingface_hub>=0.20"
 ]
 # SQLite-vec with full ML capabilities (for advanced features)
 sqlite-ml = [
