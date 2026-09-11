@@ -244,7 +244,6 @@ omit = [
     "src/mcp_memory_service/utils/directory_ingestion.py",
     "src/mcp_memory_service/utils/health_check.py",
     "src/mcp_memory_service/utils/http_server_manager.py",
-    "src/mcp_memory_service/utils/port_detection.py",
     "src/mcp_memory_service/utils/quality_analytics.py",
     "src/mcp_memory_service/utils/startup_orchestrator.py",
     "src/mcp_memory_service/utils/time_parser.py",
