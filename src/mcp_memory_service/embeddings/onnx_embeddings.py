@@ -201,6 +201,11 @@ class ONNXEmbeddingModel:
             ) from e
 
         logger.info(f"Downloading ONNX model '{self.model_name}' from HF repo {self._hf_repo}")
+        # Note: unlike the pinned S3 archive (fixed SHA256), Hub models vary per
+        # repo, so no static checksum is pinned here. huggingface_hub verifies
+        # file integrity against the repo revision on download, and the storage
+        # layer's embedding-dimension guard rejects a model whose output width
+        # does not match the existing DB — catching a wrong/corrupt model.
         try:
             snapshot_download(
                 repo_id=self._hf_repo,
@@ -240,11 +245,10 @@ class ONNXEmbeddingModel:
 
     def _init_model(self):
         """Initialize ONNX model and tokenizer."""
+        model_path = self._resolve_model_path()
         if self._is_default_model:
-            model_path = self._resolve_model_path()
             tokenizer_path = self.DOWNLOAD_PATH / self.EXTRACTED_FOLDER_NAME / "tokenizer.json"
         else:
-            model_path = self._resolve_model_path()
             tokenizer_path = self._model_dir / "tokenizer.json"
 
         if not model_path or not Path(model_path).exists():
