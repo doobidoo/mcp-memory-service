@@ -131,6 +131,37 @@ class TestSearchOperation:
         finally:
             await storage.close()
 
+    @pytest.mark.asyncio
+    async def test_search_tag_with_internal_space(self, tmp_path, monkeypatch):
+        """A stored tag containing a space must match the same spaced query tag."""
+        storage = SqliteVecMemoryStorage(str(tmp_path / "spaced-tag.db"))
+        await storage.initialize()
+
+        async def get_test_storage():
+            return storage
+
+        monkeypatch.setattr(operations, "get_storage_async", get_test_storage)
+
+        content = "memory carrying a spaced tag"
+        try:
+            success, message = await storage.store(
+                Memory(
+                    content=content,
+                    content_hash=generate_content_hash(content),
+                    tags=["my tag"],
+                )
+            )
+            assert success, message
+
+            result = await operations.search.__wrapped__(
+                content, limit=5, tags=["my tag"]
+            )
+
+            assert result.total == 1
+            assert result.memories[0].tags == ("my tag",)
+        finally:
+            await storage.close()
+
     def test_search_empty_query(self):
         """Test that search rejects empty queries."""
         with pytest.raises(ValueError, match="Query cannot be empty"):
