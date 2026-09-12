@@ -95,13 +95,18 @@ def _read_pid() -> int | None:
     return None
 
 
-def _write_pid(pid: int, scheme: str = "http") -> None:
+def _write_pid(
+    pid: int, scheme: str = "http", port: int | None = None
+) -> None:
     _ensure_dirs()
-    # Record PID alongside process creation time and cmdline hint to detect
-    # stale PID files after reboot or PID reuse. The scheme records what the
-    # server was actually launched with, so later commands probe the right
-    # one instead of re-deriving it -- see _recorded_scheme().
+    # Record PID alongside the port, process creation time, and cmdline hint.
+    # The port is ground truth for stop: a PID file must not make a process
+    # serving a different port look like the requested server. The scheme
+    # records what the server was actually launched with, so later commands
+    # probe the right one instead of re-deriving it -- see _recorded_scheme().
     pid_info = {"pid": pid, "scheme": scheme}
+    if port is not None:
+        pid_info["port"] = port
     try:
         import psutil  # inline import: deferred so this third-party dependency doesn't load at module import time, matching this module's fast-load design
         proc = psutil.Process(pid)
@@ -427,6 +432,51 @@ def _recorded_scheme() -> str | None:
     return scheme if scheme in ("http", "https") else None
 
 
+def _recorded_port() -> int | None:
+    """Return the server port recorded in the PID file, if available.
+
+    Older PID files do not contain a port. Returning None for those files
+    preserves the legacy command-line ownership fallback in ``stop``.
+    """
+    pid_path = _pid_file()
+    try:
+        pid_info = json.loads(pid_path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(pid_info, dict):
+        return None
+    port = pid_info.get("port")
+    if isinstance(port, bool) or port is None:
+        return None
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return None
+    return port if 1 <= port <= 65535 else None
+
+
+def _resolve_lifecycle_port(http_port: int | None) -> int:
+    """Resolve the port for commands that operate on an existing server."""
+    if http_port is not None:
+        return http_port
+    configured_port = os.environ.get("MCP_HTTP_PORT")
+    if configured_port is not None:
+        return int(configured_port)
+    return _recorded_port() or 8000
+
+
+def _refuse_recorded_port_mismatch(pid: int | None, port: int) -> bool:
+    """Report and reject a lifecycle operation targeting the wrong port."""
+    recorded_port = _recorded_port()
+    if pid and recorded_port is not None and recorded_port != port:
+        click.echo(
+            f"Refusing to stop PID {pid}: PID file records port "
+            f"{recorded_port}, not requested port {port}."
+        )
+        return True
+    return False
+
+
 def _base_url(host: str, port: int, scheme: str | None = None) -> str:
     scheme = scheme or _recorded_scheme() or ("https" if _is_https_enabled() else "http")
     return f"{scheme}://{host}:{port}"
@@ -652,8 +702,7 @@ def launch(ctx, http_host, http_port, detach, storage_backend, debug):
     # Kill stale process on the port if any
     port_pid = _find_process_on_port(port)
     if port_pid and port_pid != existing_pid:
-        click.echo(f"Freeing port {port} (stale PID {port_pid})...")
-        _kill_process(port_pid)
+        _stop_process_on_port(port, port_pid, force=False)
         time.sleep(0.5)
 
     if not detach:
@@ -726,7 +775,7 @@ def launch(ctx, http_host, http_port, detach, storage_backend, debug):
         log_err_handle.close()
         raise
 
-    _write_pid(proc.pid, scheme=tls.scheme)
+    _write_pid(proc.pid, scheme=tls.scheme, port=port)
 
     # Poll health endpoint until server is ready
     click.echo("Waiting for server to start...")
@@ -799,20 +848,24 @@ def launch(ctx, http_host, http_port, detach, storage_backend, debug):
 def stop(http_host, http_port, force):
     """Stop a background memory server."""
     host = http_host or os.environ.get("MCP_HTTP_HOST", "127.0.0.1")
-    port = http_port or int(os.environ.get("MCP_HTTP_PORT", "8000"))
+    port = _resolve_lifecycle_port(http_port)
 
     pid = _read_pid()
+    if _refuse_recorded_port_mismatch(pid, port):
+        return False
+
     port_pid = _find_process_on_port(port)
     stopped = False
 
-    if pid:
+    if pid and port_pid in (None, pid):
         click.echo(f"Stopping PID {pid}...")
-        if _kill_process(pid):
-            click.echo("Process terminated.")
-        else:
-            click.echo(f"Could not terminate PID {pid}.", err=True)
-        _remove_pid()
-        stopped = True
+        if _stop_process_on_port(port, pid, force):
+            _remove_pid()
+            stopped = True
+    elif pid:
+        click.echo(
+            f"Refusing to stop PID {pid}: it does not own port {port}."
+        )
 
     if port_pid and port_pid != pid:
         stopped = _stop_process_on_port(port, port_pid, force) or stopped
@@ -862,7 +915,10 @@ def restart(ctx, http_host, http_port, storage_backend, debug):
     server's health endpoint before restarting.
     """
     host = http_host or os.environ.get("MCP_HTTP_HOST", "127.0.0.1")
-    port = http_port or int(os.environ.get("MCP_HTTP_PORT", "8000"))
+    port = _resolve_lifecycle_port(http_port)
+    pid = _read_pid()
+    if _refuse_recorded_port_mismatch(pid, port):
+        return
     base_url = _base_url(host, port)
     
     # If storage_backend not specified, try to read it from the running server
@@ -885,9 +941,11 @@ def restart(ctx, http_host, http_port, storage_backend, debug):
             )
     
     click.echo("Restarting server...")
-    ctx.invoke(stop, http_host=http_host, http_port=http_port)
+    stopped = ctx.invoke(stop, http_host=http_host, http_port=port)
+    if stopped is False:
+        return
     time.sleep(1)
-    ctx.invoke(launch, http_host=http_host, http_port=http_port,
+    ctx.invoke(launch, http_host=http_host, http_port=port,
                detach=True, storage_backend=storage_backend, debug=debug)
 
 

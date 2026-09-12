@@ -298,6 +298,7 @@ class TestLaunchRecordsScheme:
         assert captured["write_pid"].called
         _, kwargs = captured["write_pid"].call_args
         assert kwargs.get("scheme") == "https", f"scheme not recorded: {kwargs}"
+        assert kwargs.get("port") == 8000, f"port not recorded: {kwargs}"
 
     def test_pidfile_records_http_by_default(self):
         captured = {}
@@ -305,6 +306,7 @@ class TestLaunchRecordsScheme:
         assert result.exit_code == 0, f"{result.output}\n{result.exception}"
         _, kwargs = captured["write_pid"].call_args
         assert kwargs.get("scheme") == "http"
+        assert kwargs.get("port") == 8000
 
     def test_recorded_scheme_drives_the_base_url(self, tmp_path, monkeypatch):
         """A recorded https server is probed over https even though
