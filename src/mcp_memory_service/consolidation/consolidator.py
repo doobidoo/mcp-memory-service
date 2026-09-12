@@ -393,32 +393,12 @@ class DreamInspiredConsolidator:
                     await self._handle_compression_results(compression_results)
 
                 # 6. Controlled forgetting (if enabled and appropriate)
-                forgetting_results = []
+                # Forgetting gets its own candidate selector that reaches beyond
+                # the horizon window into the stale tail (Codeberg #325).
                 if self.config.forgetting_enabled and check_horizon_requirements(
                     time_horizon, "forgetting", self.ENABLED_PHASES
                 ):
-                    self.logger.info("🗂️ Phase 5/6: Applying controlled forgetting...")
-                    performance_start = time.time()
-                    access_patterns = await self._get_access_patterns()
-                    forgetting_results = await self.forgetting_engine.process(
-                        memories,
-                        relevance_scores,
-                        access_patterns=access_patterns,
-                        time_horizon=time_horizon,
-                    )
-                    report.memories_archived = len(
-                        [
-                            r
-                            for r in forgetting_results
-                            if r.action_taken in ["archived", "deleted"]
-                        ]
-                    )
-                    self.logger.info(
-                        f"✓ Forgetting completed in {time.time() - performance_start:.1f}s, processed {len(forgetting_results)} candidates"
-                    )
-
-                    # Apply forgetting results to storage
-                    await self._apply_forgetting_results(forgetting_results)
+                    await self._run_forgetting_phase(time_horizon, report)
 
                 # 6b. Prune orphaned graph edges (#632)
                 orphaned = await self._prune_orphaned_graph_edges()
@@ -512,6 +492,80 @@ class DreamInspiredConsolidator:
             memories = self._take_oldest_batch(memories)
 
         return memories
+
+    async def _get_forgetting_candidates(
+        self, time_horizon: str
+    ) -> List[Memory]:
+        """Get forgetting candidates that reach beyond the horizon window.
+
+        Codeberg #325: every horizon means its documented window, so nothing
+        younger than the floor enters the forgetting phase.  This method
+        queries everything older than ``forgetting_min_age_days`` (default 365),
+        then bounds the read to ``batch_size`` so a run stays finite.
+
+        The ``forgetting_min_age_days`` config acts as a floor:
+        nothing younger than that is considered stale enough for archival.
+        Set via ``MCP_FORGETTING_MIN_AGE_DAYS`` env var.
+        """
+        now = datetime.now(timezone.utc)
+
+        window = HORIZON_CONFIGS[time_horizon]["window"]
+        min_age_days = max(self.config.forgetting_min_age_days, window.days)
+        min_age_cutoff = (now - timedelta(days=min_age_days)).timestamp()
+
+        # Query everything older than the floor (the stale tail)
+        candidates = await self.storage.get_memories_by_time_range(
+            0.0, min_age_cutoff, include_embeddings=True,
+        )
+
+        # Always bound the read so a deployment with thousands of stale
+        # memories does not load them all into one run.
+        if len(candidates) > self.config.batch_size:
+            candidates = self._take_oldest_batch(candidates)
+
+        self.logger.info(
+            f"Forgetting candidates: {len(candidates)} memories older than "
+            f"{min_age_days}d"
+        )
+        return candidates
+
+    async def _run_forgetting_phase(
+        self, time_horizon: str, report: ConsolidationReport
+    ) -> list:
+        """Run the controlled-forgetting phase and update *report* in place.
+
+        Extracted from :meth:`consolidate` to keep that method's cyclomatic
+        complexity under the pre-commit gate.
+        """
+        self.logger.info("🗂️ Phase 5/6: Applying controlled forgetting...")
+        performance_start = time.time()
+        forgetting_candidates = await self._get_forgetting_candidates(time_horizon)
+
+        if not forgetting_candidates:
+            self.logger.info("No stale-tail candidates for forgetting")
+            return []
+
+        forgetting_scores = await self._update_relevance_scores(
+            forgetting_candidates, time_horizon
+        )
+        access_patterns = await self._get_access_patterns()
+        forgetting_results = await self.forgetting_engine.process(
+            forgetting_candidates,
+            forgetting_scores,
+            access_patterns=access_patterns,
+            time_horizon=time_horizon,
+        )
+
+        report.memories_archived = len(
+            [r for r in forgetting_results if r.action_taken in ["archived", "deleted"]]
+        )
+        self.logger.info(
+            f"✓ Forgetting completed in {time.time() - performance_start:.1f}s, "
+            f"processed {len(forgetting_results)} candidates"
+        )
+
+        await self._apply_forgetting_results(forgetting_results)
+        return forgetting_results
 
     def _take_oldest_batch(self, memories: List[Memory]) -> List[Memory]:
         """Narrow a window to the oldest `batch_size` memories in it.

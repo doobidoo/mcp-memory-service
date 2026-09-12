@@ -64,6 +64,7 @@ CONSOLIDATION_CONFIG = {
     'forgetting_enabled': os.getenv('MCP_FORGETTING_ENABLED', 'true').lower() == 'true',
     'relevance_threshold': float(os.getenv('MCP_FORGETTING_RELEVANCE_THRESHOLD', '0.1')),
     'access_threshold_days': int(os.getenv('MCP_FORGETTING_ACCESS_THRESHOLD', '90')),
+    'forgetting_min_age_days': int(os.getenv('MCP_FORGETTING_MIN_AGE_DAYS', '365')),
     'archive_location': CONSOLIDATION_ARCHIVE_PATH,
 
     # Incremental consolidation settings
