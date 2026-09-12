@@ -33,6 +33,11 @@ from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
+# Cloudflare Vectorize caps topK at 50 when a query returns values or metadata
+# (and 100 otherwise); this backend always requests metadata. See
+# https://developers.cloudflare.com/vectorize/platform/limits/
+_VECTORIZE_MAX_TOPK_WITH_METADATA = 50
+
 
 def normalize_tags_for_search(tags: List[str]) -> List[str]:
     """Deduplicate and filter empty tag strings.
@@ -726,10 +731,20 @@ class CloudflareStorage(MemoryStorage):
             # Generate query embedding
             query_embedding = await self._generate_embedding(query)
             
+            # When a tag filter is applied client-side (below), over-fetch
+            # candidates so tag-matching memories outside the unfiltered top-N
+            # are not silently dropped. This mirrors the sqlite-vec backend and
+            # the over-fetch contract documented on BaseStorage.retrieve.
+            # Recall ceiling: Vectorize caps topK at 50 with metadata, so a
+            # tagged memory beyond the 50 nearest neighbours is still unreachable.
+            top_k = n_results
+            if tags:
+                top_k = max(n_results, _VECTORIZE_MAX_TOPK_WITH_METADATA)
+
             # Search Vectorize (without namespace for now)
             search_payload = {
                 "vector": query_embedding,
-                "topK": n_results,
+                "topK": top_k,
                 "returnMetadata": "all",
                 "returnValues": False
             }
@@ -760,6 +775,10 @@ class CloudflareStorage(MemoryStorage):
                         relevance_score=match.get("score", 0.0)
                     )
                     results.append(query_result)
+
+            # Matches arrive ordered by score; after over-fetching for the tag
+            # filter, keep only the n_results nearest survivors.
+            results = results[:n_results]
 
             # Persist updated metadata for accessed memories
             for result in results:
