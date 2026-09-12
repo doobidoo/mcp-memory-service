@@ -82,6 +82,11 @@ class ConsolidationScheduler:
                 self.logger.warning("APScheduler not available - consolidation scheduling disabled")
             elif not enabled:
                 self.logger.info("Consolidation scheduling disabled by configuration")
+
+        # Wire scheduler reference into the health monitor (if present)
+        health_monitor = getattr(self.consolidator, 'health_monitor', None)
+        if health_monitor is not None and hasattr(health_monitor, 'attach_scheduler'):
+            health_monitor.attach_scheduler(self)
     
     async def start(self) -> bool:
         """Start the consolidation scheduler."""
