@@ -22,6 +22,7 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from html import escape
 from typing import Optional, Any
 
 from ..compat import _sanitize_log_value
@@ -30,6 +31,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from starlette.types import Receive, Scope, Send
 
 try:
     from .. import __version__
@@ -38,6 +40,7 @@ except (ImportError, AttributeError):
 from ..config import (
     HTTP_PORT,
     HTTP_HOST,
+    HTTP_ROOT_PATH,
     CORS_ORIGINS,
     MDNS_ENABLED,
     HTTPS_ENABLED,
@@ -68,6 +71,22 @@ from .api.harvest import router as harvest_router
 from .sse import sse_manager
 
 logger = logging.getLogger(__name__)
+
+
+class RootPathStaticFiles(StaticFiles):
+    """Serve a mounted directory when the proxy strips the external root path."""
+
+    def __init__(self, *, directory: str, external_root_path: str) -> None:
+        super().__init__(directory=directory)
+        self.external_root_path = external_root_path
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        root_path = scope.get("root_path", "")
+        if (self.external_root_path and root_path.startswith(self.external_root_path)
+                and not scope["path"].startswith(self.external_root_path + "/")):
+            scope = dict(scope)
+            scope["root_path"] = root_path[len(self.external_root_path):]
+        await super().__call__(scope, receive, send)
 
 # Global storage instance
 storage: Optional["MemoryStorage"] = None
@@ -272,6 +291,7 @@ def create_app() -> FastAPI:
         description="HTTP REST API and SSE interface for semantic memory storage",
         version=__version__,
         lifespan=lifespan,
+        root_path=HTTP_ROOT_PATH,
         docs_url="/api/docs",
         redoc_url="/api/redoc"
     )
@@ -368,7 +388,14 @@ def create_app() -> FastAPI:
     # Serve static files (dashboard)
     static_path = os.path.join(os.path.dirname(__file__), "static")
     if os.path.exists(static_path):
-        app.mount("/static", StaticFiles(directory=static_path), name="static")
+        app.mount(
+            "/static",
+            RootPathStaticFiles(
+                directory=static_path,
+                external_root_path=HTTP_ROOT_PATH,
+            ),
+            name="static",
+        )
     
     def get_api_overview_html():
         """Generate the API overview HTML template."""
@@ -744,13 +771,13 @@ def create_app() -> FastAPI:
                         <span>✅</span> <span id="version-display">Loading...</span> - Latest Release
                     </div>
                     <div class="nav-buttons">
-                        <a href="/" class="nav-btn">
+                        <a href="./" class="nav-btn">
                             <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M10,20V14H14V20H19V12H22L12,3L2,12H5V20H10Z"/>
                             </svg>
                             Interactive Dashboard
                         </a>
-                        <a href="/api/docs" class="nav-btn secondary" target="_blank">
+                        <a href="api/docs" class="nav-btn secondary" target="_blank">
                             <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M14,17H7V15H14M17,13H7V11H17M17,9H7V7H17M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3Z"/>
                             </svg>
@@ -779,10 +806,10 @@ def create_app() -> FastAPI:
                 </div>
                 
                 <div class="action-buttons">
-                    <a href="/api/docs" class="btn btn-primary">
+                    <a href="api/docs" class="btn btn-primary">
                         <span>📚</span> Interactive API Docs
                     </a>
-                    <a href="/api/redoc" class="btn btn-secondary">
+                    <a href="api/redoc" class="btn btn-secondary">
                         <span>📖</span> ReDoc Documentation
                     </a>
                     <a href="https://github.com/doobidoo/mcp-memory-service" class="btn btn-secondary" target="_blank">
@@ -797,22 +824,22 @@ def create_app() -> FastAPI:
                             <p class="endpoint-description">Store, retrieve, and manage semantic memories</p>
                         </div>
                         <div class="endpoint-list">
-                            <div class="endpoint-item" onclick="window.location.href='/api/docs#/memories/store_memory_api_memories_post'">
+                            <div class="endpoint-item" onclick="window.location.href='api/docs#/memories/store_memory_api_memories_post'">
                                 <span class="method method-post">POST</span>
                                 <span class="endpoint-path">/api/memories</span>
                                 <div class="endpoint-desc">Store a new memory with automatic embedding generation</div>
                             </div>
-                            <div class="endpoint-item" onclick="window.location.href='/api/docs#/memories/list_memories_api_memories_get'">
+                            <div class="endpoint-item" onclick="window.location.href='api/docs#/memories/list_memories_api_memories_get'">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/memories</span>
                                 <div class="endpoint-desc">List all memories with pagination support</div>
                             </div>
-                            <div class="endpoint-item" onclick="window.location.href='/api/docs#/memories/get_memory_api_memories__content_hash__get'">
+                            <div class="endpoint-item" onclick="window.location.href='api/docs#/memories/get_memory_api_memories__content_hash__get'">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/memories/{hash}</span>
                                 <div class="endpoint-desc">Retrieve a specific memory by content hash</div>
                             </div>
-                            <div class="endpoint-item" onclick="window.location.href='/api/docs#/memories/delete_memory_api_memories__content_hash__delete'">
+                            <div class="endpoint-item" onclick="window.location.href='api/docs#/memories/delete_memory_api_memories__content_hash__delete'">
                                 <span class="method method-delete">DELETE</span>
                                 <span class="endpoint-path">/api/memories/{hash}</span>
                                 <div class="endpoint-desc">Delete a memory and its embeddings</div>
@@ -826,22 +853,22 @@ def create_app() -> FastAPI:
                             <p class="endpoint-description">Powerful semantic and tag-based search</p>
                         </div>
                         <div class="endpoint-list">
-                            <div class="endpoint-item" onclick="window.location.href='/api/docs#/search/semantic_search_api_search_post'">
+                            <div class="endpoint-item" onclick="window.location.href='api/docs#/search/semantic_search_api_search_post'">
                                 <span class="method method-post">POST</span>
                                 <span class="endpoint-path">/api/search</span>
                                 <div class="endpoint-desc">Semantic similarity search using embeddings</div>
                             </div>
-                            <div class="endpoint-item" onclick="window.location.href='/api/docs#/search/tag_search_api_search_by_tag_post'">
+                            <div class="endpoint-item" onclick="window.location.href='api/docs#/search/tag_search_api_search_by_tag_post'">
                                 <span class="method method-post">POST</span>
                                 <span class="endpoint-path">/api/search/by-tag</span>
                                 <div class="endpoint-desc">Search memories by tags (AND/OR logic)</div>
                             </div>
-                            <div class="endpoint-item" onclick="window.location.href='/api/docs#/search/time_search_api_search_by_time_post'">
+                            <div class="endpoint-item" onclick="window.location.href='api/docs#/search/time_search_api_search_by_time_post'">
                                 <span class="method method-post">POST</span>
                                 <span class="endpoint-path">/api/search/by-time</span>
                                 <div class="endpoint-desc">Natural language time-based queries</div>
                             </div>
-                            <div class="endpoint-item" onclick="window.location.href='/api/docs#/search/find_similar_api_search_similar__content_hash__get'">
+                            <div class="endpoint-item" onclick="window.location.href='api/docs#/search/find_similar_api_search_similar__content_hash__get'">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/search/similar/{hash}</span>
                                 <div class="endpoint-desc">Find memories similar to a specific one</div>
@@ -855,17 +882,17 @@ def create_app() -> FastAPI:
                             <p class="endpoint-description">Server-Sent Events for live updates</p>
                         </div>
                         <div class="endpoint-list">
-                            <div class="endpoint-item" onclick="window.location.href='/api/events'">
+                            <div class="endpoint-item" onclick="window.location.href='api/events'">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/events</span>
                                 <div class="endpoint-desc">Subscribe to real-time memory events stream</div>
                             </div>
-                            <div class="endpoint-item" onclick="window.location.href='/api/events/stats'">
+                            <div class="endpoint-item" onclick="window.location.href='api/events/stats'">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/events/stats</span>
                                 <div class="endpoint-desc">View SSE connection statistics</div>
                             </div>
-                            <div class="endpoint-item" onclick="window.location.href='/static/sse_test.html'">
+                            <div class="endpoint-item" onclick="window.location.href='static/sse_test.html'">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/static/sse_test.html</span>
                                 <div class="endpoint-desc">Interactive SSE testing interface</div>
@@ -879,22 +906,22 @@ def create_app() -> FastAPI:
                             <p class="endpoint-description">Monitor service health and performance</p>
                         </div>
                         <div class="endpoint-list">
-                            <div class="endpoint-item" onclick="window.location.href='/api/health'">
+                            <div class="endpoint-item" onclick="window.location.href='api/health'">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/health</span>
                                 <div class="endpoint-desc">Quick health check endpoint</div>
                             </div>
-                            <div class="endpoint-item" onclick="window.location.href='/api/health/detailed'">
+                            <div class="endpoint-item" onclick="window.location.href='api/health/detailed'">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/health/detailed</span>
                                 <div class="endpoint-desc">Detailed health with database statistics</div>
                             </div>
-                            <div class="endpoint-item" onclick="window.location.href='/api/docs'">
+                            <div class="endpoint-item" onclick="window.location.href='api/docs'">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/docs</span>
                                 <div class="endpoint-desc">Interactive Swagger UI documentation</div>
                             </div>
-                            <div class="endpoint-item" onclick="window.location.href='/api/redoc'">
+                            <div class="endpoint-item" onclick="window.location.href='api/redoc'">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/redoc</span>
                                 <div class="endpoint-desc">Alternative ReDoc documentation</div>
@@ -942,10 +969,10 @@ def create_app() -> FastAPI:
                 // Fetch and display live stats
                 async function updateStats() {
                     try {
-                        const healthResponse = await fetch('/api/health');
+                        const healthResponse = await fetch('api/health');
                         const health = await healthResponse.json();
 
-                        const detailedResponse = await fetch('/api/health/detailed', { headers: getAuthHeaders() });
+                        const detailedResponse = await fetch('api/health/detailed', { headers: getAuthHeaders() });
                         const detailed = await detailedResponse.json();
                         
                         const stats = document.getElementById('stats');
@@ -1001,7 +1028,7 @@ def create_app() -> FastAPI:
                 async function loadDynamicInfo() {
                     try {
                         // Load detailed health information
-                        const response = await fetch('/api/health/detailed', { headers: getAuthHeaders() });
+                        const response = await fetch('api/health/detailed', { headers: getAuthHeaders() });
                         if (!response.ok) {
                             throw new Error(`HTTP ${response.status}`);
                         }
@@ -1074,7 +1101,13 @@ def create_app() -> FastAPI:
             if os.path.exists(dashboard_path):
                 # Read and serve the migrated dashboard
                 with open(dashboard_path, 'r', encoding='utf-8') as f:
-                    return f.read()
+                    dashboard_html = f.read()
+                base_href = escape(f"{HTTP_ROOT_PATH}/" if HTTP_ROOT_PATH else "/", quote=True)
+                return dashboard_html.replace(
+                    "<head>",
+                    f'<head>\n    <base href="{base_href}">',
+                    1,
+                )
             else:
                 # Fallback to original template if dashboard not found
                 return html_template

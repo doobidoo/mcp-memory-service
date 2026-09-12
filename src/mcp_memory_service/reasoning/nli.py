@@ -11,6 +11,7 @@ Install with `pip install .[nli]` when the transformers backend lands.
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import List, Tuple
 
@@ -31,6 +32,49 @@ class NLIResult:
     confidence: float  # 0.0-1.0
 
 
+_NLI_LABELS = ("entailment", "contradiction", "neutral")
+
+
+def _parse_nli_label(response: str):
+    """Parse an LLM NLI answer into one of the three labels, or None.
+
+    Rules (see review on PR #1215):
+    - Anchor on the FIRST token (word-boundary matching over the whole answer
+      would misread "there is no contradiction" / "not a contradiction" as
+      ``contradiction``; the first-token anchor sends those to the heuristic).
+    - Strip an optional leading ``classification:`` prefix, so a prefixed
+      answer like "Classification: contradiction" still parses.
+    - Reject the whole answer (return None) if a SECOND distinct label appears
+      anywhere in it — a hedged answer like "contradiction, but really neutral"
+      is unparseable and must fall back to the heuristic, not be acted on at
+      0.9 confidence.
+    - Any unknown/garbled first token also returns None.
+
+    Returns the label string, or None when the caller should fall back to the
+    heuristic classifier.
+    """
+    if not response or not response.strip():
+        return None
+
+    text = response.strip().lower()
+
+    # Reject if more than one distinct label is mentioned anywhere (hedging).
+    mentioned = {lbl for lbl in _NLI_LABELS if re.search(rf"\b{lbl}\b", text)}
+    if len(mentioned) > 1:
+        return None
+
+    # Strip an optional leading "classification:" prefix before anchoring.
+    text = re.sub(r"^\s*classification\s*:\s*", "", text)
+
+    tokens = text.split()
+    if not tokens:
+        return None
+    first = re.sub(r"[^a-z]", "", tokens[0])
+    if first not in _NLI_LABELS:
+        return None
+    return first
+
+
 class NLIClassifier:
     """NLI-based contradiction detection with multiple backends."""
 
@@ -44,14 +88,44 @@ class NLIClassifier:
         """Classify relationship between two texts."""
         if self.backend == "heuristic":
             return self._heuristic_classify(premise, hypothesis)
+        if self.backend in ("cascade", "llm"):
+            return await self._llm_classify(premise, hypothesis)
         if not self._warned_unimplemented:
             logger.warning(
                 "NLI backend '%s' is not implemented; returning neutral. "
-                "Only 'heuristic' is currently supported.",
+                "Only 'heuristic' and 'cascade' are supported.",
                 self.backend,
             )
             self._warned_unimplemented = True
         return NLIResult(label="neutral", confidence=0.0)
+
+    async def _llm_classify(self, premise: str, hypothesis: str) -> NLIResult:
+        """LLM-based NLI via the harvest provider chain (cascade fallback).
+
+        Reuses HarvestRewriter._call_llm, which resolves the configured
+        provider chain (HARVEST_LLM_PROVIDERS) with fallback. Any failure
+        degrades gracefully to the heuristic classifier.
+        """
+        try:
+            from ..harvest.rewriter import HarvestRewriter
+
+            rewriter = HarvestRewriter()
+            prompt = (
+                "Classify the relationship between Statement A and Statement B.\n"
+                "Answer with EXACTLY one word: entailment, contradiction, or neutral.\n\n"
+                f"Statement A: {premise[:500]}\n"
+                f"Statement B: {hypothesis[:500]}\n\n"
+                "Classification:"
+            )
+            timeout = float(os.environ.get("MCP_NLI_LLM_TIMEOUT", "30"))
+            response = await rewriter._call_llm(prompt, timeout)
+            label = _parse_nli_label(response)
+            if label is None:
+                return self._heuristic_classify(premise, hypothesis)
+            return NLIResult(label=label, confidence=0.9 if label != "neutral" else 0.3)
+        except Exception as e:
+            logger.debug("LLM NLI failed (%s); falling back to heuristic", e)
+            return self._heuristic_classify(premise, hypothesis)
 
     async def classify_batch(self, pairs: List[Tuple[str, str]]) -> List[NLIResult]:
         """Batch classification."""
@@ -83,6 +157,25 @@ class NLIClassifier:
                     return NLIResult(label="contradiction", confidence=0.55)
 
         return NLIResult(label="neutral", confidence=0.3)
+
+
+async def _classify_band(
+    classifier, source_content, band_hashes, band_memories, confidence_threshold, result
+):
+    """Stage 3 helper: run NLI over the similarity band and collect contradictions.
+
+    Extracted from detect_contradictions_nli to keep that function under the
+    complexity gate (see review on PR #1215). Mutates ``result['nli_calls']``
+    and returns the list of (hash, mem_b_data, nli_result) contradictions.
+    """
+    contradictions = []
+    for h in band_hashes:
+        mem_b_data = band_memories[h]
+        nli_result = await classifier.classify(source_content, mem_b_data["content"])
+        result["nli_calls"] += 1
+        if nli_result.label == "contradiction" and nli_result.confidence >= confidence_threshold:
+            contradictions.append((h, mem_b_data, nli_result))
+    return contradictions
 
 
 async def detect_contradictions_nli(
@@ -165,18 +258,11 @@ async def detect_contradictions_nli(
         return result
 
     # Stage 3: NLI classification
-    classifier = NLIClassifier(backend="heuristic")
+    classifier = NLIClassifier(backend="auto")
     confidence_threshold = float(os.environ.get("MCP_NLI_CONFIDENCE_THRESHOLD", "0.4"))
-
-    contradictions = []
-    for h in band_hashes:
-        mem_b_data = band_memories[h]
-        nli_result = await classifier.classify(mem_a.content, mem_b_data["content"])
-        result["nli_calls"] += 1
-
-        if nli_result.label == "contradiction" and nli_result.confidence >= confidence_threshold:
-            contradictions.append((h, mem_b_data, nli_result))
-
+    contradictions = await _classify_band(
+        classifier, mem_a.content, band_hashes, band_memories, confidence_threshold, result
+    )
     result["pairs_detected"] = len(contradictions)
 
     # Stage 4: Register conflicts (unless dry_run)

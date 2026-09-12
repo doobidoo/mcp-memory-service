@@ -47,9 +47,23 @@ Cloudflare options (required unless otherwise noted):
 - `MCP_HTTP_ENABLED`: `true|false` to enable HTTP interface.
 - `MCP_HTTP_HOST`: Bind address (default `0.0.0.0`).
 - `MCP_HTTP_PORT`: Port (default `8000`).
+- `MCP_HTTP_ROOT_PATH`: External path prefix when a reverse proxy strips the
+  prefix before forwarding (for example, `/memory`). Defaults to empty.
 - `MCP_CORS_ORIGINS`: Comma-separated origins (default `*`).
 - `MCP_SSE_HEARTBEAT`: SSE heartbeat interval seconds (default 30).
 - `MCP_API_KEY`: Optional API key for HTTP.
+
+For a proxy that exposes the service at `https://host.example/memory/` and
+forwards the request without `/memory`, set:
+
+```bash
+MCP_HTTP_ROOT_PATH=/memory
+```
+
+The dashboard, static assets, REST/SSE requests, API documentation, and
+auto-detected OAuth endpoint URLs then use the same prefix. If OAuth uses a
+public hostname, continue to set `MCP_OAUTH_ISSUER` to the complete external
+issuer URL, including the prefix.
 
 TLS:
 
@@ -77,6 +91,16 @@ TLS:
 - Scheduling (APScheduler-ready):
   - `MCP_SCHEDULE_DAILY` (default `02:00`), `MCP_SCHEDULE_WEEKLY` (default `SUN 03:00`), `MCP_SCHEDULE_MONTHLY` (default `01 04:00`), `MCP_SCHEDULE_QUARTERLY` (default `disabled`), `MCP_SCHEDULE_YEARLY` (default `disabled`).
 
+## Contradiction Detection / NLI (Optional)
+
+Flags contradictions between a newly stored memory and semantically similar existing ones.
+
+- `MCP_NLI_ENABLED`: `true|false` (default `false`). Master switch; nothing runs unless truthy.
+- `MCP_NLI_ON_STORE`: `true|false` (default `false`). Also run the pass inline on every store, not just on demand. Only takes effect when `MCP_NLI_ENABLED` is on.
+- `MCP_NLI_CONFIDENCE_THRESHOLD`: float (default `0.4`). Minimum NLI confidence for a pair to be registered as a contradiction.
+- `MCP_NLI_BACKEND`: `heuristic|cascade|llm` (default `heuristic`). `heuristic` is keyword/pattern-based with no ML deps. `cascade` (alias `llm`) uses the harvest provider chain (`HARVEST_LLM_PROVIDERS`) and degrades gracefully to the heuristic on any error. When unset it resolves to `heuristic`, so no LLM is ever called by accident.
+- `MCP_NLI_LLM_TIMEOUT`: seconds (default `30`). Applied once **per provider attempt** inside the harvest chain, so the worst case for a single pair is roughly `timeout × number of providers` before it falls back to the heuristic.
+
 ## Machine Identification
 
 - `MCP_MEMORY_INCLUDE_HOSTNAME`: `true|false` to tag memories with `source:<hostname>` and include `hostname` metadata.
@@ -95,4 +119,3 @@ TLS:
   - Ensure required variables are set or the process exits with a clear error and checklist.
 - Hybrid (recommended for production):
   - Uses SQLite-vec for 5 ms local reads with background Cloudflare sync. Requires all `CLOUDFLARE_*` variables. Set `MCP_HYBRID_SYNC_OWNER=http` when running alongside an MCP server so only the HTTP server syncs.
-

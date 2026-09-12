@@ -322,7 +322,7 @@ def _build_authorize_page(query_string: str, error: Optional[str] = None) -> str
   <h1>MCP Memory Service</h1>
   <p>Enter your API key to authorize this connection.</p>
   {error_html}
-  <form method="POST" action="/oauth/authorize?{query_string}">
+  <form method="POST" action="authorize?{query_string}">
     <label for="api_key">API Key</label>
     <input type="password" id="api_key" name="api_key" required autofocus autocomplete="current-password">
     <button type="submit">Authorize</button>
