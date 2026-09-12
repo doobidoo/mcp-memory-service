@@ -583,7 +583,7 @@ class RetrieveMixin:
             self._apply_stale_days_filter(where_conditions, params, stale_days, table_alias="m")
 
             query += ' WHERE ' + ' AND '.join(where_conditions)
-            query += ' ORDER BY m.created_at DESC'
+            query += ' ORDER BY m.created_at DESC, m.content_hash DESC'
 
             if limit is not None:
                 query += ' LIMIT ?'

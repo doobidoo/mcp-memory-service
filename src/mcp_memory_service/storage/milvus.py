@@ -3154,19 +3154,25 @@ class MilvusMemoryStorage(MemoryStorage):
         active_hashes = {row.get("id") for row in active_rows if row.get("id")}
 
         # Collect stale hashes (not recently accessed AND created_at < threshold)
-        stale_hashes: List[str] = []
+        stale_rows: List[Dict[str, Any]] = []
         for row in all_rows:
             rid = row.get("id")
             if rid and rid not in active_hashes:
                 created_at = row.get("created_at", 0)
                 if created_at < threshold:
-                    stale_hashes.append(rid)
+                    stale_rows.append(row)
 
-        if not stale_hashes:
+        if not stale_rows:
             return []
 
+        stale_rows.sort(
+            key=lambda row: (row.get("created_at", 0), row.get("id", "")),
+            reverse=True,
+        )
+        stale_hashes = [row["id"] for row in stale_rows]
+
         # Apply pagination to the stale set
-        # Sort by created_at desc is implicit from _drain_main_ids_and_created_at order
+        # Pagination follows the explicit deterministic stale ordering above.
         paginated = stale_hashes[offset:]
         if limit is not None:
             paginated = paginated[:limit]

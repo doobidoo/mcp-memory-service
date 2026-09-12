@@ -1923,6 +1923,13 @@ class CloudflareStorage(MemoryStorage):
                 where_conditions.append("m.memory_type = ?")
                 params.append(memory_type)
 
+            if stale_days is not None and stale_days > 0:
+                where_conditions.append(
+                    "COALESCE(CAST(json_extract(m.metadata_json, "
+                    "'$.last_accessed_at') AS REAL), m.created_at) < ?"
+                )
+                params.append(time.time() - stale_days * 86400)
+
             tag_count = 0
             if tags:
                 tag_count = len(tags)
@@ -1949,7 +1956,7 @@ class CloudflareStorage(MemoryStorage):
                 else:
                     sql += " GROUP BY m.id"
 
-            sql += " ORDER BY m.created_at DESC"
+            sql += " ORDER BY m.created_at DESC, m.id DESC"
 
             if limit is not None:
                 sql += " LIMIT ?"
