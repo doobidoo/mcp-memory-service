@@ -97,7 +97,10 @@ class ConsolidationScheduler:
         try:
             # Add consolidation jobs based on configuration
             self._schedule_consolidation_jobs()
-            
+
+            # Add scheduled session-harvest job (opt-in via MCP_HARVEST_SCHEDULE)
+            self._schedule_harvest_job()
+
             # Start the scheduler
             self.scheduler.start()
             self.logger.info("Consolidation scheduler started successfully")
@@ -154,6 +157,161 @@ class ConsolidationScheduler:
             except Exception as e:
                 self.logger.error("Error scheduling %s consolidation: %s", _sanitize_log_value(horizon), _sanitize_log_value(e))
     
+
+    def _schedule_harvest_job(self):
+        """Schedule autonomous session harvest (opt-in via MCP_HARVEST_SCHEDULE).
+
+        The harvest handler (memory_harvest) is local-only and never exposed over
+        remote transports (confused-deputy protection). The scheduler runs
+        in-process on the server host, which already has the filesystem access
+        the harvester needs — so autonomous harvest belongs here, next to the
+        consolidation cadence it piggybacks on, rather than as an external cron
+        calling a blocked tool.
+
+        MCP_HARVEST_SCHEDULE accepts an interval like "6h", "30m", "90s", or a
+        plain number of hours ("6"). Unset/blank/"disabled" → no job (default).
+        """
+        schedule_spec = os.getenv("MCP_HARVEST_SCHEDULE", "").strip()
+        if not schedule_spec or schedule_spec.lower() == "disabled":
+            self.logger.debug("Scheduled session harvest disabled (MCP_HARVEST_SCHEDULE unset)")
+            return
+
+        seconds = self._parse_interval_seconds(schedule_spec)
+        if not seconds or seconds <= 0:
+            self.logger.error(
+                "Invalid MCP_HARVEST_SCHEDULE=%r — expected e.g. '6h', '30m', '90s' or hours; skipping",
+                schedule_spec,
+            )
+            return
+
+        try:
+            self.scheduler.add_job(
+                func=self._run_scheduled_harvest,
+                trigger=IntervalTrigger(seconds=seconds),
+                id="session_harvest",
+                name="Scheduled Session Harvest",
+                replace_existing=True,
+            )
+            self.logger.info("Scheduled session harvest every %ss (MCP_HARVEST_SCHEDULE=%s)", seconds, schedule_spec)
+        except Exception as e:
+            self.logger.error(f"Error scheduling session harvest: {e}")
+
+    @staticmethod
+    def _parse_interval_seconds(spec: str) -> Optional[int]:
+        """Parse an interval spec into seconds. Accepts '6h', '30m', '90s', or bare hours."""
+        spec = spec.strip().lower()
+        try:
+            if spec.endswith("h"):
+                return int(float(spec[:-1]) * 3600)
+            if spec.endswith("m"):
+                return int(float(spec[:-1]) * 60)
+            if spec.endswith("s"):
+                return int(float(spec[:-1]))
+            return int(float(spec) * 3600)  # bare number = hours
+        except (ValueError, TypeError):
+            return None
+
+    async def _run_scheduled_harvest(self):
+        """Execute an autonomous session harvest, in-process, and store results.
+
+        Mirrors the memory_harvest handler but runs on the server's own cadence:
+        reads MCP_HARVEST_SESSION_DIR, harvests the delta (the harvest tracker in
+        harvest_and_store skips already-processed sessions), and bridges results
+        into the observation/belief pipeline via auto_commit.
+        """
+        storage = getattr(self.consolidator, "storage", None)
+        if storage is None:
+            self.logger.warning("Scheduled harvest skipped: consolidator has no storage")
+            return
+
+        try:
+            from ..harvest.harvester import SessionHarvester
+            from ..harvest.models import harvest_config_from_env
+            from ..services.memory_service import MemoryService
+        except Exception as e:
+            self.logger.warning(f"Scheduled harvest skipped: harvest module unavailable ({e})")
+            return
+
+        session_dir = os.path.expanduser(os.getenv("MCP_HARVEST_SESSION_DIR", "~/.kiro/sessions/cli"))
+        job_start = datetime.now()
+        self.logger.info("Starting scheduled session harvest from %s", session_dir)
+        try:
+            from ..harvest.models import HarvestConfig
+            page_size = int(os.getenv("MCP_HARVEST_SCHEDULE_SESSIONS", "50"))
+            use_llm = os.getenv("MCP_HARVEST_SCHEDULE_USE_LLM", "true").lower() in ("true", "1", "yes")
+            # harvest_and_store stores via MemoryService.store_memory — pass the
+            # service wrapper, not the raw storage backend.
+            memory_service = MemoryService(storage)
+            harvester = SessionHarvester(project_dir=session_dir, memory_service=memory_service)
+
+            # Idempotency: read the harvest-tracker and skip already-harvested
+            # sessions, mirroring the memory_harvest handler so scheduled runs
+            # don't re-process (and duplicate) sessions every cycle.
+            already = await self._read_harvest_tracker(memory_service)
+            all_config = HarvestConfig(sessions=9999, project_path=session_dir)
+            all_sessions = harvester._resolve_sessions(all_config)
+            pending = [s for s in all_sessions if s.stem not in already]
+            if not pending:
+                self.logger.info("Scheduled harvest: all %d sessions already harvested", len(all_sessions))
+                return
+
+            config = harvest_config_from_env(
+                sessions=page_size,
+                dry_run=False,
+                use_llm=use_llm,
+                project_path=session_dir,
+                session_ids=[s.stem for s in pending[:page_size]],
+            )
+            results = await harvester.harvest_and_store(config)
+            stored = sum(getattr(r, "stored", 0) or 0 for r in results)
+            found = sum(getattr(r, "found", 0) or 0 for r in results)
+
+            # Update tracker with newly harvested session ids.
+            new_ids = {r.session_id for r in results if getattr(r, "session_id", None)}
+            if new_ids:
+                await self._update_harvest_tracker(memory_service, already | new_ids)
+
+            self.execution_stats['successful_jobs'] += 1
+            self.last_execution_times['harvest'] = job_start
+            duration = (datetime.now() - job_start).total_seconds()
+            self.logger.info(
+                "Completed scheduled harvest in %.2fs: %d sessions, %d found, %d stored (%d pending remain)",
+                duration, len(results), found, stored, max(0, len(pending) - page_size),
+            )
+        except Exception as e:
+            # Never re-raise: a failing harvest must not tear down the scheduler
+            # or the consolidation jobs sharing it.
+            self.execution_stats['failed_jobs'] += 1
+            self.logger.error("Scheduled session harvest failed: %s", e)
+
+    async def _read_harvest_tracker(self, memory_service) -> set:
+        """Read the set of already-harvested session ids from the tracker memory."""
+        try:
+            tracker = await memory_service.list_memories(page=1, page_size=1, tags=["harvest-tracker"])
+            for mem in tracker.get("memories", []):
+                content = mem.get("content", "")
+                if content.startswith("harvested_sessions:"):
+                    ids_str = content.split(":", 1)[1]
+                    return {s for s in ids_str.split(",") if s}
+        except Exception:
+            pass  # first run or tracker missing — treat as empty
+        return set()
+
+    async def _update_harvest_tracker(self, memory_service, all_ids: set):
+        """Upsert the harvest-tracker memory (delete old + store merged set)."""
+        try:
+            old = await memory_service.list_memories(page=1, page_size=1, tags=["harvest-tracker"])
+            for mem in old.get("memories", []):
+                await memory_service.storage.delete(mem["content_hash"])
+            await memory_service.store_memory(
+                content=f"harvested_sessions:{','.join(sorted(all_ids))}",
+                tags=["harvest-tracker"],
+                memory_type="observation",
+                metadata={"count": len(all_ids)},
+            )
+        except Exception as e:
+            self.logger.warning("Failed to update harvest tracker: %s", e)
+
     def _create_trigger(self, horizon: str, schedule_spec: str):
         """Create APScheduler trigger from schedule specification."""
         try:
