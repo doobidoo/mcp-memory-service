@@ -55,9 +55,18 @@ def test_shipped_launchd_service_uses_lifecycle_cli() -> None:
     with plist_path.open("rb") as plist_file:
         config = plistlib.load(plist_file)
 
-    assert config["ProgramArguments"][-4:] == [
-        "run",
-        "memory",
+    assert config["ProgramArguments"][0].endswith("/.venv/bin/memory")
+    assert config["ProgramArguments"][-2:] == [
         "launch",
         "--foreground",
     ]
+
+
+def test_default_certificate_uses_user_runtime_directory(tmp_path, monkeypatch):
+    user_dir = tmp_path / "user-state"
+    monkeypatch.setattr(lifecycle, "_data_dir", lambda: user_dir)
+    monkeypatch.setattr(lifecycle, "_local_certificate_ip", lambda: None)
+    monkeypatch.setattr(lifecycle.subprocess, "run", MagicMock())
+    cert, key = lifecycle.generate_self_signed_certificate()
+    assert Path(cert).parent == user_dir / "certs"
+    assert Path(key).parent == user_dir / "certs"

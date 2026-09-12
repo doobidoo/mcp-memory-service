@@ -26,7 +26,6 @@ import signal
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
@@ -310,101 +309,96 @@ class CertificateGenerationError(RuntimeError):
     """Raised when a development TLS certificate cannot be generated."""
 
 
+def _existing_cert_valid(cert_file: Path, key_file: Path) -> bool:
+    """Reuse a readable certificate only while it has more than a week left."""
+    if not cert_file.is_file() or not key_file.is_file():
+        return False
+    try:
+        result = subprocess.run(
+            ["openssl", "x509", "-in", str(cert_file), "-noout", "-enddate"],
+            capture_output=True, text=True, check=True,
+        )
+        expiry = datetime.strptime(result.stdout.split("=", 1)[1].strip(),
+                                   "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
+        return expiry > datetime.now(timezone.utc) + timedelta(days=7)
+    except (IndexError, ValueError, subprocess.SubprocessError):
+        return False
+
+
+def _local_certificate_ip() -> str | None:
+    """Best-effort local address discovery without sending a UDP payload."""
+    udp_socket = None
+    try:
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_socket.connect(("8.8.8.8", 80))
+        return udp_socket.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        if udp_socket is not None:
+            udp_socket.close()
+
+
+def _san_entries(additional_ips: str | None, additional_hostnames: str | None) -> list[str]:
+    """Build deduplicated local and explicitly configured certificate names."""
+    entries = ["DNS:memory.local", "DNS:localhost", "DNS:*.local", "IP:127.0.0.1", "IP:::1"]
+    local_ip = _local_certificate_ip()
+    if local_ip and local_ip != "127.0.0.1":
+        entries.append(f"IP:{local_ip}")
+    for kind, values in (("IP", additional_ips), ("DNS", additional_hostnames)):
+        for value in (values or "").split(","):
+            entry = f"{kind}:{value.strip()}"
+            if value.strip() and entry not in entries:
+                entries.append(entry)
+    return entries
+
+
 def generate_self_signed_certificate(
     cert_dir: Path | None = None,
     additional_ips: str | None = None,
     additional_hostnames: str | None = None,
 ) -> tuple[str, str]:
-    """Generate or reuse the development certificate used by HTTP launchers.
+    """Generate or reuse a development certificate in the user's runtime directory.
 
-    The certificate is reused while it remains valid for more than seven days.
-    Additional IP addresses and hostnames are included when a new certificate
-    is generated.
+    Certificates are reused while valid for more than seven days. Additional
+    names are included when generating a new certificate.
     """
-    destination = cert_dir or Path(tempfile.gettempdir()) / "mcp-memory-certs"
+    destination = cert_dir or _data_dir() / "certs"
     cert_file = destination / "cert.pem"
     key_file = destination / "key.pem"
-
     try:
-        destination.mkdir(parents=True, exist_ok=True)
-        if cert_file.is_file() and key_file.is_file():
-            try:
-                result = subprocess.run(
-                    ["openssl", "x509", "-in", str(cert_file), "-noout", "-enddate"],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-                end_date_text = result.stdout.split("=", 1)[1].strip()
-                end_date = datetime.strptime(
-                    end_date_text, "%b %d %H:%M:%S %Y %Z"
-                ).replace(tzinfo=timezone.utc)
-                if end_date > datetime.now(timezone.utc) + timedelta(days=7):
-                    return str(cert_file), str(key_file)
-            except (IndexError, ValueError, subprocess.SubprocessError):
-                pass  # Existing certificate is unreadable or invalid; replace it.
-
-        san_entries = [
-            "DNS:memory.local",
-            "DNS:localhost",
-            "DNS:*.local",
-            "IP:127.0.0.1",
-            "IP:::1",
-        ]
-
-        udp_socket = None
-        try:
-            udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            udp_socket.connect(("8.8.8.8", 80))
-            local_ip = udp_socket.getsockname()[0]
-            if local_ip != "127.0.0.1":
-                san_entries.append(f"IP:{local_ip}")
-        except OSError:
-            pass  # Network discovery is optional; the fixed local SANs remain.
-        finally:
-            if udp_socket is not None:
-                udp_socket.close()
-
-        for ip in (additional_ips or "").split(","):
-            entry = f"IP:{ip.strip()}"
-            if ip.strip() and entry not in san_entries:
-                san_entries.append(entry)
-        for hostname in (additional_hostnames or "").split(","):
-            entry = f"DNS:{hostname.strip()}"
-            if hostname.strip() and entry not in san_entries:
-                san_entries.append(entry)
-
+        destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if _existing_cert_valid(cert_file, key_file):
+            return str(cert_file), str(key_file)
+        san_entries = _san_entries(additional_ips, additional_hostnames)
+        subprocess.run(["openssl", "genrsa", "-out", str(key_file), "2048"],
+                       check=True, capture_output=True)
         subprocess.run(
-            ["openssl", "genrsa", "-out", str(key_file), "2048"],
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            [
-                "openssl",
-                "req",
-                "-new",
-                "-x509",
-                "-key",
-                str(key_file),
-                "-out",
-                str(cert_file),
-                "-days",
-                "365",
-                "-subj",
-                "/C=US/ST=Local/L=Local/O=MCP Memory Service/CN=memory.local",
-                "-addext",
-                f"subjectAltName={','.join(san_entries)}",
-            ],
-            check=True,
-            capture_output=True,
+            ["openssl", "req", "-new", "-x509", "-key", str(key_file),
+             "-out", str(cert_file), "-days", "365", "-subj",
+             "/C=US/ST=Local/L=Local/O=MCP Memory Service/CN=memory.local",
+             "-addext", f"subjectAltName={','.join(san_entries)}"],
+            check=True, capture_output=True,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise CertificateGenerationError(
             "Could not generate a self-signed certificate with OpenSSL"
         ) from exc
-
     return str(cert_file), str(key_file)
+
+
+def _generate_server_certificate() -> tuple[str, str]:
+    """Translate development-certificate failure into a CLI startup error."""
+    try:
+        return generate_self_signed_certificate(
+            additional_ips=_server_env("MCP_SSL_ADDITIONAL_IPS"),
+            additional_hostnames=_server_env("MCP_SSL_ADDITIONAL_HOSTNAMES"),
+        )
+    except CertificateGenerationError as exc:
+        raise click.ClickException(
+            f"{exc}. Install OpenSSL, configure MCP_SSL_CERT_FILE and "
+            "MCP_SSL_KEY_FILE, or unset MCP_HTTPS_ENABLED to serve HTTP."
+        ) from exc
 
 
 class _ServerTls(NamedTuple):
@@ -451,20 +445,10 @@ def _resolve_server_tls() -> _ServerTls:
             "certificate paths, remove both to generate a development "
             "certificate, or unset MCP_HTTPS_ENABLED to serve HTTP."
         )
-    if not cert_file and not key_file:
-        try:
-            cert_file, key_file = generate_self_signed_certificate(
-                additional_ips=_server_env("MCP_SSL_ADDITIONAL_IPS"),
-                additional_hostnames=_server_env("MCP_SSL_ADDITIONAL_HOSTNAMES"),
-            )
-        except CertificateGenerationError as exc:
-            raise click.ClickException(
-                f"{exc}. Install OpenSSL, configure MCP_SSL_CERT_FILE and "
-                "MCP_SSL_KEY_FILE, or unset MCP_HTTPS_ENABLED to serve HTTP."
-            ) from exc
+    if not cert_file:
+        cert_file, key_file = _generate_server_certificate()
 
     for name, value in (("MCP_SSL_CERT_FILE", cert_file), ("MCP_SSL_KEY_FILE", key_file)):
-        assert value is not None
         if not Path(value).is_file():
             raise click.ClickException(
                 f"{name}={value!r} does not exist or is not a file. "

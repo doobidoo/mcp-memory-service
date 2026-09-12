@@ -185,8 +185,7 @@ The session-start hook automatically:
 ### Start Server on System Boot
 
 **Unix/macOS (launchd):**
-Create `~/Library/LaunchAgents/com.mcp.memory.http.plist`, replace
-`/path/to/uv` with the absolute path to `uv`, and replace
+Create `~/Library/LaunchAgents/com.mcp.memory.http.plist`, and replace
 `/path/to/repository` with the absolute path to this repository:
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -197,9 +196,7 @@ Create `~/Library/LaunchAgents/com.mcp.memory.http.plist`, replace
     <string>com.mcp.memory.http</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/path/to/uv</string>
-        <string>run</string>
-        <string>memory</string>
+        <string>/path/to/repository/.venv/bin/memory</string>
         <string>launch</string>
         <string>--foreground</string>
     </array>

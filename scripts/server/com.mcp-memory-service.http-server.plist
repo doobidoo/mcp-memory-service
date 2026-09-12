@@ -7,9 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/hkr/.local/bin/uv</string>
-        <string>run</string>
-        <string>memory</string>
+        <string>/Users/hkr/GitHub/mcp-memory-service/.venv/bin/memory</string>
         <string>launch</string>
         <string>--foreground</string>
     </array>
