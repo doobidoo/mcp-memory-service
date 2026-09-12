@@ -25,6 +25,8 @@ Thanks to eunwoo song for the retrieval fix below (#1128) and to timkjr for the 
 
 ### Fixed
 
+- **Maintenance and Cloudflare scripts no longer write on a `--help` smoke test (#1226).** The Cloudflare integration test and ONNX embedding repair now parse arguments before loading storage code, print the backend and database target, and require confirmation unless `--yes` is passed. The SQLite-only repair refuses Cloudflare and other non-local backends; Cloudflare resource setup has the same target/confirmation guard and a bootstrap helper for deliberate setup runs.
+
 - **CLI lifecycle JSON PID metadata parsing (#1210)**: `memory launch` now reads the structured PID file written by `_write_pid()` without eagerly evaluating the legacy integer fallback. A second launch therefore recognizes the live managed process instead of treating it as stale and replacing it. Legacy integer PID files remain supported.
 
 - **Tag search now honors `match_all=True` (#1196).** The MCP `search_by_tag` path applies AND matching through storage instead of returning OR results labelled `ALL`. Default ANY matching, tag normalization, and empty queries retain their existing behavior. Regression tests assert exact result sets against real SQLite storage.
@@ -1361,4 +1363,3 @@ First release published from Codeberg (Forgejo). It bundles the post-migration b
 ### Fixed
 
 - **[#687] `Get-McpApiKey` returned first character of API key instead of full key**: A Gemini-suggested refactor in v10.36.3 replaced a working implementation with `($matches[1], $matches[2], $matches[3] | Where-Object { $_ -ne $null })[0]`. Unmatched regex capture groups are absent from `$matches` (not `$null`), so when only one group matched the comma expression produced a single-element string, which PowerShell enumerated to its `Char` array — making `[0]` return `'b'` instead of `bxvWZwrI...`. This broke `manage_service.ps1 status` for all Windows users: Version and Backend showed `(unavailable - set MCP_API_KEY in .env for details)` even when the key was correctly configured. Fixed by replacing the comma expression with an explicit `if/elseif` chain using `$matches.ContainsKey(N)` and `[string]` casts. Verified live: returns full 43-character key string, `manage_service.ps1 status` correctly displays Version and Backend.
-
