@@ -87,6 +87,14 @@ Flags contradictions between a newly stored memory and semantically similar exis
 - `MCP_NLI_BACKEND`: `heuristic|cascade|llm` (default `heuristic`). `heuristic` is keyword/pattern-based with no ML deps. `cascade` (alias `llm`) uses the harvest provider chain (`HARVEST_LLM_PROVIDERS`) and degrades gracefully to the heuristic on any error. When unset it resolves to `heuristic`, so no LLM is ever called by accident.
 - `MCP_NLI_LLM_TIMEOUT`: seconds (default `30`). Applied once **per provider attempt** inside the harvest chain, so the worst case for a single pair is roughly `timeout × number of providers` before it falls back to the heuristic.
 
+## Harvest LLM Classifier — Pacing & Backoff (Optional)
+
+Rate-limit handling for the harvest classifier (validates candidate memories via the `HARVEST_LLM_PROVIDERS` chain). All optional; unset = prior behavior (switch provider on 429, no pacing).
+
+- `MCP_HARVEST_LLM_MAX_RETRIES`: int (default `0`). Retries against the **same** provider on a 429 before moving to the next. Default `0` preserves the prior behavior (switch provider immediately); set `>0` to opt into exponential backoff.
+- `MCP_HARVEST_LLM_BACKOFF_BASE`: seconds (default `1.0`). Exponential backoff base — waits `base × 2**attempt` between retries (1s, 2s, 4s, …).
+- `MCP_HARVEST_LLM_REQUEST_DELAY`: seconds (default `0.0` = disabled). Inter-request delay applied before each classifier call, to pace throughput regardless of provider.
+
 ## Machine Identification
 
 - `MCP_MEMORY_INCLUDE_HOSTNAME`: `true|false` to tag memories with `source:<hostname>` and include `hostname` metadata.
