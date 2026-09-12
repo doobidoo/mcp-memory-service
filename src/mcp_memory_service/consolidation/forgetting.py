@@ -208,8 +208,10 @@ class ControlledForgettingEngine(ConsolidationBase):
                 forgetting_reasons.append("low_quality")
                 archive_priority = min(archive_priority, 2)
             
-            # Duplicate content check
-            if self._appears_to_be_duplicate(memory, memories):
+            # Duplicate content check. Only the *redundant* copies are flagged: the
+            # best-ranked member of a near-duplicate group is never a candidate, so
+            # deduplication always leaves a survivor in storage.
+            if self._is_redundant_copy(memory, memories, score_lookup):
                 forgetting_reasons.append("potential_duplicate")
                 can_be_deleted = True
                 archive_priority = 1
@@ -269,40 +271,79 @@ class ControlledForgettingEngine(ConsolidationBase):
         return False
     
     def _appears_to_be_duplicate(self, memory: Memory, all_memories: List[Memory]) -> bool:
-        """Check if memory appears to be a duplicate of another memory."""
+        """Check if memory appears to be a duplicate of another memory.
+
+        Note this is a *symmetric* relation, so it is true for both members of a pair.
+        Use :meth:`_is_redundant_copy` to decide what may be deleted.
+        """
+        return any(self._is_near_duplicate_of(memory, other) for other in all_memories
+                   if other.content_hash != memory.content_hash)
+
+    def _is_near_duplicate_of(self, memory: Memory, other_memory: Memory) -> bool:
+        """Pairwise near-duplicate test. Symmetric by construction."""
         content = memory.content.strip().lower()
-        
+
         # Skip very short content for duplicate detection
         if len(content) < 20:
             return False
-        
+
+        other_content = other_memory.content.strip().lower()
+
+        # Exact match
+        if content == other_content:
+            return True
+
+        # Very similar content (simple check): only worth testing on longer texts
+        if min(len(content), len(other_content)) <= 50:
+            return False
+
+        # Check if one is a substring of the other with high overlap
+        if content in other_content or other_content in content:
+            return True
+
+        # Check word overlap
+        words1 = set(content.split())
+        words2 = set(other_content.split())
+        if min(len(words1), len(words2)) <= 5:
+            return False
+
+        overlap = len(words1.intersection(words2))
+        union = len(words1.union(words2))
+        return overlap / union > 0.8  # 80% word overlap
+
+    @staticmethod
+    def _keep_rank(memory: Memory, score_lookup: Dict[str, "RelevanceScore"]):
+        """Sort key for "which copy is worth keeping" - lower sorts first (kept)."""
+        score = score_lookup.get(memory.content_hash)
+        return (
+            -(score.total_score if score else 0.0),   # best relevance first
+            memory.created_at or 0.0,                  # then the original, not the copy
+            memory.content_hash or "",                 # then a stable tiebreak
+        )
+
+    def _is_redundant_copy(
+        self,
+        memory: Memory,
+        all_memories: List[Memory],
+        score_lookup: Dict[str, "RelevanceScore"],
+    ) -> bool:
+        """True only if a near-duplicate exists that OUTRANKS this memory.
+
+        `_appears_to_be_duplicate` is symmetric, so flagging on it deleted *every*
+        member of a duplicate group instead of the extras. Ranking each candidate
+        against its own duplicates fixes that without needing to build groups first,
+        which matters because near-duplicate matching is not transitive: the
+        best-ranked member of any group is outranked by nobody, so it is never
+        flagged and always survives.
+        """
+        mine = self._keep_rank(memory, score_lookup)
         for other_memory in all_memories:
             if other_memory.content_hash == memory.content_hash:
                 continue
-            
-            other_content = other_memory.content.strip().lower()
-            
-            # Exact match
-            if content == other_content:
+            if not self._is_near_duplicate_of(memory, other_memory):
+                continue
+            if self._keep_rank(other_memory, score_lookup) < mine:
                 return True
-            
-            # Very similar content (simple check)
-            if len(content) > 50 and len(other_content) > 50:
-                # Check if one is a substring of the other with high overlap
-                if content in other_content or other_content in content:
-                    return True
-                
-                # Check word overlap
-                words1 = set(content.split())
-                words2 = set(other_content.split())
-                
-                if len(words1) > 5 and len(words2) > 5:
-                    overlap = len(words1.intersection(words2))
-                    union = len(words1.union(words2))
-                    
-                    if overlap / union > 0.8:  # 80% word overlap
-                        return True
-        
         return False
     
     async def _process_forgetting_candidate(self, candidate: ForgettingCandidate) -> ForgettingResult:

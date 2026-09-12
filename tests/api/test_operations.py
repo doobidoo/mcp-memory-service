@@ -19,14 +19,21 @@ Validates functionality, performance, and token efficiency of
 search, store, and health operations.
 """
 
-import pytest
 import time
-from mcp_memory_service.api import search, store, health
-from mcp_memory_service.api.types import CompactSearchResult, CompactHealthInfo
+
+import pytest
+
+from mcp_memory_service.api import health, operations, search, store
 from mcp_memory_service.api.client import reset_storage
+from mcp_memory_service.api.types import CompactHealthInfo, CompactSearchResult
+from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+from mcp_memory_service.utils.hashing import generate_content_hash
 
 try:
-    from mcp_memory_service.storage.mixins.embeddings import SENTENCE_TRANSFORMERS_AVAILABLE
+    from mcp_memory_service.storage.mixins.embeddings import (
+        SENTENCE_TRANSFORMERS_AVAILABLE,
+    )
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
 
@@ -81,6 +88,79 @@ class TestSearchOperation:
         # Should only return memories with tag1
         for memory in result.memories:
             assert "tag1" in memory.tags
+
+    @pytest.mark.asyncio
+    async def test_search_applies_tag_filter_before_limit(self, tmp_path, monkeypatch):
+        """A tagged result outside the unfiltered limit must still be returned."""
+        storage = SqliteVecMemoryStorage(str(tmp_path / "tag-filter.db"))
+        await storage.initialize()
+
+        async def get_test_storage():
+            return storage
+
+        monkeypatch.setattr(operations, "get_storage_async", get_test_storage)
+
+        query = "exact untagged nearest neighbour"
+        memories = [
+            Memory(
+                content=query,
+                content_hash=generate_content_hash(query),
+                tags=["other"],
+            ),
+            Memory(
+                content="distant tagged result",
+                content_hash=generate_content_hash("distant tagged result"),
+                tags=["wanted"],
+            ),
+        ]
+
+        try:
+            for memory in memories:
+                success, message = await storage.store(memory)
+                assert success, message
+
+            unfiltered = await storage.retrieve(query, n_results=1)
+            assert unfiltered[0].memory.tags == ["other"]
+
+            result = await operations.search.__wrapped__(
+                query, limit=1, tags=["wanted"]
+            )
+
+            assert result.total == 1
+            assert result.memories[0].tags == ("wanted",)
+        finally:
+            await storage.close()
+
+    @pytest.mark.asyncio
+    async def test_search_tag_with_internal_space(self, tmp_path, monkeypatch):
+        """A stored tag containing a space must match the same spaced query tag."""
+        storage = SqliteVecMemoryStorage(str(tmp_path / "spaced-tag.db"))
+        await storage.initialize()
+
+        async def get_test_storage():
+            return storage
+
+        monkeypatch.setattr(operations, "get_storage_async", get_test_storage)
+
+        content = "memory carrying a spaced tag"
+        try:
+            success, message = await storage.store(
+                Memory(
+                    content=content,
+                    content_hash=generate_content_hash(content),
+                    tags=["my tag"],
+                )
+            )
+            assert success, message
+
+            result = await operations.search.__wrapped__(
+                content, limit=5, tags=["my tag"]
+            )
+
+            assert result.total == 1
+            assert result.memories[0].tags == ("my tag",)
+        finally:
+            await storage.close()
 
     def test_search_empty_query(self):
         """Test that search rejects empty queries."""

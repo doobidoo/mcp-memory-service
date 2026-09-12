@@ -416,13 +416,13 @@ async def test_search_by_tag_multiple_tags(memory_service, mock_storage, sample_
 @pytest.mark.asyncio
 async def test_search_by_tag_match_all(memory_service, mock_storage, sample_memories):
     """Test searching with match_all=True."""
-    mock_storage.search_by_tag.return_value = sample_memories[:1]
+    mock_storage.search_by_tags.return_value = sample_memories[:1]
 
     result = await memory_service.search_by_tag(tags=["tag1", "tag2"], match_all=True)
 
     assert result["match_type"] == "ALL"
-    mock_storage.search_by_tag.assert_called_once_with(
-        tags=["tag1", "tag2"]
+    mock_storage.search_by_tags.assert_called_once_with(
+        tags=["tag1", "tag2"], operation="AND"
     )
 
 

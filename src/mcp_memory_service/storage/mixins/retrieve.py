@@ -94,7 +94,7 @@ class RetrieveMixin:
                         tag_clauses.append(
                             "(',' || REPLACE(m.tags, ' ', '') || ',') LIKE ? ESCAPE '\\'"
                         )
-                        params.append(f"%,{_escape_like(stripped)},%")
+                        params.append(f"%,{_escape_like(stripped.replace(' ', ''))},%")
 
                     if not tag_clauses:
                         logger.warning("Tag filter provided but contained no valid tags. Returning empty results.")

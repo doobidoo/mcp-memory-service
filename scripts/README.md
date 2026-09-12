@@ -173,8 +173,6 @@ Data protection and recovery operations.
 
 | Script | Purpose | Quick Usage |
 |--------|---------|-------------|
-| `backup_memories.py` | Create memory backups | `python backup/backup_memories.py` |
-| `restore_memories.py` | Restore from backups | `python backup/restore_memories.py backup.json` |
 | `backup_sqlite_vec.sh` | SQLite-vec database backup | `./backup/backup_sqlite_vec.sh` |
 | `export_distributable_memories.sh` | Create distributable exports | `./backup/export_distributable_memories.sh` |
 
@@ -321,7 +319,7 @@ python maintenance/cleanup_corrupted_encoding.py --execute
 ### Migration & Upgrades
 ```bash
 # Before migration - backup
-python backup/backup_memories.py
+./backup/backup_sqlite_vec.sh
 
 # Migrate to new backend
 python migration/migrate_to_cloudflare.py
@@ -333,7 +331,7 @@ python validation/validate_memories.py
 ## 🚨 Safety Guidelines
 
 ### Before Running Maintenance Scripts
-1. **Always backup first**: `python backup/backup_memories.py`
+1. **Always backup first**: `./backup/backup_sqlite_vec.sh`
 2. **Use dry-run mode**: Most scripts support `--dry-run` or similar
 3. **Test with small datasets** when possible
 4. **Check database health**: `python database/simple_timestamp_check.py`
