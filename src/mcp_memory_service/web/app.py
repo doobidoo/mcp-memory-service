@@ -80,7 +80,8 @@ class RootPathStaticFiles(StaticFiles):
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         root_path = scope.get("root_path", "")
-        if self.external_root_path and root_path.startswith(self.external_root_path):
+        if (self.external_root_path and root_path.startswith(self.external_root_path)
+                and not scope["path"].startswith(self.external_root_path + "/")):
             scope = dict(scope)
             scope["root_path"] = root_path[len(self.external_root_path):]
         await super().__call__(scope, receive, send)

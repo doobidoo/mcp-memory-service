@@ -36,13 +36,14 @@ def test_create_app_uses_configured_root_path(monkeypatch):
     assert app_module.create_app().root_path == "/memory"
 
 
-def test_static_mount_accepts_path_stripped_by_proxy(monkeypatch):
+@pytest.mark.parametrize("path", ["/static/app.js", "/memory/static/app.js"])
+def test_static_mount_accepts_path_stripped_by_proxy(monkeypatch, path):
     from mcp_memory_service.web import app as app_module
 
     monkeypatch.setattr(app_module, "HTTP_ROOT_PATH", "/memory")
     client = TestClient(app_module.create_app())
 
-    response = client.get("/static/app.js")
+    response = client.get(path)
     schema_response = client.get("/openapi.json")
     dashboard_response = client.get("/")
 

@@ -12,7 +12,7 @@ def normalize_http_root_path(value: str) -> str:
     value = value.strip()
     if not value or value == "/":
         return ""
-    if any(ord(char) < 32 for char in value) or any(char in value for char in "?#\\"):
+    if any(ord(char) < 32 or char in "?#\\" for char in value):
         raise ValueError("MCP_HTTP_ROOT_PATH must be a URL path without query, fragment, or backslash")
     segments = value.strip("/").split("/")
     if any(segment in {"", ".", ".."} for segment in segments):
