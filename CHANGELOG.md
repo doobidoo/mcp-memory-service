@@ -37,6 +37,11 @@ Thanks to eunwoo song for the retrieval fix below (#1128) and to timkjr for the 
 - **HTTP dashboard and API support a stripped reverse-proxy path prefix (#1176).** `MCP_HTTP_ROOT_PATH` now configures the ASGI root path, OpenAPI server URL, auto-detected OAuth issuer, mounted static files, and browser-side REST/SSE links. A deployment exposed at `/memory/` can therefore serve the dashboard, documentation, static assets, OAuth form, and API calls through the same prefix while the proxy forwards stripped paths internally.
 
 - **CLI lifecycle JSON PID metadata parsing (#1210)**: `memory launch` now reads the structured PID file written by `_write_pid()` without eagerly evaluating the legacy integer fallback. A second launch therefore recognizes the live managed process instead of treating it as stale and replacing it. Legacy integer PID files remain supported.
+- **Cloudflare tag-filtered retrieval now over-fetches Vectorize matches (#1209).**
+  Previously, the backend requested only `n_results` nearest matches and applied
+  the tag filter afterward, so closer untagged memories could hide valid tagged
+  results. Tagged searches now fetch a bounded candidate set before filtering and
+  still return at most `n_results` results.
 
 - **Tag search now honors `match_all=True` (#1196).** The MCP `search_by_tag` path applies AND matching through storage instead of returning OR results labelled `ALL`. Default ANY matching, tag normalization, and empty queries retain their existing behavior. Regression tests assert exact result sets against real SQLite storage.
 
