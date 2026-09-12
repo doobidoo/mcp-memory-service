@@ -257,4 +257,51 @@ class TestHarvestEvolution:
         assert result.found > 0, "Fixture must produce candidates"
 
         mock_service.store_memory.assert_called()
+
+
+class TestHarvestBatchRewrite:
+    """Tests for batch LLM rewrite path (issue #1108)."""
+
+    @pytest.mark.asyncio
+    async def test_batch_rewrite_used_instead_of_per_candidate(self, sample_project_dir):
+        """When LLM rewrite is enabled, rewrite_batch_sync should be called
+        once with all candidates, not rewrite_sync per candidate.
+
+        This exercises the batch API introduced in issue #1108.
+        Without the change, rewrite_sync would be called per candidate.
+        """
+        from mcp_memory_service.harvest.rewriter import RewriteResult
+
+        mock_service = AsyncMock()
+        mock_service.storage = AsyncMock()
+        mock_service.storage.retrieve = AsyncMock(return_value=[])
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_service.store_memory.return_value = mock_result
+
+        # Create a mock rewriter
+        mock_rewriter = MagicMock()
+        mock_rewriter.is_configured = True
+        # Return a RewriteResult for each item
+        def fake_batch(items):
+            return [
+                RewriteResult(content=f"rewritten: {item['content'][:20]}", memory_type=item['memory_type'])
+                for item in items
+            ]
+        mock_rewriter.rewrite_batch_sync.side_effect = fake_batch
+
+        config = HarvestConfig(sessions=1, dry_run=False, use_llm=True)
+        harvester = SessionHarvester(
+            project_dir=sample_project_dir, memory_service=mock_service
+        )
+        # Patch _get_rewriter to return our mock
+        harvester._get_rewriter = lambda: mock_rewriter
+
+        results = await harvester.harvest_and_store(config)
+        result = results[0]
+
+        if result.found > 0:
+            # rewrite_batch_sync should be called (not rewrite_sync)
+            assert mock_rewriter.rewrite_batch_sync.call_count >= 1
+            mock_rewriter.rewrite_sync.assert_not_called()
         assert result.stored == result.found

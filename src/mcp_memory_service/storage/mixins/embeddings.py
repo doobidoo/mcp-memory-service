@@ -252,6 +252,8 @@ class EmbeddingsMixin:
                         logger.warning("ONNX model creation failed, falling back to SentenceTransformer")
                 except ImportError as e:
                     logger.warning(f"ONNX dependencies not available: {e}")
+                except ValueError as e:
+                    raise RuntimeError(f"Invalid ONNX embedding configuration: {e}") from e
                 except Exception as e:
                     logger.warning(f"Failed to initialize ONNX embeddings: {e}")
 

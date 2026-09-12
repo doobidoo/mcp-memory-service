@@ -403,36 +403,17 @@ def get_last_period_range(period: str) -> Tuple[float, float]:
         start_dt = datetime(last_year, 1, 1, 0, 0, 0)
         end_dt = datetime(last_year, 12, 31, 23, 59, 59)
     elif period in ["summer", "spring", "winter", "fall", "autumn"]:
-        # Last season
+        # Select the most recent occurrence that has fully ended. Starting from
+        # this year's occurrence also handles winter's year boundary without
+        # treating the current or upcoming season as "last".
         season_info = NAMED_PERIODS[period]
-        current_year = today.year
-        
-        # Determine if we're currently in this season
-        current_month = today.month
-        current_day = today.day
-        is_current_season = False
-        
-        # Check if today falls within the season's date range
-        if period in ["winter"]:  # Winter spans year boundary
-            if (current_month >= season_info["start_month"] or 
-                (current_month <= season_info["end_month"] and 
-                 current_day <= season_info["end_day"])):
-                is_current_season = True
-        else:
-            if (current_month >= season_info["start_month"] and current_month <= season_info["end_month"] and
-                current_day >= season_info["start_day"] if current_month == season_info["start_month"] else True and
-                current_day <= season_info["end_day"] if current_month == season_info["end_month"] else True):
-                is_current_season = True
-        
-        # If we're currently in the season, get last year's season
-        if is_current_season:
-            year = current_year - 1
-        else:
-            year = current_year
-            
-        # Calculate season date range (handles winter's year boundary)
-        context_month = current_month if is_current_season else None
-        start_dt, end_dt = _calculate_season_date_range(period, season_info, year, context_month)
+        year = today.year
+        start_dt, end_dt = _calculate_season_date_range(period, season_info, year)
+        while end_dt.date() >= today:
+            year -= 1
+            start_dt, end_dt = _calculate_season_date_range(
+                period, season_info, year
+            )
     else:
         # Fallback - last 24 hours
         end_dt = now
