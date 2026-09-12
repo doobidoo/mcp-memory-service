@@ -10,7 +10,10 @@ import os
 import tarfile
 from pathlib import Path
 from typing import List, Optional, Union
+
 import numpy as np
+
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +157,10 @@ class ONNXEmbeddingModel:
             raise FileNotFoundError(f"Tokenizer not found at {tokenizer_path}")
         
         # Initialize ONNX session
-        logger.info(f"Loading ONNX model with providers: {self._preferred_providers}")
+        logger.info(
+            "Loading ONNX model with providers: %s",
+            _sanitize_log_value(self._preferred_providers),
+        )
         self._model = ort.InferenceSession(
             str(model_path),
             providers=self._preferred_providers
@@ -205,7 +211,25 @@ class ONNXEmbeddingModel:
             "token_type_ids": token_type_ids,
         }
         
-        outputs = self._model.run(None, ort_inputs)
+        session = self._model
+        try:
+            outputs = session.run(None, ort_inputs)
+        except Exception as exc:
+            if "CoreMLExecutionProvider" not in session.get_providers():
+                raise
+            # CPU in the provider list handles unsupported nodes, not CoreML
+            # runtime failures. Rebuild without CoreML and retry this batch once.
+            logger.warning(
+                "CoreML inference failed; retrying with CPUExecutionProvider: %s",
+                _sanitize_log_value(exc),
+            )
+            model_path = self.DOWNLOAD_PATH / self.EXTRACTED_FOLDER_NAME / "model.onnx"
+            session = ort.InferenceSession(
+                str(model_path), providers=["CPUExecutionProvider"]
+            )
+            self._model = session
+            self._preferred_providers = ["CPUExecutionProvider"]
+            outputs = session.run(None, ort_inputs)
         
         # Extract embeddings (using mean pooling)
         last_hidden_states = outputs[0]
@@ -227,6 +251,29 @@ class ONNXEmbeddingModel:
         return "cpu"  # ONNX runtime handles device selection internally
 
 
+def _get_preferred_providers() -> list[str]:
+    """Use an explicit provider pin, or prefer available accelerators."""
+    available = ort.get_available_providers()
+    configured = os.environ.get("MCP_MEMORY_ONNX_PROVIDERS", "").strip()
+    if configured:
+        providers = [provider.strip() for provider in configured.split(",")]
+        if set(providers) - set(available):
+            raise ValueError(
+                "MCP_MEMORY_ONNX_PROVIDERS must contain comma-separated available "
+                f"provider names. Available: {available}"
+            )
+        return providers
+    return [
+        provider
+        for provider in (
+            "CUDAExecutionProvider",
+            "DirectMLExecutionProvider",
+            "CoreMLExecutionProvider",
+        )
+        if provider in available
+    ] + ["CPUExecutionProvider"]
+
+
 def get_onnx_embedding_model(model_name: str = "all-MiniLM-L6-v2") -> Optional[ONNXEmbeddingModel]:
     """
     Get ONNX embedding model if available.
@@ -236,6 +283,9 @@ def get_onnx_embedding_model(model_name: str = "all-MiniLM-L6-v2") -> Optional[O
         
     Returns:
         ONNXEmbeddingModel instance or None if ONNX is not available
+
+    Raises:
+        ValueError: If MCP_MEMORY_ONNX_PROVIDERS contains unavailable provider names.
     """
     if not ONNX_AVAILABLE:
         logger.warning("ONNX Runtime not available")
@@ -245,25 +295,14 @@ def get_onnx_embedding_model(model_name: str = "all-MiniLM-L6-v2") -> Optional[O
         logger.warning("Tokenizers not available")
         return None
     
+    preferred_providers = _get_preferred_providers()
     try:
-        # Detect best available providers
-        available_providers = ort.get_available_providers()
-        preferred_providers = []
-        
-        # Prefer GPU providers if available
-        if 'CUDAExecutionProvider' in available_providers:
-            preferred_providers.append('CUDAExecutionProvider')
-        if 'DirectMLExecutionProvider' in available_providers:
-            preferred_providers.append('DirectMLExecutionProvider')
-        if 'CoreMLExecutionProvider' in available_providers:
-            preferred_providers.append('CoreMLExecutionProvider')
-        
-        # Always include CPU as fallback
-        preferred_providers.append('CPUExecutionProvider')
-        
-        logger.info(f"Creating ONNX model with providers: {preferred_providers}")
+        logger.info(
+            "Creating ONNX model with providers: %s",
+            _sanitize_log_value(preferred_providers),
+        )
         return ONNXEmbeddingModel(model_name, preferred_providers)
     
     except Exception as e:
-        logger.error(f"Failed to create ONNX embedding model: {e}")
+        logger.error("Failed to create ONNX embedding model: %s", _sanitize_log_value(e))
         return None

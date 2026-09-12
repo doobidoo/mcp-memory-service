@@ -19,24 +19,26 @@ Provides semantic search, tag-based search, and time-based recall functionality.
 """
 
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from fastapi import APIRouter, HTTPException, Depends, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field, ValidationError
 
-from ...storage.base import MemoryStorage
 from ...models.memory import Memory, MemoryQueryResult
+from ...services.memory_service import MemoryService
+from ...storage.base import MemoryStorage
+
 # OAuth config no longer needed - auth is always enabled
 from ...utils.time_parser import parse_time_expression
-from ..dependencies import get_storage
+from ..dependencies import get_memory_service, get_storage
+from ..sse import create_search_completed_event, sse_manager
 from .memories import MemoryResponse, memory_to_response
-from ..sse import sse_manager, create_search_completed_event
 
 # Constants
 _TIME_SEARCH_CANDIDATE_POOL_SIZE = 100  # Number of candidates to retrieve for time filtering (reduced for performance)
 
 # OAuth authentication imports
-from ..oauth.middleware import require_read_access, AuthenticationResult
+from ..oauth.middleware import AuthenticationResult, require_read_access
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -106,10 +108,50 @@ def memory_to_search_result(memory: Memory, reason: str = None) -> SearchResult:
     )
 
 
+def _search_result_to_plugin_row(result: SearchResult) -> dict[str, Any]:
+    """Flatten an HTTP result to the shared retrieval-plugin row shape."""
+    row = result.memory.model_dump()
+    row["similarity_score"] = result.similarity_score
+    row["relevance_reason"] = result.relevance_reason
+    return row
+
+
+def _plugin_row_to_search_result(row: dict[str, Any]) -> SearchResult:
+    """Restore the HTTP response shape after retrieval plugins have run."""
+    return SearchResult(
+        memory=MemoryResponse(**row),
+        similarity_score=row.get("similarity_score"),
+        relevance_reason=row.get("relevance_reason"),
+    )
+
+
+async def _apply_retrieve_plugins(
+    memory_service: MemoryService,
+    query: str,
+    results: list[SearchResult],
+) -> list[SearchResult]:
+    """Expose the final HTTP result rows to the shared retrieval hook."""
+    rows = [_search_result_to_plugin_row(result) for result in results]
+    rows = await memory_service.apply_retrieve_plugins(query, rows)
+    restored = []
+    for row in rows:
+        try:
+            restored.append(_plugin_row_to_search_result(row))
+        except ValidationError:
+            # PluginRegistry.fire already keeps a broken plugin from taking
+            # retrieval down; a row it hands back must not do so one step later.
+            logger.warning(
+                "Dropping malformed retrieval-plugin row %s",
+                _sanitize_log_value(row.get("content_hash")),
+            )
+    return restored
+
+
 @router.post("/search", response_model=SearchResponse, tags=["search"])
 async def semantic_search(
     request: SemanticSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """
@@ -174,6 +216,9 @@ async def semantic_search(
                 )
             search_results.append(search_result)
 
+        search_results = await _apply_retrieve_plugins(
+            memory_service, request.query, search_results
+        )
         processing_time = (time.time() - start_time) * 1000
 
         # Broadcast SSE event for search completion
@@ -205,6 +250,7 @@ async def semantic_search(
 async def tag_search(
     request: TagSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """
@@ -250,12 +296,14 @@ async def tag_search(
             for memory in memories
         ]
 
-        processing_time = (time.time() - start_time) * 1000
-
         # Build query string with time filter info if present
         query_string = f"Tags: {', '.join(request.tags)} ({match_type})"
         if request.time_filter:
             query_string += f" | Time: {request.time_filter}"
+        search_results = await _apply_retrieve_plugins(
+            memory_service, query_string, search_results
+        )
+        processing_time = (time.time() - start_time) * 1000
 
         # Broadcast SSE event for search completion
         try:
@@ -287,6 +335,7 @@ async def tag_search(
 async def time_search(
     request: TimeSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """
@@ -311,8 +360,9 @@ async def time_search(
 
         # Retrieve memories within time range (with larger candidate pool if semantic query provided)
         candidate_pool_size = _TIME_SEARCH_CANDIDATE_POOL_SIZE if request.semantic_query else request.n_results
+        semantic_query = request.semantic_query.strip() if request.semantic_query else ""
         query_results = await storage.recall(
-            query=request.semantic_query.strip() if request.semantic_query and request.semantic_query.strip() else None,
+            query=semantic_query or None,
             n_results=candidate_pool_size,
             start_timestamp=start_ts,
             end_timestamp=end_ts
@@ -320,7 +370,7 @@ async def time_search(
 
         # If semantic query was provided, results are already ranked by relevance
         # Otherwise, sort by recency (newest first)
-        if not (request.semantic_query and request.semantic_query.strip()):
+        if not semantic_query:
             query_results.sort(key=lambda r: r.memory.created_at or 0.0, reverse=True)
 
         # Limit results
@@ -336,6 +386,9 @@ async def time_search(
         for result in search_results:
             result.relevance_reason = f"Time match: {request.query}"
 
+        search_results = await _apply_retrieve_plugins(
+            memory_service, semantic_query or request.query, search_results
+        )
         processing_time = (time.time() - start_time) * 1000
 
         return SearchResponse(
@@ -357,6 +410,7 @@ async def find_similar(
     content_hash: str,
     n_results: int = Query(default=10, ge=1, le=100, description="Number of similar memories to find"),
     storage: MemoryStorage = Depends(get_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """
@@ -395,6 +449,9 @@ async def find_similar(
             memory_query_result_to_search_result(result)
             for result in filtered_results
         ]
+        search_results = await _apply_retrieve_plugins(
+            memory_service, target_memory.content, search_results
+        )
 
         processing_time = (time.time() - start_time) * 1000
 

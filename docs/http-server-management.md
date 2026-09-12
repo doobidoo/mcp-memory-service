@@ -185,6 +185,8 @@ The session-start hook automatically:
 ### Start Server on System Boot
 
 **Unix/macOS (launchd):**
+This template is the canonical launchd recipe; the old machine-specific plist
+is no longer shipped in `scripts/server/`.
 Create `~/Library/LaunchAgents/com.mcp.memory.http.plist`, and replace
 `/path/to/repository` with the absolute path to this repository:
 ```xml

@@ -244,14 +244,14 @@ class SessionHarvester:
         if config.use_llm and filtered:
             rewriter = self._get_rewriter()
             if rewriter:
+                # Use batch API when available — one LLM call instead of N
+                batch_items = [
+                    {"content": c.content, "memory_type": c.memory_type}
+                    for c in filtered
+                ]
+                batch_results = rewriter.rewrite_batch_sync(batch_items)
                 rewritten = []
-                accepted_so_far = []  # Passo 2: contexto acumulado
-                for candidate in filtered:
-                    result = rewriter.rewrite_sync(
-                        candidate.content,
-                        suggested_type=candidate.memory_type,
-                        already_extracted=accepted_so_far if accepted_so_far else None,
-                    )
+                for candidate, result in zip(filtered, batch_results):
                     if result:
                         rewritten.append(HarvestCandidate(
                             content=result.content,
@@ -260,7 +260,6 @@ class SessionHarvester:
                             confidence=min(candidate.confidence + 0.1, 1.0),
                             source_line=candidate.source_line,
                         ))
-                        accepted_so_far.append(result.content[:80])
                 logger.info(
                     f"LLM rewrite: {len(filtered)} → {len(rewritten)} candidates "
                     f"({len(filtered) - len(rewritten)} skipped)"

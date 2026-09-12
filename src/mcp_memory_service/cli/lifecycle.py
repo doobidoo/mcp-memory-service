@@ -75,10 +75,17 @@ def _read_pid() -> int | None:
         # Support both old format (just an int) and new format (JSON with metadata)
         try:
             pid_info = json.loads(content)
-            pid = pid_info.get("pid", int(content)) if isinstance(pid_info, dict) else int(pid_info)
         except (ValueError, TypeError):
-            pid = int(content)
-    except (ValueError, OSError):
+            pid_info = content
+
+        if isinstance(pid_info, dict):
+            pid_value = pid_info.get("pid")
+            if pid_value is None:
+                return None
+        else:
+            pid_value = pid_info
+        pid = int(pid_value)
+    except (ValueError, TypeError, OSError):
         return None
     if _is_process_alive(pid):
         # Validate against stale PID files (PID reuse after reboot)
@@ -221,6 +228,46 @@ def _find_process_on_port(port: int) -> int | None:
             # PID-file path. Logging would be noise during normal `memory info`.
             pass
     return None
+
+
+def _process_command_line(pid: int) -> list[str]:
+    """Return a process command line, or an empty list when unavailable."""
+    import psutil  # inline import: keep lifecycle module startup lightweight
+
+    try:
+        return psutil.Process(pid).cmdline()
+    except (psutil.Error, OSError):
+        return []
+
+
+def _is_memory_server_command(command_line: list[str]) -> bool:
+    """Return whether a command line matches the detached launcher."""
+    return any(
+        command_line[index : index + 2] == ["-m", "uvicorn"]
+        and command_line[index + 2].startswith("mcp_memory_service.")
+        for index in range(len(command_line) - 2)
+    )
+
+
+def _stop_process_on_port(port: int, pid: int, force: bool) -> bool:
+    """Stop a listener only when it is ours or the user explicitly forces it."""
+    command_line = _process_command_line(pid)
+    command_display = " ".join(command_line) if command_line else "<unavailable>"
+
+    if not force and not _is_memory_server_command(command_line):
+        raise click.ClickException(
+            f"Refusing to stop PID {pid} on port {port}: its command line "
+            f"does not match MCP Memory Service:\n  {command_display}\n"
+            "Use --force only if you intend to terminate this process."
+        )
+
+    click.echo(f"Freeing port {port} (PID {pid}): {command_display}")
+    if _kill_process(pid):
+        click.echo("Process terminated.")
+        return True
+
+    click.echo(f"Could not terminate PID {pid}.", err=True)
+    return False
 
 
 def _kill_process(pid: int) -> bool:
@@ -847,7 +894,12 @@ def launch(ctx, http_host, http_port, detach, storage_backend, debug):
 @click.command()
 @click.option("--host", "http_host", default=None, help="Host to check")
 @click.option("--port", "http_port", default=None, type=int, help="Port to check")
-def stop(http_host, http_port):
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Terminate a port owner even when it is not MCP Memory Service",
+)
+def stop(http_host, http_port, force):
     """Stop a background memory server."""
     host = http_host or os.environ.get("MCP_HTTP_HOST", "127.0.0.1")
     port = http_port or int(os.environ.get("MCP_HTTP_PORT", "8000"))
@@ -866,10 +918,7 @@ def stop(http_host, http_port):
         stopped = True
 
     if port_pid and port_pid != pid:
-        click.echo(f"Freeing port {port} (PID {port_pid})...")
-        if _kill_process(port_pid):
-            click.echo("Process terminated.")
-        stopped = True
+        stopped = _stop_process_on_port(port, port_pid, force) or stopped
 
     if stopped:
         time.sleep(0.5)
@@ -878,11 +927,11 @@ def stop(http_host, http_port):
         base_url = _base_url(host, port)
         health, tls_blocked = _probe_health(f"{base_url}/api/health")
         if health:
-            click.echo("Server responds but no managed PID found. Force-stopping by port...")
+            click.echo("Server responds but no managed PID found. Checking port owner...")
             port_pid_now = _find_process_on_port(port)
             if port_pid_now:
-                _kill_process(port_pid_now)
-                click.echo("Server stopped.")
+                if _stop_process_on_port(port, port_pid_now, force):
+                    click.echo("Server stopped.")
             else:
                 click.echo("Could not find process on port. Stop manually.")
         elif tls_blocked:

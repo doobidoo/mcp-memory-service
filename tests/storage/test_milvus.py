@@ -249,6 +249,39 @@ async def test_search_by_tag_exact_not_substring(storage):
 
 
 @pytest.mark.asyncio
+async def test_search_by_tag_with_trailing_backslash(storage):
+    """Regression for #1107: a tag ending in a backslash must survive the filter.
+
+    Escaping only the quote let a trailing backslash consume the closing quote
+    of the interpolated literal, so Milvus rejected the whole expression. This
+    drives the real tag filter through Milvus Lite, which a test that only
+    inspects the expression string cannot.
+    """
+    mem_backslash = Memory(
+        content="Backslash tag memory",
+        content_hash=generate_content_hash("Backslash tag memory"),
+        tags=["foo\\", "C:\\Users\\hkr"],
+    )
+    mem_plain = Memory(
+        content="Plain tag memory",
+        content_hash=generate_content_hash("Plain tag memory"),
+        tags=["foo"],
+    )
+    for m in (mem_backslash, mem_plain):
+        ok, msg = await storage.store(m, skip_semantic_dedup=True)
+        assert ok, msg
+
+    hits = {m.content_hash for m in await storage.search_by_tag(["foo\\"])}
+    assert hits == {mem_backslash.content_hash}
+
+    hits = {m.content_hash for m in await storage.search_by_tag(["C:\\Users\\hkr"])}
+    assert hits == {mem_backslash.content_hash}
+
+    hits = {m.content_hash for m in await storage.search_by_tag(["foo"])}
+    assert hits == {mem_plain.content_hash}
+
+
+@pytest.mark.asyncio
 async def test_search_by_tags_and_or(storage):
     a = Memory(
         content="Memory A", content_hash=generate_content_hash("Memory A"),
@@ -1178,41 +1211,40 @@ def test_embedding_cache_does_not_collide():
     must produce (and return) different embeddings — covers the silent-wrong-
     embedding risk of 64-bit hash collisions.
     """
-    from mcp_memory_service.storage import milvus as milvus_mod
-
+    from mcp_memory_service.storage import shared as shared_mod
     # Reset cache to isolate this test from others in the session.
-    with milvus_mod._EMBEDDING_CACHE_LOCK:
-        milvus_mod._EMBEDDING_CACHE.clear()
+    with shared_mod._EMBEDDING_CACHE_LOCK:
+        shared_mod._EMBEDDING_CACHE.clear()
 
     key_a = "model::hello"
     key_b = "model::world"
-    milvus_mod._embedding_cache_put(key_a, [1.0, 2.0, 3.0])
-    milvus_mod._embedding_cache_put(key_b, [4.0, 5.0, 6.0])
+    shared_mod._embedding_cache_put(key_a, [1.0, 2.0, 3.0])
+    shared_mod._embedding_cache_put(key_b, [4.0, 5.0, 6.0])
 
-    assert milvus_mod._embedding_cache_get(key_a) == [1.0, 2.0, 3.0]
-    assert milvus_mod._embedding_cache_get(key_b) == [4.0, 5.0, 6.0]
+    assert shared_mod._embedding_cache_get(key_a) == [1.0, 2.0, 3.0]
+    assert shared_mod._embedding_cache_get(key_b) == [4.0, 5.0, 6.0]
     # Distinct keys → distinct embeddings, not shared cells.
-    assert milvus_mod._embedding_cache_get(key_a) is not milvus_mod._embedding_cache_get(key_b)
+    assert shared_mod._embedding_cache_get(key_a) is not shared_mod._embedding_cache_get(key_b)
 
 
 def test_embedding_cache_bounded():
     """Inserting 2000 unique entries must not push the cache past its max
     size — the LRU evicts the oldest.
     """
-    from mcp_memory_service.storage import milvus as milvus_mod
+    from mcp_memory_service.storage import shared as shared_mod
 
-    with milvus_mod._EMBEDDING_CACHE_LOCK:
-        milvus_mod._EMBEDDING_CACHE.clear()
+    with shared_mod._EMBEDDING_CACHE_LOCK:
+        shared_mod._EMBEDDING_CACHE.clear()
 
-    max_size = milvus_mod._EMBEDDING_CACHE_MAX
+    max_size = shared_mod._EMBEDDING_CACHE_MAX
     for i in range(2000):
-        milvus_mod._embedding_cache_put(f"model::entry-{i}", [float(i)])
+        shared_mod._embedding_cache_put(f"model::entry-{i}", [float(i)])
 
-    assert milvus_mod._embedding_cache_size() <= max_size
+    assert shared_mod._embedding_cache_size() <= max_size
     # Oldest entries should have been evicted.
-    assert milvus_mod._embedding_cache_get("model::entry-0") is None
+    assert shared_mod._embedding_cache_get("model::entry-0") is None
     # Newest entries should still be resident.
-    assert milvus_mod._embedding_cache_get("model::entry-1999") == [1999.0]
+    assert shared_mod._embedding_cache_get("model::entry-1999") == [1999.0]
 
 
 # -- BM25 / enable_analyzer schema validation (PR #762 review) -------------

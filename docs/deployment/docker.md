@@ -355,17 +355,6 @@ docker run --rm \
   alpine tar czf /backup/mcp_memory_$(date +%Y%m%d).tar.gz /data
 ```
 
-### Database Migration
-
-```bash
-# Export data from running container
-docker exec memory-service python scripts/backup_memories.py
-
-# Import data to new container
-docker cp ./backup.json new-memory-service:/app/
-docker exec new-memory-service python scripts/restore_memories.py /app/backup.json
-```
-
 ### Maintenance and Migration Scripts
 
 The images ship `scripts/maintenance/` and `scripts/migration/`, so administrative

@@ -48,13 +48,13 @@ def test_legacy_script_uses_packaged_certificate_generator() -> None:
     )
 
 
-def test_shipped_launchd_service_uses_lifecycle_cli() -> None:
-    plist_path = (
-        REPO_ROOT / "scripts" / "server" / "com.mcp-memory-service.http-server.plist"
-    )
-    with plist_path.open("rb") as plist_file:
-        config = plistlib.load(plist_file)
+def test_documented_launchd_service_uses_lifecycle_cli() -> None:
+    """Validate the canonical launchd recipe rather than a machine-specific copy."""
+    guide = (REPO_ROOT / "docs" / "http-server-management.md").read_text()
+    template = guide.split("```xml\n", 1)[1].split("\n```", 1)[0]
+    config = plistlib.loads(template.encode())
 
+    assert config["WorkingDirectory"] == "/path/to/repository"
     assert config["ProgramArguments"][0].endswith("/.venv/bin/memory")
     assert config["ProgramArguments"][-2:] == [
         "launch",
