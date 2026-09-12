@@ -25,6 +25,19 @@ Thanks to eunwoo song for the retrieval fix below (#1128) and to timkjr for the 
 
 ### Fixed
 
+- **`memory launch` now matches the supervised HTTP launcher (#1116).** HTTPS
+  launches without explicit certificate paths reuse the packaged self-signed
+  certificate generator, including configured additional IP and hostname SANs.
+  Certificate generation failures now stop both launch paths instead of letting
+  the legacy script downgrade an HTTPS configuration to HTTP.
+  The documented launchd template now runs `memory launch --foreground`, and the
+  service guide explains that a `KeepAlive` agent must be unloaded before
+  `memory stop` can remain stopped.
+
+- **HTTP dashboard and API support a stripped reverse-proxy path prefix (#1176).** `MCP_HTTP_ROOT_PATH` now configures the ASGI root path, OpenAPI server URL, auto-detected OAuth issuer, mounted static files, and browser-side REST/SSE links. A deployment exposed at `/memory/` can therefore serve the dashboard, documentation, static assets, OAuth form, and API calls through the same prefix while the proxy forwards stripped paths internally.
+
+- **CLI lifecycle JSON PID metadata parsing (#1210)**: `memory launch` now reads the structured PID file written by `_write_pid()` without eagerly evaluating the legacy integer fallback. A second launch therefore recognizes the live managed process instead of treating it as stale and replacing it. Legacy integer PID files remain supported.
+
 - **Tag search now honors `match_all=True` (#1196).** The MCP `search_by_tag` path applies AND matching through storage instead of returning OR results labelled `ALL`. Default ANY matching, tag normalization, and empty queries retain their existing behavior. Regression tests assert exact result sets against real SQLite storage.
 
 - **fix(storage): apply eligibility filters before the nearest-neighbour limit (#1128, eunwoo song, closes #1077).** `recall()` and `retrieve()` asked sqlite-vec for the k nearest embeddings first and filtered afterwards, so soft-deleted rows, rows outside the requested time window, and rows excluded by tag or supersession consumed the candidate budget before a valid match could be seen. With enough excluded neighbours the result set came back short or empty even though matching memories existed. Both queries now restrict the KNN scan to eligible rowids, so k counts only memories that can actually be returned. The tests run against real sqlite-vec with 4,100 excluded neighbours crowding five valid ones, which is what distinguishes a fix here from a fix that merely reorders the same failure.
@@ -1359,4 +1372,3 @@ First release published from Codeberg (Forgejo). It bundles the post-migration b
 ### Fixed
 
 - **[#687] `Get-McpApiKey` returned first character of API key instead of full key**: A Gemini-suggested refactor in v10.36.3 replaced a working implementation with `($matches[1], $matches[2], $matches[3] | Where-Object { $_ -ne $null })[0]`. Unmatched regex capture groups are absent from `$matches` (not `$null`), so when only one group matched the comma expression produced a single-element string, which PowerShell enumerated to its `Char` array — making `[0]` return `'b'` instead of `bxvWZwrI...`. This broke `manage_service.ps1 status` for all Windows users: Version and Backend showed `(unavailable - set MCP_API_KEY in .env for details)` even when the key was correctly configured. Fixed by replacing the comma expression with an explicit `if/elseif` chain using `$matches.ContainsKey(N)` and `[string]` casts. Verified live: returns full 43-character key string, `manage_service.ps1 status` correctly displays Version and Backend.
-
