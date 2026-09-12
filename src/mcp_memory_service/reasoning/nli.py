@@ -32,6 +32,49 @@ class NLIResult:
     confidence: float  # 0.0-1.0
 
 
+_NLI_LABELS = ("entailment", "contradiction", "neutral")
+
+
+def _parse_nli_label(response: str):
+    """Parse an LLM NLI answer into one of the three labels, or None.
+
+    Rules (see review on PR #1215):
+    - Anchor on the FIRST token (word-boundary matching over the whole answer
+      would misread "there is no contradiction" / "not a contradiction" as
+      ``contradiction``; the first-token anchor sends those to the heuristic).
+    - Strip an optional leading ``classification:`` prefix, so a prefixed
+      answer like "Classification: contradiction" still parses.
+    - Reject the whole answer (return None) if a SECOND distinct label appears
+      anywhere in it — a hedged answer like "contradiction, but really neutral"
+      is unparseable and must fall back to the heuristic, not be acted on at
+      0.9 confidence.
+    - Any unknown/garbled first token also returns None.
+
+    Returns the label string, or None when the caller should fall back to the
+    heuristic classifier.
+    """
+    if not response or not response.strip():
+        return None
+
+    text = response.strip().lower()
+
+    # Reject if more than one distinct label is mentioned anywhere (hedging).
+    mentioned = {lbl for lbl in _NLI_LABELS if re.search(rf"\b{lbl}\b", text)}
+    if len(mentioned) > 1:
+        return None
+
+    # Strip an optional leading "classification:" prefix before anchoring.
+    text = re.sub(r"^\s*classification\s*:\s*", "", text)
+
+    tokens = text.split()
+    if not tokens:
+        return None
+    first = re.sub(r"[^a-z]", "", tokens[0])
+    if first not in _NLI_LABELS:
+        return None
+    return first
+
+
 class NLIClassifier:
     """NLI-based contradiction detection with multiple backends."""
 
@@ -76,16 +119,8 @@ class NLIClassifier:
             )
             timeout = float(os.environ.get("MCP_NLI_LLM_TIMEOUT", "30"))
             response = await rewriter._call_llm(prompt, timeout)
-            if not response or not response.strip():
-                return self._heuristic_classify(premise, hypothesis)
-
-            # Parse the label: take the first alphabetic token, stripped of
-            # punctuation (so "Contradiction." -> "contradiction"). An unknown
-            # or garbled label falls back to the heuristic classifier rather
-            # than being returned as a (wrong) answer — see PR description.
-            first = response.strip().lower().split()[0] if response.strip().split() else ""
-            label = re.sub(r"[^a-z]", "", first)
-            if label not in ("entailment", "contradiction", "neutral"):
+            label = _parse_nli_label(response)
+            if label is None:
                 return self._heuristic_classify(premise, hypothesis)
             return NLIResult(label=label, confidence=0.9 if label != "neutral" else 0.3)
         except Exception as e:
@@ -122,6 +157,25 @@ class NLIClassifier:
                     return NLIResult(label="contradiction", confidence=0.55)
 
         return NLIResult(label="neutral", confidence=0.3)
+
+
+async def _classify_band(
+    classifier, source_content, band_hashes, band_memories, confidence_threshold, result
+):
+    """Stage 3 helper: run NLI over the similarity band and collect contradictions.
+
+    Extracted from detect_contradictions_nli to keep that function under the
+    complexity gate (see review on PR #1215). Mutates ``result['nli_calls']``
+    and returns the list of (hash, mem_b_data, nli_result) contradictions.
+    """
+    contradictions = []
+    for h in band_hashes:
+        mem_b_data = band_memories[h]
+        nli_result = await classifier.classify(source_content, mem_b_data["content"])
+        result["nli_calls"] += 1
+        if nli_result.label == "contradiction" and nli_result.confidence >= confidence_threshold:
+            contradictions.append((h, mem_b_data, nli_result))
+    return contradictions
 
 
 async def detect_contradictions_nli(
@@ -206,16 +260,9 @@ async def detect_contradictions_nli(
     # Stage 3: NLI classification
     classifier = NLIClassifier(backend="auto")
     confidence_threshold = float(os.environ.get("MCP_NLI_CONFIDENCE_THRESHOLD", "0.4"))
-
-    contradictions = []
-    for h in band_hashes:
-        mem_b_data = band_memories[h]
-        nli_result = await classifier.classify(mem_a.content, mem_b_data["content"])
-        result["nli_calls"] += 1
-
-        if nli_result.label == "contradiction" and nli_result.confidence >= confidence_threshold:
-            contradictions.append((h, mem_b_data, nli_result))
-
+    contradictions = await _classify_band(
+        classifier, mem_a.content, band_hashes, band_memories, confidence_threshold, result
+    )
     result["pairs_detected"] = len(contradictions)
 
     # Stage 4: Register conflicts (unless dry_run)
