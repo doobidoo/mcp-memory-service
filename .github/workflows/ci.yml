@@ -3,10 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore: ['docs/**', '*.md', 'LICENSE', '.gitignore']
+    paths-ignore: ['docs/**', '*.md', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore']
   pull_request:
     branches: [main]
-    paths-ignore: ['docs/**', '*.md', 'LICENSE', '.gitignore']
+    paths-ignore: ['docs/**', '*.md', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore']
 
 jobs:
   version-drift-check:

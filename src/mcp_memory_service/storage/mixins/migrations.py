@@ -8,12 +8,6 @@ import os
 import asyncio
 from pathlib import Path
 
-try:
-    import sqlite_vec
-    from sqlite_vec import serialize_float32
-except ImportError:
-    pass
-
 from ..migration_runner import MigrationRunner
 
 logger = logging.getLogger(__name__)

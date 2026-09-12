@@ -19,15 +19,17 @@ this file would silently reintroduce a .env fallback both functions
 are designed to exclude.
 """
 
-import os
-import sys
 import json
-import signal
-import time
 import logging
+import os
+import signal
+import socket
 import subprocess
-from pathlib import Path
+import sys
+import time
 from collections import deque
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import NamedTuple
 
 import click
@@ -73,10 +75,17 @@ def _read_pid() -> int | None:
         # Support both old format (just an int) and new format (JSON with metadata)
         try:
             pid_info = json.loads(content)
-            pid = pid_info.get("pid", int(content)) if isinstance(pid_info, dict) else int(pid_info)
         except (ValueError, TypeError):
-            pid = int(content)
-    except (ValueError, OSError):
+            pid_info = content
+
+        if isinstance(pid_info, dict):
+            pid_value = pid_info.get("pid")
+            if pid_value is None:
+                return None
+        else:
+            pid_value = pid_info
+        pid = int(pid_value)
+    except (ValueError, TypeError, OSError):
         return None
     if _is_process_alive(pid):
         # Validate against stale PID files (PID reuse after reboot)
@@ -221,6 +230,46 @@ def _find_process_on_port(port: int) -> int | None:
     return None
 
 
+def _process_command_line(pid: int) -> list[str]:
+    """Return a process command line, or an empty list when unavailable."""
+    import psutil  # inline import: keep lifecycle module startup lightweight
+
+    try:
+        return psutil.Process(pid).cmdline()
+    except (psutil.Error, OSError):
+        return []
+
+
+def _is_memory_server_command(command_line: list[str]) -> bool:
+    """Return whether a command line matches the detached launcher."""
+    return any(
+        command_line[index : index + 2] == ["-m", "uvicorn"]
+        and command_line[index + 2].startswith("mcp_memory_service.")
+        for index in range(len(command_line) - 2)
+    )
+
+
+def _stop_process_on_port(port: int, pid: int, force: bool) -> bool:
+    """Stop a listener only when it is ours or the user explicitly forces it."""
+    command_line = _process_command_line(pid)
+    command_display = " ".join(command_line) if command_line else "<unavailable>"
+
+    if not force and not _is_memory_server_command(command_line):
+        raise click.ClickException(
+            f"Refusing to stop PID {pid} on port {port}: its command line "
+            f"does not match MCP Memory Service:\n  {command_display}\n"
+            "Use --force only if you intend to terminate this process."
+        )
+
+    click.echo(f"Freeing port {port} (PID {pid}): {command_display}")
+    if _kill_process(pid):
+        click.echo("Process terminated.")
+        return True
+
+    click.echo(f"Could not terminate PID {pid}.", err=True)
+    return False
+
+
 def _kill_process(pid: int) -> bool:
     """Terminate a process gracefully, then forcefully if needed."""
     try:
@@ -303,6 +352,102 @@ def _server_env(name: str) -> str | None:
     return None
 
 
+class CertificateGenerationError(RuntimeError):
+    """Raised when a development TLS certificate cannot be generated."""
+
+
+def _existing_cert_valid(cert_file: Path, key_file: Path) -> bool:
+    """Reuse a readable certificate only while it has more than a week left."""
+    if not cert_file.is_file() or not key_file.is_file():
+        return False
+    try:
+        result = subprocess.run(
+            ["openssl", "x509", "-in", str(cert_file), "-noout", "-enddate"],
+            capture_output=True, text=True, check=True,
+        )
+        expiry = datetime.strptime(result.stdout.split("=", 1)[1].strip(),
+                                   "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
+        return expiry > datetime.now(timezone.utc) + timedelta(days=7)
+    except (IndexError, ValueError, subprocess.SubprocessError):
+        return False
+
+
+def _local_certificate_ip() -> str | None:
+    """Best-effort local address discovery without sending a UDP payload."""
+    udp_socket = None
+    try:
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_socket.connect(("8.8.8.8", 80))
+        return udp_socket.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        if udp_socket is not None:
+            udp_socket.close()
+
+
+def _san_entries(additional_ips: str | None, additional_hostnames: str | None) -> list[str]:
+    """Build deduplicated local and explicitly configured certificate names."""
+    entries = ["DNS:memory.local", "DNS:localhost", "DNS:*.local", "IP:127.0.0.1", "IP:::1"]
+    local_ip = _local_certificate_ip()
+    if local_ip and local_ip != "127.0.0.1":
+        entries.append(f"IP:{local_ip}")
+    for kind, values in (("IP", additional_ips), ("DNS", additional_hostnames)):
+        for value in (values or "").split(","):
+            entry = f"{kind}:{value.strip()}"
+            if value.strip() and entry not in entries:
+                entries.append(entry)
+    return entries
+
+
+def generate_self_signed_certificate(
+    cert_dir: Path | None = None,
+    additional_ips: str | None = None,
+    additional_hostnames: str | None = None,
+) -> tuple[str, str]:
+    """Generate or reuse a development certificate in the user's runtime directory.
+
+    Certificates are reused while valid for more than seven days. Additional
+    names are included when generating a new certificate.
+    """
+    destination = cert_dir or _data_dir() / "certs"
+    cert_file = destination / "cert.pem"
+    key_file = destination / "key.pem"
+    try:
+        destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if _existing_cert_valid(cert_file, key_file):
+            return str(cert_file), str(key_file)
+        san_entries = _san_entries(additional_ips, additional_hostnames)
+        subprocess.run(["openssl", "genrsa", "-out", str(key_file), "2048"],
+                       check=True, capture_output=True)
+        subprocess.run(
+            ["openssl", "req", "-new", "-x509", "-key", str(key_file),
+             "-out", str(cert_file), "-days", "365", "-subj",
+             "/C=US/ST=Local/L=Local/O=MCP Memory Service/CN=memory.local",
+             "-addext", f"subjectAltName={','.join(san_entries)}"],
+            check=True, capture_output=True,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise CertificateGenerationError(
+            "Could not generate a self-signed certificate with OpenSSL"
+        ) from exc
+    return str(cert_file), str(key_file)
+
+
+def _generate_server_certificate() -> tuple[str, str]:
+    """Translate development-certificate failure into a CLI startup error."""
+    try:
+        return generate_self_signed_certificate(
+            additional_ips=_server_env("MCP_SSL_ADDITIONAL_IPS"),
+            additional_hostnames=_server_env("MCP_SSL_ADDITIONAL_HOSTNAMES"),
+        )
+    except CertificateGenerationError as exc:
+        raise click.ClickException(
+            f"{exc}. Install OpenSSL, configure MCP_SSL_CERT_FILE and "
+            "MCP_SSL_KEY_FILE, or unset MCP_HTTPS_ENABLED to serve HTTP."
+        ) from exc
+
+
 class _ServerTls(NamedTuple):
     """What the spawned server needs in order to serve the configured scheme.
 
@@ -329,9 +474,9 @@ def _resolve_server_tls() -> _ServerTls:
 
     Raises ClickException rather than falling back to HTTP: a server that
     was asked for TLS and cannot provide it must not come up unencrypted
-    while looking healthy. Certificate auto-generation is deliberately not
-    reimplemented here -- explicit MCP_SSL_CERT_FILE/MCP_SSL_KEY_FILE paths
-    are required.
+    while looking healthy. When neither certificate path is configured, the
+    shared development-certificate generator provides the same behaviour as
+    scripts/server/run_http_server.py.
     """
     raw = (_server_env("MCP_HTTPS_ENABLED") or "").strip().lower()
     # sync with config.base.safe_get_bool_env
@@ -340,12 +485,17 @@ def _resolve_server_tls() -> _ServerTls:
 
     cert_file = _server_env("MCP_SSL_CERT_FILE")
     key_file = _server_env("MCP_SSL_KEY_FILE")
+    if bool(cert_file) != bool(key_file):
+        missing_name = "MCP_SSL_KEY_FILE" if cert_file else "MCP_SSL_CERT_FILE"
+        raise click.ClickException(
+            f"MCP_HTTPS_ENABLED is set but {missing_name} is not. Set both "
+            "certificate paths, remove both to generate a development "
+            "certificate, or unset MCP_HTTPS_ENABLED to serve HTTP."
+        )
+    if not cert_file:
+        cert_file, key_file = _generate_server_certificate()
+
     for name, value in (("MCP_SSL_CERT_FILE", cert_file), ("MCP_SSL_KEY_FILE", key_file)):
-        if not value:
-            raise click.ClickException(
-                f"MCP_HTTPS_ENABLED is set but {name} is not. Set both "
-                "certificate paths, or unset MCP_HTTPS_ENABLED to serve HTTP."
-            )
         if not Path(value).is_file():
             raise click.ClickException(
                 f"{name}={value!r} does not exist or is not a file. "
@@ -744,7 +894,12 @@ def launch(ctx, http_host, http_port, detach, storage_backend, debug):
 @click.command()
 @click.option("--host", "http_host", default=None, help="Host to check")
 @click.option("--port", "http_port", default=None, type=int, help="Port to check")
-def stop(http_host, http_port):
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Terminate a port owner even when it is not MCP Memory Service",
+)
+def stop(http_host, http_port, force):
     """Stop a background memory server."""
     host = http_host or os.environ.get("MCP_HTTP_HOST", "127.0.0.1")
     port = http_port or int(os.environ.get("MCP_HTTP_PORT", "8000"))
@@ -763,10 +918,7 @@ def stop(http_host, http_port):
         stopped = True
 
     if port_pid and port_pid != pid:
-        click.echo(f"Freeing port {port} (PID {port_pid})...")
-        if _kill_process(port_pid):
-            click.echo("Process terminated.")
-        stopped = True
+        stopped = _stop_process_on_port(port, port_pid, force) or stopped
 
     if stopped:
         time.sleep(0.5)
@@ -775,11 +927,11 @@ def stop(http_host, http_port):
         base_url = _base_url(host, port)
         health, tls_blocked = _probe_health(f"{base_url}/api/health")
         if health:
-            click.echo("Server responds but no managed PID found. Force-stopping by port...")
+            click.echo("Server responds but no managed PID found. Checking port owner...")
             port_pid_now = _find_process_on_port(port)
             if port_pid_now:
-                _kill_process(port_pid_now)
-                click.echo("Server stopped.")
+                if _stop_process_on_port(port, port_pid_now, force):
+                    click.echo("Server stopped.")
             else:
                 click.echo("Could not find process on port. Stop manually.")
         elif tls_blocked:
