@@ -287,118 +287,17 @@ class DreamInspiredConsolidator:
             )
 
             # Incremental: initialize run_tracker, concurrency guard, timeout
-            if is_incremental:
-                if self.run_tracker is None:
-                    db_path = self._resolve_tracker_db_path()
-                    db_path = Path(str(db_path)) if db_path else None
-                    if db_path:
-                        self.run_tracker = RunTracker(db_path)
-                if self.run_tracker and not self.run_tracker.try_acquire("incremental"):
-                    self.logger.info("Incremental consolidation already in flight, skipping")
-                    return self._finalize_report(report, ["Skipped: concurrent run in flight"])
+            if await self._acquire_incremental_slot(time_horizon):
+                self.logger.info("Incremental consolidation already in flight, skipping")
+                return self._finalize_report(report, ["Skipped: concurrent run in flight"])
 
-            # Lazy graph storage init (avoids blocking I/O in __init__).
-            # Lock prevents double-init when two consolidate() calls race.
-            async with self._graph_storage_lock:
-                if not self._graph_storage_initialized:
-                    await self._init_graph_storage()
-                    self._graph_storage_initialized = True
+            await self._ensure_graph_storage()
 
             # Use context manager for sync pause/resume
             async with SyncPauseContext(self.storage, self.logger):
-                # 1. Retrieve memories for processing
-                memories = await self._get_memories_for_horizon(time_horizon, **kwargs)
-                report.memories_processed = len(memories)
-
-                if not memories:
-                    self.logger.info(
-                        "No memories to process for %s consolidation",
-                        _sanitize_log_value(time_horizon)
-                    )
-                    # Record run even on 0 memories to advance timestamp
-                    if is_incremental and self.run_tracker:
-                        await self.run_tracker.record_run("incremental", 0)
-                    return self._finalize_report(report, [])
-
-                self.logger.info("✓ Found %s memories to process", len(memories))
-
-                # 2. Calculate/update relevance scores
-                relevance_scores = await self._run_relevance_phase(
-                    memories, time_horizon
+                return await self._run_consolidation_pass(
+                    report, time_horizon, is_incremental, **kwargs
                 )
-
-                # 3. Cluster by semantic similarity (if enabled and appropriate)
-                clusters = []
-                if self.config.clustering_enabled and check_horizon_requirements(
-                    time_horizon, "clustering", self.ENABLED_PHASES
-                ):
-                    clusters = await self._run_clustering_phase(
-                        memories, time_horizon
-                    )
-                    report.clusters_created = len(clusters)
-
-                # 4. Run creative associations (if enabled and appropriate)
-                associations = []
-                if self.config.associations_enabled and check_horizon_requirements(
-                    time_horizon, "associations", self.ENABLED_PHASES
-                ):
-                    associations = await self._run_associations_phase(
-                        memories, time_horizon
-                    )
-                    report.associations_discovered = len(associations)
-
-                # 5. Compress clusters (if enabled and clusters exist)
-                compression_results = []
-                if (
-                    self.config.compression_enabled
-                    and clusters
-                    and check_horizon_requirements(
-                        time_horizon, "compression", self.ENABLED_PHASES
-                    )
-                ):
-                    compression_results = await self._run_compression_phase(
-                        clusters, memories
-                    )
-                    report.memories_compressed = len(compression_results)
-
-                # 6. Controlled forgetting (if enabled and appropriate)
-                # Forgetting gets its own candidate selector that reaches beyond
-                # the horizon window into the stale tail (Codeberg #325).
-                if self.config.forgetting_enabled and check_horizon_requirements(
-                    time_horizon, "forgetting", self.ENABLED_PHASES
-                ):
-                    await self._run_forgetting_phase(time_horizon, report)
-
-                # 6b. Prune orphaned graph edges (#632)
-                orphaned = await self._prune_orphaned_graph_edges()
-                if orphaned > 0:
-                    self.logger.info("🧹 Pruned %s orphaned graph edges", orphaned)
-
-                # 7. Update consolidation statistics
-                self._update_consolidation_stats(report)
-
-                # 8. Track consolidation timestamp for incremental mode
-                if self.config.incremental_mode:
-                    await self._update_consolidation_timestamps(memories)
-
-                # 9. Finalize report
-                report = self._finalize_report(report, [])
-
-                # Record incremental run
-                if is_incremental and self.run_tracker:
-                    await self.run_tracker.record_run(
-                        "incremental", report.memories_processed
-                    )
-
-                if self.plugin_registry:
-                    await self.plugin_registry.fire('on_consolidate', {
-                        **report.performance_metrics,
-                        'time_horizon': report.time_horizon,
-                        'memories_processed': report.memories_processed,
-                        'associations_discovered': report.associations_discovered,
-                        'clusters_created': report.clusters_created,
-                    })
-                return report
 
         except ConsolidationError as e:
             # Re-raise configuration and validation errors
@@ -487,6 +386,135 @@ class DreamInspiredConsolidator:
         )
         await self._handle_compression_results(compression_results)
         return compression_results
+
+    async def _run_consolidation_pass(
+        self,
+        report: ConsolidationReport,
+        time_horizon: str,
+        is_incremental: bool,
+        **kwargs,
+    ) -> ConsolidationReport:
+        """Run one full pipeline pass inside the sync-pause context."""
+        memories = await self._get_memories_for_horizon(time_horizon, **kwargs)
+        report.memories_processed = len(memories)
+
+        if not memories:
+            self.logger.info(
+                "No memories to process for %s consolidation",
+                _sanitize_log_value(time_horizon)
+            )
+            # Record run even on 0 memories to advance timestamp
+            if is_incremental and self.run_tracker:
+                await self.run_tracker.record_run("incremental", 0)
+            return self._finalize_report(report, [])
+
+        self.logger.info("✓ Found %s memories to process", len(memories))
+
+        # 2-6. Run the conditional consolidation phases
+        await self._run_phase_schedule(memories, time_horizon, report)
+
+        return await self._finalize_consolidation(
+            report, memories, is_incremental
+        )
+
+    async def _acquire_incremental_slot(self, time_horizon: str) -> bool:
+        """Initialize the run tracker and acquire the incremental slot.
+
+        Returns True when the run should be skipped (another run is in flight).
+        """
+        if time_horizon != "incremental":
+            return False
+        if self.run_tracker is None:
+            db_path = self._resolve_tracker_db_path()
+            db_path = Path(str(db_path)) if db_path else None
+            if db_path:
+                self.run_tracker = RunTracker(db_path)
+        if self.run_tracker and not self.run_tracker.try_acquire("incremental"):
+            return True
+        return False
+
+    async def _ensure_graph_storage(self) -> None:
+        """Lazily initialize graph storage under the double-init lock."""
+        async with self._graph_storage_lock:
+            if not self._graph_storage_initialized:
+                await self._init_graph_storage()
+                self._graph_storage_initialized = True
+
+    async def _run_phase_schedule(
+        self,
+        memories: List[Memory],
+        time_horizon: str,
+        report: ConsolidationReport,
+    ) -> None:
+        """Run the conditional consolidation phases (1-6) and update *report*."""
+        await self._run_relevance_phase(memories, time_horizon)
+
+        clusters: list = []
+        if self.config.clustering_enabled and check_horizon_requirements(
+            time_horizon, "clustering", self.ENABLED_PHASES
+        ):
+            clusters = await self._run_clustering_phase(memories, time_horizon)
+            report.clusters_created = len(clusters)
+
+        if self.config.associations_enabled and check_horizon_requirements(
+            time_horizon, "associations", self.ENABLED_PHASES
+        ):
+            associations = await self._run_associations_phase(
+                memories, time_horizon
+            )
+            report.associations_discovered = len(associations)
+
+        if (
+            self.config.compression_enabled
+            and clusters
+            and check_horizon_requirements(
+                time_horizon, "compression", self.ENABLED_PHASES
+            )
+        ):
+            compression_results = await self._run_compression_phase(
+                clusters, memories
+            )
+            report.memories_compressed = len(compression_results)
+
+        # Forgetting gets its own candidate selector that reaches beyond the
+        # horizon window into the stale tail (Codeberg #325).
+        if self.config.forgetting_enabled and check_horizon_requirements(
+            time_horizon, "forgetting", self.ENABLED_PHASES
+        ):
+            await self._run_forgetting_phase(time_horizon, report)
+
+    async def _finalize_consolidation(
+        self,
+        report: ConsolidationReport,
+        memories: List[Memory],
+        is_incremental: bool,
+    ) -> ConsolidationReport:
+        """Post-phase bookkeeping: prune, stats, timestamps, events, report."""
+        orphaned = await self._prune_orphaned_graph_edges()
+        if orphaned > 0:
+            self.logger.info("🧹 Pruned %s orphaned graph edges", orphaned)
+
+        self._update_consolidation_stats(report)
+
+        if self.config.incremental_mode:
+            await self._update_consolidation_timestamps(memories)
+
+        report = self._finalize_report(report, [])
+
+        if is_incremental and self.run_tracker:
+            await self.run_tracker.record_run(
+                "incremental", report.memories_processed
+            )
+
+        if self.plugin_registry:
+            await self.plugin_registry.fire('on_consolidate', {
+                **report.performance_metrics,
+                'time_horizon': report.time_horizon,
+                'memories_processed': report.memories_processed,
+                'associations_discovered': report.associations_discovered,
+                'clusters_created': report.clusters_created,
+            })
+        return report
 
     async def _get_memories_for_horizon(
         self, time_horizon: str, **kwargs

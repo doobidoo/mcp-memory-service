@@ -571,21 +571,8 @@ class TestForgettingCandidatesRealStorage:
             "yearly horizon should return memories within the 365-day window"
         )
 
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("incremental_mode", [True, False])
-    async def test_forgetting_batch_advances_between_runs(
-        self, real_storage, temp_archive_path, incremental_mode
-    ):
-        """Retained rows must yield to the next stale row after one batch."""
-        for age in (30, 200, 400, 800):
-            await real_storage.store(self._make_memory(f"{age} days old", f"hash_{age}d", age))
-        config = ConsolidationConfig(
-            archive_location=temp_archive_path, batch_size=1,
-            incremental_mode=incremental_mode,
-        )
-        consolidator = DreamInspiredConsolidator(real_storage, config)
-        consolidator.forgetting_engine.process = AsyncMock(return_value=[])
-        seen = []
+    def _forgetting_spy(self, consolidator, seen):
+        """Wrap _get_forgetting_candidates to record what each run saw."""
         original = consolidator._get_forgetting_candidates
 
         async def capture(horizon):
@@ -594,10 +581,43 @@ class TestForgettingCandidatesRealStorage:
             return candidates
 
         consolidator._get_forgetting_candidates = capture
+
+    async def _seed_stale_rows(self, real_storage, ages=(30, 200, 400, 800)):
+        """Store one memory per age bracket, oldest most stale."""
+        for age in ages:
+            await real_storage.store(
+                self._make_memory(f"{age} days old", f"hash_{age}d", age)
+            )
+
+    def _stale_batch_config(self, temp_archive_path, incremental_mode):
+        """Configuration that batches forgetting to a single row per run."""
+        return ConsolidationConfig(
+            archive_location=temp_archive_path, batch_size=1,
+            incremental_mode=incremental_mode,
+        )
+
+    async def _run_forgetting_twice(self, consolidator):
+        """Run two consecutive forgetting passes over the same store."""
         now = datetime.now()
         report = ConsolidationReport(
             time_horizon="yearly", start_time=now, end_time=now, memories_processed=0,
         )
         await consolidator._run_forgetting_phase("yearly", report)
         await consolidator._run_forgetting_phase("yearly", report)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("incremental_mode", [True, False])
+    async def test_forgetting_batch_advances_between_runs(
+        self, real_storage, temp_archive_path, incremental_mode
+    ):
+        """Retained rows must yield to the next stale row after one batch."""
+        await self._seed_stale_rows(real_storage)
+        consolidator = DreamInspiredConsolidator(
+            real_storage,
+            self._stale_batch_config(temp_archive_path, incremental_mode),
+        )
+        consolidator.forgetting_engine.process = AsyncMock(return_value=[])
+        seen = []
+        self._forgetting_spy(consolidator, seen)
+        await self._run_forgetting_twice(consolidator)
         assert seen == [{"800 days old"}, {"400 days old"}]
