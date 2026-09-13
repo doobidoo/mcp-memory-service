@@ -19,120 +19,16 @@ Run the MCP Memory Service HTTP server.
 This script starts the FastAPI server with uvicorn.
 """
 
+import logging
 import os
 import sys
-import logging
-import asyncio
-import tempfile
-import subprocess
-from datetime import datetime, timedelta
 
 # Add the src directory to the Python path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
-
-def generate_self_signed_cert():
-    """Generate a self-signed certificate for development."""
-    try:
-        # Create temporary directory for certificates
-        cert_dir = os.path.join(tempfile.gettempdir(), 'mcp-memory-certs')
-        os.makedirs(cert_dir, exist_ok=True)
-        
-        cert_file = os.path.join(cert_dir, 'cert.pem')
-        key_file = os.path.join(cert_dir, 'key.pem')
-        
-        # Check if certificates already exist and are still valid
-        if os.path.exists(cert_file) and os.path.exists(key_file):
-            try:
-                # Check certificate expiration
-                result = subprocess.run([
-                    'openssl', 'x509', '-in', cert_file, '-noout', '-enddate'
-                ], capture_output=True, text=True, check=True)
-                
-                # Parse expiration date
-                end_date_str = result.stdout.split('=')[1].strip()
-                end_date = datetime.strptime(end_date_str, '%b %d %H:%M:%S %Y %Z')
-                
-                # If certificate expires in more than 7 days, reuse it
-                if end_date > datetime.now() + timedelta(days=7):
-                    print(f"Using existing self-signed certificate: {cert_file}")
-                    return cert_file, key_file
-                    
-            except Exception:
-                pass  # Fall through to generate new certificate
-        
-        print("Generating self-signed certificate for HTTPS...")
-        
-        # Generate private key
-        subprocess.run([
-            'openssl', 'genrsa', '-out', key_file, '2048'
-        ], check=True, capture_output=True)
-        
-        # Generate certificate with Subject Alternative Names for better compatibility
-        # Get local IP addresses dynamically
-        import socket
-        local_ips = []
-        try:
-            # Get primary local IP
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            local_ip = s.getsockname()[0]
-            s.close()
-            local_ips.append(local_ip)
-        except Exception:
-            pass
-        
-        # Build SAN list with common names and detected IPs
-        san_entries = [
-            "DNS:memory.local",
-            "DNS:localhost", 
-            "DNS:*.local",
-            "IP:127.0.0.1",
-            "IP:::1"  # IPv6 localhost
-        ]
-        
-        # Add detected local IPs
-        for ip in local_ips:
-            if ip not in ["127.0.0.1"]:
-                san_entries.append(f"IP:{ip}")
-        
-        # Add additional IPs from environment variable if specified
-        additional_ips = os.getenv('MCP_SSL_ADDITIONAL_IPS', '')
-        if additional_ips:
-            for ip in additional_ips.split(','):
-                ip = ip.strip()
-                if ip and ip not in [entry.split(':')[1] for entry in san_entries if entry.startswith('IP:')]:
-                    san_entries.append(f"IP:{ip}")
-        
-        # Add additional hostnames from environment variable if specified  
-        additional_hostnames = os.getenv('MCP_SSL_ADDITIONAL_HOSTNAMES', '')
-        if additional_hostnames:
-            for hostname in additional_hostnames.split(','):
-                hostname = hostname.strip()
-                if hostname and f"DNS:{hostname}" not in san_entries:
-                    san_entries.append(f"DNS:{hostname}")
-        
-        san_string = ",".join(san_entries)
-        
-        print(f"Generating certificate with SANs: {san_string}")
-        
-        subprocess.run([
-            'openssl', 'req', '-new', '-x509', '-key', key_file, '-out', cert_file,
-            '-days', '365', '-subj', '/C=US/ST=Local/L=Local/O=MCP Memory Service/CN=memory.local',
-            '-addext', f'subjectAltName={san_string}'
-        ], check=True, capture_output=True)
-        
-        print(f"Generated self-signed certificate: {cert_file}")
-        print("WARNING: This is a development certificate. Use proper certificates in production.")
-        
-        return cert_file, key_file
-        
-    except subprocess.CalledProcessError as e:
-        print(f"Error generating certificate: {e}")
-        print("Make sure OpenSSL is installed and available in PATH")
-        return None, None
-    except Exception as e:
-        print(f"Unexpected error generating certificate: {e}")
-        return None, None
+from mcp_memory_service.cli.lifecycle import (
+    CertificateGenerationError,
+    generate_self_signed_certificate,
+)
 
 
 def main():
@@ -150,7 +46,7 @@ def main():
     os.environ.setdefault('LOG_LEVEL', 'INFO')
     
     try:
-        import uvicorn
+        import uvicorn  # inline import: environment defaults must be applied first
         from mcp_memory_service.web.app import app
         from mcp_memory_service.config import (
             HTTP_HOST, HTTP_PORT, HTTPS_ENABLED, SSL_CERT_FILE, SSL_KEY_FILE,
@@ -184,11 +80,17 @@ def main():
                     sys.exit(1)
             else:
                 # Generate self-signed certificate
-                ssl_certfile, ssl_keyfile = generate_self_signed_cert()
-                if not ssl_certfile or not ssl_keyfile:
-                    print("Failed to generate SSL certificate. Falling back to HTTP.")
-                    protocol = "http"
-                    ssl_certfile = ssl_keyfile = None
+                try:
+                    ssl_certfile, ssl_keyfile = generate_self_signed_certificate(
+                        additional_ips=os.getenv("MCP_SSL_ADDITIONAL_IPS"),
+                        additional_hostnames=os.getenv(
+                            "MCP_SSL_ADDITIONAL_HOSTNAMES"
+                        ),
+                    )
+                except CertificateGenerationError as exc:
+                    print(f"Failed to generate SSL certificate: {exc}")
+                    print("Refusing to fall back to unencrypted HTTP.")
+                    sys.exit(1)
         
         # Display startup information
         host_display = HTTP_HOST if HTTP_HOST != '0.0.0.0' else 'localhost'
