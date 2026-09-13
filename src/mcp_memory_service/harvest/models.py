@@ -19,6 +19,9 @@ class HarvestCandidate:
     tags: List[str] = field(default_factory=list)
     confidence: float = 0.5
     source_line: str = ""  # Original text that triggered extraction
+    # Provenance (RFC-harvest-provenance Phase 1)
+    harvest_method: str = "heuristic"  # "llm" | "heuristic"
+    harvest_model: Optional[str] = None  # "<provider>/<model>" when method == "llm"
 
 
 @dataclass

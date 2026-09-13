@@ -16,6 +16,9 @@ from .patterns import load_filters
 
 logger = logging.getLogger(__name__)
 
+# Provenance: bump when the harvest pipeline changes materially (RFC-harvest-provenance).
+HARVEST_PIPELINE_VERSION = 3
+
 
 class SessionHarvester:
     """Orchestrates parsing, extraction, and optional storage of harvest candidates."""
@@ -147,15 +150,22 @@ class SessionHarvester:
                         if evolved:
                             stored += 1
                         else:
-                            tags = ["session-harvest"] + candidate.tags
+                            # Provenance (RFC-harvest-provenance Phase 1)
+                            method = getattr(candidate, "harvest_method", "heuristic")
+                            tags = ["session-harvest", f"harvest:method:{method}"] + candidate.tags
+                            metadata = {
+                                "confidence": candidate.confidence,
+                                "source": "harvest",
+                                "harvest_method": method,
+                                "harvest_model": getattr(candidate, "harvest_model", None),
+                                "harvest_pipeline_version": HARVEST_PIPELINE_VERSION,
+                                "harvest_session_id": result.session_id,
+                            }
                             resp = await self.memory_service.store_memory(
                                 content=candidate.content,
                                 tags=tags,
                                 memory_type=candidate.memory_type,
-                                metadata={
-                                    "confidence": candidate.confidence,
-                                    "source": "harvest",
-                                },
+                                metadata=metadata,
                             )
                             if isinstance(resp, dict) and resp.get("success"):
                                 stored += 1
@@ -253,12 +263,19 @@ class SessionHarvester:
                 rewritten = []
                 for candidate, result in zip(filtered, batch_results):
                     if result:
+                        _model = (
+                            f"{result.provider}/{result.model}"
+                            if getattr(result, "provider", None) and getattr(result, "model", None)
+                            else None
+                        )
                         rewritten.append(HarvestCandidate(
                             content=result.content,
                             memory_type=result.memory_type,
                             tags=candidate.tags,
                             confidence=min(candidate.confidence + 0.1, 1.0),
                             source_line=candidate.source_line,
+                            harvest_method="llm",
+                            harvest_model=_model,
                         ))
                 logger.info(
                     f"LLM rewrite: {len(filtered)} → {len(rewritten)} candidates "

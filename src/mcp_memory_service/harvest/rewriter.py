@@ -149,6 +149,8 @@ class RewriteResult:
     """Result of LLM rewrite."""
     content: str
     memory_type: str
+    provider: Optional[str] = None
+    model: Optional[str] = None
 
 
 class HarvestRewriter:
@@ -181,6 +183,9 @@ class HarvestRewriter:
         self._api_key = os.environ.get("GROQ_API_KEY", "")
         self._locale = os.environ.get("HARVEST_LOCALE", "en")
         self._locale_instruction = self._build_locale_instruction()
+        # Provenance: last provider/model that produced output in _call_llm.
+        self._last_provider: Optional[str] = None
+        self._last_model: Optional[str] = None
 
     @property
     def is_configured(self) -> bool:
@@ -310,13 +315,19 @@ class HarvestRewriter:
                 parsed_type = type_match.group(1).lower()
                 insight = type_match.group(2).strip()
                 if parsed_type in VALID_TYPES:
-                    results[idx] = RewriteResult(content=insight, memory_type=parsed_type)
+                    results[idx] = self._stamp(RewriteResult(content=insight, memory_type=parsed_type))
                 else:
-                    results[idx] = RewriteResult(content=content, memory_type=items[idx]['memory_type'])
+                    results[idx] = self._stamp(RewriteResult(content=content, memory_type=items[idx]['memory_type']))
             else:
-                results[idx] = RewriteResult(content=content, memory_type=items[idx]['memory_type'])
+                results[idx] = self._stamp(RewriteResult(content=content, memory_type=items[idx]['memory_type']))
 
         return results
+
+    def _stamp(self, result: "RewriteResult") -> "RewriteResult":
+        """Attach provenance (provider/model) of the last successful LLM call."""
+        result.provider = self._last_provider
+        result.model = self._last_model
+        return result
 
     def _parse_response(self, response: str, suggested_type: str) -> Optional[RewriteResult]:
         """Parse LLM response into RewriteResult or None."""
@@ -335,12 +346,12 @@ class HarvestRewriter:
             parsed_type = match.group(1).lower()
             content = match.group(2).strip()
             if parsed_type in VALID_TYPES:
-                return RewriteResult(content=content, memory_type=parsed_type)
+                return self._stamp(RewriteResult(content=content, memory_type=parsed_type))
             # Unknown type — use content with suggested_type
-            return RewriteResult(content=response, memory_type=suggested_type)
+            return self._stamp(RewriteResult(content=response, memory_type=suggested_type))
 
         # No type prefix — use full response with suggested_type
-        return RewriteResult(content=response, memory_type=suggested_type)
+        return self._stamp(RewriteResult(content=response, memory_type=suggested_type))
 
     async def _call_llm(self, prompt: str, timeout: float) -> str:
         """Call LLM with provider fallback chain.
@@ -352,9 +363,13 @@ class HarvestRewriter:
         if self._providers:
             for provider in self._providers:
                 try:
-                    return await self._call_openai_compatible(
+                    result = await self._call_openai_compatible(
                         provider.base_url, provider.model, provider.api_key, prompt, timeout
                     )
+                    # Record which provider/model produced the output (provenance).
+                    self._last_provider = provider.name
+                    self._last_model = provider.model
+                    return result
                 except Exception as e:
                     err_str = str(e).lower()
                     if "rate limit" in err_str or "429" in err_str:
@@ -369,7 +384,10 @@ class HarvestRewriter:
             raise RuntimeError("All LLM providers exhausted")
         # Legacy single-provider
         if self._provider == "groq":
-            return await self._call_groq(prompt, timeout)
+            result = await self._call_groq(prompt, timeout)
+            self._last_provider = "groq"
+            self._last_model = self._model
+            return result
         raise ValueError(f"Unknown LLM provider: {self._provider}")
 
     async def _call_openai_compatible(self, base_url: str, model: str, api_key: str, prompt: str, timeout: float) -> str:
