@@ -46,6 +46,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/cloudflare.py",
     "mcp_memory_service/storage/hybrid.py",
     "mcp_memory_service/config/storage.py",
+    "mcp_memory_service/web/app.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.

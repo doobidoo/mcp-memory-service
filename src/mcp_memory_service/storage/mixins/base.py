@@ -10,7 +10,7 @@ import time
 import random
 import threading
 import asyncio
-from typing import List, Any, Optional, Set, Callable
+from typing import List, Optional, Callable
 
 try:
     import sqlite_vec

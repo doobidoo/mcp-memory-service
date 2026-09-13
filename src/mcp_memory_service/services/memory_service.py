@@ -645,9 +645,11 @@ class MemoryService:
             # Normalize tags to list (handles all formats including comma-separated)
             tags = normalize_tags(tags)
 
-            # Search using database-level filtering
-            # Note: Using search_by_tag from base class (singular)
-            memories = await self.storage.search_by_tag(tags=tags)
+            # Preserve the existing ANY search, including its result ordering.
+            if match_all:
+                memories = await self.storage.search_by_tags(tags=tags, operation="AND")
+            else:
+                memories = await self.storage.search_by_tag(tags=tags)
 
             # Format results
             results = []
