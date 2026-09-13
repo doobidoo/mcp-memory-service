@@ -60,6 +60,8 @@ def isolated_cwd(tmp_path, monkeypatch):
         "MCP_HTTPS_ENABLED",
         "MCP_SSL_CERT_FILE",
         "MCP_SSL_KEY_FILE",
+        "MCP_SSL_ADDITIONAL_IPS",
+        "MCP_SSL_ADDITIONAL_HOSTNAMES",
         "MCP_MEMORY_ALLOW_SELF_SIGNED_CERTS",
     ):
         monkeypatch.delenv(var, raising=False)
@@ -170,11 +172,53 @@ class TestResolveServerTls:
         assert lifecycle._is_https_enabled() is False
         assert lifecycle._cli_allow_self_signed_certs() is False
 
-    def test_enabled_without_cert_paths_is_an_error(self, isolated_cwd):
+    def test_enabled_without_cert_paths_generates_certificate(
+        self, isolated_cwd, monkeypatch, certpair
+    ):
+        cert, key = certpair
         _write_dotenv(isolated_cwd, MCP_HTTPS_ENABLED="true")
+        generate = MagicMock(return_value=(str(cert), str(key)))
+        monkeypatch.setattr(
+            lifecycle, "generate_self_signed_certificate", generate, raising=False
+        )
+
+        tls = lifecycle._resolve_server_tls()
+
+        assert tls == _https_tls(cert, key)
+        generate.assert_called_once_with(additional_ips=None, additional_hostnames=None)
+
+    def test_generated_certificate_honours_additional_sans(
+        self, isolated_cwd, monkeypatch, certpair
+    ):
+        cert, key = certpair
+        _write_dotenv(
+            isolated_cwd,
+            MCP_HTTPS_ENABLED="true",
+            MCP_SSL_ADDITIONAL_IPS="192.0.2.10",
+            MCP_SSL_ADDITIONAL_HOSTNAMES="memory.example.test",
+        )
+        generate = MagicMock(return_value=(str(cert), str(key)))
+        monkeypatch.setattr(
+            lifecycle, "generate_self_signed_certificate", generate, raising=False
+        )
+
+        lifecycle._resolve_server_tls()
+
+        generate.assert_called_once_with(
+            additional_ips="192.0.2.10",
+            additional_hostnames="memory.example.test",
+        )
+
+    def test_enabled_with_only_one_cert_path_is_an_error(self, isolated_cwd, certpair):
+        cert, _ = certpair
+        _write_dotenv(
+            isolated_cwd,
+            MCP_HTTPS_ENABLED="true",
+            MCP_SSL_CERT_FILE=str(cert),
+        )
         with pytest.raises(click.ClickException) as exc:
             lifecycle._resolve_server_tls()
-        assert "MCP_SSL_CERT_FILE" in str(exc.value)
+        assert "MCP_SSL_KEY_FILE" in str(exc.value)
 
     def test_enabled_with_missing_cert_file_is_an_error(self, isolated_cwd, certpair):
         """Never silently downgrade to HTTP -- that is the bug being fixed."""
@@ -260,9 +304,8 @@ class TestLaunchPassesTlsToUvicorn:
         assert "--ssl-keyfile" in cmd
         assert cmd[cmd.index("--ssl-keyfile") + 1] == str(key)
 
-    def test_misconfigured_tls_aborts_without_spawning(self, isolated_cwd):
-        """A cert path that does not resolve must stop the launch, not start a
-        plain-HTTP server that looks like it worked."""
+    def test_certificate_generation_failure_aborts_without_spawning(self, isolated_cwd):
+        """Generation failure must stop the launch, not silently serve HTTP."""
         _write_dotenv(isolated_cwd, MCP_HTTPS_ENABLED="true")
         # Deliberately no patch("builtins.open") here, unlike _run_launch:
         # dotenv_values() reads the .env through open(), so patching it would
@@ -274,6 +317,11 @@ class TestLaunchPassesTlsToUvicorn:
             patch.object(lifecycle, "_find_process_on_port", return_value=None),
             patch.object(lifecycle, "_ensure_dirs"),
             patch.object(lifecycle, "_write_pid"),
+            patch.object(
+                lifecycle,
+                "generate_self_signed_certificate",
+                side_effect=lifecycle.CertificateGenerationError("OpenSSL failed"),
+            ),
         ):
             result = CliRunner().invoke(lifecycle.launch, ["--port", "8000", "--detach"])
         assert result.exit_code != 0

@@ -3,6 +3,7 @@ import os
 import logging
 
 from .base import BASE_DIR, safe_get_int_env, safe_get_bool_env, validate_and_create_path
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -17,18 +18,18 @@ consolidation_archive_path = None
 for env_var in ['MCP_CONSOLIDATION_ARCHIVE_PATH', 'MCP_MEMORY_ARCHIVE_PATH']:
     if path := os.getenv(env_var):
         consolidation_archive_path = path
-        logger.info(f"Using {env_var}={path} for consolidation archive path")
+        logger.info("Using %s=%s for consolidation archive path", _sanitize_log_value(f"{env_var}"), _sanitize_log_value(f"{path}"))
         break
 
 if not consolidation_archive_path:
     consolidation_archive_path = os.path.join(BASE_DIR, 'consolidation_archive')
-    logger.info(f"No consolidation archive path environment variable found, using default: {consolidation_archive_path}")
+    logger.info("No consolidation archive path environment variable found, using default: %s", _sanitize_log_value(f"{consolidation_archive_path}"))
 
 try:
     CONSOLIDATION_ARCHIVE_PATH = validate_and_create_path(consolidation_archive_path)
-    logger.info(f"Using consolidation archive path: {CONSOLIDATION_ARCHIVE_PATH}")
+    logger.info("Using consolidation archive path: %s", _sanitize_log_value(f"{CONSOLIDATION_ARCHIVE_PATH}"))
 except Exception as e:
-    logger.error(f"Error creating consolidation archive path: {e}")
+    logger.error("Error creating consolidation archive path: %s", _sanitize_log_value(f"{e}"))
     CONSOLIDATION_ARCHIVE_PATH = None
 
 # Consolidation settings with environment variable overrides
@@ -64,6 +65,7 @@ CONSOLIDATION_CONFIG = {
     'forgetting_enabled': os.getenv('MCP_FORGETTING_ENABLED', 'true').lower() == 'true',
     'relevance_threshold': float(os.getenv('MCP_FORGETTING_RELEVANCE_THRESHOLD', '0.1')),
     'access_threshold_days': int(os.getenv('MCP_FORGETTING_ACCESS_THRESHOLD', '90')),
+    'forgetting_min_age_days': int(os.getenv('MCP_FORGETTING_MIN_AGE_DAYS', '365')),
     'archive_location': CONSOLIDATION_ARCHIVE_PATH,
 
     # Incremental consolidation settings
@@ -84,10 +86,10 @@ CONSOLIDATION_SCHEDULE = {
     'yearly': os.getenv('MCP_SCHEDULE_YEARLY', 'disabled')
 }
 
-logger.info(f"Consolidation enabled: {CONSOLIDATION_ENABLED}")
+logger.info("Consolidation enabled: %s", _sanitize_log_value(f"{CONSOLIDATION_ENABLED}"))
 if CONSOLIDATION_ENABLED:
-    logger.info(f"Consolidation configuration: {CONSOLIDATION_CONFIG}")
-    logger.info(f"Consolidation schedule: {CONSOLIDATION_SCHEDULE}")
+    logger.info("Consolidation configuration: %s", _sanitize_log_value(f"{CONSOLIDATION_CONFIG}"))
+    logger.info("Consolidation schedule: %s", _sanitize_log_value(f"{CONSOLIDATION_SCHEDULE}"))
 
 # =============================================================================
 # Association-Based Quality Enhancement Configuration (v8.47.0+)
@@ -104,7 +106,7 @@ MCP_CONSOLIDATION_QUALITY_BOOST_FACTOR = float(os.getenv('MCP_CONSOLIDATION_QUAL
 
 # Validate quality boost factor
 if not 1.0 <= MCP_CONSOLIDATION_QUALITY_BOOST_FACTOR <= 2.0:
-    logger.warning(f"Invalid consolidation quality boost factor: {MCP_CONSOLIDATION_QUALITY_BOOST_FACTOR}, must be 1.0-2.0. Using default 1.2")
+    logger.warning("Invalid consolidation quality boost factor: %s, must be 1.0-2.0. Using default 1.2", _sanitize_log_value(f"{MCP_CONSOLIDATION_QUALITY_BOOST_FACTOR}"))
     MCP_CONSOLIDATION_QUALITY_BOOST_FACTOR = 1.2
 
 # Minimum average quality of connected memories to trigger boost
@@ -112,13 +114,17 @@ MCP_CONSOLIDATION_MIN_CONNECTED_QUALITY = float(os.getenv('MCP_CONSOLIDATION_MIN
 
 # Validate minimum connected quality
 if not 0.0 <= MCP_CONSOLIDATION_MIN_CONNECTED_QUALITY <= 1.0:
-    logger.warning(f"Invalid consolidation minimum connected quality: {MCP_CONSOLIDATION_MIN_CONNECTED_QUALITY}, must be 0.0-1.0. Using default 0.7")
+    logger.warning("Invalid consolidation minimum connected quality: %s, must be 0.0-1.0. Using default 0.7", _sanitize_log_value(f"{MCP_CONSOLIDATION_MIN_CONNECTED_QUALITY}"))
     MCP_CONSOLIDATION_MIN_CONNECTED_QUALITY = 0.7
 
 # Log association-based quality boost configuration
 if MCP_CONSOLIDATION_QUALITY_BOOST_ENABLED:
-    logger.info(f"Association Quality Boost: enabled, min_connections={MCP_CONSOLIDATION_MIN_CONNECTIONS_FOR_BOOST}, "
-               f"boost_factor={MCP_CONSOLIDATION_QUALITY_BOOST_FACTOR}, min_connected_quality={MCP_CONSOLIDATION_MIN_CONNECTED_QUALITY}")
+    logger.info(
+        "Association Quality Boost: enabled, min_connections=%s, boost_factor=%s, min_connected_quality=%s",
+        _sanitize_log_value(MCP_CONSOLIDATION_MIN_CONNECTIONS_FOR_BOOST),
+        _sanitize_log_value(MCP_CONSOLIDATION_QUALITY_BOOST_FACTOR),
+        _sanitize_log_value(MCP_CONSOLIDATION_MIN_CONNECTED_QUALITY),
+    )
 
 # =============================================================================
 # End Association-Based Quality Enhancement Configuration

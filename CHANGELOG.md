@@ -25,6 +25,17 @@ Thanks to eunwoo song for the retrieval fix below (#1128) and to timkjr for the 
 
 ### Fixed
 
+- **`memory launch` now matches the supervised HTTP launcher (#1116).** HTTPS
+  launches without explicit certificate paths reuse the packaged self-signed
+  certificate generator, including configured additional IP and hostname SANs.
+  Certificate generation failures now stop both launch paths instead of letting
+  the legacy script downgrade an HTTPS configuration to HTTP.
+  The documented launchd template now runs `memory launch --foreground`, and the
+  service guide explains that a `KeepAlive` agent must be unloaded before
+  `memory stop` can remain stopped.
+
+- **HTTP dashboard and API support a stripped reverse-proxy path prefix (#1176).** `MCP_HTTP_ROOT_PATH` now configures the ASGI root path, OpenAPI server URL, auto-detected OAuth issuer, mounted static files, and browser-side REST/SSE links. A deployment exposed at `/memory/` can therefore serve the dashboard, documentation, static assets, OAuth form, and API calls through the same prefix while the proxy forwards stripped paths internally.
+
 - **CLI lifecycle JSON PID metadata parsing (#1210)**: `memory launch` now reads the structured PID file written by `_write_pid()` without eagerly evaluating the legacy integer fallback. A second launch therefore recognizes the live managed process instead of treating it as stale and replacing it. Legacy integer PID files remain supported.
 - **Cloudflare tag-filtered retrieval now over-fetches Vectorize matches (#1209).**
   Previously, the backend requested only `n_results` nearest matches and applied

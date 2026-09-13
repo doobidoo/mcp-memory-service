@@ -57,6 +57,11 @@ MCP_HTTPS_ENABLED=true memory launch
 memory launch --foreground
 ```
 
+If HTTPS is enabled without `MCP_SSL_CERT_FILE` and `MCP_SSL_KEY_FILE`, the
+launcher creates a development certificate with OpenSSL. Use
+`MCP_SSL_ADDITIONAL_IPS` and `MCP_SSL_ADDITIONAL_HOSTNAMES` to add comma-separated
+Subject Alternative Names. Configure a trusted certificate for production.
+
 ### Auto-Start Scripts
 
 These scripts check if the server is running and start it only if needed:
@@ -180,7 +185,10 @@ The session-start hook automatically:
 ### Start Server on System Boot
 
 **Unix/macOS (launchd):**
-Create `~/Library/LaunchAgents/com.mcp.memory.http.plist` and replace `/path/to/repository` with the absolute path to this repository:
+This template is the canonical launchd recipe; the old machine-specific plist
+is no longer shipped in `scripts/server/`.
+Create `~/Library/LaunchAgents/com.mcp.memory.http.plist`, and replace
+`/path/to/repository` with the absolute path to this repository:
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -190,12 +198,30 @@ Create `~/Library/LaunchAgents/com.mcp.memory.http.plist` and replace `/path/to/
     <string>com.mcp.memory.http</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/path/to/repository/scripts/server/start_http_server.sh</string>
+        <string>/path/to/repository/.venv/bin/memory</string>
+        <string>launch</string>
+        <string>--foreground</string>
     </array>
+    <key>WorkingDirectory</key>
+    <string>/path/to/repository</string>
     <key>RunAtLoad</key>
     <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>Crashed</key>
+        <true/>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
 </dict>
 </plist>
+```
+
+When launchd manages the server with `KeepAlive`, unload the agent before using
+`memory stop`; otherwise launchd starts the foreground process again. For example:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.mcp.memory.http.plist
 ```
 
 **Windows (Task Scheduler):**

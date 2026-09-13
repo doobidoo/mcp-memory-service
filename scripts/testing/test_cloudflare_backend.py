@@ -15,8 +15,9 @@ from pathlib import Path
 # Add project root to sys.path so 'src' package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.mcp_memory_service.storage.cloudflare import CloudflareStorage
-from src.mcp_memory_service.models.memory import Memory
+from mcp_memory_service.storage.cloudflare import CloudflareStorage
+from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.compat import _sanitize_log_value
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,7 +36,7 @@ async def test_cloudflare_backend():
     
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     if missing_vars:
-        logger.error(f"Missing environment variables: {missing_vars}")
+        logger.error("Missing environment variables: %s", _sanitize_log_value(f"{missing_vars}"))
         return False
     
     try:
@@ -67,18 +68,18 @@ async def test_cloudflare_backend():
         
         success, message = await storage.store(test_memory)
         if success:
-            logger.info(f"✅ Memory stored: {message}")
+            logger.info("✅ Memory stored: %s", _sanitize_log_value(f"{message}"))
         else:
-            logger.error(f"❌ Failed to store memory: {message}")
+            logger.error("❌ Failed to store memory: %s", _sanitize_log_value(f"{message}"))
             return False
         
         # Test retrieval
         logger.info("🔍 Testing memory retrieval...")
         results = await storage.retrieve("test memory cloudflare", n_results=5)
         if results:
-            logger.info(f"✅ Retrieved {len(results)} memories")
+            logger.info("✅ Retrieved %s memories", _sanitize_log_value(f"{len(results)}"))
             for i, result in enumerate(results):
-                logger.info(f"  {i+1}. Score: {result.similarity_score:.3f} - {result.memory.content[:50]}...")
+                logger.info("  %s. Score: %s - %s...", _sanitize_log_value(f"{i+1}"), _sanitize_log_value(f"{result.similarity_score:.3f}"), _sanitize_log_value(f"{result.memory.content[:50]}"))
         else:
             logger.warning("⚠️  No memories retrieved")
         
@@ -86,25 +87,25 @@ async def test_cloudflare_backend():
         logger.info("🏷️  Testing tag search...")
         tag_results = await storage.search_by_tag(["test"])
         if tag_results:
-            logger.info(f"✅ Found {len(tag_results)} memories with 'test' tag")
+            logger.info("✅ Found %s memories with 'test' tag", _sanitize_log_value(f"{len(tag_results)}"))
         else:
             logger.warning("⚠️  No memories found with 'test' tag")
         
         # Test statistics
         logger.info("📊 Testing statistics...")
         stats = await storage.get_stats()
-        logger.info(f"✅ Stats: {stats['total_memories']} memories, {stats['status']} status")
+        logger.info("✅ Stats: %s memories, %s status", _sanitize_log_value(f"{stats['total_memories']}"), _sanitize_log_value(f"{stats['status']}"))
         
         # Test cleanup (optional - uncomment to clean up test data)
         # logger.info("🧹 Cleaning up test data...")
         # deleted_count, delete_message = await storage.delete_by_tag("test")
-        # logger.info(f"✅ Cleaned up: {delete_message}")
+        # logger.info("✅ Cleaned up: %s", _sanitize_log_value(f"{delete_message}"))
         
         logger.info("🎉 All tests passed! Cloudflare backend is working correctly.")
         return True
         
     except Exception as e:
-        logger.error(f"❌ Test failed: {e}")
+        logger.error("❌ Test failed: %s", _sanitize_log_value(f"{e}"))
         return False
     
     finally:
