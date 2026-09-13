@@ -33,7 +33,7 @@ async def real_storage():
     yield storage
 
     try:
-        storage.close()
+        await storage.close()
     except Exception:
         pass
     try:
@@ -138,7 +138,7 @@ class TestHealthMonitorRealStorage:
     @pytest.mark.asyncio
     async def test_closed_storage_reports_unhealthy(self, real_storage, health_config):
         """After close(), get_stats() returns an error dict — health must be UNHEALTHY."""
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import MagicMock
 
         # Wrap real storage in a mock consolidator
         consolidator = MagicMock()

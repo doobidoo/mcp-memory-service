@@ -85,6 +85,12 @@ def _count_recent(history: List[Dict[str, Any]], component: str, hours: int = 1)
     )
 
 
+def _storage_stats_have_error(stats: Dict[str, Any]) -> bool:
+    """Inspect both the backend result and a hybrid backend's primary result."""
+    entries = (stats, stats.get('primary_stats') or {})
+    return any('error' in entry or entry.get('status') == 'error' for entry in entries)
+
+
 class ConsolidationHealthMonitor:
     """Monitors health of the consolidation system."""
 
@@ -515,8 +521,7 @@ class ConsolidationHealthMonitor:
         try:
             if hasattr(storage, 'get_stats'):
                 stats = await storage.get_stats()
-                has_error = ('error' in stats
-                             or stats.get('status') == 'error')
+                has_error = _storage_stats_have_error(stats)
                 if has_error:
                     checks['storage_connection'] = 'error'
                     checks['read_operations'] = 'failing'
