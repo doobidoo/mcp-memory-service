@@ -24,7 +24,7 @@ import socket
 import subprocess
 import sys
 import textwrap
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
