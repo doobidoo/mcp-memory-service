@@ -51,9 +51,9 @@ class HealthChecker:
         """Test all necessary imports."""
         try:
             import sqlite_vec
-            from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-            from src.mcp_memory_service.models.memory import Memory
-            from src.mcp_memory_service.utils.hashing import generate_content_hash
+            from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+            from mcp_memory_service.models.memory import Memory
+            from mcp_memory_service.utils.hashing import generate_content_hash
             return True
         except ImportError as e:
             print(f"      Import error: {e}")
@@ -65,7 +65,7 @@ class HealthChecker:
         db_path = os.path.join(temp_dir, "health_check.db")
         
         try:
-            from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+            from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
             storage = SqliteVecMemoryStorage(db_path)
             await storage.initialize()
             
@@ -94,9 +94,9 @@ class HealthChecker:
         db_path = os.path.join(temp_dir, "operations_test.db")
         
         try:
-            from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-            from src.mcp_memory_service.models.memory import Memory
-            from src.mcp_memory_service.utils.hashing import generate_content_hash
+            from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+            from mcp_memory_service.models.memory import Memory
+            from mcp_memory_service.utils.hashing import generate_content_hash
             
             storage = SqliteVecMemoryStorage(db_path)
             await storage.initialize()
@@ -148,9 +148,9 @@ class HealthChecker:
         db_path = os.path.join(temp_dir, "vector_test.db")
         
         try:
-            from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-            from src.mcp_memory_service.models.memory import Memory
-            from src.mcp_memory_service.utils.hashing import generate_content_hash
+            from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+            from mcp_memory_service.models.memory import Memory
+            from mcp_memory_service.utils.hashing import generate_content_hash
             
             storage = SqliteVecMemoryStorage(db_path)
             await storage.initialize()
@@ -289,7 +289,7 @@ async def main():
         print("\n🎉 Database Health Check: PASSED")
         print("   SQLite-vec backend is fully functional and ready for production use!")
         print("\n🚀 Ready for Claude Code integration:")
-        print("   - Start server: python -m src.mcp_memory_service.server")
+        print("   - Start server: python -m mcp_memory_service.server")
         print("   - Database: ~/.local/share/mcp-memory/sqlite_vec.db")
         print("   - 75% memory reduction vs ChromaDB")
         return 0

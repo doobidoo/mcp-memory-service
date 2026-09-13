@@ -19,15 +19,17 @@ this file would silently reintroduce a .env fallback both functions
 are designed to exclude.
 """
 
-import os
-import sys
 import json
-import signal
-import time
 import logging
+import os
+import signal
+import socket
 import subprocess
-from pathlib import Path
+import sys
+import time
 from collections import deque
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import NamedTuple
 
 import click
@@ -350,6 +352,102 @@ def _server_env(name: str) -> str | None:
     return None
 
 
+class CertificateGenerationError(RuntimeError):
+    """Raised when a development TLS certificate cannot be generated."""
+
+
+def _existing_cert_valid(cert_file: Path, key_file: Path) -> bool:
+    """Reuse a readable certificate only while it has more than a week left."""
+    if not cert_file.is_file() or not key_file.is_file():
+        return False
+    try:
+        result = subprocess.run(
+            ["openssl", "x509", "-in", str(cert_file), "-noout", "-enddate"],
+            capture_output=True, text=True, check=True,
+        )
+        expiry = datetime.strptime(result.stdout.split("=", 1)[1].strip(),
+                                   "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
+        return expiry > datetime.now(timezone.utc) + timedelta(days=7)
+    except (IndexError, ValueError, subprocess.SubprocessError):
+        return False
+
+
+def _local_certificate_ip() -> str | None:
+    """Best-effort local address discovery without sending a UDP payload."""
+    udp_socket = None
+    try:
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_socket.connect(("8.8.8.8", 80))
+        return udp_socket.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        if udp_socket is not None:
+            udp_socket.close()
+
+
+def _san_entries(additional_ips: str | None, additional_hostnames: str | None) -> list[str]:
+    """Build deduplicated local and explicitly configured certificate names."""
+    entries = ["DNS:memory.local", "DNS:localhost", "DNS:*.local", "IP:127.0.0.1", "IP:::1"]
+    local_ip = _local_certificate_ip()
+    if local_ip and local_ip != "127.0.0.1":
+        entries.append(f"IP:{local_ip}")
+    for kind, values in (("IP", additional_ips), ("DNS", additional_hostnames)):
+        for value in (values or "").split(","):
+            entry = f"{kind}:{value.strip()}"
+            if value.strip() and entry not in entries:
+                entries.append(entry)
+    return entries
+
+
+def generate_self_signed_certificate(
+    cert_dir: Path | None = None,
+    additional_ips: str | None = None,
+    additional_hostnames: str | None = None,
+) -> tuple[str, str]:
+    """Generate or reuse a development certificate in the user's runtime directory.
+
+    Certificates are reused while valid for more than seven days. Additional
+    names are included when generating a new certificate.
+    """
+    destination = cert_dir or _data_dir() / "certs"
+    cert_file = destination / "cert.pem"
+    key_file = destination / "key.pem"
+    try:
+        destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if _existing_cert_valid(cert_file, key_file):
+            return str(cert_file), str(key_file)
+        san_entries = _san_entries(additional_ips, additional_hostnames)
+        subprocess.run(["openssl", "genrsa", "-out", str(key_file), "2048"],
+                       check=True, capture_output=True)
+        subprocess.run(
+            ["openssl", "req", "-new", "-x509", "-key", str(key_file),
+             "-out", str(cert_file), "-days", "365", "-subj",
+             "/C=US/ST=Local/L=Local/O=MCP Memory Service/CN=memory.local",
+             "-addext", f"subjectAltName={','.join(san_entries)}"],
+            check=True, capture_output=True,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise CertificateGenerationError(
+            "Could not generate a self-signed certificate with OpenSSL"
+        ) from exc
+    return str(cert_file), str(key_file)
+
+
+def _generate_server_certificate() -> tuple[str, str]:
+    """Translate development-certificate failure into a CLI startup error."""
+    try:
+        return generate_self_signed_certificate(
+            additional_ips=_server_env("MCP_SSL_ADDITIONAL_IPS"),
+            additional_hostnames=_server_env("MCP_SSL_ADDITIONAL_HOSTNAMES"),
+        )
+    except CertificateGenerationError as exc:
+        raise click.ClickException(
+            f"{exc}. Install OpenSSL, configure MCP_SSL_CERT_FILE and "
+            "MCP_SSL_KEY_FILE, or unset MCP_HTTPS_ENABLED to serve HTTP."
+        ) from exc
+
+
 class _ServerTls(NamedTuple):
     """What the spawned server needs in order to serve the configured scheme.
 
@@ -376,9 +474,9 @@ def _resolve_server_tls() -> _ServerTls:
 
     Raises ClickException rather than falling back to HTTP: a server that
     was asked for TLS and cannot provide it must not come up unencrypted
-    while looking healthy. Certificate auto-generation is deliberately not
-    reimplemented here -- explicit MCP_SSL_CERT_FILE/MCP_SSL_KEY_FILE paths
-    are required.
+    while looking healthy. When neither certificate path is configured, the
+    shared development-certificate generator provides the same behaviour as
+    scripts/server/run_http_server.py.
     """
     raw = (_server_env("MCP_HTTPS_ENABLED") or "").strip().lower()
     # sync with config.base.safe_get_bool_env
@@ -387,12 +485,17 @@ def _resolve_server_tls() -> _ServerTls:
 
     cert_file = _server_env("MCP_SSL_CERT_FILE")
     key_file = _server_env("MCP_SSL_KEY_FILE")
+    if bool(cert_file) != bool(key_file):
+        missing_name = "MCP_SSL_KEY_FILE" if cert_file else "MCP_SSL_CERT_FILE"
+        raise click.ClickException(
+            f"MCP_HTTPS_ENABLED is set but {missing_name} is not. Set both "
+            "certificate paths, remove both to generate a development "
+            "certificate, or unset MCP_HTTPS_ENABLED to serve HTTP."
+        )
+    if not cert_file:
+        cert_file, key_file = _generate_server_certificate()
+
     for name, value in (("MCP_SSL_CERT_FILE", cert_file), ("MCP_SSL_KEY_FILE", key_file)):
-        if not value:
-            raise click.ClickException(
-                f"MCP_HTTPS_ENABLED is set but {name} is not. Set both "
-                "certificate paths, or unset MCP_HTTPS_ENABLED to serve HTTP."
-            )
         if not Path(value).is_file():
             raise click.ClickException(
                 f"{name}={value!r} does not exist or is not a file. "
@@ -587,25 +690,21 @@ def _read_log_tail(lines: int = 30) -> list[str]:
 @click.pass_context
 def launch(ctx, http_host, http_port, detach, storage_backend, debug):
     """Start the HTTP memory server (background by default).
-    
+
     ⚠️  SECURITY WARNING: Binding to non-loopback hosts (e.g., 0.0.0.0)
     exposes the API to your network. Use authentication and/or firewall
     rules in production. Intended for development or trusted networks only.
-    
+
     Equivalent to 'memory server --http' but with lifecycle management:
     PID tracking, log redirection, and automatic health-check polling.
-    
+
     Use --foreground to run attached (same as 'memory server --http').
     """
-    # Resolve host and port
     host = http_host or os.environ.get("MCP_HTTP_HOST", "127.0.0.1")
     port = http_port or int(os.environ.get("MCP_HTTP_PORT", "8000"))
-    # Resolve TLS before anything probes or spawns: this decides both what the
-    # child gets and which scheme every health check in this invocation uses.
     tls = _resolve_server_tls()
     base_url = _base_url(host, port, scheme=tls.scheme)
 
-    # Apply env overrides
     os.environ["MCP_HTTP_HOST"] = host
     os.environ["MCP_HTTP_PORT"] = str(port)
     # Pass through MCP_ALLOW_ANONYMOUS_ACCESS unchanged — do NOT force a default.
@@ -617,137 +716,133 @@ def launch(ctx, http_host, http_port, detach, storage_backend, debug):
     if debug:
         logging.basicConfig(level=logging.DEBUG)
 
-    # Check if already running
-    existing_pid = _read_pid()
+    existing_pid = _check_already_running(base_url, port)
     if existing_pid:
-        health, tls_blocked = _probe_health(f"{base_url}/api/health")
-        if health and health.get("status") == "healthy":
-            click.echo(f"Server already running (PID {existing_pid})")
-            click.echo(f"  Dashboard: {base_url}")
-            return
-        if tls_blocked:
-            # _read_pid() already filters out dead PIDs, so existing_pid
-            # being truthy means this process is alive. A cert-verification
-            # failure then means something is listening and likely healthy
-            # -- killing and relaunching it here would be a regression for
-            # a self-signed-cert user who upgraded, not a helpful recovery
-            # from a genuinely stopped server.
-            click.echo(
-                f"Process {existing_pid} appears to be running, but its "
-                "certificate could not be verified, so health could not be "
-                "confirmed."
-            )
-            click.echo(
-                "If this is a known self-signed certificate, set "
-                "MCP_MEMORY_ALLOW_SELF_SIGNED_CERTS=true and re-run, "
-                f"verify manually at {base_url}/api/health, or run "
-                "'memory stop' first if you want to force a restart."
-            )
-            click.echo(
-                "Not restarting an already-running process based on an "
-                "unverifiable health check."
-            )
-            return
+        return
 
-    # Kill stale process on the port if any
+    if not detach:
+        _run_foreground(host, port, debug, tls)
+        return
+
+    _run_background(host, port, tls, base_url)
+
+
+def _check_already_running(base_url: str, port: int) -> int | None:
+    """Check if a server is already running. Returns PID if handled (caller
+    should return), None if launch should proceed."""
+    existing_pid = _read_pid()
+    if not existing_pid:
+        # Kill any stale process on the port
+        port_pid = _find_process_on_port(port)
+        if port_pid:
+            click.echo(f"Freeing port {port} (stale PID {port_pid})...")
+            _kill_process(port_pid)
+            time.sleep(0.5)
+        return None
+
+    health, tls_blocked = _probe_health(f"{base_url}/api/health")
+    if health and health.get("status") == "healthy":
+        click.echo(f"Server already running (PID {existing_pid})")
+        click.echo(f"  Dashboard: {base_url}")
+        return existing_pid
+
+    if tls_blocked:
+        # _read_pid() already filters out dead PIDs, so existing_pid
+        # being truthy means this process is alive. A cert-verification
+        # failure then means something is listening and likely healthy
+        # -- killing and relaunching it here would be a regression for
+        # a self-signed-cert user who upgraded, not a helpful recovery
+        # from a genuinely stopped server.
+        click.echo(
+            f"Process {existing_pid} appears to be running, but its "
+            "certificate could not be verified, so health could not be confirmed."
+        )
+        click.echo(
+            "If this is a known self-signed certificate, set "
+            "MCP_MEMORY_ALLOW_SELF_SIGNED_CERTS=true and re-run, "
+            f"verify manually at {base_url}/api/health, or run "
+            "'memory stop' first if you want to force a restart."
+        )
+        click.echo(
+            "Not restarting an already-running process based on an "
+            "unverifiable health check."
+        )
+        return existing_pid
+
+    # PID exists but server is unhealthy — kill stale process on port
     port_pid = _find_process_on_port(port)
     if port_pid and port_pid != existing_pid:
         click.echo(f"Freeing port {port} (stale PID {port_pid})...")
         _kill_process(port_pid)
         time.sleep(0.5)
+    return None
 
-    if not detach:
-        # Foreground: import the heavy stuff and run directly
-        click.echo(f"Starting {tls.scheme.upper()} server on {host}:{port}...")
-        from mcp_memory_service.web.app import app  # heavy import
-        import uvicorn  # inline import: heavy dependency, avoided at module load time
-        uvicorn.run(app, host=host, port=port,
-                    log_level="debug" if debug else "info", **tls.uvicorn_kwargs)
-        return
 
-    # ─── Background (detached) mode ──────────────────────────────────────
+def _run_foreground(host: str, port: int, debug: bool, tls: _ServerTls) -> None:
+    """Run the server in the foreground (attached)."""
+    click.echo(f"Starting {tls.scheme.upper()} server on {host}:{port}...")
+    from mcp_memory_service.web.app import app  # heavy import
+    import uvicorn  # inline import: heavy dependency, avoided at module load time
+    uvicorn.run(app, host=host, port=port,
+                log_level="debug" if debug else "info", **tls.uvicorn_kwargs)
+
+
+def _spawn_child(host: str, port: int, tls: _ServerTls) -> subprocess.Popen:
+    """Spawn the uvicorn child process and return it."""
     _ensure_dirs()
     log_out = _log_file()
     log_err = log_out.with_suffix(".err")
 
-    click.echo(f"Starting memory server on port {port}...")
-
-    # Build safe command arguments (no string interpolation of user-controlled host)
-    # Use sys.executable -m uvicorn directly with separate args
     cmd = [
-        sys.executable,
-        "-m", "uvicorn",
+        sys.executable, "-m", "uvicorn",
         "mcp_memory_service.web.app:app",
-        "--host", host,
-        "--port", str(port),
-        "--log-level", "info"
+        "--host", host, "--port", str(port), "--log-level", "info",
     ]
-
     # uvicorn's CLI knows nothing about MCP_HTTPS_ENABLED -- translating the
     # config into these flags is exactly the step that was missing, and its
     # absence downgraded HTTPS deployments to plain HTTP on every restart.
     # Empty for plain HTTP, so no branch is needed here.
     cmd += tls.cli_args
 
-    # Open log files for the child process
     log_out_handle = open(log_out, "a")
     log_err_handle = open(log_err, "a")
-    
     # Build child env: pass through current env with host/port overrides.
     # Do NOT force MCP_ALLOW_ANONYMOUS_ACCESS — respect user's explicit setting.
     child_env = {**os.environ, "MCP_HTTP_PORT": str(port), "MCP_HTTP_HOST": host}
 
-    # Close handles immediately in parent after spawning child (fixes file handle leak)
     try:
         popen_kwargs = {
-            "stdout": log_out_handle,
-            "stderr": log_err_handle,
-            "stdin": subprocess.DEVNULL,
-            "env": child_env,
+            "stdout": log_out_handle, "stderr": log_err_handle,
+            "stdin": subprocess.DEVNULL, "env": child_env,
         }
-
         if sys.platform == "win32":
             popen_kwargs["creationflags"] = getattr(
-                subprocess, "CREATE_NO_WINDOW", 0x08000000
-            )
+                subprocess, "CREATE_NO_WINDOW", 0x08000000)
         else:
             popen_kwargs["start_new_session"] = True
-
         proc = subprocess.Popen(cmd, **popen_kwargs)
-        
-        # Close the parent's file handles immediately after spawn
-        # (child process has its own copy via dup2)
         log_out_handle.close()
         log_err_handle.close()
-        
     except Exception:
-        # If Popen fails, make sure to close handles
         log_out_handle.close()
         log_err_handle.close()
         raise
+    return proc
 
-    _write_pid(proc.pid, scheme=tls.scheme)
 
-    # Poll health endpoint until server is ready
+def _poll_until_ready(proc: subprocess.Popen, base_url: str, port: int) -> None:
+    """Poll the health endpoint until the server is ready or times out."""
     click.echo("Waiting for server to start...")
     saw_tls_block = False
-    for i in range(60):
+    for _ in range(60):
         time.sleep(0.5)
         health, tls_blocked = _probe_health(f"{base_url}/api/health")
         if health and health.get("status") == "healthy":
-            click.echo(f"Server started (PID {proc.pid})")
-            click.echo(f"  Dashboard: {base_url}")
-            click.echo(f"  API docs:   {base_url}/docs")
-            if health.get("version"):
-                click.echo(f"  Version:    {health['version']}")
-            if health.get("storage_backend"):
-                click.echo(f"  Backend:    {health['storage_backend']}")
+            _report_started(proc, base_url, health)
             return
         saw_tls_block = saw_tls_block or tls_blocked
         if proc.poll() is not None:
-            # Child has exited -- further polling is pointless. Break
-            # immediately rather than waiting out the remaining ~29s to
-            # reach the same "check logs" conclusion.
+            # Child has exited -- further polling is pointless.
             break
         if tls_blocked and _find_process_on_port(port) == proc.pid:
             # A cert-verification failure will never resolve itself by
@@ -762,30 +857,62 @@ def launch(ctx, http_host, http_port, detach, storage_backend, debug):
             # netstat; on a host without either it always returns None,
             # so this never fires and polling continues to the timeout
             # below -- saw_tls_block still gets that case a useful hint.
-            click.echo(f"Server process started (PID {proc.pid}), but its certificate "
-                       "could not be verified.")
-            click.echo("If this is a known self-signed certificate, set "
-                       "MCP_MEMORY_ALLOW_SELF_SIGNED_CERTS=true and check again with "
-                       "'memory health'.")
+            click.echo(
+                f"Server process started (PID {proc.pid}), but its certificate "
+                "could not be verified."
+            )
+            click.echo(
+                "If this is a known self-signed certificate, set "
+                "MCP_MEMORY_ALLOW_SELF_SIGNED_CERTS=true and check again with "
+                "'memory health'."
+            )
             return
 
+    _report_launch_failure(proc, saw_tls_block)
+
+
+def _report_started(proc: subprocess.Popen, base_url: str, health: dict) -> None:
+    """Print the success banner once the child answered healthy."""
+    click.echo(f"Server started (PID {proc.pid})")
+    click.echo(f"  Dashboard: {base_url}")
+    click.echo(f"  API docs:   {base_url}/docs")
+    if health.get("version"):
+        click.echo(f"  Version:    {health['version']}")
+    if health.get("storage_backend"):
+        click.echo(f"  Backend:    {health['storage_backend']}")
+
+
+def _report_launch_failure(proc: subprocess.Popen, saw_tls_block: bool) -> None:
+    """Report why the server failed to become healthy."""
     if proc.poll() is not None:
         # A dead child could have exited for any reason (e.g. EADDRINUSE
         # because a pre-existing, unrelated service already owns the
         # port) -- a cert failure seen while polling may belong to that
         # other service, not to anything of ours, so the self-signed hint
         # below is intentionally reserved for the genuine-timeout case.
-        click.echo(f"Server process (PID {proc.pid}) exited with code {proc.returncode} "
-                   "before becoming healthy.")
+        click.echo(
+            f"Server process (PID {proc.pid}) exited with code {proc.returncode} "
+            "before becoming healthy."
+        )
     else:
         click.echo(f"Server process started (PID {proc.pid}) but health check timed out.")
         if saw_tls_block:
-            click.echo("A certificate-verification failure was seen while polling. If "
-                       "this is a known self-signed certificate, set "
-                       "MCP_MEMORY_ALLOW_SELF_SIGNED_CERTS=true and check again with "
-                       "'memory health'.")
+            click.echo(
+                "A certificate-verification failure was seen while polling. If "
+                "this is a known self-signed certificate, set "
+                "MCP_MEMORY_ALLOW_SELF_SIGNED_CERTS=true and check again with "
+                "'memory health'."
+            )
     click.echo(f"Check logs: {_log_file()}")
     click.echo("Verify with: memory health")
+
+
+def _run_background(host: str, port: int, tls: _ServerTls, base_url: str) -> None:
+    """Spawn server in background and poll until ready."""
+    click.echo(f"Starting memory server on port {port}...")
+    proc = _spawn_child(host, port, tls)
+    _write_pid(proc.pid, scheme=tls.scheme)
+    _poll_until_ready(proc, base_url, port)
 
 
 @click.command()
