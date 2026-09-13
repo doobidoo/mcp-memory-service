@@ -30,6 +30,7 @@ import sys
 import os
 import json
 import re
+import shutil
 import sqlite3
 import argparse
 import logging
@@ -40,7 +41,8 @@ from typing import List, Tuple, Set, Dict
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.mcp_memory_service.config import SQLITE_VEC_PATH
+from mcp_memory_service.config import SQLITE_VEC_PATH
+from mcp_memory_service.compat import _sanitize_log_value
 
 # Configure logging
 logging.basicConfig(
@@ -198,9 +200,9 @@ def repair_tags(db_path: str, dry_run: bool = False) -> Tuple[int, int, Dict[str
                 new_tags_str = ",".join(unique_tags)
 
                 if dry_run:
-                    logger.info(f"[DRY RUN] Would update {content_hash[:8]}...")
-                    logger.info(f"  Old: {tags_str}")
-                    logger.info(f"  New: {new_tags_str}")
+                    logger.info("[DRY RUN] Would update %s...", _sanitize_log_value(f"{content_hash[:8]}"))
+                    logger.info("  Old: %s", _sanitize_log_value(f"{tags_str}"))
+                    logger.info("  New: %s", _sanitize_log_value(f"{new_tags_str}"))
                 else:
                     cursor.execute(
                         "UPDATE memories SET tags = ? WHERE content_hash = ?",
@@ -211,7 +213,7 @@ def repair_tags(db_path: str, dry_run: bool = False) -> Tuple[int, int, Dict[str
 
         if not dry_run:
             conn.commit()
-            logger.info(f"✅ Database updated successfully")
+            logger.info("✅ Database updated successfully")
 
         return memories_updated, tags_fixed, replacements
 
@@ -223,10 +225,9 @@ def create_backup(db_path: str) -> str:
     """Create a backup of the database before modifications."""
     backup_path = f"{db_path}.backup-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-    import shutil
     shutil.copy2(db_path, backup_path)
 
-    logger.info(f"✅ Backup created: {backup_path}")
+    logger.info("✅ Backup created: %s", _sanitize_log_value(f"{backup_path}"))
     return backup_path
 
 
@@ -271,23 +272,23 @@ Examples:
 
     # Check if database exists
     if not os.path.exists(args.db_path):
-        logger.error(f"❌ Database not found: {args.db_path}")
+        logger.error("❌ Database not found: %s", _sanitize_log_value(f"{args.db_path}"))
         sys.exit(1)
 
     logger.info("=" * 60)
     logger.info("🔧 Malformed Tag Repair Tool")
     logger.info("=" * 60)
-    logger.info(f"Database: {args.db_path}")
-    logger.info(f"Mode: {'DRY RUN (no changes)' if args.dry_run else 'REPAIR (will modify database)'}")
+    logger.info("Database: %s", _sanitize_log_value(f"{args.db_path}"))
+    logger.info("Mode: %s", _sanitize_log_value(f"{'DRY RUN (no changes)' if args.dry_run else 'REPAIR (will modify database)'}"))
     logger.info("")
 
     # Analyze tags
     logger.info("📊 Analyzing tags...")
     total_memories, malformed_count, malformed_tags, tag_frequency = analyze_tags(args.db_path)
 
-    logger.info(f"Total memories: {total_memories}")
-    logger.info(f"Memories with malformed tags: {malformed_count}")
-    logger.info(f"Unique malformed tags: {len(malformed_tags)}")
+    logger.info("Total memories: %s", _sanitize_log_value(f"{total_memories}"))
+    logger.info("Memories with malformed tags: %s", _sanitize_log_value(f"{malformed_count}"))
+    logger.info("Unique malformed tags: %s", _sanitize_log_value(f"{len(malformed_tags)}"))
     logger.info("")
 
     if malformed_count == 0:
@@ -298,9 +299,9 @@ Examples:
     logger.info("🔍 Most common malformed tags:")
     sorted_tags = sorted(tag_frequency.items(), key=lambda x: x[1], reverse=True)
     for tag, count in sorted_tags[:10]:
-        logger.info(f"  {tag!r} -> appears {count} times")
+        logger.info("  %s -> appears %s times", _sanitize_log_value(f"{tag!r}"), _sanitize_log_value(f"{count}"))
         parsed = parse_malformed_tag(tag)
-        logger.info(f"    Will become: {parsed}")
+        logger.info("    Will become: %s", _sanitize_log_value(f"{parsed}"))
     logger.info("")
 
     # Create backup if not dry-run
@@ -317,16 +318,16 @@ Examples:
     logger.info("=" * 60)
     logger.info("📈 Summary")
     logger.info("=" * 60)
-    logger.info(f"Memories updated: {memories_updated}")
-    logger.info(f"Tags fixed: {tags_fixed}")
+    logger.info("Memories updated: %s", _sanitize_log_value(f"{memories_updated}"))
+    logger.info("Tags fixed: %s", _sanitize_log_value(f"{tags_fixed}"))
     logger.info("")
 
     if replacements:
         logger.info("🔄 Tag replacements:")
         for old_tag, new_tags in list(replacements.items())[:10]:
-            logger.info(f"  {old_tag!r} -> {new_tags}")
+            logger.info("  %s -> %s", _sanitize_log_value(f"{old_tag!r}"), _sanitize_log_value(f"{new_tags}"))
         if len(replacements) > 10:
-            logger.info(f"  ... and {len(replacements) - 10} more")
+            logger.info("  ... and %s more", _sanitize_log_value(f"{len(replacements) - 10}"))
 
     logger.info("")
     if args.dry_run:
@@ -334,7 +335,7 @@ Examples:
         logger.info("   Run without --dry-run to apply fixes")
     else:
         logger.info("✅ Repair completed successfully!")
-        logger.info(f"   Backup saved to: {backup_path}")
+        logger.info("   Backup saved to: %s", _sanitize_log_value(f"{backup_path}"))
 
     logger.info("=" * 60)
 

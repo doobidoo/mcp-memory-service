@@ -5,10 +5,10 @@ This product includes software developed by Heinrich Krupp.
 
 This project uses the following third-party libraries:
 
-- ChromaDB (Apache License 2.0)
 - sentence-transformers (Apache License 2.0)
 - PyTorch (BSD-style license)
 - SQLite-vec (MIT License)
+- PyMilvus (Apache License 2.0)
 - MCP SDK (MIT License)
 - FastAPI (MIT License)
 - ONNX Runtime (MIT License)
