@@ -33,11 +33,20 @@ def _rewrite_with(provider: str):
             os.environ["HARVEST_LLM_PROVIDERS"] = old
 
 
-@pytest.mark.parametrize("provider", ["deepseek", "groq"])
+@pytest.mark.parametrize("provider", ["groq", "ollama", "deepseek"])
 def test_provider_rewrites_and_stamps_provenance(provider):
-    """Each configured provider really rewrites and stamps provider/model."""
-    if not os.getenv(f"HARVEST_LLM_{provider.upper()}_API_KEY"):
-        pytest.skip(f"{provider} not configured")
+    """Each configured provider really rewrites and stamps provider/model.
+
+    Order = usage priority (groq primary for general users, then local ollama,
+    then deepseek fallback). RFC-harvest-provenance R2/R3, end-to-end.
+    """
+    key_var = {
+        "groq": "HARVEST_LLM_GROQ_API_KEY",
+        "deepseek": "HARVEST_LLM_DEEPSEEK_API_KEY",
+        "ollama": "HARVEST_LLM_OLLAMA_MODEL",  # ollama needs no key, but a model
+    }[provider]
+    if not os.getenv(key_var):
+        pytest.skip(f"{provider} not configured ({key_var} unset)")
     res = _rewrite_with(provider)
     assert res is not None, f"{provider} returned None (SKIP/empty) — check key/model"
     assert res.provider == provider, f"provenance provider mismatch: {res.provider}"
