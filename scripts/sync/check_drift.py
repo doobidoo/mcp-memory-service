@@ -63,6 +63,22 @@ def build_cloudflare_config():
     }
 
 
+def check_prerequisites():
+    """Return an error message if the hybrid environment is unusable."""
+    if app_config.STORAGE_BACKEND != 'hybrid':
+        return (
+            f"Drift detection requires hybrid backend, but configured backend is: "
+            f"{app_config.STORAGE_BACKEND}\n"
+            f"Set MCP_MEMORY_STORAGE_BACKEND=hybrid in your environment or .env file"
+        )
+    if not app_config.HYBRID_SYNC_UPDATES:
+        return (
+            f"Drift detection is disabled (MCP_HYBRID_SYNC_UPDATES=false)\n"
+            f"Set MCP_HYBRID_SYNC_UPDATES=true to enable this feature"
+        )
+    return None
+
+
 def print_drift_results(stats, apply):
     """Print the drift-detection result summary."""
     print("\n" + "=" * 60)
@@ -80,6 +96,34 @@ def print_drift_results(stats, apply):
         print("\n✅ Metadata synchronized successfully")
     else:
         print("\n✅ No drift detected - backends are in sync")
+
+
+async def initialize_hybrid_storage():
+    """Build and initialize the hybrid storage backend."""
+    db_path = app_config.SQLITE_VEC_PATH
+    storage = HybridMemoryStorage(
+        sqlite_db_path=db_path,
+        cloudflare_config=build_cloudflare_config()
+    )
+    await storage.initialize()
+    return storage
+
+
+async def run_drift_scan(storage, apply):
+    """Execute the drift scan and print the outcome if sync service exists."""
+    if not storage.sync_service:
+        logger.error("Sync service not available - hybrid backend may not be configured correctly")
+        return 1
+
+    logger.info("Sync service initialized (drift check interval: %ss)", _sanitize_log_value(f"{storage.sync_service.drift_check_interval}"))
+
+    # Run drift detection
+    logger.info("\nStarting drift detection scan...\n")
+    stats = await storage.sync_service._detect_and_sync_drift(dry_run=not apply)
+
+    # Print results
+    print_drift_results(stats, apply)
+    return 0
 
 
 async def main():
@@ -110,10 +154,11 @@ async def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    # Check that hybrid backend is configured
-    if app_config.STORAGE_BACKEND != 'hybrid':
-        logger.error("Drift detection requires hybrid backend, but configured backend is: %s", _sanitize_log_value(f"{app_config.STORAGE_BACKEND}"))
-        logger.error("Set MCP_MEMORY_STORAGE_BACKEND=hybrid in your environment or .env file")
+    # Check that prerequisites are met for the hybrid backend
+    error = check_prerequisites()
+    if error:
+        for line in error.splitlines():
+            logger.error("%s", _sanitize_log_value(f"{line}"))
         return 1
 
     # Override batch size if limit specified
@@ -125,39 +170,10 @@ async def main():
     logger.info("Batch size: %s", _sanitize_log_value(f"{args.limit or app_config.HYBRID_DRIFT_BATCH_SIZE}"))
     logger.info("Drift detection enabled: %s", _sanitize_log_value(f"{app_config.HYBRID_SYNC_UPDATES}"))
 
-    if not app_config.HYBRID_SYNC_UPDATES:
-        logger.warning("Drift detection is disabled (MCP_HYBRID_SYNC_UPDATES=false)")
-        logger.warning("Set MCP_HYBRID_SYNC_UPDATES=true to enable this feature")
-        return 1
-
     try:
         # Initialize hybrid storage with db path and Cloudflare config
-        db_path = app_config.SQLITE_VEC_PATH
-
-        # Build Cloudflare config from environment
-        cloudflare_config = build_cloudflare_config()
-
-        storage = HybridMemoryStorage(
-            sqlite_db_path=db_path,
-            cloudflare_config=cloudflare_config
-        )
-        await storage.initialize()
-
-        # Check that sync service is available
-        if not storage.sync_service:
-            logger.error("Sync service not available - hybrid backend may not be configured correctly")
-            return 1
-
-        logger.info("Sync service initialized (drift check interval: %ss)", _sanitize_log_value(f"{storage.sync_service.drift_check_interval}"))
-
-        # Run drift detection
-        logger.info("\nStarting drift detection scan...\n")
-        stats = await storage.sync_service._detect_and_sync_drift(dry_run=not args.apply)
-
-        # Print results
-        print_drift_results(stats, args.apply)
-
-        return 0
+        storage = await initialize_hybrid_storage()
+        return await run_drift_scan(storage, args.apply)
 
     except Exception as e:
         logger.error("Error during drift detection: %s", _sanitize_log_value(f"{e}"), exc_info=True)
