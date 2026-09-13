@@ -571,17 +571,6 @@ class TestForgettingCandidatesRealStorage:
             "yearly horizon should return memories within the 365-day window"
         )
 
-    def _forgetting_spy(self, consolidator, seen):
-        """Wrap _get_forgetting_candidates to record what each run saw."""
-        original = consolidator._get_forgetting_candidates
-
-        async def capture(horizon):
-            candidates = await original(horizon)
-            seen.append({memory.content for memory in candidates})
-            return candidates
-
-        consolidator._get_forgetting_candidates = capture
-
     async def _seed_stale_rows(self, real_storage, ages=(30, 200, 400, 800)):
         """Store one memory per age bracket, oldest most stale."""
         for age in ages:
@@ -617,7 +606,9 @@ class TestForgettingCandidatesRealStorage:
             self._stale_batch_config(temp_archive_path, incremental_mode),
         )
         consolidator.forgetting_engine.process = AsyncMock(return_value=[])
-        seen = []
-        self._forgetting_spy(consolidator, seen)
         await self._run_forgetting_twice(consolidator)
+        seen = [
+            {memory.content for memory in call.args[0]}
+            for call in consolidator.forgetting_engine.process.call_args_list
+        ]
         assert seen == [{"800 days old"}, {"400 days old"}]
