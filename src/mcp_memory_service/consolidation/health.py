@@ -25,6 +25,7 @@ from enum import Enum
 import traceback
 
 from .base import ConsolidationError
+from ..compat import _sanitize_log_value
 
 
 class HealthStatus(Enum):
@@ -134,69 +135,20 @@ class ConsolidationHealthMonitor:
     async def check_overall_health(self) -> Dict[str, Any]:
         """Check overall consolidation system health."""
         try:
-            health = {
-                'status': HealthStatus.HEALTHY.value,
-                'timestamp': datetime.now().isoformat(),
-                'components': {},
-                'metrics': {},
-                'alerts': [],
-                'recommendations': [],
-                'statistics': {}
-            }
+            health = self._new_health_payload()
 
-            # Check individual components
-            components = [
-                'decay_calculator',
-                'association_engine',
-                'clustering_engine',
-                'compression_engine',
-                'forgetting_engine',
-                'scheduler',
-                'storage_backend'
-            ]
-
-            overall_status = HealthStatus.HEALTHY
-
-            for component in components:
-                component_health = await self._check_component_health(component)
-                health['components'][component] = component_health
-
-                # Update overall status based on component health
-                component_status = HealthStatus(component_health.get('status', 'healthy'))
-                if component_status == HealthStatus.CRITICAL:
-                    overall_status = HealthStatus.CRITICAL
-                elif component_status == HealthStatus.UNHEALTHY and overall_status != HealthStatus.CRITICAL:
-                    overall_status = HealthStatus.UNHEALTHY
-                elif component_status == HealthStatus.DEGRADED and overall_status == HealthStatus.HEALTHY:
-                    overall_status = HealthStatus.DEGRADED
-
-            # Add current metrics
-            health['metrics'] = {name: {
-                'value': metric.value,
-                'status': metric.status.value,
-                'message': metric.message,
-                'timestamp': metric.timestamp.isoformat()
-            } for name, metric in self.metrics.items()}
-
-            # Add active alerts
-            active_alerts = [alert for alert in self.alerts if not alert.resolved]
-            health['alerts'] = [{
-                'alert_id': alert.alert_id,
-                'component': alert.component,
-                'severity': alert.severity.value,
-                'message': alert.message,
-                'timestamp': alert.timestamp.isoformat()
-            } for alert in active_alerts[-10:]]  # Last 10 alerts
-
-            # Add recommendations
-            health['recommendations'] = await self._generate_health_recommendations()
-
+            components, overall_status = await self._collect_component_health()
+            health['components'] = components
             health['status'] = overall_status.value
+
+            health['metrics'] = self._collect_metrics_payload()
+            health['alerts'] = self._collect_alerts_payload()
+            health['recommendations'] = await self._generate_health_recommendations()
 
             return health
 
         except Exception as e:
-            self.logger.error(f"Error checking overall health: {e}")
+            self.logger.error("Error checking overall health: %s", _sanitize_log_value(e))
             return {
                 'status': HealthStatus.CRITICAL.value,
                 'timestamp': datetime.now().isoformat(),
@@ -207,6 +159,86 @@ class ConsolidationHealthMonitor:
                 'recommendations': [],
                 'statistics': {}
             }
+
+    def _new_health_payload(self) -> Dict[str, Any]:
+        """Build the base health dict shared by the success and error paths."""
+        return {
+            'status': HealthStatus.HEALTHY.value,
+            'timestamp': datetime.now().isoformat(),
+            'components': {},
+            'metrics': {},
+            'alerts': [],
+            'recommendations': [],
+            'statistics': {}
+        }
+
+    async def _collect_component_health(self):
+        """Probe every managed component and fold their status into one.
+
+        Returns a tuple of (component_health_map, overall_status).
+        """
+        components = [
+            'decay_calculator',
+            'association_engine',
+            'clustering_engine',
+            'compression_engine',
+            'forgetting_engine',
+            'scheduler',
+            'storage_backend'
+        ]
+
+        health_components = {}
+        overall_status = HealthStatus.HEALTHY
+
+        for component in components:
+            component_health = await self._check_component_health(component)
+            health_components[component] = component_health
+            component_status = HealthStatus(
+                component_health.get('status', 'healthy')
+            )
+            overall_status = self._merge_component_status(
+                overall_status, component_status
+            )
+
+        return health_components, overall_status
+
+    @staticmethod
+    def _merge_component_status(
+        overall: 'HealthStatus', component_status: 'HealthStatus'
+    ) -> 'HealthStatus':
+        """Escalate overall status when a component reports worse health.
+
+        Severity order: CRITICAL > UNHEALTHY > DEGRADED > HEALTHY.
+        """
+        severity = {
+            HealthStatus.HEALTHY: 0,
+            HealthStatus.DEGRADED: 1,
+            HealthStatus.UNHEALTHY: 2,
+            HealthStatus.CRITICAL: 3,
+        }
+        if severity[component_status] > severity[overall]:
+            return component_status
+        return overall
+
+    def _collect_metrics_payload(self) -> Dict[str, Any]:
+        """Serialize the currently tracked health metrics."""
+        return {name: {
+            'value': metric.value,
+            'status': metric.status.value,
+            'message': metric.message,
+            'timestamp': metric.timestamp.isoformat()
+        } for name, metric in self.metrics.items()}
+
+    def _collect_alerts_payload(self) -> List[Dict[str, Any]]:
+        """Serialize the ten most recent unresolved alerts."""
+        active_alerts = [alert for alert in self.alerts if not alert.resolved]
+        return [{
+            'alert_id': alert.alert_id,
+            'component': alert.component,
+            'severity': alert.severity.value,
+            'message': alert.message,
+            'timestamp': alert.timestamp.isoformat()
+        } for alert in active_alerts[-10:]]  # Last 10 alerts
 
     async def _check_component_health(self, component: str) -> Dict[str, Any]:
         """Check health of a specific component."""
@@ -247,7 +279,10 @@ class ConsolidationHealthMonitor:
             return health
 
         except Exception as e:
-            self.logger.error(f"Error checking {component} health: {e}")
+            self.logger.error(
+                "Error checking %s health: %s",
+                _sanitize_log_value(component), _sanitize_log_value(e)
+            )
             return {
                 'status': HealthStatus.UNHEALTHY.value,
                 'timestamp': now.isoformat(),
@@ -659,7 +694,11 @@ class ConsolidationHealthMonitor:
             message=f"{type(error).__name__}: {str(error)}"
         )
 
-        self.logger.error(f"Error in {component}: {error}", exc_info=True)
+        self.logger.error(
+            "Error in %s: %s",
+            _sanitize_log_value(component), _sanitize_log_value(error),
+            exc_info=True
+        )
 
     def _update_performance_metrics(self):
         """Update performance metrics based on recent data."""
@@ -759,7 +798,12 @@ class ConsolidationHealthMonitor:
         if len(self.alerts) > 100:
             self.alerts = self.alerts[-100:]
 
-        self.logger.warning(f"Health alert [{severity.value}] for {component}: {message}")
+        self.logger.warning(
+            "Health alert [%s] for %s: %s",
+            _sanitize_log_value(severity.value),
+            _sanitize_log_value(component),
+            _sanitize_log_value(message)
+        )
 
     def resolve_alert(self, alert_id: str):
         """Mark an alert as resolved."""
@@ -767,7 +811,7 @@ class ConsolidationHealthMonitor:
             if alert.alert_id == alert_id and not alert.resolved:
                 alert.resolved = True
                 alert.resolution_timestamp = datetime.now()
-                self.logger.info(f"Alert {alert_id} resolved")
+                self.logger.info("Alert %s resolved", _sanitize_log_value(alert_id))
                 break
 
     async def get_health_summary(self) -> Dict[str, Any]:
