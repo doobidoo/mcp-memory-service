@@ -116,8 +116,8 @@ def _start_listener(command, env=None):
 def _foreign_listener(port):
     code = textwrap.dedent(
         """
-        import socket
-        import time
+        import socket  # inline import
+        import time  # inline import
 
         listener = socket.socket()
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
