@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -17,6 +18,30 @@ from .models import HarvestCandidate
 from .rewriter import load_llm_providers, is_usable_provider
 
 logger = logging.getLogger(__name__)
+
+
+def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
+    """Read a float env var, clamped to >= minimum, falling back to default on error."""
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return max(minimum, float(raw))
+    except (TypeError, ValueError):
+        logger.warning("Invalid %s=%r, using default %s", name, raw, default)
+        return default
+
+
+def _env_int(name: str, default: int, minimum: int = 0) -> int:
+    """Read an int env var, clamped to >= minimum, falling back to default on error."""
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return max(minimum, int(raw))
+    except (TypeError, ValueError):
+        logger.warning("Invalid %s=%r, using default %s", name, raw, default)
+        return default
 
 SYSTEM_PROMPT = (
     "You are a memory classifier for an AI coding assistant. "
@@ -93,6 +118,17 @@ class HarvestClassifier:
         self._api_key = groq_api_key or os.environ.get("GROQ_API_KEY")
         self._providers = None
         self._init_attempted = False
+        # Rate-limit pacing/backoff config (#1111). OPT-IN: defaults preserve the
+        # prior behavior (switch provider immediately on 429, no pacing). Henry
+        # can raise the default if he wants backoff on by default.
+        self._max_retries = _env_int("MCP_HARVEST_LLM_MAX_RETRIES", 0, minimum=0)
+        self._backoff_base = _env_float("MCP_HARVEST_LLM_BACKOFF_BASE", 1.0, minimum=0.0)
+        self._request_delay = _env_float("MCP_HARVEST_LLM_REQUEST_DELAY", 0.0, minimum=0.0)
+
+    def _pace(self):
+        """Optional inter-request delay to pace calls (0 = disabled)."""
+        if self._request_delay > 0:
+            time.sleep(self._request_delay)
 
     def _ensure_initialized(self):
         """Lazy-init provider chain, preferring configured providers over legacy Groq-only."""
@@ -126,25 +162,48 @@ class HarvestClassifier:
             return False
 
     def _call_llm(self, prompt: str, system_message: str, max_tokens: int, temperature: float) -> Optional[str]:
-        """Call the configured provider chain (or legacy Groq bridge), return response text or None."""
+        """Call the configured provider chain (or legacy Groq bridge), return response text or None.
+
+        Rate-limit handling (#1111): on a 429 the same provider is retried with
+        exponential backoff (base * 2**attempt) up to MCP_HARVEST_LLM_MAX_RETRIES
+        before moving to the next provider, instead of switching immediately and
+        continuing at full speed. An optional inter-request delay
+        (MCP_HARVEST_LLM_REQUEST_DELAY) paces calls whichever provider is used.
+        Non-rate-limit errors still fall through to the next provider at once.
+        """
         if self._providers:
             for provider in self._providers:
-                try:
-                    return self._call_openai_compatible(
-                        provider.base_url, provider.model, provider.api_key,
-                        prompt, system_message, max_tokens, temperature,
-                    )
-                except Exception as e:
-                    err_str = str(e).lower()
-                    if "rate limit" in err_str or "429" in err_str:
-                        logger.warning("%s rate limited, trying next", _sanitize_log_value(provider.name))
-                    else:
-                        logger.warning(
-                            "%s failed: %s, trying next",
-                            _sanitize_log_value(provider.name),
-                            _sanitize_log_value(str(e)),
+                self._pace()
+                for attempt in range(self._max_retries + 1):
+                    try:
+                        return self._call_openai_compatible(
+                            provider.base_url, provider.model, provider.api_key,
+                            prompt, system_message, max_tokens, temperature,
                         )
-                    continue
+                    except Exception as e:
+                        err_str = str(e).lower()
+                        is_rate_limit = "rate limit" in err_str or "429" in err_str
+                        if is_rate_limit and attempt < self._max_retries:
+                            delay = self._backoff_base * (2 ** attempt)
+                            logger.warning(
+                                "%s rate limited, backing off %.1fs (attempt %d/%d)",
+                                _sanitize_log_value(provider.name), delay,
+                                attempt + 1, self._max_retries,
+                            )
+                            time.sleep(delay)
+                            continue
+                        if is_rate_limit:
+                            logger.warning(
+                                "%s rate limited after %d retries, trying next",
+                                _sanitize_log_value(provider.name), self._max_retries,
+                            )
+                        else:
+                            logger.warning(
+                                "%s failed: %s, trying next",
+                                _sanitize_log_value(provider.name),
+                                _sanitize_log_value(str(e)),
+                            )
+                        break  # move to next provider
             return None
 
         if self._groq_bridge is not None:

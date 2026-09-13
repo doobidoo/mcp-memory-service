@@ -40,9 +40,18 @@ class MetadataMixin:
             return
 
         def batch_update():
+            # issue #1239: persist BOTH the metadata JSON and the dedicated
+            # last_accessed column, so staleness/decay measure disuse (not age).
+            # The column is what _apply_stale_days_filter reads.
+            rows = []
+            for m in memories:
+                la = m.metadata.get("last_accessed_at")
+                last_accessed = int(la) if la is not None else None
+                rows.append((json.dumps(m.metadata), last_accessed, m.content_hash))
             self.conn.executemany(
-                "UPDATE memories SET metadata = ? WHERE content_hash = ? AND deleted_at IS NULL",
-                [(json.dumps(m.metadata), m.content_hash) for m in memories],
+                "UPDATE memories SET metadata = ?, last_accessed = ? "
+                "WHERE content_hash = ? AND deleted_at IS NULL",
+                rows,
             )
             self.conn.commit()
 
