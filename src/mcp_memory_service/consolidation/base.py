@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 import logging
 
 from ..models.memory import Memory
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ class ConsolidationConfig:
     relevance_threshold: float = 0.1
     access_threshold_days: int = 90
     archive_location: Optional[str] = None
+    forgetting_min_age_days: int = 365  # Floor for forgetting candidate age; stale tail reachable past horizon window
 
     # Incremental consolidation settings
     batch_size: int = 500  # Memories to process per consolidation run
@@ -126,7 +128,7 @@ class ConsolidationBase(ABC):
         
         for memory in memories:
             if not hasattr(memory, 'content_hash') or not memory.content_hash:
-                self.logger.error(f"Memory missing content_hash: {memory}")
+                self.logger.error("Memory missing content_hash: %s", _sanitize_log_value(f"{memory}"))
                 return False
         
         return True
@@ -153,7 +155,7 @@ class ConsolidationBase(ABC):
                 ts = ts.replace(tzinfo=timezone.utc)
             return (ref_time - ts).days
         else:
-            self.logger.warning(f"Memory {memory.content_hash} has no timestamp")
+            self.logger.warning("Memory %s has no timestamp", _sanitize_log_value(f"{memory.content_hash}"))
             return 0
     
     def _extract_memory_type(self, memory: Memory) -> str:

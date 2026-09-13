@@ -24,7 +24,7 @@ cat > "$REPO_PATH/mcp_server_config.json" << EOF
   "mcpServers": {
     "memory": {
       "command": "$VENV_PYTHON",
-      "args": ["-m", "src.mcp_memory_service.server"],
+      "args": ["-m", "mcp_memory_service.server"],
       "cwd": "$REPO_PATH",
       "env": {
         "MCP_MEMORY_STORAGE_BACKEND": "sqlite_vec",
@@ -49,4 +49,4 @@ echo "🚀 Alternative: Start server manually and use Claude Code normally"
 echo "   cd $REPO_PATH"
 echo "   source venv/bin/activate"
 echo "   export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec"
-echo "   python -m src.mcp_memory_service.server"
+echo "   python -m mcp_memory_service.server"

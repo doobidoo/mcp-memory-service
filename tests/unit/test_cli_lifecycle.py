@@ -19,16 +19,34 @@ Tests verify the new launch/stop/restart/info/health/logs commands
 are properly registered and functional.
 """
 
+import json
 import os
 import socket
 import subprocess
 import sys
+import tempfile
 import textwrap
-from unittest.mock import MagicMock
+import time
+from collections import deque
+from unittest.mock import MagicMock, call, patch
 
+from click import Command
 from click.testing import CliRunner
 
 from mcp_memory_service.cli import lifecycle
+from mcp_memory_service.cli.lifecycle import (
+    _check_already_running,
+    launch,
+    logs,
+)
+from mcp_memory_service.cli.main import (
+    LAZY_COMMANDS,
+    cli,
+    health_cmd,
+    info,
+    restart,
+    stop,
+)
 
 
 _REAL_KILL_PROCESS = lifecycle._kill_process
@@ -40,7 +58,6 @@ _REAL_KILL_PROCESS = lifecycle._kill_process
 
 def test_lifecycle_commands_registered():
     """Test that all lifecycle commands are registered with the CLI group."""
-    from mcp_memory_service.cli.main import cli, LAZY_COMMANDS
     
     # Get available commands
     ctx = cli.make_context('memory', [])
@@ -55,7 +72,6 @@ def test_lifecycle_commands_registered():
 
 def test_launch_command_structure():
     """Test that the launch command has expected options."""
-    from mcp_memory_service.cli.main import launch
     
     # Launch should be a Click command
     assert hasattr(launch, 'callback')
@@ -71,7 +87,6 @@ def test_launch_command_structure():
 
 def test_stop_command_structure():
     """Test that the stop command has expected options."""
-    from mcp_memory_service.cli.main import stop
     
     assert hasattr(stop, 'callback')
     param_names = [p.name for p in stop.params]
@@ -101,8 +116,8 @@ def _start_listener(command, env=None):
 def _foreign_listener(port):
     code = textwrap.dedent(
         """
-        import socket
-        import time
+        import socket  # inline import
+        import time  # inline import
 
         listener = socket.socket()
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -233,7 +248,6 @@ def test_stop_force_kills_foreign_listener(monkeypatch, tmp_path):
 
 def test_info_command_structure():
     """Test that the info command has expected options."""
-    from mcp_memory_service.cli.main import info
     
     assert hasattr(info, 'callback')
     param_names = [p.name for p in info.params]
@@ -244,7 +258,6 @@ def test_info_command_structure():
 
 def test_health_command_structure():
     """Test that the health command has expected options."""
-    from mcp_memory_service.cli.main import health_cmd
     
     assert hasattr(health_cmd, 'callback')
     param_names = [p.name for p in health_cmd.params]
@@ -255,7 +268,6 @@ def test_health_command_structure():
 
 def test_logs_command_structure():
     """Test that the logs command has expected options."""
-    from mcp_memory_service.cli.main import logs
     
     assert hasattr(logs, 'callback')
     param_names = [p.name for p in logs.params]
@@ -265,8 +277,6 @@ def test_logs_command_structure():
 
 def test_lifecycle_commands_use_lifecycle_module():
     """Test that lifecycle commands are properly defined in the CLI module."""
-    from mcp_memory_service.cli.main import launch, stop, restart, info, health_cmd, logs
-    from click import Command
     
     # All lifecycle commands should be Click Command objects
     assert isinstance(launch, Command), f"launch is {type(launch)}, not Command"
@@ -293,9 +303,6 @@ def test_launch_command_no_c_style_injection():
     With safe argument list:
         [sys.executable, "-m", "uvicorn", "app:app", "--host", host, "--port", str(port)]
     """
-    from mcp_memory_service.cli import lifecycle
-    from unittest.mock import patch, MagicMock
-    import subprocess
     
     # Mock subprocess.Popen to capture the command that would be executed
     with patch('subprocess.Popen') as mock_popen:
@@ -333,8 +340,6 @@ def test_launch_command_no_c_style_injection():
                     malicious_host = "127.0.0.1'; echo pwned #"
 
                     # We need to call through the click command entry point
-                    from click.testing import CliRunner
-                    from mcp_memory_service.cli.lifecycle import launch
 
                     runner = CliRunner()
                     result = runner.invoke(launch, ['--host', malicious_host, '--port', '8000', '--detach'])
@@ -363,9 +368,6 @@ def test_launch_command_sends_excluded_handles():
     The fix ensures parent closes stdout/stderr handles after Popen,
     preventing file handle leaks in detached mode.
     """
-    from mcp_memory_service.cli import lifecycle
-    from unittest.mock import patch, MagicMock, call
-    import subprocess
     
     with patch('subprocess.Popen') as mock_popen:
         with patch('builtins.open') as mock_open:
@@ -395,8 +397,6 @@ def test_launch_command_sends_excluded_handles():
                         # Mock _log_file to return a valid Path
                         patch.object(lifecycle, '_log_file', return_value=MagicMock()),
                     ):
-                        from click.testing import CliRunner
-                        from mcp_memory_service.cli.lifecycle import launch
 
                         runner = CliRunner()
                         result = runner.invoke(launch, ['--host', '127.0.0.1', '--port', '8000', '--detach'])
@@ -413,9 +413,6 @@ def test_logs_command_uses_streaming_tail():
     The fix replaces log_path.read_text().splitlines() with:
         list(deque(f, maxlen=lines))
     """
-    import tempfile
-    import os
-    from collections import deque
     
     # Create a test log file with multiple lines
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -438,9 +435,6 @@ def test_logs_command_uses_streaming_tail():
 
 def test_logs_command_handle_missing_log_file():
     """Test that logs command gracefully handles missing log file."""
-    from click.testing import CliRunner
-    from mcp_memory_service.cli.lifecycle import logs
-    from unittest.mock import patch
     
     runner = CliRunner()
     
@@ -457,8 +451,6 @@ def test_logs_command_handle_missing_log_file():
 
 def test_launch_help_text_security_warning():
     """Test that launch command help text contains security warning about host binding."""
-    from click.testing import CliRunner
-    from mcp_memory_service.cli.lifecycle import launch
     
     runner = CliRunner()
     result = runner.invoke(launch, ['--help'])
@@ -469,13 +461,24 @@ def test_launch_help_text_security_warning():
     # The fix adds a warning about binding to non-loopback hosts
 
 
+def test_check_already_running_returns_pid_on_healthy():
+    """Test that _check_already_running returns the existing PID when healthy.
+
+    This exercises the extracted helper introduced in the lifecycle refactoring.
+    Without the refactoring, this function does not exist.
+    """
+
+    with (
+        patch('mcp_memory_service.cli.lifecycle._read_pid', return_value=12345),
+        patch('mcp_memory_service.cli.lifecycle._probe_health') as mock_probe,
+    ):
+        mock_probe.return_value = ({"status": "healthy"}, False)
+        result = _check_already_running("http://127.0.0.1:8000", 8000)
+        assert result == 12345
 
 def test_read_pid_accepts_json_metadata_for_live_process(tmp_path, monkeypatch):
     """A live managed child must survive JSON PID metadata validation."""
-    import json
-    import subprocess
 
-    from mcp_memory_service.cli import lifecycle
 
     # Match the launcher's stable command-line prefix without importing the
     # real uvicorn application: a tiny temporary module keeps the child alive.

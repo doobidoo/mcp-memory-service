@@ -32,6 +32,7 @@ except ImportError:
 
 from .consolidator import DreamInspiredConsolidator
 from .belief_service import BeliefService
+from ..compat import _sanitize_log_value
 
 class ConsolidationScheduler:
     """
@@ -82,6 +83,11 @@ class ConsolidationScheduler:
                 self.logger.warning("APScheduler not available - consolidation scheduling disabled")
             elif not enabled:
                 self.logger.info("Consolidation scheduling disabled by configuration")
+
+        # Wire scheduler reference into the health monitor (if present)
+        health_monitor = getattr(self.consolidator, 'health_monitor', None)
+        if health_monitor is not None and hasattr(health_monitor, 'attach_scheduler'):
+            health_monitor.attach_scheduler(self)
     
     async def start(self) -> bool:
         """Start the consolidation scheduler."""
@@ -99,12 +105,12 @@ class ConsolidationScheduler:
             # Log scheduled jobs
             jobs = self.scheduler.get_jobs()
             for job in jobs:
-                self.logger.info(f"Scheduled job: {job.id} - next run: {job.next_run_time}")
+                self.logger.info("Scheduled job: %s - next run: %s", _sanitize_log_value(job.id), _sanitize_log_value(job.next_run_time))
             
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to start consolidation scheduler: {e}")
+            self.logger.error("Failed to start consolidation scheduler: %s", _sanitize_log_value(e))
             return False
     
     async def stop(self) -> bool:
@@ -117,7 +123,7 @@ class ConsolidationScheduler:
             self.logger.info("Consolidation scheduler stopped")
             return True
         except Exception as e:
-            self.logger.error(f"Error stopping consolidation scheduler: {e}")
+            self.logger.error("Error stopping consolidation scheduler: %s", _sanitize_log_value(e))
             return False
     
     def _schedule_consolidation_jobs(self):
@@ -128,7 +134,7 @@ class ConsolidationScheduler:
             schedule_spec = self.schedule_config.get(horizon, 'disabled')
             
             if schedule_spec == 'disabled':
-                self.logger.debug(f"Consolidation for {horizon} horizon is disabled")
+                self.logger.debug("Consolidation for %s horizon is disabled", _sanitize_log_value(horizon))
                 continue
             
             try:
@@ -143,10 +149,10 @@ class ConsolidationScheduler:
                         name=f"Consolidation - {horizon.title()}",
                         replace_existing=True
                     )
-                    self.logger.info(f"Scheduled {horizon} consolidation: {schedule_spec}")
+                    self.logger.info("Scheduled %s consolidation: %s", _sanitize_log_value(horizon), _sanitize_log_value(schedule_spec))
                 
             except Exception as e:
-                self.logger.error(f"Error scheduling {horizon} consolidation: {e}")
+                self.logger.error("Error scheduling %s consolidation: %s", _sanitize_log_value(horizon), _sanitize_log_value(e))
     
     def _create_trigger(self, horizon: str, schedule_spec: str):
         """Create APScheduler trigger from schedule specification."""
@@ -218,17 +224,17 @@ class ConsolidationScheduler:
                 return CronTrigger(month=month, day=day, hour=hour, minute=minute)
             
             else:
-                self.logger.error(f"Unknown time horizon: {horizon}")
+                self.logger.error("Unknown time horizon: %s", _sanitize_log_value(horizon))
                 return None
                 
         except Exception as e:
-            self.logger.error(f"Error creating trigger for {horizon} with spec '{schedule_spec}': {e}")
+            self.logger.error("Error creating trigger for %s with spec '%s': %s", _sanitize_log_value(horizon), _sanitize_log_value(schedule_spec), _sanitize_log_value(e))
             return None
     
     async def _run_consolidation_job(self, time_horizon: str):
         """Execute a consolidation job for the specified time horizon."""
         job_start_time = datetime.now()
-        self.logger.info(f"Starting scheduled {time_horizon} consolidation")
+        self.logger.info("Starting scheduled %s consolidation", _sanitize_log_value(time_horizon))
         
         try:
             # Run the consolidation
@@ -242,7 +248,7 @@ class ConsolidationScheduler:
                     belief_svc = BeliefService(self.consolidator.storage)
                     belief_stats = await belief_svc.derive_beliefs()
                 except Exception as be:
-                    self.logger.warning(f"Belief derivation error (non-fatal): {be}")
+                    self.logger.warning("Belief derivation error (non-fatal): %s", _sanitize_log_value(be))
 
             
             # Record successful execution
@@ -297,7 +303,7 @@ class ConsolidationScheduler:
             
             self._add_job_to_history(job_record)
             
-            self.logger.error(f"Failed {time_horizon} consolidation: {e}")
+            self.logger.error("Failed %s consolidation: %s", _sanitize_log_value(time_horizon), _sanitize_log_value(e))
             raise
     
     def _add_job_to_history(self, job_record: Dict[str, Any]):
@@ -311,11 +317,11 @@ class ConsolidationScheduler:
     def _job_executed_listener(self, event):
         """Handle job execution events."""
         self.execution_stats['total_jobs'] += 1
-        self.logger.debug(f"Job executed: {event.job_id}")
+        self.logger.debug("Job executed: %s", _sanitize_log_value(event.job_id))
     
     def _job_error_listener(self, event):
         """Handle job error events."""
-        self.logger.error(f"Job error: {event.job_id} - {event.exception}")
+        self.logger.error("Job error: %s - %s", _sanitize_log_value(event.job_id), _sanitize_log_value(event.exception))
     
     async def trigger_consolidation(self, time_horizon: str, immediate: bool = True) -> bool:
         """Manually trigger a consolidation job."""
@@ -342,11 +348,11 @@ class ConsolidationScheduler:
                     max_instances=1
                 )
                 
-                self.logger.info(f"Scheduled manual {time_horizon} consolidation")
+                self.logger.info("Scheduled manual %s consolidation", _sanitize_log_value(time_horizon))
                 return True
                 
         except Exception as e:
-            self.logger.error(f"Error triggering {time_horizon} consolidation: {e}")
+            self.logger.error("Error triggering %s consolidation: %s", _sanitize_log_value(time_horizon), _sanitize_log_value(e))
             return False
     
     async def get_scheduler_status(self) -> Dict[str, Any]:
@@ -402,7 +408,7 @@ class ConsolidationScheduler:
             return True
             
         except Exception as e:
-            self.logger.error(f"Error updating consolidation schedule: {e}")
+            self.logger.error("Error updating consolidation schedule: %s", _sanitize_log_value(e))
             return False
     
     async def pause_consolidation(self, time_horizon: Optional[str] = None) -> bool:
@@ -416,9 +422,9 @@ class ConsolidationScheduler:
                 job = self.scheduler.get_job(job_id)
                 if job:
                     self.scheduler.pause_job(job_id)
-                    self.logger.info(f"Paused {time_horizon} consolidation")
+                    self.logger.info("Paused %s consolidation", _sanitize_log_value(time_horizon))
                 else:
-                    self.logger.warning(f"No job found for {time_horizon} consolidation")
+                    self.logger.warning("No job found for %s consolidation", _sanitize_log_value(time_horizon))
             else:
                 # Pause all consolidation jobs
                 jobs = self.scheduler.get_jobs()
@@ -431,7 +437,7 @@ class ConsolidationScheduler:
             return True
             
         except Exception as e:
-            self.logger.error(f"Error pausing consolidation: {e}")
+            self.logger.error("Error pausing consolidation: %s", _sanitize_log_value(e))
             return False
     
     async def resume_consolidation(self, time_horizon: Optional[str] = None) -> bool:
@@ -445,9 +451,9 @@ class ConsolidationScheduler:
                 job = self.scheduler.get_job(job_id)
                 if job:
                     self.scheduler.resume_job(job_id)
-                    self.logger.info(f"Resumed {time_horizon} consolidation")
+                    self.logger.info("Resumed %s consolidation", _sanitize_log_value(time_horizon))
                 else:
-                    self.logger.warning(f"No job found for {time_horizon} consolidation")
+                    self.logger.warning("No job found for %s consolidation", _sanitize_log_value(time_horizon))
             else:
                 # Resume all consolidation jobs
                 jobs = self.scheduler.get_jobs()
@@ -460,5 +466,5 @@ class ConsolidationScheduler:
             return True
             
         except Exception as e:
-            self.logger.error(f"Error resuming consolidation: {e}")
+            self.logger.error("Error resuming consolidation: %s", _sanitize_log_value(e))
             return False
