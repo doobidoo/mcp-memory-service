@@ -564,6 +564,8 @@ class DreamInspiredConsolidator:
             f"processed {len(forgetting_results)} candidates"
         )
 
+        # Retained rows must sort behind candidates not processed yet.
+        await self._update_consolidation_timestamps(forgetting_candidates)
         await self._apply_forgetting_results(forgetting_results)
         return forgetting_results
 
@@ -585,7 +587,7 @@ class DreamInspiredConsolidator:
         batch_size = self.config.batch_size
         if len(memories) > batch_size:
             self.logger.info(
-                f"Incremental mode: Processing {batch_size} oldest memories "
+                f"Processing {batch_size} oldest memories "
                 f"(out of {len(memories)} in the window)"
             )
             memories = memories[:batch_size]

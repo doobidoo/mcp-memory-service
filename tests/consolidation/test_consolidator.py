@@ -1,12 +1,16 @@
 """Integration tests for the main dream-inspired consolidator."""
 
+import asyncio
+import os
+
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
-from mcp_memory_service.consolidation.consolidator import DreamInspiredConsolidator
-from mcp_memory_service.consolidation.base import ConsolidationReport
+from mcp_memory_service.consolidation.consolidator import DreamInspiredConsolidator, HORIZON_CONFIGS
+from mcp_memory_service.consolidation.base import ConsolidationConfig, ConsolidationReport
 from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
 
 @pytest.mark.integration
@@ -273,7 +277,6 @@ class TestDreamInspiredConsolidator:
     async def test_concurrent_consolidation_prevention(self, consolidator):
         """Test that the system handles concurrent consolidation requests appropriately."""
         # Start two consolidations concurrently
-        import asyncio
         
         task1 = asyncio.create_task(consolidator.consolidate("daily"))
         task2 = asyncio.create_task(consolidator.consolidate("weekly"))
@@ -429,8 +432,6 @@ class TestDreamInspiredConsolidator:
         ``min_age_cutoff`` and ``horizon_cutoff``.  Without the fix the
         start_time would be ``min_age_cutoff`` (non-zero).
         """
-        from mcp_memory_service.consolidation.consolidator import HORIZON_CONFIGS
-        from datetime import datetime, timedelta, timezone
 
         # Use a config with a known forgetting_min_age_days
         consolidation_config.forgetting_min_age_days = 30
@@ -479,8 +480,6 @@ class TestForgettingCandidatesRealStorage:
     @pytest.fixture
     def real_storage(self, tmp_path):
         """Create a real SqliteVecMemoryStorage in a temp directory."""
-        from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-        import os
 
         db_path = str(tmp_path / "test_forgetting.db")
         storage = SqliteVecMemoryStorage(
@@ -488,7 +487,6 @@ class TestForgettingCandidatesRealStorage:
             embedding_model="all-MiniLM-L6-v2",
         )
         # Initialize synchronously (the fixture is sync)
-        import asyncio
         loop = asyncio.new_event_loop()
         loop.run_until_complete(storage.initialize())
 
@@ -505,8 +503,6 @@ class TestForgettingCandidatesRealStorage:
 
     def _make_memory(self, content, content_hash, days_old):
         """Create a Memory with timestamps set to `days_old` days ago."""
-        from datetime import datetime, timedelta, timezone
-        import time as time_mod
 
         now = datetime.now(timezone.utc)
         dt = now - timedelta(days=days_old)
@@ -525,10 +521,8 @@ class TestForgettingCandidatesRealStorage:
         )
 
     @pytest.mark.asyncio
-    async def test_forgetting_candidates_returns_only_stale_tail(self, real_storage):
+    async def test_forgetting_candidates_returns_only_stale_tail(self, real_storage, temp_archive_path):
         """Seed at 30/200/400/800 days; forgetting should return 400 and 800."""
-        from mcp_memory_service.consolidation.consolidator import DreamInspiredConsolidator
-        from mcp_memory_service.consolidation.base import ConsolidationConfig
 
         # Seed memories at different ages
         memories = [
@@ -541,7 +535,7 @@ class TestForgettingCandidatesRealStorage:
             await real_storage.store(mem)
 
         # Create consolidator with real storage
-        config = ConsolidationConfig()
+        config = ConsolidationConfig(archive_location=temp_archive_path)
         config.forgetting_min_age_days = 365
         consolidator = DreamInspiredConsolidator(real_storage, config)
 
@@ -566,10 +560,8 @@ class TestForgettingCandidatesRealStorage:
             )
 
     @pytest.mark.asyncio
-    async def test_horizon_selector_still_returns_young_memories(self, real_storage):
+    async def test_horizon_selector_still_returns_young_memories(self, real_storage, temp_archive_path):
         """Verify _get_memories_for_horizon('yearly') still returns 30- and 200-day rows."""
-        from mcp_memory_service.consolidation.consolidator import DreamInspiredConsolidator
-        from mcp_memory_service.consolidation.base import ConsolidationConfig
 
         # Seed memories (each test gets fresh tmp_path storage)
         memories = [
@@ -581,7 +573,7 @@ class TestForgettingCandidatesRealStorage:
         for mem in memories:
             await real_storage.store(mem)
 
-        config = ConsolidationConfig()
+        config = ConsolidationConfig(archive_location=temp_archive_path)
         config.forgetting_min_age_days = 365
         consolidator = DreamInspiredConsolidator(real_storage, config)
 
@@ -591,6 +583,37 @@ class TestForgettingCandidatesRealStorage:
         contents = {m.content for m in yearly_memories}
 
         # 30 and 200 are within the yearly window
-        assert "30 days old" in contents or "200 days old" in contents, (
+        assert contents == {"30 days old", "200 days old"}, (
             "yearly horizon should return memories within the 365-day window"
         )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("incremental_mode", [True, False])
+    async def test_forgetting_batch_advances_between_runs(
+        self, real_storage, temp_archive_path, incremental_mode
+    ):
+        """Retained rows must yield to the next stale row after one batch."""
+        for age in (30, 200, 400, 800):
+            await real_storage.store(self._make_memory(f"{age} days old", f"hash_{age}d", age))
+        config = ConsolidationConfig(
+            archive_location=temp_archive_path, batch_size=1,
+            incremental_mode=incremental_mode,
+        )
+        consolidator = DreamInspiredConsolidator(real_storage, config)
+        consolidator.forgetting_engine.process = AsyncMock(return_value=[])
+        seen = []
+        original = consolidator._get_forgetting_candidates
+
+        async def capture(horizon):
+            candidates = await original(horizon)
+            seen.append({memory.content for memory in candidates})
+            return candidates
+
+        consolidator._get_forgetting_candidates = capture
+        now = datetime.now()
+        report = ConsolidationReport(
+            time_horizon="yearly", start_time=now, end_time=now, memories_processed=0,
+        )
+        await consolidator._run_forgetting_phase("yearly", report)
+        await consolidator._run_forgetting_phase("yearly", report)
+        assert seen == [{"800 days old"}, {"400 days old"}]
