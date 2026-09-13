@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from mcp_memory_service.storage.hybrid import HybridMemoryStorage
 from mcp_memory_service import config as app_config
+from mcp_memory_service.compat import _sanitize_log_value
 
 # Set up logging
 logging.basicConfig(
@@ -73,7 +74,7 @@ async def main():
 
     # Check that hybrid backend is configured
     if app_config.STORAGE_BACKEND != 'hybrid':
-        logger.error(f"Drift detection requires hybrid backend, but configured backend is: {app_config.STORAGE_BACKEND}")
+        logger.error("Drift detection requires hybrid backend, but configured backend is: %s", _sanitize_log_value(f"{app_config.STORAGE_BACKEND}"))
         logger.error("Set MCP_MEMORY_STORAGE_BACKEND=hybrid in your environment or .env file")
         return 1
 
@@ -82,9 +83,9 @@ async def main():
         app_config.HYBRID_DRIFT_BATCH_SIZE = args.limit
 
     logger.info("=== Hybrid Backend Drift Detection ===")
-    logger.info(f"Mode: {'APPLY CHANGES' if args.apply else 'DRY RUN (preview only)'}")
-    logger.info(f"Batch size: {args.limit or app_config.HYBRID_DRIFT_BATCH_SIZE}")
-    logger.info(f"Drift detection enabled: {app_config.HYBRID_SYNC_UPDATES}")
+    logger.info("Mode: %s", _sanitize_log_value(f"{'APPLY CHANGES' if args.apply else 'DRY RUN (preview only)'}"))
+    logger.info("Batch size: %s", _sanitize_log_value(f"{args.limit or app_config.HYBRID_DRIFT_BATCH_SIZE}"))
+    logger.info("Drift detection enabled: %s", _sanitize_log_value(f"{app_config.HYBRID_SYNC_UPDATES}"))
 
     if not app_config.HYBRID_SYNC_UPDATES:
         logger.warning("Drift detection is disabled (MCP_HYBRID_SYNC_UPDATES=false)")
@@ -123,7 +124,7 @@ async def main():
             logger.error("Sync service not available - hybrid backend may not be configured correctly")
             return 1
 
-        logger.info(f"Sync service initialized (drift check interval: {storage.sync_service.drift_check_interval}s)")
+        logger.info("Sync service initialized (drift check interval: %ss)", _sanitize_log_value(f"{storage.sync_service.drift_check_interval}"))
 
         # Run drift detection
         logger.info("\nStarting drift detection scan...\n")
@@ -149,7 +150,7 @@ async def main():
         return 0
 
     except Exception as e:
-        logger.error(f"Error during drift detection: {e}", exc_info=True)
+        logger.error("Error during drift detection: %s", _sanitize_log_value(f"{e}"), exc_info=True)
         return 1
 
 
