@@ -363,15 +363,14 @@ class TestDreamInspiredConsolidator:
         assert hasattr(mock_storage, 'update_memory')
     
     @pytest.mark.asyncio
-    async def test_configuration_impact(self, mock_storage):
-        """Test that configuration changes affect consolidation behavior."""
-        # Create two different configurations
-        config1 = type('Config', (), {
-            'decay_enabled': True,
-            'associations_enabled': True,
-            'clustering_enabled': True,
-            'compression_enabled': True,
-            'forgetting_enabled': True,
+    def _type_config(self, enabled: bool):
+        """Build a lightweight nominal ConsolidationConfig stand-in."""
+        return type('Config', (), {
+            'decay_enabled': enabled,
+            'associations_enabled': enabled,
+            'clustering_enabled': enabled,
+            'compression_enabled': enabled,
+            'forgetting_enabled': enabled,
             'retention_periods': {'standard': 30},
             'min_similarity': 0.3,
             'max_similarity': 0.7,
@@ -387,37 +386,22 @@ class TestDreamInspiredConsolidator:
             'incremental_mode': True
         })()
 
-        config2 = type('Config', (), {
-            'decay_enabled': False,
-            'associations_enabled': False,
-            'clustering_enabled': False,
-            'compression_enabled': False,
-            'forgetting_enabled': False,
-            'retention_periods': {'standard': 30},
-            'min_similarity': 0.3,
-            'max_similarity': 0.7,
-            'max_pairs_per_run': 50,
-            'min_cluster_size': 3,
-            'clustering_algorithm': 'simple',
-            'max_summary_length': 200,
-            'preserve_originals': True,
-            'relevance_threshold': 0.1,
-            'access_threshold_days': 30,
-            'archive_location': None,
-            'batch_size': 500,
-            'incremental_mode': True
-        })()
-        
+    async def test_configuration_impact(self, mock_storage):
+        """Test that configuration changes affect consolidation behavior."""
+        # Create two different configurations
+        config1 = self._type_config(True)
+        config2 = self._type_config(False)
+
         consolidator1 = DreamInspiredConsolidator(mock_storage, config1)
         consolidator2 = DreamInspiredConsolidator(mock_storage, config2)
-        
+
         # Both should work, but may produce different results
         report1 = await consolidator1.consolidate("weekly")
         report2 = await consolidator2.consolidate("weekly")
-        
+
         assert isinstance(report1, ConsolidationReport)
         assert isinstance(report2, ConsolidationReport)
-        
+
         # With disabled features, the second consolidator might process differently
         # but both should complete successfully
         assert report1.performance_metrics["success"] is True

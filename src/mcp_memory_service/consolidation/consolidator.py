@@ -323,15 +323,8 @@ class DreamInspiredConsolidator:
                 self.logger.info("✓ Found %s memories to process", len(memories))
 
                 # 2. Calculate/update relevance scores
-                self.logger.info(
-                    f"📊 Phase 1/6: Calculating relevance scores for {len(memories)} memories..."
-                )
-                performance_start = time.time()
-                relevance_scores = await self._update_relevance_scores(
+                relevance_scores = await self._run_relevance_phase(
                     memories, time_horizon
-                )
-                self.logger.info(
-                    f"✓ Relevance scoring completed in {time.time() - performance_start:.1f}s"
                 )
 
                 # 3. Cluster by semantic similarity (if enabled and appropriate)
@@ -339,36 +332,20 @@ class DreamInspiredConsolidator:
                 if self.config.clustering_enabled and check_horizon_requirements(
                     time_horizon, "clustering", self.ENABLED_PHASES
                 ):
-                    self.logger.info(
-                        f"🔗 Phase 2/6: Clustering memories by semantic similarity..."
+                    clusters = await self._run_clustering_phase(
+                        memories, time_horizon
                     )
-                    performance_start = time.time()
-                    clusters = await self.clustering_engine.process(memories)
                     report.clusters_created = len(clusters)
-                    self.logger.info(
-                        f"✓ Clustering completed in {time.time() - performance_start:.1f}s, created {len(clusters)} clusters"
-                    )
 
                 # 4. Run creative associations (if enabled and appropriate)
                 associations = []
                 if self.config.associations_enabled and check_horizon_requirements(
                     time_horizon, "associations", self.ENABLED_PHASES
                 ):
-                    self.logger.info(
-                        f"🧠 Phase 3/6: Discovering creative associations..."
-                    )
-                    performance_start = time.time()
-                    existing_associations = await self._get_existing_associations()
-                    associations = await self.association_engine.process(
-                        memories, existing_associations=existing_associations
+                    associations = await self._run_associations_phase(
+                        memories, time_horizon
                     )
                     report.associations_discovered = len(associations)
-                    self.logger.info(
-                        f"✓ Association discovery completed in {time.time() - performance_start:.1f}s, found {len(associations)} associations"
-                    )
-
-                    # Store new associations
-                    await self._store_associations(associations)
 
                 # 5. Compress clusters (if enabled and clusters exist)
                 compression_results = []
@@ -379,18 +356,10 @@ class DreamInspiredConsolidator:
                         time_horizon, "compression", self.ENABLED_PHASES
                     )
                 ):
-                    self.logger.info("🗜️ Phase 4/6: Compressing memory clusters...")
-                    performance_start = time.time()
-                    compression_results = await self.compression_engine.process(
+                    compression_results = await self._run_compression_phase(
                         clusters, memories
                     )
                     report.memories_compressed = len(compression_results)
-                    self.logger.info(
-                        f"✓ Compression completed in {time.time() - performance_start:.1f}s, compressed {len(compression_results)} clusters"
-                    )
-
-                    # Store compressed memories and update originals
-                    await self._handle_compression_results(compression_results)
 
                 # 6. Controlled forgetting (if enabled and appropriate)
                 # Forgetting gets its own candidate selector that reaches beyond
@@ -451,6 +420,73 @@ class DreamInspiredConsolidator:
         finally:
             if is_incremental and self.run_tracker:
                 self.run_tracker.release("incremental")
+
+    async def _run_relevance_phase(
+        self, memories: List[Memory], time_horizon: str
+    ) -> Dict[str, float]:
+        """Phase 1/6: score memories by relevance, returning {hash: score}."""
+        self.logger.info(
+            "📊 Phase 1/6: Calculating relevance scores for %s memories...",
+            len(memories),
+        )
+        performance_start = time.time()
+        relevance_scores = await self._update_relevance_scores(
+            memories, time_horizon
+        )
+        self.logger.info(
+            "✓ Relevance scoring completed in %.1fs",
+            time.time() - performance_start,
+        )
+        return relevance_scores
+
+    async def _run_clustering_phase(
+        self, memories: List[Memory], time_horizon: str
+    ) -> List:
+        """Phase 2/6: cluster memories by semantic similarity."""
+        self.logger.info("🔗 Phase 2/6: Clustering memories by semantic similarity...")
+        performance_start = time.time()
+        clusters = await self.clustering_engine.process(memories)
+        self.logger.info(
+            "✓ Clustering completed in %.1fs, created %s clusters",
+            time.time() - performance_start,
+            len(clusters),
+        )
+        return clusters
+
+    async def _run_associations_phase(
+        self, memories: List[Memory], time_horizon: str
+    ) -> List:
+        """Phase 3/6: discover and store creative associations."""
+        self.logger.info("🧠 Phase 3/6: Discovering creative associations...")
+        performance_start = time.time()
+        existing_associations = await self._get_existing_associations()
+        associations = await self.association_engine.process(
+            memories, existing_associations=existing_associations
+        )
+        self.logger.info(
+            "✓ Association discovery completed in %.1fs, found %s associations",
+            time.time() - performance_start,
+            len(associations),
+        )
+        await self._store_associations(associations)
+        return associations
+
+    async def _run_compression_phase(
+        self, clusters: List, memories: List[Memory]
+    ) -> List:
+        """Phase 4/6: compress clusters and store compressed results."""
+        self.logger.info("🗜️ Phase 4/6: Compressing memory clusters...")
+        performance_start = time.time()
+        compression_results = await self.compression_engine.process(
+            clusters, memories
+        )
+        self.logger.info(
+            "✓ Compression completed in %.1fs, compressed %s clusters",
+            time.time() - performance_start,
+            len(compression_results),
+        )
+        await self._handle_compression_results(compression_results)
+        return compression_results
 
     async def _get_memories_for_horizon(
         self, time_horizon: str, **kwargs
@@ -524,8 +560,9 @@ class DreamInspiredConsolidator:
             candidates = self._take_oldest_batch(candidates)
 
         self.logger.info(
-            f"Forgetting candidates: {len(candidates)} memories older than "
-            f"{min_age_days}d"
+            "Forgetting candidates: %s memories older than %sd",
+            len(candidates),
+            min_age_days,
         )
         return candidates
 
