@@ -44,6 +44,44 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def build_cloudflare_config():
+    """Build a Cloudflare config dict from the app configuration."""
+    cloudflare_keys = [
+        'CLOUDFLARE_API_TOKEN',
+        'CLOUDFLARE_ACCOUNT_ID',
+        'CLOUDFLARE_D1_DATABASE_ID',
+        'CLOUDFLARE_VECTORIZE_INDEX',
+        'CLOUDFLARE_R2_BUCKET',
+        'CLOUDFLARE_EMBEDDING_MODEL',
+        'CLOUDFLARE_LARGE_CONTENT_THRESHOLD',
+        'CLOUDFLARE_MAX_RETRIES',
+        'CLOUDFLARE_BASE_DELAY',
+    ]
+    return {
+        key.lower().replace('cloudflare_', ''): getattr(app_config, key, None)
+        for key in cloudflare_keys
+    }
+
+
+def print_drift_results(stats, apply):
+    """Print the drift-detection result summary."""
+    print("\n" + "=" * 60)
+    print(f"DRIFT DETECTION RESULTS {'(DRY RUN)' if not apply else '(CHANGES APPLIED)'}")
+    print("=" * 60)
+    print(f"  Memories checked:    {stats['checked']}")
+    print(f"  Drift detected:      {stats['drift_detected']}")
+    print(f"  {'Would sync' if not apply else 'Synced'}:          {stats['synced']}")
+    print(f"  Failed:              {stats['failed']}")
+    print("=" * 60)
+
+    if stats['drift_detected'] > 0 and not apply:
+        print("\nℹ️  Run with --apply to synchronize these memories")
+    elif stats['drift_detected'] > 0 and apply:
+        print("\n✅ Metadata synchronized successfully")
+    else:
+        print("\n✅ No drift detected - backends are in sync")
+
+
 async def main():
     """Run drift detection check."""
     parser = argparse.ArgumentParser(
@@ -97,21 +135,7 @@ async def main():
         db_path = app_config.SQLITE_VEC_PATH
 
         # Build Cloudflare config from environment
-        cloudflare_keys = [
-            'CLOUDFLARE_API_TOKEN',
-            'CLOUDFLARE_ACCOUNT_ID',
-            'CLOUDFLARE_D1_DATABASE_ID',
-            'CLOUDFLARE_VECTORIZE_INDEX',
-            'CLOUDFLARE_R2_BUCKET',
-            'CLOUDFLARE_EMBEDDING_MODEL',
-            'CLOUDFLARE_LARGE_CONTENT_THRESHOLD',
-            'CLOUDFLARE_MAX_RETRIES',
-            'CLOUDFLARE_BASE_DELAY',
-        ]
-        cloudflare_config = {
-            key.lower().replace('cloudflare_', ''): getattr(app_config, key, None)
-            for key in cloudflare_keys
-        }
+        cloudflare_config = build_cloudflare_config()
 
         storage = HybridMemoryStorage(
             sqlite_db_path=db_path,
@@ -131,21 +155,7 @@ async def main():
         stats = await storage.sync_service._detect_and_sync_drift(dry_run=not args.apply)
 
         # Print results
-        print("\n" + "="*60)
-        print(f"DRIFT DETECTION RESULTS {'(DRY RUN)' if not args.apply else '(CHANGES APPLIED)'}")
-        print("="*60)
-        print(f"  Memories checked:    {stats['checked']}")
-        print(f"  Drift detected:      {stats['drift_detected']}")
-        print(f"  {'Would sync' if not args.apply else 'Synced'}:          {stats['synced']}")
-        print(f"  Failed:              {stats['failed']}")
-        print("="*60)
-
-        if stats['drift_detected'] > 0 and not args.apply:
-            print("\nℹ️  Run with --apply to synchronize these memories")
-        elif stats['drift_detected'] > 0 and args.apply:
-            print("\n✅ Metadata synchronized successfully")
-        else:
-            print("\n✅ No drift detected - backends are in sync")
+        print_drift_results(stats, args.apply)
 
         return 0
 

@@ -403,6 +403,98 @@ def assign_types(db_path: str, assignments: Dict[str, str], dry_run: bool = Fals
 # MAIN SCRIPT
 # ============================================================================
 
+def _split_tags(tags_str):
+    """Parse a comma-separated tag string into a cleaned list."""
+    return [tag.strip() for tag in tags_str.split(",") if tag.strip()] if tags_str else []
+
+
+def _parse_metadata(metadata_str):
+    """Parse a JSON metadata string, tolerating malformed input."""
+    if not metadata_str:
+        return None
+    try:
+        return json.loads(metadata_str)
+    except json.JSONDecodeError:
+        return None
+
+
+def _build_assignments(engine, untyped_memories, show_reasoning):
+    """Infer a type for every untyped memory and record distributions."""
+    assignments = {}
+    type_distribution = Counter()
+    confidence_distribution = Counter()
+
+    for content_hash, content, tags_str, metadata_str in untyped_memories:
+        tags = _split_tags(tags_str)
+        metadata = _parse_metadata(metadata_str)
+
+        # Infer type
+        inferred_type, reasoning, confidence = engine.infer_type(content, tags, metadata)
+
+        # Store assignment
+        assignments[content_hash] = inferred_type
+        type_distribution[inferred_type] += 1
+        confidence_distribution[confidence] += 1
+
+        # Show reasoning if requested
+        if show_reasoning:
+            logger.info("%s... → %s (conf=%s)", _sanitize_log_value(f"{content_hash[:8]}"), _sanitize_log_value(f"{inferred_type}"), _sanitize_log_value(f"{confidence}"))
+            logger.info("  Reason: %s", _sanitize_log_value(f"{reasoning}"))
+            logger.info("  Tags: %s%s", _sanitize_log_value(f"{tags[:3]}"), _sanitize_log_value(f"{'...' if len(tags) > 3 else ''}"))
+            logger.info("  Preview: %s...", _sanitize_log_value(f"{content[:100]}"))
+            logger.info("")
+
+    return assignments, type_distribution, confidence_distribution
+
+
+def _print_statistics(engine, type_distribution, confidence_distribution):
+    """Print inference method, confidence, and type distributions."""
+    logger.info("")
+    logger.info("=" * 80)
+    logger.info("📈 Inference Statistics")
+    logger.info("=" * 80)
+
+    logger.info("\nInference Methods:")
+    for method, count in engine.get_stats().items():
+        logger.info("  %s: %s", _sanitize_log_value(f"{method}"), _sanitize_log_value(f"{count}"))
+
+    logger.info("\nConfidence Distribution:")
+    logger.info("  High (tag match): %s", _sanitize_log_value(f"{confidence_distribution[3]}"))
+    logger.info("  Medium (pattern/metadata): %s", _sanitize_log_value(f"{confidence_distribution[2]}"))
+    logger.info("  Low (fallback): %s", _sanitize_log_value(f"{confidence_distribution[1]}"))
+
+    logger.info("\nType Distribution:")
+    for memory_type, count in type_distribution.most_common():
+        logger.info("  %s: %s", _sanitize_log_value(f"{memory_type}"), _sanitize_log_value(f"{count}"))
+
+    logger.info("")
+    logger.info("=" * 80)
+
+
+def _apply_assignments(args, assignments):
+    """Backup and write assignments, or report the dry run outcome."""
+    if args.dry_run:
+        logger.info("")
+        logger.info("⚠️  This was a DRY RUN - no changes were made")
+        logger.info("   Run without --dry-run to apply assignments")
+        logger.info("=" * 80)
+        return
+
+    logger.info("")
+    logger.info("💾 Creating backup...")
+    backup_path = create_backup(args.db_path)
+
+    logger.info("")
+    logger.info("✍️  Assigning types...")
+    assign_types(args.db_path, assignments, dry_run=False)
+
+    logger.info("")
+    logger.info("=" * 80)
+    logger.info("✅ Type assignment completed successfully!")
+    logger.info("   Backup saved to: %s", _sanitize_log_value(f"{backup_path}"))
+    logger.info("=" * 80)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Intelligently assign types to untyped memories",
@@ -485,78 +577,15 @@ Examples:
 
     # Infer types
     logger.info("🧠 Inferring types...")
-    assignments = {}
-    type_distribution = Counter()
-    confidence_distribution = Counter()
-
-    for content_hash, content, tags_str, metadata_str in untyped_memories:
-        # Parse tags and metadata
-        tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()] if tags_str else []
-        metadata = None
-        if metadata_str:
-            try:
-                metadata = json.loads(metadata_str)
-            except json.JSONDecodeError:
-                pass
-
-        # Infer type
-        inferred_type, reasoning, confidence = engine.infer_type(content, tags, metadata)
-
-        # Store assignment
-        assignments[content_hash] = inferred_type
-        type_distribution[inferred_type] += 1
-        confidence_distribution[confidence] += 1
-
-        # Show reasoning if requested
-        if args.show_reasoning:
-            logger.info("%s... → %s (conf=%s)", _sanitize_log_value(f"{content_hash[:8]}"), _sanitize_log_value(f"{inferred_type}"), _sanitize_log_value(f"{confidence}"))
-            logger.info("  Reason: %s", _sanitize_log_value(f"{reasoning}"))
-            logger.info("  Tags: %s%s", _sanitize_log_value(f"{tags[:3]}"), _sanitize_log_value(f"{'...' if len(tags) > 3 else ''}"))
-            logger.info("  Preview: %s...", _sanitize_log_value(f"{content[:100]}"))
-            logger.info("")
+    assignments, type_distribution, confidence_distribution = _build_assignments(
+        engine, untyped_memories, args.show_reasoning
+    )
 
     # Display statistics
-    logger.info("")
-    logger.info("=" * 80)
-    logger.info("📈 Inference Statistics")
-    logger.info("=" * 80)
-
-    logger.info("\nInference Methods:")
-    for method, count in engine.get_stats().items():
-        logger.info("  %s: %s", _sanitize_log_value(f"{method}"), _sanitize_log_value(f"{count}"))
-
-    logger.info("\nConfidence Distribution:")
-    logger.info("  High (tag match): %s", _sanitize_log_value(f"{confidence_distribution[3]}"))
-    logger.info("  Medium (pattern/metadata): %s", _sanitize_log_value(f"{confidence_distribution[2]}"))
-    logger.info("  Low (fallback): %s", _sanitize_log_value(f"{confidence_distribution[1]}"))
-
-    logger.info("\nType Distribution:")
-    for memory_type, count in type_distribution.most_common():
-        logger.info("  %s: %s", _sanitize_log_value(f"{memory_type}"), _sanitize_log_value(f"{count}"))
-
-    logger.info("")
-    logger.info("=" * 80)
+    _print_statistics(engine, type_distribution, confidence_distribution)
 
     # Create backup and execute if not dry-run
-    if not args.dry_run:
-        logger.info("")
-        logger.info("💾 Creating backup...")
-        backup_path = create_backup(args.db_path)
-
-        logger.info("")
-        logger.info("✍️  Assigning types...")
-        updated = assign_types(args.db_path, assignments, dry_run=False)
-
-        logger.info("")
-        logger.info("=" * 80)
-        logger.info("✅ Type assignment completed successfully!")
-        logger.info("   Backup saved to: %s", _sanitize_log_value(f"{backup_path}"))
-        logger.info("=" * 80)
-    else:
-        logger.info("")
-        logger.info("⚠️  This was a DRY RUN - no changes were made")
-        logger.info("   Run without --dry-run to apply assignments")
-        logger.info("=" * 80)
+    _apply_assignments(args, assignments)
 
 
 if __name__ == "__main__":
