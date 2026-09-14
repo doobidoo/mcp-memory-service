@@ -109,3 +109,30 @@ def test_find_onnx_file_ignores_quantized_variants(monkeypatch, tmp_path):
     (onnx_dir / "model.onnx").write_bytes(b"full")
     assert m._find_onnx_file() == onnx_dir / "model.onnx"
 
+
+@pytest.mark.parametrize("bad_name", [
+    "bad name with spaces",   # space in base
+    "weird$model",            # shell/path metachar
+    "..",                     # base resolves to parent-dir token
+    "model;rm -rf",           # command-ish separators
+])
+def test_custom_model_name_is_validated(monkeypatch, bad_name):
+    """A non-default model name whose base (after the last '/') is not a plain
+    identifier is rejected before it becomes a filesystem path or Hub repo id.
+
+    Note: a leading path like ``a/b/base`` is reduced to ``base`` first, so this
+    guards the residual component that actually reaches the path/repo builders.
+    """
+    from mcp_memory_service.embeddings import onnx_embeddings as mod
+
+    monkeypatch.setattr(mod.ONNXEmbeddingModel, "_download_model_if_needed", lambda self: None)
+    monkeypatch.setattr(mod.ONNXEmbeddingModel, "_init_model", lambda self: None)
+    with pytest.raises(ValueError):
+        mod.ONNXEmbeddingModel(model_name=bad_name)
+
+
+def test_default_model_name_never_validated(monkeypatch):
+    """The default model skips validation entirely (backward compatible)."""
+    m = _make_without_io(monkeypatch, "all-MiniLM-L6-v2")
+    assert m._is_default_model is True
+

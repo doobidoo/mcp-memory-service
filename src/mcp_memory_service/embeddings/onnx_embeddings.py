@@ -7,6 +7,7 @@ Based on ONNXMiniLM_L6_V2 implementation.
 import hashlib
 import logging
 import os
+import re
 import tarfile
 from pathlib import Path
 from typing import List, Optional, Union
@@ -103,6 +104,16 @@ class ONNXEmbeddingModel:
             self._hf_repo = None
             self._model_dir = self.DOWNLOAD_PATH / self.EXTRACTED_FOLDER_NAME
         else:
+            # Guard the name before it becomes a filesystem path and a Hub
+            # repo id: require a plain identifier, and reject dot-only names
+            # ('.', '..') that would resolve to a directory token. This blocks
+            # path-traversal and separator tricks even though the name comes
+            # from operator-controlled config.
+            if not re.fullmatch(r"[A-Za-z0-9._-]+", base) or set(base) <= {"."}:
+                raise ValueError(
+                    f"Invalid embedding model name {base!r}: expected a plain "
+                    "identifier (letters, digits, '.', '_' or '-')."
+                )
             # onnx-community publishes pre-exported ONNX for common sentence
             # transformers. Allow an explicit override for other repos/layouts.
             self._hf_repo = os.environ.get(
