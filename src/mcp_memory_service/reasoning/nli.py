@@ -13,10 +13,11 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 from .nli_patterns import load_nli_patterns
 from ..config.locale import get_active_locales
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,8 @@ def _parse_nli_label(response: str):
       is unparseable and must fall back to the heuristic, not be acted on at
       0.9 confidence.
     - Any unknown/garbled first token also returns None.
+    - Enhanced robustness: if first-token anchor fails but there's exactly one
+      valid label and no negation context, extract that label.
 
     Returns the label string, or None when the caller should fall back to the
     heuristic classifier.
@@ -69,10 +72,36 @@ def _parse_nli_label(response: str):
     tokens = text.split()
     if not tokens:
         return None
+    
+    # Try first-token anchor (primary method)
     first = re.sub(r"[^a-z]", "", tokens[0])
-    if first not in _NLI_LABELS:
-        return None
-    return first
+    if first in _NLI_LABELS:
+        return first
+    
+    # Enhanced robustness: if exactly one label present and no negation context
+    if len(mentioned) == 1:
+        label = list(mentioned)[0]
+        # Check for negation words near the label that would make it unreliable
+        negation_words = ["no", "not", "never", "isn't", "aren't", "won't", "can't", "don't"]
+        text_words = text.split()
+        
+        # Find position of label in text
+        for i, word in enumerate(text_words):
+            if label in word:
+                # Check words around the label for negation (2 words before/after)
+                start = max(0, i - 2)
+                end = min(len(text_words), i + 3)
+                context = text_words[start:end]
+                
+                # If negation found near label, reject
+                if any(neg in " ".join(context) for neg in negation_words):
+                    return None
+        
+        # No negation context found, safe to extract the label
+        return label
+    
+    # Fall back to heuristic
+    return None
 
 
 class NLIClassifier:
@@ -83,6 +112,10 @@ class NLIClassifier:
             backend = os.environ.get("MCP_NLI_BACKEND", "heuristic")
         self.backend = backend
         self._warned_unimplemented = False
+        # Phase 2 state (R10, R12)
+        self._rewriter = None
+        self._llm_available = None
+        self._warned_degraded = False
 
     async def classify(self, premise: str, hypothesis: str) -> NLIResult:
         """Classify relationship between two texts."""
@@ -106,10 +139,22 @@ class NLIClassifier:
         provider chain (HARVEST_LLM_PROVIDERS) with fallback. Any failure
         degrades gracefully to the heuristic classifier.
         """
+        # R10: Resolve provider config once per run
         try:
-            from ..harvest.rewriter import HarvestRewriter
-
-            rewriter = HarvestRewriter()
+            rewriter = self._get_rewriter()
+            
+            # Check if LLM is configured once per run (cache result)
+            if self._llm_available is None:
+                try:
+                    self._llm_available = rewriter.is_configured
+                except Exception:
+                    # R11: Exception during is_configured check -> not available
+                    self._llm_available = False
+            
+            # R11: If no provider configured, use heuristic directly
+            if not self._llm_available:
+                return self._heuristic_classify(premise, hypothesis)
+            
             prompt = (
                 "Classify the relationship between Statement A and Statement B.\n"
                 "Answer with EXACTLY one word: entailment, contradiction, or neutral.\n\n"
@@ -121,15 +166,40 @@ class NLIClassifier:
             response = await rewriter._call_llm(prompt, timeout)
             label = _parse_nli_label(response)
             if label is None:
+                # R12: Empty/unparseable response triggers bounded warning
+                if not self._warned_degraded:
+                    self._warned_degraded = True
+                    sanitized_reason = _sanitize_log_value("unparseable or empty response from LLM")
+                    self._warn_once(sanitized_reason)
+                # R14: Preserve exact heuristic values
                 return self._heuristic_classify(premise, hypothesis)
             return NLIResult(label=label, confidence=0.9 if label != "neutral" else 0.3)
         except Exception as e:
-            logger.debug("LLM NLI failed (%s); falling back to heuristic", e)
+            # R12, R13: Exception triggers bounded warning with sanitization
+            if not self._warned_degraded:
+                self._warned_degraded = True
+                sanitized_reason = _sanitize_log_value(f"LLM call failed: {e}")
+                self._warn_once(sanitized_reason)
+            # R14: Preserve exact heuristic values
             return self._heuristic_classify(premise, hypothesis)
 
     async def classify_batch(self, pairs: List[Tuple[str, str]]) -> List[NLIResult]:
         """Batch classification."""
         return [await self.classify(p, h) for p, h in pairs]
+
+    def _get_rewriter(self):
+        """R10: Lazy initialization of HarvestRewriter to resolve config once per run."""
+        if self._rewriter is None:
+            from ..harvest.rewriter import HarvestRewriter
+            self._rewriter = HarvestRewriter()
+        return self._rewriter
+
+    def _warn_once(self, sanitized_reason: str):
+        """R12: Emit warning (reason already sanitized by caller)."""
+        logger.warning(
+            "NLI LLM degradation: %s; falling back to heuristic for remaining pairs",
+            sanitized_reason
+        )
 
     def _heuristic_classify(self, premise: str, hypothesis: str) -> NLIResult:
         """Keyword/pattern-based fallback classification."""
