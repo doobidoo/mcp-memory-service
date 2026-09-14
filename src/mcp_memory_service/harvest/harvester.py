@@ -150,14 +150,21 @@ class SessionHarvester:
                         if evolved:
                             stored += 1
                         else:
-                            # Provenance (RFC-harvest-provenance Phase 1)
-                            method = getattr(candidate, "harvest_method", "heuristic")
+                            # Provenance (RFC-harvest-provenance Phase 1).
+                            # Derive method from the model signal: only the LLM
+                            # path sets harvest_model, so its presence is the
+                            # source of truth — a missing/defaulted
+                            # harvest_method must not mislabel an LLM candidate.
+                            model = getattr(candidate, "harvest_model", None)
+                            method = getattr(candidate, "harvest_method", None)
+                            if not method:
+                                method = "llm" if model else "heuristic"
                             tags = ["session-harvest", f"harvest:method:{method}"] + candidate.tags
                             metadata = {
                                 "confidence": candidate.confidence,
                                 "source": "harvest",
                                 "harvest_method": method,
-                                "harvest_model": getattr(candidate, "harvest_model", None),
+                                "harvest_model": model,
                                 "harvest_pipeline_version": HARVEST_PIPELINE_VERSION,
                                 "harvest_session_id": result.session_id,
                             }

@@ -183,9 +183,6 @@ class HarvestRewriter:
         self._api_key = os.environ.get("GROQ_API_KEY", "")
         self._locale = os.environ.get("HARVEST_LOCALE", "en")
         self._locale_instruction = self._build_locale_instruction()
-        # Provenance: last provider/model that produced output in _call_llm.
-        self._last_provider: Optional[str] = None
-        self._last_model: Optional[str] = None
 
     @property
     def is_configured(self) -> bool:
@@ -224,12 +221,12 @@ class HarvestRewriter:
         ) + context_block
 
         try:
-            response = await self._call_llm(prompt, timeout=self._CALL_TIMEOUT_SINGLE)
+            response, _prov, _mdl = await self._call_llm(prompt, timeout=self._CALL_TIMEOUT_SINGLE)
         except Exception as e:
             logger.warning("LLM rewrite failed: %s", _sanitize_log_value(str(e)))
             return None
 
-        return self._parse_response(response, suggested_type)
+        return self._parse_response(response, suggested_type, _prov, _mdl)
 
     def rewrite_sync(self, text: str, suggested_type: str = "observation", already_extracted: list = None) -> Optional[RewriteResult]:
         """Synchronous wrapper for rewrite (works inside running event loop)."""
@@ -266,12 +263,12 @@ class HarvestRewriter:
         prompt = BATCH_PROMPT.format(n=len(items), memories=mem_block)
 
         try:
-            response = await self._call_llm(prompt, timeout=self._CALL_TIMEOUT_BATCH)
+            response, _prov, _mdl = await self._call_llm(prompt, timeout=self._CALL_TIMEOUT_BATCH)
         except Exception as e:
             logger.warning("Batch rewrite failed: %s", _sanitize_log_value(str(e)))
             return [None] * len(items)
 
-        return self._parse_batch_response(response, items)
+        return self._parse_batch_response(response, items, _prov, _mdl)
 
     def rewrite_batch_sync(self, items: list) -> list:
         """Synchronous wrapper for rewrite_batch."""
@@ -289,7 +286,8 @@ class HarvestRewriter:
             logger.warning("Batch rewrite_sync failed: %s", _sanitize_log_value(str(e)))
             return [None] * len(items)
 
-    def _parse_batch_response(self, response: str, items: list) -> list:
+    def _parse_batch_response(self, response: str, items: list,
+                              provider: Optional[str] = None, model: Optional[str] = None) -> list:
         """Parse numbered batch response into list of Optional[RewriteResult]."""
         results = [None] * len(items)
         if not response:
@@ -315,21 +313,22 @@ class HarvestRewriter:
                 parsed_type = type_match.group(1).lower()
                 insight = type_match.group(2).strip()
                 if parsed_type in VALID_TYPES:
-                    results[idx] = self._stamp(RewriteResult(content=insight, memory_type=parsed_type))
+                    results[idx] = self._stamp(RewriteResult(content=insight, memory_type=parsed_type), provider, model)
                 else:
-                    results[idx] = self._stamp(RewriteResult(content=content, memory_type=items[idx]['memory_type']))
+                    results[idx] = self._stamp(RewriteResult(content=content, memory_type=items[idx]['memory_type']), provider, model)
             else:
-                results[idx] = self._stamp(RewriteResult(content=content, memory_type=items[idx]['memory_type']))
+                results[idx] = self._stamp(RewriteResult(content=content, memory_type=items[idx]['memory_type']), provider, model)
 
         return results
 
-    def _stamp(self, result: "RewriteResult") -> "RewriteResult":
-        """Attach provenance (provider/model) of the last successful LLM call."""
-        result.provider = self._last_provider
-        result.model = self._last_model
+    def _stamp(self, result: "RewriteResult", provider: Optional[str], model: Optional[str]) -> "RewriteResult":
+        """Attach provenance (provider/model) of the call that produced this result."""
+        result.provider = provider
+        result.model = model
         return result
 
-    def _parse_response(self, response: str, suggested_type: str) -> Optional[RewriteResult]:
+    def _parse_response(self, response: str, suggested_type: str,
+                        provider: Optional[str] = None, model: Optional[str] = None) -> Optional[RewriteResult]:
         """Parse LLM response into RewriteResult or None."""
         if not response or not response.strip():
             return None
@@ -346,15 +345,19 @@ class HarvestRewriter:
             parsed_type = match.group(1).lower()
             content = match.group(2).strip()
             if parsed_type in VALID_TYPES:
-                return self._stamp(RewriteResult(content=content, memory_type=parsed_type))
+                return self._stamp(RewriteResult(content=content, memory_type=parsed_type), provider, model)
             # Unknown type — use content with suggested_type
-            return self._stamp(RewriteResult(content=response, memory_type=suggested_type))
+            return self._stamp(RewriteResult(content=response, memory_type=suggested_type), provider, model)
 
         # No type prefix — use full response with suggested_type
-        return self._stamp(RewriteResult(content=response, memory_type=suggested_type))
+        return self._stamp(RewriteResult(content=response, memory_type=suggested_type), provider, model)
 
-    async def _call_llm(self, prompt: str, timeout: float) -> str:
+    async def _call_llm(self, prompt: str, timeout: float) -> tuple[str, Optional[str], Optional[str]]:
         """Call LLM with provider fallback chain.
+
+        Returns ``(response, provider_name, model)`` so provenance travels with
+        the result of *this* call, not as shared instance state (which would
+        race across concurrent or fallback-partial batches).
 
         ``timeout`` bounds each provider attempt individually — callers'
         ThreadPoolExecutor wrapper timeouts (rewrite_sync/rewrite_batch_sync)
@@ -366,10 +369,8 @@ class HarvestRewriter:
                     result = await self._call_openai_compatible(
                         provider.base_url, provider.model, provider.api_key, prompt, timeout
                     )
-                    # Record which provider/model produced the output (provenance).
-                    self._last_provider = provider.name
-                    self._last_model = provider.model
-                    return result
+                    # Provenance travels with the result of this call.
+                    return result, provider.name, provider.model
                 except Exception as e:
                     err_str = str(e).lower()
                     if "rate limit" in err_str or "429" in err_str:
@@ -385,9 +386,7 @@ class HarvestRewriter:
         # Legacy single-provider
         if self._provider == "groq":
             result = await self._call_groq(prompt, timeout)
-            self._last_provider = "groq"
-            self._last_model = self._model
-            return result
+            return result, "groq", self._model
         raise ValueError(f"Unknown LLM provider: {self._provider}")
 
     async def _call_openai_compatible(self, base_url: str, model: str, api_key: str, prompt: str, timeout: float) -> str:
