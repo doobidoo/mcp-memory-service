@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v11.11.0</title>
+<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v11.12.0</title>
 <meta name="description" content="Memory layer for AI agents. REST API + MCP + OAuth + CLI + dashboard — one self-hosted service, every transport. 14+ client integrations, knowledge graph, automatic consolidation. LongMemEval R@5 86%, session ingestion, zero cloud cost.">
-<meta property="og:title" content="MCP Memory Service v11.11.0">
+<meta property="og:title" content="MCP Memory Service v11.12.0">
 <meta property="og:description" content="Consolidation clustering now fails loudly instead of silently degrading, plus a time-horizon fix. Self-hosted AI memory — REST, MCP, OAuth 2.1, CLI. LongMemEval R@5 86%.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://mcpmemory.services/">
@@ -125,7 +125,7 @@ footer a{color:var(--cyan)}
 <!-- Hero -->
 <header class="hero">
   <img src="brain-icon.png" alt="Memory for AI Agents" class="hero-logo">
-  <span class="hero-badge">mcp-memory-service v11.11 &mdash; Now Available</span>
+  <span class="hero-badge">mcp-memory-service v11.12 &mdash; Now Available</span>
   <h1>Memory for AI Agents</h1>
   <p>Persistent memory for AI agents &mdash; REST API, MCP, OAuth, CLI, dashboard. Semantic search, knowledge graph, automatic consolidation. One self-hosted service, every transport.</p>
   <div class="hero-buttons">
@@ -165,23 +165,23 @@ footer a{color:var(--cyan)}
 <!-- Features -->
 <section id="features">
   <div class="container">
-    <h2 class="section-title">What's New in v11.11</h2>
-    <p class="section-subtitle">MINOR release: three critical advisories closed. Remote transports served the filesystem tools, the SSE transport had no authentication at all, and open Dynamic Client Registration handed out read-write tokens. Development also moved back to GitHub. ~3,030 tests.</p>
+    <h2 class="section-title">What's New in v11.12</h2>
+    <p class="section-subtitle">MINOR release: the first since development moved back to GitHub. 73 merged pull requests, 43 of them from outside the maintainer, with the weight of them on retrieval correctness and consolidation. ~3,290 tests.</p>
     <div class="features-grid">
       <div class="feature-card" data-delay="0">
-        <div class="feature-icon privacy">&#128274;</div>
-        <h3>Filesystem Tools No Longer Reachable Remotely</h3>
-        <p>memory_harvest and memory_ingest take a caller-controlled path. The local_only_tools() filter ran in only one of three transports, so Streamable HTTP and SSE served them to remote callers. It now sits in the shared tool list and dispatch, where every transport passes. (GHSA-7crr-2r7w-cpfm)</p>
+        <div class="feature-icon consolidation">&#128269;</div>
+        <h3>Search Returns What You Asked For</h3>
+        <p>Four separate paths asked for the k nearest embeddings first and filtered afterwards, so excluded rows ate the candidate budget and a search could come back empty while matching memories existed. Eligibility now scopes the scan on sqlite-vec, Cloudflare over-fetches before applying a tag filter, match_all means AND, and compact search applies tags before the limit. (#1128, #1218, #1197, #1189)</p>
       </div>
       <div class="feature-card" data-delay="150">
-        <div class="feature-icon http">&#128273;</div>
-        <h3>The SSE Transport Now Authenticates</h3>
-        <p>/sse and /messages/ both reach the full MCP tool surface, and neither was gated. The check existed but was a closure inside another transport's function. Transports now also refuse to start on a non-loopback bind with no authentication configured. (GHSA-2hh8-qjxc-43x3)</p>
+        <div class="feature-icon privacy">&#129520;</div>
+        <h3>Consolidation Stopped Over-Deleting</h3>
+        <p>The duplicate check is symmetric and ran once per memory against the whole list, so both members of a near-duplicate pair were marked deletable, and that path skips the time-horizon guard. Forgetting also could never reach the stale tail, and the health monitor reported fixed strings instead of runtime state. (#1180, #1167, #1166)</p>
       </div>
       <div class="feature-card" data-delay="300">
-        <div class="feature-icon consolidation">&#128100;</div>
-        <h3>Self-Registration No Longer Grants Itself Write Access</h3>
-        <p>With open Dynamic Client Registration, a caller could register itself as confidential, exchange its own credentials, and hold a read-write token the owner never granted. Machine-to-machine grants now require gated registration; authorization_code with PKCE is unaffected. (GHSA-6mvm-q4j3-27qg)</p>
+        <div class="feature-icon http">&#127760;</div>
+        <h3>Multilingual Embeddings, and Proxies That Work</h3>
+        <p>The ONNX backend honors MCP_EMBEDDING_MODEL instead of treating it as a label, so a multilingual model runs without torch. MCP_HTTP_ROOT_PATH now reaches the ASGI root path, OpenAPI, the OAuth issuer, static mounts and the browser-side links, so a deployment behind a stripped prefix serves the dashboard and API through it. (#1242, #1198)</p>
       </div>
     </div>
   </div>
@@ -298,7 +298,7 @@ footer a{color:var(--cyan)}
       <a href="blog/remote-mcp-tutorial.html" class="btn btn-secondary">
         Blog: 5-Min claude.ai Setup
       </a>
-      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v11.11.0" class="btn btn-secondary" target="_blank">
+      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v11.12.0" class="btn btn-secondary" target="_blank">
         Release Notes
       </a>
     </div>

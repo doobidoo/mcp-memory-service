@@ -509,21 +509,24 @@ MCP Memory Service is **fully compatible** with the [SHODH Unified Memory API Sp
 
 ---
 
-## Latest Release: **v11.11.0** (September 5, 2026)
+## Latest Release: **v11.12.0** (September 14, 2026)
 
-**MINOR: three critical advisories closed (remote transports served filesystem tools, SSE had no authentication, open DCR handed out read-write tokens), and development moved back to GitHub**
+**MINOR: the first release since development moved back to GitHub — 73 merged pull requests, 43 of them from outside the maintainer**
 
 **What's New:**
-- **fix(security): filesystem tools were reachable over remote transports** (GHSA-7crr-2r7w-cpfm). `memory_harvest` and `memory_ingest` take a caller-controlled path, and the `local_only_tools()` filter ran in only one of three transports. It now lives in `MemoryServer.list_tools()` and `call_tool()`, so every transport inherits it.
-- **fix(security): the SSE transport had no authentication** (GHSA-2hh8-qjxc-43x3). `/sse` and `/messages/` both reach the full tool surface and neither was gated. The check was a closure inside another transport's function and simply not reachable from SSE.
-- **fix(security): open DCR handed out read-write tokens** (GHSA-6mvm-q4j3-27qg). A caller could register itself as a confidential client and exchange its own credentials for a `read write` token without the owner being consulted.
-- **Development moved back to GitHub.** Issues, PRs, CI, releases and the wiki are here again; the Forgejo workflows were ported to GitHub Actions. Codeberg stays readable as an archive so old links resolve.
+- **Retrieval returns what you asked for.** Eligibility filters now run before the nearest-neighbour limit on sqlite-vec (#1128), Cloudflare over-fetches before applying a tag filter (#1218), `match_all=True` really means AND (#1197), and compact search applies tags before the limit (#1189). Each of these could return an empty result set while matching memories existed.
+- **Consolidation stopped lying and stopped over-deleting.** Deduplication deleted every copy of a near-duplicate pair instead of the extras (#1180), forgetting could never reach the stale tail (#1167), and the health monitor reported on hardcoded strings rather than runtime state (#1166).
+- **Plugins reach the REST API and unified search** (#1177, #1142), so reranking and augmentation no longer apply to MCP retrieval alone.
+- **The ONNX backend honors `MCP_EMBEDDING_MODEL`** (#1242), which puts multilingual embeddings within reach without torch, and recovers from a CoreML inference failure by rebuilding on CPU (#1206).
+- **Reverse-proxy deployments work end to end.** `MCP_HTTP_ROOT_PATH` now reaches the ASGI root path, OpenAPI, the OAuth issuer, static mounts and the browser-side links (#1198).
+- **The HTTP coordination mode is gone** (#1161): it had been unable to start since v7.5.0, and carried neither authentication nor TLS.
 
-**Upgrade notes** — two deliberate behaviour changes, both fail loudly rather than degrading quietly:
-- `client_credentials` is refused while Dynamic Client Registration is open. Set `MCP_DCR_REGISTRATION_KEY` and register with it, or use `authorization_code` with PKCE (the flow Claude.ai Remote MCP uses, unaffected).
-- An MCP transport refuses to start on a non-loopback bind with no authentication configured. Set `MCP_API_KEY`, enable OAuth, or bind to `127.0.0.1`.
+**Upgrade notes:**
+- Time ranges and date-bounded deletes now both mean the host-local day (#1157). If you run the service in a timezone well away from UTC, "yesterday" selects a different set of memories than it did in v11.11.0 — the same set recall and delete now agree on.
+- `memory stop` refuses to terminate a process that merely holds the port unless it matches the MCP Memory Service command line; use `--force` to override (#1219, #1224).
 
 **Previous Releases** (v11 series — full history for all earlier versions in [CHANGELOG.md](CHANGELOG.md)):
+- **v11.11.0** - MINOR: three critical advisories closed (remote transports served filesystem tools, SSE had no authentication, open DCR handed out read-write tokens), and development moved back to GitHub (September 5, 2026)
 - **v11.10.0** - MINOR: clustering fails loudly instead of silently degrading without scikit-learn, a consolidation time-horizon fix, three hook fixes (#329, #325, #321, #323, #330) (August 28, 2026)
 - **v11.9.0** - MINOR: transformers 5.x closes two high-severity advisories with no 4.x fix, plus a quality-system bug the new ml-extras CI job caught on day one (#305, #316, #307, #303) (August 27, 2026)
 - **v11.8.5** - PATCH: two Docker fixes reproduced against the published images, plus a timezone-boundary bug in timeframe deletion, external contributor (#295, #297, #237, #298) (August 25, 2026)
