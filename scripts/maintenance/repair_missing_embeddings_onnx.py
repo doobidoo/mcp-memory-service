@@ -9,10 +9,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mcp_memory_service.storage.factory import create_storage_instance
-from mcp_memory_service.config import SQLITE_VEC_PATH
-from sqlite_vec import serialize_float32
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
@@ -49,9 +45,9 @@ def confirm_write(skip_confirmation: bool) -> bool:
 
 
 async def repair_missing_embeddings(database_path: str) -> None:
-    from sqlite_vec import serialize_float32
+    from sqlite_vec import serialize_float32  # inline import: deferred so the repair only loads storage code after the target is confirmed
 
-    from src.mcp_memory_service.storage.factory import create_storage_instance
+    from mcp_memory_service.storage.factory import create_storage_instance  # inline import: see above
 
     storage = await create_storage_instance(database_path)
     try:
@@ -102,7 +98,7 @@ async def repair_missing_embeddings(database_path: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
-    from src.mcp_memory_service.config import SQLITE_VEC_PATH, STORAGE_BACKEND
+    from mcp_memory_service.config import SQLITE_VEC_PATH, STORAGE_BACKEND  # inline import: deferred so --help works without loading configuration
 
     database_path = SQLITE_VEC_PATH
     backend = STORAGE_BACKEND

@@ -785,8 +785,9 @@ def _check_already_running(base_url: str, port: int) -> int | None:
         # Kill any stale process on the port
         port_pid = _find_process_on_port(port)
         if port_pid:
-            click.echo(f"Freeing port {port} (stale PID {port_pid})...")
-            _kill_process(port_pid)
+            # Same ownership check as stop: a listener with no PID file of ours
+            # is not automatically ours to kill.
+            _stop_process_on_port(port, port_pid, force=False)
             time.sleep(0.5)
         return None
 
@@ -960,7 +961,7 @@ def _run_background(host: str, port: int, tls: _ServerTls, base_url: str) -> Non
     """Spawn server in background and poll until ready."""
     click.echo(f"Starting memory server on port {port}...")
     proc = _spawn_child(host, port, tls)
-    _write_pid(proc.pid, scheme=tls.scheme)
+    _write_pid(proc.pid, scheme=tls.scheme, port=port)
     _poll_until_ready(proc, base_url, port)
 
 

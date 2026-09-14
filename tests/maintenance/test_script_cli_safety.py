@@ -92,6 +92,30 @@ def test_repair_embeddings_help_does_not_run_repair() -> None:
     assert "Progress:" not in output
 
 
+def test_repair_embeddings_defers_package_imports() -> None:
+    """--help must not pull in storage code, so the imports stay inside functions.
+
+    The string assertions above pass either way: a module-level
+    ``from mcp_memory_service...`` loads the storage stack before argparse ever
+    runs and prints nothing. Pin the import placement itself.
+    """
+    import ast
+
+    tree = ast.parse(REPAIR_EMBEDDINGS_SCRIPT.read_text())
+    module_level = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for name in ([node.module] if isinstance(node, ast.ImportFrom) else [a.name for a in node.names])
+        if name and name.split(".")[0] in {"mcp_memory_service", "src", "sqlite_vec"}
+    ]
+
+    assert not module_level, (
+        "repair script imports storage code at module level: "
+        + ", ".join(ast.unparse(node) for node in module_level)
+    )
+
+
 def test_repair_embeddings_decline_prints_target_without_running_repair(
     tmp_path: Path,
 ) -> None:
