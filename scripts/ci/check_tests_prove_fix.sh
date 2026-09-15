@@ -27,6 +27,7 @@ export PYTHONDONTWRITEBYTECODE=1
 BASE_REF="${1:?usage: $0 <base-ref>}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLEANUP_HELPER="$SCRIPT_DIR/../pr/lib/is_cleanup_only.py"
+RELEASE_HELPER="$SCRIPT_DIR/../pr/lib/is_release_bump.py"
 PYTHON="${PYTHON:-python3}"
 
 REPO_ROOT="$(git rev-parse --show-toplevel)" || exit 2
@@ -45,6 +46,11 @@ fi
 
 if git diff "$base" HEAD -- 'src/' | "$PYTHON" "$CLEANUP_HELPER"; then
     echo "PASS - cleanup-only change under src/ (nothing added), no test required"
+    exit 0
+fi
+
+if git diff "$base" HEAD | "$PYTHON" "$RELEASE_HELPER"; then
+    echo "PASS - release version bump, no test required"
     exit 0
 fi
 
