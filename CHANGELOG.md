@@ -15,6 +15,8 @@ All notable changes to the MCP Memory Service project will be documented in this
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
 ## [11.12.0] - 2026-09-14
 
 The first release since development moved back to GitHub: 73 merged pull requests, 43 of them from outside the maintainer. Thanks to filhocf, massimiliano1991, be-student (eunwoo song), zsxh1990, DivyamTalwar, VijaySreekar, dchaudhari7177, breken-ai, LouisDeconinck, chiranjeevi7777, TonMtt, mikemikimike, danielle060821, ikorfale, L4XB, 2160039878-cyber, 7487, FBISiri and timkjr. The last two carried over from pull requests opened on Codeberg before the move.
