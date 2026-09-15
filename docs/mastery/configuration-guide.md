@@ -102,6 +102,16 @@ Autonomously harvests learnings from session transcripts on a timer, in-process 
 
 Stored candidates carry the `session-harvest` tag and feed consolidation/beliefs on the next cycle.
 
+Both the store path and the evolve path (`_try_evolve`, when a candidate is similar enough to an
+existing memory to update it instead of duplicating) stamp `harvest:method:{llm|heuristic}`, so an
+evolved memory keeps the same provenance trace as a freshly stored one.
+
+- **Safe pre-deletion**: `SessionHarvester.verify_session_coverage(session_id, threshold=0.9)`
+  re-harvests a session in-memory and checks each insight against stored memories, returning
+  `{coverage, missing_insights, low_quality_matches, safe_to_delete}`. Use it before deleting
+  a source transcript — a session is only `safe_to_delete` when every insight already has a
+  strong stored match, so freeing disk never silently loses knowledge.
+
 ## Contradiction Detection / NLI (Optional)
 
 Flags contradictions between a newly stored memory and semantically similar existing ones.
