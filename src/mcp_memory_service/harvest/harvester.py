@@ -16,7 +16,8 @@ from .patterns import load_filters
 
 logger = logging.getLogger(__name__)
 
-# Provenance: bump when the harvest pipeline changes materially (RFC-harvest-provenance).
+# Provenance: starts at 3 to align with RFC-harvest-provenance phases (provenance tagging, 
+# re-harvest safety, session digest). Increment when the harvest pipeline changes materially.
 HARVEST_PIPELINE_VERSION = 3
 
 
@@ -209,10 +210,16 @@ class SessionHarvester:
 
         existing_hash = similar[0].memory.content_hash
         try:
+            # Apply method provenance tagging (same as store path)
+            method = getattr(candidate, "harvest_method", None)
+            if not method:
+                method = "llm" if getattr(candidate, "harvest_model", None) else "heuristic"
+            tags = ["session-harvest", f"harvest:method:{method}"] + candidate.tags
+            
             ok, msg, new_hash = await self.memory_service.storage.update_memory_versioned(
                 existing_hash,
                 candidate.content,
-                new_tags=["session-harvest"] + candidate.tags,
+                new_tags=tags,
                 new_memory_type=candidate.memory_type,
                 reason=f"Session harvest: {datetime.now(timezone.utc).isoformat()}",
             )
@@ -225,6 +232,64 @@ class SessionHarvester:
         except Exception as e:
             logger.debug(f"Evolution error, falling back to store: {e}")
             return False
+
+    async def verify_session_coverage(self, session_id: str, threshold: float = 0.9,
+                                      use_llm: bool = True) -> dict:
+        """Check how well a session's insights are already in memory (R11/R12).
+
+        Re-harvests the session in-memory (nothing is stored) and, for each
+        candidate insight, looks for a semantically similar stored memory. Used
+        to decide whether the source session is safe to delete: if some insight
+        has no strong match, deleting the transcript would lose it for good.
+
+        Returns:
+            {
+              "session_id": str,
+              "coverage": float,            # fraction of insights with a strong match
+              "total_insights": int,
+              "missing_insights": [str],    # insights with no match >= threshold
+              "low_quality_matches": [str], # insights whose best match is weak
+              "safe_to_delete": bool,       # coverage complete and no gaps
+            }
+        """
+        from .models import HarvestConfig
+
+        cfg = HarvestConfig(sessions=1, session_ids=[session_id],
+                            dry_run=True, use_llm=use_llm)
+        results = self.harvest(cfg)
+        candidates = [c for r in results for c in r.candidates]
+
+        if not candidates:
+            # Nothing worth harvesting → deleting the transcript loses nothing.
+            return {
+                "session_id": session_id, "coverage": 1.0, "total_insights": 0,
+                "missing_insights": [], "low_quality_matches": [], "safe_to_delete": True,
+            }
+
+        missing, weak, covered = [], [], 0
+        for cand in candidates:
+            try:
+                matches = await self.memory_service.storage.retrieve(cand.content, n_results=1)
+            except Exception as e:
+                logger.debug(f"coverage retrieve failed: {e}")
+                matches = []
+            best = matches[0].relevance_score if matches else 0.0
+            if best >= threshold:
+                covered += 1
+            elif best > 0.0:
+                weak.append(cand.content)
+            else:
+                missing.append(cand.content)
+
+        coverage = covered / len(candidates)
+        return {
+            "session_id": session_id,
+            "coverage": coverage,
+            "total_insights": len(candidates),
+            "missing_insights": missing,
+            "low_quality_matches": weak,
+            "safe_to_delete": coverage >= 1.0 and not missing and not weak,
+        }
 
     def _resolve_sessions(self, config: HarvestConfig) -> List[Path]:
         """Find session files based on config."""
