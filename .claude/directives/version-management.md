@@ -115,7 +115,9 @@ Always bumped together, in one commit:
 1. `src/mcp_memory_service/_version.py` (`__version__ = "X.Y.Z"`) — this is the canonical source
 2. `pyproject.toml` (line ~7: `version = "X.Y.Z"`)
 3. `README.md` (Latest Release section)
-4. `CHANGELOG.md` (convert [Unreleased] to [X.Y.Z] with date)
+4. `CHANGELOG.md` — retitle `[Unreleased]` to `[X.Y.Z]` with the date, and leave a new
+   empty `## [Unreleased]` heading above it. The entries move under the version; the
+   heading stays, because the next PR adds its entry there.
 5. `uv lock` to update the dependency lock file
 
 Of those five, **only `_version.py` and `pyproject.toml` are covered by a CI gate.**
@@ -153,14 +155,63 @@ against the GitHub REST API via `gh`.
 
 ## Merge Discipline
 
-`main` carries a ruleset named `ProtectMain` that requires changes to arrive through a
-pull request. It required one approving review until 2026-09-05; that was dropped to
-zero, because the author cannot approve their own PR and a solo maintainer is always the
-author, so every PR needed an admin bypass. The PR requirement itself stays:
+`main` carries a ruleset named `ProtectMain` (id 5097493) that requires changes to arrive
+through a pull request. Read its live state rather than trusting this paragraph:
+
+```bash
+gh api repos/doobidoo/mcp-memory-service/rulesets/5097493 --jq '.rules[]|"\(.type): \(.parameters|tostring)"'
+```
+
+As of 2026-09-15 it carries two rules:
+
+- `pull_request` with `required_approving_review_count: 1`. This paragraph previously
+  said the count had been dropped to zero on 2026-09-05; it never was. The author
+  cannot approve their own pull request — but Greptile can, and does: it posts an
+  approving review when it finds nothing, which satisfies the requirement and puts the
+  PR at `CLEAN`, mergeable without `--admin`. When it finds something it comments
+  instead of approving, and the PR stays `BLOCKED` until a human approves or an admin
+  bypasses. So the review gate is in practice "Greptile is happy, or someone looked",
+  and reaching for `--admin` is how a PR with unread findings gets merged. That is
+  exactly what happened to the five findings on the v11.12.0 release PRs. A
+  contributor PR that Greptile has commented on, like filhocf's #1243, sits at
+  `BLOCKED` for the same reason and wants a real review, not a bypass.
+- `required_status_checks` with `strict_required_status_checks_policy: true` and one
+  required context, `Analyze Python Code`. Strict means a branch has to be up to date
+  with `main` before it can merge. Added on 2026-09-15 after three regressions in one
+  week reached `main` through merges whose result CI had never run on: #1184 reverted
+  the ownership guard from #1224 while refactoring on an older base, #1224's own
+  commits were cherry-picked onto `main` carrying two already-red tests because
+  `_run_background()` never passed the port to `_write_pid()`, and #1232 restored the
+  `src.` imports #1238 had just removed. Until then the ruleset required no status
+  check at all.
+
+The required context is `Analyze Python Code` (`codeql.yml`) specifically because it is
+the only job that runs on every pull request. Everything in `ci.yml` sits behind
+`paths-ignore` for `docs/**`, root `*.md`, `.github/**/*.md`, `LICENSE`, `NOTICE` and
+`.gitignore`, so on a documentation-only PR that workflow never starts — and a required
+check that never reports blocks the PR permanently. Before requiring any `ci.yml` job,
+that has to be solved.
+
+Strict also has a documented precondition: it takes effect only while at least one
+status check is required. Setting the flag with an empty check list changes nothing.
+
+The rest of the discipline:
 
 - Never commit straight to `main`; branch first.
 - Merge through a PR, squash.
-- Verify CI is green on the PR before merging.
+- Verify CI is green on the PR before merging, and check `gh run list --branch main`
+  after it lands — a PR that was green on its own base can still break `main`.
+- Read the review comments before merging, not just the check buckets. `Greptile
+  Review: pass` in `gh pr checks` means the reviewer ran, not that it found nothing;
+  its findings arrive as inline review comments and are invisible to that status.
+  `gh api repos/doobidoo/mcp-memory-service/pulls/<N>/comments` lists them. All five
+  findings it left on the v11.12.0 release PRs were valid and were merged over,
+  including a stale `og:description` and a dropped `[Unreleased]` heading. A PR sitting
+  at `BLOCKED` while its checks are green is the signal: Greptile declined to approve,
+  which means it wrote something. Read that before reaching for `--admin`.
+- Keep an empty `## [Unreleased]` heading above the new version when cutting a release
+  (see the version-bump procedure above). v11.11.0 and every release before it kept
+  one; v11.12.0 dropped it, which Greptile caught and the merge ignored.
 - If several sessions share one checkout, isolate into a worktree first.
 
 ## Hotfix Workflow (Critical Bugs)
