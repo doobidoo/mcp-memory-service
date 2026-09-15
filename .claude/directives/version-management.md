@@ -166,15 +166,21 @@ As of 2026-09-15 it carries two rules:
 
 - `pull_request` with `required_approving_review_count: 1`. This paragraph previously
   said the count had been dropped to zero on 2026-09-05; it never was. The author
-  cannot approve their own pull request — but Greptile can, and does: it posts an
-  approving review when it finds nothing, which satisfies the requirement and puts the
-  PR at `CLEAN`, mergeable without `--admin`. When it finds something it comments
-  instead of approving, and the PR stays `BLOCKED` until a human approves or an admin
-  bypasses. So the review gate is in practice "Greptile is happy, or someone looked",
-  and reaching for `--admin` is how a PR with unread findings gets merged. That is
-  exactly what happened to the five findings on the v11.12.0 release PRs. A
-  contributor PR that Greptile has commented on, like filhocf's #1243, sits at
-  `BLOCKED` for the same reason and wants a real review, not a bypass.
+  cannot approve their own pull request, and how the requirement gets satisfied depends
+  on who opened it. On a maintainer PR with no findings, Greptile posts an approving
+  review, which satisfies the rule and puts the PR at `CLEAN`, mergeable without
+  `--admin` (#1249). On a contributor PR it posts findings as inline comments but no
+  review object at all, even when it has nothing to say — #1243 finished with zero
+  findings and zero reviews and stayed `BLOCKED` until it was approved by hand. So:
+
+  - `BLOCKED` on a maintainer PR whose checks are green means Greptile declined to
+    approve, which means it wrote something. Read it before reaching for `--admin`.
+    Not doing that is how five valid findings were merged over on the v11.12.0 PRs.
+  - `BLOCKED` on a contributor PR means nobody has reviewed it yet. That one wants an
+    actual review and `gh pr review --approve`, never a bypass.
+
+  Either way the absence of an approval is not evidence of findings, and its presence
+  is not evidence that nobody wrote anything. Read the comments.
 - `required_status_checks` with `strict_required_status_checks_policy: true` and one
   required context, `Analyze Python Code`. Strict means a branch has to be up to date
   with `main` before it can merge. Added on 2026-09-15 after three regressions in one
