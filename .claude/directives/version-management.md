@@ -153,14 +153,44 @@ against the GitHub REST API via `gh`.
 
 ## Merge Discipline
 
-`main` carries a ruleset named `ProtectMain` that requires changes to arrive through a
-pull request. It required one approving review until 2026-09-05; that was dropped to
-zero, because the author cannot approve their own PR and a solo maintainer is always the
-author, so every PR needed an admin bypass. The PR requirement itself stays:
+`main` carries a ruleset named `ProtectMain` (id 5097493) that requires changes to arrive
+through a pull request. Read its live state rather than trusting this paragraph:
+
+```bash
+gh api repos/doobidoo/mcp-memory-service/rulesets/5097493 --jq '.rules[]|"\(.type): \(.parameters|tostring)"'
+```
+
+As of 2026-09-15 it carries two rules:
+
+- `pull_request` with `required_approving_review_count: 1`. This paragraph previously
+  said the count had been dropped to zero on 2026-09-05; it never was. The author
+  cannot approve their own pull request, so a solo maintainer's PR is always `BLOCKED`
+  and merges with `gh pr merge --admin`. A contributor PR needs a review from the
+  maintainer, which is why filhocf's PRs sit at `BLOCKED` until one is posted.
+- `required_status_checks` with `strict_required_status_checks_policy: true` and one
+  required context, `Analyze Python Code`. Strict means a branch has to be up to date
+  with `main` before it can merge. Added on 2026-09-15 after three regressions in one
+  week reached `main` through merges whose result CI had never run on: #1184 reverted
+  the ownership guard from #1224 while refactoring on an older base, and #1232 restored
+  the `src.` imports #1238 had just removed. Until then the ruleset required no status
+  check at all.
+
+The required context is `Analyze Python Code` (`codeql.yml`) specifically because it is
+the only job that runs on every pull request. Everything in `ci.yml` sits behind
+`paths-ignore` for `docs/**`, root `*.md`, `LICENSE`, `NOTICE` and `.gitignore`, so on a
+documentation-only PR that workflow never starts — and a required check that never
+reports blocks the PR permanently. Before requiring any `ci.yml` job, that has to be
+solved.
+
+Strict also has a documented precondition: it takes effect only while at least one
+status check is required. Setting the flag with an empty check list changes nothing.
+
+The rest of the discipline:
 
 - Never commit straight to `main`; branch first.
 - Merge through a PR, squash.
-- Verify CI is green on the PR before merging.
+- Verify CI is green on the PR before merging, and check `gh run list --branch main`
+  after it lands — a PR that was green on its own base can still break `main`.
 - If several sessions share one checkout, isolate into a worktree first.
 
 ## Hotfix Workflow (Critical Bugs)
