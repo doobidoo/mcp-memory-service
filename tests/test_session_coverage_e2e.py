@@ -6,7 +6,7 @@ Run with the service env sourced:
     set -a; source ~/dtp/ai-configs/services/env/memory-service.env 2>/dev/null
     [ -f ~/dtp/ai-configs/services/env/memory-service.$(hostname).env ] && source ~/dtp/ai-configs/services/env/memory-service.$(hostname).env
     set +a
-    MCP_E2E_LLM=1 HARVEST_LLM_PROVIDERS=groq,ollama python -m pytest tests/test_session_coverage_e2e.py -v
+    MCP_E2E_LLM=1 HARVEST_LLM_PROVIDERS=groq,ollama .venv/bin/pytest tests/test_session_coverage_e2e.py -v
 
 Validates that verify_session_coverage really hits the vector database and
 performs semantic retrieval to determine coverage gaps (RFC R11/R12, end-to-end).
@@ -56,7 +56,10 @@ async def test_coverage_with_real_retrieve_existing_and_novel(tmp_path):
         pytest.skip(f"Required dependencies not available: {e}")
     
     # Use the test-isolated database (not production)
-    db_path = os.environ['MCP_MEMORY_SQLITE_PATH']
+    # Use an isolated temp database — never the (possibly production/shared)
+    # path in MCP_MEMORY_SQLITE_PATH. This satisfies the repo's test-storage
+    # isolation directive and keeps the test deterministic.
+    db_path = str(tmp_path / "e2e_coverage.db")
     
     storage = SqliteVecMemoryStorage(db_path)
     memory_service = MemoryService(storage)
@@ -133,7 +136,10 @@ async def test_empty_session_coverage_is_complete(tmp_path):
         pytest.skip(f"Required dependencies not available: {e}")
 
     # Use the test-isolated database
-    db_path = os.environ['MCP_MEMORY_SQLITE_PATH']
+    # Use an isolated temp database — never the (possibly production/shared)
+    # path in MCP_MEMORY_SQLITE_PATH. This satisfies the repo's test-storage
+    # isolation directive and keeps the test deterministic.
+    db_path = str(tmp_path / "e2e_coverage.db")
 
     storage = SqliteVecMemoryStorage(db_path)
     memory_service = MemoryService(storage)
@@ -166,7 +172,10 @@ async def test_missing_session_coverage_is_unsafe(tmp_path):
     except ImportError as e:
         pytest.skip(f"Required dependencies not available: {e}")
 
-    db_path = os.environ['MCP_MEMORY_SQLITE_PATH']
+    # Use an isolated temp database — never the (possibly production/shared)
+    # path in MCP_MEMORY_SQLITE_PATH. This satisfies the repo's test-storage
+    # isolation directive and keeps the test deterministic.
+    db_path = str(tmp_path / "e2e_coverage.db")
     storage = SqliteVecMemoryStorage(db_path)
     memory_service = MemoryService(storage)
 
