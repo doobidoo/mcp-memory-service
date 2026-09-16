@@ -142,6 +142,51 @@ def _normalize_metadata_for_cloudflare(updates: Dict[str, Any]) -> Dict[str, Any
     return wrapped_updates
 
 
+async def _fetch_secondary_content_hashes(secondary) -> Optional[set]:
+    """Fetch all non-deleted content_hash values from the secondary (Cloudflare D1).
+
+    Returns None if the secondary does not support an efficient bulk hash fetch (any
+    backend without D1 access), which signals the caller to fall back to the previous
+    behavior. Returns an empty set if the secondary is reachable but has no memories.
+
+    Uses id-based cursor pagination rather than LIMIT/OFFSET — see
+    `get_all_memories_cursor` at cloudflare.py:1938, which documents D1's OFFSET
+    limitations (400 Bad Request at large offsets) and uses the same pattern.
+    """
+    # Only CloudflareStorage has D1 access + a _retry_request method
+    if not secondary or not hasattr(secondary, '_retry_request') or not hasattr(secondary, 'd1_database_id'):
+        return None
+
+    hashes: set = set()
+    limit = 1000
+    last_id = 0
+    while True:
+        try:
+            resp = await secondary._retry_request(
+                "POST",
+                f"{secondary.base_url}/d1/database/{secondary.d1_database_id}/query",
+                json={
+                    "sql": "SELECT id, content_hash FROM memories WHERE deleted_at IS NULL AND id > ? ORDER BY id ASC LIMIT ?",
+                    "params": [last_id, limit],
+                },
+            )
+            data = resp.json()
+            if not data.get("success"):
+                logger.warning("Secondary hash fetch failed: %s", _sanitize_log_value(data.get('errors')))
+                return None
+            batch = data["result"][0].get("results", [])
+            if not batch:
+                break
+            hashes.update(r["content_hash"] for r in batch)
+            last_id = batch[-1]["id"]
+            if len(batch) < limit:
+                break
+        except Exception as e:
+            logger.warning("Could not fetch secondary hashes: %s", _sanitize_log_value(e))
+            return None
+    return hashes
+
+
 class BackgroundSyncService:
     """
     Handles background synchronization between SQLite-vec and Cloudflare.
@@ -298,39 +343,7 @@ class BackgroundSyncService:
         `get_all_memories_cursor` at cloudflare.py:1938, which documents D1's OFFSET
         limitations (400 Bad Request at large offsets) and uses the same pattern.
         """
-        secondary = getattr(self, 'secondary', None)
-        # Only CloudflareStorage has D1 access + a _retry_request method
-        if not secondary or not hasattr(secondary, '_retry_request') or not hasattr(secondary, 'd1_database_id'):
-            return None
-
-        hashes: set = set()
-        limit = 1000
-        last_id = 0
-        while True:
-            try:
-                resp = await secondary._retry_request(
-                    "POST",
-                    f"{secondary.base_url}/d1/database/{secondary.d1_database_id}/query",
-                    json={
-                        "sql": "SELECT id, content_hash FROM memories WHERE deleted_at IS NULL AND id > ? ORDER BY id ASC LIMIT ?",
-                        "params": [last_id, limit],
-                    },
-                )
-                data = resp.json()
-                if not data.get("success"):
-                    logger.warning("Secondary hash fetch failed: %s", _sanitize_log_value(data.get('errors')))
-                    return None
-                batch = data["result"][0].get("results", [])
-                if not batch:
-                    break
-                hashes.update(r["content_hash"] for r in batch)
-                last_id = batch[-1]["id"]
-                if len(batch) < limit:
-                    break
-            except Exception as e:
-                logger.warning("Could not fetch secondary hashes for dedupe: %s", _sanitize_log_value(e))
-                return None
-        return hashes
+        return await _fetch_secondary_content_hashes(getattr(self, 'secondary', None))
 
     async def force_sync(self) -> Dict[str, Any]:
         """Force an immediate full synchronization between backends."""
@@ -1104,26 +1117,41 @@ class HybridMemoryStorage(MemoryStorage):
 
             logger.info("%s sync: Local=%s, Cloudflare=%s", sync_type.capitalize(), primary_count, secondary_count)
 
+            # Get all local hashes once for O(1) lookup and to diff against the secondary.
+            local_hashes = await self.primary.get_all_content_hashes()
+
             if secondary_count <= primary_count:
-                logger.info("No new memories to sync from Cloudflare (%s sync)", sync_type)
-                return {
-                    'success': True,
-                    'memories_synced': 0,
-                    'total_checked': 0,
-                    'message': 'No new memories to pull from Cloudflare',
-                    'time_taken_seconds': round(time.time() - sync_start_time, 3)
-                }
+                # A count comparison can't prove the primary already holds everything the
+                # secondary does. With divergent sets — local-only writes queued while the
+                # cloud was unreachable, plus memories another device wrote straight to the
+                # cloud — the totals can read local >= cloud while the cloud still holds
+                # hashes the primary is missing. The periodic drift scan only revisits
+                # memories updated since its last run, so an older cloud-only memory would
+                # otherwise never reach this device. Confirm with a hash diff (the same
+                # bulk-hash fetch force_sync uses for the reverse direction) before
+                # concluding there is nothing to pull. If the secondary can't answer a
+                # bulk-hash fetch (non-Cloudflare backends), keep the count-only behavior.
+                secondary_hashes = await _fetch_secondary_content_hashes(self.secondary)
+                missing_hashes = (secondary_hashes - local_hashes) if secondary_hashes is not None else None
+                if not missing_hashes:
+                    logger.info("No new memories to sync from Cloudflare (%s sync)", sync_type)
+                    return {
+                        'success': True,
+                        'memories_synced': 0,
+                        'total_checked': 0,
+                        'message': 'No new memories to pull from Cloudflare',
+                        'time_taken_seconds': round(time.time() - sync_start_time, 3)
+                    }
+                missing_count = len(missing_hashes)
+            else:
+                missing_count = secondary_count - primary_count
 
             # Pull missing memories from Cloudflare using optimized batch processing
-            missing_count = secondary_count - primary_count
             synced_count = 0
             batch_size = min(500, self.batch_size * 5)  # 5x larger batches for sync
             cursor = None
             processed_count = 0
             consecutive_empty_batches = 0
-
-            # Get all local hashes once for O(1) lookup
-            local_hashes = await self.primary.get_all_content_hashes()
             logger.info("Pulling %s potential memories from Cloudflare...", missing_count)
 
             while True:
