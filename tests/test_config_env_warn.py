@@ -155,3 +155,80 @@ class TestWarnUnrecognizedPathVar:
             environ = {var: 'some_value'}
             result = warn_unrecognized_path_var(environ)
             assert result is None, f"Should not warn for recognized var {var}"
+
+    def test_warn_unrecognized_path_var_sanitizes_env_key_in_message(self):
+        """Should escape control characters in the env-var name to prevent log injection.
+
+        The variable name is user-controlled. ``_sanitize_log_value`` neutralizes
+        control characters by escaping them (``\\n`` -> literal ``\\n``), so a
+        newline or carriage return in the key cannot forge a new log line or
+        inject terminal control sequences. The payload text may remain, but inert.
+        """
+        environ = {
+            'MCP_MEMORY_DB_PATH\r\nINJECTED: forged log line': '/some/path.sqlite'
+        }
+
+        result = warn_unrecognized_path_var(environ)
+
+        assert result is not None
+        # No raw control characters survive (cannot break the log line).
+        assert '\n' not in result
+        assert '\r' not in result
+        assert '\x1b' not in result
+        # The control characters are present only in escaped form.
+        assert '\\r\\n' in result
+
+
+class TestWarnUnrecognizedPathVarLoggingPath:
+    """Integration tests for the import-time logging branch in storage.py.
+
+    The unit tests above only exercise the pure helper. These reload the config
+    module with controlled environment variables so the actual
+    ``logger.warning(...)`` branch runs and is asserted, covering the path the
+    helper feeds into.
+    """
+
+    def _reload_storage(self, monkeypatch, env):
+        """Reload config.storage under a clean, controlled environment."""
+        import importlib
+        import os
+
+        # Remove every MCP_MEMORY_* var so only `env` is in play, then apply env.
+        for key in list(os.environ):
+            if key.startswith('MCP_MEMORY_'):
+                monkeypatch.delenv(key, raising=False)
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+        # sqlite_vec backend is required for the SQLite path branch to execute.
+        monkeypatch.setenv('MCP_MEMORY_STORAGE_BACKEND', 'sqlite_vec')
+
+        import mcp_memory_service.config.storage as storage_mod
+        return importlib.reload(storage_mod)
+
+    def test_warning_emitted_on_typo_without_correct_path(self, monkeypatch, caplog):
+        """Reloading with a typo'd path var and no correct one should log a warning."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger='mcp_memory_service.config.storage'):
+            self._reload_storage(monkeypatch, {'MCP_MEMORY_DB_PATH': '/tmp/typo.sqlite'})
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any('MCP_MEMORY_DB_PATH' in r.getMessage() for r in warnings), \
+            "Expected a warning naming the unrecognized env var"
+
+    def test_no_warning_when_correct_path_set(self, monkeypatch, caplog, tmp_path):
+        """Reloading with the correct path var set must not emit the typo warning."""
+        import logging
+
+        correct = str(tmp_path / 'correct.sqlite')
+        with caplog.at_level(logging.WARNING, logger='mcp_memory_service.config.storage'):
+            self._reload_storage(monkeypatch, {
+                'MCP_MEMORY_DB_PATH': '/tmp/typo.sqlite',
+                'MCP_MEMORY_SQLITE_PATH': correct,
+            })
+
+        typo_warnings = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING and 'Unrecognized env var' in r.getMessage()
+        ]
+        assert not typo_warnings, "Should not warn when the correct path var is set"

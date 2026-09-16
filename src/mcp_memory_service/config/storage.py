@@ -70,8 +70,10 @@ def warn_unrecognized_path_var(environ: dict) -> str | None:
                 unrecognized_path_vars.append(key)
     
     if unrecognized_path_vars:
-        # Return warning for the first unrecognized path-like var found
-        var_name = unrecognized_path_vars[0]
+        # Return warning for the first unrecognized path-like var found.
+        # Sanitize the raw env-var name (user-controlled) at the source to prevent
+        # log injection via newline/escape characters reaching the logger.
+        var_name = _sanitize_log_value(unrecognized_path_vars[0])
         return (f"Unrecognized env var '{var_name}' looks like a database path setting "
                 f"but is not read by the service. Did you mean MCP_MEMORY_SQLITE_PATH? "
                 f"Falling back to default.")
