@@ -158,6 +158,34 @@ check "python outside src" 1 '--- a/src/mcp_memory_service/_version.py
 +import sys
 '
 
+# Greptile P1: release bump that ALSO DELETES an unrelated file must be rejected.
+# Deleted files appear as "+++ /dev/null"; the deleted path is only on "--- a/".
+check "version plus deleted non-release file" 1 '--- a/src/mcp_memory_service/_version.py
++++ b/src/mcp_memory_service/_version.py
+@@ -1,1 +1,1 @@
+-__version__ = "11.12.0"
++__version__ = "11.13.0"
+--- a/src/mcp_memory_service/secret_module.py
++++ /dev/null
+@@ -1,3 +0,0 @@
+-def important():
+-    return 42
+-
+'
+
+# Deleting a release-set file alongside the bump is still fine (path is allowed).
+check "version plus deleted release file allowed" 0 '--- a/src/mcp_memory_service/_version.py
++++ b/src/mcp_memory_service/_version.py
+@@ -1,1 +1,1 @@
+-__version__ = "11.12.0"
++__version__ = "11.13.0"
+--- a/README.md
++++ /dev/null
+@@ -1,2 +0,0 @@
+-# Old readme
+-
+'
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures test(s) failed"
     exit 1

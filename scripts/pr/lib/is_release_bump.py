@@ -19,7 +19,13 @@ Reads a unified diff on stdin. Exit 0 = release-bump-only, 1 = needs tests.
 import re
 import sys
 
-FILE_RE = re.compile(r"^\+\+\+ b/(.*)$")
+# Added/modified files: the post-image path on the "+++ b/<path>" header.
+ADD_RE = re.compile(r"^\+\+\+ b/(.*)$")
+# Deleted files: the pre-image path on the "--- a/<path>" header. A deletion is
+# marked by the post-image header being "+++ /dev/null" on the following line,
+# so we must also account for the deleted path — it does not appear as "+++ b/".
+DEL_FROM_RE = re.compile(r"^--- a/(.*)$")
+DEV_NULL_RE = re.compile(r"^\+\+\+ /dev/null$")
 
 # Files that the release workflow is allowed to modify (besides _version.py)
 RELEASE_FILES = {
@@ -32,14 +38,27 @@ RELEASE_FILES = {
 }
 
 def is_release_bump(diff: str) -> bool:
-    """Check if diff is a release version bump only."""
+    """Check if diff is a release version bump only.
+
+    Considers added, modified AND deleted files. A release PR that also deletes
+    an unrelated file must NOT be exempted: deleted files show up as
+    "+++ /dev/null", so their path is only recoverable from the "--- a/<path>"
+    header. Any path outside the release set (including a deletion) disqualifies.
+    """
     changed_files = []
-    
-    for line in diff.splitlines():
-        m = FILE_RE.match(line)
+
+    lines = diff.splitlines()
+    for i, line in enumerate(lines):
+        m = ADD_RE.match(line)
         if m:
             path = m.group(1)
-            changed_files.append(path)
+            if path != "/dev/null":
+                changed_files.append(path)
+            continue
+        # Detect a deletion: "--- a/<path>" immediately followed by "+++ /dev/null".
+        m = DEL_FROM_RE.match(line)
+        if m and i + 1 < len(lines) and DEV_NULL_RE.match(lines[i + 1]):
+            changed_files.append(m.group(1))
     
     if not changed_files:
         return False
@@ -56,7 +75,8 @@ def is_release_bump(diff: str) -> bool:
         elif path in RELEASE_FILES:
             continue  # Release workflow files are allowed
         else:
-            # Any other file (including other Python files) disqualifies this as release-only
+            # Any other file (including other Python files or a deleted file)
+            # disqualifies this as release-only.
             return False
     
     return True
