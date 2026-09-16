@@ -249,21 +249,50 @@ class SessionHarvester:
               "total_insights": int,
               "missing_insights": [str],    # insights with no match >= threshold
               "low_quality_matches": [str], # insights whose best match is weak
-              "safe_to_delete": bool,       # coverage complete and no gaps
+              "session_found": bool,        # session file was located and processed
+              "safe_to_delete": bool,       # session processed, coverage complete, no gaps
             }
+
+        Raises:
+            ValueError: if ``threshold`` is not a positive score in (0.0, 1.0].
         """
         from .models import HarvestConfig
 
+        # Guard the public threshold: an absent match is scored 0.0, so a
+        # threshold <= 0 would let every missing insight count as "covered"
+        # and wrongly mark a session safe to delete.
+        if not (0.0 < threshold <= 1.0):
+            raise ValueError(
+                f"threshold must be a score in (0.0, 1.0], got {threshold!r}"
+            )
+
+        # Distinguish a genuinely empty session from one that was never found /
+        # processed. _resolve_sessions silently drops non-existent session ids,
+        # so an unresolved session must NOT be reported as safe to delete.
+        session_found = (self.project_dir / f"{session_id}.jsonl").exists()
+
         cfg = HarvestConfig(sessions=1, session_ids=[session_id],
                             dry_run=True, use_llm=use_llm)
-        results = self.harvest(cfg)
+        # Offload synchronous harvesting (blocking file + LLM I/O) off the event
+        # loop so this async check does not stall unrelated coroutines.
+        results = await asyncio.to_thread(self.harvest, cfg)
         candidates = [c for r in results for c in r.candidates]
 
+        if not session_found:
+            # The transcript was never inspected — deleting it could lose data.
+            return {
+                "session_id": session_id, "coverage": 0.0, "total_insights": 0,
+                "missing_insights": [], "low_quality_matches": [],
+                "session_found": False, "safe_to_delete": False,
+            }
+
         if not candidates:
-            # Nothing worth harvesting → deleting the transcript loses nothing.
+            # Session was found and processed but yields nothing worth keeping →
+            # deleting the transcript loses nothing.
             return {
                 "session_id": session_id, "coverage": 1.0, "total_insights": 0,
-                "missing_insights": [], "low_quality_matches": [], "safe_to_delete": True,
+                "missing_insights": [], "low_quality_matches": [],
+                "session_found": True, "safe_to_delete": True,
             }
 
         missing, weak, covered = [], [], 0
@@ -288,6 +317,7 @@ class SessionHarvester:
             "total_insights": len(candidates),
             "missing_insights": missing,
             "low_quality_matches": weak,
+            "session_found": True,
             "safe_to_delete": coverage >= 1.0 and not missing and not weak,
         }
 
