@@ -143,6 +143,34 @@ async def test_invalid_threshold_rejected(tmp_path, bad_threshold):
 
 
 @pytest.mark.asyncio
+async def test_path_traversal_session_id_rejected(tmp_path):
+    """Greptile P1/Security: a session_id that escapes project_dir is rejected.
+
+    session_id is caller-controlled and becomes a filesystem path. A value like
+    '../outside' must not let the check read a transcript outside project_dir.
+    """
+    svc = MagicMock()
+    svc.storage = MagicMock()
+    svc.storage.retrieve = AsyncMock(return_value=[])
+    # project_dir is tmp_path/sessions; "../outside/leak" from there resolves to
+    # tmp_path/outside/leak.jsonl. Plant a real file exactly there so that,
+    # WITHOUT the containment guard, the naive check would find it (the bug).
+    project = tmp_path / "sessions"
+    project.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "leak.jsonl").write_text("{}\n", encoding="utf-8")
+
+    h = SessionHarvester(project_dir=project, memory_service=svc)
+    _stub_harvest(h, [])
+
+    # ../outside/leak resolves outside project_dir → must be rejected.
+    report = await h.verify_session_coverage("../outside/leak", threshold=0.9)
+    assert report["session_found"] is False
+    assert report["safe_to_delete"] is False
+
+
+@pytest.mark.asyncio
 async def test_evolve_stamps_method_tag():
     """R9: an evolved memory carries harvest:method:* (Phase 1 gap fix)."""
     svc = MagicMock()

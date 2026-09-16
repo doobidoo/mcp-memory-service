@@ -13,6 +13,7 @@ from .models import HarvestCandidate, HarvestConfig, HarvestResult
 from .parser import TranscriptParser
 from .extractor import PatternExtractor
 from .patterns import load_filters
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -266,10 +267,26 @@ class SessionHarvester:
                 f"threshold must be a score in (0.0, 1.0], got {threshold!r}"
             )
 
-        # Distinguish a genuinely empty session from one that was never found /
-        # processed. _resolve_sessions silently drops non-existent session ids,
-        # so an unresolved session must NOT be reported as safe to delete.
-        session_found = (self.project_dir / f"{session_id}.jsonl").exists()
+        # The session_id is caller-controlled and is turned into a filesystem
+        # path. Resolve it and confirm it stays under project_dir, rejecting
+        # traversal (e.g. "../other/transcript") before any I/O — otherwise both
+        # the existence check and _resolve_sessions would read a JSONL outside
+        # the configured session directory (repo directive: validate user paths).
+        base_dir = Path(self.project_dir).resolve()
+        session_path = (base_dir / f"{session_id}.jsonl").resolve()
+        contained = session_path.is_relative_to(base_dir)
+        session_found = contained and session_path.exists()
+
+        if not contained:
+            logger.warning(
+                "Rejected out-of-directory session id %s",
+                _sanitize_log_value(session_id),
+            )
+            return {
+                "session_id": session_id, "coverage": 0.0, "total_insights": 0,
+                "missing_insights": [], "low_quality_matches": [],
+                "session_found": False, "safe_to_delete": False,
+            }
 
         cfg = HarvestConfig(sessions=1, session_ids=[session_id],
                             dry_run=True, use_llm=use_llm)
