@@ -272,6 +272,15 @@ class SqliteVecMemoryStorage(MemoryStorage):
         # makes every _execute_with_retry call effectively single-threaded against self.conn.
         self._conn_lock = threading.Lock()
 
+        # How long an operation may WAIT for _conn_lock before failing fast
+        # (MCP_MEMORY_LOCK_TIMEOUT, seconds; 0 restores block-forever). Without a
+        # budget, one slow operation parks the whole to_thread() pool on acquire()
+        # and the server stops answering — every request queues behind the holder
+        # for as long as the holder runs (production incident: a single vec0
+        # MATCH scan held the lock for minutes on a CPU-saturated host while all
+        # 16 executor workers and every HTTP request waited on acquire()).
+        self._conn_lock_timeout = self._get_conn_lock_timeout()
+
         # Performance settings
         self.enable_cache = True
         self.batch_size = 32
@@ -303,6 +312,22 @@ class SqliteVecMemoryStorage(MemoryStorage):
             logger.error(f"JSON type error in {context}: {e}")
             return {}
 
+    def _get_conn_lock_timeout(self) -> float:
+        """Connection-lock wait budget in seconds, from MCP_MEMORY_LOCK_TIMEOUT.
+
+        Default 30.0; 0 restores the previous block-forever acquire. Invalid
+        values fall back to the default with a warning (same idiom as
+        _get_connection_timeout).
+        """
+        raw = os.environ.get("MCP_MEMORY_LOCK_TIMEOUT", "")
+        if not raw:
+            return 30.0
+        try:
+            return max(0.0, float(raw))
+        except ValueError:
+            logger.warning(f"Invalid MCP_MEMORY_LOCK_TIMEOUT={raw!r}, using default 30.0s")
+            return 30.0
+
     async def _run_in_thread(self, operation: Callable, *args):
         """
         Offload a synchronous DB operation to a worker thread while holding
@@ -312,16 +337,41 @@ class SqliteVecMemoryStorage(MemoryStorage):
 
         Use this in place of `asyncio.to_thread(...)` for anything that touches
         self.conn or runs SQL.
+
+        The lock is acquired with a wait budget (self._conn_lock_timeout,
+        MCP_MEMORY_LOCK_TIMEOUT) so a long-held lock fails fast with
+        TimeoutError instead of parking every worker indefinitely; operations
+        that hold the lock longer than 5s are logged as a stall signal.
         """
         # Lazy-init the lock so tests that bypass __init__
         # (e.g. SqliteVecMemoryStorage.__new__) still work.
         if not hasattr(self, "_conn_lock") or self._conn_lock is None:
             self._conn_lock = threading.Lock()
+        if not hasattr(self, "_conn_lock_timeout"):
+            self._conn_lock_timeout = self._get_conn_lock_timeout()
         lock = self._conn_lock
 
         def _locked():
-            with lock:
+            if self._conn_lock_timeout > 0:
+                acquired = lock.acquire(timeout=self._conn_lock_timeout)
+            else:
+                acquired = lock.acquire()
+            if not acquired:
+                raise TimeoutError(
+                    f"connection lock not acquired within {self._conn_lock_timeout:.1f}s — "
+                    "another operation is holding it (tune MCP_MEMORY_LOCK_TIMEOUT)"
+                )
+            t0 = time.monotonic()
+            try:
                 return operation(*args)
+            finally:
+                held = time.monotonic() - t0
+                lock.release()
+                if held > 5.0:
+                    logger.warning(
+                        f"DB operation held connection lock for {held:.1f}s — "
+                        "every other operation stalls while it runs"
+                    )
         return await asyncio.to_thread(_locked)
 
     async def _execute_with_retry(self, operation: Callable, max_retries: int = 5, initial_delay: float = 0.2):
@@ -939,6 +989,18 @@ SOLUTIONS:
 
             # Mark as initialized to prevent re-initialization
             self._initialized = True
+
+            # WAL hygiene: TRUNCATE reclaims space that PASSIVE checkpoints leave
+            # behind (they move frames but never shrink the file). Without this,
+            # the -wal file grows monotonically across restarts — observed at
+            # 1.1 GB against an 878 MB database. Bounded: on contention the
+            # checkpoint returns busy instead of waiting.
+            def _truncate_wal():
+                self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            try:
+                await self._run_in_thread(_truncate_wal)
+            except Exception as e:
+                logger.warning(f"Startup WAL checkpoint skipped: {e}")
 
             logger.info(f"SQLite-vec storage initialized successfully with embedding dimension: {self.embedding_dimension}")
 
