@@ -608,10 +608,17 @@ class TestBackgroundSyncService:
                 super().__init__(**kwargs)
                 self.base_url = "https://mock"
                 self.d1_database_id = "mock-db"
+                self.cursor_scan_calls = 0
 
             def _live(self):
                 return [m for m in self.stored_memories.values()
                         if getattr(m, "deleted_at", None) is None]
+
+            async def get_by_hash(self, content_hash):
+                memory = self.stored_memories.get(content_hash)
+                if memory is not None and getattr(memory, "deleted_at", None) is None:
+                    return memory
+                return None
 
             async def _retry_request(self, method, url, **kwargs):
                 # Single-page cursor response, mirroring get_all_memories_cursor: all
@@ -630,6 +637,7 @@ class TestBackgroundSyncService:
 
             async def get_all_memories_cursor(self, limit=100, cursor=None):
                 # Everything on the first call; empty once the loop advances the cursor.
+                self.cursor_scan_calls += 1
                 return list(self._live()) if cursor is None else []
 
         with patch('mcp_memory_service.storage.hybrid.CloudflareStorage', PullMockCloudflareStorage):
@@ -651,31 +659,42 @@ class TestBackgroundSyncService:
                         memory_type="note",
                     ))
 
-                # One memory that exists only in the cloud (e.g. written by another
-                # device). Old timestamps keep it out of the drift scan, so only the
-                # count-gated full pull can bring it down — which is the path under test.
+                # Memories that exist only in the cloud (e.g. written by another
+                # device). Old timestamps keep them out of the drift scan, so only the
+                # count-gated pull can bring them down — which is the path under test.
                 old = time.time() - 100_000
-                cloud_only = Memory(
-                    content="cloud-only",
-                    content_hash=generate_content_hash("cloud-only"),
-                    tags=["cloud"],
-                    memory_type="note",
-                    created_at=old,
-                    updated_at=old,
-                )
-                storage.secondary.stored_memories[cloud_only.content_hash] = cloud_only
+                cloud_only = []
+                for content in ("cloud-only", "cloud-only-older"):
+                    memory = Memory(
+                        content=content,
+                        content_hash=generate_content_hash(content),
+                        tags=["cloud"],
+                        memory_type="note",
+                        created_at=old,
+                        updated_at=old,
+                    )
+                    storage.secondary.stored_memories[memory.content_hash] = memory
+                    cloud_only.append(memory)
 
-                # The count gate would have skipped: local 2 >= cloud 1.
+                # The count gate would have skipped: local 2 >= cloud 2.
                 assert (await storage.primary.get_stats())["total_memories"] == 2
-                assert (await storage.secondary.get_stats())["total_memories"] == 1
+                assert (await storage.secondary.get_stats())["total_memories"] == 2
 
                 result = await storage.force_pull_sync()
                 assert result["success"] is True
 
                 local_hashes = await storage.primary.get_all_content_hashes()
-                assert cloud_only.content_hash in local_hashes, (
-                    "cloud-only memory was not pulled — the count gate skipped a divergent "
-                    "set instead of diffing hashes"
+                for memory in cloud_only:
+                    assert memory.content_hash in local_hashes, (
+                        "cloud-only memory was not pulled — the count gate skipped a divergent "
+                        "set instead of diffing hashes"
+                    )
+                # Every known-missing hash must be pulled directly, not left to the
+                # newest-first scan, whose empty-batch give-up can stop before an old
+                # cloud-only memory buried behind shared ones.
+                assert storage.secondary.cursor_scan_calls == 0, (
+                    "pull fell through to the paginated scan even though the exact "
+                    "missing hashes were known"
                 )
             finally:
                 await storage.close()

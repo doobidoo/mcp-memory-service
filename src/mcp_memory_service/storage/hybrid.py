@@ -1142,9 +1142,77 @@ class HybridMemoryStorage(MemoryStorage):
                         'message': 'No new memories to pull from Cloudflare',
                         'time_taken_seconds': round(time.time() - sync_start_time, 3)
                     }
+                # The exact missing hashes are known here, so pull precisely those
+                # instead of falling through to the full scan: the scan pages
+                # newest-first and gives up after HYBRID_MAX_EMPTY_BATCHES batches
+                # without a sync, so an old cloud-only memory buried behind thousands
+                # of shared ones could be skipped even though its hash is in this set.
+                # (Before the hash diff existed this branch returned without pulling
+                # at all, so skipping the drift scan here preserves the old cost
+                # profile when the sets already match.)
                 missing_count = len(missing_hashes)
-            else:
-                missing_count = secondary_count - primary_count
+                logger.info("Pulling %s cloud-only memories from Cloudflare by hash (%s sync)", missing_count, sync_type)
+                synced_count = 0
+                failed_count = 0
+                for content_hash in missing_hashes:
+                    try:
+                        # Tombstone check, as in the scan below: deleted locally means
+                        # propagate the delete to the cloud, not re-pull the memory.
+                        if hasattr(self.primary, 'is_deleted') and await self.primary.is_deleted(content_hash):
+                            logger.debug("Memory %s was deleted locally, skipping cloud sync", _sanitize_log_value(content_hash[:8]))
+                            if self.sync_service:
+                                operation = SyncOperation(operation='delete', content_hash=content_hash)
+                                await self.sync_service.enqueue_operation(operation)
+                            continue
+                        cf_memory = await self.secondary.get_by_hash(content_hash)
+                        if cf_memory is None:
+                            failed_count += 1
+                            logger.warning("Cloud-only memory %s disappeared before pull", _sanitize_log_value(content_hash[:8]))
+                            continue
+                        # Defense-in-depth, as in the scan below: the hash fetch filters
+                        # deleted_at, but the row may have been soft-deleted since.
+                        cf_deleted_at = getattr(cf_memory, 'deleted_at', None)
+                        if cf_deleted_at is None and cf_memory.metadata:
+                            cf_deleted_at = cf_memory.metadata.get('deleted_at')
+                        if cf_deleted_at is not None:
+                            logger.debug("Memory %s is soft-deleted in Cloudflare, skipping", _sanitize_log_value(content_hash[:8]))
+                            continue
+                        success, message = await self.primary.store(cf_memory)
+                        if success:
+                            synced_count += 1
+                            local_hashes.add(content_hash)
+                        else:
+                            failed_count += 1
+                            logger.warning("Failed to sync memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(message))
+                    except Exception as e:
+                        failed_count += 1
+                        logger.warning("Error syncing memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(e))
+
+                time_taken = time.time() - sync_start_time
+                logger.info("%s sync completed: %s/%s cloud-only memories in %.2fs", sync_type.capitalize(), synced_count, missing_count, time_taken)
+
+                if broadcast_sse and SSE_AVAILABLE:
+                    try:
+                        completion_event = create_sync_completed_event(
+                            synced_count=synced_count,
+                            total_count=missing_count,
+                            time_taken_seconds=time_taken,
+                            sync_type=sync_type
+                        )
+                        await sse_manager.broadcast_event(completion_event)
+                    except Exception as e:
+                        logger.debug("Failed to broadcast SSE completion: %s", _sanitize_log_value(e))
+
+                return {
+                    'success': failed_count == 0,
+                    'memories_synced': synced_count,
+                    'total_checked': missing_count,
+                    'message': f'Successfully pulled {synced_count} memories from Cloudflare' if failed_count == 0
+                               else f'Pulled {synced_count} of {missing_count} memories from Cloudflare ({failed_count} failed)',
+                    'time_taken_seconds': round(time_taken, 3)
+                }
+
+            missing_count = secondary_count - primary_count
 
             # Pull missing memories from Cloudflare using optimized batch processing
             synced_count = 0
