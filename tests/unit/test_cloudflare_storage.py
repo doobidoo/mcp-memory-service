@@ -947,6 +947,56 @@ async def test_restore_deleted_memory_sql_lifecycle(cloudflare_storage, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_get_by_hash_excludes_soft_deleted(cloudflare_storage, monkeypatch):
+    """A soft-deleted row must not resurface through get_by_hash: the Memory model
+    carries no deleted_at field, so a caller (e.g. the hybrid pull) cannot detect
+    the deletion after construction and would restore the memory locally."""
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.execute("PRAGMA foreign_keys = ON")
+
+    async def query_d1(method, url, **kwargs):
+        assert method == "POST" and url == f"{cloudflare_storage.d1_url}/query"
+        payload = kwargs["json"]
+        try:
+            sql = payload["sql"]
+            if sql.count(";") > 1:
+                db.executescript(sql)
+                rows, row_id = [], 0
+            else:
+                cursor = db.execute(sql, payload.get("params", []))
+                rows = [dict(row) for row in cursor.fetchall()]
+                row_id = cursor.lastrowid
+            db.commit()
+            result = {"success": True, "result": [{"results": rows, "meta": {"last_row_id": row_id}}]}
+        except sqlite3.Error as error:
+            result = {"success": False, "errors": [str(error)]}
+        return Mock(json=Mock(return_value=result))
+
+    monkeypatch.setattr(cloudflare_storage, "_retry_request", query_d1)
+    for name in ("_store_vectorize_vector", "_delete_vectorize_vector"):
+        monkeypatch.setattr(cloudflare_storage, name, AsyncMock())
+    monkeypatch.setattr(cloudflare_storage, "_generate_embedding", AsyncMock(return_value=[0.1]))
+    try:
+        await cloudflare_storage._initialize_d1_schema()
+        content = "soft deleted memory"
+        memory = Memory(content=content, content_hash=generate_content_hash(content), tags=["keep"])
+        assert (await cloudflare_storage.store(memory))[0]
+
+        live = await cloudflare_storage.get_by_hash(memory.content_hash)
+        assert live is not None and live.content == content
+
+        assert (await cloudflare_storage.delete(memory.content_hash))[0]
+        assert db.execute("SELECT deleted_at FROM memories").fetchone()[0] is not None
+        assert await cloudflare_storage.get_by_hash(memory.content_hash) is None, (
+            "soft-deleted memory resurfaced through get_by_hash — the hybrid pull "
+            "would restore data deleted concurrently in Cloudflare"
+        )
+    finally:
+        db.close()
+
+
+@pytest.mark.asyncio
 async def test_failed_tombstone_cleanup_stops_d1_insert(cloudflare_storage, sample_memory):
     response = Mock()
     response.json.return_value = {"success": False, "errors": ["D1 unavailable"]}

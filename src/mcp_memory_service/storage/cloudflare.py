@@ -1049,8 +1049,10 @@ class CloudflareStorage(MemoryStorage):
     async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
         """Get a memory by its content hash using direct O(1) D1 lookup."""
         try:
-            # Query D1 for the memory
-            sql = "SELECT * FROM memories WHERE content_hash = ?"
+            # Query D1 for the memory. Soft-deleted rows must not resurface here:
+            # the Memory model carries no deleted_at field, so callers cannot tell
+            # a deleted row from a live one after construction.
+            sql = "SELECT * FROM memories WHERE content_hash = ? AND deleted_at IS NULL"
             payload = {"sql": sql, "params": [content_hash]}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()

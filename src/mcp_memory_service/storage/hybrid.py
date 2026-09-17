@@ -1164,18 +1164,15 @@ class HybridMemoryStorage(MemoryStorage):
                                 operation = SyncOperation(operation='delete', content_hash=content_hash)
                                 await self.sync_service.enqueue_operation(operation)
                             continue
+                        # get_by_hash filters deleted_at IS NULL, so a memory
+                        # soft-deleted after the hash snapshot comes back None here
+                        # instead of being restored locally. (A post-fetch check on
+                        # the Memory object can't work: the model has no deleted_at
+                        # field, so a deleted row is indistinguishable from a live one.)
                         cf_memory = await self.secondary.get_by_hash(content_hash)
                         if cf_memory is None:
                             failed_count += 1
-                            logger.warning("Cloud-only memory %s disappeared before pull", _sanitize_log_value(content_hash[:8]))
-                            continue
-                        # Defense-in-depth, as in the scan below: the hash fetch filters
-                        # deleted_at, but the row may have been soft-deleted since.
-                        cf_deleted_at = getattr(cf_memory, 'deleted_at', None)
-                        if cf_deleted_at is None and cf_memory.metadata:
-                            cf_deleted_at = cf_memory.metadata.get('deleted_at')
-                        if cf_deleted_at is not None:
-                            logger.debug("Memory %s is soft-deleted in Cloudflare, skipping", _sanitize_log_value(content_hash[:8]))
+                            logger.warning("Cloud-only memory %s disappeared or was deleted before pull", _sanitize_log_value(content_hash[:8]))
                             continue
                         success, message = await self.primary.store(cf_memory)
                         if success:
