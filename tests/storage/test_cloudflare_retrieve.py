@@ -66,3 +66,52 @@ async def test_retrieve_clamps_topk_to_vectorize_metadata_limit():
 
     assert storage._retry_request.call_args.kwargs["json"]["returnMetadata"] == "all"
     assert storage._retry_request.call_args.kwargs["json"]["topK"] == 50
+
+
+async def test_retrieve_untagged_clamps_topk_to_vectorize_metadata_limit():
+    # Without tags there is no over-fetch, but topK = n_results still crosses
+    # the 50-result metadata ceiling directly once n_results > 50.
+    storage = CloudflareStorage(
+        api_token="token",
+        account_id="account",
+        vectorize_index="index",
+        d1_database_id="database",
+    )
+    storage._generate_embedding = AsyncMock(return_value=[0.1, 0.2])
+    storage._retry_request = AsyncMock(
+        return_value=httpx.Response(
+            200,
+            json={"success": True, "result": {"matches": []}},
+        )
+    )
+    storage._load_memory_from_match = AsyncMock(return_value=None)
+    storage._persist_access_metadata = AsyncMock()
+
+    await storage.retrieve("query", n_results=60)
+
+    assert storage._retry_request.call_args.kwargs["json"]["returnMetadata"] == "all"
+    assert storage._retry_request.call_args.kwargs["json"]["topK"] == 50
+
+
+async def test_recall_clamps_topk_to_vectorize_metadata_limit():
+    # recall() sends its own Vectorize query with topK = n_results; anything
+    # above 50 with returnMetadata="all" would be rejected with a 4xx.
+    storage = CloudflareStorage(
+        api_token="token",
+        account_id="account",
+        vectorize_index="index",
+        d1_database_id="database",
+    )
+    storage._generate_embedding = AsyncMock(return_value=[0.1, 0.2])
+    storage._retry_request = AsyncMock(
+        return_value=httpx.Response(
+            200,
+            json={"success": True, "result": {"matches": []}},
+        )
+    )
+    storage._load_memory_from_match = AsyncMock(return_value=None)
+
+    await storage.recall("query", n_results=60)
+
+    assert storage._retry_request.call_args.kwargs["json"]["returnMetadata"] == "all"
+    assert storage._retry_request.call_args.kwargs["json"]["topK"] == 50
