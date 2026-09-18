@@ -108,9 +108,13 @@ jobs:
     # branch. Two consolidation PRs arrived with no test at all and a green board,
     # because CI did not run tests/consolidation; and a test that passes with and
     # without the fix is the shape of a mock that encodes the bug it should catch.
-    # Maintainers exempt a PR with the skip-prove-fix label and re-run the job
-    # (label changes do not re-trigger it). scripts/ci/check_tests_prove_fix.sh
-    # has the details and tests/ci/test_check_tests_prove_fix.sh covers it.
+    # Maintainers exempt a PR with the skip-prove-fix label. The condition below
+    # reads the labels off the event payload, and a re-run replays the payload as
+    # it was, so labelling and re-running does NOT skip this job — measured on
+    # #1262: attempt 2, started after the label, ran and failed again. The label
+    # takes effect on the next event the PR emits, so push a commit or update the
+    # branch from main after labelling. scripts/ci/check_tests_prove_fix.sh has
+    # the details and tests/ci/test_check_tests_prove_fix.sh covers it.
     if: >-
       github.event_name == 'pull_request' &&
       !contains(github.event.pull_request.labels.*.name, 'skip-prove-fix')
