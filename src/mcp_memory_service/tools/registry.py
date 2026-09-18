@@ -71,6 +71,10 @@ TOOL_REGISTRY: list[ToolDef] = [
                     "type": "string",
                     "description": "Optional conversation identifier. When provided, semantic deduplication is skipped, allowing multiple incremental memories from the same conversation to be stored even if their content is topically similar. Exact duplicate hashes are still rejected.",
                 },
+                "agent_id": {
+                    "type": "string",
+                    "description": "Optional authoring agent id (defaults to the MCP_AGENT_ID env var, else unset). Stored in metadata for multi-agent attribution; null means unknown.",
+                },
                 "metadata": {
                     "type": "object",
                     "description": "Optional metadata about the memory, including tags and type.",

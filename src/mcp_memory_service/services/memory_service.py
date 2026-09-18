@@ -9,6 +9,7 @@ all memory operations, eliminating the DRY violation and ensuring consistent beh
 import json
 import logging
 import math
+import os
 import re
 import sys
 from typing import Dict, List, Optional, Any, Union
@@ -378,6 +379,7 @@ class MemoryService:
         metadata: Optional[Dict[str, Any]] = None,
         client_hostname: Optional[str] = None,
         conversation_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
         store: str = "default",
     ) -> Union[StoreMemorySingleSuccess, StoreMemoryChunkedSuccess, StoreMemoryFailure]:
         """
@@ -429,6 +431,13 @@ class MemoryService:
             skip_dedup = bool(conversation_id) or (memory_type == "session")
             if conversation_id:
                 final_metadata["conversation_id"] = conversation_id
+
+            # RFC #1100: author identity. Explicit arg wins; else fall back to
+            # the MCP_AGENT_ID env. Absent both -> unset (null = unknown,
+            # backward compatible).
+            resolved_agent_id = agent_id or os.environ.get("MCP_AGENT_ID")
+            if resolved_agent_id:
+                final_metadata["agent_id"] = resolved_agent_id
 
             # Generate content hash for deduplication
             content_hash = generate_content_hash(content)
