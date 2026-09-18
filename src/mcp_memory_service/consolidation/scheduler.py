@@ -34,6 +34,22 @@ from .consolidator import DreamInspiredConsolidator
 from .belief_service import BeliefService
 from ..compat import _sanitize_log_value
 
+
+def sessions_to_track(results) -> set:
+    """Session ids that should be marked harvested (RFC-provenance R7).
+
+    Only sessions that actually stored at least one memory are tracked. A
+    session harvested with stored==0 (e.g. the LLM chain was unavailable and
+    every candidate was dropped) must stay pending so a later run re-harvests
+    it instead of silently skipping it forever.
+    """
+    return {
+        r.session_id
+        for r in results
+        if getattr(r, "session_id", None) and (getattr(r, "stored", 0) or 0) > 0
+    }
+
+
 class ConsolidationScheduler:
     """
     Scheduler for autonomous consolidation operations.
@@ -266,8 +282,10 @@ class ConsolidationScheduler:
             stored = sum(getattr(r, "stored", 0) or 0 for r in results)
             found = sum(getattr(r, "found", 0) or 0 for r in results)
 
-            # Update tracker with newly harvested session ids.
-            new_ids = {r.session_id for r in results if getattr(r, "session_id", None)}
+            # Update tracker only with sessions that actually stored something
+            # (RFC-provenance R7): a session harvested with stored==0 stays
+            # pending so a later run re-harvests it instead of skipping forever.
+            new_ids = sessions_to_track(results)
             if new_ids:
                 await self._update_harvest_tracker(memory_service, already | new_ids)
 
