@@ -186,6 +186,31 @@ check "version plus deleted release file allowed" 0 '--- a/src/mcp_memory_servic
 -
 '
 
+# --- _version.py content must be a bump, not smuggled behavior (#1250 review) ---
+
+# A function added inside _version.py rides the release-file allowlist but is real
+# behavior — must be REJECTED even though the only path is _version.py.
+check "version file with added function rejected" 1 '--- a/src/mcp_memory_service/_version.py
++++ b/src/mcp_memory_service/_version.py
+@@ -1,2 +1,6 @@
+-__version__ = "11.12.0"
++__version__ = "11.13.0"
++
++def parse(v):
++    return tuple(int(x) for x in v.split("."))
+'
+
+# A moved/reflowed comment next to the bump is formatting noise, not behavior —
+# must stay ACCEPTED so the content check is not brittle.
+check "version bump with moved comment accepted" 0 '--- a/src/mcp_memory_service/_version.py
++++ b/src/mcp_memory_service/_version.py
+@@ -1,3 +1,3 @@
+-# version of the package
+-__version__ = "11.12.0"
++__version__ = "11.13.0"
++# version of the package
+'
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures test(s) failed"
     exit 1
