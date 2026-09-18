@@ -217,7 +217,7 @@ if [ "$MODE" = "staged" ]; then
     full_diff=$(git diff --cached)
 else
     py_diff=$(gh pr diff $PR_NUMBER)
-    full_diff=$(gh pr diff $PR_NUMBER)
+    full_diff=$(gh pr diff "$PR_NUMBER")
 fi
 cleanup_only=false
 if [ -n "$py_diff" ] && printf '%s' "$py_diff" | python3 "$SCRIPT_DIR/lib/is_cleanup_only.py"; then
