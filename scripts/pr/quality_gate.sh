@@ -214,15 +214,22 @@ code_files=$(echo "$changed_files" | grep -c '\.py$' || true)
 # that adds real behavior still needs a test -- see lib/is_cleanup_only.py.
 if [ "$MODE" = "staged" ]; then
     py_diff=$(git diff --cached -- '*.py')
+    full_diff=$(git diff --cached)
 else
     py_diff=$(gh pr diff $PR_NUMBER)
+    full_diff=$(gh pr diff "$PR_NUMBER")
 fi
 cleanup_only=false
 if [ -n "$py_diff" ] && printf '%s' "$py_diff" | python3 "$SCRIPT_DIR/lib/is_cleanup_only.py"; then
     cleanup_only=true
 fi
 
-if [ $code_files -gt 0 ] && [ $test_files -eq 0 ] && [ "$cleanup_only" = false ]; then
+release_bump=false
+if [ -n "$py_diff" ] && printf '%s' "$full_diff" | python3 "$SCRIPT_DIR/lib/is_release_bump.py"; then
+    release_bump=true
+fi
+
+if [ $code_files -gt 0 ] && [ $test_files -eq 0 ] && [ "$cleanup_only" = false ] && [ "$release_bump" = false ]; then
     warnings+=("No test files added/modified despite $code_files code file(s) changed")
     if [ $exit_code -eq 0 ]; then
         exit_code=1
@@ -232,6 +239,9 @@ echo "Code files changed: $code_files"
 echo "Test files changed: $test_files"
 if [ $code_files -gt 0 ] && [ "$cleanup_only" = true ]; then
     echo "Cleanup-only change (no added behavior) - test requirement not applied"
+fi
+if [ $code_files -gt 0 ] && [ "$release_bump" = true ]; then
+    echo "Release version bump - test requirement not applied"
 fi
 echo ""
 
