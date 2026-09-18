@@ -25,6 +25,8 @@ SQLite-vec options:
 - `MCP_MEMORY_SQLITE_PATH` or `MCP_MEMORY_SQLITEVEC_PATH`: Path to `.db` file. Default `${BASE_DIR}/sqlite_vec.db`.
 - `MCP_MEMORY_SQLITE_PRAGMAS`: CSV list of custom pragmas e.g. `journal_mode=WAL,busy_timeout=15000,cache_size=20000` (recommended for concurrent access).
 
+> **Note:** The service will warn about unrecognized `MCP_MEMORY_*` environment variables that contain `PATH`, `DB`, or `DIR` in their names when falling back to the default database path. This helps catch common typos like `MCP_MEMORY_DB_PATH` instead of `MCP_MEMORY_SQLITE_PATH`.
+
 Cloudflare options (required unless otherwise noted):
 
 - `CLOUDFLARE_API_TOKEN` (required)
