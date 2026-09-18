@@ -211,6 +211,31 @@ check "version bump with moved comment accepted" 0 '--- a/src/mcp_memory_service
 +# version of the package
 '
 
+# A statement chained after the assignment with ";" must be REJECTED — the
+# content check anchors the whole line, so a prefix match can't let it ride.
+check "version assignment with chained statement rejected" 1 'diff --git a/src/mcp_memory_service/_version.py b/src/mcp_memory_service/_version.py
+--- a/src/mcp_memory_service/_version.py
++++ b/src/mcp_memory_service/_version.py
+@@ -1 +1 @@
+-__version__ = "11.12.0"
++__version__ = "11.13.0"; run_new_behavior()
+'
+
+# Deleting an allowlisted file whose removed lines are REAL content (not just
+# comments/blanks) must still be ACCEPTED — the deletion must not be judged as
+# _version.py content. Guards the "+++ /dev/null" flag-reset regression.
+check "version bump plus deleted allowlisted file with real content accepted" 0 '--- a/src/mcp_memory_service/_version.py
++++ b/src/mcp_memory_service/_version.py
+@@ -1 +1 @@
+-__version__ = "11.12.0"
++__version__ = "11.13.0"
+--- a/site/index.html
++++ /dev/null
+@@ -1,2 +0,0 @@
+-<html>
+-</html>
+'
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures test(s) failed"
     exit 1

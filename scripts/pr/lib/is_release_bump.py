@@ -41,8 +41,11 @@ VERSION_FILE = "src/mcp_memory_service/_version.py"
 
 # A changed line inside _version.py is only allowed to be a __version__
 # assignment, a blank line, or a comment. Anything else (a def, an import, any
-# other statement) means the version file grew real behavior and must be tested.
-_VERSION_ASSIGN_RE = re.compile(r"^__version__\s*=")
+# other statement — or a statement chained after the assignment with ";") means
+# the version file grew real behavior and must be tested. The pattern anchors the
+# WHOLE line: __version__ = "<literal>" with nothing trailing, so a prefix match
+# can't let `; run_new_behavior()` ride along.
+_VERSION_ASSIGN_RE = re.compile(r"""^__version__\s*=\s*["'][^"']*["']\s*$""")
 
 
 def _version_change_is_bump_only(diff: str) -> bool:
@@ -59,13 +62,19 @@ def _version_change_is_bump_only(diff: str) -> bool:
     """
     in_version_file = False
     for line in diff.splitlines():
-        # Track which file's hunks we are inside. "diff --git" or the "+++ b/"
-        # header switches the current file.
+        # A new file section starts with "diff --git" (full git diff) or, when
+        # that header is absent, with the "--- a/<path>" pre-image header. Reset
+        # on either so a deletion (post-image "+++ /dev/null", not "+++ b/")
+        # can never inherit the previous file's flag and get its removed lines
+        # judged as _version.py content. The "+++ b/<path>" header then confirms
+        # which file the following hunk edits.
+        if line.startswith("diff --git") or line.startswith("--- "):
+            in_version_file = False
+            continue
         if line.startswith("+++ b/"):
             in_version_file = line[len("+++ b/"):] == VERSION_FILE
             continue
-        if line.startswith("--- ") or line.startswith("+++ ") or line.startswith("@@") \
-                or line.startswith("diff --git") or line.startswith("index "):
+        if line.startswith("+++ ") or line.startswith("@@") or line.startswith("index "):
             continue
         if not in_version_file:
             continue
