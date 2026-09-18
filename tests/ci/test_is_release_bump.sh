@@ -245,6 +245,24 @@ check "deleted version file rejected" 1 '--- a/src/mcp_memory_service/_version.p
 -__version__ = "11.12.0"
 '
 
+# A PEP 526 type annotation on the version is a legitimate release form.
+check "version bump with type annotation accepted" 0 '--- a/src/mcp_memory_service/_version.py
++++ b/src/mcp_memory_service/_version.py
+@@ -1 +1 @@
+-__version__: str = "11.12.0"
++__version__: str = "11.13.0"
+'
+
+# A binary change alongside the bump cannot be inspected and must be rejected.
+check "version bump plus binary change rejected" 1 '--- a/src/mcp_memory_service/_version.py
++++ b/src/mcp_memory_service/_version.py
+@@ -1 +1 @@
+-__version__ = "11.12.0"
++__version__ = "11.13.0"
+diff --git a/site/index.html b/site/index.html
+Binary files a/site/index.html and b/site/index.html differ
+'
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures test(s) failed"
     exit 1

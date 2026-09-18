@@ -26,6 +26,10 @@ ADD_RE = re.compile(r"^\+\+\+ b/(.*)$")
 # so we must also account for the deleted path — it does not appear as "+++ b/".
 DEL_FROM_RE = re.compile(r"^--- a/(.*)$")
 DEV_NULL_RE = re.compile(r"^\+\+\+ /dev/null$")
+# A binary change ("Binary files a/... and b/... differ") has no reviewable text
+# lines, so the content check can't inspect it. A release bump never changes a
+# binary, so any binary section disqualifies the diff.
+BINARY_RE = re.compile(r"^Binary files .* differ$")
 
 # Files that the release workflow is allowed to modify (besides _version.py)
 RELEASE_FILES = {
@@ -44,8 +48,13 @@ VERSION_FILE = "src/mcp_memory_service/_version.py"
 # other statement — or a statement chained after the assignment with ";") means
 # the version file grew real behavior and must be tested. The pattern anchors the
 # WHOLE line: __version__ = "<literal>" with nothing trailing, so a prefix match
-# can't let `; run_new_behavior()` ride along.
-_VERSION_ASSIGN_RE = re.compile(r"""^__version__\s*=\s*["'][^"']*["']\s*$""")
+# can't let `; run_new_behavior()` ride along. An optional PEP 526 type
+# annotation (`__version__: str = "..."`) is a legitimate release form and is
+# allowed; the annotation is restricted to a bare identifier so it can't smuggle
+# a call.
+_VERSION_ASSIGN_RE = re.compile(
+    r"""^__version__\s*(?::\s*[A-Za-z_][A-Za-z0-9_]*\s*)?=\s*["'][^"']*["']\s*$"""
+)
 
 
 def _version_change_is_bump_only(diff: str) -> bool:
@@ -105,6 +114,10 @@ def is_release_bump(diff: str) -> bool:
 
     lines = diff.splitlines()
     for i, line in enumerate(lines):
+        # A binary change can't be inspected line-by-line; a release bump never
+        # touches binaries, so disqualify the whole diff.
+        if BINARY_RE.match(line):
+            return False
         m = ADD_RE.match(line)
         if m:
             path = m.group(1)
