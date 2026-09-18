@@ -56,13 +56,17 @@ async def storage(milvus_db_path, monkeypatch):
     monkeypatch.setattr(
         MilvusMemoryStorage, "_initialize_embedding_model", _stub_init_embedding
     )
+    collection_name = f"mcp_softdel_{uuid.uuid4().hex[:12]}"
     instance = MilvusMemoryStorage(
         uri=str(milvus_db_path),
-        collection_name=f"mcp_softdel_{uuid.uuid4().hex[:12]}",
+        collection_name=collection_name,
         embedding_model="stub",
     )
     await instance.initialize()
-    return instance
+    try:
+        yield instance
+    finally:
+        await instance.close()
 
 
 async def _store_live(storage, content: str) -> str:
