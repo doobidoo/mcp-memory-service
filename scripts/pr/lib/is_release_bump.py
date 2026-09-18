@@ -101,6 +101,7 @@ def is_release_bump(diff: str) -> bool:
     header. Any path outside the release set (including a deletion) disqualifies.
     """
     changed_files = []
+    deleted_files = set()
 
     lines = diff.splitlines()
     for i, line in enumerate(lines):
@@ -114,12 +115,16 @@ def is_release_bump(diff: str) -> bool:
         m = DEL_FROM_RE.match(line)
         if m and i + 1 < len(lines) and DEV_NULL_RE.match(lines[i + 1]):
             changed_files.append(m.group(1))
+            deleted_files.add(m.group(1))
     
     if not changed_files:
         return False
     
-    # Must include _version.py for it to be a release bump
-    if VERSION_FILE not in changed_files:
+    # Must include _version.py as a *present* file (added/modified) for it to be
+    # a release bump. A diff that DELETES _version.py records its path here too,
+    # but removing the version module is not a bump — it breaks imports and
+    # release tooling and must still require tests.
+    if VERSION_FILE not in changed_files or VERSION_FILE in deleted_files:
         return False
     
     # Check all files against allowed sets

@@ -236,6 +236,15 @@ check "version bump plus deleted allowlisted file with real content accepted" 0 
 -</html>
 '
 
+# Deleting _version.py itself is NOT a bump — it removes the version module
+# (breaks imports and release tooling) and must still require tests. Its path
+# is recorded as changed, but it must be present (added/modified), not deleted.
+check "deleted version file rejected" 1 '--- a/src/mcp_memory_service/_version.py
++++ /dev/null
+@@ -1 +0,0 @@
+-__version__ = "11.12.0"
+'
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures test(s) failed"
     exit 1
