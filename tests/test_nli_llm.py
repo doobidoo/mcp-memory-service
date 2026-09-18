@@ -15,7 +15,7 @@ def classifier():
 async def test_returns_contradiction_with_high_confidence(classifier):
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
-        instance._call_llm = AsyncMock(return_value="contradiction")
+        instance._call_llm = AsyncMock(return_value=("contradiction", "ollama", "qwen2.5:3b"))
         result = await classifier._llm_classify("A is true", "A is false")
     assert result.label == "contradiction"
     assert result.confidence == 0.9
@@ -25,7 +25,7 @@ async def test_returns_contradiction_with_high_confidence(classifier):
 async def test_returns_entailment_with_high_confidence(classifier):
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
-        instance._call_llm = AsyncMock(return_value="entailment")
+        instance._call_llm = AsyncMock(return_value=("entailment", "ollama", "qwen2.5:3b"))
         result = await classifier._llm_classify("sky is blue", "sky is blue")
     assert result.label == "entailment"
     assert result.confidence == 0.9
@@ -35,7 +35,7 @@ async def test_returns_entailment_with_high_confidence(classifier):
 async def test_returns_neutral_with_low_confidence(classifier):
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
-        instance._call_llm = AsyncMock(return_value="neutral")
+        instance._call_llm = AsyncMock(return_value=("neutral", "ollama", "qwen2.5:3b"))
         result = await classifier._llm_classify("cats are nice", "weather is warm")
     assert result.label == "neutral"
     assert result.confidence == 0.3
@@ -45,7 +45,7 @@ async def test_returns_neutral_with_low_confidence(classifier):
 async def test_falls_back_to_heuristic_on_empty_response(classifier):
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
-        instance._call_llm = AsyncMock(return_value="")
+        instance._call_llm = AsyncMock(return_value=("", "ollama", "qwen2.5:3b"))
         result = await classifier._llm_classify("redis enabled", "redis disabled")
     # Heuristic detects enabled/disabled antonym pair
     assert result.label == "contradiction"
@@ -68,7 +68,7 @@ async def test_garbled_output_falls_back_to_heuristic(classifier):
     not be returned as a (wrong) answer. Regression for the review on #1215."""
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
-        instance._call_llm = AsyncMock(return_value="xyzzy blorp 42 random garbage")
+        instance._call_llm = AsyncMock(return_value=("xyzzy blorp 42 random garbage", "ollama", "qwen2.5:3b"))
         # heuristic on unrelated texts → neutral; the point is it went through
         # _heuristic_classify, not that the label happens to be neutral.
         with patch.object(classifier, "_heuristic_classify",
@@ -85,7 +85,7 @@ async def test_label_with_trailing_punctuation_is_parsed(classifier):
     Regression for the review on #1215 (one-word parser dropped punctuation)."""
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
-        instance._call_llm = AsyncMock(return_value="Contradiction.")
+        instance._call_llm = AsyncMock(return_value=("Contradiction.", "ollama", "qwen2.5:3b"))
         result = await classifier._llm_classify("feature enabled", "feature disabled")
     assert result.label == "contradiction"
     assert result.confidence == 0.9
@@ -98,7 +98,7 @@ async def test_hedged_multilabel_falls_back_to_heuristic(classifier):
     Regression for the second-round review on #1215."""
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
-        instance._call_llm = AsyncMock(return_value="contradiction, but really neutral")
+        instance._call_llm = AsyncMock(return_value=("contradiction, but really neutral", "ollama", "qwen2.5:3b"))
         with patch.object(classifier, "_heuristic_classify",
                           return_value=NLIResult(label="neutral", confidence=0.3)) as heur:
             result = await classifier._llm_classify("some premise", "some hypothesis")
@@ -113,7 +113,7 @@ async def test_negated_contradiction_falls_back_to_heuristic(classifier):
     (a word-boundary match would wrongly read it as contradiction@0.9)."""
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
-        instance._call_llm = AsyncMock(return_value="there is no contradiction")
+        instance._call_llm = AsyncMock(return_value=("there is no contradiction", "ollama", "qwen2.5:3b"))
         with patch.object(classifier, "_heuristic_classify",
                           return_value=NLIResult(label="neutral", confidence=0.3)) as heur:
             result = await classifier._llm_classify("some premise", "some hypothesis")
@@ -128,7 +128,7 @@ async def test_classification_prefix_is_parsed(classifier):
     Regression for the second-round review on #1215."""
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
-        instance._call_llm = AsyncMock(return_value="Classification: contradiction")
+        instance._call_llm = AsyncMock(return_value=("Classification: contradiction", "ollama", "qwen2.5:3b"))
         result = await classifier._llm_classify("feature enabled", "feature disabled")
     assert result.label == "contradiction"
     assert result.confidence == 0.9
@@ -152,7 +152,7 @@ async def test_env_backend_reaches_pipeline(monkeypatch):
 
     async def fake_call_llm(prompt, timeout=30):
         called["llm"] += 1
-        return "contradiction"
+        return ("contradiction", "ollama", "qwen2.5:3b")
 
     ha, hb = "hashA", "hashB"
     mem_a = MagicMock()
@@ -199,7 +199,7 @@ async def test_env_backend_reaches_quarantine_call_site(monkeypatch):
 
     async def fake_call_llm(prompt, timeout=30):
         called["llm"] += 1
-        return "contradiction"
+        return ("contradiction", "ollama", "qwen2.5:3b")
 
     belief_service = MagicMock()
     belief_service.get_beliefs = AsyncMock(return_value=[
@@ -240,7 +240,7 @@ async def test_r10_rewriter_constructed_once_for_multiple_pairs():
     
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
-        instance._call_llm = AsyncMock(return_value="contradiction")
+        instance._call_llm = AsyncMock(return_value=("contradiction", "ollama", "qwen2.5:3b"))
         instance.is_configured = True
         
         # Multiple calls should reuse the same rewriter
@@ -259,7 +259,7 @@ async def test_r10_batch_classify_constructs_rewriter_once():
     
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
-        instance._call_llm = AsyncMock(return_value="neutral")
+        instance._call_llm = AsyncMock(return_value=("neutral", "ollama", "qwen2.5:3b"))
         instance.is_configured = True
         
         pairs = [
@@ -284,7 +284,7 @@ async def test_r11_no_llm_call_when_provider_not_configured():
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
         instance.is_configured = False  # No provider configured
-        instance._call_llm = AsyncMock(return_value="contradiction")
+        instance._call_llm = AsyncMock(return_value=("contradiction", "ollama", "qwen2.5:3b"))
         
         with patch.object(classifier, "_heuristic_classify", 
                          return_value=NLIResult(label="neutral", confidence=0.5)) as mock_heuristic:
@@ -307,7 +307,7 @@ async def test_r11_is_configured_property_exception_handled():
         instance = MockRewriter.return_value
         # is_configured property throws exception
         type(instance).is_configured = PropertyMock(side_effect=RuntimeError("Config error"))
-        instance._call_llm = AsyncMock(return_value="contradiction")
+        instance._call_llm = AsyncMock(return_value=("contradiction", "ollama", "qwen2.5:3b"))
         
         with patch.object(classifier, "_heuristic_classify",
                          return_value=NLIResult(label="neutral", confidence=0.3)) as mock_heuristic:
@@ -332,7 +332,7 @@ async def test_r12_degradation_warning_bounded_once_per_run():
         instance.is_configured = True
         # First call succeeds, second and third fail
         instance._call_llm = AsyncMock(side_effect=[
-            "contradiction",
+            ("contradiction", "ollama", "qwen2.5:3b"),
             RuntimeError("LLM failed"),
             RuntimeError("Still failing")
         ])
@@ -365,7 +365,7 @@ async def test_r12_empty_response_triggers_bounded_warning():
         instance = MockRewriter.return_value
         instance.is_configured = True
         # Return whitespace-only responses that can't be parsed
-        instance._call_llm = AsyncMock(side_effect=["   ", "\t\n", "   "])
+        instance._call_llm = AsyncMock(side_effect=[("   ", "ollama", "qwen2.5:3b"), ("\t\n", "ollama", "qwen2.5:3b"), ("   ", "ollama", "qwen2.5:3b")])
         
         with patch.object(classifier, "_warn_once") as mock_warn:
             with patch.object(classifier, "_heuristic_classify",
@@ -387,11 +387,7 @@ async def test_r12_unparseable_response_triggers_bounded_warning():
         instance = MockRewriter.return_value
         instance.is_configured = True
         # Return garbage that can't be parsed
-        instance._call_llm = AsyncMock(side_effect=[
-            "xyzzy blorp 42",
-            "random garbage text",
-            "not a valid label"
-        ])
+        instance._call_llm = AsyncMock(side_effect=[("xyzzy blorp 42", "ollama", "qwen2.5:3b"), ("random garbage text", "ollama", "qwen2.5:3b"), ("not a valid label", "ollama", "qwen2.5:3b")])
         
         with patch.object(classifier, "_warn_once") as mock_warn:
             with patch.object(classifier, "_heuristic_classify",
@@ -413,7 +409,7 @@ async def test_r12_mixed_success_failure_warns_once():
         instance.is_configured = True
         # First succeeds, then provider fails in the middle of the run
         instance._call_llm = AsyncMock(side_effect=[
-            "entailment",  # Success
+            ("entailment", "ollama", "qwen2.5:3b"),  # Success
             ConnectionError("Provider unavailable"),  # Failure
             ConnectionError("Still down")  # Another failure
         ])
@@ -543,7 +539,7 @@ async def test_r14_fallback_on_empty_response_preserves_heuristic():
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
         instance.is_configured = True
-        instance._call_llm = AsyncMock(return_value="")  # Empty response
+        instance._call_llm = AsyncMock(return_value=("", "ollama", "qwen2.5:3b"))  # Empty response
         
         with patch.object(classifier, "_heuristic_classify",
                          return_value=expected_result) as mock_heuristic:
@@ -566,7 +562,7 @@ async def test_r14_fallback_on_garbage_response_preserves_heuristic():
         instance = MockRewriter.return_value
         instance.is_configured = True
         # Return garbage with valid label mixed in - should still be unparseable
-        instance._call_llm = AsyncMock(return_value="entailment but also contradiction maybe neutral")
+        instance._call_llm = AsyncMock(return_value=("entailment but also contradiction maybe neutral", "ollama", "qwen2.5:3b"))
         
         with patch.object(classifier, "_heuristic_classify",
                          return_value=expected_result) as mock_heuristic:
@@ -596,21 +592,28 @@ async def test_edge_case_heuristic_backend_never_creates_rewriter():
 
 
 @pytest.mark.asyncio
-async def test_edge_case_valid_label_surrounded_by_garbage():
-    """Edge case: Valid label with surrounding garbage should be parsed correctly."""
+async def test_edge_case_valid_label_buried_in_garbage_falls_back():
+    """Edge case: a label buried in garbage is not first-token-anchored, so it is
+    unparseable and must fall back to the heuristic (R13) — not be acted on at
+    0.9 confidence. Extracting a buried token would be exactly the kind of
+    unreliable parse #1235 says to treat as a degradation."""
     classifier = NLIClassifier(backend="cascade")
-    
+
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
         instance.is_configured = True
-        # Valid label buried in garbage - tests parser robustness
-        instance._call_llm = AsyncMock(return_value="garbage text contradiction more garbage")
-        
-        result = await classifier._llm_classify("premise", "hypothesis")
-        
-        # Should successfully extract the valid label
-        assert result.label == "contradiction"
-        assert result.confidence == 0.9
+        # Label buried mid-string: the first token is "garbage", not a label,
+        # so _parse_nli_label returns None and the classifier falls back.
+        instance._call_llm = AsyncMock(return_value=("garbage text contradiction more garbage", "ollama", "qwen2.5:3b"))
+
+        with patch.object(classifier, "_heuristic_classify",
+                          return_value=NLIResult(label="neutral", confidence=0.5)) as heur:
+            result = await classifier._llm_classify("premise", "hypothesis")
+
+        # Unparseable LLM output -> heuristic result preserved, not 0.9.
+        heur.assert_called_once()
+        assert result.label == "neutral"
+        assert result.confidence == 0.5
 
 
 @pytest.mark.asyncio
@@ -621,7 +624,7 @@ async def test_edge_case_label_with_case_variations():
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         instance = MockRewriter.return_value
         instance.is_configured = True
-        instance._call_llm = AsyncMock(side_effect=["CONTRADICTION", "Entailment", "nEuTrAl"])
+        instance._call_llm = AsyncMock(side_effect=[("CONTRADICTION", "ollama", "qwen2.5:3b"), ("Entailment", "ollama", "qwen2.5:3b"), ("nEuTrAl", "ollama", "qwen2.5:3b")])
         
         result1 = await classifier._llm_classify("p1", "h1")
         result2 = await classifier._llm_classify("p2", "h2") 
@@ -645,7 +648,7 @@ async def test_edge_case_provider_disappears_mid_run():
         # is_configured changes from True to False mid-run (provider disappears)
         instance.is_configured = True
         instance._call_llm = AsyncMock(side_effect=[
-            "entailment",  # First call succeeds
+            ("entailment", "ollama", "qwen2.5:3b"),  # First call succeeds
             ConnectionError("Provider down")  # Provider disappears
         ])
         

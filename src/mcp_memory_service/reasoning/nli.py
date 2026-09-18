@@ -50,8 +50,6 @@ def _parse_nli_label(response: str):
       is unparseable and must fall back to the heuristic, not be acted on at
       0.9 confidence.
     - Any unknown/garbled first token also returns None.
-    - Enhanced robustness: if first-token anchor fails but there's exactly one
-      valid label and no negation context, extract that label.
 
     Returns the label string, or None when the caller should fall back to the
     heuristic classifier.
@@ -72,36 +70,10 @@ def _parse_nli_label(response: str):
     tokens = text.split()
     if not tokens:
         return None
-    
-    # Try first-token anchor (primary method)
     first = re.sub(r"[^a-z]", "", tokens[0])
-    if first in _NLI_LABELS:
-        return first
-    
-    # Enhanced robustness: if exactly one label present and no negation context
-    if len(mentioned) == 1:
-        label = list(mentioned)[0]
-        # Check for negation words near the label that would make it unreliable
-        negation_words = ["no", "not", "never", "isn't", "aren't", "won't", "can't", "don't"]
-        text_words = text.split()
-        
-        # Find position of label in text
-        for i, word in enumerate(text_words):
-            if label in word:
-                # Check words around the label for negation (2 words before/after)
-                start = max(0, i - 2)
-                end = min(len(text_words), i + 3)
-                context = text_words[start:end]
-                
-                # If negation found near label, reject
-                if any(neg in " ".join(context) for neg in negation_words):
-                    return None
-        
-        # No negation context found, safe to extract the label
-        return label
-    
-    # Fall back to heuristic
-    return None
+    if first not in _NLI_LABELS:
+        return None
+    return first
 
 
 class NLIClassifier:
@@ -163,7 +135,9 @@ class NLIClassifier:
                 "Classification:"
             )
             timeout = float(os.environ.get("MCP_NLI_LLM_TIMEOUT", "30"))
-            response = await rewriter._call_llm(prompt, timeout)
+            # _call_llm returns (response, provider_name, model) so provenance
+            # travels with the call; we only need the response text here.
+            response, _provider, _model = await rewriter._call_llm(prompt, timeout)
             label = _parse_nli_label(response)
             if label is None:
                 # R12: Empty/unparseable response triggers bounded warning
