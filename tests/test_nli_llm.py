@@ -692,16 +692,3 @@ async def test_edge_case_timeout_error_sanitization():
         mock_warn.assert_called_once()
         # Verify the error message was sanitized (implementation detail for the actual code)
 
-
-# Missing method tests - these should FAIL until implementation exists
-
-@pytest.mark.asyncio  
-async def test_missing_get_rewriter_method_fails():
-    """Removed: this was an inverted 'method does not exist yet' scaffold test.
-    The methods now exist; real behavior is covered by the R10-R14 tests."""
-    pass
-
-
-def test_missing_warn_once_method_removed():
-    """Removed: inverted scaffold. See _warn_once behavior in R12/R13 tests."""
-    pass

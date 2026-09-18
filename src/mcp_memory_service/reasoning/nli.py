@@ -13,7 +13,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 
 from .nli_patterns import load_nli_patterns
 from ..config.locale import get_active_locales
@@ -169,9 +169,15 @@ class NLIClassifier:
         return self._rewriter
 
     def _warn_once(self, sanitized_reason: str):
-        """R12: Emit warning (reason already sanitized by caller)."""
+        """R12: Emit one degradation warning per run (reason already sanitized).
+
+        Only the warning is suppressed after the first; later pairs still attempt
+        the provider and fall back per-pair, so the message describes this pair,
+        not the whole remaining run.
+        """
         logger.warning(
-            "NLI LLM degradation: %s; falling back to heuristic for remaining pairs",
+            "NLI LLM degradation: %s; falling back to heuristic for this pair "
+            "(further degradations this run are not repeated)",
             sanitized_reason
         )
 
