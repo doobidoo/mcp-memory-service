@@ -188,6 +188,24 @@ class TestWarnUnrecognizedPathVarLoggingPath:
     helper feeds into.
     """
 
+    @pytest.fixture(autouse=True)
+    def _restore_storage_module(self):
+        """Reload ``config.storage`` under the original environment after each test.
+
+        ``_reload_storage`` calls ``importlib.reload`` so the import-time branch
+        runs against controlled env vars. ``monkeypatch`` restores ``os.environ``
+        when the test ends, but the reloaded module object left in
+        ``sys.modules`` still holds values computed from the test's environment.
+        Without this teardown, any later test importing ``config.storage`` would
+        see contaminated module-level state — making the suite order-dependent.
+        This reloads the module once more, after ``monkeypatch`` has undone the
+        env changes, so it reflects the process's real environment again.
+        """
+        yield
+        import importlib
+        import mcp_memory_service.config.storage as storage_mod
+        importlib.reload(storage_mod)
+
     def _reload_storage(self, monkeypatch, env):
         """Reload config.storage under a clean, controlled environment."""
         import importlib
