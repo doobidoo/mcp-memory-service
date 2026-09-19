@@ -136,6 +136,10 @@ Rate-limit handling for the harvest classifier (validates candidate memories via
 
 - `MCP_MEMORY_INCLUDE_HOSTNAME`: `true|false` to tag memories with `source:<hostname>` and include `hostname` metadata.
 
+## Agent Identity (Optional)
+
+- `MCP_AGENT_ID`: default authoring agent id for memories created via `memory_store`. When set, each stored memory records `agent_id` in its metadata unless an explicit `agent_id` argument is passed (the explicit argument wins). When unset and no argument is given, no `agent_id` is written (`null` = unknown), so behavior is unchanged. Useful in a shared multi-agent database to attribute who wrote each memory.
+
 ## Logging and Performance
 
 - `LOG_LEVEL`: Root logging level (default `WARNING`).

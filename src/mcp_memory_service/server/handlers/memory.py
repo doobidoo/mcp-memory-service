@@ -198,6 +198,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
         memory_type = metadata.get("type", "note")  # HTTP server uses metadata.type
         client_hostname = arguments.get("client_hostname")
         conversation_id = arguments.get("conversation_id")
+        agent_id = arguments.get("agent_id")
         store = arguments.get("store", "default")
 
         # Call shared MemoryService business logic
@@ -208,6 +209,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
             metadata=metadata,
             client_hostname=client_hostname,
             conversation_id=conversation_id,
+            agent_id=agent_id,
             store=store,
         )
 
