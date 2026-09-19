@@ -63,11 +63,17 @@ def normalise(entry: str) -> str:
 
 
 def existing_entries(body: str) -> list[str]:
-    """Every list item already in the [Unreleased] body, continuation lines included."""
+    """Every list item already in the [Unreleased] body, continuation lines included.
+
+    Only a bullet in column 0 starts an entry. An indented `- ` is a nested bullet and
+    belongs to the entry above it; treating it as its own entry truncates the one it
+    belongs to, and a truncated entry never matches a fragment, so a rerun would merge
+    that fragment a second time.
+    """
     entries: list[str] = []
     current: list[str] = []
     for line in body.splitlines():
-        if re.match(r"^\s*-\s+\S", line):
+        if re.match(r"^-\s+\S", line):
             if current:
                 entries.append("\n".join(current))
             current = [line]

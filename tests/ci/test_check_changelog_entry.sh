@@ -45,7 +45,7 @@ run_gate_case() {
         git add -A && git commit -qm change
         bash "$GATE" main >/dev/null 2>&1
     )
-    report "$name" "$expected" $?
+    report "$name" "$expected" "$?"
     rm -rf "$tmp"
 }
 
@@ -178,7 +178,7 @@ EOF
     released=$(grep -n "^## \[1.0.0\]" "$out" | head -1 | cut -d: -f1)
     [ "$new_fix" -gt "$fixed_line" ] && [ "$new_fix" -lt "$released" ] || {
         echo "  new fix landed outside the Fixed section of [Unreleased]"; ok=1; }
-    report "$name" 0 $ok
+    report "$name" 0 "$ok"
     rm -rf "$tmp"
 }
 
@@ -261,11 +261,33 @@ same_first_line_case() {
     local ok=0
     grep -q "anyio 4.14.2" "$tmp/CHANGELOG.md" || { echo "  lost: the pre-existing detail"; ok=1; }
     grep -q "ruff 0.16.7" "$tmp/CHANGELOG.md" || { echo "  lost: the new fragment's detail"; ok=1; }
-    report "entries sharing a first line are both kept" 0 $ok
+    report "entries sharing a first line are both kept" 0 "$ok"
     rm -rf "$tmp"
 }
 
 same_first_line_case
+
+# An entry may carry nested bullets. Only a bullet in column 0 starts an entry — an
+# indented one belongs to the entry above, and splitting on it truncates that entry,
+# which then never matches its fragment and gets merged a second time.
+nested_bullets_case() {
+    local tmp
+    tmp="$(mktemp -d)" || return 1
+    mkdir -p "$tmp/changelog.d" "$tmp/scripts/release"
+    cp "$COLLECT" "$tmp/scripts/release/"
+    printf '# Changelog\n\n## [Unreleased]\n\n## [1.0.0] - 2026-01-01\n' > "$tmp/CHANGELOG.md"
+    printf -- '- **Nested (#8).** It has parts:\n  - first part\n  - second part\n' > "$tmp/changelog.d/8.fixed.md"
+    ( cd "$tmp" && python3 scripts/release/collect_changelog.py >/dev/null 2>&1 )
+    # The interrupted-unlink case: the fragment is back, its entry already merged.
+    printf -- '- **Nested (#8).** It has parts:\n  - first part\n  - second part\n' > "$tmp/changelog.d/8.fixed.md"
+    ( cd "$tmp" && python3 scripts/release/collect_changelog.py >/dev/null 2>&1 )
+    local n
+    n=$(grep -c "Nested (#8)" "$tmp/CHANGELOG.md")
+    report "an entry with nested bullets is not merged twice" 1 "$n"
+    rm -rf "$tmp"
+}
+
+nested_bullets_case
 
 echo ""
 if [ "$failures" -eq 0 ]; then
