@@ -1897,7 +1897,10 @@ class MilvusMemoryStorage(MemoryStorage):
                 output_fields=list(self._OUTPUT_FIELDS),
             )
         except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to get memory %s: %s", content_hash, exc)
+            logger.error(
+                "Failed to get memory %s: %s",
+                _sanitize_log_value(content_hash), _sanitize_log_value(exc),
+            )
             return None
 
         if not rows:
@@ -2781,7 +2784,10 @@ class MilvusMemoryStorage(MemoryStorage):
                 output_fields=["metadata"],
             )
         except Exception as exc:  # noqa: BLE001
-            logger.error("is_deleted lookup failed for %s: %s", content_hash, exc)
+            logger.error(
+                "is_deleted lookup failed for %s: %s",
+                _sanitize_log_value(content_hash), _sanitize_log_value(exc),
+            )
             return False
 
         if not rows:
