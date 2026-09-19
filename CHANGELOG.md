@@ -17,9 +17,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [11.13.0] - 2026-09-19
+
+Nineteen merged pull requests in the five days after v11.12.0, most of them from outside the maintainer. Thanks to filhocf, massimiliano1991, VijaySreekar, tomatotomata and ZGN827.
+
+### Added
+
+- **Harvest provenance tagging (#1243, filhocf).** Stored insights now carry how they were produced: a `harvest:method:llm` or `harvest:method:heuristic` tag plus `harvest_method`, `harvest_model`, `harvest_pipeline_version` and `harvest_session_id` in metadata. Additive — existing tags and metadata are preserved. RFC-harvest-provenance phase 1.
+- **`verify_session_coverage` — a pre-deletion safety check for transcripts (#1252, filhocf).** Before deleting a source transcript, it re-harvests the file in memory and compares each insight against what is stored, returning `coverage`, `missing_insights`, `low_quality_matches` and `safe_to_delete`. A method on the harvester, deliberately not an MCP tool. The same change restores provenance stamping on the evolve path, which the #1243 trim had dropped.
+- **The NLI cascade reuses the harvest provider chain and says when it falls back (#1265, filhocf, follow-up to #1215).** `_llm_classify` resolves provider configuration once per run instead of per call, skips the LLM request entirely when no provider is configured, and emits one bounded, sanitized warning per run covering both the exception and the empty-response path. The heuristic label and confidence survive the fallback, so a degraded run is now visible rather than silent. Memory contents are never logged.
+
 ### Fixed
 
-- **OpenAI-compatible quality scoring now uses a larger bounded input window and tolerates common wrapped score responses (#1102).** The endpoint scorer now receives roughly 2,000 characters instead of 500, closer to the local ranker's 512-token input window, while other prompt users retain the existing 500-character default. Responses such as `Score: 0.7`, fenced numeric output, and a trailing period are parsed without discarding the AI score.
+#### Storage and retrieval
+
+- **`get_by_hash` hid nothing on Milvus (#1262, massimiliano1991, closes #1261).** Soft-deleted rows came back from the lookup, so a re-store saw a tombstone as a live duplicate. sqlite-vec already filtered and Cloudflare was fixed in #1255; Milvus is the third backend, and it needed the lookup split rather than filtered in place, because `is_deleted()` depends on the unfiltered one.
+- **Vectorize rejected tag-filtered retrieval above 16 results (#1259, massimiliano1991).** Every Cloudflare query sets `returnMetadata="all"`, for which Vectorize caps `topK` at 50, but `retrieve()` passed `min(n_results * 3, 4096)` — 4096 being the sqlite-vec KNN ceiling, not a Vectorize one. Any `n_results >= 17` produced a 4xx and raised instead of returning results; `recall()` failed the same way above 50. Both are clamped to 50 now, and the borrowed constant is gone.
+- **Hybrid pull sync compared counts instead of diffing hashes (#1255, massimiliano1991).** Equal totals on both sides were read as "in sync", so divergent sets of equal size were read as "in sync". The pull now diffs content hashes and fetches the known-missing ones directly, instead of a paginated scan that could abandon an old cloud-only memory behind `HYBRID_MAX_EMPTY_BATCHES` of shared ones and still report success. The same change stops `CloudflareStorage.get_by_hash` resurfacing soft-deleted rows; the guard that was supposed to catch that in hybrid could never fire, because `Memory` carries no `deleted_at` field.
+
+#### Configuration and quality
+
+- **OpenAI-compatible quality scoring now uses a larger bounded input window and tolerates common wrapped score responses (#1267, VijaySreekar, closes #1102).** The endpoint scorer receives roughly 2,000 characters instead of 500, closer to the local ranker's 512-token input window, while other prompt users retain the existing 500-character default. Responses such as `Score: 0.7`, fenced numeric output, and a trailing period are parsed without discarding the AI score.
+- **An intuitive but wrong env-var name no longer lands the database somewhere unexpected (#1253, filhocf).** Only `MCP_MEMORY_SQLITE_PATH` and `MCP_MEMORY_SQLITEVEC_PATH` are read; something like `MCP_MEMORY_DB_PATH` was ignored without a word and the service fell back to the default path. When falling back, it now warns once — naming the variable it saw and the one it wanted — but only if no recognized path variable is set. The variable name is sanitized before it reaches the log.
+
+#### CI and release gates
+
+- **Release version bumps no longer block on the test gates (#1250, filhocf, closes #1247).** A bump touches `_version.py` and `pyproject.toml` and adds no test, which is exactly what check 3 and the prove-fix gate are built to reject. Both now detect a version-bump diff and exempt it, so a release PR stops needing a manual override.
+
+### Internal
+
+- **The five Greptile findings the v11.12.0 merges went over (#1249).** Including a stale `og:description` on the landing page and the dropped empty `## [Unreleased]` heading. The review comments had been there; the merge read the check buckets instead.
+- **Greptile now reviews against this repository's rules (#1271).** `greptile.json` carries six of them, each tied to a mistake that actually happened: reading a file mode out of a diff header, `metadata.get('tags')` on a `Memory` instance, unwrapped user values in logger f-strings, reads that ignore the `deleted_at` tombstone, issue numbers below #341 that belong to Codeberg, and complexity findings on functions a diff never touched. Four of the six ask for more findings, not fewer.
+- **Coverage omit lists no longer name deleted modules (#1263, tomatotomata, closes #1260).** `utils/http_server_manager.py` and `utils/port_detection.py` went out with #1161 and #1228; their exclusions stayed. What surfaced underneath is tracked in #1269: coverage.py reads `.coveragerc` and stops, so the `[tool.coverage.run]` list in `pyproject.toml` is never read at all, which is how the two drifted apart.
+- **Dependency bumps.** Seven uv-group updates including mcp 1.30.0, transformers 5.17.0 and huggingface-hub 1.31.0 (#1257); `codeql-action` init and analyze to 4.38.0 in one commit, as they have to move together (#1256); and anyio 4.14.2 (#1268).
+- **Documentation.** The `skip-prove-fix` label needs a new event rather than a re-run — a re-run replays the original payload, so the label the PR carried when the event fired is the one the job sees, measured on #1262 (#1266); Greptile auto-approves maintainer pull requests only (#1251); the ProtectMain description corrected, including the strict status-check rule the directive had described backwards (#1248); and `check_dead_refs.sh` documented as what it is since #1162, a CI step, rather than a gate wired nowhere (#1270, ZGN827).
 
 ## [11.12.0] - 2026-09-14
 

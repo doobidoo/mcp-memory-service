@@ -509,23 +509,21 @@ MCP Memory Service is **fully compatible** with the [SHODH Unified Memory API Sp
 
 ---
 
-## Latest Release: **v11.12.0** (September 14, 2026)
+## Latest Release: **v11.13.0** (September 19, 2026)
 
-**MINOR: the first release since development moved back to GitHub — 73 merged pull requests, 43 of them from outside the maintainer**
+**MINOR: harvest provenance and a pre-deletion coverage check, plus three storage fixes that only showed up at scale — 19 merged pull requests**
 
 **What's New:**
-- **Retrieval returns what you asked for.** Eligibility filters now run before the nearest-neighbour limit on sqlite-vec (#1128), Cloudflare over-fetches before applying a tag filter (#1218), `match_all=True` really means AND (#1197), and compact search applies tags before the limit (#1189). Each of these could return an empty result set while matching memories existed.
-- **Consolidation stopped lying and stopped over-deleting.** Deduplication deleted every copy of a near-duplicate pair instead of the extras (#1180), forgetting could never reach the stale tail (#1167), and the health monitor reported on hardcoded strings rather than runtime state (#1166).
-- **Plugins reach the REST API and unified search** (#1177, #1142), so reranking and augmentation no longer apply to MCP retrieval alone.
-- **The ONNX backend honors `MCP_EMBEDDING_MODEL`** (#1242), which puts multilingual embeddings within reach without torch, and recovers from a CoreML inference failure by rebuilding on CPU (#1206).
-- **Reverse-proxy deployments work end to end.** `MCP_HTTP_ROOT_PATH` now reaches the ASGI root path, OpenAPI, the OAuth issuer, static mounts and the browser-side links (#1198).
-- **The HTTP coordination mode is gone** (#1161): it had been unable to start since v7.5.0, and carried neither authentication nor TLS.
+- **Harvested memories say where they came from** (#1243). A `harvest:method:llm` or `harvest:method:heuristic` tag plus model and pipeline version in metadata, on the store path and the evolve path alike.
+- **`verify_session_coverage` before you delete a transcript** (#1252). Re-harvests the file in memory, compares against what is stored, and answers `safe_to_delete` with the insights it could not find.
+- **Three storage fixes that pass at small sizes and fail at real ones.** Tag-filtered retrieval raised a 4xx on Cloudflare above 16 results because `topK` used the sqlite-vec ceiling (#1259); hybrid pull sync read equal counts as "in sync" and left divergent stores that way (#1255); `get_by_hash` resurfaced soft-deleted rows on Milvus (#1262) and Cloudflare (#1255).
+- **A degraded NLI run is visible now** (#1265). The cascade reuses the harvest provider chain, skips the request when nothing is configured, and warns once per run instead of falling back silently.
+- **A wrong-but-plausible env var no longer moves your database in silence** (#1253). Setting something like `MCP_MEMORY_DB_PATH` was ignored without a word and the service fell back to the default path; it now warns once, naming the variable it saw and the one it wanted.
 
-**Upgrade notes:**
-- Time ranges and date-bounded deletes now both mean the host-local day (#1157). If you run the service in a timezone well away from UTC, "yesterday" selects a different set of memories than it did in v11.11.0 — the same set recall and delete now agree on.
-- `memory stop` refuses to terminate a process that merely holds the port unless it matches the MCP Memory Service command line; use `--force` to override (#1219, #1224).
+**Upgrade notes:** none. No configuration or behaviour changes are required to move from v11.12.0.
 
 **Previous Releases** (v11 series — full history for all earlier versions in [CHANGELOG.md](CHANGELOG.md)):
+- **v11.12.0** - MINOR: the first release since development moved back to GitHub — 73 merged pull requests, 43 of them from outside the maintainer; eligibility filters ahead of the nearest-neighbour limit, consolidation over-deletion, host-local time ranges (#1128, #1180, #1157) (September 14, 2026)
 - **v11.11.0** - MINOR: three critical advisories closed (remote transports served filesystem tools, SSE had no authentication, open DCR handed out read-write tokens), and development moved back to GitHub (September 5, 2026)
 - **v11.10.0** - MINOR: clustering fails loudly instead of silently degrading without scikit-learn, a consolidation time-horizon fix, three hook fixes (#329, #325, #321, #323, #330) (August 28, 2026)
 - **v11.9.0** - MINOR: transformers 5.x closes two high-severity advisories with no 4.x fix, plus a quality-system bug the new ml-extras CI job caught on day one (#305, #316, #307, #303) (August 27, 2026)
