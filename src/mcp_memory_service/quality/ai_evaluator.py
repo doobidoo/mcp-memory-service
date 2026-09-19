@@ -453,34 +453,49 @@ class QualityEvaluator:
         # Parse float and clamp to [0, 1]
         try:
             score = float(response_text)
+            return max(0.0, min(1.0, score))
         except ValueError as exc:
-            score_match = re.search(
-                r"\bscore\s*:\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))",
+            number_pattern = (
+                r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+            )
+
+            # Accept an explicitly labelled score at the end of a response.
+            # Preceding explanatory text is allowed, but the complete numeric
+            # token must be consumed.
+            match = re.search(
+                rf"\bscore\s*:\s*({number_pattern})\s*[.!]?\s*$",
                 response_text,
                 re.IGNORECASE,
             )
 
-            if score_match is not None:
-                score = float(score_match.group(1))
+            # Accept a numeric response wrapped in a text code fence.
+            if match is None:
+                match = re.fullmatch(
+                    rf"\s*```(?:text)?\s*({number_pattern})\s*```\s*",
+                    response_text,
+                    re.IGNORECASE,
+                )
 
-                if not 0.0 <= score <= 1.0:
-                    raise RuntimeError(
-                        f"Could not parse score from openai-compatible response: {response_text!r}"
-                    ) from exc
-            else:
-                matches = re.findall(
-                    r"(?<![\d.+-])(?:0(?:\.\d+)?|1(?:\.0+)?)(?!\d|\.\d)",
+            # Accept a bare numeric response with a trailing period.
+            if match is None:
+                match = re.fullmatch(
+                    rf"\s*({number_pattern})\s*\.\s*",
                     response_text,
                 )
 
-                if len(matches) != 1:
-                    raise RuntimeError(
-                        f"Could not parse score from openai-compatible response: {response_text!r}"
-                    ) from exc
+            if match is None:
+                raise RuntimeError(
+                    f"Could not parse score from openai-compatible response: {response_text!r}"
+                ) from exc
 
-                score = float(matches[0])
+            score = float(match.group(1))
 
-        return max(0.0, min(1.0, score))
+            if not 0.0 <= score <= 1.0:
+                raise RuntimeError(
+                    f"Could not parse score from openai-compatible response: {response_text!r}"
+                ) from exc
+
+            return score
 
     async def _score_with_groq(self, query: str, memory: Memory) -> float:
         """

@@ -316,6 +316,39 @@ class TestScoreWithOpenAICompatible:
         assert score == pytest.approx(0.7)
 
     @pytest.mark.asyncio
+    async def test_score_label_parses_scientific_notation(self):
+        ev = self._make_evaluator()
+
+        self._install_mock_post(
+            ev,
+            return_value=_mock_httpx_response("Score: 1e-1"),
+        )
+
+        score = await ev._score_with_openai_compatible(
+            "python",
+            _make_memory(),
+        )
+
+        assert score == pytest.approx(0.1)
+
+    @pytest.mark.asyncio
+    async def test_unrelated_number_in_prose_is_not_treated_as_score(self):
+        ev = self._make_evaluator()
+
+        self._install_mock_post(
+            ev,
+            return_value=_mock_httpx_response(
+                "I cannot score this; 1 criterion is missing"
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match="Could not parse score"):
+            await ev._score_with_openai_compatible(
+                "python",
+                _make_memory(),
+            )
+
+    @pytest.mark.asyncio
     async def test_openai_compatible_prompt_uses_larger_bounded_content_window(self):
         ev = self._make_evaluator()
 
