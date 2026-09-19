@@ -305,3 +305,29 @@ class TestHarvestBatchRewrite:
             assert mock_rewriter.rewrite_batch_sync.call_count >= 1
             mock_rewriter.rewrite_sync.assert_not_called()
         assert result.stored == result.found
+
+
+class TestForceReharvestE2E:
+    """E2E: force_reharvest against a real session file (RFC R8)."""
+
+    def test_force_reharvest_reprocesses_a_tracked_session(self, sample_project_dir):
+        """A real session that is already in the tracker is skipped normally but
+        re-resolved when force_reharvest bypasses the filter."""
+        from mcp_memory_service.harvest.models import (
+            HarvestConfig, should_filter_tracker,
+        )
+
+        harvester = SessionHarvester(project_dir=sample_project_dir)
+        # resolve the real session ids in the sample project
+        all_sessions = harvester._resolve_sessions(HarvestConfig(sessions=9999, dry_run=True))
+        assert all_sessions, "sample project should have at least one session"
+        already = {s.stem for s in all_sessions}  # pretend all are tracked
+
+        # Without force: every session is filtered out (nothing to do).
+        assert should_filter_tracker(already, None, force_reharvest=False) is True
+
+        # With force: the filter is bypassed, so the tracked sessions are
+        # resolved again and re-harvested.
+        assert should_filter_tracker(already, None, force_reharvest=True) is False
+        reresolved = harvester._resolve_sessions(HarvestConfig(sessions=len(all_sessions), dry_run=True))
+        assert {s.stem for s in reresolved} == already
