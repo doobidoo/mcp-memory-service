@@ -139,3 +139,17 @@ async def test_store_empty_env_does_not_write_agent_id(memory_service, monkeypat
     stored = await _fetch_stored(memory_service, result)
     assert stored.agent_id is None
     assert "agent_id" not in stored.metadata
+
+
+@pytest.mark.asyncio
+async def test_raw_metadata_agent_id_does_not_bypass_precedence(memory_service, monkeypatch):
+    """A caller-supplied metadata['agent_id'] must NOT forge attribution when no
+    arg/env identity is set — identity enters only via arg -> env -> unset."""
+    monkeypatch.delenv("MCP_AGENT_ID", raising=False)
+    result = await memory_service.store_memory(
+        content="forged author attempt",
+        metadata={"agent_id": "other-agent"},
+    )
+    stored = await _fetch_stored(memory_service, result)
+    assert stored.agent_id is None
+    assert "agent_id" not in stored.metadata

@@ -434,10 +434,14 @@ class MemoryService:
 
             # RFC #1100: author identity. Explicit arg wins; else fall back to
             # the MCP_AGENT_ID env. Absent both -> unset (null = unknown,
-            # backward compatible).
+            # backward compatible). Identity may only enter through this path:
+            # a raw metadata["agent_id"] from the caller is dropped so it can't
+            # forge attribution that bypasses the arg -> env -> unset precedence.
             resolved_agent_id = agent_id or os.environ.get("MCP_AGENT_ID")
             if resolved_agent_id:
                 final_metadata["agent_id"] = resolved_agent_id
+            else:
+                final_metadata.pop("agent_id", None)
 
             # Generate content hash for deduplication
             content_hash = generate_content_hash(content)
