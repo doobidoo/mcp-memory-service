@@ -17,6 +17,7 @@ from typing import List, Tuple
 
 from .nli_patterns import load_nli_patterns
 from ..config.locale import get_active_locales
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,10 @@ class NLIClassifier:
             backend = os.environ.get("MCP_NLI_BACKEND", "heuristic")
         self.backend = backend
         self._warned_unimplemented = False
+        # Phase 2 state (R10, R12)
+        self._rewriter = None
+        self._llm_available = None
+        self._warned_degraded = False
 
     async def classify(self, premise: str, hypothesis: str) -> NLIResult:
         """Classify relationship between two texts."""
@@ -106,10 +111,22 @@ class NLIClassifier:
         provider chain (HARVEST_LLM_PROVIDERS) with fallback. Any failure
         degrades gracefully to the heuristic classifier.
         """
+        # R10: Resolve provider config once per run
         try:
-            from ..harvest.rewriter import HarvestRewriter
-
-            rewriter = HarvestRewriter()
+            rewriter = self._get_rewriter()
+            
+            # Check if LLM is configured once per run (cache result)
+            if self._llm_available is None:
+                try:
+                    self._llm_available = rewriter.is_configured
+                except Exception:
+                    # R11: Exception during is_configured check -> not available
+                    self._llm_available = False
+            
+            # R11: If no provider configured, use heuristic directly
+            if not self._llm_available:
+                return self._heuristic_classify(premise, hypothesis)
+            
             prompt = (
                 "Classify the relationship between Statement A and Statement B.\n"
                 "Answer with EXACTLY one word: entailment, contradiction, or neutral.\n\n"
@@ -118,18 +135,51 @@ class NLIClassifier:
                 "Classification:"
             )
             timeout = float(os.environ.get("MCP_NLI_LLM_TIMEOUT", "30"))
-            response = await rewriter._call_llm(prompt, timeout)
+            # _call_llm returns (response, provider_name, model) so provenance
+            # travels with the call; we only need the response text here.
+            response, _provider, _model = await rewriter._call_llm(prompt, timeout)
             label = _parse_nli_label(response)
             if label is None:
+                # R12: Empty/unparseable response triggers bounded warning
+                if not self._warned_degraded:
+                    self._warned_degraded = True
+                    sanitized_reason = _sanitize_log_value("unparseable or empty response from LLM")
+                    self._warn_once(sanitized_reason)
+                # R14: Preserve exact heuristic values
                 return self._heuristic_classify(premise, hypothesis)
             return NLIResult(label=label, confidence=0.9 if label != "neutral" else 0.3)
         except Exception as e:
-            logger.debug("LLM NLI failed (%s); falling back to heuristic", e)
+            # R12, R13: Exception triggers bounded warning with sanitization
+            if not self._warned_degraded:
+                self._warned_degraded = True
+                sanitized_reason = _sanitize_log_value(f"LLM call failed: {e}")
+                self._warn_once(sanitized_reason)
+            # R14: Preserve exact heuristic values
             return self._heuristic_classify(premise, hypothesis)
 
     async def classify_batch(self, pairs: List[Tuple[str, str]]) -> List[NLIResult]:
         """Batch classification."""
         return [await self.classify(p, h) for p, h in pairs]
+
+    def _get_rewriter(self):
+        """R10: Lazy initialization of HarvestRewriter to resolve config once per run."""
+        if self._rewriter is None:
+            from ..harvest.rewriter import HarvestRewriter
+            self._rewriter = HarvestRewriter()
+        return self._rewriter
+
+    def _warn_once(self, sanitized_reason: str):
+        """R12: Emit one degradation warning per run (reason already sanitized).
+
+        Only the warning is suppressed after the first; later pairs still attempt
+        the provider and fall back per-pair, so the message describes this pair,
+        not the whole remaining run.
+        """
+        logger.warning(
+            "NLI LLM degradation: %s; falling back to heuristic for this pair "
+            "(further degradations this run are not repeated)",
+            sanitized_reason
+        )
 
     def _heuristic_classify(self, premise: str, hypothesis: str) -> NLIResult:
         """Keyword/pattern-based fallback classification."""

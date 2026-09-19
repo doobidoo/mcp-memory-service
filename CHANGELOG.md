@@ -17,6 +17,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **OpenAI-compatible quality scoring now uses a larger bounded input window and tolerates common wrapped score responses (#1102).** The endpoint scorer now receives roughly 2,000 characters instead of 500, closer to the local ranker's 512-token input window, while other prompt users retain the existing 500-character default. Responses such as `Score: 0.7`, fenced numeric output, and a trailing period are parsed without discarding the AI score.
+
 ## [11.12.0] - 2026-09-14
 
 The first release since development moved back to GitHub: 73 merged pull requests, 43 of them from outside the maintainer. Thanks to filhocf, massimiliano1991, be-student (eunwoo song), zsxh1990, DivyamTalwar, VijaySreekar, dchaudhari7177, breken-ai, LouisDeconinck, chiranjeevi7777, TonMtt, mikemikimike, danielle060821, ikorfale, L4XB, 2160039878-cyber, 7487, FBISiri and timkjr. The last two carried over from pull requests opened on Codeberg before the move.
