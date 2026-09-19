@@ -285,7 +285,8 @@ fi
 # scripts/ci/check_dead_refs.sh existed since #702 but was invoked by nothing —
 # no CI workflow, no hook, not this gate — while CLAUDE.md told contributors
 # it ran in CI on docs changes. Running it here is the cheap half of the fix
-# (0.5s, whole-tree scan of docs/ and README.md); the CI trigger is issue #312.
+# (0.5s, whole-tree scan of docs/ and README.md); the CI trigger is the
+# shell-tests job in ci.yml, added in #1162.
 echo -e "\n${YELLOW}[6.8/9]${NC} Checking active docs for dead references..."
 if bash scripts/ci/check_dead_refs.sh > /dev/null 2>&1; then
     check_status "No dead references in active docs" 0
