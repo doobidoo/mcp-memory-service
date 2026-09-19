@@ -28,8 +28,6 @@ omit =
     */utils/cache_manager.py
     */utils/directory_ingestion.py
     */utils/health_check.py
-    */utils/http_server_manager.py
-    */utils/port_detection.py
     */utils/quality_analytics.py
     */utils/startup_orchestrator.py
     */utils/time_parser.py
