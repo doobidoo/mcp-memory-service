@@ -1897,12 +1897,23 @@ class MilvusMemoryStorage(MemoryStorage):
                 output_fields=list(self._OUTPUT_FIELDS),
             )
         except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to get memory %s: %s", content_hash, exc)
+            logger.error(
+                "Failed to get memory %s: %s",
+                _sanitize_log_value(content_hash), _sanitize_log_value(exc),
+            )
             return None
 
         if not rows:
             return None
-        return self._entity_to_memory(rows[0])
+        memory = self._entity_to_memory(rows[0])
+        # Soft-deleted rows carry ``metadata.deleted_at``. Milvus can't filter a
+        # JSON sub-field in the ``get`` expression, so drop the tombstone here to
+        # match the other backends (sqlite_vec at mixins/retrieve.py, cloudflare
+        # since #1255): get_by_hash returns only live memories. is_deleted() has
+        # its own lookup that still sees the tombstone.
+        if memory is not None and memory.metadata.get("deleted_at") is not None:
+            return None
+        return memory
 
     async def get_by_exact_content(self, content: str) -> List[Memory]:
         """Case-insensitive substring match on content.
@@ -2756,15 +2767,34 @@ class MilvusMemoryStorage(MemoryStorage):
         In Milvus, a soft-deleted memory has metadata.deleted_at set.
         If the memory doesn't exist at all, returns False (not soft-deleted,
         just gone).
+
+        Uses its own lookup rather than get_by_hash(): get_by_hash() now hides
+        tombstones, so routing through it would make is_deleted() always False —
+        the exact inversion of its purpose (hybrid sync relies on it to avoid
+        resurrecting memories deleted on another device).
         """
         if not self._ensure_initialized():
             return False
 
-        existing = await self.get_by_hash(content_hash)
-        if existing is None:
+        try:
+            rows = await self._call_client(
+                "get",
+                collection_name=self.collection_name,
+                ids=[content_hash],
+                output_fields=["metadata"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "is_deleted lookup failed for %s: %s",
+                _sanitize_log_value(content_hash), _sanitize_log_value(exc),
+            )
             return False
 
-        return existing.metadata.get("deleted_at") is not None
+        if not rows:
+            return False
+
+        metadata = _safe_json_loads(rows[0].get("metadata", ""), "milvus_is_deleted")
+        return metadata.get("deleted_at") is not None
 
     async def purge_deleted(self, older_than_days: int = 30) -> int:
         """Permanently delete soft-deleted memories older than specified days.
