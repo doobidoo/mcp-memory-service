@@ -15,8 +15,10 @@
 # The working tree is left with src/ at the base commit. Run it in CI or in a
 # throwaway checkout, never in a tree you are working in.
 #
-# Exemption: a maintainer adds the `skip-prove-fix` label to the PR. Label-gated
-# jobs do not re-trigger on their own, so re-run the failed job afterwards.
+# Exemption: a maintainer adds the `skip-prove-fix` label to the PR. The job's
+# `if:` reads the labels off the event payload, and a re-run replays that payload
+# unchanged, so re-running after labelling does not skip the job. Push a commit
+# or update the branch from main instead — the label applies to the new event.
 set -uo pipefail
 
 # A .pyc compiled from the PR's source stays valid after the swap when the base
@@ -27,6 +29,7 @@ export PYTHONDONTWRITEBYTECODE=1
 BASE_REF="${1:?usage: $0 <base-ref>}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLEANUP_HELPER="$SCRIPT_DIR/../pr/lib/is_cleanup_only.py"
+RELEASE_HELPER="$SCRIPT_DIR/../pr/lib/is_release_bump.py"
 PYTHON="${PYTHON:-python3}"
 
 REPO_ROOT="$(git rev-parse --show-toplevel)" || exit 2
@@ -45,6 +48,11 @@ fi
 
 if git diff "$base" HEAD -- 'src/' | "$PYTHON" "$CLEANUP_HELPER"; then
     echo "PASS - cleanup-only change under src/ (nothing added), no test required"
+    exit 0
+fi
+
+if git diff "$base" HEAD | "$PYTHON" "$RELEASE_HELPER"; then
+    echo "PASS - release version bump, no test required"
     exit 0
 fi
 

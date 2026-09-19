@@ -590,6 +590,115 @@ class TestBackgroundSyncService:
         # Fallback path doesn't populate skipped_already_present
         assert result.get('skipped_already_present', 0) == 0
 
+    @pytest.mark.asyncio
+    async def test_pull_sync_reconciles_divergent_sets(self, temp_sqlite_db, mock_cloudflare_config):
+        """A pull sync must not skip cloud-only memories just because the local total is
+        >= the cloud total. With divergent sets — local-only writes queued while the
+        cloud was unreachable, plus memories another device wrote straight to the cloud —
+        the totals can read local >= cloud while the cloud still holds hashes the primary
+        lacks. The count gate skipped the whole pull in that case, and the drift scan only
+        revisits recently-updated memories, so an older cloud-only memory was never pulled.
+        Regression guard: the pull diffs hashes, not counts."""
+
+        class PullMockCloudflareStorage(MockCloudflareStorage):
+            """Secondary that mimics CloudflareStorage enough to expose bulk hash fetch
+            and cursor pagination, both derived from its stored memories."""
+
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.base_url = "https://mock"
+                self.d1_database_id = "mock-db"
+                self.cursor_scan_calls = 0
+
+            def _live(self):
+                return [m for m in self.stored_memories.values()
+                        if getattr(m, "deleted_at", None) is None]
+
+            async def get_by_hash(self, content_hash):
+                memory = self.stored_memories.get(content_hash)
+                if memory is not None and getattr(memory, "deleted_at", None) is None:
+                    return memory
+                return None
+
+            async def _retry_request(self, method, url, **kwargs):
+                # Single-page cursor response, mirroring get_all_memories_cursor: all
+                # hashes on the first page (id > 0), empty thereafter.
+                params = kwargs.get("json", {}).get("params", [])
+                last_id = params[0] if params else 0
+                resp = Mock()
+                if last_id == 0:
+                    resp.json = Mock(return_value={"success": True, "result": [{"results": [
+                        {"id": i, "content_hash": m.content_hash}
+                        for i, m in enumerate(self._live(), start=1)
+                    ]}]})
+                else:
+                    resp.json = Mock(return_value={"success": True, "result": [{"results": []}]})
+                return resp
+
+            async def get_all_memories_cursor(self, limit=100, cursor=None):
+                # Everything on the first call; empty once the loop advances the cursor.
+                self.cursor_scan_calls += 1
+                return list(self._live()) if cursor is None else []
+
+        with patch('mcp_memory_service.storage.hybrid.CloudflareStorage', PullMockCloudflareStorage):
+            storage = HybridMemoryStorage(
+                sqlite_db_path=temp_sqlite_db,
+                embedding_model="all-MiniLM-L6-v2",
+                cloudflare_config=mock_cloudflare_config,
+                sync_interval=1,
+                batch_size=5,
+            )
+            await storage.initialize()
+            try:
+                # Two local-only memories: local total (2) exceeds cloud total (1).
+                for content in ("local-one", "local-two"):
+                    await storage.primary.store(Memory(
+                        content=content,
+                        content_hash=generate_content_hash(content),
+                        tags=["local"],
+                        memory_type="note",
+                    ))
+
+                # Memories that exist only in the cloud (e.g. written by another
+                # device). Old timestamps keep them out of the drift scan, so only the
+                # count-gated pull can bring them down — which is the path under test.
+                old = time.time() - 100_000
+                cloud_only = []
+                for content in ("cloud-only", "cloud-only-older"):
+                    memory = Memory(
+                        content=content,
+                        content_hash=generate_content_hash(content),
+                        tags=["cloud"],
+                        memory_type="note",
+                        created_at=old,
+                        updated_at=old,
+                    )
+                    storage.secondary.stored_memories[memory.content_hash] = memory
+                    cloud_only.append(memory)
+
+                # The count gate would have skipped: local 2 >= cloud 2.
+                assert (await storage.primary.get_stats())["total_memories"] == 2
+                assert (await storage.secondary.get_stats())["total_memories"] == 2
+
+                result = await storage.force_pull_sync()
+                assert result["success"] is True
+
+                local_hashes = await storage.primary.get_all_content_hashes()
+                for memory in cloud_only:
+                    assert memory.content_hash in local_hashes, (
+                        "cloud-only memory was not pulled — the count gate skipped a divergent "
+                        "set instead of diffing hashes"
+                    )
+                # Every known-missing hash must be pulled directly, not left to the
+                # newest-first scan, whose empty-batch give-up can stop before an old
+                # cloud-only memory buried behind shared ones.
+                assert storage.secondary.cursor_scan_calls == 0, (
+                    "pull fell through to the paginated scan even though the exact "
+                    "missing hashes were known"
+                )
+            finally:
+                await storage.close()
+
 
 class TestPerformanceCharacteristics:
     """Test performance characteristics of hybrid storage."""
