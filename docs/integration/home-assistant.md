@@ -10,11 +10,17 @@ Set these on the machine running mcp-memory-service:
 
 ```bash
 export MCP_ALLOW_ANONYMOUS_ACCESS=true
+export MCP_HTTP_HOST=0.0.0.0   # only needed when Home Assistant runs on another machine
 # leave both of these unset (the defaults):
 # MCP_OAUTH_ENABLED=false
 # MCP_API_KEY=
 memory launch        # or: memory server --http
 ```
+
+`MCP_HTTP_HOST` defaults to `127.0.0.1`, so the server is reachable from itself only.
+Setting it to `0.0.0.0` binds every interface, which is what a Home Assistant instance on
+another host needs. Combined with anonymous access that exposes the memories to your whole
+network, so read the security note below before you do it.
 
 Then add the MCP integration in Home Assistant with the server URL, for example
 `http://<server-ip>:8000/mcp`, and **no credentials**.
