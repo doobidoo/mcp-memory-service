@@ -14,6 +14,72 @@ from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
+
+def warn_unrecognized_path_var(environ: dict) -> str | None:
+    """Check for unrecognized MCP_MEMORY_* environment variables that look like path settings.
+    
+    Args:
+        environ: Environment dictionary (typically os.environ)
+        
+    Returns:
+        Warning message string if unrecognized path-like vars found and no correct path vars set,
+        None otherwise.
+        
+    The function warns when:
+    1. An unrecognized MCP_MEMORY_* variable exists that contains PATH/DB/DIR (case-insensitive)
+    2. AND neither MCP_MEMORY_SQLITE_PATH nor MCP_MEMORY_SQLITEVEC_PATH is set
+    
+    This helps users catch common typos like MCP_MEMORY_DB_PATH instead of MCP_MEMORY_SQLITE_PATH.
+    """
+    # Set of recognized MCP_MEMORY_* environment variables (16 total from spec)
+    recognized_vars = {
+        'MCP_MEMORY_ALLOW_HASH_EMBEDDINGS',
+        'MCP_MEMORY_ALLOW_SELF_SIGNED_CERTS',
+        'MCP_MEMORY_ARCHIVE_PATH',
+        'MCP_MEMORY_BACKUPS_PATH',
+        'MCP_MEMORY_BASE_DIR',
+        'MCP_MEMORY_INCLUDE_HOSTNAME',
+        'MCP_MEMORY_INTEGRITY_CHECK_ENABLED',
+        'MCP_MEMORY_INTEGRITY_CHECK_INTERVAL',
+        'MCP_MEMORY_OFFLINE',
+        'MCP_MEMORY_ONNX_ALLOW_DOWNLOAD',
+        'MCP_MEMORY_ONNX_PROVIDERS',
+        'MCP_MEMORY_SQLITE_PATH',
+        'MCP_MEMORY_SQLITE_PRAGMAS',
+        'MCP_MEMORY_SQLITEVEC_PATH',
+        'MCP_MEMORY_STORAGE_BACKEND',
+        'MCP_MEMORY_USE_ONNX'
+    }
+    
+    # Known correct path variables
+    correct_path_vars = {'MCP_MEMORY_SQLITE_PATH', 'MCP_MEMORY_SQLITEVEC_PATH'}
+    
+    # Check if any correct path var is already set
+    if any(environ.get(var) for var in correct_path_vars):
+        return None
+    
+    # Find unrecognized MCP_MEMORY_* vars that look like path settings
+    path_like_keywords = {'path', 'db', 'dir'}
+    unrecognized_path_vars = []
+    
+    for key in environ:
+        if key.startswith('MCP_MEMORY_') and key not in recognized_vars:
+            # Check if variable name contains path-like keywords (case-insensitive)
+            key_lower = key.lower()
+            if any(keyword in key_lower for keyword in path_like_keywords):
+                unrecognized_path_vars.append(key)
+    
+    if unrecognized_path_vars:
+        # Return warning for the first unrecognized path-like var found.
+        # Sanitize the raw env-var name (user-controlled) at the source to prevent
+        # log injection via newline/escape characters reaching the logger.
+        var_name = _sanitize_log_value(unrecognized_path_vars[0])
+        return (f"Unrecognized env var '{var_name}' looks like a database path setting "
+                f"but is not read by the service. Did you mean MCP_MEMORY_SQLITE_PATH? "
+                f"Falling back to default.")
+    
+    return None
+
 # =============================================================================
 # Content Length Limits Configuration (v7.5.0+)
 # =============================================================================
@@ -79,6 +145,10 @@ if STORAGE_BACKEND == 'sqlite_vec' or STORAGE_BACKEND == 'hybrid':
     if not sqlite_vec_path:
         sqlite_vec_path = os.path.join(BASE_DIR, 'sqlite_vec.db')
         logger.info("No SQLite-vec path environment variable found, using default: %s", _sanitize_log_value(sqlite_vec_path))
+        
+        # Check for unrecognized path-like environment variables
+        if warning_msg := warn_unrecognized_path_var(os.environ):
+            logger.warning(warning_msg)
     
     # Ensure directory exists for SQLite database
     sqlite_dir = os.path.dirname(sqlite_vec_path)
