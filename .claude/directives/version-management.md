@@ -110,7 +110,19 @@ Docker job derives its image tags from `github.ref_name`, so a manual dispatch f
 
 ## Version Bump Procedure
 
-Always bumped together, in one commit:
+First, collect the changelog fragments:
+
+```bash
+python3 scripts/release/collect_changelog.py    # --dry-run to preview
+```
+
+Every PR that touched `src/` left one in `changelog.d/` (enforced by the
+`changelog-entry` CI job, #1273). The script merges them into `[Unreleased]` under the
+right section and deletes them. Skipping it means shipping a release whose changelog is
+missing everything since the last one — the state that made v11.13.0's changelog a
+reconstruction job.
+
+Then the version files, always bumped together, in one commit:
 
 1. `src/mcp_memory_service/_version.py` (`__version__ = "X.Y.Z"`) — this is the canonical source
 2. `pyproject.toml` (line ~7: `version = "X.Y.Z"`)

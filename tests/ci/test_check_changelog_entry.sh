@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# Covers scripts/ci/check_changelog_entry.sh, the gate that requires a changelog
+# fragment for a src/ change, and scripts/release/collect_changelog.py, which merges
+# the fragments back into CHANGELOG.md.
+#
+# Each gate case builds a throwaway git repo, so the checks run against real diffs
+# rather than a mocked one.
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+GATE="$REPO_ROOT/scripts/ci/check_changelog_entry.sh"
+COLLECT="$REPO_ROOT/scripts/release/collect_changelog.py"
+failures=0
+
+report() {
+    local name="$1" expected="$2" actual="$3"
+    if [ "$actual" -eq "$expected" ]; then
+        echo "PASS - $name"
+    else
+        echo "FAIL - $name (expected exit $expected, got $actual)"
+        failures=$((failures + 1))
+    fi
+}
+
+# Builds a repo with one base commit, runs $1 as the change, then the gate.
+run_gate_case() {
+    local name="$1" expected="$2" change="$3"
+    local tmp
+    tmp="$(mktemp -d)" || return 1
+    (
+        cd "$tmp" || exit 2
+        # Name the branch explicitly: falling back between master and main would
+        # turn a script error (exit 2) into a second attempt and hide it.
+        git init -q -b main .
+        git config user.email t@example.com
+        git config user.name t
+        mkdir -p src/mcp_memory_service changelog.d scripts/ci scripts/pr/lib scripts/release
+        cp "$REPO_ROOT/scripts/pr/lib/is_release_bump.py" scripts/pr/lib/
+        echo "# fragments" > changelog.d/README.md
+        echo "x = 1" > src/mcp_memory_service/thing.py
+        printf '__version__ = "1.0.0"\n' > src/mcp_memory_service/_version.py
+        git add -A && git commit -qm base
+        git checkout -qb feature
+        eval "$change"
+        git add -A && git commit -qm change
+        bash "$GATE" main >/dev/null 2>&1
+    )
+    report "$name" "$expected" $?
+    rm -rf "$tmp"
+}
+
+# --- the gate --------------------------------------------------------------
+
+run_gate_case "src change without a fragment fails" 1 \
+    'echo "x = 2" > src/mcp_memory_service/thing.py'
+
+run_gate_case "src change with a fragment passes" 0 \
+    'echo "x = 2" > src/mcp_memory_service/thing.py
+     echo "- **Something changed (#1).** Because of a reason." > changelog.d/1.fixed.md'
+
+run_gate_case "no src change needs no fragment" 0 \
+    'echo "notes" > NOTES.md'
+
+run_gate_case "version bump is exempt" 0 \
+    'printf "__version__ = \"1.1.0\"\n" > src/mcp_memory_service/_version.py'
+
+run_gate_case "unknown category is rejected" 1 \
+    'echo "x = 2" > src/mcp_memory_service/thing.py
+     echo "- entry" > changelog.d/1.changed.md'
+
+run_gate_case "empty fragment is rejected" 1 \
+    'echo "x = 2" > src/mcp_memory_service/thing.py
+     : > changelog.d/1.fixed.md'
+
+run_gate_case "fragment without a list item is rejected" 1 \
+    'echo "x = 2" > src/mcp_memory_service/thing.py
+     echo "just some prose" > changelog.d/1.fixed.md'
+
+# A deletion-only diff is exempt from the prove-fix gate but NOT from this one:
+# a removed feature is exactly what a changelog reader needs told.
+run_gate_case "deletion-only change still needs a fragment" 1 \
+    'rm src/mcp_memory_service/thing.py'
+
+# Editing a fragment that is already on the base branch is not this PR's entry.
+run_gate_case "modifying an existing fragment does not count" 1 \
+    'git checkout -q main
+     echo "- old entry" > changelog.d/9.fixed.md
+     git add -A && git commit -qm "existing fragment"
+     git checkout -q feature
+     git merge -q --no-edit main
+     echo "x = 2" > src/mcp_memory_service/thing.py
+     echo "- edited entry" > changelog.d/9.fixed.md'
+
+# --- the collector ---------------------------------------------------------
+
+collect_case() {
+    local name="$1" expected_grep="$2"
+    local tmp
+    tmp="$(mktemp -d)" || return 1
+    mkdir -p "$tmp/changelog.d" "$tmp/scripts/release"
+    cp "$COLLECT" "$tmp/scripts/release/"
+    cat > "$tmp/CHANGELOG.md" <<'EOF'
+# Changelog
+
+## [Unreleased]
+
+### Fixed
+
+- **An entry that was already here (#0).**
+
+## [1.0.0] - 2026-01-01
+
+- older
+EOF
+    echo "- **A new fix (#2).**" > "$tmp/changelog.d/2.fixed.md"
+    echo "- **A new feature (#3).**" > "$tmp/changelog.d/3.added.md"
+    echo "- **Some tooling (#4).**" > "$tmp/changelog.d/4.internal.md"
+    echo "# fragments" > "$tmp/changelog.d/README.md"
+    ( cd "$tmp" && python3 scripts/release/collect_changelog.py >/dev/null 2>&1 )
+    local rc=$?
+    if [ $rc -ne 0 ]; then
+        echo "FAIL - $name (collector exited $rc)"
+        failures=$((failures + 1))
+        rm -rf "$tmp"
+        return
+    fi
+    local out="$tmp/CHANGELOG.md"
+    local ok=0
+    # The pre-existing entry survives, all three fragments land, the released
+    # block is untouched, and every fragment file is gone.
+    grep -q "An entry that was already here" "$out" || { echo "  missing: pre-existing entry"; ok=1; }
+    grep -q "A new fix" "$out" || { echo "  missing: fixed fragment"; ok=1; }
+    grep -q "A new feature" "$out" || { echo "  missing: added fragment"; ok=1; }
+    grep -q "Some tooling" "$out" || { echo "  missing: internal fragment"; ok=1; }
+    grep -q "^## \[1.0.0\]" "$out" || { echo "  missing: released block"; ok=1; }
+    grep -q "^### Added" "$out" || { echo "  missing: created Added heading"; ok=1; }
+    [ -f "$tmp/changelog.d/2.fixed.md" ] && { echo "  fragment not deleted"; ok=1; }
+    [ -f "$tmp/changelog.d/README.md" ] || { echo "  README was deleted"; ok=1; }
+    # The new fix must land under Fixed, above the [1.0.0] heading.
+    local fixed_line new_fix released
+    fixed_line=$(grep -n "^### Fixed" "$out" | head -1 | cut -d: -f1)
+    new_fix=$(grep -n "A new fix" "$out" | head -1 | cut -d: -f1)
+    released=$(grep -n "^## \[1.0.0\]" "$out" | head -1 | cut -d: -f1)
+    [ "$new_fix" -gt "$fixed_line" ] && [ "$new_fix" -lt "$released" ] || {
+        echo "  new fix landed outside the Fixed section of [Unreleased]"; ok=1; }
+    report "$name" 0 $ok
+    rm -rf "$tmp"
+}
+
+collect_case "collector merges fragments and deletes them" 0
+
+# Running it twice must not duplicate anything: the fragments are gone.
+rerun_case() {
+    local tmp
+    tmp="$(mktemp -d)" || return 1
+    mkdir -p "$tmp/changelog.d" "$tmp/scripts/release"
+    cp "$COLLECT" "$tmp/scripts/release/"
+    printf '# Changelog\n\n## [Unreleased]\n\n## [1.0.0] - 2026-01-01\n' > "$tmp/CHANGELOG.md"
+    echo "- **Only once (#5).**" > "$tmp/changelog.d/5.fixed.md"
+    ( cd "$tmp" && python3 scripts/release/collect_changelog.py >/dev/null 2>&1 \
+        && python3 scripts/release/collect_changelog.py >/dev/null 2>&1 )
+    local n
+    n=$(grep -c "Only once" "$tmp/CHANGELOG.md")
+    report "collector is idempotent (entry appears once)" 1 "$n"
+    rm -rf "$tmp"
+}
+
+rerun_case
+
+echo ""
+if [ "$failures" -eq 0 ]; then
+    echo "All changelog gate tests passed"
+    exit 0
+fi
+echo "$failures test(s) failed"
+exit 1

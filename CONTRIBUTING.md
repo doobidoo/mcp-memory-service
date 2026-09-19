@@ -145,6 +145,24 @@ Use descriptive branch names:
 - Add/update tests as needed
 - Update documentation if applicable
 - Keep commits focused and atomic
+- Add a changelog fragment if you changed anything under `src/`
+
+#### Changelog fragments
+
+A change under `src/` needs a one-line entry in a file of its own:
+
+```
+changelog.d/<number>.<category>.md
+```
+
+`<number>` is your PR or issue number, `<category>` is `added`, `fixed`, `removed` or
+`internal`. The file holds a single markdown list item describing the change — the
+symptom and what it does now, not the patch. `changelog.d/README.md` has the format and
+an example, and the `Changelog fragment for src/ changes` CI job checks it.
+
+It is a separate file per pull request on purpose: entries used to go straight into
+`CHANGELOG.md`, where every open branch edited the same lines and conflicted. Yours will
+never conflict with anyone else's. They are merged into `CHANGELOG.md` at release time.
 
 ### 3. Test Your Changes
 
