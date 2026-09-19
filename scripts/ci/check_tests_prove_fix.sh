@@ -15,8 +15,10 @@
 # The working tree is left with src/ at the base commit. Run it in CI or in a
 # throwaway checkout, never in a tree you are working in.
 #
-# Exemption: a maintainer adds the `skip-prove-fix` label to the PR. Label-gated
-# jobs do not re-trigger on their own, so re-run the failed job afterwards.
+# Exemption: a maintainer adds the `skip-prove-fix` label to the PR. The job's
+# `if:` reads the labels off the event payload, and a re-run replays that payload
+# unchanged, so re-running after labelling does not skip the job. Push a commit
+# or update the branch from main instead — the label applies to the new event.
 set -uo pipefail
 
 # A .pyc compiled from the PR's source stays valid after the swap when the base
