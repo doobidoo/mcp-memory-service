@@ -331,3 +331,38 @@ class TestForceReharvestE2E:
         assert should_filter_tracker(already, None, force_reharvest=True) is False
         reresolved = harvester._resolve_sessions(HarvestConfig(sessions=len(all_sessions), dry_run=True))
         assert {s.stem for s in reresolved} == already
+
+    @pytest.mark.asyncio
+    async def test_handler_forwards_force_reharvest_and_reprocesses(self, sample_project_dir, tmp_path, monkeypatch):
+        """Exercise the real handler: with a populated tracker, force_reharvest=True
+        must re-harvest already-tracked sessions (vs skipping them when off)."""
+        monkeypatch.setenv("MCP_MEMORY_SQLITE_PATH", str(tmp_path / "fr.db"))
+        monkeypatch.setenv("MCP_MEMORY_ONNX_ALLOW_DOWNLOAD", "0")
+        # import from .server (not server_impl) to avoid the circular import
+        from mcp_memory_service.server import MemoryServer
+        srv = MemoryServer()
+        await srv._ensure_storage_initialized()
+
+        # pre-populate the tracker with every session in the sample project
+        from mcp_memory_service.harvest.harvester import SessionHarvester as _SH
+        from mcp_memory_service.harvest.models import HarvestConfig as _HC
+        sids = {s.stem for s in _SH(project_dir=sample_project_dir)._resolve_sessions(_HC(sessions=9999, dry_run=True))}
+        await srv.memory_service.store_memory(
+            content="harvested_sessions:" + ",".join(sorted(sids)),
+            tags=["harvest-tracker"], memory_type="observation",
+        )
+        monkeypatch.setattr(srv, "_resolve_session_dir", lambda *a, **k: str(sample_project_dir), raising=False)
+
+        # Without force: all sessions already tracked -> nothing harvested.
+        off = await srv.handle_memory_harvest({"sessions": 9999, "dry_run": False,
+                                               "project_path": str(sample_project_dir)})
+        import json as _json
+        off_txt = off[0].text
+        assert "already harvested" in off_txt or _json.loads(off_txt).get("results") == []
+
+        # With force: the tracker filter is bypassed -> sessions are reprocessed.
+        on = await srv.handle_memory_harvest({"sessions": 9999, "dry_run": False,
+                                              "force_reharvest": True,
+                                              "project_path": str(sample_project_dir)})
+        on_txt = on[0].text
+        assert "already harvested" not in on_txt
