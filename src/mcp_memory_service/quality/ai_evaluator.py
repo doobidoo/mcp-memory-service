@@ -7,6 +7,7 @@ import asyncio
 import logging
 from typing import List, Optional
 import httpx
+import re
 from .config import QualityConfig
 from .onnx_ranker import get_onnx_ranker_model, ONNXRankerModel
 from .implicit_signals import ImplicitSignalsEvaluator
@@ -14,6 +15,10 @@ from ..compat import _sanitize_log_value
 from ..models.memory import Memory
 
 logger = logging.getLogger(__name__)
+
+# Roughly approximates the local ranker's 512-token input window without
+# depending on a provider-specific tokenizer.
+OPENAI_COMPAT_CONTENT_PREVIEW_CHARS = 2000
 
 
 class QualityEvaluator:
@@ -394,7 +399,11 @@ class QualityEvaluator:
         model = self.config.openai_compat_model
         api_key = self.config.openai_compat_api_key or "none"
 
-        prompt = self._create_scoring_prompt(query, memory.content)
+        prompt = self._create_scoring_prompt(
+            query,
+            memory.content,
+            content_preview_chars=OPENAI_COMPAT_CONTENT_PREVIEW_CHARS,
+        )
 
         headers = {
             "Content-Type": "application/json",
@@ -444,11 +453,34 @@ class QualityEvaluator:
         # Parse float and clamp to [0, 1]
         try:
             score = float(response_text)
-            return max(0.0, min(1.0, score))
-        except ValueError:
-            raise RuntimeError(
-                f"Could not parse score from openai-compatible response: {response_text!r}"
+        except ValueError as exc:
+            score_match = re.search(
+                r"\bscore\s*:\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))",
+                response_text,
+                re.IGNORECASE,
             )
+
+            if score_match is not None:
+                score = float(score_match.group(1))
+
+                if not 0.0 <= score <= 1.0:
+                    raise RuntimeError(
+                        f"Could not parse score from openai-compatible response: {response_text!r}"
+                    ) from exc
+            else:
+                matches = re.findall(
+                    r"(?<![\d.+-])(?:0(?:\.\d+)?|1(?:\.0+)?)(?!\d|\.\d)",
+                    response_text,
+                )
+
+                if len(matches) != 1:
+                    raise RuntimeError(
+                        f"Could not parse score from openai-compatible response: {response_text!r}"
+                    ) from exc
+
+                score = float(matches[0])
+
+        return max(0.0, min(1.0, score))
 
     async def _score_with_groq(self, query: str, memory: Memory) -> float:
         """
@@ -619,7 +651,12 @@ class QualityEvaluator:
             'decision': 'both_low'
         }
 
-    def _create_scoring_prompt(self, query: str, memory_content: str) -> str:
+    def _create_scoring_prompt(
+        self,
+        query: str,
+        memory_content: str,
+        content_preview_chars: int = 500,
+    ) -> str:
         """
         Create a prompt for AI-based quality scoring.
 
@@ -630,11 +667,13 @@ class QualityEvaluator:
         Args:
             query: Search query (may be empty for store operations)
             memory_content: Memory content to score
+            content_preview_chars: Maximum number of memory-content characters
+                included in the prompt.
 
         Returns:
             Formatted prompt for AI model
         """
-        content_preview = memory_content[:500]
+        content_preview = memory_content[:content_preview_chars]
 
         if not query or not query.strip():
             return f"""Rate the absolute quality of this memory content.
