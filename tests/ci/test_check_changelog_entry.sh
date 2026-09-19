@@ -81,6 +81,41 @@ run_gate_case "fragment without a list item is rejected" 1 \
 run_gate_case "deletion-only change still needs a fragment" 1 \
     'rm src/mcp_memory_service/thing.py'
 
+# A shipped YAML pattern file or SQL migration changes behaviour as much as a module
+# does; src/ carries 24 non-Python files. Greptile caught the gate narrowing to .py.
+run_gate_case "non-Python change under src/ still needs a fragment" 1 \
+    'mkdir -p src/mcp_memory_service/harvest/patterns
+     echo "patterns: []" > src/mcp_memory_service/harvest/patterns/en.yaml'
+
+run_gate_case "non-Python change under src/ passes with a fragment" 0 \
+    'mkdir -p src/mcp_memory_service/storage/migrations
+     echo "CREATE TABLE t (id INT);" > src/mcp_memory_service/storage/migrations/009.sql
+     echo "- **A migration (#1).**" > changelog.d/1.added.md'
+
+# A fragment in a subdirectory is found by the diff but never read by the collector,
+# so it would pass CI and vanish from the release notes.
+run_gate_case "fragment in a subdirectory is rejected" 1 \
+    'echo "x = 2" > src/mcp_memory_service/thing.py
+     mkdir -p changelog.d/sub
+     echo "- entry" > changelog.d/sub/1.fixed.md'
+
+# The collector requires a non-empty number; the gate must not accept what it drops.
+run_gate_case "fragment with an empty number is rejected" 1 \
+    'echo "x = 2" > src/mcp_memory_service/thing.py
+     echo "- entry" > changelog.d/.fixed.md'
+
+# Validation must not sit behind the early exits: a docs-only PR adding a broken
+# fragment would otherwise be green here and silently dropped at release time.
+run_gate_case "malformed fragment fails even with no src/ change" 1 \
+    'echo "notes" > NOTES.md
+     : > changelog.d/1.fixed.md'
+
+# Unquoted expansion has produced false PASS results in this repo before. A name with
+# a space must be handled as one path, not split into two unreadable ones.
+run_gate_case "fragment name containing a space is handled as one path" 0 \
+    'echo "x = 2" > src/mcp_memory_service/thing.py
+     echo "- **Spaced out (#1).**" > "changelog.d/1 and 2.fixed.md"'
+
 # Editing a fragment that is already on the base branch is not this PR's entry.
 run_gate_case "modifying an existing fragment does not count" 1 \
     'git checkout -q main
@@ -166,6 +201,51 @@ rerun_case() {
 }
 
 rerun_case
+
+# A created section must land in SECTIONS order, not at the end: with only ### Fixed
+# present, a new Added section belongs above it.
+order_case() {
+    local tmp
+    tmp="$(mktemp -d)" || return 1
+    mkdir -p "$tmp/changelog.d" "$tmp/scripts/release"
+    cp "$COLLECT" "$tmp/scripts/release/"
+    printf '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- **Existing (#0).**\n\n## [1.0.0] - 2026-01-01\n' > "$tmp/CHANGELOG.md"
+    echo "- **New feature (#3).**" > "$tmp/changelog.d/3.added.md"
+    ( cd "$tmp" && python3 scripts/release/collect_changelog.py >/dev/null 2>&1 )
+    local added fixed
+    added=$(grep -n "^### Added" "$tmp/CHANGELOG.md" | head -1 | cut -d: -f1)
+    fixed=$(grep -n "^### Fixed" "$tmp/CHANGELOG.md" | head -1 | cut -d: -f1)
+    if [ -n "$added" ] && [ -n "$fixed" ] && [ "$added" -lt "$fixed" ]; then
+        echo "PASS - a created section keeps canonical order (Added before Fixed)"
+    else
+        echo "FAIL - created section out of order (Added at ${added:-none}, Fixed at ${fixed:-none})"
+        failures=$((failures + 1))
+    fi
+    rm -rf "$tmp"
+}
+
+order_case
+
+# If the unlink after the write is interrupted, the fragment survives with its entry
+# already in the file. A rerun must not append it twice.
+crash_case() {
+    local tmp
+    tmp="$(mktemp -d)" || return 1
+    mkdir -p "$tmp/changelog.d" "$tmp/scripts/release"
+    cp "$COLLECT" "$tmp/scripts/release/"
+    printf '# Changelog\n\n## [Unreleased]\n\n## [1.0.0] - 2026-01-01\n' > "$tmp/CHANGELOG.md"
+    echo "- **Survives a crash (#6).**" > "$tmp/changelog.d/6.fixed.md"
+    ( cd "$tmp" && python3 scripts/release/collect_changelog.py >/dev/null 2>&1 )
+    # Simulate the interrupted run: put the fragment back, entry already merged.
+    echo "- **Survives a crash (#6).**" > "$tmp/changelog.d/6.fixed.md"
+    ( cd "$tmp" && python3 scripts/release/collect_changelog.py >/dev/null 2>&1 )
+    local n
+    n=$(grep -c "Survives a crash" "$tmp/CHANGELOG.md")
+    report "collector skips an entry already in [Unreleased]" 1 "$n"
+    rm -rf "$tmp"
+}
+
+crash_case
 
 echo ""
 if [ "$failures" -eq 0 ]; then

@@ -33,7 +33,9 @@ HEADING = {
     "removed": "### Removed",
     "internal": "### Internal",
 }
-FRAGMENT_RE = re.compile(r"^(?P<number>[^.]+)\.(?P<category>added|fixed|removed|internal)\.md$")
+# Must stay in step with FRAGMENT_RE in scripts/ci/check_changelog_entry.sh: a name
+# the gate accepts and this rejects passes CI and vanishes from the changelog.
+FRAGMENT_RE = re.compile(r"^(?P<number>[^./]+)\.(?P<category>added|fixed|removed|internal)\.md$")
 
 
 def read_fragments() -> tuple[dict[str, list[str]], list[Path]]:
@@ -66,13 +68,36 @@ def split_unreleased(text: str) -> tuple[str, str, str]:
     return text[: start.end()], text[start.end() : end], text[end:]
 
 
-def merge_section(body: str, heading: str, entries: list[str]) -> str:
-    """Append entries under `heading` inside the [Unreleased] body, creating it if needed."""
-    pattern = re.compile(rf"^{re.escape(heading)}\s*\n", re.MULTILINE)
-    found = pattern.search(body)
+def insert_position(body: str, category: str) -> int:
+    """Where a missing section belongs, so the result keeps SECTIONS order.
+
+    After the last section that ranks before this one; otherwise before the first
+    section that ranks after it; otherwise at the end. Appending unconditionally put
+    a created `### Added` below an existing `### Fixed`.
+    """
+    rank = SECTIONS.index(category)
+    end_of_earlier = None
+    for other in SECTIONS:
+        found = re.search(rf"^{re.escape(HEADING[other])}\s*\n", body, re.MULTILINE)
+        if not found:
+            continue
+        if SECTIONS.index(other) < rank:
+            nxt = re.search(r"^###? ", body[found.end() :], re.MULTILINE)
+            end_of_earlier = found.end() + (nxt.start() if nxt else len(body) - found.end())
+        else:
+            return found.start()
+    return end_of_earlier if end_of_earlier is not None else len(body)
+
+
+def merge_section(body: str, category: str, entries: list[str]) -> str:
+    """Append entries under the category's heading, creating it in order if needed."""
+    heading = HEADING[category]
     block = "\n".join(entries)
+    found = re.search(rf"^{re.escape(heading)}\s*\n", body, re.MULTILINE)
     if not found:
-        return body.rstrip("\n") + f"\n\n{heading}\n\n{block}\n"
+        at = insert_position(body, category)
+        head, tail = body[:at], body[at:]
+        return head.rstrip("\n") + f"\n\n{heading}\n\n{block}\n\n" + tail.lstrip("\n")
     nxt = re.search(r"^###? ", body[found.end() :], re.MULTILINE)
     cut = found.end() + (nxt.start() if nxt else len(body) - found.end())
     head, tail = body[:cut], body[cut:]
@@ -91,9 +116,26 @@ def main() -> int:
 
     text = CHANGELOG.read_text()
     before, body, after = split_unreleased(text)
+
+    # A crash between the write below and the unlink leaves a fragment whose entry is
+    # already in the file; a rerun would append it a second time. Compare on the first
+    # line, which carries the bolded claim and the PR number.
+    present = {line.strip() for line in body.splitlines() if line.strip().startswith("-")}
+    skipped: list[Path] = []
+    for category in SECTIONS:
+        keep = []
+        for entry in by_category[category]:
+            if entry.splitlines()[0].strip() in present:
+                skipped.append(Path(entry.splitlines()[0][:40]))
+                continue
+            keep.append(entry)
+        by_category[category] = keep
+    if skipped:
+        print(f"{len(skipped)} fragment(s) already present in [Unreleased]; not merged again")
+
     for category in SECTIONS:
         if by_category[category]:
-            body = merge_section(body, HEADING[category], by_category[category])
+            body = merge_section(body, category, by_category[category])
 
     merged = before + body.rstrip("\n") + "\n\n" + after.lstrip("\n")
 
