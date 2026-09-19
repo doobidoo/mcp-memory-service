@@ -38,16 +38,28 @@ from ..compat import _sanitize_log_value
 def sessions_to_track(results) -> set:
     """Session ids that should be marked harvested (RFC-provenance R7).
 
-    Only sessions that actually stored at least one memory are tracked. A
-    session harvested with stored==0 (e.g. the LLM chain was unavailable and
-    every candidate was dropped) must stay pending so a later run re-harvests
-    it instead of silently skipping it forever.
+    A session is tracked (marked processed) when it either stored something
+    (``stored>0``) or had nothing to harvest at all (``found==0``) — the latter
+    is a deterministic zero-candidate session (empty/unsupported transcript) that
+    will never produce anything, so tracking it prevents it from being reselected
+    every tick and starving older pending sessions.
+
+    A session stays pending only for a *retryable* failure: it had candidates
+    but stored none (``found>0 and stored==0``), e.g. the LLM chain was down and
+    every candidate was dropped — a later run should re-harvest it.
     """
-    return {
-        r.session_id
-        for r in results
-        if getattr(r, "session_id", None) and (getattr(r, "stored", 0) or 0) > 0
-    }
+    tracked = set()
+    for r in results:
+        sid = getattr(r, "session_id", None)
+        if not sid:
+            continue
+        stored = getattr(r, "stored", 0) or 0
+        found = getattr(r, "found", 0) or 0
+        # retryable failure: had candidates, stored none -> leave pending
+        if found > 0 and stored == 0:
+            continue
+        tracked.add(sid)
+    return tracked
 
 
 class ConsolidationScheduler:

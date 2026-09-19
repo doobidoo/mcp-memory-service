@@ -1,59 +1,64 @@
-"""Tests for harvest re-harvest safety — RFC-harvest-provenance R7.
+"""Tests for harvest re-harvest safety — RFC-provenance R7.
 
-The scheduler tracker must only mark a session as harvested when it actually
-stored at least one memory. A session harvested with stored==0 (e.g. the LLM
-chain was unavailable and every candidate was dropped) must stay pending so a
-later run re-harvests it instead of silently skipping it forever.
-
-Covers ``consolidation.scheduler.sessions_to_track`` — the pure helper the
-scheduler uses to compute tracker additions.
+sessions_to_track decides which harvested sessions to mark in the tracker:
+- stored>0                  -> tracked (produced memories)
+- found==0                  -> tracked (deterministic zero-candidate: nothing to
+                               harvest ever; tracking avoids reselection starving
+                               older pending sessions)
+- found>0 and stored==0     -> NOT tracked (retryable: had candidates, stored
+                               none — e.g. LLM chain down — re-harvest later)
 """
 from unittest.mock import MagicMock
 
 from mcp_memory_service.consolidation import scheduler as sch
 
 
-def _result(session_id, stored):
+def _result(session_id, stored, found):
     r = MagicMock()
     r.session_id = session_id
     r.stored = stored
+    r.found = found
     return r
 
 
-def test_tracks_only_sessions_with_stored():
-    """stored>0 tracked; stored==0 excluded so it is re-harvested later."""
+def test_stored_positive_is_tracked():
+    assert sch.sessions_to_track([_result("s", stored=3, found=5)]) == {"s"}
+
+
+def test_retryable_failure_stays_pending():
+    """found>0 but stored==0 = LLM dropped everything -> re-harvest later."""
+    assert sch.sessions_to_track([_result("s", stored=0, found=4)]) == set()
+
+
+def test_deterministic_zero_candidate_is_tracked():
+    """found==0 = nothing harvestable; must be tracked or it starves the queue."""
+    assert sch.sessions_to_track([_result("s", stored=0, found=0)]) == {"s"}
+
+
+def test_mixed_run():
     results = [
-        _result("sess-A", 3),
-        _result("sess-B", 0),   # nothing stored → must NOT be tracked
-        _result("sess-C", 1),
+        _result("stored", stored=2, found=3),      # tracked
+        _result("retryable", stored=0, found=4),    # pending
+        _result("empty", stored=0, found=0),        # tracked
     ]
-    assert sch.sessions_to_track(results) == {"sess-A", "sess-C"}
+    assert sch.sessions_to_track(results) == {"stored", "empty"}
 
 
 def test_empty_results_returns_empty_set():
     assert sch.sessions_to_track([]) == set()
 
 
-def test_all_zero_stored_tracks_nothing():
-    """A whole run that stored nothing must leave every session pending."""
-    results = [_result("sess-A", 0), _result("sess-B", 0)]
-    assert sch.sessions_to_track(results) == set()
-
-
 def test_missing_session_id_is_ignored():
-    """A result without a session_id can't be tracked, even with stored>0."""
-    results = [_result(None, 5), _result("sess-A", 2)]
-    assert sch.sessions_to_track(results) == {"sess-A"}
+    assert sch.sessions_to_track([_result(None, stored=5, found=5)]) == set()
 
 
-def test_stored_none_is_treated_as_zero():
-    """stored=None (missing attr value) must not leak into the tracker."""
-    results = [_result("sess-A", None), _result("sess-B", 1)]
-    assert sch.sessions_to_track(results) == {"sess-B"}
-
-
-def test_result_without_stored_attr_is_excluded():
-    """A result object lacking a stored attribute defaults to 0 → excluded."""
-    r = MagicMock(spec=["session_id"])   # no 'stored' attribute
-    r.session_id = "sess-A"
+def test_stored_none_treated_as_zero_with_candidates_stays_pending():
+    """stored=None + found>0 = retryable -> pending (not tracked)."""
+    r = MagicMock(); r.session_id = "s"; r.stored = None; r.found = 2
     assert sch.sessions_to_track([r]) == set()
+
+
+def test_missing_stored_and_found_attrs_defaults_zero_tracked():
+    """No stored, no found -> found==0 path -> tracked (nothing to retry)."""
+    r = MagicMock(spec=["session_id"]); r.session_id = "s"
+    assert sch.sessions_to_track([r]) == {"s"}
