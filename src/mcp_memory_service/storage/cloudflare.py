@@ -33,7 +33,12 @@ from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
-_MAX_TAG_SEARCH_CANDIDATES = 4096
+# Vectorize caps topK at 50 when a query returns values or metadata
+# (100 otherwise). Every query here sets returnMetadata="all", so topK
+# must be clamped to this ceiling or the API rejects the request with a
+# 4xx and the retrieval raises instead of returning results.
+# https://developers.cloudflare.com/vectorize/platform/limits/
+_VECTORIZE_MAX_TOPK_WITH_METADATA = 50
 
 
 def normalize_tags_for_search(tags: List[str]) -> List[str]:
@@ -731,10 +736,9 @@ class CloudflareStorage(MemoryStorage):
             # Search Vectorize (without namespace for now)
             search_payload = {
                 "vector": query_embedding,
-                "topK": (
-                    min(n_results * 3, _MAX_TAG_SEARCH_CANDIDATES)
-                    if tags
-                    else n_results
+                "topK": min(
+                    (n_results * 3 if tags else n_results),
+                    _VECTORIZE_MAX_TOPK_WITH_METADATA,
                 ),
                 "returnMetadata": "all",
                 "returnValues": False
@@ -1814,7 +1818,7 @@ class CloudflareStorage(MemoryStorage):
                     # Search Vectorize with semantic query
                     search_payload = {
                         "vector": query_embedding,
-                        "topK": n_results,
+                        "topK": min(n_results, _VECTORIZE_MAX_TOPK_WITH_METADATA),
                         "returnMetadata": "all",
                         "returnValues": False
                     }
