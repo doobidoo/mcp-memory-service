@@ -38,28 +38,25 @@ from ..compat import _sanitize_log_value
 def sessions_to_track(results) -> set:
     """Session ids that should be marked harvested (RFC-provenance R7).
 
-    A session is tracked (marked processed) when it either stored something
-    (``stored>0``) or had nothing to harvest at all (``found==0``) — the latter
-    is a deterministic zero-candidate session (empty/unsupported transcript) that
-    will never produce anything, so tracking it prevents it from being reselected
-    every tick and starving older pending sessions.
+    Only sessions that stored at least one memory are tracked. A session that
+    stored nothing stays pending so a later run re-harvests it — this covers the
+    retryable failure we care about (the LLM chain was down and every candidate
+    was dropped) without risking data loss.
 
-    A session stays pending only for a *retryable* failure: it had candidates
-    but stored none (``found>0 and stored==0``), e.g. the LLM chain was down and
-    every candidate was dropped — a later run should re-harvest it.
+    Known trade-off: a deterministically empty session (nothing harvestable) also
+    stays pending and is reselected each tick. `found` cannot tell the two apart
+    here — a transient LLM-rewrite failure also collapses to ``found==0`` (the
+    rewriter drops candidates it can't rewrite), so keying off ``found`` would
+    silently discard recoverable candidates. Distinguishing the two needs the
+    harvester to surface pre-rewrite extraction / rewrite-failure state on
+    HarvestResult; tracked as a separate follow-up. Re-processing an empty
+    session is cheaper than losing data, so this stays conservative.
     """
-    tracked = set()
-    for r in results:
-        sid = getattr(r, "session_id", None)
-        if not sid:
-            continue
-        stored = getattr(r, "stored", 0) or 0
-        found = getattr(r, "found", 0) or 0
-        # retryable failure: had candidates, stored none -> leave pending
-        if found > 0 and stored == 0:
-            continue
-        tracked.add(sid)
-    return tracked
+    return {
+        r.session_id
+        for r in results
+        if getattr(r, "session_id", None) and (getattr(r, "stored", 0) or 0) > 0
+    }
 
 
 class ConsolidationScheduler:
