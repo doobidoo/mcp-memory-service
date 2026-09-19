@@ -57,6 +57,31 @@ def read_fragments() -> tuple[dict[str, list[str]], list[Path]]:
     return by_category, used
 
 
+def normalise(entry: str) -> str:
+    """Collapse whitespace so wrapping differences do not read as different entries."""
+    return " ".join(entry.split())
+
+
+def existing_entries(body: str) -> list[str]:
+    """Every list item already in the [Unreleased] body, continuation lines included."""
+    entries: list[str] = []
+    current: list[str] = []
+    for line in body.splitlines():
+        if re.match(r"^\s*-\s+\S", line):
+            if current:
+                entries.append("\n".join(current))
+            current = [line]
+        elif current:
+            if line.startswith("#") or not line.strip():
+                entries.append("\n".join(current))
+                current = []
+            else:
+                current.append(line)
+    if current:
+        entries.append("\n".join(current))
+    return entries
+
+
 def split_unreleased(text: str) -> tuple[str, str, str]:
     """Return (before, unreleased_body, after) around the [Unreleased] section."""
     start = re.search(r"^## \[Unreleased\][^\n]*\n", text, re.MULTILINE)
@@ -118,20 +143,21 @@ def main() -> int:
     before, body, after = split_unreleased(text)
 
     # A crash between the write below and the unlink leaves a fragment whose entry is
-    # already in the file; a rerun would append it a second time. Compare on the first
-    # line, which carries the bolded claim and the PR number.
-    present = {line.strip() for line in body.splitlines() if line.strip().startswith("-")}
-    skipped: list[Path] = []
+    # already in the file; a rerun would append it a second time. The whole entry has
+    # to match, not its first line: first lines repeat across releases ("- **Dependency
+    # bumps.**"), and skipping on one would drop a fragment whose detail differs.
+    present = {normalise(e) for e in existing_entries(body)}
+    skipped = 0
     for category in SECTIONS:
         keep = []
         for entry in by_category[category]:
-            if entry.splitlines()[0].strip() in present:
-                skipped.append(Path(entry.splitlines()[0][:40]))
+            if normalise(entry) in present:
+                skipped += 1
                 continue
             keep.append(entry)
         by_category[category] = keep
     if skipped:
-        print(f"{len(skipped)} fragment(s) already present in [Unreleased]; not merged again")
+        print(f"{skipped} fragment(s) already present in [Unreleased] verbatim; not merged again")
 
     for category in SECTIONS:
         if by_category[category]:

@@ -247,6 +247,26 @@ crash_case() {
 
 crash_case
 
+# First lines repeat across releases ("- **Dependency bumps.**"), so identity has to
+# be the whole entry: a fragment sharing only its first line must still be merged,
+# and must not be deleted as a duplicate.
+same_first_line_case() {
+    local tmp
+    tmp="$(mktemp -d)" || return 1
+    mkdir -p "$tmp/changelog.d" "$tmp/scripts/release"
+    cp "$COLLECT" "$tmp/scripts/release/"
+    printf '# Changelog\n\n## [Unreleased]\n\n### Internal\n\n- **Dependency bumps.**\n  anyio 4.14.2 (#1268).\n\n## [1.0.0] - 2026-01-01\n' > "$tmp/CHANGELOG.md"
+    printf -- '- **Dependency bumps.**\n  ruff 0.16.7 and transformers 5.17.0 (#1257).\n' > "$tmp/changelog.d/7.internal.md"
+    ( cd "$tmp" && python3 scripts/release/collect_changelog.py >/dev/null 2>&1 )
+    local ok=0
+    grep -q "anyio 4.14.2" "$tmp/CHANGELOG.md" || { echo "  lost: the pre-existing detail"; ok=1; }
+    grep -q "ruff 0.16.7" "$tmp/CHANGELOG.md" || { echo "  lost: the new fragment's detail"; ok=1; }
+    report "entries sharing a first line are both kept" 0 $ok
+    rm -rf "$tmp"
+}
+
+same_first_line_case
+
 echo ""
 if [ "$failures" -eq 0 ]; then
     echo "All changelog gate tests passed"
