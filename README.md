@@ -261,6 +261,8 @@ Choose from:
 
 > **💡 NEW**: ChatGPT now supports MCP! Enable Developer Mode to connect your memory service directly. [See setup guide →](docs/remote-mcp-setup.md)
 
+> **Home Assistant and other clients without OAuth**: connect with anonymous access on your LAN, no source patching needed. [See setup guide →](docs/integration/home-assistant.md)
+
 ---
 
 ## ✨ Features

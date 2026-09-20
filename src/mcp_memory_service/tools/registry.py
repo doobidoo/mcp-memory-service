@@ -814,6 +814,11 @@ Examples:
                     "items": {"type": "string"},
                     "description": "Specific session IDs to harvest",
                 },
+                "force_reharvest": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Re-harvest sessions already recorded in the harvest tracker (bypasses the tracker filter). Use to re-process sessions whose prior run stored nothing.",
+                },
                 "types": {
                     "type": "array",
                     "items": {

@@ -1777,6 +1777,7 @@ class MemoryServer:
             dry_run=arguments.get("dry_run", True),
             project_path=str(project_path),
             use_llm=arguments.get("use_llm", False),
+            force_reharvest=arguments.get("force_reharvest", False),
         )
 
         memory_service = None
@@ -1809,8 +1810,13 @@ class MemoryServer:
         if config.dry_run:
             results = harvester.harvest(config)
         else:
-            # Pagination: resolve ALL sessions, filter by tracker, take config.sessions
-            if already_harvested and not config.session_ids:
+            # Pagination: resolve ALL sessions, filter by tracker, take config.sessions.
+            # R8: force_reharvest bypasses the tracker filter entirely. It still
+            # respects config.sessions — harvest_and_store resolves at most
+            # config.sessions (page size) newest sessions, it does not reprocess
+            # the whole history at once.
+            from .harvest.models import should_filter_tracker
+            if should_filter_tracker(already_harvested, config.session_ids, config.force_reharvest):
                 from .harvest.models import HarvestConfig as _HC
                 all_config = _HC(sessions=9999, project_path=config.project_path)
                 all_sessions = harvester._resolve_sessions(all_config)
