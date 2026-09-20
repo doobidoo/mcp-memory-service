@@ -43,6 +43,10 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e ".[sqlite]"
+    
+    # Create results directory for SARIF export
+    - name: Create results directory
+      run: mkdir -p results
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
@@ -55,3 +59,16 @@ jobs:
       uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
       with:
         category: "/language:python"
+        sarif-file: results/python.sarif
+        output: results
+
+    - name: Upload SARIF to Artifacts
+      if: always()
+      uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.1
+      with:
+        name: codeql-sarif
+        path: |
+          results
+          **/*.sarif
+        retention-days: 30
+        if-no-files-found: warn
