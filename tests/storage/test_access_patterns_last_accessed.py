@@ -126,16 +126,45 @@ async def test_get_access_patterns_no_limit_cutoff(storage):
     
     This test FAILS with current code (LIMIT 100) and should PASS after fix (no limit).
     """
-    # Create 150 memories to exceed the current LIMIT 100
+    # Create 150 semantically DISTINCT memories to exceed the current LIMIT 100.
+    # Content must be varied: near-identical text (e.g. "Memory 000", "Memory 001")
+    # is rejected by semantic deduplication (>=0.92 similarity), so a repetitive
+    # loop would only persist a handful of rows and the test would be meaningless.
+    subjects = [
+        "Kubernetes networking", "PostgreSQL indexing", "React hooks", "Spring WebFlux",
+        "Redis caching", "OAuth2 flows", "gRPC streaming", "Kafka partitions",
+        "Terraform modules", "GraphQL resolvers", "Docker layers", "TLS handshakes",
+        "SQL window functions", "Rust ownership", "Python asyncio", "Go channels",
+        "DNS resolution", "TCP congestion", "vector embeddings", "B-tree pages",
+        "JWT rotation", "CORS preflight", "WebSocket frames", "HTTP caching",
+        "Nginx upstreams", "systemd units", "cgroup limits", "eBPF probes",
+        "SQLite WAL mode", "Prometheus scraping",
+    ]
+    actions = [
+        "debugging session", "performance tuning", "migration plan", "incident postmortem",
+        "design review", "capacity study",
+    ]
     memories = []
     base_time = int(time.time()) - 86400 * 365  # Start 1 year ago
-    
-    for i in range(150):
-        memory = _make_memory(f"Memory {i:03d} for limit test")
-        await storage.store(memory) 
-        memories.append(memory)
-    
-    # Set all memories to have old updated_at but recent last_accessed
+
+    idx = 0
+    for subject in subjects:
+        for action in actions:
+            content = f"Notes on {subject} during a {action} #{idx:03d}"
+            memory = _make_memory(content)
+            ok, _msg = await storage.store(memory)
+            # Only keep memories that actually persisted (dedup may reject some).
+            if ok:
+                memories.append(memory)
+            idx += 1
+
+    # Guard: the test only proves "no LIMIT cutoff" if we actually stored >100.
+    assert len(memories) > 100, (
+        f"test setup must persist more than 100 distinct memories to exercise the "
+        f"removed LIMIT 100; only {len(memories)} were stored (dedup too aggressive?)"
+    )
+
+    # Set all stored memories to have old updated_at but recent last_accessed
     # This simulates memories that are frequently read but never edited
     def _setup_access_patterns():
         for i, memory in enumerate(memories):
@@ -163,12 +192,12 @@ async def test_get_access_patterns_no_limit_cutoff(storage):
     # Get access patterns
     patterns = await storage.get_access_patterns()
     
-    # All 150 memories should be returned since they all have last_accessed
+    # All stored memories should be returned since they all have last_accessed.
     memories_with_access = len(patterns)
-    
-    # This assertion will FAIL with current code (returns ~100 due to LIMIT)
-    # and PASS after fix (returns all 150)
-    assert memories_with_access >= 150, (
+
+    # This assertion FAILS with the old code (returns <=100 due to LIMIT 100)
+    # and PASSES after the fix (returns all stored memories, >100).
+    assert memories_with_access >= len(memories), (
         f"get_access_patterns() should return all {len(memories)} memories with last_accessed, "
         f"but returned only {memories_with_access}. This suggests LIMIT is cutting off results."
     )

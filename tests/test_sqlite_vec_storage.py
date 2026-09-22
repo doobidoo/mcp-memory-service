@@ -1420,6 +1420,10 @@ class TestSqliteVecTimeBasedDeletion:
         )
         await storage.store(mem)
 
+        # Access the memory so it appears in access patterns
+        # (memories only appear in access_patterns after being accessed, not just stored)
+        await storage.retrieve("Access pattern test memory", n_results=1)
+
         patterns_before = await storage.get_access_patterns()
         assert mem.content_hash in patterns_before
 
