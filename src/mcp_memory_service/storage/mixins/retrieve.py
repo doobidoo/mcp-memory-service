@@ -9,7 +9,7 @@ import traceback
 import asyncio
 from collections import Counter
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional, Sequence, Set
 
 try:
     from sqlite_vec import serialize_float32
@@ -19,6 +19,10 @@ except ImportError:
 from ...models.memory import Memory, MemoryQueryResult
 
 logger = logging.getLogger(__name__)
+
+# SQLite caps host parameters per statement (SQLITE_MAX_VARIABLE_NUMBER, historically 999).
+# The other IN-clause call sites in this package chunk at the same width.
+_IN_CLAUSE_CHUNK = 999
 
 # Module-level constants
 _SQLITE_VEC_MAX_KNN_K = 4096
@@ -1227,12 +1231,29 @@ class RetrieveMixin:
             logger.error("Error getting memory connections: %s", _sanitize_log_value(e))
             return {}
 
-    async def get_access_patterns(self) -> Dict[str, datetime]:
-        """Get memory access pattern statistics."""
+    async def get_access_patterns(
+        self, content_hashes: Optional[Sequence[str]] = None
+    ) -> Dict[str, datetime]:
+        """Get memory access pattern statistics.
+
+        Args:
+            content_hashes: Optional candidate window. When given, only these hashes are
+                queried, so a consolidation run loads access times for the current batch
+                instead of every ever-accessed memory in the store. An empty sequence
+                means "no candidates" and returns ``{}`` without touching the database.
+                ``None`` keeps the previous unbounded behaviour.
+        """
         try:
+            if content_hashes is not None:
+                hashes = list(dict.fromkeys(content_hashes))
+                if not hashes:
+                    return {}
+            else:
+                hashes = None
+
             await self.initialize()
 
-            def _get_access_patterns():
+            def _get_access_patterns_all():
                 cursor = self.conn.execute("""
                     SELECT content_hash, last_accessed
                     FROM memories
@@ -1241,8 +1262,31 @@ class RetrieveMixin:
                 """)
                 return cursor.fetchall()
 
+            rows = []
+            if hashes is None:
+                rows = await self._execute_with_retry(_get_access_patterns_all)
+            else:
+                # SQLite caps host parameters per statement; chunk like the other
+                # IN-clause call sites in this package do.
+                for i in range(0, len(hashes), _IN_CLAUSE_CHUNK):
+                    chunk = hashes[i:i + _IN_CLAUSE_CHUNK]
+                    placeholders = ",".join("?" for _ in chunk)
+
+                    def _get_access_patterns_scoped(ph=placeholders, c=chunk):
+                        cursor = self.conn.execute(
+                            f"SELECT content_hash, last_accessed "
+                            f"FROM memories "
+                            f"WHERE content_hash IN ({ph}) "
+                            f"AND last_accessed IS NOT NULL AND deleted_at IS NULL "
+                            f"ORDER BY last_accessed DESC",
+                            c,
+                        )
+                        return cursor.fetchall()
+
+                    rows.extend(await self._execute_with_retry(_get_access_patterns_scoped))
+
             patterns = {}
-            for row in await self._execute_with_retry(_get_access_patterns):
+            for row in rows:
                 content_hash, last_accessed = row
                 try:
                     patterns[content_hash] = datetime.fromtimestamp(last_accessed, tz=timezone.utc)

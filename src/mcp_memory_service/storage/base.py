@@ -20,7 +20,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Sequence, Tuple
 from datetime import datetime, timezone, timedelta, date
 from ..compat import _sanitize_log_value
 from ..models.memory import Memory, MemoryQueryResult
@@ -968,8 +968,18 @@ class MemoryStorage(ABC):
         """Get memory connection statistics. Override for specific implementations."""
         return {}
 
-    async def get_access_patterns(self) -> Dict[str, datetime]:
-        """Get memory access pattern statistics. Override for specific implementations."""
+    async def get_access_patterns(
+        self, content_hashes: Optional[Sequence[str]] = None
+    ) -> Dict[str, datetime]:
+        """Get memory access pattern statistics. Override for specific implementations.
+
+        Args:
+            content_hashes: Optional candidate window. When provided, backends should
+                return access times only for these hashes, so consolidation memory use
+                and latency scale with the candidate batch instead of the whole
+                ever-accessed population. When ``None`` the full set is returned
+                (backwards-compatible default).
+        """
         return {}
 
     async def get_memory_timestamps(self, days: Optional[int] = None) -> List[float]:

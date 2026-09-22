@@ -25,7 +25,7 @@ This implementation provides the best of both worlds:
 import asyncio
 import logging
 import time
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Sequence, Tuple, Optional
 from collections import deque
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -2101,12 +2101,16 @@ class HybridMemoryStorage(MemoryStorage):
         """
         return await self.primary.get_memory_connections()
 
-    async def get_access_patterns(self) -> Dict[str, datetime]:
+    async def get_access_patterns(
+        self, content_hashes: Optional[Sequence[str]] = None
+    ) -> Dict[str, datetime]:
         """Get memory access pattern statistics (consolidation protocol).
 
-        Proxies to primary storage.
+        Proxies to primary storage, forwarding the candidate window when one is given.
         """
-        return await self.primary.get_access_patterns()
+        if content_hashes is None:
+            return await self.primary.get_access_patterns()
+        return await self.primary.get_access_patterns(content_hashes)
 
     def sanitized(self, tags):
         """Sanitize and normalize tags to a JSON string.

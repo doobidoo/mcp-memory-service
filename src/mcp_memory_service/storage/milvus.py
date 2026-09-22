@@ -43,7 +43,7 @@ import time
 import traceback
 from collections import Counter
 from datetime import datetime, timezone, timedelta, date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 # Disable wandb BEFORE importing sentence-transformers — same rationale as
 # sqlite_vec.py (Issue #311). Safe to set even when transformers is unused.
@@ -3293,15 +3293,29 @@ class MilvusMemoryStorage(MemoryStorage):
         except Exception as exc:  # noqa: BLE001
             logger.warning("_touch_access failed (non-fatal): %s", exc)
 
-    async def get_access_patterns(self) -> Dict[str, datetime]:
+    async def get_access_patterns(
+        self, content_hashes: Optional[Sequence[str]] = None
+    ) -> Dict[str, datetime]:
         """Return last-accessed timestamps from the _access side-collection.
 
         Used by the Forgetting engine's decay calculator to compute
-        access_boost. Returns ``{content_hash: datetime}`` for all memories
+        access_boost. Returns ``{content_hash: datetime}`` for memories
         that have been accessed at least once.
+
+        Args:
+            content_hashes: Optional candidate window. When given, only these ids are
+                drained, so a consolidation run does not pull the whole access
+                collection into memory. An empty sequence returns ``{}`` without a
+                round trip. ``None`` keeps the previous full-drain behaviour.
         """
         if not self._has_access_collection:
             return {}
+
+        ids: Optional[List[str]] = None
+        if content_hashes is not None:
+            ids = list(dict.fromkeys(content_hashes))
+            if not ids:
+                return {}
 
         try:
             async with self._write_lock:
@@ -3309,6 +3323,7 @@ class MilvusMemoryStorage(MemoryStorage):
                     return {}
                 rows = await asyncio.to_thread(
                     self._drain_access_records,
+                    ids,
                 )
         except Exception as exc:  # noqa: BLE001
             logger.warning("get_access_patterns failed: %s", exc)
@@ -3322,12 +3337,30 @@ class MilvusMemoryStorage(MemoryStorage):
                 patterns[rid] = datetime.fromtimestamp(ts, tz=timezone.utc)
         return patterns
 
-    def _drain_access_records(self) -> List[Dict[str, Any]]:
-        """Sync helper that drains all rows from the _access collection."""
+    def _drain_access_records(
+        self, ids: Optional[Sequence[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Sync helper that drains rows from the _access collection.
+
+        With ``ids`` the drain is scoped to that candidate window, in chunks so a
+        large batch does not build one oversized filter expression.
+        """
+        assert self.client is not None
+        if ids is None:
+            return self._drain_access_filter("")
+        rows: List[Dict[str, Any]] = []
+        ids = list(ids)
+        for i in range(0, len(ids), self._ACCESS_ID_CHUNK):
+            chunk = ids[i:i + self._ACCESS_ID_CHUNK]
+            rows.extend(self._drain_access_filter("id in %s" % json.dumps(list(chunk))))
+        return rows
+
+    def _drain_access_filter(self, filter_expr: str) -> List[Dict[str, Any]]:
+        """Drain id + last_accessed from the _access collection under a filter."""
         assert self.client is not None
         iterator = self.client.query_iterator(
             collection_name=self._access_collection,
-            filter="",
+            filter=filter_expr or "",
             output_fields=["id", "last_accessed"],
             batch_size=self._QUERY_ITER_BATCH,
         )
@@ -3477,6 +3510,9 @@ class MilvusMemoryStorage(MemoryStorage):
         return rows
 
     _QUERY_ITER_BATCH = 1000
+    # Milvus filter expressions are strings; chunk candidate-id drains so a large
+    # consolidation batch does not build one oversized `id in [...]` expression.
+    _ACCESS_ID_CHUNK = 500
 
     async def _query_memories(
         self,
