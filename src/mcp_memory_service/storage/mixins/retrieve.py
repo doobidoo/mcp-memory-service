@@ -1234,21 +1234,20 @@ class RetrieveMixin:
 
             def _get_access_patterns():
                 cursor = self.conn.execute("""
-                    SELECT content_hash, updated_at_iso
+                    SELECT content_hash, last_accessed
                     FROM memories
-                    WHERE updated_at_iso IS NOT NULL AND deleted_at IS NULL
-                    ORDER BY updated_at DESC
-                    LIMIT 100
+                    WHERE last_accessed IS NOT NULL AND deleted_at IS NULL
+                    ORDER BY last_accessed DESC
                 """)
                 return cursor.fetchall()
 
             patterns = {}
             for row in await self._execute_with_retry(_get_access_patterns):
-                content_hash, updated_at_iso = row
+                content_hash, last_accessed = row
                 try:
-                    patterns[content_hash] = datetime.fromisoformat(updated_at_iso.replace('Z', '+00:00'))
+                    patterns[content_hash] = datetime.fromtimestamp(last_accessed, tz=timezone.utc)
                 except Exception:
-                    patterns[content_hash] = datetime.now()
+                    patterns[content_hash] = datetime.now(tz=timezone.utc)
 
             return patterns
 
