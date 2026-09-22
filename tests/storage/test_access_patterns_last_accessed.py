@@ -32,17 +32,20 @@ async def storage():
         db_path = Path(temp_dir) / "test_access_patterns.db"
         storage = SqliteVecMemoryStorage(str(db_path))
         await storage.initialize()
-        
-        # Ensure last_accessed column exists (should be added by migration)
-        def _ensure_last_accessed_column():
+
+        # The last_accessed column MUST come from migration 011; the fixture
+        # must not repair the schema or it would mask a migration regression.
+        def _assert_last_accessed_column():
             cursor = storage.conn.execute("PRAGMA table_info(memories)")
             columns = [row[1] for row in cursor.fetchall()]
-            if 'last_accessed' not in columns:
-                storage.conn.execute('ALTER TABLE memories ADD COLUMN last_accessed INTEGER')
-                storage.conn.commit()
-        
-        await storage._execute_with_retry(_ensure_last_accessed_column)
-        
+            assert 'last_accessed' in columns, (
+                "last_accessed column missing: migrations did not create it "
+                "(011_memory_evolution_p1.sql) — get_access_patterns would fail "
+                "against this schema"
+            )
+
+        await storage._execute_with_retry(_assert_last_accessed_column)
+
         try:
             yield storage
         finally:
