@@ -365,7 +365,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 logger.warning(
                     "Failed to add BM25 function to collection '%s' — "
                     "using vector-only search: %s",
-                    self.collection_name, exc,
+                    self.collection_name, _sanitize_log_value(exc),
                 )
                 self._has_bm25 = False
 
@@ -406,7 +406,7 @@ class MilvusMemoryStorage(MemoryStorage):
         try:
             info = self.client.describe_collection(collection_name=self.collection_name)
         except Exception as exc:  # describe may fail on very old servers
-            logger.debug("describe_collection failed (ignored): %s", exc)
+            logger.debug("describe_collection failed (ignored): %s", _sanitize_log_value(exc))
             return
 
         dim = self._extract_vector_dim(info)
@@ -680,7 +680,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 logger.warning(
                     "Milvus Lite channel died on %s (%s) — reconnecting and retrying once "
                     "(upstream milvus-lite issue #334)",
-                    method_name, exc,
+                    method_name, _sanitize_log_value(exc),
                 )
                 self._reconnect_lite_client()
                 result = await asyncio.to_thread(
@@ -770,7 +770,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 updated_at_iso=row.get("updated_at_iso") or None,
             )
         except Exception as exc:  # noqa: BLE001 — never kill a batch on one bad row
-            logger.warning("Failed to convert Milvus entity to Memory: %s", exc)
+            logger.warning("Failed to convert Milvus entity to Memory: %s", _sanitize_log_value(exc))
             return None
 
     def _coerce_vector(self, row: Dict[str, Any]) -> Optional[List[float]]:
@@ -841,7 +841,7 @@ class MilvusMemoryStorage(MemoryStorage):
         tag_clauses = []
         for tag in tags:
             if not isinstance(tag, str):
-                logger.warning("Skipping non-string tag of type %s", type(tag).__name__)
+                logger.warning("Skipping non-string tag of type %s", _sanitize_log_value(type(tag).__name__))
                 continue
             stripped = _escape_like(tag.strip())
             if not stripped:
@@ -945,7 +945,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 search_params={"metric_type": "COSINE"},
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Conflict detection search failed: %s", exc)
+            logger.warning("Conflict detection search failed: %s", _sanitize_log_value(exc))
             return []
 
         if not results or not results[0]:
@@ -994,7 +994,7 @@ class MilvusMemoryStorage(MemoryStorage):
         try:
             graph = await self._get_graph_storage()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Cannot init graph storage for conflicts: %s", exc)
+            logger.warning("Cannot init graph storage for conflicts: %s", _sanitize_log_value(exc))
             return
 
         now = time.time()
@@ -1015,7 +1015,7 @@ class MilvusMemoryStorage(MemoryStorage):
                     preserve_timestamps=True,
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Failed to tag conflict on %s: %s", new_hash[:8], exc)
+                logger.warning("Failed to tag conflict on %s: %s", new_hash[:8], _sanitize_log_value(exc))
 
         # Batch-fetch all existing_hash memories to avoid N+1 queries
         existing_hashes = [c["existing_hash"] for c in conflicts]
@@ -1033,7 +1033,7 @@ class MilvusMemoryStorage(MemoryStorage):
                     if m:
                         mem_map[m.content_hash] = m
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Batch fetch for conflict tagging failed: %s", exc)
+                logger.warning("Batch fetch for conflict tagging failed: %s", _sanitize_log_value(exc))
 
         for c in conflicts:
             existing_hash = c["existing_hash"]
@@ -1056,7 +1056,7 @@ class MilvusMemoryStorage(MemoryStorage):
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "Failed to store conflict edge %s↔%s: %s",
-                    new_hash[:8], existing_hash[:8], exc,
+                    new_hash[:8], existing_hash[:8], _sanitize_log_value(exc),
                 )
                 continue
 
@@ -1071,7 +1071,7 @@ class MilvusMemoryStorage(MemoryStorage):
                         preserve_timestamps=True,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("Failed to tag conflict on %s: %s", existing_hash[:8], exc)
+                    logger.warning("Failed to tag conflict on %s: %s", existing_hash[:8], _sanitize_log_value(exc))
 
         logger.info(
             "Recorded %d conflict(s) for %s", len(conflicts), new_hash[:8]
@@ -1089,7 +1089,7 @@ class MilvusMemoryStorage(MemoryStorage):
         try:
             graph = await self._get_graph_storage()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Cannot init graph storage for get_conflicts: %s", exc)
+            logger.warning("Cannot init graph storage for get_conflicts: %s", _sanitize_log_value(exc))
             return []
 
         try:
@@ -1104,7 +1104,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 limit=_MILVUS_MAX_LIMIT,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to query conflict edges: %s", exc)
+            logger.warning("Failed to query conflict edges: %s", _sanitize_log_value(exc))
             return []
 
         if not rows:
@@ -1143,7 +1143,7 @@ class MilvusMemoryStorage(MemoryStorage):
                     if m:
                         mem_map[m.content_hash] = m
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Batch fetch for get_conflicts failed: %s", exc)
+                logger.warning("Batch fetch for get_conflicts failed: %s", _sanitize_log_value(exc))
                 return []
 
         results: List[Dict[str, Any]] = []
@@ -1233,7 +1233,7 @@ class MilvusMemoryStorage(MemoryStorage):
             graph = await self._get_graph_storage()
             await graph.delete_association(winner_hash, loser_hash)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to delete conflict edge (non-fatal): %s", exc)
+            logger.warning("Failed to delete conflict edge (non-fatal): %s", _sanitize_log_value(exc))
 
         logger.info(
             "Conflict resolved: %s wins over %s", winner_hash[:8], loser_hash[:8]
@@ -1277,7 +1277,7 @@ class MilvusMemoryStorage(MemoryStorage):
         try:
             embedding = self._generate_embedding(content)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Semantic dedup skipped — embedding failed: %s", exc)
+            logger.warning("Semantic dedup skipped — embedding failed: %s", _sanitize_log_value(exc))
             return False, None
 
         try:
@@ -1290,7 +1290,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 consistency_level="Strong",
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Semantic dedup query failed: %s", exc)
+            logger.warning("Semantic dedup query failed: %s", _sanitize_log_value(exc))
             return False, None
 
         if not rows:
@@ -1344,7 +1344,7 @@ class MilvusMemoryStorage(MemoryStorage):
             try:
                 embedding = self._generate_embedding(memory.content)
             except Exception as exc:  # noqa: BLE001
-                logger.error("Failed to embed memory %s: %s", memory.content_hash, exc)
+                logger.error("Failed to embed memory %s: %s", _sanitize_log_value(memory.content_hash), _sanitize_log_value(exc))
                 return False, f"Failed to generate embedding: {exc}"
 
             entity = self._memory_to_entity(memory, embedding)
@@ -1355,7 +1355,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 data=[entity],
             )
 
-            logger.info("Stored memory %s", memory.content_hash)
+            logger.info("Stored memory %s", _sanitize_log_value(memory.content_hash))
 
             # --- Conflict detection (post-commit) ---
             try:
@@ -1368,13 +1368,13 @@ class MilvusMemoryStorage(MemoryStorage):
                 else:
                     conflict_msg = ""
             except Exception as e:  # noqa: BLE001 — conflict detection is best-effort
-                logger.warning("Conflict detection failed (non-fatal): %s", e)
+                logger.warning("Conflict detection failed (non-fatal): %s", _sanitize_log_value(e))
                 conflict_msg = ""
 
             return True, f"Memory stored successfully{conflict_msg}"
 
         except Exception as exc:  # noqa: BLE001 — contract requires (bool, str) not a raise
-            logger.error("Failed to store memory: %s\n%s", exc, traceback.format_exc())
+            logger.error("Failed to store memory: %s\n%s", _sanitize_log_value(exc), traceback.format_exc())
             return False, f"Failed to store memory: {exc}"
 
     async def _prepare_batch_entity(
@@ -1407,7 +1407,7 @@ class MilvusMemoryStorage(MemoryStorage):
             )
             outcome = (True, "Memory stored successfully")
         except Exception as exc:  # noqa: BLE001 — whole batch failed
-            logger.error("Milvus batch insert failed: %s", exc)
+            logger.error("Milvus batch insert failed: %s", _sanitize_log_value(exc))
             outcome = (False, f"Failed to store memory: {exc}")
         for idx in insert_indices:
             results[idx] = outcome
@@ -1449,7 +1449,7 @@ class MilvusMemoryStorage(MemoryStorage):
         if len(tags) > _MAX_TAGS_FOR_SEARCH:
             logger.warning(
                 "Too many tags (%s), truncating to %s",
-                len(tags), _MAX_TAGS_FOR_SEARCH,
+                _sanitize_log_value(len(tags)), _MAX_TAGS_FOR_SEARCH,
             )
             tags = tags[:_MAX_TAGS_FOR_SEARCH]
         tag_filter, matched = self._tag_like_clauses(tags, joiner="or")
@@ -1505,7 +1505,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 search_params={"metric_type": "COSINE"},
             )
         except Exception as exc:  # noqa: BLE001
-            logger.error("Milvus search failed: %s", exc)
+            logger.error("Milvus search failed: %s", _sanitize_log_value(exc))
             return []
         if not search_results or not search_results[0]:
             return []
@@ -1570,7 +1570,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "Hybrid search failed, falling back to vector-only: %s", exc,
+                "Hybrid search failed, falling back to vector-only: %s", _sanitize_log_value(exc),
             )
             return await self._run_search(query_embedding, tag_filter, fetch_n)
 
@@ -1579,7 +1579,7 @@ class MilvusMemoryStorage(MemoryStorage):
         try:
             return self._generate_embedding(query)
         except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to generate query embedding: %s", exc)
+            logger.error("Failed to generate query embedding: %s", _sanitize_log_value(exc))
             return None
 
     @staticmethod
@@ -1736,10 +1736,10 @@ class MilvusMemoryStorage(MemoryStorage):
                 ids=[content_hash],
             )
         except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to delete memory %s: %s", content_hash, exc)
+            logger.error("Failed to delete memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(exc))
             return False, f"Failed to delete memory: {exc}"
 
-        logger.info("Deleted memory %s", content_hash)
+        logger.info("Deleted memory %s", _sanitize_log_value(content_hash))
         # Clean up access tracking record
         if self._has_access_collection:
             try:
@@ -2192,7 +2192,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 if mem:
                     existing_map[mem.content_hash] = mem
         except Exception as exc:  # noqa: BLE001
-            logger.error("update_memories_batch: batch fetch failed: %s", exc)
+            logger.error("update_memories_batch: batch fetch failed: %s", _sanitize_log_value(exc))
             return results
 
         # -- Step 2: Merge updates and collect content for batch embedding --
@@ -2203,7 +2203,7 @@ class MilvusMemoryStorage(MemoryStorage):
             if existing is None:
                 logger.warning(
                     "update_memories_batch: hash %s not found, skipping",
-                    memory.content_hash,
+                    _sanitize_log_value(memory.content_hash),
                 )
                 continue
 
@@ -2216,7 +2216,7 @@ class MilvusMemoryStorage(MemoryStorage):
             if merged is None:
                 logger.warning(
                     "update_memories_batch: merge failed for %s: %s",
-                    memory.content_hash, err,
+                    _sanitize_log_value(memory.content_hash), _sanitize_log_value(err),
                 )
                 continue
 
@@ -2236,7 +2236,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 for e in raw_embeddings
             ]
         except Exception as exc:  # noqa: BLE001
-            logger.error("update_memories_batch: batch embedding failed: %s", exc)
+            logger.error("update_memories_batch: batch embedding failed: %s", _sanitize_log_value(exc))
             return results
 
         # -- Step 4: Build entities --
@@ -2265,7 +2265,7 @@ class MilvusMemoryStorage(MemoryStorage):
             for idx in entity_indices:
                 results[idx] = True
         except Exception as exc:  # noqa: BLE001
-            logger.error("update_memories_batch: batch upsert failed: %s", exc)
+            logger.error("update_memories_batch: batch upsert failed: %s", _sanitize_log_value(exc))
 
         return results
 
@@ -2308,7 +2308,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 if mem:
                     existing_map[mem.content_hash] = mem
         except Exception as exc:  # noqa: BLE001
-            logger.error("mark_superseded_batch: batch fetch failed: %s", exc)
+            logger.error("mark_superseded_batch: batch fetch failed: %s", _sanitize_log_value(exc))
             return 0
 
         if not existing_map:
@@ -2338,7 +2338,7 @@ class MilvusMemoryStorage(MemoryStorage):
             if merged is None:
                 logger.warning(
                     "mark_superseded_batch: merge failed for %s: %s",
-                    loser_hash, err,
+                    loser_hash, _sanitize_log_value(err),
                 )
                 continue
 
@@ -2355,7 +2355,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(
                         "mark_superseded_batch: embedding fallback failed for %s: %s",
-                        loser_hash, exc,
+                        loser_hash, _sanitize_log_value(exc),
                     )
                     continue
 
@@ -2373,7 +2373,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 data=entities,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.error("mark_superseded_batch: batch upsert failed: %s", exc)
+            logger.error("mark_superseded_batch: batch upsert failed: %s", _sanitize_log_value(exc))
             return 0
 
         marked = len(entities)
@@ -2460,7 +2460,7 @@ class MilvusMemoryStorage(MemoryStorage):
             from ..utils.time_parser import parse_time_expression
             start_time, end_time = parse_time_expression(query)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to parse time expression from query, falling back to standard retrieve: %s", exc)
+            logger.warning("Failed to parse time expression from query, falling back to standard retrieve: %s", _sanitize_log_value(exc))
 
         if start_time is not None or end_time is not None:
             # Build time filter for Milvus
@@ -2534,7 +2534,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 from ..utils.time_parser import parse_time_expression
                 start_time, end_time = parse_time_expression(time_expr)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Failed to parse time_expr '%s', ignoring time filter: %s", time_expr, exc)
+                logger.warning("Failed to parse time_expr '%s', ignoring time filter: %s", time_expr, _sanitize_log_value(exc))
 
         if not time_expr:
             if after:
@@ -2672,7 +2672,7 @@ class MilvusMemoryStorage(MemoryStorage):
                             )
                     pre_filter_count = len(results)
                 except Exception as exc:  # noqa: BLE001
-                    logger.error("search_memories: query failed: %s", exc)
+                    logger.error("search_memories: query failed: %s", _sanitize_log_value(exc))
 
         # Filter superseded
         if not include_superseded:
@@ -2758,7 +2758,7 @@ class MilvusMemoryStorage(MemoryStorage):
             )
             return self._extract_count(rows)
         except Exception as exc:  # noqa: BLE001
-            logger.error("count_memories_by_tag failed: %s", exc)
+            logger.error("count_memories_by_tag failed: %s", _sanitize_log_value(exc))
             return 0
 
     async def is_deleted(self, content_hash: str) -> bool:
@@ -2819,7 +2819,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 limit=_MILVUS_MAX_LIMIT,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.error("purge_deleted: query failed: %s", exc)
+            logger.error("purge_deleted: query failed: %s", _sanitize_log_value(exc))
             return 0
 
         if not rows:
@@ -2842,7 +2842,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 ids=to_purge,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.error("purge_deleted: delete failed: %s", exc)
+            logger.error("purge_deleted: delete failed: %s", _sanitize_log_value(exc))
             return 0
 
         logger.info("purge_deleted: permanently removed %d tombstones", len(to_purge))
@@ -2872,7 +2872,7 @@ class MilvusMemoryStorage(MemoryStorage):
             total = self._extract_count(total_rows)
             recent = self._extract_count(recent_rows)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Milvus stats query failed: %s", exc)
+            logger.warning("Milvus stats query failed: %s", _sanitize_log_value(exc))
             total = recent = 0
 
         unique_tags = len(await self.get_all_tags())
@@ -2920,7 +2920,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 limit=_MILVUS_MAX_LIMIT,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("tag scan failed: %s", exc)
+            logger.warning("tag scan failed: %s", _sanitize_log_value(exc))
             return []
 
         return [_string_to_tags(row.get("tags")) for row in rows]
@@ -3094,7 +3094,7 @@ class MilvusMemoryStorage(MemoryStorage):
             )
             return self._extract_count(rows)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("count_all_memories failed: %s", exc)
+            logger.warning("count_all_memories failed: %s", _sanitize_log_value(exc))
             return 0
 
     async def _count_stale_memories(self, base_filter: str, stale_days: int) -> int:
@@ -3123,7 +3123,7 @@ class MilvusMemoryStorage(MemoryStorage):
                         self._drain_active_hashes, threshold,
                     )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("_count_stale_memories failed: %s", exc)
+            logger.warning("_count_stale_memories failed: %s", _sanitize_log_value(exc))
             return 0
 
         if not all_rows:
@@ -3175,7 +3175,7 @@ class MilvusMemoryStorage(MemoryStorage):
                         self._drain_active_hashes, threshold,
                     )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("_get_stale_memories failed: %s", exc)
+            logger.warning("_get_stale_memories failed: %s", _sanitize_log_value(exc))
             return []
 
         if not all_rows:
@@ -3255,7 +3255,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 limit=_MILVUS_MAX_LIMIT,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("get_memory_timestamps failed: %s", exc)
+            logger.warning("get_memory_timestamps failed: %s", _sanitize_log_value(exc))
             return []
 
         timestamps = [row["created_at"] for row in rows if row.get("created_at") is not None]
@@ -3291,7 +3291,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 data=rows,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("_touch_access failed (non-fatal): %s", exc)
+            logger.warning("_touch_access failed (non-fatal): %s", _sanitize_log_value(exc))
 
     async def get_access_patterns(
         self, content_hashes: Optional[Sequence[str]] = None
@@ -3326,7 +3326,7 @@ class MilvusMemoryStorage(MemoryStorage):
                     ids,
                 )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("get_access_patterns failed: %s", exc)
+            logger.warning("get_access_patterns failed: %s", _sanitize_log_value(exc))
             return {}
 
         patterns: Dict[str, datetime] = {}
@@ -3460,7 +3460,7 @@ class MilvusMemoryStorage(MemoryStorage):
                     self._drain_graph_edges, graph_collection,
                 )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("get_memory_connections: failed to query graph collection: %s", exc)
+            logger.warning("get_memory_connections: failed to query graph collection: %s", _sanitize_log_value(exc))
             return {}
 
         # Count occurrences of each hash (as source or target)
@@ -3663,7 +3663,7 @@ class MilvusMemoryStorage(MemoryStorage):
             if callable(close):
                 await asyncio.to_thread(close)
         except Exception as exc:  # noqa: BLE001 — teardown must never raise
-            logger.debug("MilvusClient.close failed (ignored): %s", exc)
+            logger.debug("MilvusClient.close failed (ignored): %s", _sanitize_log_value(exc))
         finally:
             self.client = None
             self._initialized = False
