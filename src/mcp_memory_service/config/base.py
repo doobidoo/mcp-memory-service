@@ -72,6 +72,12 @@ if _loaded_env_file:
 
 logger = logging.getLogger(__name__)
 
+
+def _sanitize_log_value(value: object) -> str:
+    """Sanitize a user-provided value for safe inclusion in log messages."""
+    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
+
 def safe_get_int_env(env_var: str, default: int, min_value: int = None, max_value: int = None) -> int:
     """
     Safely parse an integer environment variable with validation and error handling.
@@ -137,7 +143,7 @@ def safe_get_float_env(env_var: str, default: float, min_value: float = None, ma
         value = float(env_value)
 
         if not math.isfinite(value):
-            logger.error(f"Environment variable {env_var}={env_value} is not a finite number, using default {default}")
+            logger.error(f"Environment variable {env_var}={_sanitize_log_value(env_value)} is not a finite number, using default {default}")
             return default
 
         if min_value is not None and value < min_value:
@@ -152,7 +158,7 @@ def safe_get_float_env(env_var: str, default: float, min_value: float = None, ma
         return value
 
     except ValueError as e:
-        logger.error(f"Invalid float value for {env_var}='{env_value}': {e}. Using default {default}")
+        logger.error(f"Invalid float value for {env_var}='{_sanitize_log_value(env_value)}': {_sanitize_log_value(str(e))}. Using default {default}")
         return default
 
 

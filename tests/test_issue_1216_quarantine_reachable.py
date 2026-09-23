@@ -342,6 +342,43 @@ async def test_quarantine_failure_is_reported_not_hidden(monkeypatch, caplog):
     assert any("could not be quarantined" in r.getMessage() for r in caplog.records)
 
 
+class _QuarantineReturnsFalseStorage(_RescueStorage):
+    """The store succeeds; the metadata update behind quarantine reports an
+    ordinary failure by *returning* ``(False, message)`` instead of raising —
+    which is how ``update_memory_metadata`` signals failure (storage/base.py)."""
+
+    async def update_memory_metadata(self, content_hash, updates, preserve_timestamps=True):
+        return (False, "sqlite: database is locked")
+
+
+@pytest.mark.asyncio
+async def test_quarantine_non_raising_failure_is_reported_not_hidden(monkeypatch, caplog):
+    """P1: a non-raising ``(False, message)`` failure from the metadata backend
+    must not be reported as quarantined. Ignoring the return flag regresses to
+    the exact silent, still-active contradiction leak #1216 asks to close: the
+    memory is stored past dedup, never quarantined, yet reported as filed."""
+    monkeypatch.setenv("MCP_NLI_ON_STORE", "true")
+    monkeypatch.setenv("MCP_QUARANTINE_NLI_THRESHOLD", "0.5")
+    storage = _QuarantineReturnsFalseStorage("aaaa1111bbbb2222", "The router IP is 192.168.7.1")
+    service = MemoryService(storage)
+
+    with patch("mcp_memory_service.reasoning.nli.NLIClassifier") as MockNLI:
+        MockNLI.return_value.classify = AsyncMock(
+            return_value=NLIResult(label="contradiction", confidence=0.9)
+        )
+        MockNLI.return_value.max_achievable_confidence = lambda: 0.9
+        with caplog.at_level("WARNING"):
+            result = await service.store_memory(content="The router IP is 192.168.9.1")
+
+    assert result["success"] is True and len(storage.stored) == 1
+    assert "filed_as_contradiction" not in result
+    failed = result["contradiction_filing_failed"]
+    assert failed["contradicts"] == "aaaa1111bbbb2222"
+    assert failed["quarantine"]["status"] == "error"
+    assert failed["quarantine"]["message"] == "sqlite: database is locked"
+    assert any("could not be quarantined" in r.getMessage() for r in caplog.records)
+
+
 class _ListStorage:
     def __init__(self, *mems):
         self._mems = list(mems)

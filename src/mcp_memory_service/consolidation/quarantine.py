@@ -8,6 +8,12 @@ from typing import Optional, List
 
 logger = logging.getLogger(__name__)
 
+
+def _sanitize_log_value(value: object) -> str:
+    """Sanitize a value for safe inclusion in log messages."""
+    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
+
 CONTRADICTION_THRESHOLD = int(os.getenv("MCP_QUARANTINE_CONTRADICTION_THRESHOLD", "3"))
 
 # Minimum NLI confidence for a contradiction to quarantine a memory on store.
@@ -89,14 +95,23 @@ async def quarantine_memory(
         if contradicted_memory_hash:
             quarantine_meta["contradicted_memory"] = contradicted_memory_hash
             result["memory"] = contradicted_memory_hash
-        await storage.update_memory_metadata(
+        ok, msg = await storage.update_memory_metadata(
             content_hash=content_hash,
             updates={"metadata": quarantine_meta, "tags": ["quarantined"]},
             preserve_timestamps=True,
         )
+        if not ok:
+            # update_memory_metadata reports ordinary failures by returning
+            # (False, message) instead of raising. Treating a non-raising
+            # failure as success would report a memory as quarantined while it
+            # actually stays dedup-bypassed and active — the very leak #1216
+            # asks to close. Propagate the error so _file_contradiction and
+            # check_beliefs_on_store see status != "quarantined".
+            logger.error("Failed to quarantine memory %s: %s", content_hash[:8], _sanitize_log_value(msg))
+            return {"status": "error", "message": msg}
         return result
     except Exception as e:
-        logger.error(f"Failed to quarantine memory: {e}")
+        logger.error("Failed to quarantine memory: %s", _sanitize_log_value(str(e)))
         return {"status": "error", "message": str(e)}
 
 
@@ -107,11 +122,16 @@ async def unquarantine_memory(storage, content_hash: str) -> dict:
             "quarantined": False,
             "unquarantined_at": datetime.now(timezone.utc).isoformat(),
         }
-        await storage.update_memory_metadata(
+        ok, msg = await storage.update_memory_metadata(
             content_hash=content_hash,
             updates={"metadata": quarantine_meta},
             preserve_timestamps=True,
         )
+        if not ok:
+            # Same honest-reporting rule as quarantine_memory: a non-raising
+            # (False, message) failure must not be reported as unquarantined.
+            logger.error("Failed to unquarantine memory %s: %s", content_hash[:8], _sanitize_log_value(msg))
+            return {"status": "error", "message": msg}
         return {"status": "unquarantined", "content_hash": content_hash}
     except Exception as e:
         return {"status": "error", "message": str(e)}

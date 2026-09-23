@@ -259,9 +259,15 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
             failed = result["contradiction_filing_failed"]
             stored_hash = (result.get("memory") or {}).get("content_hash", "")
             err = (failed.get("quarantine") or {}).get("message", "unknown error")
+            # The backend error can carry paths / SQL / provider detail: keep it
+            # in the log (sanitized), give the client a stable public message.
+            logger.warning(
+                "Quarantine filing failed for %s (contradicts %s): %s",
+                stored_hash[:8], str(failed.get("contradicts", ""))[:8], _sanitize_log_value(err),
+            )
             message += (
                 f"\n⚠️ Stored past semantic dedup because it contradicts near-duplicate "
-                f"{failed.get('contradicts', '')[:8]}, but quarantining it FAILED ({err}). "
+                f"{failed.get('contradicts', '')[:8]}, but quarantining it FAILED. "
                 f"It is stored and active, not quarantined — quarantine or delete "
                 f"{stored_hash[:8]} manually."
             )
