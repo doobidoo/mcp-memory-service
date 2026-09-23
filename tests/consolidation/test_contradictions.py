@@ -43,7 +43,7 @@ def mock_storage():
         ]
     })
     storage.add_graph_edge = AsyncMock()
-    storage.update_memory_metadata = AsyncMock()
+    storage.update_memory_metadata = AsyncMock(return_value=(True, ""))
     return storage
 
 
@@ -119,7 +119,7 @@ class TestCheckContradictionOnStore:
             ]
         })
         storage.add_graph_edge = AsyncMock()
-        storage.update_memory_metadata = AsyncMock()
+        storage.update_memory_metadata = AsyncMock(return_value=(True, ""))
 
         result = await check_contradiction_on_store(storage, "New contradicting content", "new_hash")
         assert result is not None
