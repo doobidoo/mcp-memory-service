@@ -41,6 +41,14 @@ Requirements".
   not touch is not your problem. Say what you saw and we will sort it out.
 -->
 
+## Changelog fragment
+
+A change under `src/` needs `changelog.d/<number>.<category>.md` where `<category>`
+is one of `added`, `fixed`, `removed`, `internal` — the file name and the internal
+reference in it must match exactly, or CI fails. Usually: bugfix → `fixed`,
+performance/refactor with no user-visible effect → `internal`. See
+`changelog.d/README.md` for the format and an example.
+
 ## Notes for the reviewer
 
 <!--
