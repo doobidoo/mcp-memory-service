@@ -14,6 +14,9 @@ These tests cover the candidate-scoped contract (option 1 in #1289):
 4. A window wider than SQLite's host-parameter cap is chunked, not truncated or raised.
 5. The consolidator passes its candidate window down, and still works against a backend
    whose `get_access_patterns` predates the parameter.
+6. The window is passed in the form the backend's signature accepts: by name to a
+   `**kwargs` forwarder or a keyword-only parameter, by position to a `*args` forwarder
+   or a positional-only parameter.
 """
 
 import hashlib
@@ -154,7 +157,7 @@ async def test_consolidator_passes_the_candidate_window_down():
     window = ["aaa", "bbb"]
     got = await consolidator._get_access_patterns(window)
 
-    backend.get_access_patterns.assert_awaited_once_with(window)
+    backend.get_access_patterns.assert_awaited_once_with(content_hashes=window)
     assert set(got) == set(window)
 
 
@@ -182,3 +185,56 @@ async def test_consolidator_falls_back_for_backends_without_the_parameter():
 
     assert backend.calls == ["no-args"]
     assert set(got) == {"legacy"}
+
+
+async def _scoped_patterns(content_hashes=None):
+    return {h: datetime.now(tz=timezone.utc) for h in (content_hashes or [])}
+
+
+class _KwargsForwarder:
+    """A proxy that forwards by name only, e.g. an instrumentation wrapper."""
+
+    async def get_access_patterns(self, **kwargs):
+        return await _scoped_patterns(**kwargs)
+
+
+class _KeywordOnly:
+    async def get_access_patterns(self, *, content_hashes=None):
+        return await _scoped_patterns(content_hashes)
+
+
+class _ArgsForwarder:
+    async def get_access_patterns(self, *args):
+        return await _scoped_patterns(*args)
+
+
+class _PositionalOnly:
+    async def get_access_patterns(self, content_hashes=None, /):
+        return await _scoped_patterns(content_hashes)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "backend_cls",
+    [_KwargsForwarder, _KeywordOnly, _ArgsForwarder, _PositionalOnly],
+    ids=["kwargs-forwarder", "keyword-only", "args-forwarder", "positional-only"],
+)
+async def test_consolidator_passes_the_window_in_the_form_the_signature_accepts(backend_cls):
+    """Accepting the window and passing it must agree.
+
+    A `**kwargs` forwarder or a keyword-only `content_hashes` takes the window only by
+    name; a `*args` forwarder or a positional-only parameter only by position. Passing it
+    in the other form raises `TypeError` and fails the whole consolidation run.
+    """
+    import logging
+
+    from mcp_memory_service.consolidation.consolidator import DreamInspiredConsolidator
+
+    consolidator = DreamInspiredConsolidator.__new__(DreamInspiredConsolidator)
+    consolidator.storage = backend_cls()
+    consolidator.logger = logging.getLogger(__name__)
+
+    window = ["aaa", "bbb"]
+    got = await consolidator._get_access_patterns(window)
+
+    assert set(got) == set(window)

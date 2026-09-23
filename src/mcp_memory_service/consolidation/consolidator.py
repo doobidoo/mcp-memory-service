@@ -734,9 +734,15 @@ class DreamInspiredConsolidator:
             )
             return {}
         try:
-            if content_hashes is None or not self._backend_accepts_hashes(getter):
-                return await getter()
-            return await getter(content_hashes)
+            style = (
+                None if content_hashes is None
+                else self._access_window_call_style(getter)
+            )
+            if style == "keyword":
+                return await getter(content_hashes=content_hashes)
+            if style == "positional":
+                return await getter(content_hashes)
+            return await getter()
         except AttributeError:
             self.logger.warning(
                 "Storage backend doesn't support access pattern tracking"
@@ -744,23 +750,40 @@ class DreamInspiredConsolidator:
             return {}
 
     @staticmethod
-    def _backend_accepts_hashes(getter) -> bool:
-        """True when the backend's get_access_patterns takes a candidate window.
+    def _access_window_call_style(getter) -> Optional[str]:
+        """How to hand the candidate window to a backend's ``get_access_patterns``.
+
+        Returns ``"keyword"`` or ``"positional"`` when the signature can take the
+        window, and ``None`` for a backend that predates the parameter (it is then
+        called with no arguments).
 
         Checked by signature rather than by catching ``TypeError``, so a genuine
         ``TypeError`` raised *inside* a backend is not silently downgraded to a
-        full-population query.
+        full-population query. Accepting the window and passing it are decided
+        together: a ``**kwargs`` forwarder or a keyword-only ``content_hashes``
+        accepts it only by name, a ``*args`` forwarder or a positional-only
+        parameter only by position. Keyword is preferred whenever it binds, because
+        it cannot land on an unrelated first parameter the way a positional value can.
         """
         try:
             params = inspect.signature(getter).parameters
         except (TypeError, ValueError):
-            return False
-        if "content_hashes" in params:
-            return True
-        return any(
-            p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
-            for p in params.values()
-        )
+            return None
+        named = params.get("content_hashes")
+        if named is not None:
+            if named.kind is inspect.Parameter.POSITIONAL_ONLY:
+                return "positional"
+            if named.kind in (
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            ):
+                return "keyword"
+        kinds = {p.kind for p in params.values()}
+        if inspect.Parameter.VAR_KEYWORD in kinds:
+            return "keyword"
+        if inspect.Parameter.VAR_POSITIONAL in kinds:
+            return "positional"
+        return None
 
     async def _get_existing_associations(self) -> set:
         """Get existing memory associations to avoid duplicates."""
