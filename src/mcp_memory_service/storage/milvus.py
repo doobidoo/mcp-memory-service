@@ -3299,6 +3299,16 @@ class MilvusMemoryStorage(MemoryStorage):
         Used by the Forgetting engine's decay calculator to compute
         access_boost. Returns ``{content_hash: datetime}`` for all memories
         that have been accessed at least once.
+        
+        Args:
+            candidate_hashes: Optional list of content hashes to filter results.
+                             Filtering is performed in memory after draining.
+                             
+        Note:
+            The candidate_hashes parameter filters the returned dict in memory.
+            The _access side-collection is drained in full by design (destructive
+            drain consolidates all pending access records), so read scoping is
+            not applicable to this backend.
         """
         if not self._has_access_collection:
             return {}
@@ -3306,6 +3316,9 @@ class MilvusMemoryStorage(MemoryStorage):
         # Guard: empty list returns empty dict early
         if candidate_hashes is not None and len(candidate_hashes) == 0:
             return {}
+
+        # Convert to set for O(1) membership check if filtering needed
+        candidate_set = set(candidate_hashes) if candidate_hashes is not None else None
 
         try:
             async with self._write_lock:
@@ -3324,7 +3337,7 @@ class MilvusMemoryStorage(MemoryStorage):
             rid = row.get("id")
             if rid and ts:
                 # Filter in memory if candidate_hashes provided
-                if candidate_hashes is None or rid in candidate_hashes:
+                if candidate_set is None or rid in candidate_set:
                     patterns[rid] = datetime.fromtimestamp(ts, tz=timezone.utc)
         return patterns
 

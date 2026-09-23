@@ -1245,17 +1245,26 @@ class RetrieveMixin:
                         WHERE last_accessed IS NOT NULL AND deleted_at IS NULL
                         ORDER BY last_accessed DESC
                     """)
+                    return cursor.fetchall()
                 else:
-                    # Filter by candidate hashes using parameterized IN clause
-                    placeholders = ",".join("?" * len(candidate_hashes))
-                    cursor = self.conn.execute(f"""
-                        SELECT content_hash, last_accessed
-                        FROM memories
-                        WHERE last_accessed IS NOT NULL AND deleted_at IS NULL
-                        AND content_hash IN ({placeholders})
-                        ORDER BY last_accessed DESC
-                    """, candidate_hashes)
-                return cursor.fetchall()
+                    # Filter by candidate hashes using chunked parameterized IN clause
+                    # to avoid SQLite "too many SQL variables" error (limit ~999)
+                    CHUNK_SIZE = 900
+                    all_rows = []
+                    
+                    for i in range(0, len(candidate_hashes), CHUNK_SIZE):
+                        chunk = candidate_hashes[i:i + CHUNK_SIZE]
+                        placeholders = ",".join("?" * len(chunk))
+                        cursor = self.conn.execute(f"""
+                            SELECT content_hash, last_accessed
+                            FROM memories
+                            WHERE last_accessed IS NOT NULL AND deleted_at IS NULL
+                            AND content_hash IN ({placeholders})
+                            ORDER BY last_accessed DESC
+                        """, chunk)
+                        all_rows.extend(cursor.fetchall())
+                    
+                    return all_rows
 
             patterns = {}
             for row in await self._execute_with_retry(_get_access_patterns):

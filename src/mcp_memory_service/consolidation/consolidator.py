@@ -708,6 +708,9 @@ class DreamInspiredConsolidator:
     async def _get_access_patterns(self, candidate_hashes: Optional[List[str]] = None) -> Dict[str, datetime]:
         """Get memory access patterns from storage."""
         try:
+            # Only pass candidate_hashes arg when not None to preserve legacy contract
+            if candidate_hashes is None:
+                return await self.storage.get_access_patterns()
             return await self.storage.get_access_patterns(candidate_hashes)
         except AttributeError:
             # Fallback if storage doesn't implement access tracking

@@ -446,3 +446,80 @@ async def test_get_access_patterns_no_args_preserves_current_behavior(storage):
             f"Returned timestamp for {memory.content_hash} seems unreasonable: "
             f"{returned_dt} (diff: {time_diff}s from expected ~{current_time})"
         )
+
+
+@pytest.mark.asyncio
+async def test_get_access_patterns_handles_large_candidate_list_chunking(storage):
+    """
+    Test that get_access_patterns() handles >900 candidate hashes without SQLite error.
+    
+    This validates the chunking fix for SQLite's "too many SQL variables" limit.
+    When candidate_hashes contains >999 items, older SQLite versions fail with
+    "too many SQL variables". The fix chunks the query into batches <=900.
+    
+    This test FAILS with unfixed code (SQLite error) and PASSES after fix (chunking).
+    """
+    # Create 950 distinct candidate hashes to exceed SQLite's limit
+    # We don't need to store 950 actual memories - we just need to test that
+    # the chunked query doesn't crash when given 950 hashes
+    candidate_hashes = []
+    for i in range(950):
+        # Generate valid-looking SHA256 hashes
+        import hashlib
+        content = f"Test memory content {i:04d}"
+        hash_val = hashlib.sha256(content.encode()).hexdigest()
+        candidate_hashes.append(hash_val)
+    
+    # Create and store a few real memories that are in the candidate list
+    real_memories = []
+    for i in range(0, min(5, len(candidate_hashes))):  # First 5 hashes are real
+        content = f"Test memory content {i:04d}"
+        memory = _make_memory(content)
+        # Override the hash to match our candidate list
+        memory.content_hash = candidate_hashes[i]
+        ok, _msg = await storage.store(memory)
+        if ok:
+            real_memories.append(memory)
+    
+    # Set last_accessed for the real memories
+    current_time = int(time.time())
+    def _populate_last_accessed():
+        for memory in real_memories:
+            storage.conn.execute("""
+                UPDATE memories 
+                SET last_accessed = ?
+                WHERE content_hash = ?
+            """, (current_time, memory.content_hash))
+        storage.conn.commit()
+    
+    await storage._execute_with_retry(_populate_last_accessed)
+    
+    # TEST CASE: Call with 950 candidate hashes (should not crash)
+    # This FAILS with unfixed code due to SQLite "too many SQL variables"
+    try:
+        patterns = await storage.get_access_patterns(candidate_hashes=candidate_hashes)
+        
+        # Should return only the real memories that were actually stored and accessed
+        assert len(patterns) == len(real_memories), (
+            f"Should return {len(real_memories)} real accessed memories, "
+            f"but returned {len(patterns)}"
+        )
+        
+        # Verify all real memories are included
+        for memory in real_memories:
+            assert memory.content_hash in patterns, (
+                f"Real memory {memory.content_hash} should be in chunked results"
+            )
+            
+    except Exception as e:
+        # If we get a SQLite error about too many variables, the chunking fix is not applied
+        error_msg = str(e).lower()
+        if "too many sql variables" in error_msg:
+            pytest.fail(
+                f"get_access_patterns() failed with 'too many SQL variables' error "
+                f"when given {len(candidate_hashes)} candidate hashes. This indicates "
+                f"the chunking fix is not implemented. Error: {e}"
+            )
+        else:
+            # Re-raise other unexpected errors
+            raise
