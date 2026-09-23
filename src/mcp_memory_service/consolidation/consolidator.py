@@ -14,7 +14,8 @@
 
 """Main dream-inspired consolidation orchestrator."""
 
-from typing import List, Dict, Any, Optional, Protocol, Tuple
+import inspect
+from typing import List, Dict, Any, Optional, Protocol, Sequence, Tuple
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import asyncio
@@ -63,7 +64,9 @@ class StorageProtocol(Protocol):
     async def get_memory_connections(self) -> Dict[str, int]:
         pass
 
-    async def get_access_patterns(self) -> Dict[str, datetime]:
+    async def get_access_patterns(
+        self, content_hashes: Optional[Sequence[str]] = None
+    ) -> Dict[str, datetime]:
         pass
 
 
@@ -613,7 +616,9 @@ class DreamInspiredConsolidator:
         forgetting_scores = await self._update_relevance_scores(
             forgetting_candidates, time_horizon
         )
-        access_patterns = await self._get_access_patterns()
+        access_patterns = await self._get_access_patterns(
+            [m.content_hash for m in forgetting_candidates]
+        )
         forgetting_results = await self.forgetting_engine.process(
             forgetting_candidates,
             forgetting_scores,
@@ -664,7 +669,9 @@ class DreamInspiredConsolidator:
         """Calculate and update relevance scores for memories."""
         # Get connection and access data
         connections = await self._get_memory_connections()
-        access_patterns = await self._get_access_patterns()
+        access_patterns = await self._get_access_patterns(
+            [m.content_hash for m in memories]
+        )
 
         # Calculate relevance scores
         relevance_scores = await self.decay_calculator.process(
@@ -705,16 +712,78 @@ class DreamInspiredConsolidator:
             self.logger.warning("Storage backend doesn't support connection tracking")
             return {}
 
-    async def _get_access_patterns(self) -> Dict[str, datetime]:
-        """Get memory access patterns from storage."""
+    async def _get_access_patterns(
+        self, content_hashes: Optional[Sequence[str]] = None
+    ) -> Dict[str, datetime]:
+        """Get memory access patterns from storage, scoped to the candidate window.
+
+        Consumers (decay boost, forgetting) only look up hashes that are in the current
+        batch, so passing the window keeps per-run memory and latency proportional to
+        the batch instead of the whole ever-accessed population.
+
+        Backends that predate the ``content_hashes`` parameter (including third-party
+        implementations of the storage protocol) are detected by signature and called
+        with no arguments, so they keep working unchanged.
+        """
         try:
-            return await self.storage.get_access_patterns()
+            getter = self.storage.get_access_patterns
         except AttributeError:
             # Fallback if storage doesn't implement access tracking
             self.logger.warning(
                 "Storage backend doesn't support access pattern tracking"
             )
             return {}
+        try:
+            style = (
+                None if content_hashes is None
+                else self._access_window_call_style(getter)
+            )
+            if style == "keyword":
+                return await getter(content_hashes=content_hashes)
+            if style == "positional":
+                return await getter(content_hashes)
+            return await getter()
+        except AttributeError:
+            self.logger.warning(
+                "Storage backend doesn't support access pattern tracking"
+            )
+            return {}
+
+    @staticmethod
+    def _access_window_call_style(getter) -> Optional[str]:
+        """How to hand the candidate window to a backend's ``get_access_patterns``.
+
+        Returns ``"keyword"`` or ``"positional"`` when the signature can take the
+        window, and ``None`` for a backend that predates the parameter (it is then
+        called with no arguments).
+
+        Checked by signature rather than by catching ``TypeError``, so a genuine
+        ``TypeError`` raised *inside* a backend is not silently downgraded to a
+        full-population query. Accepting the window and passing it are decided
+        together: a ``**kwargs`` forwarder or a keyword-only ``content_hashes``
+        accepts it only by name, a ``*args`` forwarder or a positional-only
+        parameter only by position. Keyword is preferred whenever it binds, because
+        it cannot land on an unrelated first parameter the way a positional value can.
+        """
+        try:
+            params = inspect.signature(getter).parameters
+        except (TypeError, ValueError):
+            return None
+        named = params.get("content_hashes")
+        if named is not None:
+            if named.kind is inspect.Parameter.POSITIONAL_ONLY:
+                return "positional"
+            if named.kind in (
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            ):
+                return "keyword"
+        kinds = {p.kind for p in params.values()}
+        if inspect.Parameter.VAR_KEYWORD in kinds:
+            return "keyword"
+        if inspect.Parameter.VAR_POSITIONAL in kinds:
+            return "positional"
+        return None
 
     async def _get_existing_associations(self) -> set:
         """Get existing memory associations to avoid duplicates."""
