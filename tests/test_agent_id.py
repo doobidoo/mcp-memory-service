@@ -260,3 +260,66 @@ async def test_list_filters_by_agent_id(memory_service, monkeypatch):
     # List sem filtro deve retornar todas
     all_memories = await memory_service.list_memories()
     assert len(all_memories["memories"]) >= 3  # Pelo menos as 3 que criamos
+
+
+# ---- Fixes do review Greptile (PR #1297) ----
+
+
+@pytest.mark.asyncio
+async def test_list_agent_id_wildcard_is_escaped(memory_service, monkeypatch):
+    """Greptile P1: agent_id com % não pode agir como wildcard SQL LIKE.
+
+    Um agent_id "%" não deve casar memórias de OUTROS agentes via a tag agent:<id>.
+    """
+    monkeypatch.delenv("MCP_AGENT_ID", raising=False)
+    await memory_service.store_memory(content="Kubernetes ingress controller tuning notes", agent_id="zero")
+    await memory_service.store_memory(content="Postgres vacuum autotuning parameters guide", agent_id="tpol")
+
+    # agent_id literal "%" — sem escaping viraria wildcard e casaria tudo
+    leaked = await memory_service.list_memories(agent_id="%")
+    assert len(leaked["memories"]) == 0, "agent_id '%' vazou memórias de outros agentes (LIKE não escapado)"
+
+
+@pytest.mark.asyncio
+async def test_search_agent_id_over_fetches_in_semantic_mode(memory_service, monkeypatch):
+    """Greptile P1: filtro pós-retrieve precisa de over-fetch no modo semântico comum.
+
+    Com várias memórias de outro agente ranqueando alto, uma memória do agente pedido
+    não pode ser truncada antes do filtro rodar (limit pequeno).
+    """
+    monkeypatch.delenv("MCP_AGENT_ID", raising=False)
+    # Muitas memórias do tpol, temas variados mas próximos da query (competem no ranking)
+    tpol_topics = [
+        "Distributed tracing span sampling in microservices",
+        "OpenTelemetry collector pipeline configuration",
+        "Jaeger backend storage retention tuning",
+        "Trace context propagation across async boundaries",
+        "Sampling rate tradeoffs for high-throughput services",
+        "Tail-based sampling versus head-based sampling",
+        "Span attribute cardinality and cost control",
+        "Trace exemplars linking metrics to spans",
+    ]
+    for t in tpol_topics:
+        await memory_service.store_memory(content=t, agent_id="tpol")
+    # Uma do zero, tema relacionado mas conteúdo distinto (evita dedup 0.92)
+    await memory_service.store_memory(
+        content="Observability tracing dashboards curated by the zero agent", agent_id="zero"
+    )
+
+    # limit=1: sem over-fetch, o retrieve traria só 1 candidato (provavelmente tpol) e o filtro zeraria
+    res = await memory_service.storage.search_memories(
+        query="distributed tracing sampling observability", limit=1, agent_id="zero"
+    )
+    assert len(res["memories"]) >= 1, "over-fetch ausente: memória do zero truncada antes do filtro agent_id"
+    assert res["memories"][0]["agent_id"] == "zero"
+
+
+@pytest.mark.asyncio
+async def test_search_agent_id_none_still_returns_all(memory_service, monkeypatch):
+    """Regressão sem-bolha: sem agent_id, busca retorna de todos os agentes."""
+    monkeypatch.delenv("MCP_AGENT_ID", raising=False)
+    await memory_service.store_memory(content="GraphQL schema stitching approach", agent_id="zero")
+    await memory_service.store_memory(content="GraphQL federation gateway approach", agent_id="tpol")
+    res = await memory_service.storage.search_memories(query="graphql approach", limit=10)
+    agents = {m.get("agent_id") for m in res["memories"]}
+    assert "zero" in agents and "tpol" in agents, "sem agent_id deveria retornar de todos os agentes"

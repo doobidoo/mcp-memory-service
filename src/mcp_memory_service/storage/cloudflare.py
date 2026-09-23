@@ -1925,6 +1925,11 @@ class CloudflareStorage(MemoryStorage):
         Returns:
             List of Memory objects ordered by created_at DESC, optionally filtered by type and tags
         """
+        if agent_id is not None:
+            raise NotImplementedError(
+                "agent_id filtering is not implemented for the Cloudflare backend "
+                "(sqlite-vec only in this phase). See PR #1297."
+            )
         try:
             # Build SQL query with optional memory_type and tags filters
             sql = "SELECT m.* FROM memories m"
@@ -2262,6 +2267,11 @@ class CloudflareStorage(MemoryStorage):
         Returns:
             Total number of memories, optionally filtered by type and/or tags
         """
+        if agent_id is not None:
+            raise NotImplementedError(
+                "agent_id filtering is not implemented for the Cloudflare backend "
+                "(sqlite-vec only in this phase). See PR #1297."
+            )
         try:
             # Build query with filters
             base_sql = "SELECT m.id FROM memories m"

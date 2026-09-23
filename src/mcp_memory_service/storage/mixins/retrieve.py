@@ -583,9 +583,9 @@ class RetrieveMixin:
 
             if agent_id is not None:
                 where_conditions.append(
-                    "(json_extract(m.metadata,'$.agent_id') = ? OR (',' || REPLACE(m.tags,' ','') || ',') LIKE ?)"
+                    "(json_extract(m.metadata,'$.agent_id') = ? OR (',' || REPLACE(m.tags,' ','') || ',') LIKE ? ESCAPE '\\')"
                 )
-                params.extend([agent_id, f"%,agent:{agent_id.strip()},%"])
+                params.extend([agent_id, f"%,agent:{_escape_like(agent_id.strip())},%"])
 
             self._apply_stale_days_filter(where_conditions, params, stale_days, table_alias="m")
 
@@ -729,9 +729,9 @@ class RetrieveMixin:
 
             if agent_id is not None:
                 conditions.append(
-                    "(json_extract(metadata,'$.agent_id') = ? OR (',' || REPLACE(tags,' ','') || ',') LIKE ?)"
+                    "(json_extract(metadata,'$.agent_id') = ? OR (',' || REPLACE(tags,' ','') || ',') LIKE ? ESCAPE '\\')"
                 )
-                params.extend([agent_id, f"%,agent:{agent_id.strip()},%"])
+                params.extend([agent_id, f"%,agent:{_escape_like(agent_id.strip())},%"])
 
             self._apply_stale_days_filter(conditions, params, stale_days)
 

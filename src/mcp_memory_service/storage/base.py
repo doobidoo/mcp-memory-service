@@ -1280,7 +1280,14 @@ class MemoryStorage(ABC):
                     # Over-fetch when time filters are present AND using a path that
                     # cannot pass start_time/end_time to SQL (hybrid/quality_boost).
                     # Standard semantic retrieve() already filters at SQL level.
-                    if (start_time is not None or end_time is not None or tags or agent_id) and (quality_boost > 0 or mode == "hybrid"):
+                    if (start_time is not None or end_time is not None or tags) and (quality_boost > 0 or mode == "hybrid"):
+                        fetch_limit = max(fetch_limit, limit * 5)
+                    # agent_id is NOT passed down to retrieve() (it is applied as an
+                    # in-memory post-filter below), so over-fetch is ALWAYS required
+                    # when it is set — including in plain semantic mode. Otherwise
+                    # higher-ranked memories from other agents fill the limit slots
+                    # and matching memories are truncated before the filter runs.
+                    if agent_id is not None:
                         fetch_limit = max(fetch_limit, limit * 5)
 
                     # Choose search method based on mode and available features

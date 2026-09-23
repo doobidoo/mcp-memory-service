@@ -3023,6 +3023,11 @@ class MilvusMemoryStorage(MemoryStorage):
         store: str = "default",
         agent_id: Optional[str] = None,
     ) -> List[Memory]:
+        if agent_id is not None:
+            raise NotImplementedError(
+                "agent_id filtering is not implemented for the Milvus backend "
+                "(sqlite-vec only in this phase). See PR #1297."
+            )
         if not self._ensure_initialized():
             return []
 
@@ -3066,6 +3071,11 @@ class MilvusMemoryStorage(MemoryStorage):
         store: str = "default",  # interface parity (issue #133); single-collection, not partitioned
         agent_id: Optional[str] = None,
     ) -> int:
+        if agent_id is not None:
+            raise NotImplementedError(
+                "agent_id filtering is not implemented for the Milvus backend "
+                "(sqlite-vec only in this phase). See PR #1297."
+            )
         if not self._ensure_initialized():
             return 0
 
