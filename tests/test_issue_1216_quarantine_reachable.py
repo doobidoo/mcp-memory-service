@@ -134,7 +134,7 @@ class TestConfigurableGate:
         configuration instead of failing silently."""
         monkeypatch.delenv("MCP_QUARANTINE_NLI_THRESHOLD", raising=False)
         monkeypatch.delenv("MCP_NLI_BACKEND", raising=False)  # -> heuristic
-        quarantine_mod._gate_reachability_warned = False  # reset one-per-process guard
+        quarantine_mod._gate_warned_backends.clear()  # reset one-per-backend guard
 
         storage = _QuarantineStorage()
         beliefs = _FakeBeliefs(
@@ -253,3 +253,131 @@ async def test_near_duplicate_that_is_not_a_contradiction_still_dropped(monkeypa
     assert result["success"] is False
     assert "Duplicate content detected" in result["error"]
     assert len(storage.stored) == 0
+
+
+# ── review follow-ups (greptile on PR #1296) ────────────────────────────────
+
+
+class TestInvalidThresholdsFallBack:
+    """An unparsable or out-of-range knob must not disable the feature that
+    reads it: both new thresholds fall back to their defaults (with an error
+    log) instead of raising into the callers' broad exception handlers."""
+
+    def test_quarantine_gate_invalid_falls_back(self, monkeypatch, caplog):
+        for bad in ("abc", "1.5", "-0.1", "nan", "inf"):
+            monkeypatch.setenv("MCP_QUARANTINE_NLI_THRESHOLD", bad)
+            with caplog.at_level("ERROR"):
+                assert quarantine_mod._quarantine_nli_threshold() == quarantine_mod.DEFAULT_QUARANTINE_NLI_THRESHOLD
+            assert any("MCP_QUARANTINE_NLI_THRESHOLD" in r.getMessage() for r in caplog.records)
+            caplog.clear()
+        monkeypatch.setenv("MCP_QUARANTINE_NLI_THRESHOLD", "0.45")
+        assert quarantine_mod._quarantine_nli_threshold() == 0.45
+
+    def test_belief_threshold_invalid_falls_back(self, monkeypatch, caplog):
+        monkeypatch.setenv("MCP_BELIEF_SIMILARITY_THRESHOLD", "not-a-number")
+        with caplog.at_level("ERROR"):
+            assert BeliefService(storage=None).SIMILARITY_THRESHOLD == 0.85
+        assert any("MCP_BELIEF_SIMILARITY_THRESHOLD" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_rescue_path_warns_when_gate_unreachable(monkeypatch, caplog):
+    """The dedup-rescue path runs the same reachability check as
+    check_beliefs_on_store: default heuristic ceiling under the default gate
+    must warn here too, not fail silently (it is skipped after a rejected store)."""
+    monkeypatch.setenv("MCP_NLI_ON_STORE", "true")
+    monkeypatch.delenv("MCP_QUARANTINE_NLI_THRESHOLD", raising=False)  # default 0.7
+    quarantine_mod._gate_warned_backends.clear()
+    storage = _RescueStorage("aaaa1111bbbb2222", "The router IP is 192.168.7.1")
+    service = MemoryService(storage)
+
+    with patch("mcp_memory_service.reasoning.nli.NLIClassifier") as MockNLI:
+        MockNLI.return_value.backend = "heuristic"
+        MockNLI.return_value.classify = AsyncMock(
+            return_value=NLIResult(label="contradiction", confidence=HEURISTIC_MAX_CONFIDENCE)
+        )
+        MockNLI.return_value.max_achievable_confidence = lambda: HEURISTIC_MAX_CONFIDENCE
+        with caplog.at_level("WARNING"):
+            result = await service.store_memory(content="The router IP is 192.168.9.1")
+
+    # Still rejected (0.55 < 0.7) — but loudly.
+    assert result["success"] is False
+    assert len(storage.stored) == 0
+    assert any(
+        "exceeds" in r.getMessage() and "heuristic" in r.getMessage() for r in caplog.records
+    )
+
+
+class _QuarantineFailsStorage(_RescueStorage):
+    """The store succeeds, the metadata update behind quarantine does not."""
+
+    async def update_memory_metadata(self, content_hash, updates, preserve_timestamps=True):
+        raise RuntimeError("metadata backend unavailable")
+
+
+@pytest.mark.asyncio
+async def test_quarantine_failure_is_reported_not_hidden(monkeypatch, caplog):
+    """If the memory is stored past dedup but quarantining it fails, the
+    response must not claim it was filed: it names the failure and the memory
+    so it can be quarantined or deleted by hand."""
+    monkeypatch.setenv("MCP_NLI_ON_STORE", "true")
+    monkeypatch.setenv("MCP_QUARANTINE_NLI_THRESHOLD", "0.5")
+    storage = _QuarantineFailsStorage("aaaa1111bbbb2222", "The router IP is 192.168.7.1")
+    service = MemoryService(storage)
+
+    with patch("mcp_memory_service.reasoning.nli.NLIClassifier") as MockNLI:
+        MockNLI.return_value.classify = AsyncMock(
+            return_value=NLIResult(label="contradiction", confidence=0.9)
+        )
+        MockNLI.return_value.max_achievable_confidence = lambda: 0.9
+        with caplog.at_level("WARNING"):
+            result = await service.store_memory(content="The router IP is 192.168.9.1")
+
+    assert result["success"] is True and len(storage.stored) == 1
+    assert "filed_as_contradiction" not in result
+    failed = result["contradiction_filing_failed"]
+    assert failed["contradicts"] == "aaaa1111bbbb2222"
+    assert failed["quarantine"]["status"] == "error"
+    assert "metadata backend unavailable" in failed["quarantine"]["message"]
+    assert any("could not be quarantined" in r.getMessage() for r in caplog.records)
+
+
+class _ListStorage:
+    def __init__(self, *mems):
+        self._mems = list(mems)
+
+    async def search_by_tag(self, tags, time_start=None):
+        return [m for m in self._mems if any(t in m.tags for t in tags)]
+
+
+@pytest.mark.asyncio
+async def test_memory_collision_is_recorded_as_memory_not_belief(monkeypatch):
+    """A rescued value-swap contradicts a *memory*; the quarantine record says
+    so in its own field and never masquerades as a belief contradiction."""
+    monkeypatch.setenv("MCP_NLI_ON_STORE", "true")
+    monkeypatch.setenv("MCP_QUARANTINE_NLI_THRESHOLD", "0.5")
+    storage = _RescueStorage("aaaa1111bbbb2222", "The router IP is 192.168.7.1")
+    service = MemoryService(storage)
+
+    with patch("mcp_memory_service.reasoning.nli.NLIClassifier") as MockNLI:
+        MockNLI.return_value.classify = AsyncMock(
+            return_value=NLIResult(label="contradiction", confidence=0.9)
+        )
+        MockNLI.return_value.max_achievable_confidence = lambda: 0.9
+        result = await service.store_memory(content="The router IP is 192.168.9.1")
+
+    filing = result["filed_as_contradiction"]
+    assert filing["quarantine"]["status"] == "quarantined"
+    assert filing["quarantine"]["memory"] == "aaaa1111bbbb2222"
+    assert filing["quarantine"]["belief"] is None
+    new_hash = storage.stored[0].content_hash
+    meta = storage._m[new_hash].metadata
+    assert meta["contradicted_memory"] == "aaaa1111bbbb2222"
+    assert meta["contradicted_belief"] is None
+    # ...and it does not count toward any belief's contradiction tally.
+    listed = await quarantine_mod.get_quarantined_memories(_ListStorage(storage._m[new_hash]))
+    assert listed[0]["contradicted_memory"] == "aaaa1111bbbb2222"
+    assert listed[0]["contradicted_belief"] is None
+    assert await quarantine_mod._count_quarantined_for_belief(
+        _ListStorage(storage._m[new_hash]), "aaaa1111bbbb2222"
+    ) == 0

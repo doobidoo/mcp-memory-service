@@ -17,12 +17,22 @@ CONTRADICTION_THRESHOLD = int(os.getenv("MCP_QUARANTINE_CONTRADICTION_THRESHOLD"
 # config needs MCP_NLI_BACKEND=cascade or a lowered gate to quarantine on store.
 DEFAULT_QUARANTINE_NLI_THRESHOLD = 0.7
 
-# Guards the one-per-process warning below.
-_gate_reachability_warned = False
+# Backends already warned about below (one warning per backend per process).
+_gate_warned_backends: set = set()
 
 
 def _quarantine_nli_threshold() -> float:
-    return float(os.getenv("MCP_QUARANTINE_NLI_THRESHOLD", str(DEFAULT_QUARANTINE_NLI_THRESHOLD)))
+    """The on-store quarantine gate, parsed with the repo's fallback pattern.
+
+    An unparsable or out-of-range MCP_QUARANTINE_NLI_THRESHOLD logs an error
+    and falls back to the default instead of raising — a raise here would be
+    swallowed by the callers' broad handlers and silently disable quarantine.
+    """
+    from ..config import safe_get_float_env
+    return safe_get_float_env(
+        "MCP_QUARANTINE_NLI_THRESHOLD", DEFAULT_QUARANTINE_NLI_THRESHOLD,
+        min_value=0.0, max_value=1.0,
+    )
 
 
 def _warn_if_gate_unreachable(classifier, threshold: float) -> None:
@@ -32,8 +42,8 @@ def _warn_if_gate_unreachable(classifier, threshold: float) -> None:
     above the active backend's achievable ceiling means quarantine-on-store can
     never fire. Robust to a mocked classifier (a non-numeric ceiling is skipped).
     """
-    global _gate_reachability_warned
-    if _gate_reachability_warned:
+    backend = getattr(classifier, "backend", "?")
+    if backend in _gate_warned_backends:
         return
     ceiling = getattr(classifier, "max_achievable_confidence", None)
     if ceiling is None:
@@ -43,18 +53,31 @@ def _warn_if_gate_unreachable(classifier, threshold: float) -> None:
     except Exception:
         return
     if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) and threshold > ceiling:
-        _gate_reachability_warned = True
+        _gate_warned_backends.add(backend)
         logger.warning(
             "MCP_QUARANTINE_NLI_THRESHOLD=%s exceeds the '%s' NLI backend's maximum "
             "achievable confidence (%s); no contradiction can be quarantined on store "
             "with this configuration. Lower MCP_QUARANTINE_NLI_THRESHOLD to <= %s, or set "
             "MCP_NLI_BACKEND=cascade.",
-            threshold, getattr(classifier, "backend", "?"), ceiling, ceiling,
+            threshold, backend, ceiling, ceiling,
         )
 
 
-async def quarantine_memory(storage, content_hash: str, contradicted_belief_hash: str, reason: str = "") -> dict:
-    """Quarantine a memory that contradicts an active belief."""
+async def quarantine_memory(
+    storage,
+    content_hash: str,
+    contradicted_belief_hash: Optional[str],
+    reason: str = "",
+    contradicted_memory_hash: Optional[str] = None,
+) -> dict:
+    """Quarantine a memory that contradicts an active belief — or, for a
+    value-swap rescued from semantic dedup (issue #1216), another *memory*.
+
+    The two are recorded in distinct fields (``contradicted_belief`` /
+    ``contradicted_memory``) so consumers can tell a belief contradiction from
+    a memory collision; a memory hash never counts toward a belief's
+    contradiction tally.
+    """
     try:
         quarantine_meta = {
             "quarantined": True,
@@ -62,12 +85,16 @@ async def quarantine_memory(storage, content_hash: str, contradicted_belief_hash
             "contradicted_belief": contradicted_belief_hash,
             "quarantine_reason": reason,
         }
+        result = {"status": "quarantined", "content_hash": content_hash, "belief": contradicted_belief_hash}
+        if contradicted_memory_hash:
+            quarantine_meta["contradicted_memory"] = contradicted_memory_hash
+            result["memory"] = contradicted_memory_hash
         await storage.update_memory_metadata(
             content_hash=content_hash,
             updates={"metadata": quarantine_meta, "tags": ["quarantined"]},
             preserve_timestamps=True,
         )
-        return {"status": "quarantined", "content_hash": content_hash, "belief": contradicted_belief_hash}
+        return result
     except Exception as e:
         logger.error(f"Failed to quarantine memory: {e}")
         return {"status": "error", "message": str(e)}
@@ -153,6 +180,7 @@ async def get_quarantined_memories(storage, limit: int = 50) -> List[dict]:
                     "content_hash": mem.content_hash,
                     "content": mem.content[:200],
                     "contradicted_belief": meta.get("contradicted_belief"),
+                    "contradicted_memory": meta.get("contradicted_memory"),
                     "quarantined_at": meta.get("quarantined_at"),
                     "reason": meta.get("quarantine_reason", ""),
                 })

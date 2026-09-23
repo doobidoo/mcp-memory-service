@@ -552,9 +552,13 @@ class MemoryService:
                         "memory": self._format_memory_response(memory)
                     }
                     if contradicted_hash:
-                        filed = await self._file_contradiction(memory.content_hash, contradicted_hash)
-                        if filed:
-                            response["filed_as_contradiction"] = filed
+                        filed_ok, filing = await self._file_contradiction(
+                            memory.content_hash, contradicted_hash
+                        )
+                        # Never report a filing that did not happen: a failed
+                        # quarantine leaves the memory stored *and* active.
+                        key = "filed_as_contradiction" if filed_ok else "contradiction_filing_failed"
+                        response[key] = filing
                     return response
                 else:
                     return {
@@ -607,35 +611,56 @@ class MemoryService:
             if not existing or not getattr(existing, "content", None):
                 return None
             from ..reasoning.nli import NLIClassifier
-            from ..consolidation.quarantine import _quarantine_nli_threshold
+            from ..consolidation.quarantine import (
+                _quarantine_nli_threshold,
+                _warn_if_gate_unreachable,
+            )
             classifier = NLIClassifier(backend="auto")
+            threshold = _quarantine_nli_threshold()
+            # Same reachability check as check_beliefs_on_store: with the
+            # default heuristic ceiling (0.55) under the default gate (0.7)
+            # this rescue can never fire, and that must not be silent here either.
+            _warn_if_gate_unreachable(classifier, threshold)
             result = await classifier.classify(existing.content, memory.content)
-            if result.label == "contradiction" and result.confidence >= _quarantine_nli_threshold():
+            if result.label == "contradiction" and result.confidence >= threshold:
                 return existing_hash
         except Exception as e:
-            logger.debug(f"Contradiction-behind-duplicate check failed: {e}")
+            logger.debug(f"Contradiction-behind-duplicate check failed: {_sanitize_log_value(str(e))}")
         return None
 
     async def _file_contradiction(self, content_hash, contradicted_hash):
-        """Quarantine a rescued value-swap against the memory it contradicts.
+        """Quarantine a rescued value-swap against the *memory* it contradicts.
 
-        Returns a small dict describing the filing, or None if quarantine failed.
-        Guarded so a quarantine failure never unwinds the store that already
-        succeeded (issue #1216).
+        Returns ``(ok, filing)``: ``filing`` always names the contradicted hash
+        and carries the quarantine result; ``ok`` is True only if the memory is
+        actually quarantined. ``quarantine_memory`` reports failure as
+        ``{"status": "error"}`` rather than raising, so the status is checked —
+        a failed quarantine leaves the dedup-bypassed memory stored and active,
+        and the caller must say so instead of reporting it filed (issue #1216).
+        The store that already succeeded is never unwound here.
         """
+        filing = {"contradicts": contradicted_hash}
         try:
             from ..consolidation.quarantine import quarantine_memory
             q = await quarantine_memory(
-                self.storage, content_hash, contradicted_hash,
+                self.storage, content_hash, None,
                 reason=(
                     f"Value differs from near-duplicate {contradicted_hash[:8]}; "
                     f"filed as contradiction instead of dropped as duplicate (#1216)"
                 ),
+                contradicted_memory_hash=contradicted_hash,
             )
-            return {"contradicts": contradicted_hash, "quarantine": q}
         except Exception as e:
-            logger.debug(f"Filing contradiction quarantine failed: {e}")
-            return None
+            q = {"status": "error", "message": str(e)}
+        filing["quarantine"] = q
+        if q.get("status") == "quarantined":
+            return True, filing
+        logger.warning(
+            f"Memory {content_hash[:8]} was stored past semantic dedup as a contradiction "
+            f"of {contradicted_hash[:8]} but could not be quarantined: "
+            f"{_sanitize_log_value(str(q.get('message', 'unknown error')))}"
+        )
+        return False, filing
 
     async def retrieve_memories(
         self,

@@ -253,6 +253,18 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 "\n⚠️ Filed as a contradiction of an existing near-duplicate and "
                 "quarantined, rather than dropped as a duplicate."
             )
+        elif result.get("contradiction_filing_failed"):
+            # Stored past dedup, but the quarantine step failed: say so, and
+            # name the memory so it can be quarantined or deleted by hand.
+            failed = result["contradiction_filing_failed"]
+            stored_hash = (result.get("memory") or {}).get("content_hash", "")
+            err = (failed.get("quarantine") or {}).get("message", "unknown error")
+            message += (
+                f"\n⚠️ Stored past semantic dedup because it contradicts near-duplicate "
+                f"{failed.get('contradicts', '')[:8]}, but quarantining it FAILED ({err}). "
+                f"It is stored and active, not quarantined — quarantine or delete "
+                f"{stored_hash[:8]} manually."
+            )
 
         # Phase 3: NLI contradiction check on store (opt-in, single memories only)
         nli_on_store = os.environ.get("MCP_NLI_ON_STORE", "false").lower() == "true"
