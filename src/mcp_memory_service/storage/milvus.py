@@ -3021,6 +3021,7 @@ class MilvusMemoryStorage(MemoryStorage):
         stale_days: Optional[int] = None,
         include_embeddings: bool = False,
         store: str = "default",
+        agent_id: Optional[str] = None,
     ) -> List[Memory]:
         if not self._ensure_initialized():
             return []
@@ -3063,6 +3064,7 @@ class MilvusMemoryStorage(MemoryStorage):
         tag_match: str = "any",
         stale_days: Optional[int] = None,
         store: str = "default",  # interface parity (issue #133); single-collection, not partitioned
+        agent_id: Optional[str] = None,
     ) -> int:
         if not self._ensure_initialized():
             return 0

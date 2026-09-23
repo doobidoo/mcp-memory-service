@@ -296,6 +296,7 @@ class MemoryService:
         memory_type: Optional[str] = None,
         stale_days: Optional[int] = None,
         store: Optional[str] = "default",
+        agent_id: Optional[str] = None,
     ) -> Union[ListMemoriesSuccess, ListMemoriesError]:
         """
         List memories with pagination and optional filtering.
@@ -331,6 +332,7 @@ class MemoryService:
                 tag_match=tag_match,
                 stale_days=stale_days,
                 store=store,
+                agent_id=agent_id,
             )
 
             # Get accurate total count for pagination
@@ -340,6 +342,7 @@ class MemoryService:
                 tag_match=tag_match,
                 stale_days=stale_days,
                 store=store,
+                agent_id=agent_id,
             )
 
             # Format results for API response
@@ -829,7 +832,8 @@ class MemoryService:
             "created_at": memory.created_at,
             "updated_at": memory.updated_at,
             "created_at_iso": memory.created_at_iso,
-            "updated_at_iso": memory.updated_at_iso
+            "updated_at_iso": memory.updated_at_iso,
+            "agent_id": memory.agent_id,  # Include agent_id as top-level field
         }
 
     # ─── Mistake Notes ────────────────────────────────────────────────

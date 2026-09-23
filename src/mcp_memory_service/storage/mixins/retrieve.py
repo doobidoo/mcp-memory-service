@@ -542,6 +542,7 @@ class RetrieveMixin:
         stale_days: Optional[int] = None,
         include_embeddings: bool = False,
         store: Optional[str] = "default",
+        agent_id: Optional[str] = None,
     ) -> List[Memory]:
         """Get all memories in storage ordered by creation time (newest first)."""
         try:
@@ -579,6 +580,12 @@ class RetrieveMixin:
                 )
                 where_conditions.append(f"({tag_conditions})")
                 params.extend([f"%,{_escape_like(tag)},%" for tag in stripped_tags])
+
+            if agent_id is not None:
+                where_conditions.append(
+                    "(json_extract(m.metadata,'$.agent_id') = ? OR (',' || REPLACE(m.tags,' ','') || ',') LIKE ?)"
+                )
+                params.extend([agent_id, f"%,agent:{agent_id.strip()},%"])
 
             self._apply_stale_days_filter(where_conditions, params, stale_days, table_alias="m")
 
@@ -692,7 +699,7 @@ class RetrieveMixin:
             logger.error("Error getting memory timestamps: %s", _sanitize_log_value(e))
             return []
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default") -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None) -> int:
         """Get total count of memories in storage."""
         try:
             await self.initialize()
@@ -719,6 +726,12 @@ class RetrieveMixin:
                 )
                 conditions.append(f"({tag_conditions})")
                 params.extend([f"%,{_escape_like(tag)},%" for tag in stripped_tags])
+
+            if agent_id is not None:
+                conditions.append(
+                    "(json_extract(metadata,'$.agent_id') = ? OR (',' || REPLACE(tags,' ','') || ',') LIKE ?)"
+                )
+                params.extend([agent_id, f"%,agent:{agent_id.strip()},%"])
 
             self._apply_stale_days_filter(conditions, params, stale_days)
 
