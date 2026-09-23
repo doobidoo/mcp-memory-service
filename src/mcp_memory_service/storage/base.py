@@ -968,7 +968,7 @@ class MemoryStorage(ABC):
         """Get memory connection statistics. Override for specific implementations."""
         return {}
 
-    async def get_access_patterns(self) -> Dict[str, datetime]:
+    async def get_access_patterns(self, candidate_hashes: Optional[List[str]] = None) -> Dict[str, datetime]:
         """Get memory access pattern statistics. Override for specific implementations."""
         return {}
 

@@ -3293,7 +3293,7 @@ class MilvusMemoryStorage(MemoryStorage):
         except Exception as exc:  # noqa: BLE001
             logger.warning("_touch_access failed (non-fatal): %s", exc)
 
-    async def get_access_patterns(self) -> Dict[str, datetime]:
+    async def get_access_patterns(self, candidate_hashes: Optional[List[str]] = None) -> Dict[str, datetime]:
         """Return last-accessed timestamps from the _access side-collection.
 
         Used by the Forgetting engine's decay calculator to compute
@@ -3301,6 +3301,10 @@ class MilvusMemoryStorage(MemoryStorage):
         that have been accessed at least once.
         """
         if not self._has_access_collection:
+            return {}
+
+        # Guard: empty list returns empty dict early
+        if candidate_hashes is not None and len(candidate_hashes) == 0:
             return {}
 
         try:
@@ -3319,7 +3323,9 @@ class MilvusMemoryStorage(MemoryStorage):
             ts = row.get("last_accessed")
             rid = row.get("id")
             if rid and ts:
-                patterns[rid] = datetime.fromtimestamp(ts, tz=timezone.utc)
+                # Filter in memory if candidate_hashes provided
+                if candidate_hashes is None or rid in candidate_hashes:
+                    patterns[rid] = datetime.fromtimestamp(ts, tz=timezone.utc)
         return patterns
 
     def _drain_access_records(self) -> List[Dict[str, Any]]:

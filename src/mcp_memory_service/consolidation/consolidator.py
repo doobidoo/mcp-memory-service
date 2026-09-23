@@ -63,7 +63,7 @@ class StorageProtocol(Protocol):
     async def get_memory_connections(self) -> Dict[str, int]:
         pass
 
-    async def get_access_patterns(self) -> Dict[str, datetime]:
+    async def get_access_patterns(self, candidate_hashes: Optional[List[str]] = None) -> Dict[str, datetime]:
         pass
 
 
@@ -613,7 +613,7 @@ class DreamInspiredConsolidator:
         forgetting_scores = await self._update_relevance_scores(
             forgetting_candidates, time_horizon
         )
-        access_patterns = await self._get_access_patterns()
+        access_patterns = await self._get_access_patterns([m.content_hash for m in forgetting_candidates])
         forgetting_results = await self.forgetting_engine.process(
             forgetting_candidates,
             forgetting_scores,
@@ -664,7 +664,7 @@ class DreamInspiredConsolidator:
         """Calculate and update relevance scores for memories."""
         # Get connection and access data
         connections = await self._get_memory_connections()
-        access_patterns = await self._get_access_patterns()
+        access_patterns = await self._get_access_patterns([m.content_hash for m in memories])
 
         # Calculate relevance scores
         relevance_scores = await self.decay_calculator.process(
@@ -705,10 +705,10 @@ class DreamInspiredConsolidator:
             self.logger.warning("Storage backend doesn't support connection tracking")
             return {}
 
-    async def _get_access_patterns(self) -> Dict[str, datetime]:
+    async def _get_access_patterns(self, candidate_hashes: Optional[List[str]] = None) -> Dict[str, datetime]:
         """Get memory access patterns from storage."""
         try:
-            return await self.storage.get_access_patterns()
+            return await self.storage.get_access_patterns(candidate_hashes)
         except AttributeError:
             # Fallback if storage doesn't implement access tracking
             self.logger.warning(

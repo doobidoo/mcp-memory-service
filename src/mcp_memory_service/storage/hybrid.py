@@ -2101,12 +2101,12 @@ class HybridMemoryStorage(MemoryStorage):
         """
         return await self.primary.get_memory_connections()
 
-    async def get_access_patterns(self) -> Dict[str, datetime]:
+    async def get_access_patterns(self, candidate_hashes: Optional[List[str]] = None) -> Dict[str, datetime]:
         """Get memory access pattern statistics (consolidation protocol).
 
         Proxies to primary storage.
         """
-        return await self.primary.get_access_patterns()
+        return await self.primary.get_access_patterns(candidate_hashes)
 
     def sanitized(self, tags):
         """Sanitize and normalize tags to a JSON string.

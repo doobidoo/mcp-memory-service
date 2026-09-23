@@ -243,7 +243,7 @@ def mock_storage(sample_memories):
         async def get_memory_connections(self):
             return self.connections
 
-        async def get_access_patterns(self):
+        async def get_access_patterns(self, candidate_hashes=None):
             return self.access_patterns
     
     return MockStorage()
@@ -355,7 +355,7 @@ def mock_large_storage(large_memory_set):
         async def get_memory_connections(self):
             return self.connections
 
-        async def get_access_patterns(self):
+        async def get_access_patterns(self, candidate_hashes=None):
             return self.access_patterns
     
     return MockLargeStorage()

@@ -1227,18 +1227,34 @@ class RetrieveMixin:
             logger.error("Error getting memory connections: %s", _sanitize_log_value(e))
             return {}
 
-    async def get_access_patterns(self) -> Dict[str, datetime]:
+    async def get_access_patterns(self, candidate_hashes: Optional[List[str]] = None) -> Dict[str, datetime]:
         """Get memory access pattern statistics."""
         try:
             await self.initialize()
 
+            # Guard: empty list returns empty dict early
+            if candidate_hashes is not None and len(candidate_hashes) == 0:
+                return {}
+
             def _get_access_patterns():
-                cursor = self.conn.execute("""
-                    SELECT content_hash, last_accessed
-                    FROM memories
-                    WHERE last_accessed IS NOT NULL AND deleted_at IS NULL
-                    ORDER BY last_accessed DESC
-                """)
+                if candidate_hashes is None:
+                    # Original behavior: no filtering
+                    cursor = self.conn.execute("""
+                        SELECT content_hash, last_accessed
+                        FROM memories
+                        WHERE last_accessed IS NOT NULL AND deleted_at IS NULL
+                        ORDER BY last_accessed DESC
+                    """)
+                else:
+                    # Filter by candidate hashes using parameterized IN clause
+                    placeholders = ",".join("?" * len(candidate_hashes))
+                    cursor = self.conn.execute(f"""
+                        SELECT content_hash, last_accessed
+                        FROM memories
+                        WHERE last_accessed IS NOT NULL AND deleted_at IS NULL
+                        AND content_hash IN ({placeholders})
+                        ORDER BY last_accessed DESC
+                    """, candidate_hashes)
                 return cursor.fetchall()
 
             patterns = {}

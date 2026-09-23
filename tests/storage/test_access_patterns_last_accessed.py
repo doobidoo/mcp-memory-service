@@ -243,3 +243,206 @@ async def test_get_access_patterns_handles_missing_last_accessed_gracefully(stor
     assert memory.content_hash not in patterns, (
         "Memory without last_accessed should not be in access patterns"
     )
+
+
+# =============================================================================
+# CANDIDATE-SCOPED ACCESS PATTERNS TESTS (#1289)
+# 
+# These tests validate the new optional candidate_hashes parameter for 
+# get_access_patterns(). Cases 1 and 2 MUST FAIL with current implementation
+# (which ignores the parameter) and pass after the fix.
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_get_access_patterns_candidate_scoped_returns_only_specified_hashes(storage):
+    """
+    Test that get_access_patterns([hash1, hash2]) returns ONLY those hashes.
+    
+    This test validates the core candidate-scoped behavior: when a list of
+    candidate hashes is provided, only those memories should be returned,
+    not the entire accessed set.
+    
+    This test FAILS with current code (ignores candidate_hashes parameter)
+    and should PASS after fix (filters with WHERE content_hash IN (...)).
+    """
+    # Create 4 semantically DISTINCT memories to avoid dedup rejection
+    memories = [
+        _make_memory("Kubernetes pod networking configuration and troubleshooting"),
+        _make_memory("PostgreSQL query optimization with EXPLAIN ANALYZE"),
+        _make_memory("React component lifecycle and useEffect patterns"), 
+        _make_memory("Spring Boot WebFlux reactive programming paradigms")
+    ]
+    
+    # Store all memories, keeping track of which ones actually persisted
+    persisted_memories = []
+    for memory in memories:
+        ok, _msg = await storage.store(memory)
+        if ok:
+            persisted_memories.append(memory)
+    
+    # Guard: need at least 3 distinct memories for meaningful test
+    assert len(persisted_memories) >= 3, (
+        f"Test setup requires at least 3 distinct memories but only {len(persisted_memories)} "
+        f"were stored (dedup may have rejected some). Increase content diversity."
+    )
+    
+    # Simulate access to ALL memories by populating last_accessed
+    current_time = int(time.time())
+    def _populate_last_accessed():
+        for i, memory in enumerate(persisted_memories):
+            # Stagger access times slightly to make them distinct
+            accessed_time = current_time - (i * 60)  # Each memory 1 minute older
+            storage.conn.execute("""
+                UPDATE memories 
+                SET last_accessed = ?
+                WHERE content_hash = ?
+            """, (accessed_time, memory.content_hash))
+        storage.conn.commit()
+    
+    await storage._execute_with_retry(_populate_last_accessed)
+    
+    # Verify all memories are accessible without candidate filtering
+    all_patterns = await storage.get_access_patterns()
+    for memory in persisted_memories:
+        assert memory.content_hash in all_patterns, (
+            f"Setup error: memory {memory.content_hash} should be in access patterns"
+        )
+    
+    # TEST CASE: Request only the first 2 memories via candidate_hashes
+    target_hashes = [persisted_memories[0].content_hash, persisted_memories[1].content_hash]
+    excluded_hash = persisted_memories[2].content_hash  # This should NOT be returned
+    
+    # This call FAILS with current implementation (ignores candidate_hashes)
+    candidate_patterns = await storage.get_access_patterns(candidate_hashes=target_hashes)
+    
+    # ASSERTION 1: Should contain exactly the requested hashes
+    assert len(candidate_patterns) == 2, (
+        f"get_access_patterns({target_hashes}) should return exactly 2 memories, "
+        f"but returned {len(candidate_patterns)}. Current code ignores candidate_hashes."
+    )
+    
+    # ASSERTION 2: Should contain the requested hashes
+    for target_hash in target_hashes:
+        assert target_hash in candidate_patterns, (
+            f"get_access_patterns({target_hashes}) should include {target_hash}"
+        )
+    
+    # ASSERTION 3: Should NOT contain memories outside the candidate list
+    assert excluded_hash not in candidate_patterns, (
+        f"get_access_patterns({target_hashes}) should NOT include {excluded_hash} "
+        f"(it was not in the candidate list). Current code returns all accessed memories."
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_access_patterns_empty_candidate_list_returns_empty_dict(storage):
+    """
+    Test that get_access_patterns([]) returns {} (empty dict).
+    
+    This validates the guard clause for empty candidate lists to avoid
+    invalid SQL "WHERE content_hash IN ()" syntax.
+    
+    This test FAILS with current code (ignores empty list, returns all)
+    and should PASS after fix (returns empty dict immediately).
+    """
+    # Create and access a memory to ensure the database has accessed data
+    memory = _make_memory("Test memory to populate access patterns database")
+    ok, _msg = await storage.store(memory)
+    assert ok, "Test setup: memory must be stored successfully"
+    
+    # Populate last_accessed
+    current_time = int(time.time())
+    def _populate_last_accessed():
+        storage.conn.execute("""
+            UPDATE memories 
+            SET last_accessed = ?
+            WHERE content_hash = ?
+        """, (current_time, memory.content_hash))
+        storage.conn.commit()
+    
+    await storage._execute_with_retry(_populate_last_accessed)
+    
+    # Verify the memory is normally accessible (setup check)
+    all_patterns = await storage.get_access_patterns()
+    assert memory.content_hash in all_patterns, (
+        "Setup error: memory should be in access patterns when accessed"
+    )
+    assert len(all_patterns) >= 1, (
+        "Setup error: should have at least 1 memory in access patterns"
+    )
+    
+    # TEST CASE: Request with empty candidate list
+    # This call FAILS with current implementation (ignores empty list, returns all)
+    empty_patterns = await storage.get_access_patterns(candidate_hashes=[])
+    
+    # ASSERTION: Should return empty dict
+    assert empty_patterns == {}, (
+        f"get_access_patterns([]) should return empty dict {{}}, "
+        f"but returned {empty_patterns} with {len(empty_patterns)} entries. "
+        f"Current code ignores the empty candidate list and returns all accessed memories."
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_access_patterns_no_args_preserves_current_behavior(storage):
+    """
+    Test that get_access_patterns() without arguments returns all accessed memories.
+    
+    This validates backward compatibility: the current behavior must be preserved
+    when no candidate_hashes parameter is provided (None default).
+    
+    This test should PASS both before and after the fix (backward compatibility).
+    """
+    # Create multiple distinct memories
+    memories = [
+        _make_memory("Docker container orchestration with Kubernetes clusters"),
+        _make_memory("Redis distributed caching strategies and performance tuning"),
+        _make_memory("Nginx reverse proxy configuration for microservices")
+    ]
+    
+    # Store all memories
+    persisted_memories = []
+    for memory in memories:
+        ok, _msg = await storage.store(memory)
+        if ok:
+            persisted_memories.append(memory)
+    
+    assert len(persisted_memories) >= 2, (
+        f"Test setup requires at least 2 distinct memories for meaningful validation"
+    )
+    
+    # Populate last_accessed for all memories
+    current_time = int(time.time())
+    def _populate_last_accessed():
+        for i, memory in enumerate(persisted_memories):
+            accessed_time = current_time - (i * 120)  # 2 minutes apart
+            storage.conn.execute("""
+                UPDATE memories 
+                SET last_accessed = ?
+                WHERE content_hash = ?
+            """, (accessed_time, memory.content_hash))
+        storage.conn.commit()
+    
+    await storage._execute_with_retry(_populate_last_accessed)
+    
+    # TEST CASE: Call without candidate_hashes (current behavior)
+    all_patterns = await storage.get_access_patterns()
+    
+    # ASSERTION: Should return all accessed memories
+    assert len(all_patterns) == len(persisted_memories), (
+        f"get_access_patterns() should return all {len(persisted_memories)} accessed memories, "
+        f"but returned {len(all_patterns)}"
+    )
+    
+    for memory in persisted_memories:
+        assert memory.content_hash in all_patterns, (
+            f"get_access_patterns() should include accessed memory {memory.content_hash}"
+        )
+        
+        # Verify returned datetime is reasonable (within last 5 minutes)
+        returned_dt = all_patterns[memory.content_hash]
+        time_diff = abs(returned_dt.timestamp() - current_time)
+        assert time_diff < 300, (  # 5 minutes tolerance
+            f"Returned timestamp for {memory.content_hash} seems unreasonable: "
+            f"{returned_dt} (diff: {time_diff}s from expected ~{current_time})"
+        )
