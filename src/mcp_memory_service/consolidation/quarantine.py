@@ -6,13 +6,9 @@ import os
 from datetime import datetime, timezone
 from typing import Optional, List
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
 
 CONTRADICTION_THRESHOLD = int(os.getenv("MCP_QUARANTINE_CONTRADICTION_THRESHOLD", "3"))
 

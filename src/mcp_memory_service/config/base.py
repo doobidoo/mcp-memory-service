@@ -31,6 +31,8 @@ from typing import Optional
 import time
 import logging
 
+from ..compat import _sanitize_log_value
+
 # Load environment variables from .env file if it exists
 # Search multiple locations to handle both development and installed scenarios
 def _find_and_load_dotenv():
@@ -71,11 +73,6 @@ if _loaded_env_file:
     logging.getLogger(__name__).info(f"Loaded environment from {_loaded_env_file}")
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
 
 
 def safe_get_int_env(env_var: str, default: int, min_value: int = None, max_value: int = None) -> int:
