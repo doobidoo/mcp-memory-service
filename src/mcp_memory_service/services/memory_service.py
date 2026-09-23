@@ -517,6 +517,23 @@ class MemoryService:
 
                 success, message = await self.storage.store(memory, skip_semantic_dedup=skip_dedup, store=store)
 
+                # Issue #1216 (1b): a value-swap ("X is A" then "X is B") is
+                # near-identical text to what it contradicts, so semantic dedup
+                # rejects it before any contradiction check runs and it is
+                # silently dropped. When on-store NLI is enabled, re-examine that
+                # rejection: if the new content CONTRADICTS the memory it collided
+                # with, it is not a duplicate — store it (bypassing dedup) and file
+                # it as a contradiction, instead of dropping it.
+                contradicted_hash = None
+                if not success:
+                    contradicted_hash = await self._contradiction_behind_duplicate(memory, message)
+                    if contradicted_hash:
+                        success, message = await self.storage.store(
+                            memory, skip_semantic_dedup=True, store=store
+                        )
+                        if not success:
+                            contradicted_hash = None
+
                 if success:
                     # Queue for AI quality scoring if enabled
                     if MCP_QUALITY_BOOST_ENABLED:
@@ -530,10 +547,15 @@ class MemoryService:
 
                     await self._plugin_registry.fire('on_store', self._format_memory_response(memory))
 
-                    return {
+                    response = {
                         "success": True,
                         "memory": self._format_memory_response(memory)
                     }
+                    if contradicted_hash:
+                        filed = await self._file_contradiction(memory.content_hash, contradicted_hash)
+                        if filed:
+                            response["filed_as_contradiction"] = filed
+                    return response
                 else:
                     return {
                         "success": False,
@@ -561,6 +583,59 @@ class MemoryService:
                 "success": False,
                 "error": f"Failed to store memory: {str(e)}"
             }
+
+    async def _contradiction_behind_duplicate(self, memory, reject_message):
+        """Return the hash of the near-duplicate ``memory`` contradicts, or None.
+
+        Issue #1216 (1b): only fires when on-store NLI is enabled, the rejection
+        was a *semantic* duplicate, and an NLI classifier labels the new content a
+        contradiction of the memory it collided with at or above the configurable
+        quarantine gate (MCP_QUARANTINE_NLI_THRESHOLD). Fully guarded — any failure
+        returns None, so the caller falls back to the original duplicate rejection
+        and default behaviour is unchanged when NLI-on-store is off.
+        """
+        if os.getenv("MCP_NLI_ON_STORE", "false").lower() != "true":
+            return None
+        try:
+            match = re.search(
+                r"semantically similar to ([a-f0-9]+)", str(reject_message), re.IGNORECASE
+            )
+            if not match:
+                return None
+            existing_hash = match.group(1)
+            existing = await self.storage.get_by_hash(existing_hash)
+            if not existing or not getattr(existing, "content", None):
+                return None
+            from ..reasoning.nli import NLIClassifier
+            from ..consolidation.quarantine import _quarantine_nli_threshold
+            classifier = NLIClassifier(backend="auto")
+            result = await classifier.classify(existing.content, memory.content)
+            if result.label == "contradiction" and result.confidence >= _quarantine_nli_threshold():
+                return existing_hash
+        except Exception as e:
+            logger.debug(f"Contradiction-behind-duplicate check failed: {e}")
+        return None
+
+    async def _file_contradiction(self, content_hash, contradicted_hash):
+        """Quarantine a rescued value-swap against the memory it contradicts.
+
+        Returns a small dict describing the filing, or None if quarantine failed.
+        Guarded so a quarantine failure never unwinds the store that already
+        succeeded (issue #1216).
+        """
+        try:
+            from ..consolidation.quarantine import quarantine_memory
+            q = await quarantine_memory(
+                self.storage, content_hash, contradicted_hash,
+                reason=(
+                    f"Value differs from near-duplicate {contradicted_hash[:8]}; "
+                    f"filed as contradiction instead of dropped as duplicate (#1216)"
+                ),
+            )
+            return {"contradicts": contradicted_hash, "quarantine": q}
+        except Exception as e:
+            logger.debug(f"Filing contradiction quarantine failed: {e}")
+            return None
 
     async def retrieve_memories(
         self,

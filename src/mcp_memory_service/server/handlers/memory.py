@@ -246,6 +246,14 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 f"e.g. '{{\"{memory_type}\": []}}'."
             )
 
+        # Issue #1216 (1b): a value-swap rescued from dedup rejection and filed as
+        # a contradiction instead of being silently dropped.
+        if result.get("filed_as_contradiction"):
+            message += (
+                "\n⚠️ Filed as a contradiction of an existing near-duplicate and "
+                "quarantined, rather than dropped as a duplicate."
+            )
+
         # Phase 3: NLI contradiction check on store (opt-in, single memories only)
         nli_on_store = os.environ.get("MCP_NLI_ON_STORE", "false").lower() == "true"
         if nli_on_store and result.get("success") and "memory" in result:

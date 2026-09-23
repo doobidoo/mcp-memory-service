@@ -10,6 +10,48 @@ logger = logging.getLogger(__name__)
 
 CONTRADICTION_THRESHOLD = int(os.getenv("MCP_QUARANTINE_CONTRADICTION_THRESHOLD", "3"))
 
+# Minimum NLI confidence for a contradiction to quarantine a memory on store.
+# Configurable via MCP_QUARANTINE_NLI_THRESHOLD (issue #1216); read at call time
+# so runtime config and tests take effect. The default heuristic backend tops
+# out below this (see NLIClassifier.max_achievable_confidence), so the default
+# config needs MCP_NLI_BACKEND=cascade or a lowered gate to quarantine on store.
+DEFAULT_QUARANTINE_NLI_THRESHOLD = 0.7
+
+# Guards the one-per-process warning below.
+_gate_reachability_warned = False
+
+
+def _quarantine_nli_threshold() -> float:
+    return float(os.getenv("MCP_QUARANTINE_NLI_THRESHOLD", str(DEFAULT_QUARANTINE_NLI_THRESHOLD)))
+
+
+def _warn_if_gate_unreachable(classifier, threshold: float) -> None:
+    """Emit one warning per process if no contradiction could ever meet the gate.
+
+    Makes the previously-silent dead configuration (issue #1216) visible: a gate
+    above the active backend's achievable ceiling means quarantine-on-store can
+    never fire. Robust to a mocked classifier (a non-numeric ceiling is skipped).
+    """
+    global _gate_reachability_warned
+    if _gate_reachability_warned:
+        return
+    ceiling = getattr(classifier, "max_achievable_confidence", None)
+    if ceiling is None:
+        return
+    try:
+        ceiling = ceiling()
+    except Exception:
+        return
+    if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) and threshold > ceiling:
+        _gate_reachability_warned = True
+        logger.warning(
+            "MCP_QUARANTINE_NLI_THRESHOLD=%s exceeds the '%s' NLI backend's maximum "
+            "achievable confidence (%s); no contradiction can be quarantined on store "
+            "with this configuration. Lower MCP_QUARANTINE_NLI_THRESHOLD to <= %s, or set "
+            "MCP_NLI_BACKEND=cascade.",
+            threshold, getattr(classifier, "backend", "?"), ceiling, ceiling,
+        )
+
 
 async def quarantine_memory(storage, content_hash: str, contradicted_belief_hash: str, reason: str = "") -> dict:
     """Quarantine a memory that contradicts an active belief."""
@@ -60,10 +102,12 @@ async def check_beliefs_on_store(storage, belief_service, content: str, content_
         return None
 
     classifier = NLIClassifier(backend="auto")
+    threshold = _quarantine_nli_threshold()
+    _warn_if_gate_unreachable(classifier, threshold)
 
     for belief in beliefs[:20]:
         result = await classifier.classify(belief["content"], content)
-        if result.label == "contradiction" and result.confidence >= 0.7:
+        if result.label == "contradiction" and result.confidence >= threshold:
             q_result = await quarantine_memory(
                 storage, content_hash, belief["belief_hash"],
                 reason=f"Contradicts belief: {belief['content'][:100]}",

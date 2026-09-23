@@ -8,6 +8,7 @@ to the beliefs table. No LLM dependency.
 import hashlib
 import json
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -89,11 +90,18 @@ def _hash_content(content: str) -> str:
 
 
 class BeliefService:
+    # Default belief-grouping similarity. Decoupled from the store() dedup
+    # threshold (MCP_SEMANTIC_DEDUP_THRESHOLD) so the two — which serve opposite
+    # intents: dedup *rejects* a write, grouping *needs* the write — can be tuned
+    # independently (issue #1216). Overridable via MCP_BELIEF_SIMILARITY_THRESHOLD.
     SIMILARITY_THRESHOLD = 0.85
     """Derives and manages beliefs from observations."""
 
     def __init__(self, storage):
         self.storage = storage
+        self.SIMILARITY_THRESHOLD = float(
+            os.getenv("MCP_BELIEF_SIMILARITY_THRESHOLD", str(self.SIMILARITY_THRESHOLD))
+        )
 
     async def derive_beliefs(self) -> dict:
         """Run belief derivation cycle. Called by scheduler.
