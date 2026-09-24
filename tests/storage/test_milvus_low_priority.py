@@ -170,28 +170,35 @@ class TestCountMemoriesByTag:
 
 
 class TestIsDeleted:
-    """Tests for native is_deleted."""
+    """Tests for native is_deleted.
+
+    is_deleted() does its own ``get`` on the collection rather than going
+    through get_by_hash(), which hides tombstones (#1261). These tests mock
+    ``_call_client`` accordingly; mocking get_by_hash here would exercise
+    nothing, and the True case would fail.
+    """
 
     @pytest.mark.asyncio
     async def test_deleted_memory_returns_true(self):
         """Memory with deleted_at in metadata returns True."""
         storage = _make_storage()
-        deleted_mem = Memory(
-            content="old content",
-            content_hash="h1",
-            tags=["t"],
-            metadata={"deleted_at": 1700000000.0},
+        storage._call_client = AsyncMock(
+            return_value=[{"metadata": json.dumps({"deleted_at": 1700000000.0})}]
         )
-        storage.get_by_hash = AsyncMock(return_value=deleted_mem)
 
         assert await storage.is_deleted("h1") is True
+        storage._call_client.assert_awaited_once_with(
+            "get",
+            collection_name="unit_test_collection",
+            ids=["h1"],
+            output_fields=["metadata"],
+        )
 
     @pytest.mark.asyncio
     async def test_non_deleted_memory_returns_false(self):
         """Memory without deleted_at returns False."""
         storage = _make_storage()
-        mem = Memory(content="content", content_hash="h1", tags=["t"], metadata={})
-        storage.get_by_hash = AsyncMock(return_value=mem)
+        storage._call_client = AsyncMock(return_value=[{"metadata": "{}"}])
 
         assert await storage.is_deleted("h1") is False
 
@@ -199,7 +206,7 @@ class TestIsDeleted:
     async def test_nonexistent_memory_returns_false(self):
         """Non-existent hash returns False."""
         storage = _make_storage()
-        storage.get_by_hash = AsyncMock(return_value=None)
+        storage._call_client = AsyncMock(return_value=[])
 
         assert await storage.is_deleted("nonexistent") is False
 

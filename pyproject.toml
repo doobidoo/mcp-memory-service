@@ -125,9 +125,10 @@ sqlite-ml = [
 # Milvus backend — Milvus Lite (single file), self-hosted Milvus, or Zilliz Cloud.
 # Shipped with the ML extras so sentence-transformers embeddings are available.
 milvus = [
-    # 3.x has breaking API changes and nothing here tests Milvus: the Test Milvus (Docker)
-    # job was dropped during the Codeberg era and never restored, so a break would be silent.
-    # Do not widen this bound until a Milvus CI job runs green against 3.x — see issue #1112.
+    # 3.x has breaking API changes. The `milvus-tests` job in .github/workflows/ci.yml
+    # runs tests/storage/test_milvus*.py against Milvus Lite on this pin (gating) and on
+    # the 3.x line (the `3.x-probe` leg, informational). Do not widen this bound until
+    # that probe is green and has been flipped to gating — see issue #1112.
     # Dependabot cannot widen it any more either: .github/dependabot.yml ignores
     # major updates for pymilvus, because a group bump rewrites this line rather
     # than respecting it.
