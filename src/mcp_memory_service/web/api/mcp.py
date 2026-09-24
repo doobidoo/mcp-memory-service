@@ -10,7 +10,7 @@ shared core — adding a tool requires no changes here.
 import logging
 from typing import Any, Dict, Optional, Union
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Response, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
@@ -165,6 +165,7 @@ def _wrap_tool_result(text_contents) -> Dict[str, Any]:
 @router.post("")
 async def mcp_endpoint(
     request: MCPRequest,
+    http_request: Request,
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """Main MCP protocol endpoint. Delegates to the shared MemoryServer."""
@@ -253,6 +254,12 @@ async def mcp_endpoint(
                     content=response.model_dump(exclude_none=True),
                     status_code=403,
                 )
+
+            # Inject X-Agent-ID header if agent_id argument not explicitly provided
+            if not arguments.get("agent_id"):
+                header_agent_id = http_request.headers.get("X-Agent-ID")
+                if header_agent_id:
+                    arguments["agent_id"] = header_agent_id.strip()
 
             text_contents = await server.call_tool(tool_name, arguments)
             response = MCPResponse(

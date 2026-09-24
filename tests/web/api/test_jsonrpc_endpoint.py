@@ -110,3 +110,145 @@ def test_initialize_request_still_returns_200_with_result(test_app):
     assert body["id"] == 1
     assert "result" in body
     assert "protocolVersion" in body["result"]
+
+
+# ---- FASE 2: Header X-Agent-ID per-request ----
+
+@pytest.mark.integration
+def test_mcp_tools_call_reads_x_agent_id_header(test_app):
+    """(5) tools/call memory_store SEM agent_id no arguments mas com header X-Agent-ID grava metadata.agent_id."""
+    # Store memória via tools/call com header mas sem agent_id no arguments
+    response = test_app.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "memory_store",
+                "arguments": {
+                    "content": "GraphQL schema design patterns and best practices",
+                    "metadata": {}
+                }
+            }
+        },
+        headers={"X-Agent-ID": "zero"}
+    )
+    
+    assert response.status_code == 200
+    body = response.json()
+    assert body["jsonrpc"] == "2.0"
+    assert "result" in body
+    
+    # Verify the memory was stored with agent_id from header
+    # The result should contain the stored memory hash
+    result = body["result"]
+    assert "content" in result and len(result["content"]) > 0
+    stored_hash = result["content"][0]["text"]
+    
+    # Retrieve the memory and verify agent_id was set from header
+    response_search = test_app.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "memory_search",
+                "arguments": {
+                    "query": "GraphQL schema design",
+                    "agent_id": "zero"
+                }
+            }
+        }
+    )
+    
+    assert response_search.status_code == 200
+    search_body = response_search.json()
+    memories = search_body["result"]["content"][0]["text"]
+    
+    # Should find the memory when searching by agent_id="zero"
+    assert "GraphQL schema design" in memories
+
+
+@pytest.mark.integration
+def test_mcp_explicit_arg_overrides_header(test_app):
+    """(6) arguments.agent_id explícito VENCE o header X-Agent-ID."""
+    # Store com agent_id explícito no arguments E header diferente
+    response = test_app.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0", 
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "memory_store",
+                "arguments": {
+                    "content": "Microservices communication patterns and service mesh",
+                    "agent_id": "tpol",  # Explícito no arguments
+                    "metadata": {}
+                }
+            }
+        },
+        headers={"X-Agent-ID": "zero"}  # Header diferente
+    )
+    
+    assert response.status_code == 200
+    body = response.json()
+    
+    # O argumento explícito já funciona na Fase 1, então devemos esperar sucesso
+    # Mas como o header ainda não está implementado, vamos apenas verificar que funciona
+    assert "result" in body
+    
+    # Verify the memory was stored with explicit agent_id "tpol", not header "zero"
+    # Search by agent_id="tpol" should find the memory
+    response_search_tpol = test_app.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "memory_search",
+                "arguments": {
+                    "query": "Microservices communication",
+                    "agent_id": "tpol"
+                }
+            }
+        }
+    )
+    
+    assert response_search_tpol.status_code == 200
+    search_body_tpol = response_search_tpol.json()
+    memories_tpol = search_body_tpol["result"]["content"][0]["text"]
+    
+    # Should find the memory when searching by explicit agent_id="tpol"
+    assert "Microservices communication" in memories_tpol
+    
+    # Search by header agent_id="zero" should NOT find it (precedence test)
+    response_search_zero = test_app.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "memory_search",
+                "arguments": {
+                    "query": "Microservices communication",
+                    "agent_id": "zero"
+                }
+            }
+        }
+    )
+    
+    assert response_search_zero.status_code == 200
+    search_body_zero = response_search_zero.json()
+    memories_zero = search_body_zero["result"]["content"][0]["text"]
+    
+    # Should NOT find the memory when searching by header agent_id="zero"
+    # Either no memories found message or empty results, but not the target content
+    if "No memories found" not in memories_zero:
+        # If memories were found, ensure our target memory is not among them
+        assert "Microservices communication" not in memories_zero
+    # If "No memories found" message, that's what we want - the filter worked correctly

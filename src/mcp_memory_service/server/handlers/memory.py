@@ -728,6 +728,7 @@ async def handle_memory_list(server, arguments: dict) -> List[types.TextContent]
             tags = normalize_tags(tags)
 
         # Call memory service list_memories
+        agent_id = arguments.get("agent_id")
         result = await server.memory_service.list_memories(
             page=page,
             page_size=page_size,
@@ -736,6 +737,7 @@ async def handle_memory_list(server, arguments: dict) -> List[types.TextContent]
             memory_type=memory_type,
             stale_days=stale_days,
             store=store,
+            agent_id=agent_id,
         )
 
         # Check for errors
@@ -1041,6 +1043,7 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
         # Call unified search_memories method
         query = arguments.get("query")
         limit = arguments.get("limit", 10)
+        agent_id = arguments.get("agent_id")
         result = await storage.search_memories(
             query=query,
             mode=arguments.get("mode", "semantic"),
@@ -1055,6 +1058,7 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             include_superseded=arguments.get("include_superseded", False),
             ranking_weights=arguments.get("ranking_weights"),
             store=store,
+            agent_id=agent_id,
         )
 
         # Check for errors

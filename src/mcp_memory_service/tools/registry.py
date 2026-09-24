@@ -303,6 +303,10 @@ Examples:
                     "default": False,
                     "description": "Enable cascading fallback when semantic results are sparse. When true and fewer than 3 results are found with scores below 0.4, automatically attempts BM25 keyword match and tag intersection. Each result includes match_method field. Default: false.",
                 },
+                "agent_id": {
+                    "type": "string",
+                    "description": "Filter to memories authored by this agent (matches metadata.agent_id or the agent:<id> tag). Opt-in; omit to search all agents.",
+                },
                 "include_beliefs": {
                     "type": "boolean",
                     "default": False,
@@ -387,6 +391,10 @@ Examples:
                 "store": {
                     "type": "string",
                     "description": "Target store partition (default: 'default'). Use 'docs' for documents, 'all' for cross-store search.",
+                },
+                "agent_id": {
+                    "type": "string",
+                    "description": "Filter to memories authored by this agent (matches metadata.agent_id or the agent:<id> tag). Opt-in; omit to search all agents.",
                 },
             },
         },
