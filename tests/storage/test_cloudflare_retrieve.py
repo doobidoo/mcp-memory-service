@@ -155,12 +155,14 @@ async def test_retrieve_surfaces_recall_ceiling_when_tag_filter_page_is_full(cap
     info = results[0].debug_info["retrieval"]
     assert info == {
         "neighbour_ceiling": 50,
+        "n_results": 20,
         "candidates_wanted": 60,
         "candidates_requested": 50,
         "candidates_returned": 50,
         "candidates_not_loaded": 0,
         "dropped_by_tag_filter": 49,
         "truncated_to_n_results": 0,
+        "results_returned": 1,
         "neighbour_ceiling_reached": True,
         "recall_may_be_incomplete": True,
     }
@@ -219,3 +221,44 @@ async def test_retrieve_warns_when_tag_filter_starves_to_zero_at_the_ceiling(cap
     assert results == []
     warning = next(rec for rec in caplog.records if "recall may be incomplete" in rec.getMessage())
     assert "50" in warning.getMessage()
+
+
+async def test_retrieve_full_page_with_enough_tag_matches_is_complete(caplog):
+    # A full page at the ceiling is only a problem when the tag filter leaves
+    # fewer than n_results. Every neighbour beyond the 50th ranks below every
+    # one of the 50 returned, so when at least n_results survive the filter the
+    # first n_results are the true top matches: complete recall, and no warning.
+    matches = [{"id": f"m{i}", "score": 0.9 - i * 0.001} for i in range(50)]
+    memories = [Memory(content=f"m{i}", content_hash=f"m{i}", tags=["wanted"]) for i in range(50)]
+    storage = _storage_with_matches(matches, memories)
+
+    with caplog.at_level("WARNING", logger="mcp_memory_service.storage.cloudflare"):
+        results = await storage.retrieve("query", n_results=20, tags=["wanted"])
+
+    assert len(results) == 20
+    info = results[0].debug_info["retrieval"]
+    assert info["neighbour_ceiling_reached"] is True
+    assert info["truncated_to_n_results"] == 30
+    assert info["results_returned"] == 20
+    assert info["recall_may_be_incomplete"] is False
+    assert not any("recall may be incomplete" in rec.getMessage() for rec in caplog.records)
+
+
+async def test_retrieve_full_page_boundary_at_exactly_n_results():
+    # Exactly n_results survivors is still complete; one fewer is not.
+    matches = [{"id": f"m{i}", "score": 0.9 - i * 0.001} for i in range(50)]
+
+    def memories(survivors):
+        return [
+            Memory(content=f"m{i}", content_hash=f"m{i}", tags=["wanted" if i < survivors else "other"])
+            for i in range(50)
+        ]
+
+    exact = await _storage_with_matches(matches, memories(20)).retrieve("query", n_results=20, tags=["wanted"])
+    assert len(exact) == 20
+    assert exact[0].debug_info["retrieval"]["dropped_by_tag_filter"] == 30
+    assert exact[0].debug_info["retrieval"]["recall_may_be_incomplete"] is False
+
+    short = await _storage_with_matches(matches, memories(19)).retrieve("query", n_results=20, tags=["wanted"])
+    assert len(short) == 19
+    assert short[0].debug_info["retrieval"]["recall_may_be_incomplete"] is True

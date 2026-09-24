@@ -43,13 +43,14 @@ _VECTORIZE_MAX_TOPK_WITH_METADATA = 50
 
 def _recall_ceiling_info(
     *,
-    tags: Optional[List[str]],
+    n_results: int,
     candidates_wanted: int,
     candidates_requested: int,
     candidates_returned: int,
     candidates_not_loaded: int,
     dropped_by_tag_filter: int,
     truncated_to_n_results: int,
+    results_returned: int,
 ) -> Dict[str, Any]:
     """Describe how much of a retrieve() query the Vectorize ceiling cut off.
 
@@ -57,21 +58,26 @@ def _recall_ceiling_info(
     tell a clipped recall from a complete one (#1236). The page is treated as
     complete when Vectorize returned fewer neighbours than asked for — it had
     no more to give. When the page came back full at the ceiling, recall may
-    be incomplete if the tag filter was applied after the cut, or if the
-    caller asked for more neighbours than the ceiling allows.
+    be incomplete only if fewer than ``n_results`` results survived: every
+    neighbour beyond the ceiling ranks below every neighbour on the page, so
+    once ``n_results`` of them pass the tag filter (or the untagged page was
+    as long as the caller asked) the first ``n_results`` are the true top
+    matches and nothing beyond the cut could have displaced them.
     """
     ceiling = _VECTORIZE_MAX_TOPK_WITH_METADATA
     ceiling_reached = candidates_returned >= ceiling
     return {
         "neighbour_ceiling": ceiling,
+        "n_results": n_results,
         "candidates_wanted": candidates_wanted,
         "candidates_requested": candidates_requested,
         "candidates_returned": candidates_returned,
         "candidates_not_loaded": candidates_not_loaded,
         "dropped_by_tag_filter": dropped_by_tag_filter,
         "truncated_to_n_results": truncated_to_n_results,
+        "results_returned": results_returned,
         "neighbour_ceiling_reached": ceiling_reached,
-        "recall_may_be_incomplete": ceiling_reached and (bool(tags) or candidates_wanted > ceiling),
+        "recall_may_be_incomplete": ceiling_reached and results_returned < n_results,
     }
 
 
@@ -818,13 +824,14 @@ class CloudflareStorage(MemoryStorage):
                 results = results[:n_results]
 
             retrieval_info = _recall_ceiling_info(
-                tags=tags,
+                n_results=n_results,
                 candidates_wanted=candidates_wanted,
                 candidates_requested=top_k,
                 candidates_returned=len(matches),
                 candidates_not_loaded=candidates_not_loaded,
                 dropped_by_tag_filter=dropped_by_tag_filter,
                 truncated_to_n_results=truncated_to_n_results,
+                results_returned=len(results),
             )
             for result in results:
                 result.debug_info["retrieval"] = dict(retrieval_info)
@@ -836,8 +843,8 @@ class CloudflareStorage(MemoryStorage):
                     "%s-neighbour ceiling (wanted %s, requested %s, returned %s; %s dropped by the "
                     "tag filter, %s results returned). A memory matching the query beyond the "
                     "ceiling is unreachable from this call.",
-                    _VECTORIZE_MAX_TOPK_WITH_METADATA, candidates_wanted, top_k, len(matches),
-                    dropped_by_tag_filter, len(results),
+                    _VECTORIZE_MAX_TOPK_WITH_METADATA, _sanitize_log_value(candidates_wanted),
+                    _sanitize_log_value(top_k), len(matches), dropped_by_tag_filter, len(results),
                 )
 
             # Persist updated metadata for accessed memories
