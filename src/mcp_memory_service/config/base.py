@@ -23,12 +23,15 @@ Environment Variables:
 Copyright (c) 2024 Heinrich Krupp
 Licensed under the Apache License, Version 2.0
 """
+import math
 import os
 import sys
 from pathlib import Path
 from typing import Optional
 import time
 import logging
+
+from ..compat import _sanitize_log_value
 
 # Load environment variables from .env file if it exists
 # Search multiple locations to handle both development and installed scenarios
@@ -71,6 +74,7 @@ if _loaded_env_file:
 
 logger = logging.getLogger(__name__)
 
+
 def safe_get_int_env(env_var: str, default: int, min_value: int = None, max_value: int = None) -> int:
     """
     Safely parse an integer environment variable with validation and error handling.
@@ -109,6 +113,51 @@ def safe_get_int_env(env_var: str, default: int, min_value: int = None, max_valu
     except ValueError as e:
         logger.error(f"Invalid integer value for {env_var}='{env_value}': {e}. Using default {default}")
         return default
+
+def safe_get_float_env(env_var: str, default: float, min_value: float = None, max_value: float = None) -> float:
+    """
+    Safely parse a float environment variable with validation and error handling.
+
+    Mirrors ``safe_get_int_env``: an unset variable returns ``default``; an
+    unparsable, non-finite or out-of-range value logs an error and returns
+    ``default`` instead of raising, so a typo in a tuning knob cannot silently
+    disable the feature that reads it.
+
+    Args:
+        env_var: Environment variable name
+        default: Default value if not set or invalid
+        min_value: Minimum allowed value (optional)
+        max_value: Maximum allowed value (optional)
+
+    Returns:
+        Parsed and validated float value
+    """
+    env_value = os.getenv(env_var)
+    if not env_value:
+        return default
+
+    try:
+        value = float(env_value)
+
+        if not math.isfinite(value):
+            logger.error(f"Environment variable {env_var}={_sanitize_log_value(env_value)} is not a finite number, using default {default}")
+            return default
+
+        if min_value is not None and value < min_value:
+            logger.error(f"Environment variable {env_var}={value} is below minimum {min_value}, using default {default}")
+            return default
+
+        if max_value is not None and value > max_value:
+            logger.error(f"Environment variable {env_var}={value} is above maximum {max_value}, using default {default}")
+            return default
+
+        logger.debug(f"Environment variable {env_var}={value} parsed successfully")
+        return value
+
+    except ValueError as e:
+        logger.error(f"Invalid float value for {env_var}='{_sanitize_log_value(env_value)}': {_sanitize_log_value(str(e))}. Using default {default}")
+        return default
+
 
 def safe_get_optional_int_env(env_var: str, default: Optional[int] = None, min_value: int = None, max_value: int = None, none_values: tuple = ('none', 'null', 'unlimited', '')) -> Optional[int]:
     """

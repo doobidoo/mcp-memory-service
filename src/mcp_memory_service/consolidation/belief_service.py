@@ -89,11 +89,23 @@ def _hash_content(content: str) -> str:
 
 
 class BeliefService:
+    # Default belief-grouping similarity. Decoupled from the store() dedup
+    # threshold (MCP_SEMANTIC_DEDUP_THRESHOLD) so the two — which serve opposite
+    # intents: dedup *rejects* a write, grouping *needs* the write — can be tuned
+    # independently (issue #1216). Overridable via MCP_BELIEF_SIMILARITY_THRESHOLD.
     SIMILARITY_THRESHOLD = 0.85
     """Derives and manages beliefs from observations."""
 
     def __init__(self, storage):
         self.storage = storage
+        # Parsed with the repo's fallback pattern: an invalid value logs an
+        # error and keeps the default rather than raising out of __init__ and
+        # disabling belief derivation.
+        from ..config import safe_get_float_env
+        self.SIMILARITY_THRESHOLD = safe_get_float_env(
+            "MCP_BELIEF_SIMILARITY_THRESHOLD", self.SIMILARITY_THRESHOLD,
+            min_value=0.0, max_value=1.0,
+        )
 
     async def derive_beliefs(self) -> dict:
         """Run belief derivation cycle. Called by scheduler.

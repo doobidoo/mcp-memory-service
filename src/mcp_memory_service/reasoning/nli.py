@@ -21,7 +21,15 @@ from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
-HEURISTIC_MAX_CONFIDENCE = 0.6
+# Highest non-neutral confidence the heuristic backend can ever emit (see
+# _heuristic_classify). Read via NLIClassifier.max_achievable_confidence() to
+# detect a quarantine gate no heuristic contradiction could meet (issue #1216),
+# and kept honest by test_heuristic_ceiling_matches_constant. Was 0.6 and never
+# read anywhere; corrected to the value the code actually returns.
+HEURISTIC_MAX_CONFIDENCE = 0.55
+
+# Flat confidence the LLM/cascade backend assigns to any non-neutral label.
+LLM_NONNEUTRAL_CONFIDENCE = 0.9
 
 # Load patterns from YAML locale files (replaces hardcoded _NEGATION_PAIRS / _VERSION_RE)
 _PATTERNS = load_nli_patterns(tuple(get_active_locales()))
@@ -104,6 +112,22 @@ class NLIClassifier:
             self._warned_unimplemented = True
         return NLIResult(label="neutral", confidence=0.0)
 
+    def max_achievable_confidence(self) -> float:
+        """Highest non-neutral confidence this backend can ever return.
+
+        Lets callers detect a contradiction gate that no result could meet
+        (issue #1216): the default ``heuristic`` backend tops out at
+        ``HEURISTIC_MAX_CONFIDENCE``, below the default 0.7 quarantine gate, so
+        quarantine-on-store is inert unless the gate is lowered or the
+        ``cascade`` backend is configured. An unimplemented backend returns
+        neutral 0.0, so its ceiling is 0.0.
+        """
+        if self.backend == "heuristic":
+            return HEURISTIC_MAX_CONFIDENCE
+        if self.backend in ("cascade", "llm"):
+            return LLM_NONNEUTRAL_CONFIDENCE
+        return 0.0
+
     async def _llm_classify(self, premise: str, hypothesis: str) -> NLIResult:
         """LLM-based NLI via the harvest provider chain (cascade fallback).
 
@@ -147,7 +171,10 @@ class NLIClassifier:
                     self._warn_once(sanitized_reason)
                 # R14: Preserve exact heuristic values
                 return self._heuristic_classify(premise, hypothesis)
-            return NLIResult(label=label, confidence=0.9 if label != "neutral" else 0.3)
+            return NLIResult(
+                label=label,
+                confidence=LLM_NONNEUTRAL_CONFIDENCE if label != "neutral" else 0.3,
+            )
         except Exception as e:
             # R12, R13: Exception triggers bounded warning with sanitization
             if not self._warned_degraded:
@@ -191,7 +218,7 @@ class NLIClassifier:
                 for p_name, p_ver in pv:
                     for h_name, h_ver in hv:
                         if p_name.lower() == h_name.lower() and p_ver != h_ver:
-                            return NLIResult(label="contradiction", confidence=0.55)
+                            return NLIResult(label="contradiction", confidence=HEURISTIC_MAX_CONFIDENCE)
 
         # Check antonym/negation pairs from loaded patterns
         for pat_a, pat_b in _PATTERNS['negation_pairs']:
@@ -204,7 +231,7 @@ class NLIClassifier:
             else:
                 if (pat_a.search(premise) and pat_b.search(hypothesis)) or \
                    (pat_b.search(premise) and pat_a.search(hypothesis)):
-                    return NLIResult(label="contradiction", confidence=0.55)
+                    return NLIResult(label="contradiction", confidence=HEURISTIC_MAX_CONFIDENCE)
 
         return NLIResult(label="neutral", confidence=0.3)
 

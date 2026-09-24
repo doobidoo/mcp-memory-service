@@ -208,7 +208,7 @@ async def test_env_backend_reaches_quarantine_call_site(monkeypatch):
     belief_service.challenge_belief = AsyncMock()
 
     storage = MagicMock()
-    storage.update_memory_metadata = AsyncMock()
+    storage.update_memory_metadata = AsyncMock(return_value=(True, ""))
     storage.search_by_tag = AsyncMock(return_value=[])
 
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
