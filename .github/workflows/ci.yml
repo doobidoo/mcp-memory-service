@@ -270,3 +270,78 @@ jobs:
           -m "not benchmark" \
           --timeout=120 \
           -q
+
+  milvus-tests:
+    runs-on: ubuntu-latest
+    name: Tests with the milvus extra (${{ matrix.leg }})
+    timeout-minutes: 40
+    # The 12 tests/storage/test_milvus*.py files run against Milvus Lite (a
+    # single local file, no server), so they need no Docker at all — but they
+    # importorskip pymilvus and milvus-lite, and MilvusMemoryStorage refuses to
+    # initialize without sentence-transformers. Neither `test` nor
+    # `ml-extras-tests` installs the milvus extra, so on every CI run 10 of the
+    # 12 files skip at collection and the board goes green having exercised no
+    # Milvus code. That is the gap pyproject's pymilvus pin comment points at
+    # (issue #1112): a break in the backend is silent here.
+    #
+    # Two legs. `pinned` installs the extra as declared (pymilvus <3) and is
+    # the gate. `3.x-probe` overrides pymilvus to the 3.x line the pin holds
+    # back and is informational (continue-on-error): it answers "does the
+    # backend already work on 3.x?" on every run, so widening the pin is a
+    # decision made on evidence rather than a guess. Flip the probe to gating
+    # in the same PR that widens the bound.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: pinned
+            pymilvus: ""
+          - leg: 3.x-probe
+            pymilvus: "pymilvus>=3.0.0,<4.0.0"
+    continue-on-error: ${{ matrix.leg == '3.x-probe' }}
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    # CPU wheels only, for the same reason as ml-extras-tests: the default index
+    # serves the CUDA build on Linux. The milvus extra pulls [ml] with it.
+    - name: Install dependencies (with the milvus extra)
+      run: |
+        python3 -m pip install --upgrade pip
+        python3 -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+        python3 -m pip install -e ".[dev,sqlite,milvus]"
+        if [ -n "${{ matrix.pymilvus }}" ]; then
+          python3 -m pip install "${{ matrix.pymilvus }}"
+        fi
+
+    # Same guard as ml-extras-tests: the suite skips at collection when these
+    # imports fail, so a broken extra would give a green job that covers
+    # nothing. Fail loudly instead, and print the versions the leg ran on.
+    - name: Verify the extra is importable
+      run: |
+        python3 -c "import pymilvus, milvus_lite, sentence_transformers; \
+          import importlib.metadata as m; \
+          print('pymilvus', m.version('pymilvus')); \
+          print('milvus-lite', m.version('milvus-lite')); \
+          print('sentence-transformers', m.version('sentence-transformers')); \
+          print('setuptools', m.version('setuptools'))"
+
+    # The Milvus tests force HF offline mode in an autouse fixture, so the
+    # model has to be on disk before pytest starts — pulled in its own step for
+    # the reason ml-extras-tests gives.
+    - name: Warm the embedding model cache
+      run: |
+        python3 -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
+    - name: Run the Milvus suite
+      env:
+        MCP_API_KEY: ""
+        MCP_OAUTH_ENABLED: "false"
+        MCP_ALLOW_ANONYMOUS_ACCESS: "true"
+      # -rs: a skip inside this job is a finding, not noise — print its reason.
+      run: |
+        python3 -m pytest tests/storage/test_milvus*.py \
+          -m "not benchmark" \
+          --timeout=120 \
+          -rs \
+          -q
