@@ -1911,6 +1911,7 @@ class CloudflareStorage(MemoryStorage):
         stale_days: Optional[int] = None,
         include_embeddings: bool = False,
         store: str = "default",
+        agent_id: Optional[str] = None,
     ) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
@@ -1924,6 +1925,11 @@ class CloudflareStorage(MemoryStorage):
         Returns:
             List of Memory objects ordered by created_at DESC, optionally filtered by type and tags
         """
+        if agent_id is not None:
+            raise NotImplementedError(
+                "agent_id filtering is not implemented for the Cloudflare backend "
+                "(sqlite-vec only in this phase). See PR #1297."
+            )
         try:
             # Build SQL query with optional memory_type and tags filters
             sql = "SELECT m.* FROM memories m"
@@ -2250,7 +2256,7 @@ class CloudflareStorage(MemoryStorage):
             logger.error("Error getting memories by time range: %s", _sanitize_log_value(str(e)))
             return []
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: str = "default") -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: str = "default", agent_id: Optional[str] = None) -> int:
         """
         Get total count of memories in storage.
 
@@ -2261,6 +2267,11 @@ class CloudflareStorage(MemoryStorage):
         Returns:
             Total number of memories, optionally filtered by type and/or tags
         """
+        if agent_id is not None:
+            raise NotImplementedError(
+                "agent_id filtering is not implemented for the Cloudflare backend "
+                "(sqlite-vec only in this phase). See PR #1297."
+            )
         try:
             # Build query with filters
             base_sql = "SELECT m.id FROM memories m"

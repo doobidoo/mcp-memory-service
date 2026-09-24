@@ -246,6 +246,32 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 f"e.g. '{{\"{memory_type}\": []}}'."
             )
 
+        # Issue #1216 (1b): a value-swap rescued from dedup rejection and filed as
+        # a contradiction instead of being silently dropped.
+        if result.get("filed_as_contradiction"):
+            message += (
+                "\n⚠️ Filed as a contradiction of an existing near-duplicate and "
+                "quarantined, rather than dropped as a duplicate."
+            )
+        elif result.get("contradiction_filing_failed"):
+            # Stored past dedup, but the quarantine step failed: say so, and
+            # name the memory so it can be quarantined or deleted by hand.
+            failed = result["contradiction_filing_failed"]
+            stored_hash = (result.get("memory") or {}).get("content_hash", "")
+            err = (failed.get("quarantine") or {}).get("message", "unknown error")
+            # The backend error can carry paths / SQL / provider detail: keep it
+            # in the log (sanitized), give the client a stable public message.
+            logger.warning(
+                "Quarantine filing failed for %s (contradicts %s): %s",
+                stored_hash[:8], str(failed.get("contradicts", ""))[:8], _sanitize_log_value(err),
+            )
+            message += (
+                f"\n⚠️ Stored past semantic dedup because it contradicts near-duplicate "
+                f"{failed.get('contradicts', '')[:8]}, but quarantining it FAILED. "
+                f"It is stored and active, not quarantined — quarantine or delete "
+                f"{stored_hash[:8]} manually."
+            )
+
         # Phase 3: NLI contradiction check on store (opt-in, single memories only)
         nli_on_store = os.environ.get("MCP_NLI_ON_STORE", "false").lower() == "true"
         if nli_on_store and result.get("success") and "memory" in result:
@@ -702,6 +728,7 @@ async def handle_memory_list(server, arguments: dict) -> List[types.TextContent]
             tags = normalize_tags(tags)
 
         # Call memory service list_memories
+        agent_id = arguments.get("agent_id")
         result = await server.memory_service.list_memories(
             page=page,
             page_size=page_size,
@@ -710,6 +737,7 @@ async def handle_memory_list(server, arguments: dict) -> List[types.TextContent]
             memory_type=memory_type,
             stale_days=stale_days,
             store=store,
+            agent_id=agent_id,
         )
 
         # Check for errors
@@ -1015,6 +1043,7 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
         # Call unified search_memories method
         query = arguments.get("query")
         limit = arguments.get("limit", 10)
+        agent_id = arguments.get("agent_id")
         result = await storage.search_memories(
             query=query,
             mode=arguments.get("mode", "semantic"),
@@ -1029,6 +1058,7 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             include_superseded=arguments.get("include_superseded", False),
             ranking_weights=arguments.get("ranking_weights"),
             store=store,
+            agent_id=agent_id,
         )
 
         # Check for errors
