@@ -186,6 +186,9 @@ class TestTimeParser:
             (date(2026, 9, 25), "new year", date(2025, 12, 29), date(2026, 1, 4)),
             # Inside the window, the occurrence in progress is the one meant.
             (date(2026, 12, 24), "christmas", date(2026, 12, 22), date(2026, 12, 28)),
+            # New Year switches to the coming occurrence the day its window opens.
+            (date(2026, 12, 28), "new year", date(2025, 12, 29), date(2026, 1, 4)),
+            (date(2026, 12, 29), "new year", date(2026, 12, 29), date(2027, 1, 4)),
             (date(2026, 12, 30), "new year", date(2026, 12, 29), date(2027, 1, 4)),
         ],
     )
