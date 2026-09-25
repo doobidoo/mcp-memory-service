@@ -560,24 +560,24 @@ def get_named_period_range(period_name: str) -> Tuple[Optional[float], Optional[
             month = info["month"]
             day = info["day"]
             window = info.get("window", 1)  # Default 1-day window
-            
-            # Special case for Thanksgiving (fourth Thursday in November)
-            if day == -1 and month == 11:  # Thanksgiving
-                # Find the fourth Thursday in November
-                first_day = date(current_year, 11, 1)
-                # Find first Thursday
-                first_thursday = first_day + timedelta(days=((3 - first_day.weekday()) % 7))
-                # Fourth Thursday is 3 weeks later
-                thanksgiving = first_thursday + timedelta(weeks=3)
-                day = thanksgiving.day
-            
-            # Check if the holiday has passed this year
-            is_past = (current_month > month or 
-                        (current_month == month and current_day > day + window))
-                        
-            year = current_year if not is_past else current_year - 1
-            target_date = date(year, month, day)
-            
+
+            def _holiday_date(year: int) -> date:
+                if day == -1 and month == 11:  # Thanksgiving
+                    # Fourth Thursday in November
+                    first_day = date(year, 11, 1)
+                    first_thursday = first_day + timedelta(days=((3 - first_day.weekday()) % 7))
+                    return first_thursday + timedelta(weeks=3)
+                return date(year, month, day)
+
+            # Use the most recent occurrence whose window has started. One that
+            # is still ahead holds no memories yet. Next year's is checked
+            # first because New Year's window opens in late December.
+            today = date(current_year, current_month, current_day)
+            for year in (current_year + 1, current_year, current_year - 1):
+                target_date = _holiday_date(year)
+                if target_date - timedelta(days=window) <= today:
+                    break
+
             # Create date range with window
             start_date = target_date - timedelta(days=window)
             end_date = target_date + timedelta(days=window)

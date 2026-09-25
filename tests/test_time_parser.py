@@ -173,7 +173,48 @@ class TestTimeParser:
         assert start_dt.month == 12
         assert 22 <= start_dt.day <= 25
         assert 25 <= end_dt.day <= 28
-    
+
+    @pytest.mark.parametrize(
+        ("today", "holiday", "expected_start", "expected_end"),
+        [
+            # Holidays still ahead this year resolve to last year's occurrence.
+            (date(2026, 9, 25), "christmas", date(2025, 12, 22), date(2025, 12, 28)),
+            (date(2026, 9, 25), "halloween", date(2025, 10, 28), date(2025, 11, 3)),
+            (date(2026, 9, 25), "thanksgiving", date(2025, 11, 24), date(2025, 11, 30)),
+            # Holidays already behind us this year resolve to this year's.
+            (date(2026, 9, 25), "valentine", date(2026, 2, 13), date(2026, 2, 15)),
+            (date(2026, 9, 25), "new year", date(2025, 12, 29), date(2026, 1, 4)),
+            # Inside the window, the occurrence in progress is the one meant.
+            (date(2026, 12, 24), "christmas", date(2026, 12, 22), date(2026, 12, 28)),
+            # New Year switches to the coming occurrence the day its window opens.
+            (date(2026, 12, 28), "new year", date(2025, 12, 29), date(2026, 1, 4)),
+            (date(2026, 12, 29), "new year", date(2026, 12, 29), date(2027, 1, 4)),
+            (date(2026, 12, 30), "new year", date(2026, 12, 29), date(2027, 1, 4)),
+        ],
+    )
+    def test_holidays_are_most_recent_occurrences(
+        self, monkeypatch, today, holiday, expected_start, expected_end
+    ):
+        """Test that a holiday never selects a future or year-old occurrence."""
+
+        class FixedDate(date):
+            @classmethod
+            def today(cls):
+                return cls.fromordinal(today.toordinal())
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(today.year, today.month, today.day, 12, tzinfo=tz)
+
+        monkeypatch.setitem(parse_time_expression.__globals__, "date", FixedDate)
+        monkeypatch.setitem(parse_time_expression.__globals__, "datetime", FixedDateTime)
+
+        start_ts, end_ts = parse_time_expression(holiday)
+
+        assert datetime.fromtimestamp(start_ts).date() == expected_start  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == expected_end  # noqa: DTZ006
+
     def test_time_of_day(self):
         """Test time of day parsing"""
         # Test "yesterday morning"
