@@ -20,6 +20,60 @@ logger = logging.getLogger(__name__)
 # depending on a provider-specific tokenizer.
 OPENAI_COMPAT_CONTENT_PREVIEW_CHARS = 2000
 
+_SCORE_NUMBER_PATTERN = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+
+
+def _parse_score_response(response_text: str) -> float:
+    """
+    Parse a quality score from an endpoint response.
+
+    Accepts a bare number, an explicitly labelled score at the end of the
+    response, a number wrapped in a text code fence, or a bare number with
+    trailing punctuation. Raises RuntimeError when no number is found or the
+    salvaged value is outside [0, 1]. Shared by every endpoint scorer so the
+    recovery behavior stays identical across tiers (#1102).
+    """
+    try:
+        return max(0.0, min(1.0, float(response_text)))
+    except ValueError:
+        pass
+
+    # Accept an explicitly labelled score at the end of a response.
+    # Preceding explanatory text is allowed, but the complete numeric
+    # token must be consumed.
+    match = re.search(
+        rf"\bscore\s*:\s*({_SCORE_NUMBER_PATTERN})\s*[.!]?\s*$",
+        response_text,
+        re.IGNORECASE,
+    )
+
+    # Accept a numeric response wrapped in a text code fence.
+    if match is None:
+        match = re.fullmatch(
+            rf"\s*```(?:text)?\s*({_SCORE_NUMBER_PATTERN})\s*```\s*",
+            response_text,
+            re.IGNORECASE,
+        )
+
+    # Accept a bare numeric response with a trailing period.
+    if match is None:
+        match = re.fullmatch(
+            rf"\s*({_SCORE_NUMBER_PATTERN})\s*\.\s*",
+            response_text,
+        )
+
+    if match is None:
+        raise RuntimeError(
+            f"Could not parse score from endpoint response: {response_text!r}"
+        )
+
+    score = float(match.group(1))
+    if not 0.0 <= score <= 1.0:
+        raise RuntimeError(
+            f"Could not parse score from endpoint response: {response_text!r}"
+        )
+    return score
+
 
 class QualityEvaluator:
     """
@@ -426,7 +480,7 @@ class QualityEvaluator:
             payload["max_completion_tokens"] = 800
         else:
             payload["max_tokens"] = 50
-            payload["temperature"] = 0.1
+            payload["temperature"] = 0
 
         client = self._get_httpx_client()
         try:
@@ -450,52 +504,9 @@ class QualityEvaluator:
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(f"Unexpected response shape from endpoint: {data}") from exc
 
-        # Parse float and clamp to [0, 1]
-        try:
-            score = float(response_text)
-            return max(0.0, min(1.0, score))
-        except ValueError as exc:
-            number_pattern = (
-                r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
-            )
-
-            # Accept an explicitly labelled score at the end of a response.
-            # Preceding explanatory text is allowed, but the complete numeric
-            # token must be consumed.
-            match = re.search(
-                rf"\bscore\s*:\s*({number_pattern})\s*[.!]?\s*$",
-                response_text,
-                re.IGNORECASE,
-            )
-
-            # Accept a numeric response wrapped in a text code fence.
-            if match is None:
-                match = re.fullmatch(
-                    rf"\s*```(?:text)?\s*({number_pattern})\s*```\s*",
-                    response_text,
-                    re.IGNORECASE,
-                )
-
-            # Accept a bare numeric response with a trailing period.
-            if match is None:
-                match = re.fullmatch(
-                    rf"\s*({number_pattern})\s*\.\s*",
-                    response_text,
-                )
-
-            if match is None:
-                raise RuntimeError(
-                    f"Could not parse score from openai-compatible response: {response_text!r}"
-                ) from exc
-
-            score = float(match.group(1))
-
-            if not 0.0 <= score <= 1.0:
-                raise RuntimeError(
-                    f"Could not parse score from openai-compatible response: {response_text!r}"
-                ) from exc
-
-            return score
+        # Parse float and clamp to [0, 1]; shared recovery handles labels,
+        # code fences, and trailing punctuation (#1102)
+        return _parse_score_response(response_text)
 
     async def _score_with_groq(self, query: str, memory: Memory) -> float:
         """
@@ -525,7 +536,7 @@ class QualityEvaluator:
                 prompt=prompt,
                 model=model,
                 max_tokens=50,
-                temperature=0.1,
+                temperature=0,
                 system_message="You are a quality scorer. Respond only with a number between 0.0 and 1.0."
             )
 
@@ -537,12 +548,12 @@ class QualityEvaluator:
                     continue
                 raise RuntimeError(f"Groq API error: {error_msg}")
 
-            # Parse score from response
+            # Parse score from response with the same recovery the
+            # openai-compatible tier uses (#1102)
             response_text = result["response"].strip()
             try:
-                score = float(response_text)
-                return max(0.0, min(1.0, score))
-            except ValueError:
+                return _parse_score_response(response_text)
+            except RuntimeError:
                 logger.warning("Could not parse Groq score from %s: %s", _sanitize_log_value(str(model)), _sanitize_log_value(str(response_text)))
                 last_error = f"Invalid score format from {model}: {response_text}"
                 continue
