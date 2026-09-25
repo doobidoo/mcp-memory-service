@@ -50,7 +50,15 @@ VERSION_FILE = "src/mcp_memory_service/_version.py"
 # deletion per fragment accumulated since the last release (#1276). Without this
 # the deletions read as "paths outside the release set" and every release since
 # the fragment workflow landed fails the test-coverage check.
-CHANGELOG_FRAGMENT_RE = re.compile(r"^changelog\.d/[^/]+\.md$")
+#
+# The shape must stay in step with FRAGMENT_RE in collect_changelog.py and in
+# check_changelog_entry.sh: only a name those accept is a fragment the release
+# actually consumed. A looser pattern would let an unrelated markdown file in
+# this directory — changelog.d/README.md, or a doc someone parked there — ride
+# the release allowlist and bypass both gates.
+CHANGELOG_FRAGMENT_RE = re.compile(
+    r"^changelog\.d/[^./]+\.(added|fixed|removed|internal)\.md$"
+)
 
 # A changed line inside _version.py is only allowed to be a __version__
 # assignment, a blank line, or a comment. Anything else (a def, an import, any
@@ -155,8 +163,11 @@ def is_release_bump(diff: str) -> bool:
             continue  # _version.py is always allowed
         elif path in RELEASE_FILES:
             continue  # Release workflow files are allowed
-        elif CHANGELOG_FRAGMENT_RE.match(path):
-            continue  # a changelog.d fragment the release just collected
+        elif CHANGELOG_FRAGMENT_RE.match(path) and path in deleted_files:
+            # A fragment the release just collected. Only a DELETION qualifies:
+            # collecting removes fragments, it never adds or edits one, so an
+            # added or modified fragment is a normal change that needs its gates.
+            continue
         else:
             # Any other file (including other Python files or a deleted file)
             # disqualifies this as release-only.

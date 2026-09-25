@@ -300,6 +300,46 @@ check "deleted file outside changelog.d rejected" 1 '--- a/src/mcp_memory_servic
 -- entry
 '
 
+# Greptile P2: the allowance must match the collector'"'"'s fragment format, not any
+# markdown in the directory. changelog.d/README.md documents the format and is
+# never collected — deleting it alongside a bump is a real change needing gates.
+check "deleted changelog.d README rejected" 1 '--- a/src/mcp_memory_service/_version.py
++++ b/src/mcp_memory_service/_version.py
+@@ -1 +1 @@
+-__version__ = "11.13.0"
++__version__ = "11.14.0"
+--- a/changelog.d/README.md
++++ /dev/null
+@@ -1,1 +0,0 @@
+-# Changelog fragments
+'
+
+# A name the collector would not read is not a fragment either: it would be
+# dropped silently at release time, which is what the gates exist to catch.
+check "deleted changelog.d file with unknown category rejected" 1 '--- a/src/mcp_memory_service/_version.py
++++ b/src/mcp_memory_service/_version.py
+@@ -1 +1 @@
+-__version__ = "11.13.0"
++__version__ = "11.14.0"
+--- a/changelog.d/1305.notacategory.md
++++ /dev/null
+@@ -1,1 +0,0 @@
+-- entry
+'
+
+# Collecting deletes fragments; it never adds one. An ADDED fragment beside a
+# bump is a normal change and must still face the gates.
+check "added changelog fragment rejected" 1 '--- /dev/null
++++ b/changelog.d/1311.fixed.md
+@@ -0,0 +1 @@
++- **Something new.**
+--- a/src/mcp_memory_service/_version.py
++++ b/src/mcp_memory_service/_version.py
+@@ -1 +1 @@
+-__version__ = "11.13.0"
++__version__ = "11.14.0"
+'
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures test(s) failed"
     exit 1
