@@ -86,14 +86,17 @@ def _order_pair(memory, cand_hash: str, candidate: dict) -> tuple:
     return cand_hash, memory.content_hash
 
 
-def _loser_protected(older_hash: str, by_hash: dict) -> bool:
-    # Same protection forgetting and decay apply. A loser missing from the scan
-    # cannot be checked, so it is treated as protected.
-    older = by_hash.get(older_hash)
+async def _loser_protected(older_hash: str, state: dict) -> bool:
+    # Same protection forgetting and decay apply. get_all_memories() can be
+    # capped (Milvus returns the newest 16,384), so a loser missing from the
+    # scan is fetched by hash; one that cannot be found is left alone.
+    older = state["by_hash"].get(older_hash)
+    if older is None:
+        older = await state["storage"].get_by_hash(older_hash)
     return older is None or is_protected_memory(older)
 
 
-def _collect_pairs(memory, similar: list, state: dict, results: dict) -> None:
+async def _collect_pairs(memory, similar: list, state: dict, results: dict) -> None:
     """Append this memory's contradiction pairs, each pair and each loser at most once."""
     losers = state["losers"]
     for cand_hash, similarity, candidate in _band_candidates(memory.content_hash, memory.memory_type, similar):
@@ -106,7 +109,7 @@ def _collect_pairs(memory, similar: list, state: dict, results: dict) -> None:
         # A memory superseded earlier in this run can neither lose again nor win.
         if older_hash in losers or newer_hash in losers:
             continue
-        if _loser_protected(older_hash, state["by_hash"]):
+        if await _loser_protected(older_hash, state):
             results["protected_skipped"] += 1
             continue
         losers.add(older_hash)
@@ -115,6 +118,7 @@ def _collect_pairs(memory, similar: list, state: dict, results: dict) -> None:
 
 async def _scan(storage, memories: list, results: dict) -> list:
     state = {
+        "storage": storage,
         "seen_pairs": set(),
         "losers": set(),
         "pairs": [],
@@ -125,7 +129,7 @@ async def _scan(storage, memories: list, results: dict) -> list:
             continue
         similar = await _search_neighbours(storage, memory.content, results)
         if similar and _finds_itself(memory.content_hash, similar):
-            _collect_pairs(memory, similar, state, results)
+            await _collect_pairs(memory, similar, state, results)
     return state["pairs"]
 
 

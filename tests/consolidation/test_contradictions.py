@@ -220,6 +220,46 @@ class TestDetectContradictions:
 
     @pytest.mark.asyncio
     @patch(f"{_MOD}.CONTRADICTION_ENABLED", True)
+    async def test_older_memory_outside_scan_is_looked_up(self):
+        """get_all_memories() can be capped (Milvus: 16,384 newest). An older
+        memory returned by search but absent from the scan is fetched by hash
+        instead of being skipped."""
+        storage = _spec_storage()
+        storage.get_all_memories = AsyncMock(return_value=[
+            _make_memory("hash_new", "The sky is red", created_at=NEW_T),
+        ])
+        storage.search_memories = AsyncMock(return_value={
+            "memories": [_hit("hash_new", 1.0, NEW_T), _hit("hash_old", 0.6, OLD_T)]
+        })
+        storage.get_by_hash = AsyncMock(return_value=_make_memory("hash_old", "The sky is blue", created_at=OLD_T))
+
+        result = await detect_contradictions(storage, dry_run=False)
+
+        storage.get_by_hash.assert_awaited_once_with("hash_old")
+        storage.mark_superseded_batch.assert_awaited_once_with([("hash_new", "hash_old")])
+        assert result["protected_skipped"] == 0
+
+    @pytest.mark.asyncio
+    @patch(f"{_MOD}.CONTRADICTION_ENABLED", True)
+    async def test_older_memory_outside_scan_still_protected(self):
+        storage = _spec_storage()
+        storage.get_all_memories = AsyncMock(return_value=[
+            _make_memory("hash_new", "The sky is red", created_at=NEW_T),
+        ])
+        storage.search_memories = AsyncMock(return_value={
+            "memories": [_hit("hash_new", 1.0, NEW_T), _hit("hash_old", 0.6, OLD_T)]
+        })
+        storage.get_by_hash = AsyncMock(
+            return_value=_make_memory("hash_old", "The sky is blue", created_at=OLD_T, tags=["reference"])
+        )
+
+        result = await detect_contradictions(storage, dry_run=False)
+
+        assert result["protected_skipped"] == 1
+        storage.mark_superseded_batch.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch(f"{_MOD}.CONTRADICTION_ENABLED", True)
     async def test_failed_edge_write_is_reported(self, mock_storage):
         graph = _spec_graph()
         graph.store_association = AsyncMock(return_value=False)
