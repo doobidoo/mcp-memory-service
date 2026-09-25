@@ -1100,11 +1100,13 @@ class CloudflareStorage(MemoryStorage):
             # Use LIKE for substring matching (D1 SQL is case-insensitive by default)
             sql = """
                 SELECT * FROM memories
-                WHERE content LIKE '%' || ? || '%'
+                WHERE content LIKE '%' || ? || '%' ESCAPE '\\'
                 AND deleted_at IS NULL
                 ORDER BY created_at DESC
             """
-            payload = {"sql": sql, "params": [content]}
+            # Escape LIKE wildcards so the query is matched literally.
+            escaped = content.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            payload = {"sql": sql, "params": [escaped]}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
 

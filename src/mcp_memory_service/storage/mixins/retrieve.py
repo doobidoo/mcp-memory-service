@@ -503,10 +503,10 @@ class RetrieveMixin:
                     SELECT content, tags, memory_type, metadata, content_hash,
                            created_at, created_at_iso, updated_at, updated_at_iso
                     FROM memories
-                    WHERE content LIKE '%' || ? || '%' COLLATE NOCASE
+                    WHERE content LIKE '%' || ? || '%' ESCAPE '\\' COLLATE NOCASE
                     AND deleted_at IS NULL
                     ORDER BY created_at DESC
-                ''', (content,))
+                ''', (_escape_like(content),))
                 return cursor.fetchall()
 
             memories = []
