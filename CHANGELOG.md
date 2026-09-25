@@ -17,6 +17,67 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [11.14.0] - 2026-09-25
+
+### Added
+
+- **Optional `agent_id` author identity on `memory_store` (#1100 Phase 1).** A memory can now carry the id of the agent that wrote it: pass `agent_id` explicitly or set the `MCP_AGENT_ID` env var; it is stored in metadata (no schema change). Absent both, nothing is written (`null` = unknown), so existing behavior is unchanged. `Memory.agent_id` is a metadata-backed property. Groundwork for cross-agent attribution and conflict handling in a shared multi-agent database (Phases 2-3: search filter, NLI cross-agent awareness).
+- **`force_reharvest` on `memory_harvest` bypasses the tracker filter (R8).** A harvest can now re-process sessions already recorded in the harvest tracker — e.g. to re-run sessions whose earlier run stored nothing. Off by default (tracker-respecting, unchanged). The tracker-filter decision is a pure `should_filter_tracker(already_harvested, session_ids, force_reharvest)` helper so the truth table is testable directly.
+- **`agent_id` filter on `memory_search`/`memory_list` + `X-Agent-ID` header on `/mcp` (#1100 Phase 2).**
+  Follow-up to the Phase 1 author-identity work. `memory_search` and `memory_list` gain an optional `agent_id` filter that matches either `metadata.agent_id` (MCP-authored) or the `agent:<id>` tag (Web-API-authored), so attribution written by either transport is filterable through one parameter. The filter is **opt-in**: omitting `agent_id` returns memories from all agents (no per-agent bubble), and `MCP_AGENT_ID` is never inherited into the read path — it only stamps authorship on write. The `/mcp` endpoint now reads an `X-Agent-ID` request header and injects it when a tool call omits an explicit `agent_id`, so multiple agents sharing one server are attributed per-request (explicit arg wins over header). Filtering is implemented for the sqlite-vec backend (used by hybrid); cloudflare/milvus accept the parameter for interface parity, with native filtering left as a follow-up.
+
+### Fixed
+
+- **Log injection guard protection added to `config/base.py`.** Converted f-string logging to `%`-style lazy formatting with `_sanitize_log_value` and added `config/base.py` to `GUARDED_MODULES` in `test_log_injection_guard.py` to prevent log injection vulnerabilities.
+- **Belief quarantine is reachable again: a naturally-phrased value-swap is filed as a contradiction instead of being silently dropped as a duplicate (#1216, massimiliano1991).**
+  Semantic dedup and belief grouping no longer share one threshold — belief grouping reads
+  `MCP_BELIEF_SIMILARITY_THRESHOLD` (default unchanged). When on-store NLI is enabled
+  (`MCP_NLI_ON_STORE=true`), a write rejected as a near-duplicate is re-examined: if it
+  contradicts the memory it collided with, it is stored (bypassing dedup) and quarantined
+  rather than dropped. The quarantine confidence gate is now configurable via
+  `MCP_QUARANTINE_NLI_THRESHOLD` (default 0.7), and a startup warning fires when the gate
+  exceeds the active NLI backend's achievable ceiling — the heuristic tops out at 0.55, so the
+  default config needs `MCP_NLI_BACKEND=cascade` or a lowered gate to quarantine on store.
+  `HEURISTIC_MAX_CONFIDENCE` is corrected to the value the heuristic actually returns and is
+  now read. Both new knobs fall back to their defaults (with an error log) on an invalid
+  value instead of disabling the feature; a rescued value-swap is recorded as contradicting a
+  *memory* (`contradicted_memory`), distinct from belief contradictions; and if the quarantine
+  step fails the store response says so (`contradiction_filing_failed`) instead of reporting
+  the memory filed. Default behaviour is unchanged.
+- **Cloudflare tag-filtered retrieval no longer hides that it hit the Vectorize recall ceiling (#1236, massimiliano1991).**
+  `retrieve()` over-fetches and filters tags client-side, but Vectorize caps the query at 50 neighbours, so a tagged memory beyond the 50th nearest was silently unreachable and a clipped result looked like complete recall. Every result now carries a `debug_info["retrieval"]` block (ceiling, candidates wanted / requested / returned, dropped by the tag filter, truncated to `n_results`, and a `recall_may_be_incomplete` flag), and a WARNING is logged when the page came back full at the ceiling — including the zero-result case, which has no result to carry it.
+- **The scheduled harvest tracker only marks sessions that stored something (R7).** A session harvested with `stored==0` (e.g. the LLM chain was down and every candidate was dropped) was recorded as harvested and skipped forever. `sessions_to_track()` now returns only session ids with `stored>0`, so an empty run leaves the session pending for a later re-harvest.
+- **`get_access_patterns()` now reads `last_accessed` instead of `updated_at_iso`.** Previously, the consolidation decay system used edit timestamps instead of access timestamps to calculate memory access patterns, causing frequently-read but old memories to lose relevance protection. The function now queries `last_accessed` (Unix timestamps) without the artificial LIMIT 100, ensuring all accessed memories contribute to access pattern statistics.
+- **`GET /mcp/health` no longer discloses storage statistics to unauthenticated callers (#1305, GHSA-7w86-2vmv-fqwm, manus-pi).**
+  The MCP transport's health route returned the full `get_stats()` payload — total memory
+  count, unique tag count, recent activity, database size, embedding model and dimension,
+  storage backend class name and tool count — to any anonymous caller, in every
+  authentication mode. `MCP_ALLOW_ANONYMOUS_ACCESS` never applied, because it is evaluated
+  inside the authentication dependency the handler did not declare. GHSA-73hc-m4hx-79pj had
+  already moved this class of data behind `require_read_access` on the REST side, but that
+  fix only touched `health.py` and left the parallel MCP route open. The route stays
+  unauthenticated so liveness probes keep working without credentials; the response is now
+  `{"status": "healthy", "protocol": "mcp"}` and nothing else. Authenticated callers read the
+  statistics from `/api/health/detailed`, unchanged.
+
+### Internal
+
+- **The release-bump exemption knows about changelog fragments now.** `scripts/pr/lib/is_release_bump.py` exempts a release version bump from the quality gate's test-coverage requirement, but it matched against a fixed file list that predates the `changelog.d/` workflow below. Since then every release deletes one fragment per PR merged in the range — 14 of them for this one — and those deletions read as paths outside the release set, so the exemption never applied and the gate reported `No test files added/modified despite 1 code file(s) changed`. A `changelog.d/*.md` path is now part of the release set. The allowance is deliberately narrow: a nested path such as `changelog.d/nested/x.md` is still rejected, as is any other deleted file.
+- **Changelog entries are collected from `changelog.d/` fragments now (#1273).** A `src/` change has to leave `changelog.d/<number>.<category>.md`, checked by a CI job; `scripts/release/collect_changelog.py` merges the fragments into `[Unreleased]` at release time and deletes them. Entries used to go straight into `CHANGELOG.md`, where every open branch edited the same lines — which is why almost nobody added one: 1 of the 19 pull requests between v11.12.0 and v11.13.0 left an entry, and the other 18 were reconstructed from commit messages days later. Release version bumps and Dependabot are exempt, and the `skip-changelog` label covers the rest.
+- **The tombstone review rule no longer exempts whole functions (#1277).** `greptile.json` said the exception covered the tombstone operations "and their callers", which takes a mixed-purpose function out of scope entirely: `HybridMemoryStorage._sync_memories_from_cloudflare()` calls `is_deleted()` to skip a locally deleted memory and, in the same loop, `get_by_hash()`, which must keep filtering. The exception is now the individual call.
+- **Home Assistant setup is documented (#1282, closes #1281).**
+  Generic MCP clients such as Home Assistant only offer an OAuth prompt, so users patched the
+  authentication out of the source to connect. `docs/integration/home-assistant.md` now covers
+  `MCP_ALLOW_ANONYMOUS_ACCESS=true` with OAuth and the API key unset, the stale `Authorization`
+  header that still returns 401, and the LAN-only warning, and the README links to it.
+- **Consolidation loaded the access time of every memory ever accessed, on every run (#1291, massimiliano1991; closes #1289).**
+  `get_access_patterns()` returned the whole ever-accessed population although the decay and
+  forgetting phases only look up hashes in the current batch. It now takes an optional
+  `content_hashes` window on sqlite-vec, milvus and hybrid (`None` keeps the previous behaviour,
+  an empty window returns nothing), and the consolidator passes its candidate window down,
+  calling backends that predate the parameter with no arguments.
+- **Log-injection hygiene in `storage/milvus.py` (#1298, massimiliano1991).** The 53 `%`-style logger calls the lazy scan flagged now wrap outside data in `_sanitize_log_value`, and the module joins `GUARDED_MODULES` so the three scans enforce it. Message text unchanged.
+
 ## [11.13.0] - 2026-09-19
 
 Nineteen merged pull requests in the five days after v11.12.0, most of them from outside the maintainer. Thanks to filhocf, massimiliano1991, VijaySreekar, tomatotomata and ZGN827.

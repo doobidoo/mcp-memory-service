@@ -70,7 +70,7 @@ def _find_and_load_dotenv():
 
 _loaded_env_file = _find_and_load_dotenv()
 if _loaded_env_file:
-    logging.getLogger(__name__).info(f"Loaded environment from {_loaded_env_file}")
+    logging.getLogger(__name__).info("Loaded environment from %s", _sanitize_log_value(_loaded_env_file))
 
 logger = logging.getLogger(__name__)
 
@@ -100,18 +100,18 @@ def safe_get_int_env(env_var: str, default: int, min_value: int = None, max_valu
 
         # Validate range if specified
         if min_value is not None and value < min_value:
-            logger.error(f"Environment variable {env_var}={value} is below minimum {min_value}, using default {default}")
+            logger.error("Environment variable %s=%s is below minimum %s, using default %s", env_var, value, min_value, default)
             return default
 
         if max_value is not None and value > max_value:
-            logger.error(f"Environment variable {env_var}={value} is above maximum {max_value}, using default {default}")
+            logger.error("Environment variable %s=%s is above maximum %s, using default %s", env_var, value, max_value, default)
             return default
 
-        logger.debug(f"Environment variable {env_var}={value} parsed successfully")
+        logger.debug("Environment variable %s=%s parsed successfully", env_var, value)
         return value
 
     except ValueError as e:
-        logger.error(f"Invalid integer value for {env_var}='{env_value}': {e}. Using default {default}")
+        logger.error("Invalid integer value for %s='%s': %s. Using default %s", env_var, _sanitize_log_value(env_value), _sanitize_log_value(str(e)), default)
         return default
 
 def safe_get_float_env(env_var: str, default: float, min_value: float = None, max_value: float = None) -> float:
@@ -140,23 +140,24 @@ def safe_get_float_env(env_var: str, default: float, min_value: float = None, ma
         value = float(env_value)
 
         if not math.isfinite(value):
-            logger.error(f"Environment variable {env_var}={_sanitize_log_value(env_value)} is not a finite number, using default {default}")
+            logger.error("Environment variable %s=%s is not a finite number, using default %s", env_var, _sanitize_log_value(env_value), default)
             return default
 
         if min_value is not None and value < min_value:
-            logger.error(f"Environment variable {env_var}={value} is below minimum {min_value}, using default {default}")
+            logger.error("Environment variable %s=%s is below minimum %s, using default %s", env_var, value, min_value, default)
             return default
 
         if max_value is not None and value > max_value:
-            logger.error(f"Environment variable {env_var}={value} is above maximum {max_value}, using default {default}")
+            logger.error("Environment variable %s=%s is above maximum %s, using default %s", env_var, value, max_value, default)
             return default
 
-        logger.debug(f"Environment variable {env_var}={value} parsed successfully")
+        logger.debug("Environment variable %s=%s parsed successfully", env_var, value)
         return value
 
     except ValueError as e:
-        logger.error(f"Invalid float value for {env_var}='{_sanitize_log_value(env_value)}': {_sanitize_log_value(str(e))}. Using default {default}")
+        logger.error("Invalid float value for %s='%s': %s. Using default %s", env_var, _sanitize_log_value(env_value), _sanitize_log_value(str(e)), default)
         return default
+
 
 
 def safe_get_optional_int_env(env_var: str, default: Optional[int] = None, min_value: int = None, max_value: int = None, none_values: tuple = ('none', 'null', 'unlimited', '')) -> Optional[int]:
@@ -186,17 +187,17 @@ def safe_get_optional_int_env(env_var: str, default: Optional[int] = None, min_v
 
         # Validate range if specified
         if min_value is not None and value < min_value:
-            logger.warning(f"Environment variable {env_var}={value} is below minimum {min_value}. Using default {default}")
+            logger.warning("Environment variable %s=%s is below minimum %s. Using default %s", env_var, value, min_value, default)
             return default
 
         if max_value is not None and value > max_value:
-            logger.warning(f"Environment variable {env_var}={value} is above maximum {max_value}. Using default {default}")
+            logger.warning("Environment variable %s=%s is above maximum %s. Using default %s", env_var, value, max_value, default)
             return default
 
         return value
 
     except ValueError:
-        logger.warning(f"Invalid value for {env_var}='{env_value}'. Expected integer or {'/'.join(none_values)}. Using default {default}")
+        logger.warning("Invalid value for %s='%s'. Expected integer or %s. Using default %s", env_var, _sanitize_log_value(env_value), '/'.join(none_values), default)
         return default
 
 def safe_get_bool_env(env_var: str, default: bool) -> bool:
@@ -221,7 +222,7 @@ def safe_get_bool_env(env_var: str, default: bool) -> bool:
     elif env_value_lower in ('false', '0', 'no', 'off', 'disabled'):
         return False
     else:
-        logger.error(f"Invalid boolean value for {env_var}='{env_value}'. Expected true/false, 1/0, yes/no, on/off, enabled/disabled. Using default {default}")
+        logger.error("Invalid boolean value for %s='%s'. Expected true/false, 1/0, yes/no, on/off, enabled/disabled. Using default %s", env_var, _sanitize_log_value(env_value), default)
         return default
 
 def validate_and_create_path(path: str) -> str:
@@ -235,14 +236,14 @@ def validate_and_create_path(path: str) -> str:
     try:
         # Convert to absolute path and expand user directory if present (e.g. ~)
         abs_path = os.path.abspath(os.path.expanduser(path))
-        logger.debug(f"Validating path: {abs_path}")
+        logger.debug("Validating path: %s", _sanitize_log_value(abs_path))
         
         # Create directory and all parents if they don't exist
         try:
             os.makedirs(abs_path, exist_ok=True)
-            logger.debug(f"Created directory (or already exists): {abs_path}")
+            logger.debug("Created directory (or already exists): %s", _sanitize_log_value(abs_path))
         except Exception as e:
-            logger.error(f"Error creating directory {abs_path}: {str(e)}")
+            logger.error("Error creating directory %s: %s", _sanitize_log_value(abs_path), _sanitize_log_value(str(e)))
             raise PermissionError(f"Cannot create directory {abs_path}: {str(e)}")
             
         # Add small delay to prevent potential race conditions on macOS during initial write test
@@ -250,11 +251,11 @@ def validate_and_create_path(path: str) -> str:
         
         # Verify that the path exists and is a directory
         if not os.path.exists(abs_path):
-            logger.error(f"Path does not exist after creation attempt: {abs_path}")
+            logger.error("Path does not exist after creation attempt: %s", _sanitize_log_value(abs_path))
             raise PermissionError(f"Path does not exist: {abs_path}")
         
         if not os.path.isdir(abs_path):
-            logger.error(f"Path is not a directory: {abs_path}")
+            logger.error("Path is not a directory: %s", _sanitize_log_value(abs_path))
             raise PermissionError(f"Path is not a directory: {abs_path}")
         
         # Write test with retry mechanism
@@ -264,31 +265,32 @@ def validate_and_create_path(path: str) -> str:
         
         for attempt in range(max_retries):
             try:
-                logger.debug(f"Testing write permissions (attempt {attempt+1}/{max_retries}): {test_file}")
+                logger.debug("Testing write permissions (attempt %d/%d): %s", attempt + 1, max_retries, _sanitize_log_value(test_file))
                 with open(test_file, 'w') as f:
                     f.write('test')
                 
                 if os.path.exists(test_file):
-                    logger.debug(f"Successfully wrote test file: {test_file}")
+                    logger.debug("Successfully wrote test file: %s", _sanitize_log_value(test_file))
                     os.remove(test_file)
-                    logger.debug(f"Successfully removed test file: {test_file}")
-                    logger.info(f"Directory {abs_path} is writable.")
+                    logger.debug("Successfully removed test file: %s", _sanitize_log_value(test_file))
+                    logger.info("Directory %s is writable.", _sanitize_log_value(abs_path))
                     return abs_path
                 else:
-                    logger.warning(f"Test file was not created: {test_file}")
+                    logger.warning("Test file was not created: %s", _sanitize_log_value(test_file))
             except Exception as e:
-                logger.warning(f"Error during write test (attempt {attempt+1}/{max_retries}): {str(e)}")
+                logger.warning("Error during write test (attempt %d/%d): %s", attempt + 1, max_retries, _sanitize_log_value(str(e)))
                 if attempt < max_retries - 1:
-                    logger.debug(f"Retrying after {retry_delay}s...")
+                    logger.debug("Retrying after %ss...", retry_delay)
                     time.sleep(retry_delay)
                 else:
-                    logger.error(f"All write test attempts failed for {abs_path}")
+                    logger.error("All write test attempts failed for %s", _sanitize_log_value(abs_path))
                     raise PermissionError(f"Directory {abs_path} is not writable: {str(e)}")
         
         return abs_path
     except Exception as e:
-        logger.error(f"Error validating path {path}: {str(e)}")
+        logger.error("Error validating path %s: %s", _sanitize_log_value(path), _sanitize_log_value(str(e)))
         raise
+
 
 # Determine base directory - prefer local over Cloud
 def get_base_directory() -> str:
@@ -317,21 +319,21 @@ try:
     for env_var in ['MCP_MEMORY_BACKUPS_PATH', 'mcpMemoryBackupsPath']:
         if path := os.getenv(env_var):
             backups_path = path
-            logger.info(f"Using {env_var}={path} for backups path")
+            logger.info("Using %s=%s for backups path", env_var, _sanitize_log_value(path))
             break
     
     # If no environment variable is set, use the default path
     if not backups_path:
         backups_path = os.path.join(BASE_DIR, 'backups')
-        logger.info(f"No backups path environment variable found, using default: {backups_path}")
+        logger.info("No backups path environment variable found, using default: %s", _sanitize_log_value(backups_path))
 
     BACKUPS_PATH = validate_and_create_path(backups_path)
 
     # Print the final paths used
-    logger.info(f"Using backups path: {BACKUPS_PATH}")
+    logger.info("Using backups path: %s", _sanitize_log_value(BACKUPS_PATH))
 
 except Exception as e:
-    logger.error(f"Fatal error initializing paths: {str(e)}")
+    logger.error("Fatal error initializing paths: %s", _sanitize_log_value(str(e)))
     sys.exit(1)
 
 # Server settings
@@ -360,7 +362,7 @@ if STORAGE_BACKEND == 'sqlite-vec':
 
 # Validate backend selection
 if STORAGE_BACKEND not in SUPPORTED_BACKENDS:
-    logger.warning(f"Unknown storage backend: {STORAGE_BACKEND}, falling back to sqlite_vec")
+    logger.warning("Unknown storage backend: %s, falling back to sqlite_vec", _sanitize_log_value(STORAGE_BACKEND))
     STORAGE_BACKEND = 'sqlite_vec'
 
-logger.info(f"Using storage backend: {STORAGE_BACKEND}")
+logger.info("Using storage backend: %s", _sanitize_log_value(STORAGE_BACKEND))
