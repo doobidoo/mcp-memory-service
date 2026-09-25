@@ -15,6 +15,8 @@ CONTENTS = [
     "the userXid column is gone",
     "coverage is at 100% now",
     "coverage passed 1000 lines",
+    r"backup written to C:\new_dir",
+    r"backup written to C:\newXdir",
 ]
 
 
@@ -36,8 +38,12 @@ async def test_sqlite_vec_exact_search_treats_wildcards_literally(temp_db_path):
 
         assert await exact("user_id") == ["renamed the column to user_id"]
         assert await exact("100%") == ["coverage is at 100% now"]
-        assert await exact("_") == ["renamed the column to user_id"]
+        assert await exact("_") == [
+            r"backup written to C:\new_dir",
+            "renamed the column to user_id",
+        ]
         assert await exact("%") == ["coverage is at 100% now"]
+        assert await exact(r"C:\new_") == [r"backup written to C:\new_dir"]
     finally:
         await storage.close()
 
@@ -77,4 +83,8 @@ async def test_cloudflare_exact_search_treats_wildcards_literally():
 
     assert await exact("user_id") == ["renamed the column to user_id"]
     assert await exact("100%") == ["coverage is at 100% now"]
-    assert await exact("_") == ["renamed the column to user_id"]
+    assert await exact("_") == [
+        r"backup written to C:\new_dir",
+        "renamed the column to user_id",
+    ]
+    assert await exact(r"C:\new_") == [r"backup written to C:\new_dir"]
