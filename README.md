@@ -511,20 +511,22 @@ MCP Memory Service is **fully compatible** with the [SHODH Unified Memory API Sp
 
 ---
 
-## Latest Release: **v11.13.0** (September 19, 2026)
+## Latest Release: **v11.14.0** (September 25, 2026)
 
-**MINOR: harvest provenance and a pre-deletion coverage check, plus three storage fixes that only showed up at scale — 19 merged pull requests**
+**MINOR: memories can name the agent that wrote them, an unauthenticated endpoint stopped handing out storage statistics, and consolidation reads the timestamps it was always meant to read — 21 merged pull requests**
 
 **What's New:**
-- **Harvested memories say where they came from** (#1243). A `harvest:method:llm` or `harvest:method:heuristic` tag plus model and pipeline version in metadata, on the store path and the evolve path alike.
-- **`verify_session_coverage` before you delete a transcript** (#1252). Re-harvests the file in memory, compares against what is stored, and answers `safe_to_delete` with the insights it could not find.
-- **Three storage fixes that pass at small sizes and fail at real ones.** Tag-filtered retrieval raised a 4xx on Cloudflare above 16 results because `topK` used the sqlite-vec ceiling (#1259); hybrid pull sync read equal counts as "in sync" and left divergent stores that way (#1255); `get_by_hash` resurfaced soft-deleted rows on Milvus (#1262) and Cloudflare (#1255).
-- **A degraded NLI run is visible now** (#1265). The cascade reuses the harvest provider chain, skips the request when nothing is configured, and warns once per run instead of falling back silently.
-- **A wrong-but-plausible env var no longer moves your database in silence** (#1253). Setting something like `MCP_MEMORY_DB_PATH` was ignored without a word and the service fell back to the default path; it now warns once, naming the variable it saw and the one it wanted.
+- **A memory can record which agent wrote it** (#1278). Pass `agent_id` or set `MCP_AGENT_ID` and it lands in metadata with no schema change; absent both, nothing is written, so existing behaviour is unchanged.
+- **…and you can filter on it** (#1297). `memory_search` and `memory_list` take an `agent_id` that matches attribution from either transport, and `/mcp` reads an `X-Agent-ID` header so several agents sharing one server are attributed per request. Opt-in: omit it and you see every agent's memories.
+- **`GET /mcp/health` no longer discloses storage statistics to unauthenticated callers** (GHSA-7w86-2vmv-fqwm, #1305). It returned memory count, database size, embedding model and backend class to anyone who could reach the port. The route stays unauthenticated so liveness probes keep working; the statistics are gone. Authenticated callers read them from `/api/health/detailed`.
+- **Consolidation decay reads access time, not edit time** (#1288, #1291). A memory read constantly but never edited was losing its relevance protection, and `get_access_patterns()` dropped the `LIMIT 100` that quietly truncated the statistics — while no longer loading every memory ever accessed on each run.
+- **Belief quarantine is reachable again** (#1216). A naturally-phrased value swap is filed as a contradiction instead of being dropped as a near-duplicate.
+- **`force_reharvest` on `memory_harvest`** (#1283). Re-process sessions already in the harvest tracker, e.g. ones whose earlier run stored nothing. Off by default.
 
-**Upgrade notes:** none. No configuration or behaviour changes are required to move from v11.12.0.
+**Upgrade notes:** none. No configuration or behaviour changes are required to move from v11.13.0. If anything monitored `GET /mcp/health` for its `statistics` block, point it at `/api/health/detailed` with credentials, or at `/api/health` for liveness.
 
 **Previous Releases** (v11 series — full history for all earlier versions in [CHANGELOG.md](CHANGELOG.md)):
+- **v11.13.0** - MINOR: harvest provenance and a pre-deletion coverage check, plus three storage fixes that only showed up at scale (#1243, #1252, #1259, #1255, #1262) (September 19, 2026)
 - **v11.12.0** - MINOR: the first release since development moved back to GitHub — 73 merged pull requests, 43 of them from outside the maintainer; eligibility filters ahead of the nearest-neighbour limit, consolidation over-deletion, host-local time ranges (#1128, #1180, #1157) (September 14, 2026)
 - **v11.11.0** - MINOR: three critical advisories closed (remote transports served filesystem tools, SSE had no authentication, open DCR handed out read-write tokens), and development moved back to GitHub (September 5, 2026)
 - **v11.10.0** - MINOR: clustering fails loudly instead of silently degrading without scikit-learn, a consolidation time-horizon fix, three hook fixes (#329, #325, #321, #323, #330) (August 28, 2026)
