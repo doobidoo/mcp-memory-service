@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v11.13.0</title>
+<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v11.14.0</title>
 <meta name="description" content="Memory layer for AI agents. REST API + MCP + OAuth + CLI + dashboard — one self-hosted service, every transport. 14+ client integrations, knowledge graph, automatic consolidation. LongMemEval R@5 86%, session ingestion, zero cloud cost.">
-<meta property="og:title" content="MCP Memory Service v11.13.0">
+<meta property="og:title" content="MCP Memory Service v11.14.0">
 <meta property="og:description" content="Self-hosted AI memory — REST, MCP, OAuth 2.1, CLI, dashboard. Semantic search, knowledge graph, automatic consolidation. LongMemEval R@5 86%, zero cloud cost.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://mcpmemory.services/">
@@ -125,7 +125,7 @@ footer a{color:var(--cyan)}
 <!-- Hero -->
 <header class="hero">
   <img src="brain-icon.png" alt="Memory for AI Agents" class="hero-logo">
-  <span class="hero-badge">mcp-memory-service v11.13 &mdash; Now Available</span>
+  <span class="hero-badge">mcp-memory-service v11.14 &mdash; Now Available</span>
   <h1>Memory for AI Agents</h1>
   <p>Persistent memory for AI agents &mdash; REST API, MCP, OAuth, CLI, dashboard. Semantic search, knowledge graph, automatic consolidation. One self-hosted service, every transport.</p>
   <div class="hero-buttons">
@@ -165,23 +165,23 @@ footer a{color:var(--cyan)}
 <!-- Features -->
 <section id="features">
   <div class="container">
-    <h2 class="section-title">What's New in v11.13</h2>
-    <p class="section-subtitle">MINOR release: 19 merged pull requests, most of them from outside the maintainer. Harvested memories now record where they came from, and three storage bugs that only surface at real sizes are closed. ~3,360 tests.</p>
+    <h2 class="section-title">What's New in v11.14</h2>
+    <p class="section-subtitle">MINOR release: 21 merged pull requests, most of them from outside the maintainer. Memories can now record which agent wrote them, an unauthenticated endpoint stopped handing out storage statistics, and consolidation reads the timestamps it was always meant to read. 3,438 tests.</p>
     <div class="features-grid">
       <div class="feature-card" data-delay="0">
         <div class="feature-icon consolidation">&#128269;</div>
-        <h3>Harvested Memories Carry Their Provenance</h3>
-        <p>An insight now records how it was produced: a harvest:method:llm or harvest:method:heuristic tag, plus the model, the pipeline version and the session id in metadata, on the store path and the evolve path alike. verify_session_coverage builds on it — before you delete a source transcript, it re-harvests the file in memory, compares each insight against what is stored, and answers safe_to_delete with the ones it could not find. (#1243, #1252)</p>
+        <h3>Memories Can Name the Agent That Wrote Them</h3>
+        <p>A memory can now carry the id of the agent that stored it: pass agent_id or set MCP_AGENT_ID, and it lands in metadata with no schema change. Phase 2 makes it readable — memory_search and memory_list gain an agent_id filter that matches attribution written by either transport, and the /mcp endpoint reads an X-Agent-ID header so several agents sharing one server are attributed per request. The filter is opt-in: omit it and you see every agent's memories, because a per-agent bubble is the wrong default. (#1278, #1297)</p>
       </div>
       <div class="feature-card" data-delay="150">
         <div class="feature-icon privacy">&#129520;</div>
-        <h3>Three Storage Bugs That Pass at Small Sizes</h3>
-        <p>Tag-filtered retrieval on Cloudflare borrowed the sqlite-vec KNN ceiling for topK, so any request above 16 results hit Vectorize's metadata cap and raised a 4xx instead of returning. Hybrid pull sync compared counts rather than diffing hashes, so two divergent stores of equal size were reported in sync. And get_by_hash still returned soft-deleted rows on Milvus and Cloudflare, so a re-store saw a tombstone as a live duplicate. (#1259, #1255, #1262)</p>
+        <h3>A Health Endpoint That Answered Too Much</h3>
+        <p>GET /mcp/health returned the full storage statistics to any caller with no credentials — memory count, database size, embedding model, backend class. An earlier advisory had already established that this data needs an identity and moved it behind authentication on the REST side, but that fix only touched one file and left the parallel MCP route open. The route stays unauthenticated so liveness probes keep working; the statistics are gone. (GHSA-7w86-2vmv-fqwm, #1305)</p>
       </div>
       <div class="feature-card" data-delay="300">
         <div class="feature-icon http">&#127760;</div>
-        <h3>Silent Failures Made Audible</h3>
-        <p>The NLI cascade reuses the harvest provider chain, skips the request entirely when no provider is configured, and emits one bounded warning per run instead of degrading to the heuristic without a word. Configuration got the same treatment: an unrecognized path variable such as MCP_MEMORY_DB_PATH was ignored in silence while the database landed on the default path, and now warns once, naming the variable it saw and the one it wanted. (#1265, #1253)</p>
+        <h3>Consolidation Reads the Right Clock</h3>
+        <p>The decay system measured relevance with edit timestamps instead of access timestamps, so a memory read constantly but never edited slowly lost its protection; get_access_patterns now queries last_accessed, and without the LIMIT 100 that quietly truncated the statistics. It also stopped loading the access time of every memory ever accessed on every run. Separately, belief quarantine is reachable again: a value-swap phrased naturally is filed as a contradiction rather than dropped as a near-duplicate. (#1288, #1291, #1216)</p>
       </div>
     </div>
   </div>
@@ -298,7 +298,7 @@ footer a{color:var(--cyan)}
       <a href="blog/remote-mcp-tutorial.html" class="btn btn-secondary">
         Blog: 5-Min claude.ai Setup
       </a>
-      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v11.13.0" class="btn btn-secondary" target="_blank">
+      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v11.14.0" class="btn btn-secondary" target="_blank">
         Release Notes
       </a>
     </div>

@@ -19,10 +19,11 @@ updates:
       # The upper bounds on these two are load-bearing, not stale hygiene, and a
       # group bump rewrites the constraint in pyproject.toml rather than
       # respecting it. mcp 2.x drops `mcp.shared.session`, which breaks import
-      # of tests/unit/test_lm_studio_compat.py outright; pymilvus 3.x has no CI
-      # coverage here since the Milvus job was dropped, so a break would be
-      # silent (issue #261). Both were widened by accident once before (#976)
-      # and again in #1086. Lift an entry only together with its pyproject bound.
+      # of tests/unit/test_lm_studio_compat.py outright; pymilvus 3.x is only
+      # covered by the informational `3.x-probe` leg of the milvus-tests job in
+      # ci.yml, so a widened pin would not be caught (issue #1112). Both were
+      # widened by accident once before (#976) and again in #1086. Lift an entry
+      # only together with its pyproject bound.
       - dependency-name: "mcp"
         update-types: ["version-update:semver-major"]
       - dependency-name: "pymilvus"
