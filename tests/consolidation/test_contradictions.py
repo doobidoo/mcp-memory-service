@@ -30,7 +30,7 @@ from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 _MOD = "mcp_memory_service.consolidation.contradictions"
 
 
-def _make_memory(content_hash, content, memory_type="observation", created_at=None, metadata=None):
+def _make_memory(content_hash, content, memory_type="observation", created_at=None, metadata=None, tags=None):
     """Create a mock Memory dataclass instance."""
     m = MagicMock()
     m.content_hash = content_hash
@@ -38,6 +38,7 @@ def _make_memory(content_hash, content, memory_type="observation", created_at=No
     m.memory_type = memory_type
     m.created_at = created_at or 0.0
     m.metadata = metadata or {}
+    m.tags = tags or []
     return m
 
 
@@ -179,6 +180,7 @@ class TestDetectContradictions:
         storage.get_all_memories = AsyncMock(return_value=[
             _make_memory("hash_b", "B", created_at=NEW_T),
             _make_memory("hash_d", "D", created_at=OLD_T - 1000),
+            _make_memory("hash_a", "A", created_at=OLD_T),
         ])
 
         async def _search(query, limit):
@@ -190,6 +192,40 @@ class TestDetectContradictions:
         result = await detect_contradictions(storage, dry_run=False)
         assert result["pairs_detected"] == 1
         storage.mark_superseded_batch.assert_awaited_once_with([("hash_b", "hash_a")])
+
+    @pytest.mark.asyncio
+    @patch(f"{_MOD}.CONTRADICTION_ENABLED", True)
+    @pytest.mark.parametrize("tag", ["critical", "important", "reference", "permanent"])
+    async def test_protected_older_memory_is_never_superseded(self, mock_storage, tag):
+        """Same protection forgetting and decay apply (consolidation/base.py)."""
+        mock_storage.get_all_memories = AsyncMock(return_value=[
+            _make_memory("hash_old", "The sky is blue", "observation", created_at=OLD_T, tags=[tag]),
+            _make_memory("hash_new", "The sky is red", "observation", created_at=NEW_T),
+        ])
+        result = await detect_contradictions(mock_storage, dry_run=False, graph=_spec_graph())
+        assert result["pairs_detected"] == 0
+        assert result["protected_skipped"] == 1
+        mock_storage.mark_superseded_batch.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch(f"{_MOD}.CONTRADICTION_ENABLED", True)
+    async def test_protected_newer_memory_can_still_supersede(self, mock_storage):
+        mock_storage.get_all_memories = AsyncMock(return_value=[
+            _make_memory("hash_old", "The sky is blue", "observation", created_at=OLD_T),
+            _make_memory("hash_new", "The sky is red", "observation", created_at=NEW_T, tags=["important"]),
+        ])
+        result = await detect_contradictions(mock_storage, dry_run=False, graph=_spec_graph())
+        assert result["superseded_marked"] == 1
+        mock_storage.mark_superseded_batch.assert_awaited_once_with([("hash_new", "hash_old")])
+
+    @pytest.mark.asyncio
+    @patch(f"{_MOD}.CONTRADICTION_ENABLED", True)
+    async def test_failed_edge_write_is_reported(self, mock_storage):
+        graph = _spec_graph()
+        graph.store_association = AsyncMock(return_value=False)
+        result = await detect_contradictions(mock_storage, dry_run=False, graph=graph)
+        assert result["edges_created"] == 0
+        assert result["edge_failures"] == 1
 
     @pytest.mark.asyncio
     @patch(f"{_MOD}.CONTRADICTION_ENABLED", True)
@@ -237,6 +273,7 @@ class TestCheckContradictionOnStore:
         storage.search_memories = AsyncMock(return_value={
             "memories": [_hit("existing_hash", 0.55, OLD_T)]
         })
+        storage.get_by_hash = AsyncMock(return_value=_make_memory("existing_hash", "old"))
         graph = _spec_graph()
 
         result = await check_contradiction_on_store(
@@ -247,6 +284,20 @@ class TestCheckContradictionOnStore:
         storage.mark_superseded_batch.assert_awaited_once_with([("new_hash", "existing_hash")])
         graph.store_association.assert_awaited_once()
         assert graph.store_association.call_args.kwargs["relationship_type"] == "contradicts"
+
+    @pytest.mark.asyncio
+    @patch(f"{_MOD}.CONTRADICTION_ON_STORE", True)
+    async def test_protected_existing_memory_is_not_superseded(self):
+        storage = _spec_storage()
+        storage.search_memories = AsyncMock(return_value={
+            "memories": [_hit("existing_hash", 0.55, OLD_T)]
+        })
+        storage.get_by_hash = AsyncMock(
+            return_value=_make_memory("existing_hash", "old", tags=["critical"])
+        )
+        result = await check_contradiction_on_store(storage, "new", "new_hash", graph=_spec_graph())
+        assert result is None
+        storage.mark_superseded_batch.assert_not_called()
 
     @pytest.mark.asyncio
     @patch(f"{_MOD}.CONTRADICTION_ON_STORE", False)
@@ -328,6 +379,26 @@ class TestAgainstRealStorage:
 
         rel_types = await graph.get_relationship_types(older.content_hash)
         assert rel_types.get("contradicts", 0) >= 1
+
+    @pytest.mark.asyncio
+    @patch(f"{_MOD}.CONTRADICTION_ENABLED", True)
+    @patch(f"{_MOD}.SIMILARITY_MIN", 0.0)
+    @patch(f"{_MOD}.SIMILARITY_MAX", 0.99)
+    async def test_protected_older_memory_stays_visible(self, real_storage):
+        storage, graph = real_storage
+        older = _real_memory("The production memory backend is sqlite_vec.", OLD_T)
+        older.tags = ["__test__", "important"]
+        newer = _real_memory("The production memory backend is now Milvus.", NEW_T)
+        for m in (older, newer):
+            ok, msg = await storage.store(m)
+            assert ok, msg
+
+        result = await detect_contradictions(storage, dry_run=False, graph=graph)
+
+        assert result["pairs_detected"] == 0
+        assert result["protected_skipped"] == 1
+        default = await storage.search_memories(query="production memory backend", limit=10)
+        assert older.content_hash in {m["content_hash"] for m in default["memories"]}
 
     @pytest.mark.asyncio
     @patch(f"{_MOD}.CONTRADICTION_ENABLED", True)

@@ -11,6 +11,8 @@ Integration: maintain Step 7 + opt-in MCP_CONTRADICTION_ON_STORE=true.
 import logging
 import os
 
+from .base import is_protected_memory
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,37 +79,54 @@ def _finds_itself(content_hash: str, similar: list) -> bool:
     return any(c.get("content_hash") == content_hash for c in similar)
 
 
-def _collect_pairs(memory, similar: list, seen_pairs: set, losers: set, pairs: list) -> None:
+def _order_pair(memory, cand_hash: str, candidate: dict) -> tuple:
+    """Return (older_hash, newer_hash) by created_at float timestamp."""
+    if (memory.created_at or 0) < (candidate.get("created_at") or 0):
+        return memory.content_hash, cand_hash
+    return cand_hash, memory.content_hash
+
+
+def _loser_protected(older_hash: str, by_hash: dict) -> bool:
+    # Same protection forgetting and decay apply. A loser missing from the scan
+    # cannot be checked, so it is treated as protected.
+    older = by_hash.get(older_hash)
+    return older is None or is_protected_memory(older)
+
+
+def _collect_pairs(memory, similar: list, state: dict, results: dict) -> None:
     """Append this memory's contradiction pairs, each pair and each loser at most once."""
+    losers = state["losers"]
     for cand_hash, similarity, candidate in _band_candidates(memory.content_hash, memory.memory_type, similar):
         key = frozenset((memory.content_hash, cand_hash))
-        if key in seen_pairs:
+        if key in state["seen_pairs"]:
             continue
-        seen_pairs.add(key)
+        state["seen_pairs"].add(key)
 
-        # Determine which is older (by created_at float timestamp)
-        if (memory.created_at or 0) < (candidate.get("created_at") or 0):
-            older_hash, newer_hash = memory.content_hash, cand_hash
-        else:
-            older_hash, newer_hash = cand_hash, memory.content_hash
+        older_hash, newer_hash = _order_pair(memory, cand_hash, candidate)
         # A memory superseded earlier in this run can neither lose again nor win.
         if older_hash in losers or newer_hash in losers:
             continue
+        if _loser_protected(older_hash, state["by_hash"]):
+            results["protected_skipped"] += 1
+            continue
         losers.add(older_hash)
-        pairs.append({"older_hash": older_hash, "newer_hash": newer_hash, "similarity": similarity})
+        state["pairs"].append({"older_hash": older_hash, "newer_hash": newer_hash, "similarity": similarity})
 
 
 async def _scan(storage, memories: list, results: dict) -> list:
-    seen_pairs: set = set()
-    losers: set = set()
-    pairs: list = []
+    state = {
+        "seen_pairs": set(),
+        "losers": set(),
+        "pairs": [],
+        "by_hash": {m.content_hash: m for m in memories if m.content_hash},
+    }
     for memory in memories:
-        if not _is_scannable(memory, losers):
+        if not _is_scannable(memory, state["losers"]):
             continue
         similar = await _search_neighbours(storage, memory.content, results)
         if similar and _finds_itself(memory.content_hash, similar):
-            _collect_pairs(memory, similar, seen_pairs, losers, pairs)
-    return pairs
+            _collect_pairs(memory, similar, state, results)
+    return state["pairs"]
 
 
 async def _search_neighbours(storage, content: str, results: dict):
@@ -133,6 +152,8 @@ async def _apply(storage, graph, pairs: list, results: dict) -> None:
     for p in pairs:
         if await _store_contradicts_edge(graph, p["newer_hash"], p["older_hash"], p["similarity"]):
             results["edges_created"] += 1
+        else:
+            results["edge_failures"] += 1
 
 
 async def detect_contradictions(storage, dry_run: bool = True, graph=None) -> dict:
@@ -152,7 +173,9 @@ async def detect_contradictions(storage, dry_run: bool = True, graph=None) -> di
     results = {
         "pairs_detected": 0,
         "edges_created": 0,
+        "edge_failures": 0,
         "superseded_marked": 0,
+        "protected_skipped": 0,
         "dry_run": dry_run,
         "graph_available": graph is not None,
         "search_errors": 0,
@@ -191,6 +214,17 @@ async def detect_contradictions(storage, dry_run: bool = True, graph=None) -> di
     return results
 
 
+async def _supersede_on_store(storage, graph, content_hash: str, cand_hash: str, similarity: float) -> bool:
+    """Let the new memory supersede an existing one, unless that one is protected."""
+    existing = await storage.get_by_hash(cand_hash)
+    if existing is None or is_protected_memory(existing):
+        return False
+    await storage.mark_superseded_batch([(content_hash, cand_hash)])
+    if graph is not None:
+        await _store_contradicts_edge(graph, content_hash, cand_hash, similarity)
+    return True
+
+
 async def check_contradiction_on_store(storage, content: str, content_hash: str, graph=None) -> dict | None:
     """Check if a newly stored memory contradicts existing ones.
 
@@ -205,16 +239,12 @@ async def check_contradiction_on_store(storage, content: str, content_hash: str,
         similar = search_result.get("memories", []) if isinstance(search_result, dict) else []
 
         for cand_hash, similarity, _ in _band_candidates(content_hash, None, similar):
-            # Found potential contradiction — the new memory supersedes it
-            await storage.mark_superseded_batch([(content_hash, cand_hash)])
-            if graph is not None:
-                await _store_contradicts_edge(graph, content_hash, cand_hash, similarity)
-
-            return {
-                "contradicts": cand_hash[:12],
-                "similarity": round(similarity, 3),
-                "action": "older memory marked as superseded",
-            }
+            if await _supersede_on_store(storage, graph, content_hash, cand_hash, similarity):
+                return {
+                    "contradicts": cand_hash[:12],
+                    "similarity": round(similarity, 3),
+                    "action": "older memory marked as superseded",
+                }
 
     except _PROGRAMMING_ERRORS:
         raise
