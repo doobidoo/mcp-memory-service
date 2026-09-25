@@ -3,7 +3,8 @@
 Detects when newer memories contradict older ones using embedding similarity
 in the 0.4-0.75 band (too similar to be independent, too different to be duplicates).
 
-Output: CONTRADICTED_BY graph edge + superseded_by on the older memory.
+Output: a ``contradicts`` graph edge plus supersession of the older memory
+(via ``storage.mark_superseded_batch``, so it drops out of default retrieval).
 Integration: maintain Step 7 + opt-in MCP_CONTRADICTION_ON_STORE=true.
 """
 
@@ -24,9 +25,124 @@ SIMILARITY_MIN = float(os.environ.get("MCP_CONTRADICTION_SIM_MIN", "0.4"))
 SIMILARITY_MAX = float(os.environ.get("MCP_CONTRADICTION_SIM_MAX", "0.75"))
 KNN_K = int(os.environ.get("MCP_CONTRADICTION_KNN_K", "10"))
 
+# Errors that mean this module is calling the storage API wrong. They are never
+# treated as a per-memory miss: that is how a call to a method that does not
+# exist went unnoticed.
+_PROGRAMMING_ERRORS = (AttributeError, TypeError, NameError)
 
-async def detect_contradictions(storage, dry_run: bool = True) -> dict:
+
+async def _store_contradicts_edge(graph, newer_hash: str, older_hash: str, similarity: float) -> bool:
+    return await graph.store_association(
+        source_hash=newer_hash,
+        target_hash=older_hash,
+        similarity=similarity,
+        connection_types=["contradiction"],
+        relationship_type="contradicts",
+        metadata={"method": "similarity_band"},
+    )
+
+
+def _types_compatible(memory_type, cand_type) -> bool:
+    # None is wildcard — matches any
+    return not (memory_type and cand_type and memory_type != cand_type)
+
+
+def _band_candidates(content_hash: str, memory_type, similar: list):
+    """Yield (cand_hash, similarity, cand) for neighbours inside the contradiction band."""
+    for candidate in similar:
+        # candidates are plain dicts (from Memory.to_dict() + similarity_score key)
+        cand_hash = candidate.get("content_hash")
+        similarity = candidate.get("similarity_score", 0)
+
+        if not cand_hash or cand_hash == content_hash:
+            continue
+        if not SIMILARITY_MIN <= similarity <= SIMILARITY_MAX:
+            continue
+        # to_dict() uses "type", not "memory_type"
+        if _types_compatible(memory_type, candidate.get("type")):
+            yield cand_hash, similarity, candidate
+
+
+def _is_scannable(memory, losers: set) -> bool:
+    if not memory.content or not memory.content_hash or memory.content_hash in losers:
+        return False
+    # Backends that keep supersession in metadata (Milvus)
+    return not (memory.metadata or {}).get("superseded_by")
+
+
+def _finds_itself(content_hash: str, similar: list) -> bool:
+    # get_all_memories() also returns superseded rows, but search excludes
+    # them. A memory that does not find itself is hidden from retrieval and
+    # must not be allowed to supersede anything.
+    return any(c.get("content_hash") == content_hash for c in similar)
+
+
+def _collect_pairs(memory, similar: list, seen_pairs: set, losers: set, pairs: list) -> None:
+    """Append this memory's contradiction pairs, each pair and each loser at most once."""
+    for cand_hash, similarity, candidate in _band_candidates(memory.content_hash, memory.memory_type, similar):
+        key = frozenset((memory.content_hash, cand_hash))
+        if key in seen_pairs:
+            continue
+        seen_pairs.add(key)
+
+        # Determine which is older (by created_at float timestamp)
+        if (memory.created_at or 0) < (candidate.get("created_at") or 0):
+            older_hash, newer_hash = memory.content_hash, cand_hash
+        else:
+            older_hash, newer_hash = cand_hash, memory.content_hash
+        # A memory superseded earlier in this run can neither lose again nor win.
+        if older_hash in losers or newer_hash in losers:
+            continue
+        losers.add(older_hash)
+        pairs.append({"older_hash": older_hash, "newer_hash": newer_hash, "similarity": similarity})
+
+
+async def _scan(storage, memories: list, results: dict) -> list:
+    seen_pairs: set = set()
+    losers: set = set()
+    pairs: list = []
+    for memory in memories:
+        if not _is_scannable(memory, losers):
+            continue
+        similar = await _search_neighbours(storage, memory.content, results)
+        if similar and _finds_itself(memory.content_hash, similar):
+            _collect_pairs(memory, similar, seen_pairs, losers, pairs)
+    return pairs
+
+
+async def _search_neighbours(storage, content: str, results: dict):
+    """KNN search for one memory. Returns the hit list, or None on a transient failure."""
+    try:
+        search_result = await storage.search_memories(query=content, limit=KNN_K)
+    except _PROGRAMMING_ERRORS:
+        raise
+    except Exception as e:
+        results["search_errors"] += 1
+        results["last_search_error"] = str(e)
+        return None
+    return search_result.get("memories", []) if isinstance(search_result, dict) else []
+
+
+async def _apply(storage, graph, pairs: list, results: dict) -> None:
+    """Supersede the older memory of each pair and record a contradicts edge."""
+    results["superseded_marked"] = await storage.mark_superseded_batch(
+        [(p["newer_hash"], p["older_hash"]) for p in pairs]
+    )
+    if graph is None:
+        return
+    for p in pairs:
+        if await _store_contradicts_edge(graph, p["newer_hash"], p["older_hash"], p["similarity"]):
+            results["edges_created"] += 1
+
+
+async def detect_contradictions(storage, dry_run: bool = True, graph=None) -> dict:
     """Scan all memories for contradictions using embedding similarity band.
+
+    Args:
+        storage: memory storage backend.
+        dry_run: report pairs without writing anything.
+        graph: graph storage for ``contradicts`` edges (``get_graph_storage()``).
+            When None, supersession is still applied but no edges are written.
 
     Returns dict with detected pairs and actions taken.
     """
@@ -38,6 +154,8 @@ async def detect_contradictions(storage, dry_run: bool = True) -> dict:
         "edges_created": 0,
         "superseded_marked": 0,
         "dry_run": dry_run,
+        "graph_available": graph is not None,
+        "search_errors": 0,
         "pairs": [],
     }
 
@@ -47,105 +165,36 @@ async def detect_contradictions(storage, dry_run: bool = True) -> dict:
 
         if not memories:
             return {**results, "message": "No memories to scan"}
-        logger.info(f"[contradiction] Scanning {len(memories)} memories for contradictions")
+        logger.info("[contradiction] Scanning %s memories for contradictions", _sanitize_log_value(len(memories)))
 
-        # For each memory, find KNN neighbors in the similarity band
-        for memory in memories:
-            content_hash = memory.content_hash
-            memory_type = memory.memory_type
-            content = memory.content
-
-            if not content or not content_hash:
-                continue
-
-            # Skip if already superseded (superseded_by lives in metadata dict)
-            if (memory.metadata or {}).get("superseded_by"):
-                continue
-
-            # Search for similar memories — returns {"memories": [dict, ...], ...}
-            try:
-                search_result = await storage.search_memories(
-                    query=content,
-                    limit=KNN_K,
-                )
-                similar = search_result.get("memories", []) if isinstance(search_result, dict) else []
-            except Exception:
-                continue
-
-            if not similar:
-                continue
-
-            for candidate in similar:
-                # candidates are plain dicts (from Memory.to_dict() + similarity_score key)
-                cand_hash = candidate.get("content_hash")
-                similarity = candidate.get("similarity_score", 0)
-
-                # Skip self
-                if cand_hash == content_hash:
-                    continue
-
-                # Only consider the contradiction band
-                if similarity < SIMILARITY_MIN or similarity > SIMILARITY_MAX:
-                    continue
-
-                # Skip if types differ (None is wildcard — matches any)
-                cand_type = candidate.get("type")  # to_dict() uses "type", not "memory_type"
-                if memory_type and cand_type and memory_type != cand_type:
-                    continue
-
-                # Determine which is older (by created_at float timestamp)
-                mem_created = memory.created_at or 0
-                cand_created = candidate.get("created_at") or 0
-
-                if mem_created < cand_created:
-                    older_hash, newer_hash = content_hash, cand_hash
-                else:
-                    older_hash, newer_hash = cand_hash, content_hash
-
-                pair = {
-                    "older": older_hash[:12],
-                    "newer": newer_hash[:12],
-                    "similarity": round(similarity, 3),
-                }
-                results["pairs"].append(pair)
-                results["pairs_detected"] += 1
-
-                if not dry_run:
-                    # Add graph edge
-                    try:
-                        await storage.add_graph_edge(older_hash, newer_hash, "CONTRADICTED_BY")
-                        results["edges_created"] += 1
-                    except Exception as e:
-                        logger.warning(f"[contradiction] Failed to add edge: {e}")
-
-                    # Mark older as superseded
-                    try:
-                        await storage.update_memory_metadata(
-                            older_hash,
-                            {"superseded_by": newer_hash}
-                        )
-                        results["superseded_marked"] += 1
-                    except Exception as e:
-                        logger.warning(f"[contradiction] Failed to mark superseded: {e}")
+        pairs = await _scan(storage, memories, results)
+        results["pairs"] = [
+            {"older": p["older_hash"][:12], "newer": p["newer_hash"][:12], "similarity": round(p["similarity"], 3)}
+            for p in pairs
+        ]
+        results["pairs_detected"] = len(pairs)
+        if pairs and not dry_run:
+            await _apply(storage, graph, pairs, results)
 
         logger.info(
-            "[contradiction] Done: %s pairs, %s edges, %s superseded",
+            "[contradiction] Done: %s pairs, %s edges, %s superseded, %s search errors",
             _sanitize_log_value(results['pairs_detected']),
             _sanitize_log_value(results['edges_created']),
             _sanitize_log_value(results['superseded_marked']),
+            _sanitize_log_value(results['search_errors']),
         )
 
     except Exception as e:
         results["error"] = str(e)
-        logger.error(f"[contradiction] Error: {e}", exc_info=True)
+        logger.error(f"[contradiction] Error: {_sanitize_log_value(e)}", exc_info=True)
 
     return results
 
 
-async def check_contradiction_on_store(storage, content: str, content_hash: str) -> dict | None:
+async def check_contradiction_on_store(storage, content: str, content_hash: str, graph=None) -> dict | None:
     """Check if a newly stored memory contradicts existing ones.
 
-    Called during memory_store when MCP_CONTRADICTION_ON_STORE=true.
+    Intended for memory_store when MCP_CONTRADICTION_ON_STORE=true.
     Returns contradiction info if found, None otherwise.
     """
     if not CONTRADICTION_ON_STORE:
@@ -154,28 +203,22 @@ async def check_contradiction_on_store(storage, content: str, content_hash: str)
     try:
         search_result = await storage.search_memories(query=content, limit=KNN_K)
         similar = search_result.get("memories", []) if isinstance(search_result, dict) else []
-        if not similar:
-            return None
 
-        for candidate in similar:
-            cand_hash = candidate.get("content_hash")
-            similarity = candidate.get("similarity_score", 0)
+        for cand_hash, similarity, _ in _band_candidates(content_hash, None, similar):
+            # Found potential contradiction — the new memory supersedes it
+            await storage.mark_superseded_batch([(content_hash, cand_hash)])
+            if graph is not None:
+                await _store_contradicts_edge(graph, content_hash, cand_hash, similarity)
 
-            if cand_hash == content_hash:
-                continue
+            return {
+                "contradicts": cand_hash[:12],
+                "similarity": round(similarity, 3),
+                "action": "older memory marked as superseded",
+            }
 
-            if SIMILARITY_MIN <= similarity <= SIMILARITY_MAX:
-                # Found potential contradiction — mark it
-                await storage.add_graph_edge(cand_hash, content_hash, "CONTRADICTED_BY")
-                await storage.update_memory_metadata(cand_hash, {"superseded_by": content_hash})
-
-                return {
-                    "contradicts": cand_hash[:12],
-                    "similarity": round(similarity, 3),
-                    "action": "older memory marked as superseded",
-                }
-
+    except _PROGRAMMING_ERRORS:
+        raise
     except Exception as e:
-        logger.warning(f"[contradiction-on-store] Error: {e}")
+        logger.warning(f"[contradiction-on-store] Error: {_sanitize_log_value(e)}")
 
     return None

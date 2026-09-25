@@ -635,7 +635,11 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
     from mcp_memory_service.consolidation.contradictions import detect_contradictions, CONTRADICTION_ENABLED
     if CONTRADICTION_ENABLED:
         try:
-            contradiction_result = await detect_contradictions(storage, dry_run=dry_run)
+            from .graph import get_graph_storage
+            contradiction_graph = await get_graph_storage() if not dry_run else None
+            contradiction_result = await detect_contradictions(
+                storage, dry_run=dry_run, graph=contradiction_graph
+            )
             report["steps"]["contradictions"] = contradiction_result
         except Exception as e:
             report["steps"]["contradictions"] = {"error": str(e)}
