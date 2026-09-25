@@ -511,7 +511,7 @@ MCP Memory Service is **fully compatible** with the [SHODH Unified Memory API Sp
 
 ---
 
-## Latest Release: **v11.13.0** (September 19, 2026)
+## Latest Release: **v11.14.0** (September 25, 2026)
 
 **MINOR: harvest provenance and a pre-deletion coverage check, plus three storage fixes that only showed up at scale — 19 merged pull requests**
 
