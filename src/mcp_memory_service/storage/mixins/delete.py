@@ -165,11 +165,11 @@ class DeleteMixin:
                 return 0, "Database not initialized"
 
             stripped_tag = tag.strip()
-            exact_match_pattern = f"%,{_escape_like(stripped_tag.replace(' ', ''))},%"
+            exact_match_pattern = f"%,{_escape_like(stripped_tag)},%"
 
             def _delete_by_tag():
                 cursor = self.conn.execute(
-                    "SELECT id, content_hash FROM memories WHERE (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\' AND deleted_at IS NULL",
+                    "SELECT id, content_hash FROM memories WHERE (',' || tags || ',') LIKE ? ESCAPE '\\' AND deleted_at IS NULL",
                     (exact_match_pattern,)
                 )
                 rows = cursor.fetchall()
@@ -193,7 +193,7 @@ class DeleteMixin:
                     )
 
                 cursor = self.conn.execute(
-                    "UPDATE memories SET deleted_at = ? WHERE (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\' AND deleted_at IS NULL",
+                    "UPDATE memories SET deleted_at = ? WHERE (',' || tags || ',') LIKE ? ESCAPE '\\' AND deleted_at IS NULL",
                     (time.time(), exact_match_pattern)
                 )
                 self.conn.commit()
@@ -222,8 +222,8 @@ class DeleteMixin:
                 return 0, "No tags provided", []
 
             stripped_tags = [tag.strip() for tag in tags]
-            conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
-            params = [f"%,{_escape_like(tag.replace(' ', ''))},%" for tag in stripped_tags]
+            conditions = " OR ".join(["(',' || tags || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
+            params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             select_query = f'SELECT id, content_hash FROM memories WHERE ({conditions}) AND deleted_at IS NULL'
             update_query = f'UPDATE memories SET deleted_at = ? WHERE ({conditions}) AND deleted_at IS NULL'
@@ -288,10 +288,10 @@ class DeleteMixin:
                         """
                         SELECT content_hash FROM memories
                         WHERE created_at >= ? AND created_at <= ?
-                        AND (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'
+                        AND (',' || tags || ',') LIKE ? ESCAPE '\\'
                         AND deleted_at IS NULL
                     """,
-                        (start_ts, end_ts, f"%,{_escape_like(stripped_tag.replace(' ', ''))},%"),
+                        (start_ts, end_ts, f"%,{_escape_like(stripped_tag)},%"),
                     )
                 else:
                     cursor = self.conn.execute('''
@@ -330,10 +330,10 @@ class DeleteMixin:
                         """
                         SELECT content_hash FROM memories
                         WHERE created_at < ?
-                        AND (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'
+                        AND (',' || tags || ',') LIKE ? ESCAPE '\\'
                         AND deleted_at IS NULL
                     """,
-                        (before_ts, f"%,{_escape_like(stripped_tag.replace(' ', ''))},%"),
+                        (before_ts, f"%,{_escape_like(stripped_tag)},%"),
                     )
                 else:
                     cursor = self.conn.execute('''

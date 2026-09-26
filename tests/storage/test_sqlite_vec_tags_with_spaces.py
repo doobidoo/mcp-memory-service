@@ -1,8 +1,7 @@
 """A tag with a space in it ("machine learning") can be found and deleted.
 
-Tags are stored as given (``normalize_tags`` keeps inner spaces), and every
-tag query compares against the column with its spaces removed. The searched
-tag has to lose its spaces too, as ``retrieve()`` already does (#1189).
+Tags are stored as given (``normalize_tags`` keeps inner spaces). Matching
+must retain inner spaces so distinct tags cannot collide during deletion.
 """
 
 from datetime import date, datetime, time, timedelta
@@ -25,6 +24,7 @@ async def storage(temp_db_path):
     for content, tags in [
         ("notes about transformers", [TAG, "reading"]),
         ("unrelated grocery list", ["errands"]),
+        ("compact tag note", ["machinelearning"]),
     ]:
         ok, message = await storage.store(
             Memory(
@@ -52,20 +52,29 @@ async def test_tag_with_space_is_found_by_every_tag_query(storage):
     assert _contents(await storage.search_by_tag_chronological([TAG])) == expected
     assert _contents(await storage.get_all_memories(tags=[TAG])) == expected
     assert await storage.count_all_memories(tags=[TAG]) == 1
+    assert _contents(await storage.search_by_tag(["machinelearning"])) == [
+        "compact tag note"
+    ]
 
 
 @pytest.mark.asyncio
 async def test_delete_by_tag_with_space(storage):
     count, _ = await storage.delete_by_tag(TAG)
     assert count == 1
-    assert await storage.count_all_memories() == 1
+    assert sorted(_contents(await storage.get_all_memories())) == [
+        "compact tag note",
+        "unrelated grocery list",
+    ]
 
 
 @pytest.mark.asyncio
 async def test_delete_by_tags_with_space(storage):
     count, _, _ = await storage.delete_by_tags([TAG])
     assert count == 1
-    assert await storage.count_all_memories() == 1
+    assert sorted(_contents(await storage.get_all_memories())) == [
+        "compact tag note",
+        "unrelated grocery list",
+    ]
 
 
 @pytest.mark.asyncio
@@ -85,4 +94,7 @@ async def test_delete_by_timeframe_and_before_date_with_space(storage):
     assert ok, message
     count, _ = await storage.delete_before_date(DAY + timedelta(days=1), tag=TAG)
     assert count == 1
-    assert await storage.count_all_memories() == 1
+    assert sorted(_contents(await storage.get_all_memories())) == [
+        "compact tag note",
+        "unrelated grocery list",
+    ]

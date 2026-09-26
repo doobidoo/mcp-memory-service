@@ -96,9 +96,9 @@ class RetrieveMixin:
                             continue
                         stripped = tag.strip()
                         tag_clauses.append(
-                            "(',' || REPLACE(m.tags, ' ', '') || ',') LIKE ? ESCAPE '\\'"
+                            "(',' || m.tags || ',') LIKE ? ESCAPE '\\'"
                         )
-                        params.append(f"%,{_escape_like(stripped.replace(' ', ''))},%")
+                        params.append(f"%,{_escape_like(stripped)},%")
 
                     if not tag_clauses:
                         logger.warning("Tag filter provided but contained no valid tags. Returning empty results.")
@@ -222,8 +222,8 @@ class RetrieveMixin:
                 return []
 
             stripped_tags = [tag.strip() for tag in tags]
-            tag_conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
-            tag_params = [f"%,{_escape_like(tag.replace(' ', ''))},%" for tag in stripped_tags]
+            tag_conditions = " OR ".join(["(',' || tags || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
+            tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             where_clause = f"WHERE ({tag_conditions}) AND deleted_at IS NULL"
             if time_start is not None:
@@ -300,8 +300,8 @@ class RetrieveMixin:
 
             stripped_tags = [tag.strip() for tag in tags]
             comparator = " AND " if normalized_operation == "AND" else " OR "
-            tag_conditions = comparator.join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
-            tag_params = [f"%,{_escape_like(tag.replace(' ', ''))},%" for tag in stripped_tags]
+            tag_conditions = comparator.join(["(',' || tags || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
+            tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             where_conditions = [f"({tag_conditions})"] if tag_conditions else []
             where_conditions.append("deleted_at IS NULL")
@@ -371,8 +371,8 @@ class RetrieveMixin:
                 return []
 
             stripped_tags = [tag.strip() for tag in tags]
-            tag_conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
-            tag_params = [f"%,{_escape_like(tag.replace(' ', ''))},%" for tag in stripped_tags]
+            tag_conditions = " OR ".join(["(',' || tags || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
+            tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             query = f"""
                 SELECT content_hash, content, tags, memory_type, metadata,
@@ -578,16 +578,16 @@ class RetrieveMixin:
                 joiner = " AND " if tag_match == "all" else " OR "
                 tag_conditions = joiner.join(
                     [
-                        "(',' || REPLACE(m.tags, ' ', '') || ',') LIKE ? ESCAPE '\\'"
+                        "(',' || m.tags || ',') LIKE ? ESCAPE '\\'"
                         for _ in stripped_tags
                     ]
                 )
                 where_conditions.append(f"({tag_conditions})")
-                params.extend([f"%,{_escape_like(tag.replace(' ', ''))},%" for tag in stripped_tags])
+                params.extend([f"%,{_escape_like(tag)},%" for tag in stripped_tags])
 
             if agent_id is not None:
                 where_conditions.append(
-                    "(json_extract(m.metadata,'$.agent_id') = ? OR (',' || REPLACE(m.tags,' ','') || ',') LIKE ? ESCAPE '\\')"
+                    "(json_extract(m.metadata,'$.agent_id') = ? OR (',' || m.tags || ',') LIKE ? ESCAPE '\\')"
                 )
                 params.extend([agent_id, f"%,agent:{_escape_like(agent_id.strip())},%"])
 
@@ -724,16 +724,16 @@ class RetrieveMixin:
                 joiner = " AND " if tag_match == "all" else " OR "
                 tag_conditions = joiner.join(
                     [
-                        "(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'"
+                        "(',' || tags || ',') LIKE ? ESCAPE '\\'"
                         for _ in stripped_tags
                     ]
                 )
                 conditions.append(f"({tag_conditions})")
-                params.extend([f"%,{_escape_like(tag.replace(' ', ''))},%" for tag in stripped_tags])
+                params.extend([f"%,{_escape_like(tag)},%" for tag in stripped_tags])
 
             if agent_id is not None:
                 conditions.append(
-                    "(json_extract(metadata,'$.agent_id') = ? OR (',' || REPLACE(tags,' ','') || ',') LIKE ? ESCAPE '\\')"
+                    "(json_extract(metadata,'$.agent_id') = ? OR (',' || tags || ',') LIKE ? ESCAPE '\\')"
                 )
                 params.extend([agent_id, f"%,agent:{_escape_like(agent_id.strip())},%"])
 
