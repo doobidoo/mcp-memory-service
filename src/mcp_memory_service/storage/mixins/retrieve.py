@@ -223,7 +223,7 @@ class RetrieveMixin:
 
             stripped_tags = [tag.strip() for tag in tags]
             tag_conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
-            tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
+            tag_params = [f"%,{_escape_like(tag.replace(' ', ''))},%" for tag in stripped_tags]
 
             where_clause = f"WHERE ({tag_conditions}) AND deleted_at IS NULL"
             if time_start is not None:
@@ -301,7 +301,7 @@ class RetrieveMixin:
             stripped_tags = [tag.strip() for tag in tags]
             comparator = " AND " if normalized_operation == "AND" else " OR "
             tag_conditions = comparator.join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
-            tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
+            tag_params = [f"%,{_escape_like(tag.replace(' ', ''))},%" for tag in stripped_tags]
 
             where_conditions = [f"({tag_conditions})"] if tag_conditions else []
             where_conditions.append("deleted_at IS NULL")
@@ -372,7 +372,7 @@ class RetrieveMixin:
 
             stripped_tags = [tag.strip() for tag in tags]
             tag_conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
-            tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
+            tag_params = [f"%,{_escape_like(tag.replace(' ', ''))},%" for tag in stripped_tags]
 
             query = f"""
                 SELECT content_hash, content, tags, memory_type, metadata,
@@ -583,7 +583,7 @@ class RetrieveMixin:
                     ]
                 )
                 where_conditions.append(f"({tag_conditions})")
-                params.extend([f"%,{_escape_like(tag)},%" for tag in stripped_tags])
+                params.extend([f"%,{_escape_like(tag.replace(' ', ''))},%" for tag in stripped_tags])
 
             if agent_id is not None:
                 where_conditions.append(
@@ -729,7 +729,7 @@ class RetrieveMixin:
                     ]
                 )
                 conditions.append(f"({tag_conditions})")
-                params.extend([f"%,{_escape_like(tag)},%" for tag in stripped_tags])
+                params.extend([f"%,{_escape_like(tag.replace(' ', ''))},%" for tag in stripped_tags])
 
             if agent_id is not None:
                 conditions.append(
