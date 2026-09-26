@@ -31,7 +31,12 @@ from .forgetting import ControlledForgettingEngine
 from .health import ConsolidationHealthMonitor
 from ..models.memory import Memory
 from ..storage.graph import GraphStorage
-from ..config import GRAPH_STORAGE_MODE, CONSOLIDATION_STORE_ASSOCIATIONS, TYPED_EDGES_ENABLED
+from ..config import (
+    GRAPH_STORAGE_MODE,
+    CONSOLIDATION_AUTO_SUPERSEDE,
+    CONSOLIDATION_STORE_ASSOCIATIONS,
+    TYPED_EDGES_ENABLED,
+)
 from .relationship_inference import RelationshipInferenceEngine
 from .run_tracker import RunTracker
 from ..compat import _sanitize_log_value
@@ -678,7 +683,7 @@ class DreamInspiredConsolidator:
             memories,
             connections=connections,
             access_patterns=access_patterns,
-            reference_time=datetime.now(),
+            reference_time=datetime.now(timezone.utc),
         )
 
         # Update memory metadata with relevance scores (v8.47.1 - batch optimization)
@@ -999,20 +1004,35 @@ class DreamInspiredConsolidator:
                 failed_count += 1
                 self.logger.warning("Failed to store association in graph table: %s", _sanitize_log_value(e))
 
-        # Batch-mark superseded memories in a single transaction (#732)
-        if supersede_pairs:
-            storage = getattr(self.storage, "primary_storage", None) or self.storage
-            if hasattr(storage, 'mark_superseded_batch'):
-                marked = await storage.mark_superseded_batch(supersede_pairs)
-                self.logger.info(
-                    f"Auto-superseded {marked} memories on contradiction detection"
-                )
+        await self._auto_supersede(supersede_pairs)
 
         self.logger.info(
             f"Stored {stored_count} associations in graph table ({failed_count} failed)"
             if failed_count > 0
             else f"Stored {stored_count} associations in graph table"
         )
+
+    async def _auto_supersede(self, supersede_pairs) -> None:
+        """Batch-mark the older memory of each contradicts pair as superseded (#732).
+
+        Skipped when MCP_CONSOLIDATION_AUTO_SUPERSEDE=false; the contradicts
+        edges are already stored at this point either way.
+        """
+        if not supersede_pairs:
+            return
+        if not CONSOLIDATION_AUTO_SUPERSEDE:
+            self.logger.info(
+                "Auto-supersede disabled: left %s contradicts pairs visible",
+                _sanitize_log_value(len(supersede_pairs)),
+            )
+            return
+        storage = getattr(self.storage, "primary_storage", None) or self.storage
+        if hasattr(storage, 'mark_superseded_batch'):
+            marked = await storage.mark_superseded_batch(supersede_pairs)
+            self.logger.info(
+                "Auto-superseded %s memories on contradiction detection",
+                _sanitize_log_value(marked),
+            )
 
     async def _handle_compression_results(self, compression_results) -> None:
         """Handle storage of compressed memories — batched for efficiency."""

@@ -1657,6 +1657,14 @@ class HybridMemoryStorage(MemoryStorage):
 
         return success, message
 
+    async def mark_superseded_batch(self, pairs: list[tuple[str, str]]) -> int:
+        """Mark memories as superseded in primary storage.
+
+        Without this override the base-class no-op applies and nothing is marked.
+        Not queued for secondary sync: Cloudflare has no supersession field.
+        """
+        return await self.primary.mark_superseded_batch(pairs)
+
     async def update_memories_batch(self, memories: List[Memory], preserve_timestamps: bool = False) -> List[bool]:
         """
         Update multiple memories in a batch operation with optimal performance.

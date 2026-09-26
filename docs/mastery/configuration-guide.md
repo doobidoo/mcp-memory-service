@@ -87,6 +87,7 @@ TLS:
 - Config knobs:
   - Decay: `MCP_DECAY_ENABLED`, retention by type: `MCP_RETENTION_CRITICAL`, `MCP_RETENTION_REFERENCE`, `MCP_RETENTION_STANDARD`, `MCP_RETENTION_TEMPORARY`.
   - Associations: `MCP_ASSOCIATIONS_ENABLED`, `MCP_ASSOCIATION_MIN_SIMILARITY`, `MCP_ASSOCIATION_MAX_SIMILARITY`, `MCP_ASSOCIATION_MAX_PAIRS`.
+    - `MCP_CONSOLIDATION_AUTO_SUPERSEDE` (default `true`): when relationship inference labels an association `contradicts` with confidence ≥ 0.75, the older memory is marked superseded and drops out of default retrieval. Set to `false` to keep the `contradicts` edges in the graph and leave both memories visible. The setting only prevents future supersession: memories that are already superseded stay hidden until their `superseded_by` is cleared, which is a separate step.
   - Clustering: `MCP_CLUSTERING_ENABLED`, `MCP_CLUSTERING_MIN_SIZE`, `MCP_CLUSTERING_ALGORITHM`.
   - Compression: `MCP_COMPRESSION_ENABLED`, `MCP_COMPRESSION_MAX_LENGTH`, `MCP_COMPRESSION_PRESERVE_ORIGINALS`.
   - Forgetting: `MCP_FORGETTING_ENABLED`, `MCP_FORGETTING_RELEVANCE_THRESHOLD`, `MCP_FORGETTING_ACCESS_THRESHOLD`.
