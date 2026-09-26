@@ -79,6 +79,11 @@ class TestStoreAssociation:
 
         assoc_ba = await graph.get_association("hash_b", "hash_a")
         assert assoc_ba is not None
+        # get_association must return the exact relationship_type so callers
+        # that match direction and type (e.g. insight-card links) work on
+        # this backend too.
+        assert assoc_ab["relationship_type"] == "related"
+        assert assoc_ba["relationship_type"] == "related"
 
     @pytest.mark.asyncio
     async def test_asymmetric_creates_forward_only(self, graph):
@@ -92,6 +97,8 @@ class TestStoreAssociation:
         # Forward direction exists
         assoc = await graph.get_association("hash_a", "hash_b")
         assert assoc is not None
+        # the returned edge must carry its exact relationship_type
+        assert assoc["relationship_type"] == "causes"
 
         # get_association checks both directions, so it will find the forward edge
         # But the raw count from source_hash should only show 1 record for hash_a

@@ -272,20 +272,15 @@ async def _link_to_sources(card: InsightCard, content_hash: str, graph) -> None:
     INSERT OR REPLACE, so an unconditional relink would reset an existing
     edge's relationship type, metadata and creation time. The check is exact:
     a row is only this card's source link when it runs source→card *and* is
-    typed derived_from. get_association() answers in either direction, so the
-    returned row's direction and relationship_type must be matched explicitly
-    (the sqlite backend omits relationship_type from its result; the caller
-    needs it, and this is where it is required for both backends).
+    typed derived_from. get_association() returns either direction's row with
+    no ordering, so it cannot answer that; graph.has_edge(source, target, type)
+    asks for the exact directed, typed edge and both backends implement it.
     """
     if graph is None:
         return
     for src_hash in card.source_hashes:
         try:
-            found = await graph.get_association(src_hash, content_hash)
-            if (found
-                    and found.get("source_hash") == src_hash
-                    and found.get("target_hash") == content_hash
-                    and found.get("relationship_type") == "derived_from"):
+            if await graph.has_edge(src_hash, content_hash, "derived_from"):
                 continue  # this exact edge is already present — leave it alone
             await graph.store_association(
                 source_hash=src_hash,

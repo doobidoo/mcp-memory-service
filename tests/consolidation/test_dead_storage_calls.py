@@ -230,6 +230,54 @@ async def test_source_link_replaces_an_edge_of_another_type(temp_db_path):
 
 
 @pytest.mark.asyncio
+async def test_has_edge_is_exact_when_forward_and_reverse_coexist(temp_db_path):
+    """get_association() returns either direction's row with no ordering, so a
+    reverse edge can shadow the forward link and make a direction/type check
+    on its result rewrite an edge that already exists. has_edge() asks for the
+    exact directed, typed edge, so it must report the forward derived_from link
+    present even when a reverse edge between the same two memories also exists,
+    and must not report a forward link where only a reverse edge exists."""
+    storage = await _storage(temp_db_path)
+    src = await _store(storage, "Deploy note: push Forgejo, then Komodo ships it.")
+    card = InsightCard(
+        title="Deploys go through Forgejo",
+        content="Komodo deploys what Forgejo has.",
+        source_hashes=[src],
+        insight_type="pattern",
+        confidence=0.7,
+    )
+    [card_hash] = await store_insights([card], storage, graph=GraphStorage(storage.db_path))
+    graph = GraphStorage(storage.db_path)
+
+    # a forward derived_from link already exists (written by store_insights)
+    # plus a reverse edge in the opposite direction (card -> src). get_association()
+    # matches either direction, so without an exact check this reverse row could
+    # shadow the forward link and make a relink rewrite the existing edge.
+    # An asymmetric type (supports) is used so it occupies only card->src and does
+    # not collide on the (source_hash, target_hash) primary key with the forward
+    # src->card derived_from row.
+    await graph.store_association(
+        source_hash=card_hash,
+        target_hash=src,
+        similarity=0.5,
+        connection_types=["supports"],
+        relationship_type="supports",
+    )
+
+    # the exact forward link is present → must not be rewritten
+    assert await graph.has_edge(src, card_hash, "derived_from") is True
+    # the reverse edge is card->src supports, not a forward derived_from
+    assert await graph.has_edge(card_hash, src, "derived_from") is False
+
+    # relinking must leave the existing forward link alone, not reset it
+    before = await graph.get_association(src, card_hash)
+    await store_insights([card], storage, graph=graph)  # existing card → relink path
+    after = await graph.get_association(src, card_hash)
+    assert after["similarity"] == pytest.approx(before["similarity"]), "relink reset the existing forward link"
+    assert after["relationship_type"] == "derived_from"
+
+
+@pytest.mark.asyncio
 async def test_cloudflare_storage_supports_consolidation_delete():
     """The consolidator applies forgetting through storage.delete_memory(), which
     CloudflareStorage did not have, so forgetting raised AttributeError there.
