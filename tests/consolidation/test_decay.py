@@ -487,7 +487,7 @@ class TestExponentialDecayCalculator:
 
 
     @pytest.mark.asyncio
-    async def test_default_reference_time_is_utc_aware(self, decay_calculator):
+    async def test_default_reference_time_is_utc_aware(self, decay_calculator, local_timezone):
         """The default reference_time must be timezone-aware UTC, not naive local time.
 
         Memory timestamps are stored as UTC (see Memory._sync_timestamps). When
@@ -497,7 +497,15 @@ class TestExponentialDecayCalculator:
         local offset, skewing age_days -- and thus decay_factor and forgetting
         decisions -- on any non-UTC deployment.
         """
-        created_utc = datetime.now(timezone.utc) - timedelta(days=10)
+        # Run under a non-UTC process timezone. On a UTC CI runner the pre-fix
+        # naive datetime.now() is numerically identical to UTC, so without this the
+        # regression stays green against the base source and tests-prove-fix rejects it.
+        local_timezone("Asia/Tokyo")
+        # Place the memory a few hours inside a day boundary so the +09:00 local
+        # offset actually flips the floored whole-day age: true age is 10d-3h
+        # (floors to 9), a naive-local reference sees 10d+6h (floors to 10). An
+        # exact-N-days-old memory would floor to 10 either way and stay green.
+        created_utc = datetime.now(timezone.utc) - timedelta(days=10) + timedelta(hours=3)
         memory = Memory(
             content="utc default probe",
             content_hash="utc_default_probe",
