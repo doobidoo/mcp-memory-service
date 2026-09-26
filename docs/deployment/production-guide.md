@@ -28,7 +28,7 @@ These apply regardless of topology:
 From a production deployment that puts the Docker containers behind a Cloudflare tunnel
 with an auth gateway in front:
 
-- [ ] **Cloudflare ZeroTrust with subnet-based access control** — allow the Anthropic subnets plus your own IPs, nothing else.
+- [ ] **Cloudflare ZeroTrust with subnet-based access control** — allow only the addresses that need in: your own IPs plus the published ranges of every client you connect. Anthropic's for claude.ai, OpenAI's as well if you connect a ChatGPT connector; an allowlist built for one blocks the other.
 - [ ] **Client IP Address Filtering on every Cloudflare API token** (Dashboard → My Profile → API Tokens → Edit → Client IP Address Filtering). It limits the damage if a token leaks.
 - [ ] **IPv6 in the allowlist** — include your IPv6 /64 network. Python prefers IPv6 by default, so an IPv4-only allowlist silently blocks it.
 - [ ] **`offline_access` scope for long-running browser sessions** — request it during authorization to get a rotating `refresh_token` (lifetime via `MCP_OAUTH_REFRESH_TOKEN_EXPIRE_DAYS`, default 30 days). Without it the access token is the only credential; extend `MCP_OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES` up to `1440` (24h) if you need longer single-shot sessions.

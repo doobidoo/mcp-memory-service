@@ -23,21 +23,32 @@ from autogen_ext.models import OpenAIChatCompletionClient
 MEMORY_URL = "http://localhost:8000"
 
 
-async def retrieve_context(query: str, tags: list[str] | None = None) -> str:
-    """Retrieve relevant memory context for injection into system message."""
+async def retrieve_context(query: str, tags: list[str] | None = None, limit: int = 5) -> str:
+    """Retrieve relevant memory context for injection into system message.
+
+    The two search endpoints each do half the job: /api/search ranks by the query but
+    has no tag filter, /api/search/by-tag filters by tag but ignores the query and
+    returns every match with no limit. With both, search semantically over a wider
+    window and keep the hits carrying the tags — a post-filter, so it can return fewer
+    than `limit`; widen the window rather than expecting a full page.
+    """
     async with httpx.AsyncClient() as client:
-        if tags:
-            # Semantic search takes no tag filter — tag search is its own endpoint
+        if tags and not query:
             response = await client.post(
                 f"{MEMORY_URL}/api/search/by-tag",
-                json={"tags": tags},
+                json={"tags": tags, "match_all": True},  # default is ANY, not ALL
             )
+            memories = [h["memory"] for h in response.json().get("results", [])][:limit]
         else:
             response = await client.post(
                 f"{MEMORY_URL}/api/search",
-                json={"query": query, "n_results": 5},
+                json={"query": query, "n_results": limit * 4 if tags else limit},
             )
-        memories = [h["memory"] for h in response.json().get("results", [])]
+            memories = [h["memory"] for h in response.json().get("results", [])]
+            if tags:
+                wanted = set(tags)
+                memories = [m for m in memories if wanted.issubset(set(m["tags"]))]
+            memories = memories[:limit]
 
     if not memories:
         return ""
@@ -119,18 +130,24 @@ async def search_memory(query: str, limit: int = 5, tags: list[str] | None = Non
         Formatted string of matching memories, or empty string if none found.
     """
     async with httpx.AsyncClient() as client:
-        if tags:
-            # Semantic search takes no tag filter — tag search is its own endpoint
+        if tags and not query:
+            # by-tag ignores any query and returns every match, so cap it here
             response = await client.post(
                 f"{MEMORY_URL}/api/search/by-tag",
-                json={"tags": tags},
+                json={"tags": tags, "match_all": True},  # default is ANY, not ALL
             )
+            memories = [h["memory"] for h in response.json().get("results", [])][:limit]
         else:
+            # Semantic search has no tag filter — over-fetch, then post-filter on tags
             response = await client.post(
                 f"{MEMORY_URL}/api/search",
-                json={"query": query, "n_results": limit},
+                json={"query": query, "n_results": limit * 4 if tags else limit},
             )
-        memories = [h["memory"] for h in response.json().get("results", [])]
+            memories = [h["memory"] for h in response.json().get("results", [])]
+            if tags:
+                wanted = set(tags)
+                memories = [m for m in memories if wanted.issubset(set(m["tags"]))]
+            memories = memories[:limit]
 
     if not memories:
         return "No relevant memories found."

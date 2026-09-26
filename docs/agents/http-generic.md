@@ -41,10 +41,14 @@ MCP_API_KEY=your-secret-key memory server --http
 This table is the subset agents reach for. The authoritative, always-current list is
 `/api/docs` on a running server, generated from the routes themselves.
 
-> **Semantic search does not filter by tags.** `POST /api/search` takes `query` and
-> `n_results`; any other field — `tags`, `limit` — is silently ignored rather than
-> rejected, so a request that looks filtered comes back unfiltered. To retrieve by tag,
-> use `POST /api/search/by-tag`. Both return their hits under `results`, not `memories`.
+> **The two search endpoints each do half the job.** `POST /api/search` takes `query`
+> and `n_results`; any other field — `tags`, `limit` — is silently ignored rather than
+> rejected, so a request that looks filtered comes back unfiltered.
+> `POST /api/search/by-tag` filters by tag but ignores any query and takes no limit: it
+> returns every matching memory, and `match_all` defaults to `false`, so several tags
+> match ANY of them, not all. To rank by a query *and* scope by tag, over-fetch from
+> `/api/search` and filter the hits on `memory["tags"]` client-side. Both endpoints
+> return their hits under `results`, not `memories`.
 
 ## Authentication Patterns
 
@@ -104,14 +108,30 @@ async def search_memory(query: str, n_results: int = 5) -> list[dict]:
         return response.json()["results"]
 
 
-async def search_by_tag(tags: list[str], match_all: bool = False) -> list[dict]:
+async def search_by_tag(tags: list[str], match_all: bool = True, limit: int = 50) -> list[dict]:
+    """Every memory carrying the tags. The endpoint has no limit of its own, so cap here.
+
+    match_all=True means a memory must carry ALL the tags; the endpoint's own default
+    is ANY, which quietly widens a two-tag scope into a union.
+    """
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"{BASE_URL}/api/search/by-tag",
             json={"tags": tags, "match_all": match_all},
         )
         response.raise_for_status()
-        return response.json()["results"]
+        return response.json()["results"][:limit]
+
+
+async def search_scoped(query: str, tags: list[str], limit: int = 5) -> list[dict]:
+    """Query relevance AND tag scope — no single endpoint does both.
+
+    Over-fetch semantically, then keep the hits carrying every tag. A post-filter, so
+    it can return fewer than `limit`; widen the window if that matters.
+    """
+    hits = await search_memory(query, n_results=limit * 4)
+    wanted = set(tags)
+    return [h for h in hits if wanted.issubset(set(h["memory"]["tags"]))][:limit]
 
 # Usage — semantic hits, then the same scoped to one agent's memories
 hits = await search_memory("API rate limits")

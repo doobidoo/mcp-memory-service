@@ -40,19 +40,26 @@ class MemorySearchTool(BaseTool):
         return asyncio.run(self._arun(query, tags or [], limit))
 
     async def _arun(self, query: str, tags: list[str] = None, limit: int = 5) -> str:
+        # /api/search ranks by query but cannot filter tags; /api/search/by-tag filters
+        # tags but ignores the query and caps nothing. With both, over-fetch
+        # semantically and post-filter — which can yield fewer than `limit`.
         async with httpx.AsyncClient() as client:
-            if tags:
-                # Semantic search takes no tag filter — tag search is its own endpoint
+            if tags and not query:
                 response = await client.post(
                     f"{MEMORY_URL}/api/search/by-tag",
-                    json={"tags": tags},
+                    json={"tags": tags, "match_all": True},  # default is ANY, not ALL
                 )
+                memories = [h["memory"] for h in response.json().get("results", [])][:limit]
             else:
                 response = await client.post(
                     f"{MEMORY_URL}/api/search",
-                    json={"query": query, "n_results": limit},
+                    json={"query": query, "n_results": limit * 4 if tags else limit},
                 )
-            memories = [h["memory"] for h in response.json().get("results", [])]
+                memories = [h["memory"] for h in response.json().get("results", [])]
+                if tags:
+                    wanted = set(tags)
+                    memories = [m for m in memories if wanted.issubset(set(m["tags"]))]
+                memories = memories[:limit]
 
         if not memories:
             return "No relevant memories found."
@@ -170,7 +177,8 @@ async with httpx.AsyncClient() as client:
         f"{MEMORY_URL}/api/search/by-tag",
         json={"tags": ["crew:analysis-team"]},  # Cross-crew retrieval
     )
-    findings = [h["memory"] for h in response.json()["results"]]
+    # No limit on by-tag — it returns the crew's entire history; cap it.
+    findings = [h["memory"] for h in response.json()["results"]][:10]
 ```
 
 ## Post-Task Knowledge Base Inspection

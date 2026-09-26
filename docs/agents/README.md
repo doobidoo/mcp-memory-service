@@ -62,7 +62,9 @@ await client.post(f"{BASE_URL}/api/memories", json={
 response = await client.post(f"{BASE_URL}/api/search/by-tag", json={
     "tags": ["msg:cluster"],
 })
-messages = [hit["memory"] for hit in response.json()["results"]]
+# by-tag takes no limit and returns every match, so cap it on the client. With
+# several tags also pass match_all: True — the default matches ANY of them.
+messages = [hit["memory"] for hit in response.json()["results"]][:20]
 ```
 
 ## Framework-Specific Guides

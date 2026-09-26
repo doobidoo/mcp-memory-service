@@ -96,13 +96,19 @@ async def retrieve_memory_node(state: AgentState) -> dict:
     last_message = state["messages"][-1]
     query = last_message.content if hasattr(last_message, "content") else str(last_message)
 
+    # Rank by the message semantically, then keep this agent's memories. Searching
+    # by tag alone would ignore the query and return the agent's whole history;
+    # /api/search cannot filter tags, so over-fetch and post-filter here.
+    agent_tag = f"agent:{state['agent_id']}"
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            # Tag search, because semantic search has no tag filter
-            f"{MEMORY_URL}/api/search/by-tag",
-            json={"tags": [f"agent:{state['agent_id']}"]},  # Scope to this agent
+            f"{MEMORY_URL}/api/search",
+            json={"query": query, "n_results": 20},
         )
-        memories = [h["memory"] for h in response.json().get("results", [])]
+        memories = [
+            h["memory"] for h in response.json().get("results", [])
+            if agent_tag in h["memory"]["tags"]
+        ][:5]
 
     if memories:
         context = "Relevant memory:\n" + "\n".join(f"- {m['content']}" for m in memories)
@@ -176,7 +182,9 @@ async with httpx.AsyncClient() as client:
         f"{MEMORY_URL}/api/search/by-tag",
         json={"tags": ["agent:researcher"]},  # Read from researcher's memory
     )
-    shared_context = [h["memory"] for h in response.json()["results"]]
+    # by-tag takes no limit: it returns every memory the researcher wrote, so cap
+    # it before this reaches a context window.
+    shared_context = [h["memory"] for h in response.json()["results"]][:10]
 
 writer_result = await writer_agent.ainvoke({
     "messages": [HumanMessage(content="Write a summary of API limits")],
