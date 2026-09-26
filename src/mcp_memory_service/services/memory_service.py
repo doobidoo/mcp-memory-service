@@ -630,14 +630,30 @@ class MemoryService:
         resolved_agent_id = os.environ.get("MCP_AGENT_ID") or final_metadata.get("agent_id")
         if resolved_agent_id:
             final_metadata["agent_id"] = resolved_agent_id
+        # The new version is already committed from here on, so a failure below
+        # is reported and worked around rather than turned into a failed evolve.
         if final_metadata:
-            await self.storage.update_memory_metadata(
+            meta_ok, meta_msg = await self.storage.update_memory_metadata(
                 new_hash, {"metadata": final_metadata}, preserve_timestamps=True
             )
+            if not meta_ok:
+                logger.warning(
+                    "Evolved memory %s but could not write its metadata: %s",
+                    new_hash[:8], _sanitize_log_value(str(meta_msg)),
+                )
+                msg = f"{msg} (metadata update failed: {meta_msg})"
 
         memory = await self.storage.get_by_hash(new_hash)
-        if memory is not None:
-            await self._run_post_store_steps(memory)
+        if memory is None:
+            # Re-read failed; score the version as written instead of skipping it.
+            memory = Memory(
+                content=content,
+                content_hash=new_hash,
+                tags=list(tags or []),
+                memory_type=memory_type,
+                metadata=final_metadata,
+            )
+        await self._run_post_store_steps(memory)
         return ok, msg, new_hash
 
     async def _run_post_store_steps(self, memory: Memory) -> None:

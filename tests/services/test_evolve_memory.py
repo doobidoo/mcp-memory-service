@@ -107,6 +107,49 @@ async def test_evolve_memory_runs_post_store_steps(memory_service):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_evolve_memory_reports_metadata_write_failure(memory_service):
+    """The new version is committed before its metadata is written. If that
+    write fails (e.g. database locked), say so instead of reporting a clean
+    evolution, and still run the post-store steps on the committed version."""
+    old_hash = await _store_original(memory_service)
+    memory_service.storage.update_memory_metadata = AsyncMock(return_value=(False, "database is locked"))
+    memory_service._run_post_store_steps = AsyncMock()
+
+    ok, msg, new_hash = await memory_service.evolve_memory(
+        old_hash,
+        "The backup job runs nightly at 06:00 against the NAS share.",
+        metadata={"source": "harvest"},
+    )
+
+    assert ok and new_hash
+    assert "metadata" in msg and "database is locked" in msg
+    memory_service._run_post_store_steps.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_evolve_memory_scores_even_if_reread_fails(memory_service):
+    """A failed re-read after commit must not skip scoring: the post-store
+    steps run on the version as written."""
+    old_hash = await _store_original(memory_service)
+    memory_service.storage.get_by_hash = AsyncMock(return_value=None)
+    memory_service._run_post_store_steps = AsyncMock()
+    content = "The backup job runs nightly at 07:00 against the NAS share."
+
+    ok, _msg, new_hash = await memory_service.evolve_memory(
+        old_hash, content, tags=["backup"], memory_type="observation",
+        metadata={"source": "harvest"},
+    )
+
+    assert ok
+    written = memory_service._run_post_store_steps.await_args.args[0]
+    assert written.content_hash == new_hash
+    assert written.content == content
+    assert written.metadata["source"] == "harvest"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_evolve_memory_failure_skips_post_store_steps(memory_service):
     memory_service._maybe_link_entities = AsyncMock()
     memory_service._plugin_registry.fire = AsyncMock()
