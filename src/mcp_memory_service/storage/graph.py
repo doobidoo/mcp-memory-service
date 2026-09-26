@@ -338,7 +338,7 @@ class GraphStorage:
                 results = cursor.fetchall()
 
                 connected = [(row['hash'], row['distance']) for row in results]
-                logger.debug("Found %d connected memories within %s hops", len(connected), max_hops)
+                logger.debug("Found %d connected memories within %s hops", len(connected), _sanitize_log_value(max_hops))
 
                 return connected
             finally:
