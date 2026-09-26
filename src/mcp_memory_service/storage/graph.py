@@ -640,6 +640,7 @@ class GraphStorage:
                 target_hash,
                 similarity,
                 connection_types,
+                relationship_type,
                 metadata,
                 created_at
             FROM memory_graph
@@ -658,6 +659,7 @@ class GraphStorage:
                     "target_hash": result['target_hash'],
                     "similarity": result['similarity'],
                     "connection_types": json.loads(result['connection_types']),
+                    "relationship_type": result['relationship_type'],
                     "metadata": json.loads(result['metadata']) if result['metadata'] else {},
                     "created_at": result['created_at']
                 }
@@ -669,43 +671,7 @@ class GraphStorage:
             logger.error(f"Failed to retrieve association: {_sanitize_log_value(e)}")
             return None
 
-    async def _has_edge(
-        self,
-        source_hash: str,
-        target_hash: str,
-        relationship_type: str
-    ) -> bool:
-        """Whether this exact directed, typed edge exists.
 
-        get_association() matches either direction and does not return the
-        relationship type, so it cannot distinguish a forward derived_from
-        link from a reverse edge between the same two memories. Callers that
-        need to avoid rewriting an edge they already wrote need this.
-
-        Args:
-            source_hash: Source memory content hash
-            target_hash: Target memory content hash
-            relationship_type: Relationship type to match
-
-        Returns:
-            True if the edge exists
-        """
-        if not source_hash or not target_hash:
-            return False
-
-        try:
-            conn = await self._get_connection()
-            cursor = conn.cursor()
-            cursor.execute(
-                """SELECT 1 FROM memory_graph
-                    WHERE source_hash = ? AND target_hash = ? AND relationship_type = ?
-                    LIMIT 1""",
-                (source_hash, target_hash, relationship_type),
-            )
-            return cursor.fetchone() is not None
-        except (sqlite3.Error, OSError) as e:
-            logger.error(f"Failed to check association: {_sanitize_log_value(e)}")
-            return False
 
     async def delete_association(
         self,

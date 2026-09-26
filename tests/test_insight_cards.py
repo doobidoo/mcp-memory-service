@@ -205,7 +205,7 @@ class TestStoreInsights:
         # store_association (#1319).
         graph = AsyncMock()
         graph.store_association = AsyncMock(return_value=True)
-        graph._has_edge = AsyncMock(return_value=False)  # empty graph
+        graph.get_association = AsyncMock(return_value=None)  # empty graph
 
         cards = [
             InsightCard(

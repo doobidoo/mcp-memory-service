@@ -658,7 +658,7 @@ class MilvusGraphStorage:
                 filter=expr,
                 output_fields=[
                     "source_hash", "target_hash", "similarity",
-                    "connection_types", "metadata", "created_at",
+                    "connection_types", "relationship_type", "metadata", "created_at",
                 ],
                 limit=1,
             )
@@ -686,6 +686,7 @@ class MilvusGraphStorage:
                 "target_hash": row["target_hash"],
                 "similarity": row.get("similarity", 0.0),
                 "connection_types": ct,
+                "relationship_type": row.get("relationship_type", "related"),
                 "metadata": meta,
                 "created_at": row.get("created_at", 0.0),
             }
