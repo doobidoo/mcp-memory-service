@@ -266,11 +266,19 @@ async def store_insights(insights: List[InsightCard], storage, graph=None) -> Li
 
 
 async def _link_to_sources(card: InsightCard, content_hash: str, graph) -> None:
-    """Write the card's derived_from edges (best-effort — graph edges are non-critical)."""
+    """Write the card's derived_from edges (best-effort — graph edges are non-critical).
+
+    Only edges that don't exist yet are written. store_association() is an
+    INSERT OR REPLACE, so an unconditional relink would reset an existing
+    edge's relationship type, metadata and creation time on every run.
+    """
     if graph is None:
         return
+    can_look_up = hasattr(graph, "get_association")
     for src_hash in card.source_hashes:
         try:
+            if can_look_up and await graph.get_association(src_hash, content_hash):
+                continue  # edge already present — leave its type/metadata/created_at alone
             await graph.store_association(
                 source_hash=src_hash,
                 target_hash=content_hash,

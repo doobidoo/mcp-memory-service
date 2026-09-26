@@ -98,6 +98,48 @@ async def test_existing_insight_card_gets_missing_edges(temp_db_path):
 
 
 @pytest.mark.asyncio
+async def test_relink_leaves_existing_edge_untouched(temp_db_path):
+    """Relinking an existing card must not overwrite the edges it already has:
+    store_association() is an INSERT OR REPLACE, so an unconditional rewrite
+    would reset a pre-existing edge's type, metadata and created_at."""
+    storage = await _storage(temp_db_path)
+    sources = [await _store(storage, f"Deploy note {i}: push Forgejo, then Komodo ships it.") for i in range(2)]
+    card = InsightCard(
+        title="Deploys go through Forgejo",
+        content="Komodo deploys what Forgejo has.",
+        source_hashes=sources,
+        insight_type="pattern",
+        confidence=0.7,
+    )
+    [card_hash] = await store_insights([card], storage, graph=GraphStorage(storage.db_path))
+
+    graph = GraphStorage(storage.db_path)
+    await graph.store_association(
+        source_hash=sources[0],
+        target_hash=card_hash,
+        similarity=0.9,
+        connection_types=["semantic"],
+        metadata={"origin": "manual"},
+        relationship_type="supports",
+    )
+    before = await graph.get_association(sources[0], card_hash)
+
+    await store_insights([card], storage, graph=graph)  # existing card → relink path
+
+    after = await graph.get_association(sources[0], card_hash)
+    assert after["similarity"] == pytest.approx(0.9)
+    assert after["connection_types"] == ["semantic"]
+    assert after["metadata"] == {"origin": "manual"}
+    assert after["created_at"] == pytest.approx(before["created_at"])
+    with sqlite3.connect(storage.db_path) as conn:
+        kept = conn.execute(
+            "SELECT relationship_type FROM memory_graph WHERE source_hash = ? AND target_hash = ?",
+            (sources[0], card_hash),
+        ).fetchone()
+    assert kept[0] == "supports", "relink overwrote the edge's relationship type"
+
+
+@pytest.mark.asyncio
 async def test_cloudflare_storage_supports_consolidation_delete():
     """The consolidator applies forgetting through storage.delete_memory(), which
     CloudflareStorage did not have, so forgetting raised AttributeError there.
