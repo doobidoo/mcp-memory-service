@@ -13,6 +13,7 @@ import httpx
 
 from mcp_memory_service.quality.config import QualityConfig
 from mcp_memory_service.quality.ai_evaluator import QualityEvaluator
+from mcp_memory_service.quality.ai_evaluator import _parse_score_response
 from mcp_memory_service.models.memory import Memory
 
 
@@ -382,7 +383,7 @@ class TestScoreWithOpenAICompatible:
 
     @pytest.mark.asyncio
     async def test_non_gpt5_keeps_max_tokens_and_temperature(self):
-        """Non-gpt-5 models retain the original max_tokens=50 / temperature=0.1 payload (#797)."""
+        """Non-gpt-5 models retain max_tokens=50 and the deterministic temperature=0 (#797, #1102)."""
         ev = self._make_evaluator(openai_compat_model="gpt-4.1-mini")
         mock_resp = _mock_httpx_response("0.5")
         captured_payloads = []
@@ -396,7 +397,7 @@ class TestScoreWithOpenAICompatible:
 
         payload = captured_payloads[0]
         assert payload["max_tokens"] == 50
-        assert payload["temperature"] == 0.1
+        assert payload["temperature"] == 0
         assert "max_completion_tokens" not in payload
 
     @pytest.mark.asyncio
@@ -471,3 +472,65 @@ class TestOpenAICompatFallback:
 
         assert score == pytest.approx(0.75)
         assert memory.metadata.get("quality_provider") == "openai_compatible"
+
+
+# ---------------------------------------------------------------------------
+# Deterministic temperature + shared parse recovery (#1102)
+# ---------------------------------------------------------------------------
+
+
+class TestDeterministicTemperature:
+    @pytest.mark.asyncio
+    async def test_non_gpt5_payload_uses_temperature_zero(self):
+        helper = TestScoreWithOpenAICompatible()
+        ev = helper._make_evaluator()
+        client = helper._install_mock_post(
+            ev, return_value=_mock_httpx_response("0.8")
+        )
+
+        await ev._score_with_openai_compatible("python", _make_memory())
+
+        payload = client.post.call_args.kwargs["json"]
+        assert payload["temperature"] == 0
+
+
+class TestParseScoreResponse:
+    def test_bare_number(self):
+        assert _parse_score_response("0.85") == pytest.approx(0.85)
+
+    def test_labelled_score_at_end(self):
+        assert _parse_score_response("Sure. Score: 0.7.") == pytest.approx(0.7)
+
+    def test_code_fence(self):
+        assert _parse_score_response("```text\n0.7\n```") == pytest.approx(0.7)
+
+    def test_trailing_period(self):
+        assert _parse_score_response("0.7.") == pytest.approx(0.7)
+
+    def test_bare_number_is_clamped(self):
+        assert _parse_score_response("1.5") == pytest.approx(1.0)
+        assert _parse_score_response("-0.3") == pytest.approx(0.0)
+
+    def test_out_of_range_salvaged_score_raises(self):
+        with pytest.raises(RuntimeError, match="Could not parse score"):
+            _parse_score_response("Score: 1.4")
+
+    def test_unparseable_raises(self):
+        with pytest.raises(RuntimeError, match="Could not parse score"):
+            _parse_score_response("no numbers here")
+
+
+class TestGroqParseRecovery:
+    @pytest.mark.asyncio
+    async def test_labelled_groq_response_is_salvaged(self):
+        helper = TestScoreWithOpenAICompatible()
+        ev = helper._make_evaluator()
+        bridge = MagicMock()
+        bridge.call_model.return_value = {"status": "success", "response": "Score: 0.6"}
+        ev._groq_bridge = bridge
+
+        score = await ev._score_with_groq("python", _make_memory())
+
+        assert score == pytest.approx(0.6)
+        # determinism: the bridge was called with temperature 0
+        assert bridge.call_model.call_args.kwargs["temperature"] == 0
