@@ -37,28 +37,6 @@ def test_update_archive_header_boundary_leaves_unrelated_text(housekeeping):
     assert "For current versions (v10.25.0+)" in updated
 
 
-def test_update_readme_footer_boundary_rewrites_link_text(housekeeping):
-    original = (
-        "**Full version history**: [CHANGELOG.md](CHANGELOG.md) | "
-        "[Older versions (v10.22.0 and earlier)](docs/archive/CHANGELOG-HISTORIC.md) | "
-        "[All Releases](https://github.com/doobidoo/mcp-memory-service/releases)\n"
-    )
-    updated = housekeeping.update_readme_footer_boundary(original, "10.36.3")
-    assert "[Older versions (v10.36.3 and earlier)](docs/archive/CHANGELOG-HISTORIC.md)" in updated
-    assert "v10.22.0" not in updated
-
-
-def test_update_readme_footer_boundary_idempotent(housekeeping):
-    current = "[Older versions (v10.36.3 and earlier)](docs/archive/CHANGELOG-HISTORIC.md)"
-    assert housekeeping.update_readme_footer_boundary(current, "10.36.3") == current
-
-
-def test_update_readme_footer_boundary_no_link_match_is_noop(housekeeping):
-    """Prose that mentions `Older versions` without a markdown link must not match."""
-    prose = "Older versions (v9.0.0 and earlier) are deprecated.\n"
-    assert housekeeping.update_readme_footer_boundary(prose, "10.36.3") == prose
-
-
 def test_update_archive_header_boundary_no_match_is_noop(housekeeping):
     prose = "Random text mentioning (v10.0.0 and earlier) without the phrase.\n"
     assert housekeeping.update_archive_header_boundary(prose, "10.36.3") == prose
@@ -71,18 +49,6 @@ def test_update_archive_header_boundary_inserts_when_missing(housekeeping):
     assert "(v10.36.3 and earlier)" in updated
 
 
-def test_update_readme_footer_boundary_inserts_when_missing(housekeeping):
-    """Fallback footer from trim_readme_previous_releases omits the boundary;
-    helper must still inject the correct one (#717 Gemini feedback)."""
-    fallback = (
-        "**Full version history**: [CHANGELOG.md](CHANGELOG.md) "
-        "| [Older versions](docs/archive/CHANGELOG-HISTORIC.md) "
-        "| [All Releases](https://github.com/doobidoo/mcp-memory-service/releases)\n"
-    )
-    updated = housekeeping.update_readme_footer_boundary(fallback, "10.36.3")
-    assert "[Older versions (v10.36.3 and earlier)](docs/archive/CHANGELOG-HISTORIC.md)" in updated
-
-
 def test_update_archive_header_boundary_handles_prerelease(housekeeping):
     """Pre-release versions like 1.0.0-beta must be matched and replaced cleanly."""
     original = "Older changelog entries for MCP Memory Service (v1.0.0-beta and earlier).\n"
@@ -91,15 +57,6 @@ def test_update_archive_header_boundary_handles_prerelease(housekeeping):
     assert "v1.0.0-beta" not in updated
     # No double-version
     assert updated.count("and earlier") == 1
-
-
-def test_update_readme_footer_boundary_handles_prerelease(housekeeping):
-    original = (
-        "[Older versions (v1.0.0-rc.1 and earlier)](docs/archive/CHANGELOG-HISTORIC.md)"
-    )
-    updated = housekeeping.update_readme_footer_boundary(original, "10.36.3")
-    assert "[Older versions (v10.36.3 and earlier)](docs/archive/CHANGELOG-HISTORIC.md)" in updated
-    assert "v1.0.0-rc.1" not in updated
 
 
 def test_update_archive_header_boundary_no_double_version_when_unknown_format(housekeeping):

@@ -7,8 +7,8 @@ Execute the complete release workflow for mcp-memory-service by delegating to th
 Spawn the `github-release-manager` agent to handle the entire release lifecycle:
 
 1. **Pre-Release**: List open PRs, merge approved ones, verify CI green on main
-2. **Version Bump**: Determine bump type (MAJOR/MINOR/PATCH) from PR labels, update `_version.py`, `pyproject.toml`, `README.md`, `uv.lock`
-3. **Documentation**: Run `python3 scripts/release/collect_changelog.py` first — it merges the `changelog.d/` fragments every PR left behind into `[Unreleased]` and deletes them. Then retitle `[Unreleased]` in CHANGELOG.md to the new version and leave an empty `## [Unreleased]` heading above it; update README.md ("Latest Release"). Do **not** add a version line to CLAUDE.md — it was removed on 2026-09-05 in favour of a pointer to CHANGELOG.md, because it was the file that actually got forgotten.
+2. **Version Bump**: Determine bump type (MAJOR/MINOR/PATCH) from PR labels, update `_version.py`, `pyproject.toml`, `uv.lock`
+3. **Documentation**: Run `python3 scripts/release/collect_changelog.py` first — it merges the `changelog.d/` fragments every PR left behind into `[Unreleased]` and deletes them. Then retitle `[Unreleased]` in CHANGELOG.md to the new version and leave an empty `## [Unreleased]` heading above it. The README carries no version string and needs no edit. Do **not** add a version line to CLAUDE.md — it was removed on 2026-09-05 in favour of a pointer to CHANGELOG.md, because it was the file that actually got forgotten.
 4. **Landing Page**: Update `site/index.html` for MINOR/MAJOR releases only — version badge, What's New cards, test count. Deploys automatically to mcpmemory.services on merge (`.github/workflows/deploy-site.yml`)
 5. **Tag**: Annotated tag on the merge commit, pushed **with git** and an explicit refspec:
    ```bash

@@ -36,9 +36,9 @@ fi
 #
 # Rationale: the landing page is the one surface where ANY older-than-canonical
 # version reference is unambiguously wrong (it's the "current state" page).
-# README.md and CLAUDE.md intentionally cite historical versions:
-#   - README has a "Latest Releases" section enumerating all recent versions
-#   - CLAUDE.md uses "introduced in vX" / "vX+" annotations throughout
+# CLAUDE.md intentionally cites historical versions ("introduced in vX" / "vX+"
+# annotations throughout). README.md carries no version string at all since the
+# "Latest Release" section was removed, so there is nothing there to scan.
 # Distinguishing intentional historical refs from real drift in those files
 # requires semantic context this regex-based script doesn't have.
 #

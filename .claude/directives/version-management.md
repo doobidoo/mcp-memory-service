@@ -126,13 +126,17 @@ Then the version files, always bumped together, in one commit:
 
 1. `src/mcp_memory_service/_version.py` (`__version__ = "X.Y.Z"`) — this is the canonical source
 2. `pyproject.toml` (line ~7: `version = "X.Y.Z"`)
-3. `README.md` (Latest Release section)
-4. `CHANGELOG.md` — retitle `[Unreleased]` to `[X.Y.Z]` with the date, and leave a new
+3. `CHANGELOG.md` — retitle `[Unreleased]` to `[X.Y.Z]` with the date, and leave a new
    empty `## [Unreleased]` heading above it. The entries move under the version; the
    heading stays, because the next PR adds its entry there.
-5. `uv lock` to update the dependency lock file
+4. `uv lock` to update the dependency lock file
 
-Of those five, **only `_version.py` and `pyproject.toml` are covered by a CI gate.**
+`README.md` is no longer on this list. It carried a "Latest Release" section and an
+inline v11 changelog that had to be hand-edited on every release; both were removed when
+the README was cut down, and it now links CHANGELOG.md instead. Do not reintroduce a
+version string there.
+
+Of those four, **only `_version.py` and `pyproject.toml` are covered by a CI gate.**
 
 `CLAUDE.md` used to carry a "Current Version" line and was the one that actually got
 forgotten: v11.8.2 shipped without it, nothing failed, and main announced the previous
@@ -242,7 +246,8 @@ The rest of the discipline:
 
 What manual releases have actually cost:
 
-- Forgotten `README.md` update
+- Forgotten `README.md` update (the README no longer carries a version — this class of
+  failure is gone, not fixed by discipline)
 - Incomplete release notes
 - Publish pipeline never verified after the tag push
 - Version mismatch between files
