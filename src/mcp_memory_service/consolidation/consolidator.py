@@ -678,7 +678,7 @@ class DreamInspiredConsolidator:
             memories,
             connections=connections,
             access_patterns=access_patterns,
-            reference_time=datetime.now(),
+            reference_time=datetime.now(timezone.utc),
         )
 
         # Update memory metadata with relevance scores (v8.47.1 - batch optimization)
