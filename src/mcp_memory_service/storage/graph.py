@@ -146,7 +146,7 @@ class GraphStorage:
         self.db_path = db_path
         self._connection = None
         self._lock = asyncio.Lock()  # Instance-level lock for thread safety
-        logger.info(f"Initialized GraphStorage with database: {db_path}")
+        logger.info(f"Initialized GraphStorage with database: {_sanitize_log_value(db_path)}")
 
     async def _get_connection(self) -> sqlite3.Connection:
         """Get or create database connection with optimizations."""
@@ -214,12 +214,12 @@ class GraphStorage:
 
         # Validate similarity score bounds
         if not (0.0 <= similarity <= 1.0):
-            logger.error(f"Invalid similarity score {similarity}, must be in range [0.0, 1.0]")
+            logger.error(f"Invalid similarity score {_sanitize_log_value(similarity)}, must be in range [0.0, 1.0]")
             return False
 
         # Validate relationship type
         if not validate_relationship(relationship_type):
-            logger.error(f"Invalid relationship type: {relationship_type}")
+            logger.error(f"Invalid relationship type: {_sanitize_log_value(relationship_type)}")
             return False
 
         try:
@@ -260,7 +260,7 @@ class GraphStorage:
             return True
 
         except sqlite3.Error as e:
-            logger.error(f"Failed to store association: {e}")
+            logger.error(f"Failed to store association: {_sanitize_log_value(e)}")
             return False
 
     async def find_connected(
@@ -294,7 +294,7 @@ class GraphStorage:
 
         # Validate direction parameter
         if direction not in ("outgoing", "incoming", "both"):
-            logger.error(f"Invalid direction '{direction}', must be 'outgoing', 'incoming', or 'both'")
+            logger.error(f"Invalid direction '{_sanitize_log_value(direction)}', must be 'outgoing', 'incoming', or 'both'")
             return []
 
         try:
@@ -338,14 +338,14 @@ class GraphStorage:
                 results = cursor.fetchall()
 
                 connected = [(row['hash'], row['distance']) for row in results]
-                logger.debug(f"Found {len(connected)} connected memories within {max_hops} hops")
+                logger.debug("Found %d connected memories within %s hops", len(connected), _sanitize_log_value(max_hops))
 
                 return connected
             finally:
                 cursor.close()
 
         except sqlite3.Error as e:
-            logger.error(f"Failed to find connected memories: {e}")
+            logger.error(f"Failed to find connected memories: {_sanitize_log_value(e)}")
             return []
 
     async def get_relationship_types(self, memory_hash: str) -> Dict[str, int]:
@@ -379,14 +379,14 @@ class GraphStorage:
                 results = cursor.fetchall()
 
                 relationship_counts = {row['relationship_type']: row['count'] for row in results}
-                logger.debug(f"Found {len(relationship_counts)} relationship types for {memory_hash}")
+                logger.debug("Found %d relationship types for %s", len(relationship_counts), _sanitize_log_value(memory_hash))
 
                 return relationship_counts
             finally:
                 cursor.close()
 
         except sqlite3.Error as e:
-            logger.error(f"Failed to get relationship types: {e}")
+            logger.error(f"Failed to get relationship types: {_sanitize_log_value(e)}")
             return {}
 
     async def shortest_path(
@@ -451,16 +451,16 @@ class GraphStorage:
                 if result:
                     # Path format: ",hash1,,hash2,,hash3," - filter empty strings
                     path = [h for h in result['path'].split(',') if h]
-                    logger.debug(f"Found path of length {len(path)}: {hash1} → {hash2}")
+                    logger.debug(f"Found path of length {_sanitize_log_value(len(path))}: {_sanitize_log_value(hash1)} → {_sanitize_log_value(hash2)}")
                     return path
                 else:
-                    logger.debug(f"No path found between {hash1} and {hash2}")
+                    logger.debug(f"No path found between {_sanitize_log_value(hash1)} and {_sanitize_log_value(hash2)}")
                     return None
             finally:
                 cursor.close()
 
         except sqlite3.Error as e:
-            logger.error(f"Failed to find shortest path: {e}")
+            logger.error(f"Failed to find shortest path: {_sanitize_log_value(e)}")
             return None
 
     async def get_subgraph(
@@ -517,8 +517,9 @@ class GraphStorage:
             # Check SQLite parameter limit (999 max, we use 2*len(nodes) + maybe 1 for relationship_type)
             if len(nodes) > 499:
                 logger.warning(
-                    f"Subgraph too large ({len(nodes)} nodes > 499 limit). "
-                    f"Truncating to prevent SQLite parameter overflow."
+                    "Subgraph too large (%d nodes > 499 limit). "
+                    "Truncating to prevent SQLite parameter overflow.",
+                    len(nodes),
                 )
                 # Keep center node + first 498 connected nodes
                 nodes = {memory_hash}
@@ -592,13 +593,13 @@ class GraphStorage:
                     "edges": edges
                 }
 
-                logger.debug(f"Extracted subgraph: {len(nodes)} nodes, {len(edges)} edges")
+                logger.debug("Extracted subgraph: %d nodes, %d edges", len(nodes), len(edges))
                 return subgraph
             finally:
                 cursor.close()
 
         except sqlite3.Error as e:
-            logger.error(f"Failed to extract subgraph: {e}")
+            logger.error(f"Failed to extract subgraph: {_sanitize_log_value(e)}")
             return {"nodes": [], "edges": []}
 
     async def get_association(
@@ -665,7 +666,7 @@ class GraphStorage:
                 return None
 
         except sqlite3.Error as e:
-            logger.error(f"Failed to retrieve association: {e}")
+            logger.error(f"Failed to retrieve association: {_sanitize_log_value(e)}")
             return None
 
     async def delete_association(
@@ -704,14 +705,14 @@ class GraphStorage:
 
                 deleted_count = cursor.rowcount
                 if deleted_count > 0:
-                    logger.debug(f"Deleted association: {source_hash} ↔ {target_hash}")
+                    logger.debug(f"Deleted association: {_sanitize_log_value(source_hash)} ↔ {_sanitize_log_value(target_hash)}")
                     return True
                 else:
-                    logger.warning(f"No association found to delete: {source_hash} ↔ {target_hash}")
+                    logger.warning(f"No association found to delete: {_sanitize_log_value(source_hash)} ↔ {_sanitize_log_value(target_hash)}")
                     return False
 
         except sqlite3.Error as e:
-            logger.error(f"Failed to delete association: {e}")
+            logger.error(f"Failed to delete association: {_sanitize_log_value(e)}")
             return False
 
     async def get_association_count(self, memory_hash: str) -> int:
@@ -741,7 +742,7 @@ class GraphStorage:
             return result['count'] if result else 0
 
         except sqlite3.Error as e:
-            logger.error(f"Failed to count associations: {e}")
+            logger.error(f"Failed to count associations: {_sanitize_log_value(e)}")
             return 0
 
     async def store_entity_link(self, memory_hash: str, entity_name: str, entity_type: str) -> bool:
@@ -761,7 +762,7 @@ class GraphStorage:
                 conn.commit()
             return True
         except sqlite3.Error as e:
-            logger.error(f"Failed to store entity link: {e}")
+            logger.error(f"Failed to store entity link: {_sanitize_log_value(e)}")
             return False
 
     async def list_entities(self, limit: int = 50) -> List[Dict[str, Any]]:
@@ -780,7 +781,7 @@ class GraphStorage:
             finally:
                 cursor.close()
         except sqlite3.Error as e:
-            logger.error(f"Failed to list entities: {e}")
+            logger.error(f"Failed to list entities: {_sanitize_log_value(e)}")
             return []
 
     async def find_memories_by_entity(self, entity_name: str, limit: int = 20) -> List[str]:
@@ -800,7 +801,7 @@ class GraphStorage:
             finally:
                 cursor.close()
         except sqlite3.Error as e:
-            logger.error(f"Failed to find memories by entity: {e}")
+            logger.error(f"Failed to find memories by entity: {_sanitize_log_value(e)}")
             return []
 
     async def get_entities_for_memory(self, memory_hash: str) -> List[str]:
@@ -859,7 +860,7 @@ class GraphStorage:
             finally:
                 cursor.close()
         except sqlite3.Error as e:
-            logger.error(f"Failed to get entity profile: {e}")
+            logger.error(f"Failed to get entity profile: {_sanitize_log_value(e)}")
             return {}
 
     async def close(self):
@@ -929,7 +930,7 @@ class GraphStorage:
             finally:
                 cursor.close()
         except sqlite3.Error as e:
-            logger.error(f"Failed transitive closure query: {e}")
+            logger.error(f"Failed transitive closure query: {_sanitize_log_value(e)}")
             return []
 
     async def common_neighbors(
@@ -986,5 +987,5 @@ class GraphStorage:
             finally:
                 cursor.close()
         except sqlite3.Error as e:
-            logger.error(f"Failed common neighbors query: {e}")
+            logger.error(f"Failed common neighbors query: {_sanitize_log_value(e)}")
             return []

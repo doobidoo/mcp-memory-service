@@ -50,6 +50,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/milvus.py",
     "mcp_memory_service/config/base.py",
     "mcp_memory_service/server/handlers/memory.py",
+    "mcp_memory_service/storage/graph.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
