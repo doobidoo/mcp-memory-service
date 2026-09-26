@@ -206,7 +206,7 @@ class TestInsightsStoredAsMemories:
         # store_association (#1319).
         graph = AsyncMock()
         graph.store_association = AsyncMock(return_value=True)
-        graph.get_association = AsyncMock(return_value=None)  # empty graph
+        graph._has_edge = AsyncMock(return_value=False)  # empty graph
 
         cards = [
             InsightCard(

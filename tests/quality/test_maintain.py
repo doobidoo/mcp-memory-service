@@ -336,7 +336,7 @@ async def test_maintain_insight_cards_write_edges_to_graph(mock_server):
                        insight_type="pattern", confidence=0.7)
     graph = MagicMock()
     graph.store_association = AsyncMock(return_value=True)
-    graph.get_association = AsyncMock(return_value=None)  # empty graph
+    graph._has_edge = AsyncMock(return_value=False)  # empty graph
 
     # The handler imports MCP_INSIGHT_CARDS_ENABLED from config, which reads
     # the environment once at import, so patch the value, not the env var.

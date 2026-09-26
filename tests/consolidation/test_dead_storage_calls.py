@@ -4,6 +4,7 @@ Each call used to fail inside a broad ``except`` (or a ``hasattr`` guard that is
 always False), so the feature silently did nothing instead of raising.
 """
 
+import json
 import os
 import sqlite3
 from unittest.mock import AsyncMock
@@ -99,9 +100,9 @@ async def test_existing_insight_card_gets_missing_edges(temp_db_path):
 
 @pytest.mark.asyncio
 async def test_relink_leaves_existing_edge_untouched(temp_db_path):
-    """Relinking an existing card must not overwrite the edges it already has:
-    store_association() is an INSERT OR REPLACE, so an unconditional rewrite
-    would reset a pre-existing edge's type, metadata and created_at."""
+    """Relinking an existing card must not overwrite the edge it already has.
+    The write is an INSERT OR REPLACE, so an unconditional rewrite would reset
+    a pre-existing derived_from edge's similarity, metadata and created_at."""
     storage = await _storage(temp_db_path)
     sources = [await _store(storage, f"Deploy note {i}: push Forgejo, then Komodo ships it.") for i in range(2)]
     card = InsightCard(
@@ -114,29 +115,118 @@ async def test_relink_leaves_existing_edge_untouched(temp_db_path):
     [card_hash] = await store_insights([card], storage, graph=GraphStorage(storage.db_path))
 
     graph = GraphStorage(storage.db_path)
+    # Give both source edges attributes of their own; relinking must leave them
+    # alone rather than resetting each to the card's confidence.
+    with sqlite3.connect(storage.db_path) as conn:
+        for i, src in enumerate(sources):
+            conn.execute(
+                """UPDATE memory_graph
+                      SET similarity = ?, connection_types = ?, metadata = ?, created_at = ?
+                    WHERE source_hash = ? AND target_hash = ? AND relationship_type = 'derived_from'""",
+                (0.9, json.dumps(["semantic"]), json.dumps({"origin": "manual"}),
+                 1_000_000_000.0 + i, src, card_hash),
+            )
+        conn.commit()
+    before = [await graph.get_association(src, card_hash) for src in sources]
+
+    await store_insights([card], storage, graph=graph)  # existing card → relink path
+
+    for i, src in enumerate(sources):
+        after = await graph.get_association(src, card_hash)
+        assert after["similarity"] == pytest.approx(0.9), f"relink reset edge {i}'s similarity"
+        assert after["connection_types"] == ["semantic"]
+        assert after["metadata"] == {"origin": "manual"}
+        assert after["created_at"] == pytest.approx(before[i]["created_at"])
+
+
+@pytest.mark.asyncio
+async def test_forward_link_survives_a_reverse_edge(temp_db_path):
+    """A symmetric edge pointing the other way must not stand in for the card's
+    source link. get_association() matches either direction, so a lookup that
+    only asks "is there any edge here" reads the reverse edge as a hit and
+    never writes the forward derived_from link — which is one-way, so the
+    link stays missing."""
+    storage = await _storage(temp_db_path)
+    sources = [await _store(storage, f"Sync note {i}: nightly job pulls the git digest.") for i in range(2)]
+    card = InsightCard(
+        title="Nightly sync runs",
+        content="A nightly job pulls the digest.",
+        source_hashes=sources,
+        insight_type="pattern",
+        confidence=0.7,
+    )
+    [card_hash] = await store_insights([card], storage, graph=GraphStorage(storage.db_path))
+
+    graph = GraphStorage(storage.db_path)
+    # 'related' is symmetric, so this stores both card→src and src→card.
+    await graph.store_association(
+        source_hash=card_hash,
+        target_hash=sources[0],
+        similarity=0.5,
+        connection_types=["related"],
+        relationship_type="related",
+    )
+    # Clear the other source's edges so only the reverse-related pair remains,
+    # then drop the forward derived_from link: a reverse edge is now the only
+    # thing a direction-blind lookup would find.
+    with sqlite3.connect(storage.db_path) as conn:
+        conn.execute("DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?",
+                     (sources[1], sources[1]))
+        conn.execute(
+            "DELETE FROM memory_graph WHERE source_hash = ? AND target_hash = ? AND relationship_type = 'derived_from'",
+            (sources[0], card_hash),
+        )
+        conn.commit()
+        remaining = sorted(r[0] for r in conn.execute("SELECT relationship_type FROM memory_graph").fetchall())
+    # the symmetric write leaves both directions of the pair
+    assert remaining == ["related", "related"], f"setup expected only the reverse pair, got {remaining}"
+
+    await store_insights([card], storage, graph=graph)  # existing card → relink path
+
+    with sqlite3.connect(storage.db_path) as conn:
+        restored = conn.execute(
+            "SELECT relationship_type FROM memory_graph WHERE source_hash = ? AND target_hash = ?",
+            (sources[0], card_hash),
+        ).fetchall()
+    assert ("derived_from",) in restored, \
+        f"reverse edge suppressed the source link; rows now: {restored}"
+
+
+@pytest.mark.asyncio
+async def test_source_link_replaces_an_edge_of_another_type(temp_db_path):
+    """A row already occupying source→card must not block the link: the graph's
+    primary key is (source_hash, target_hash), so any other relationship between
+    the same pair is a different edge than the derived_from link, and leaving it
+    in place loses the link permanently."""
+    storage = await _storage(temp_db_path)
+    sources = [await _store(storage, f"Hook note {i}: the PostToolUse hook tags memories.") for i in range(1)]
+    card = InsightCard(
+        title="Hooks tag memories",
+        content="A PostToolUse hook adds the tag.",
+        source_hashes=sources,
+        insight_type="pattern",
+        confidence=0.7,
+    )
+    [card_hash] = await store_insights([card], storage, graph=GraphStorage(storage.db_path))
+
+    graph = GraphStorage(storage.db_path)
+    # 'supports' is asymmetric, so this occupies source→card with a non-link edge.
     await graph.store_association(
         source_hash=sources[0],
         target_hash=card_hash,
         similarity=0.9,
-        connection_types=["semantic"],
-        metadata={"origin": "manual"},
+        connection_types=["supports"],
         relationship_type="supports",
     )
-    before = await graph.get_association(sources[0], card_hash)
 
     await store_insights([card], storage, graph=graph)  # existing card → relink path
 
-    after = await graph.get_association(sources[0], card_hash)
-    assert after["similarity"] == pytest.approx(0.9)
-    assert after["connection_types"] == ["semantic"]
-    assert after["metadata"] == {"origin": "manual"}
-    assert after["created_at"] == pytest.approx(before["created_at"])
     with sqlite3.connect(storage.db_path) as conn:
-        kept = conn.execute(
+        types = [r[0] for r in conn.execute(
             "SELECT relationship_type FROM memory_graph WHERE source_hash = ? AND target_hash = ?",
             (sources[0], card_hash),
-        ).fetchone()
-    assert kept[0] == "supports", "relink overwrote the edge's relationship type"
+        ).fetchall()]
+    assert types == ["derived_from"], f"the link was not written over the existing row: {types}"
 
 
 @pytest.mark.asyncio
