@@ -46,9 +46,13 @@ This table is the subset agents reach for. The authoritative, always-current lis
 > rejected, so a request that looks filtered comes back unfiltered.
 > `POST /api/search/by-tag` filters by tag but ignores any query and takes no limit: it
 > returns every matching memory, and `match_all` defaults to `false`, so several tags
-> match ANY of them, not all. To rank by a query *and* scope by tag, over-fetch from
-> `/api/search` and filter the hits on `memory["tags"]` client-side. Both endpoints
-> return their hits under `results`, not `memories`.
+> match ANY of them, not all. Ranking by query *and* scoping by tag means picking a
+> side: `by-tag` gives a complete scope in no particular order, while ranking first and
+> filtering afterwards gives query order but only sees the window you fetched — in a
+> shared store a match ranked below it simply vanishes. `n_results` must be 1-100; 101
+> is a 422, and reading that body with `.get("results", [])` turns a rejected request
+> into "no memories found". Both endpoints return their hits under `results`, not
+> `memories`.
 
 ## Authentication Patterns
 
@@ -99,10 +103,15 @@ print(result["memory"]["content_hash"])
 
 ```python
 async def search_memory(query: str, n_results: int = 5) -> list[dict]:
+    """n_results must be 1-100; the server answers 422 outside that range.
+
+    raise_for_status() matters here: read the error body with .get("results", []) and a
+    rejected request looks exactly like a store with no matching memories.
+    """
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"{BASE_URL}/api/search",
-            json={"query": query, "n_results": n_results},
+            json={"query": query, "n_results": min(n_results, 100)},
         )
         response.raise_for_status()
         return response.json()["results"]
@@ -123,13 +132,21 @@ async def search_by_tag(tags: list[str], match_all: bool = True, limit: int = 50
         return response.json()["results"][:limit]
 
 
-async def search_scoped(query: str, tags: list[str], limit: int = 5) -> list[dict]:
-    """Query relevance AND tag scope — no single endpoint does both.
+async def search_scoped(query: str, tags: list[str], limit: int = 5,
+                        window: int = 50) -> list[dict]:
+    """Query relevance AND tag scope — no single endpoint does both. Read the tradeoff.
 
-    Over-fetch semantically, then keep the hits carrying every tag. A post-filter, so
-    it can return fewer than `limit`; widen the window if that matters.
+    This ranks by the query and then keeps the hits carrying every tag, which means it
+    only ever sees the top `window` results: in a shared store, a matching memory that
+    ranks below the window is invisible here and the caller sees "nothing found". When
+    the scope must be complete, use search_by_tag() — it returns every match, just not
+    in query order.
+
+    `window` is clamped to 100, the server's maximum n_results; asking for more is a
+    422, and reading that response as an empty list is how this turns into a silent
+    "no memories".
     """
-    hits = await search_memory(query, n_results=limit * 4)
+    hits = await search_memory(query, n_results=min(max(window, limit), 100))
     wanted = set(tags)
     return [h for h in hits if wanted.issubset(set(h["memory"]["tags"]))][:limit]
 

@@ -27,28 +27,27 @@ async def retrieve_context(query: str, tags: list[str] | None = None, limit: int
     """Retrieve relevant memory context for injection into system message.
 
     The two search endpoints each do half the job: /api/search ranks by the query but
-    has no tag filter, /api/search/by-tag filters by tag but ignores the query and
-    returns every match with no limit. With both, search semantically over a wider
-    window and keep the hits carrying the tags — a post-filter, so it can return fewer
-    than `limit`; widen the window rather than expecting a full page.
+    cannot filter tags, /api/search/by-tag filters by tag but ignores the query and
+    caps nothing. When tags are given, scope wins: by-tag sees every matching memory,
+    where ranking first and filtering afterwards would only ever see the top of the
+    list and silently miss a match that ranks below it in a shared store. The cost is
+    that a scoped result is not query-ranked — cap it and let the model read it.
     """
     async with httpx.AsyncClient() as client:
-        if tags and not query:
+        if tags:
             response = await client.post(
                 f"{MEMORY_URL}/api/search/by-tag",
                 json={"tags": tags, "match_all": True},  # default is ANY, not ALL
             )
-            memories = [h["memory"] for h in response.json().get("results", [])][:limit]
         else:
             response = await client.post(
                 f"{MEMORY_URL}/api/search",
-                json={"query": query, "n_results": limit * 4 if tags else limit},
+                json={"query": query, "n_results": min(limit, 100)},
             )
-            memories = [h["memory"] for h in response.json().get("results", [])]
-            if tags:
-                wanted = set(tags)
-                memories = [m for m in memories if wanted.issubset(set(m["tags"]))]
-            memories = memories[:limit]
+        # Without this, a 422 (n_results out of the 1-100 range, no tags supplied)
+        # reads as an empty result list and the agent is told there is no memory.
+        response.raise_for_status()
+        memories = [h["memory"] for h in response.json()["results"]][:limit]
 
     if not memories:
         return ""
@@ -130,24 +129,21 @@ async def search_memory(query: str, limit: int = 5, tags: list[str] | None = Non
         Formatted string of matching memories, or empty string if none found.
     """
     async with httpx.AsyncClient() as client:
-        if tags and not query:
-            # by-tag ignores any query and returns every match, so cap it here
+        if tags:
+            # Tag scope must be complete: by-tag sees every match, where ranking first
+            # and filtering afterwards misses whatever falls outside the window.
+            # It ignores the query and caps nothing, so cap here.
             response = await client.post(
                 f"{MEMORY_URL}/api/search/by-tag",
                 json={"tags": tags, "match_all": True},  # default is ANY, not ALL
             )
-            memories = [h["memory"] for h in response.json().get("results", [])][:limit]
         else:
-            # Semantic search has no tag filter — over-fetch, then post-filter on tags
             response = await client.post(
                 f"{MEMORY_URL}/api/search",
-                json={"query": query, "n_results": limit * 4 if tags else limit},
+                json={"query": query, "n_results": min(limit, 100)},  # 422 above 100
             )
-            memories = [h["memory"] for h in response.json().get("results", [])]
-            if tags:
-                wanted = set(tags)
-                memories = [m for m in memories if wanted.issubset(set(m["tags"]))]
-            memories = memories[:limit]
+        response.raise_for_status()  # else an error body reads as "no memories"
+        memories = [h["memory"] for h in response.json()["results"]][:limit]
 
     if not memories:
         return "No relevant memories found."

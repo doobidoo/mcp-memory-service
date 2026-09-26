@@ -41,25 +41,22 @@ class MemorySearchTool(BaseTool):
 
     async def _arun(self, query: str, tags: list[str] = None, limit: int = 5) -> str:
         # /api/search ranks by query but cannot filter tags; /api/search/by-tag filters
-        # tags but ignores the query and caps nothing. With both, over-fetch
-        # semantically and post-filter — which can yield fewer than `limit`.
+        # tags but ignores the query and caps nothing. With tags, take the complete
+        # scope: ranking first and filtering afterwards only sees the top of the list
+        # and silently drops a match that ranks below it.
         async with httpx.AsyncClient() as client:
-            if tags and not query:
+            if tags:
                 response = await client.post(
                     f"{MEMORY_URL}/api/search/by-tag",
                     json={"tags": tags, "match_all": True},  # default is ANY, not ALL
                 )
-                memories = [h["memory"] for h in response.json().get("results", [])][:limit]
             else:
                 response = await client.post(
                     f"{MEMORY_URL}/api/search",
-                    json={"query": query, "n_results": limit * 4 if tags else limit},
+                    json={"query": query, "n_results": min(limit, 100)},  # 422 above 100
                 )
-                memories = [h["memory"] for h in response.json().get("results", [])]
-                if tags:
-                    wanted = set(tags)
-                    memories = [m for m in memories if wanted.issubset(set(m["tags"]))]
-                memories = memories[:limit]
+            response.raise_for_status()  # else an error body reads as "no memories"
+            memories = [h["memory"] for h in response.json()["results"]][:limit]
 
         if not memories:
             return "No relevant memories found."

@@ -92,23 +92,18 @@ class AgentState(TypedDict):
 
 
 async def retrieve_memory_node(state: AgentState) -> dict:
-    """Retrieve relevant memory before calling the LLM."""
-    last_message = state["messages"][-1]
-    query = last_message.content if hasattr(last_message, "content") else str(last_message)
-
-    # Rank by the message semantically, then keep this agent's memories. Searching
-    # by tag alone would ignore the query and return the agent's whole history;
-    # /api/search cannot filter tags, so over-fetch and post-filter here.
-    agent_tag = f"agent:{state['agent_id']}"
+    """Retrieve this agent's memory before calling the LLM."""
+    # Scope to this agent with by-tag, which returns every memory it wrote. Ranking
+    # with /api/search first and filtering by tag afterwards would only see the top
+    # of the list, so in a shared store a match below that window disappears.
+    # by-tag ignores the query and caps nothing, so cap here.
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{MEMORY_URL}/api/search",
-            json={"query": query, "n_results": 20},
+            f"{MEMORY_URL}/api/search/by-tag",
+            json={"tags": [f"agent:{state['agent_id']}"]},
         )
-        memories = [
-            h["memory"] for h in response.json().get("results", [])
-            if agent_tag in h["memory"]["tags"]
-        ][:5]
+        response.raise_for_status()
+        memories = [h["memory"] for h in response.json()["results"]][:5]
 
     if memories:
         context = "Relevant memory:\n" + "\n".join(f"- {m['content']}" for m in memories)
