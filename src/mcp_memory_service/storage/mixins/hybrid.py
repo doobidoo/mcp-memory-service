@@ -6,13 +6,10 @@ import traceback
 import asyncio
 from typing import List, Optional, Tuple
 
+from ...compat import _sanitize_log_value
 from ...models.memory import MemoryQueryResult
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_log_value(value: object) -> str:
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
 
 
 class HybridMixin:
@@ -26,7 +23,8 @@ class HybridMixin:
         self,
         query: str,
         n_results: int = 5,
-        sanitize_query: bool = True
+        sanitize_query: bool = True,
+        include_superseded: bool = False
     ) -> List[Tuple[str, float]]:
         """Perform BM25 keyword search using FTS5."""
         try:
@@ -48,16 +46,30 @@ class HybridMixin:
             # the words adjacent and in order. Each word is quoted on its own
             # so words like AND/OR/NOT/NEAR stay words instead of operators;
             # bm25() still ranks rows matching more of them higher.
-            fts_query = " OR ".join(
-                '"{}"'.format(term.replace('"', '""')) for term in query_clean.split()
+            #
+            # The FTS5 trigram tokenizer cannot index terms shorter than three
+            # characters, so a query made entirely of short words (e.g. "go up")
+            # would match nothing as an OR of quoted terms. Fall back to the
+            # whole-query phrase in that case, which still searches something.
+            terms = [t for t in query_clean.split() if len(t) >= 3]
+            if terms:
+                fts_query = " OR ".join(
+                    '"{}"'.format(term.replace('"', '""')) for term in terms
+                )
+            else:
+                fts_query = '"{}"'.format(query_clean.replace('"', '""'))
+
+            superseded_filter = (
+                "" if include_superseded
+                else " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
             )
 
             def search_fts():
-                cursor = self.conn.execute('''
+                cursor = self.conn.execute(f'''
                     SELECT m.content_hash, bm25(memory_content_fts) as rank
                     FROM memory_content_fts f
                     JOIN memories m ON f.rowid = m.id
-                    WHERE memory_content_fts MATCH ? AND m.deleted_at IS NULL
+                    WHERE memory_content_fts MATCH ? AND m.deleted_at IS NULL{superseded_filter}
                     ORDER BY rank
                     LIMIT ?
                 ''', (fts_query, n_results))
@@ -65,7 +77,8 @@ class HybridMixin:
 
             results = await self._execute_with_retry(search_fts)
 
-            logger.debug(f"BM25 search found {len(results)} results for query: {_sanitize_log_value(query_clean)}")
+            logger.debug("BM25 search found %d results for query: %s",
+                        len(results), _sanitize_log_value(query_clean))
             return results
 
         except Exception as e:
@@ -168,7 +181,7 @@ class HybridMixin:
     ) -> List[MemoryQueryResult]:
         """Hybrid search combining BM25 keyword matching and vector similarity."""
         try:
-            bm25_task = asyncio.create_task(self._search_bm25(query, n_results * 2))
+            bm25_task = asyncio.create_task(self._search_bm25(query, n_results * 2, include_superseded=include_superseded))
             vector_task = asyncio.create_task(self.retrieve(query, n_results * 2, include_superseded=include_superseded))
 
             bm25_results, vector_results = await asyncio.gather(bm25_task, vector_task)
