@@ -236,7 +236,12 @@ async def test_has_edge_is_exact_when_forward_and_reverse_coexist(temp_db_path):
     on its result rewrite an edge that already exists. has_edge() asks for the
     exact directed, typed edge, so it must report the forward derived_from link
     present even when a reverse edge between the same two memories also exists,
-    and must not report a forward link where only a reverse edge exists."""
+    and must not report a forward link where only a reverse edge exists.
+
+    The forward edge is written with a distinct similarity (0.42) so a relink
+    that rewrote it (maintenance writes the card's 0.7 confidence) would change
+    the stored value and fail the assertion, not pass silently.
+    """
     storage = await _storage(temp_db_path)
     src = await _store(storage, "Deploy note: push Forgejo, then Komodo ships it.")
     card = InsightCard(
@@ -249,8 +254,17 @@ async def test_has_edge_is_exact_when_forward_and_reverse_coexist(temp_db_path):
     [card_hash] = await store_insights([card], storage, graph=GraphStorage(storage.db_path))
     graph = GraphStorage(storage.db_path)
 
-    # a forward derived_from link already exists (written by store_insights)
-    # plus a reverse edge in the opposite direction (card -> src). get_association()
+    # read the forward row directly (get_association can return the reverse edge,
+    # so select the forward, typed row explicitly) and give it a distinct value
+    with sqlite3.connect(storage.db_path) as conn:
+        conn.execute(
+            "UPDATE memory_graph SET similarity = 0.42 "
+            "WHERE source_hash = ? AND target_hash = ? AND relationship_type = 'derived_from'",
+            (src, card_hash),
+        )
+        conn.commit()
+
+    # a reverse edge in the opposite direction (card -> src). get_association()
     # matches either direction, so without an exact check this reverse row could
     # shadow the forward link and make a relink rewrite the existing edge.
     # An asymmetric type (supports) is used so it occupies only card->src and does
@@ -269,12 +283,23 @@ async def test_has_edge_is_exact_when_forward_and_reverse_coexist(temp_db_path):
     # the reverse edge is card->src supports, not a forward derived_from
     assert await graph.has_edge(card_hash, src, "derived_from") is False
 
-    # relinking must leave the existing forward link alone, not reset it
-    before = await graph.get_association(src, card_hash)
+    # relinking must leave the existing forward link alone, not reset its value.
+    # read the forward row directly to avoid get_association returning the reverse edge.
+    def _forward_similarity():
+        with sqlite3.connect(storage.db_path) as conn:
+            return conn.execute(
+                "SELECT similarity FROM memory_graph "
+                "WHERE source_hash = ? AND target_hash = ? AND relationship_type = 'derived_from'",
+                (src, card_hash),
+            ).fetchone()[0]
+
+    before = _forward_similarity()
     await store_insights([card], storage, graph=graph)  # existing card → relink path
-    after = await graph.get_association(src, card_hash)
-    assert after["similarity"] == pytest.approx(before["similarity"]), "relink reset the existing forward link"
-    assert after["relationship_type"] == "derived_from"
+    after = _forward_similarity()
+    assert after == pytest.approx(before), (
+        f"relink reset the existing forward link (before={before}, after={after})"
+    )
+    assert after == pytest.approx(0.42), "the distinct forward value was overwritten"
 
 
 @pytest.mark.asyncio
