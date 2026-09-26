@@ -288,6 +288,15 @@ class MemoryStorage(ABC):
         """Delete a memory by its hash."""
         pass
 
+    async def delete_memory(self, content_hash: str) -> bool:
+        """Delete a memory by hash, returning only success.
+
+        The consolidator's storage protocol calls this when applying
+        forgetting results; backends that only implement delete() get it here.
+        """
+        success, _ = await self.delete(content_hash)
+        return success
+
     async def is_deleted(self, content_hash: str) -> bool:
         """
         Check if a memory has been soft-deleted (tombstone exists).

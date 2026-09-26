@@ -199,7 +199,7 @@ class InsightGenerator:
         return automated_count / len(types) >= self.DOMINANT_TYPE_THRESHOLD
 
 
-async def store_insights(insights: List[InsightCard], storage) -> List[str]:
+async def store_insights(insights: List[InsightCard], storage, graph=None) -> List[str]:
     """Store InsightCards as memories and create derived_from edges.
 
     Acknowledgement flow: if an existing insight card has the 'acknowledged' tag,
@@ -208,7 +208,10 @@ async def store_insights(insights: List[InsightCard], storage) -> List[str]:
 
     Args:
         insights: List of InsightCard to persist.
-        storage: Storage backend with store() and store_association() methods.
+        storage: Storage backend with store() and get_by_hash().
+        graph: Graph storage (store_association()) for the derived_from edges.
+            Memory storage backends don't carry store_association themselves;
+            without a graph handle no edges are written.
 
     Returns:
         List of content hashes for stored insight memories.
@@ -256,10 +259,10 @@ async def store_insights(insights: List[InsightCard], storage) -> List[str]:
         stored_hashes.append(content_hash)
 
         # Create derived_from edges (best-effort — graph edges are non-critical)
-        if hasattr(storage, "store_association"):
+        if graph is not None:
             for src_hash in card.source_hashes:
                 try:
-                    await storage.store_association(
+                    await graph.store_association(
                         source_hash=src_hash,
                         target_hash=content_hash,
                         similarity=card.confidence,

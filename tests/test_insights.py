@@ -201,8 +201,11 @@ class TestInsightsStoredAsMemories:
     async def test_derived_from_edges_created(self):
         storage = AsyncMock()
         storage.store = AsyncMock(return_value=(True, "ok"))
-        storage.store_association = AsyncMock(return_value=True)
         storage.get_by_hash = AsyncMock(return_value=None)
+        # Edges go to the graph storage; memory storage backends have no
+        # store_association (#1319).
+        graph = AsyncMock()
+        graph.store_association = AsyncMock(return_value=True)
 
         cards = [
             InsightCard(
@@ -212,7 +215,7 @@ class TestInsightsStoredAsMemories:
             )
         ]
 
-        await store_insights(cards, storage)
-        assert storage.store_association.call_count == 2
-        for call in storage.store_association.call_args_list:
+        await store_insights(cards, storage, graph=graph)
+        assert graph.store_association.call_count == 2
+        for call in graph.store_association.call_args_list:
             assert call[1]["relationship_type"] == "derived_from"
