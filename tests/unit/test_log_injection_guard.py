@@ -67,6 +67,12 @@ EXTERNAL_NAMES = frozenset({
     "result", "response", "payload", "data",
     "content", "content_hash", "tag", "tags",
     "query", "params", "path", "message", "msg",
+    # Looks like a counter, but reaches find_connected() straight from an MCP
+    # tool's arguments dict (mcp_server.py, server/handlers/graph.py) with no
+    # int coercion or clamp on that path, so a caller can hand it text. Its one
+    # guarded logger call (storage/graph.py) is already wrapped; listing the
+    # name keeps a later unwrap from passing the ratchet green.
+    "max_hops",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -214,6 +220,20 @@ def test_lazy_scan_catches_what_the_other_two_cannot():
 def test_lazy_scan_leaves_internal_scalars_alone():
     """Counters and durations stay unwrapped; demanding otherwise is the noise."""
     assert not _lazy_findings('logger.info("synced %s in %.2fs", synced_count, elapsed)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_caller_controlled_max_hops():
+    """max_hops looks like a counter but arrives from an MCP tool's arguments.
+
+    Its only guarded logger call (storage/graph.py) is already wrapped, so the
+    module scan stays green whether or not the name is listed. This is the
+    sample that fails if the entry is dropped from EXTERNAL_NAMES.
+    """
+    bare = 'logger.debug("within %s hops", max_hops)\n'
+    wrapped = 'logger.debug("within %s hops", _sanitize_log_value(max_hops))\n'
+    assert _lazy_findings(bare)
+    assert not _lazy_findings(wrapped)
 
 
 @pytest.mark.unit
