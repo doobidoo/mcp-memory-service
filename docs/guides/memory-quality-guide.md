@@ -406,7 +406,7 @@ export GROQ_API_KEY="your-groq-api-key"
 export MCP_QUALITY_AI_PROVIDER=groq  # or "auto" to try all tiers
 
 # Enable Gemini API (Google)
-export GOOGLE_API_KEY="your-gemini-api-key"
+export GEMINI_API_KEY="your-gemini-api-key"
 export MCP_QUALITY_AI_PROVIDER=gemini
 ```
 
