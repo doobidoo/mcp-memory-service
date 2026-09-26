@@ -89,12 +89,16 @@ def _order_pair(memory, cand_hash: str, candidate: dict) -> tuple:
 async def _loser_protected(older_hash: str, state: dict) -> bool:
     # Same protection forgetting and decay apply. get_all_memories() can be
     # capped (Milvus returns the newest 16,384), so a loser missing from the
-    # scan is fetched by hash once per run (a miss is cached as None); one
-    # that cannot be found is left alone.
+    # scan is fetched by hash and the hit cached for the rest of the run. A
+    # miss is not cached: Milvus get_by_hash() returns None on a transient
+    # backend error, so a later pair retries. One that stays unfound is left
+    # alone.
     by_hash = state["by_hash"]
-    if older_hash not in by_hash:
-        by_hash[older_hash] = await state["storage"].get_by_hash(older_hash)
-    older = by_hash[older_hash]
+    older = by_hash.get(older_hash)
+    if older is None:
+        older = await state["storage"].get_by_hash(older_hash)
+        if older is not None:
+            by_hash[older_hash] = older
     return older is None or is_protected_memory(older)
 
 

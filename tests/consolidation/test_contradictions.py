@@ -285,6 +285,32 @@ class TestDetectContradictions:
 
     @pytest.mark.asyncio
     @patch(f"{_MOD}.CONTRADICTION_ENABLED", True)
+    async def test_lookup_miss_is_retried_not_cached(self):
+        """Milvus get_by_hash() returns None on a transient backend error, so a
+        miss must not be cached: a later pair retries and can still supersede."""
+        storage = _spec_storage()
+        storage.get_all_memories = AsyncMock(return_value=[
+            _make_memory("hash_b", "B", created_at=NEW_T),
+            _make_memory("hash_c", "C", created_at=NEW_T + 1),
+        ])
+
+        async def _search(query, limit):
+            own = "hash_b" if query == "B" else "hash_c"
+            return {"memories": [_hit(own, 1.0, NEW_T), _hit("hash_old", 0.6, OLD_T)]}
+
+        storage.search_memories = AsyncMock(side_effect=_search)
+        storage.get_by_hash = AsyncMock(
+            side_effect=[None, _make_memory("hash_old", "old", created_at=OLD_T)]
+        )
+
+        result = await detect_contradictions(storage, dry_run=False)
+
+        assert storage.get_by_hash.await_count == 2
+        assert result["protected_skipped"] == 1
+        storage.mark_superseded_batch.assert_awaited_once_with([("hash_c", "hash_old")])
+
+    @pytest.mark.asyncio
+    @patch(f"{_MOD}.CONTRADICTION_ENABLED", True)
     async def test_failed_edge_write_is_reported(self, mock_storage):
         graph = _spec_graph()
         graph.store_association = AsyncMock(return_value=False)
