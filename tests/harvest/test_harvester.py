@@ -1,3 +1,5 @@
+import json as _json
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from pathlib import Path
@@ -120,7 +122,7 @@ class TestHarvestEvolution:
         mock_query_result.memory.content_hash = "existing-hash-123"
         mock_service.storage = AsyncMock()
         mock_service.storage.retrieve = AsyncMock(return_value=[mock_query_result])
-        mock_service.storage.update_memory_versioned = AsyncMock(
+        mock_service.evolve_memory = AsyncMock(
             return_value=(True, "Updated", "new-hash-456")
         )
 
@@ -133,9 +135,19 @@ class TestHarvestEvolution:
         assert result.found > 0, "Fixture must produce candidates"
 
         mock_service.storage.retrieve.assert_called()
-        mock_service.storage.update_memory_versioned.assert_called()
+        # Evolution goes through the service, not straight to storage, so the
+        # new version gets the post-store steps store_memory() would run.
+        mock_service.evolve_memory.assert_called()
+        mock_service.storage.update_memory_versioned.assert_not_called()
         mock_service.store_memory.assert_not_called()
         assert result.stored == result.found
+
+        # The evolved version carries the same provenance as a stored one.
+        kwargs = mock_service.evolve_memory.await_args.kwargs
+        assert kwargs["metadata"]["source"] == "harvest"
+        assert kwargs["metadata"]["harvest_method"] in ("llm", "heuristic")
+        assert kwargs["metadata"]["harvest_session_id"] == result.session_id
+        assert "session-harvest" in kwargs["tags"]
 
     @pytest.mark.asyncio
     async def test_store_novel_content(self, sample_project_dir):
@@ -156,7 +168,7 @@ class TestHarvestEvolution:
         assert result.found > 0, "Fixture must produce candidates"
 
         mock_service.store_memory.assert_called()
-        mock_service.storage.update_memory_versioned.assert_not_called()
+        mock_service.evolve_memory.assert_not_called()
         assert result.stored == result.found
 
     @pytest.mark.asyncio
@@ -209,7 +221,7 @@ class TestHarvestEvolution:
         assert result.found > 0, "Fixture must produce candidates"
 
         mock_service.store_memory.assert_called()
-        mock_service.storage.update_memory_versioned.assert_not_called()
+        mock_service.evolve_memory.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_superseded_memory_not_evolved(self, sample_project_dir):
@@ -236,7 +248,7 @@ class TestHarvestEvolution:
         assert result.found > 0, "Fixture must produce candidates"
 
         mock_service.store_memory.assert_called()
-        mock_service.storage.update_memory_versioned.assert_not_called()
+        mock_service.evolve_memory.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_fallback_when_no_storage(self, sample_project_dir):
@@ -356,7 +368,6 @@ class TestForceReharvestE2E:
         # Without force: all sessions already tracked -> nothing harvested.
         off = await srv.handle_memory_harvest({"sessions": 9999, "dry_run": False,
                                                "project_path": str(sample_project_dir)})
-        import json as _json
         off_txt = off[0].text
         assert "already harvested" in off_txt or _json.loads(off_txt).get("results") == []
 

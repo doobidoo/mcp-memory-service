@@ -148,28 +148,11 @@ class SessionHarvester:
                 stored = 0
                 for candidate in result.candidates:
                     try:
-                        evolved = await self._try_evolve(candidate, config)
+                        tags, metadata = self._provenance(candidate, result.session_id)
+                        evolved = await self._try_evolve(candidate, config, metadata)
                         if evolved:
                             stored += 1
                         else:
-                            # Provenance (RFC-harvest-provenance Phase 1).
-                            # Derive method from the model signal: only the LLM
-                            # path sets harvest_model, so its presence is the
-                            # source of truth — a missing/defaulted
-                            # harvest_method must not mislabel an LLM candidate.
-                            model = getattr(candidate, "harvest_model", None)
-                            method = getattr(candidate, "harvest_method", None)
-                            if not method:
-                                method = "llm" if model else "heuristic"
-                            tags = ["session-harvest", f"harvest:method:{method}"] + candidate.tags
-                            metadata = {
-                                "confidence": candidate.confidence,
-                                "source": "harvest",
-                                "harvest_method": method,
-                                "harvest_model": model,
-                                "harvest_pipeline_version": HARVEST_PIPELINE_VERSION,
-                                "harvest_session_id": result.session_id,
-                            }
                             resp = await self.memory_service.store_memory(
                                 content=candidate.content,
                                 tags=tags,
@@ -181,13 +164,37 @@ class SessionHarvester:
                             elif hasattr(resp, "success") and resp.success:
                                 stored += 1
                     except Exception as e:
-                        logger.warning(f"Failed to store harvest candidate: {e}")
+                        logger.warning("Failed to store harvest candidate: %s", _sanitize_log_value(str(e)))
                 result.stored = stored
 
             results.append(result)
         return results
 
-    async def _try_evolve(self, candidate, config: "HarvestConfig") -> bool:
+    @staticmethod
+    def _provenance(candidate, session_id=None):
+        """Tags and metadata recording how a candidate was harvested.
+
+        Provenance (RFC-harvest-provenance Phase 1). Derive method from the
+        model signal: only the LLM path sets harvest_model, so its presence is
+        the source of truth — a missing/defaulted harvest_method must not
+        mislabel an LLM candidate.
+        """
+        model = getattr(candidate, "harvest_model", None)
+        method = getattr(candidate, "harvest_method", None)
+        if not method:
+            method = "llm" if model else "heuristic"
+        tags = ["session-harvest", f"harvest:method:{method}"] + candidate.tags
+        metadata = {
+            "confidence": candidate.confidence,
+            "source": "harvest",
+            "harvest_method": method,
+            "harvest_model": model,
+            "harvest_pipeline_version": HARVEST_PIPELINE_VERSION,
+            "harvest_session_id": session_id,
+        }
+        return tags, metadata
+
+    async def _try_evolve(self, candidate, config: "HarvestConfig", metadata=None) -> bool:
         """Check for similar active memory; if found, evolve it.
 
         Returns True if an existing memory was evolved, False if caller
@@ -203,7 +210,7 @@ class SessionHarvester:
                 min_confidence=config.min_confidence_to_evolve,
             )
         except Exception as e:
-            logger.debug(f"Similarity check failed, falling back to store: {e}")
+            logger.debug("Similarity check failed, falling back to store: %s", _sanitize_log_value(str(e)))
             return False
 
         if not similar or similar[0].relevance_score <= config.similarity_threshold:
@@ -211,27 +218,26 @@ class SessionHarvester:
 
         existing_hash = similar[0].memory.content_hash
         try:
-            # Apply method provenance tagging (same as store path)
-            method = getattr(candidate, "harvest_method", None)
-            if not method:
-                method = "llm" if getattr(candidate, "harvest_model", None) else "heuristic"
-            tags = ["session-harvest", f"harvest:method:{method}"] + candidate.tags
-            
-            ok, msg, new_hash = await self.memory_service.storage.update_memory_versioned(
+            # Same provenance as the store path. Evolve through the service,
+            # not storage.update_memory_versioned(), so the new version gets
+            # quality scoring, entity linking and on_store plugins too.
+            tags, default_metadata = self._provenance(candidate)
+            ok, msg, new_hash = await self.memory_service.evolve_memory(
                 existing_hash,
                 candidate.content,
-                new_tags=tags,
-                new_memory_type=candidate.memory_type,
+                tags=tags,
+                memory_type=candidate.memory_type,
+                metadata=metadata if metadata is not None else default_metadata,
                 reason=f"Session harvest: {datetime.now(timezone.utc).isoformat()}",
             )
             if ok:
-                logger.info(f"Evolved memory {existing_hash[:8]}→{new_hash[:8] if new_hash else '?'}")
+                logger.info("Evolved memory %s→%s", existing_hash[:8], new_hash[:8] if new_hash else "?")
                 return True
             else:
-                logger.debug(f"Evolution failed ({msg}), falling back to store")
+                logger.debug("Evolution failed (%s), falling back to store", _sanitize_log_value(str(msg)))
                 return False
         except Exception as e:
-            logger.debug(f"Evolution error, falling back to store: {e}")
+            logger.debug("Evolution error, falling back to store: %s", _sanitize_log_value(str(e)))
             return False
 
     async def verify_session_coverage(self, session_id: str, threshold: float = 0.9,
@@ -317,7 +323,7 @@ class SessionHarvester:
             try:
                 matches = await self.memory_service.storage.retrieve(cand.content, n_results=1)
             except Exception as e:
-                logger.debug(f"coverage retrieve failed: {e}")
+                logger.debug("coverage retrieve failed: %s", _sanitize_log_value(str(e)))
                 matches = []
             best = matches[0].relevance_score if matches else 0.0
             if best >= threshold:

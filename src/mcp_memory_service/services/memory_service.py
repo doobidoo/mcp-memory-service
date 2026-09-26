@@ -12,7 +12,7 @@ import math
 import os
 import re
 import sys
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Tuple, Union
 
 # Pydantic v2.12 requires typing_extensions.TypedDict on Python < 3.12
 # See: https://errors.pydantic.dev/2.12/u/typed-dict-version
@@ -84,7 +84,7 @@ def normalize_tags(tags: Union[str, List[str], None]) -> List[str]:
         if stripped.startswith('['):
             # Prevent DoS via large/deeply nested JSON strings
             if len(stripped) > _MAX_JSON_LENGTH:
-                logger.warning(f"Tag JSON string exceeds {_MAX_JSON_LENGTH} bytes, treating as literal string")
+                logger.warning("Tag JSON string exceeds %s bytes, treating as literal string", _MAX_JSON_LENGTH)
                 tags = [stripped]
             else:
                 try:
@@ -138,7 +138,7 @@ def normalize_tags(tags: Union[str, List[str], None]) -> List[str]:
 
     # Limit total number of tags to prevent DoS
     if len(normalized) > _MAX_TAGS_PER_MEMORY:
-        logger.warning(f"Too many tags ({len(normalized)}), limiting to {_MAX_TAGS_PER_MEMORY}")
+        logger.warning("Too many tags (%s), limiting to %s", len(normalized), _MAX_TAGS_PER_MEMORY)
         normalized = normalized[:_MAX_TAGS_PER_MEMORY]
 
     return normalized
@@ -485,7 +485,7 @@ class MemoryService:
                             try:
                                 await async_scorer.score_memory(memory, query="", storage=self.storage)
                             except Exception as e:
-                                logger.debug(f"Background quality scoring for chunk failed silently: {e}")
+                                logger.debug("Background quality scoring for chunk failed silently: %s", _sanitize_log_value(str(e)))
                     else:
                         failed_chunks.append({"index": i, "reason": message})
 
@@ -543,7 +543,7 @@ class MemoryService:
                         try:
                             await async_scorer.score_memory(memory, query="", storage=self.storage)
                         except Exception as e:
-                            logger.debug(f"Background quality scoring queued (or failed silently): {e}")
+                            logger.debug("Background quality scoring queued (or failed silently): %s", _sanitize_log_value(str(e)))
 
                     # Entity linking: extract entities and create shares_entity edges
                     await self._maybe_link_entities(memory)
@@ -571,14 +571,14 @@ class MemoryService:
 
         except ValueError as e:
             # Handle validation errors specifically
-            logger.warning(f"Validation error storing memory: {e}")
+            logger.warning("Validation error storing memory: %s", _sanitize_log_value(str(e)))
             return {
                 "success": False,
                 "error": f"Invalid memory data: {str(e)}"
             }
         except ConnectionError as e:
             # Handle storage connectivity issues
-            logger.error(f"Storage connection error: {e}")
+            logger.error("Storage connection error: %s", _sanitize_log_value(str(e)))
             return {
                 "success": False,
                 "error": f"Storage connection failed: {str(e)}"
@@ -590,6 +590,65 @@ class MemoryService:
                 "success": False,
                 "error": f"Failed to store memory: {str(e)}"
             }
+
+    async def evolve_memory(
+        self,
+        existing_hash: str,
+        content: str,
+        tags: Optional[List[str]] = None,
+        memory_type: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        reason: Optional[str] = None,
+    ) -> Tuple[bool, str, Optional[str]]:
+        """Versioned update that gets the same post-store steps as store_memory().
+
+        ``storage.update_memory_versioned()`` writes the new version straight
+        into storage, so a caller that uses it directly skips everything
+        store_memory() does after a write: caller metadata and agent identity,
+        AI quality scoring, entity linking and ``on_store`` plugins. This is
+        the service-level entry point for evolving a memory.
+
+        Returns:
+            ``(success, message, new_hash)``, as from update_memory_versioned().
+        """
+        if not hasattr(self.storage, "update_memory_versioned"):
+            return False, "Storage backend does not support versioned updates", None
+        ok, msg, new_hash = await self.storage.update_memory_versioned(
+            existing_hash,
+            content,
+            new_tags=tags,
+            new_memory_type=memory_type,
+            reason=reason,
+        )
+        if not ok or not new_hash:
+            return ok, msg, new_hash
+
+        final_metadata = dict(metadata) if metadata else {}
+        for key in ("tags", "type"):
+            final_metadata.pop(key, None)
+        # Same RFC #1100 precedence as store_memory(), minus the explicit arg.
+        resolved_agent_id = os.environ.get("MCP_AGENT_ID") or final_metadata.get("agent_id")
+        if resolved_agent_id:
+            final_metadata["agent_id"] = resolved_agent_id
+        if final_metadata:
+            await self.storage.update_memory_metadata(
+                new_hash, {"metadata": final_metadata}, preserve_timestamps=True
+            )
+
+        memory = await self.storage.get_by_hash(new_hash)
+        if memory is not None:
+            await self._run_post_store_steps(memory)
+        return ok, msg, new_hash
+
+    async def _run_post_store_steps(self, memory: Memory) -> None:
+        """Quality scoring, entity linking and on_store plugins for a new memory."""
+        if MCP_QUALITY_BOOST_ENABLED:
+            try:
+                await async_scorer.score_memory(memory, query="", storage=self.storage)
+            except Exception as e:
+                logger.debug("Background quality scoring failed silently: %s", _sanitize_log_value(str(e)))
+        await self._maybe_link_entities(memory)
+        await self._plugin_registry.fire('on_store', self._format_memory_response(memory))
 
     async def _contradiction_behind_duplicate(self, memory, reject_message):
         """Return the hash of the near-duplicate ``memory`` contradicts, or None.
@@ -724,7 +783,7 @@ class MemoryService:
                     try:
                         await async_scorer.score_memory(result.memory, query=query, storage=self.storage)
                     except Exception as e:
-                        logger.debug(f"Background quality scoring for retrieved memory failed silently: {e}")
+                        logger.debug("Background quality scoring for retrieved memory failed silently: %s", _sanitize_log_value(str(e)))
 
             results = await self.apply_retrieve_plugins(query, results)
 
@@ -735,7 +794,7 @@ class MemoryService:
             }
 
         except Exception as e:
-            logger.error(f"Error retrieving memories: {e}")
+            logger.error("Error retrieving memories: %s", _sanitize_log_value(str(e)))
             return {
                 "memories": [],
                 "query": query,
@@ -783,7 +842,7 @@ class MemoryService:
             }
 
         except Exception as e:
-            logger.error(f"Error searching by tags: {e}")
+            logger.error("Error searching by tags: %s", _sanitize_log_value(str(e)))
             return {
                 "memories": [],
                 "tags": tags if isinstance(tags, list) else [tags],
@@ -816,7 +875,7 @@ class MemoryService:
                 }
 
         except Exception as e:
-            logger.error(f"Error getting memory by hash: {e}")
+            logger.error("Error getting memory by hash: %s", _sanitize_log_value(str(e)))
             return {
                 "found": False,
                 "content_hash": content_hash,
@@ -849,7 +908,7 @@ class MemoryService:
                 }
 
         except Exception as e:
-            logger.error(f"Error deleting memory: {e}")
+            logger.error("Error deleting memory: %s", _sanitize_log_value(str(e)))
             return {
                 "success": False,
                 "content_hash": content_hash,
@@ -874,7 +933,7 @@ class MemoryService:
             }
 
         except Exception as e:
-            logger.error(f"Health check failed: {e}")
+            logger.error("Health check failed: %s", _sanitize_log_value(str(e)))
             return {
                 "healthy": False,
                 "error": f"Health check failed: {str(e)}"
@@ -911,7 +970,7 @@ class MemoryService:
             linker = EntityLinker()
             await linker.link_by_entities(memory.content_hash, entity_names, graph)
         except Exception as e:
-            logger.debug(f"Entity linking failed silently: {e}")
+            logger.debug("Entity linking failed silently: %s", _sanitize_log_value(str(e)))
 
     def _format_memory_response(self, memory: Memory) -> MemoryResult:
         """
@@ -961,7 +1020,6 @@ class MemoryService:
         Returns:
             Dictionary with operation result
         """
-        import os
         from ..config import MCP_MISTAKE_NOTE_DEDUP_THRESHOLD
 
         # A mistake note's value is its remediation. Reject empty correct_action —
