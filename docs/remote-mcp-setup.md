@@ -114,6 +114,18 @@ https://random-name.trycloudflare.com
 
 > **Note:** Temporary Cloudflare Tunnels change URL on restart. For persistent access, create a [named tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/).
 
+### 6. Connect in ChatGPT (Developer Mode)
+
+ChatGPT speaks MCP too, so the same endpoint serves it — nothing extra to run on the
+server side.
+
+1. Enable **Developer Mode** in ChatGPT settings
+2. Add a connector pointing at the same `https://<your-host>/mcp` URL
+3. Complete the OAuth flow
+
+The requirements are identical to claude.ai: a public HTTPS endpoint (self-signed
+certificates are rejected) and OAuth enabled on the server.
+
 ---
 
 ## Production Setup

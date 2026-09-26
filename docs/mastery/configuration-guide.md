@@ -44,16 +44,48 @@ Cloudflare options (required unless otherwise noted):
 - `MCP_EMBEDDING_MODEL`: Model name (default `all-MiniLM-L6-v2`).
 - `MCP_MEMORY_USE_ONNX`: `true|false` toggle for ONNX path.
 
+### Choosing a model
+
+The default works well for English-only content. For memories in other languages, switch
+to a multilingual model:
+
+| Model | Languages | Dimensions | Use case |
+|-------|-----------|-----------|----------|
+| `all-MiniLM-L6-v2` (default) | English only | 384 | Fastest, English-only deployments |
+| `paraphrase-multilingual-MiniLM-L12-v2` | 50+ languages | 384 | Mixed-language or non-English content |
+
+```bash
+export MCP_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
+```
+
+> **Switching models requires re-embedding existing memories.** Cross-language cosine
+> similarity drops from roughly 0.95 to 0.10 otherwise. Stop the service, run
+> `python scripts/maintenance/regenerate_embeddings.py` with the new model env var, then
+> restart.
+
+### Pinning a non-default model
+
+If a custom embedding model fails to load, the service can fall back to the default
+MiniLM (384-dim) — and then every subsequent write fails with a dimension mismatch
+against the existing store. When you pin a non-default model, pin the model path as well
+and set the Hugging Face offline flags, so a load failure surfaces loudly instead of
+degrading into a silent fallback.
+
 ## HTTP/HTTPS Interface
 
 - `MCP_HTTP_ENABLED`: `true|false` to enable HTTP interface.
-- `MCP_HTTP_HOST`: Bind address (default `0.0.0.0`).
+- `MCP_HTTP_HOST`: Bind address (default `127.0.0.1`, localhost only).
 - `MCP_HTTP_PORT`: Port (default `8000`).
 - `MCP_HTTP_ROOT_PATH`: External path prefix when a reverse proxy strips the
   prefix before forwarding (for example, `/memory`). Defaults to empty.
 - `MCP_CORS_ORIGINS`: Comma-separated origins (default `*`).
 - `MCP_SSE_HEARTBEAT`: SSE heartbeat interval seconds (default 30).
 - `MCP_API_KEY`: Optional API key for HTTP.
+
+> **Binding to `0.0.0.0` exposes the API to your network.** The default is localhost
+> only. Do this in trusted environments only, with authentication and firewall rules in
+> place. On untrusted networks, terminate TLS in front of the service (reverse proxy with
+> HTTPS) or put it behind a VPN overlay.
 
 For a proxy that exposes the service at `https://host.example/memory/` and
 forwards the request without `/memory`, set:

@@ -95,6 +95,14 @@ section{position:relative;z-index:1;padding:6rem 2rem}
 .stat-number{font-size:clamp(2rem,5vw,3rem);font-weight:800;background:linear-gradient(135deg,var(--cyan),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .stat-label{color:var(--muted);font-size:.9rem;margin-top:.3rem}
 
+/* Comparison tables */
+.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.cmp-table{width:100%;border-collapse:collapse;font-size:.9rem;min-width:520px}
+.cmp-table th,.cmp-table td{padding:.7rem .9rem;text-align:left;border-bottom:1px solid #1e293b}
+.cmp-table th{color:var(--muted);font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em}
+.cmp-table td:last-child,.cmp-table th:last-child{color:var(--cyan);font-weight:600}
+.cmp-note{color:var(--muted);font-size:.85rem;line-height:1.7;margin-top:1rem}
+
 /* Install */
 .install-section{text-align:center}
 .install-box{background:var(--card);border:1px solid #1e293b;border-radius:12px;padding:1.5rem 2rem;display:inline-block;margin:1.5rem 0 2.5rem;font-family:'SF Mono',Consolas,'Liberation Mono',monospace;font-size:1.1rem;color:var(--cyan);position:relative;cursor:pointer;transition:all .3s}
@@ -236,11 +244,11 @@ footer a{color:var(--cyan)}
     <p class="section-subtitle">Battle-tested with comprehensive testing and optimized for performance.</p>
     <div class="stats-grid">
       <div class="stat-card" data-delay="0">
-        <div class="stat-number" data-target="3007">0</div>
+        <div class="stat-number" data-target="3484">0</div>
         <div class="stat-label">Tests</div>
       </div>
       <div class="stat-card" data-delay="100">
-        <div class="stat-number" data-target="20" data-suffix="+">0</div>
+        <div class="stat-number" data-target="25" data-suffix="+">0</div>
         <div class="stat-label">AI Apps Supported</div>
       </div>
       <div class="stat-card" data-delay="200">
@@ -248,10 +256,98 @@ footer a{color:var(--cyan)}
         <div class="stat-label">Read Latency</div>
       </div>
       <div class="stat-card" data-delay="300">
+        <div class="stat-number" data-target="86" data-suffix="%">0</div>
+        <div class="stat-label">LongMemEval R@5</div>
+      </div>
+      <div class="stat-card" data-delay="400">
         <div class="stat-number" data-target="534628" data-suffix="x">0</div>
         <div class="stat-label">Cache Speedup</div>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- Real-world deployments -->
+<section id="case-studies">
+  <div class="container">
+    <h2 class="section-title">In the Wild</h2>
+    <p class="section-subtitle">Three deployments people built and run themselves.</p>
+    <div class="features-grid">
+      <div class="feature-card" data-delay="0">
+        <div class="feature-icon http">&#129302;</div>
+        <h3>A Cluster That Uses Memory as a Message Bus</h3>
+        <p><em>"After I work with one of the cluster agents on something I want my local agent to know about, the cluster agent adds a special tag to the memory entry that my local agent recognizes as a message from a cluster agent. So they end up using it as a comms bridge &mdash; and it's pretty delightful."</em> &mdash; <a href="https://github.com/jeremykoerber" target="_blank" rel="noopener" style="color:var(--cyan)">@jeremykoerber</a></p>
+        <p>A five-agent cluster uses one memory service as shared state and as an inter-agent channel, with no custom protocol: cluster agents write a sentinel tag, the local agent filters on it. <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/agents/README.md" target="_blank" rel="noopener" style="color:var(--cyan)">The pattern &rarr;</a></p>
+      </div>
+      <div class="feature-card" data-delay="150">
+        <div class="feature-icon oauth">&#128272;</div>
+        <h3>Self-Hosted Behind a Cloudflare Tunnel</h3>
+        <p><em>"The quality of life that session-independent memory adds to AI workflows is immense. File-based memory demands constant discipline. Semantic recall from a live database doesn't. Storing data on my own hardware while making it remotely accessible across platforms turned out to be a feature I didn't know I needed."</em> &mdash; <a href="https://github.com/PL-Peter" target="_blank" rel="noopener" style="color:var(--cyan)">@PL-Peter</a></p>
+        <p>Two Docker containers on one SQLite backend, a Cloudflare tunnel for name-based routing and subnet access control, and an auth gateway in front. <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/deployment/production-guide.md" target="_blank" rel="noopener" style="color:var(--cyan)">The checklist &rarr;</a></p>
+      </div>
+      <div class="feature-card" data-delay="300">
+        <div class="feature-icon privacy">&#128245;</div>
+        <h3>Four Agents, One Local Database, No Cloud</h3>
+        <p><em>"mcp-memory-service has been the shared memory layer for all my coding agents since February &mdash; Claude Code, Claude Desktop, Codex CLI and OpenCode all talk to the same sqlite-vec DB over stdio on my Mac. ~5,900 memories and counting. Every session starts by pulling a bootstrap profile from memory and ends by committing a session summary, so any agent can pick up where another left off. It's the closest thing to persistent identity my agents have."</em> &mdash; Mingjian Shao, AI PM and consultant <span style="color:var(--muted)">(September 2026)</span></p>
+        <p>One local sqlite-vec database as the shared brain for four agents over stdio &mdash; no server, no cloud, embeddings fully offline on MPS, daily backups and scheduled consolidation.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Comparison -->
+<section id="compare">
+  <div class="container">
+    <h2 class="section-title">How It Compares</h2>
+    <p class="section-subtitle">Against the commercial memory APIs and the MCP-native alternatives.</p>
+
+    <h3 style="margin-bottom:1rem">Commercial memory APIs</h3>
+    <div class="table-wrap">
+      <table class="cmp-table">
+        <thead><tr><th></th><th>Mem0</th><th>Zep</th><th>DIY Redis+Pinecone</th><th>mcp-memory-service</th></tr></thead>
+        <tbody>
+          <tr><td>License</td><td>Proprietary</td><td>Enterprise</td><td>&mdash;</td><td>Apache 2.0</td></tr>
+          <tr><td>Cost</td><td>Per-call API</td><td>Enterprise</td><td>Infra costs</td><td>$0</td></tr>
+          <tr><td>claude.ai browser</td><td>Desktop only</td><td>Desktop only</td><td>No</td><td>Remote MCP</td></tr>
+          <tr><td>OAuth 2.0 + DCR</td><td>Unknown</td><td>Unknown</td><td>No</td><td>Yes</td></tr>
+          <tr><td>Streamable HTTP</td><td>No</td><td>No</td><td>No</td><td>Yes (SSE too)</td></tr>
+          <tr><td>Framework integration</td><td>SDK</td><td>SDK</td><td>Manual</td><td>REST, any HTTP client</td></tr>
+          <tr><td>Knowledge graph</td><td>No</td><td>Limited</td><td>No</td><td>Yes, typed edges</td></tr>
+          <tr><td>Auto consolidation</td><td>No</td><td>No</td><td>No</td><td>Yes, decay + compression</td></tr>
+          <tr><td>On-premise embeddings</td><td>No</td><td>No</td><td>Manual</td><td>Yes, ONNX local</td></tr>
+          <tr><td>Privacy</td><td>Cloud</td><td>Cloud</td><td>Partial</td><td>100% local</td></tr>
+          <tr><td>Hybrid search</td><td>No</td><td>Yes</td><td>Manual</td><td>Yes, BM25 + vector</td></tr>
+          <tr><td>MCP protocol</td><td>No</td><td>No</td><td>No</td><td>Yes</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin:2.5rem 0 1rem">MCP-native: MemPalace</h3>
+    <div class="table-wrap">
+      <table class="cmp-table">
+        <thead><tr><th></th><th>MemPalace</th><th>mcp-memory-service</th></tr></thead>
+        <tbody>
+          <tr><td>LongMemEval R@5 (raw ChromaDB, zero LLM)</td><td>96.6%<sup>1</sup></td><td>86.0% session / 80.4% turn</td></tr>
+          <tr><td>LongMemEval R@5 (with reranking)</td><td>100%<sup>2</sup></td><td>&mdash;</td></tr>
+          <tr><td>Storage granularity</td><td>Session-level</td><td>Turn-level and session-level</td></tr>
+          <tr><td>Team / multi-device sync</td><td>Local only</td><td>Cloudflare sync</td></tr>
+          <tr><td>REST API / web dashboard</td><td>No</td><td>Yes</td></tr>
+          <tr><td>OAuth 2.1 + multi-user</td><td>No</td><td>Yes</td></tr>
+          <tr><td>Knowledge graph</td><td>No</td><td>Yes, typed edges</td></tr>
+          <tr><td>Auto consolidation</td><td>No</td><td>Yes, decay + compression</td></tr>
+          <tr><td>License</td><td>MIT</td><td>Apache 2.0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="cmp-note">
+      <strong>Why the benchmark gap?</strong> MemPalace stores whole sessions as single units, and LongMemEval asks which session contains the answer &mdash; that granularity answers the question structurally. This service defaults to turn-level storage for finer retrieval; session-mode ingestion brings it to 86.0% R@5.<br>
+      <sup>1</sup> Measured in MemPalace "raw mode": plain text in ChromaDB with default embeddings. Per <a href="https://github.com/MemPalace/mempalace/issues/27" target="_blank" rel="noopener" style="color:var(--cyan)">Issue #27</a>, the Palace structural features are bypassed in that configuration, and the maintainers acknowledged most of the review's points.<br>
+      <sup>2</sup> Uses optional LLM reranking (~500 API calls) on a partially tuned test set. Clean held-out score as reported by the maintainers: 98.4% R@5.<br>
+      Full numbers and the run commands: <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/BENCHMARKS.md" target="_blank" rel="noopener" style="color:var(--cyan)">docs/BENCHMARKS.md &rarr;</a>
+    </p>
+
+    <h3 style="margin:2.5rem 0 1rem">SHODH ecosystem</h3>
+    <p class="cmp-note">Fully compatible with the <a href="https://github.com/varun29ankuS/shodh-memory/blob/main/specs/openapi.yaml" target="_blank" rel="noopener" style="color:var(--cyan)">SHODH Unified Memory API Specification v1.0.0</a>: every SHODH implementation shares the same memory schema &mdash; emotional metadata, episodic memory, source tracking, quality scoring &mdash; so memories export and import across implementations with full fidelity. The reference implementation is <a href="https://github.com/varun29ankuS/shodh-memory" target="_blank" rel="noopener" style="color:var(--cyan)">shodh-memory</a> (RocksDB); shodh-cloudflare runs on Workers + Vectorize; this service runs SQLite-vec or Hybrid.</p>
   </div>
 </section>
 
@@ -266,12 +362,13 @@ footer a{color:var(--cyan)}
         <h3>Agents Overdrawn at the Memory Bank</h3>
         <p>Heavybit's <em>Humans in the Loop</em> deep dive talks to maintainer Heinrich Krupp about agent amnesia and why persistent memory is the missing infrastructure layer for agentic systems.</p>
       </a>
-      <a class="feature-card" data-delay="150" href="https://zurich.aitinkerers.org/talks/rsvp_DuHc2MBp1uo" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit">
+      <div class="feature-card" data-delay="150">
         <div class="feature-icon oauth">&#127908;</div>
-        <h3>AI Tinkerers Zürich Talk</h3>
+        <h3><a href="https://zurich.aitinkerers.org/talks/rsvp_DuHc2MBp1uo" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">AI Tinkerers Zürich Talk</a></h3>
         <p>Maintainer Heinrich Krupp presents mcp-memory-service at the AI Tinkerers Zürich meetup — persistent memory architecture, semantic search, and multi-agent memory sharing. <a href="https://drive.google.com/file/d/1NJDLetJ5CE7Jiek9OtyXCrt-zm768YB6/view" target="_blank" rel="noopener" style="color:var(--cyan)">Watch the full video &rarr;</a></p>
-      </a>
+      </div>
     </div>
+    <p class="cmp-note" style="text-align:center;margin-top:2rem"><em>"Your project has inspired me in many ways. In my view, it's the best implementation of MCP memory I've found so far."</em> &mdash; Micha&#322; Zubkowicz</p>
   </div>
 </section>
 

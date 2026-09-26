@@ -1,6 +1,38 @@
 # MCP Memory Service Integrations
 
-This document catalogs tools, utilities, and integrations that extend the functionality of the MCP Memory Service.
+This document catalogs the clients that talk to the MCP Memory Service, plus tools and
+utilities that extend it.
+
+## Supported Clients
+
+Anything that speaks MCP or plain HTTP works. The list below is what has actually been
+used against the service, grouped by how it connects.
+
+### Agent frameworks (REST API)
+
+LangGraph · CrewAI · AutoGen · OpenClaw/Nanobot · custom pipelines · any HTTP client
+
+Start the API with `MCP_ALLOW_ANONYMOUS_ACCESS=true memory server --http` and point your
+framework at `http://localhost:8000`. Framework-specific guides live in
+[`docs/agents/`](agents/).
+
+### CLI and terminal (MCP)
+
+Claude Code · Gemini CLI · Gemini Code Assist · OpenCode · Codex CLI · Goose · Aider ·
+GitHub Copilot CLI · Amp · Continue · Zed · Cody
+
+### Desktop and IDE (MCP)
+
+Claude Desktop · VS Code · Cursor · Windsurf · Kilo Code · Raycast · JetBrains · Replit ·
+Sourcegraph · Qodo
+
+### Chat interfaces (MCP)
+
+ChatGPT (Developer Mode) and claude.ai (Remote MCP over HTTPS) both connect over a public
+HTTPS endpoint — see [Remote MCP Setup](remote-mcp-setup.md).
+
+Clients without OAuth support, Home Assistant among them, can use anonymous access on the
+LAN without patching anything: [Home Assistant setup](integration/home-assistant.md).
 
 ## Official Integrations
 

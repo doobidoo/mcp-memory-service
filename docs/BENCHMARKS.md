@@ -10,7 +10,7 @@ All results use zero LLM API calls (retrieval-only mode) unless noted.
 **Dataset:** [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned) — 500 questions, ~45–62 sessions per question (distractor haystack)  
 **Mode:** Retrieval only (zero LLM API calls)  
 **Backend:** SQLite-Vec with all-MiniLM-L6-v2 ONNX embeddings  
-**Date:** 2026-04-08 · **Version:** v10.34.0 (benchmark run version; latest release: v10.48.0)
+**Date:** 2026-04-08 · **Version:** v10.34.0 (the version the benchmark ran on)
 
 ### Overall Metrics
 
@@ -22,7 +22,7 @@ All results use zero LLM API calls (retrieval-only mode) unless noted.
 | mempalace (hybrid v4 + Haiku) | session | 100%² | — | — | — | ~500 |
 | Mem0 | — | ~85% | — | — | — | — |
 
-> ¹ MemPalace's "raw mode" stores plain text in ChromaDB with default embeddings. Per [MemPalace Issue #27](https://github.com/milla-jovovich/mempalace/issues/27), the Palace architecture (Wings, Rooms, Halls) is not active in this configuration — "Halls" exist only as metadata strings with no effect on ranking. The 96.6% is therefore a ChromaDB + default-embedding baseline rather than a measurement of MemPalace's structural retrieval features. Maintainers have publicly acknowledged this.
+> ¹ MemPalace's "raw mode" stores plain text in ChromaDB with default embeddings. Per [MemPalace Issue #27](https://github.com/MemPalace/mempalace/issues/27), the Palace architecture (Wings, Rooms, Halls) is not active in this configuration — "Halls" exist only as metadata strings with no effect on ranking. The 96.6% is therefore a ChromaDB + default-embedding baseline rather than a measurement of MemPalace's structural retrieval features. Maintainers have publicly acknowledged this.
 >
 > ² 100% result uses optional LLM reranking (~500 API calls) on a partially tuned test set. Clean held-out score (as reported by the maintainers): **98.4% R@5**.
 
@@ -75,11 +75,43 @@ python scripts/benchmarks/benchmark_longmemeval.py --mode ablation --limit 50
 
 ---
 
+## DevBench
+
+Practical developer-workflow queries — the questions an agent actually asks a memory
+store during a coding session (exact recall of a stored fact, semantic paraphrase,
+retrieval across memory types).
+
+**Backend:** SQLite-Vec with all-MiniLM-L6-v2 ONNX embeddings · retrieval only, zero LLM calls
+
+| Category | Recall@5 | MRR |
+|----------|----------|-----|
+| **Overall** | **91.1%** | **0.861** |
+| exact | 100% | 1.000 |
+| semantic | 80.0% | 0.700 |
+| cross-type | 90.0% | 0.867 |
+
+```bash
+python scripts/benchmarks/benchmark_devbench.py
+```
+
+---
+
 ## LoCoMo
 
-See [LoCoMo benchmark](../scripts/benchmarks/benchmark_locomo.py) for retrieval evaluation on the [LoCoMo10 dataset](https://github.com/snap-research/locomo).
+Long-term conversational memory on the [LoCoMo10 dataset](https://github.com/snap-research/locomo)
+([ACL 2024](https://github.com/snap-research/locomo)).
 
-Run with:
+**Backend:** SQLite-Vec with all-MiniLM-L6-v2 ONNX embeddings · retrieval only, zero LLM calls
+
+| Category | Recall@5 | MRR |
+|----------|----------|-----|
+| **Overall** | **49.7%** | **0.414** |
+| multi-hop | 72.0% | 0.600 |
+| temporal | 33.5% | 0.274 |
+
 ```bash
 python scripts/benchmarks/benchmark_locomo.py
 ```
+
+See [`scripts/benchmarks/benchmark_locomo.py`](../scripts/benchmarks/benchmark_locomo.py)
+for the evaluation harness.

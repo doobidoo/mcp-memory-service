@@ -1,15 +1,3 @@
-> ## This repository has moved to GitHub
->
-> Active development, issues, pull requests, CI and releases are at
-> **https://github.com/doobidoo/mcp-memory-service** as of 5 September 2026.
->
-> This copy stays here, readable and unchanged, so that existing links, issue
-> numbers and pull request references keep resolving. It receives no further
-> pushes and its CI no longer runs. Please do not open issues or pull requests
-> here, they will not be seen.
->
-> The wiki moved too: https://github.com/doobidoo/mcp-memory-service/wiki
-
 # mcp-memory-service
 
 ## Persistent Shared Memory for AI Agent Pipelines
@@ -578,6 +566,8 @@ MCP Memory Service is **fully compatible** with the [SHODH Unified Memory API Sp
 - **[Wiki](https://github.com/doobidoo/mcp-memory-service/wiki)** – Complete documentation
 - [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/doobidoo/mcp-memory-service) – AI-powered documentation assistant
 - **[MCP Starter Kit](https://kruppster57.gumroad.com/l/glbhd)** – Build your own MCP server using the patterns from this project
+- **[Listed on Glama](https://glama.ai/mcp/servers/doobidoo/mcp-memory-service)** – MCP directory listing
+- **[Listed on Spark](https://spark.entire.vc/mcps/vb-mcp-memory-service)** – MCP directory listing
 
 ---
 
