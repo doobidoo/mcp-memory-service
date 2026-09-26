@@ -223,6 +223,20 @@ def test_lazy_scan_leaves_internal_scalars_alone():
 
 
 @pytest.mark.unit
+def test_lazy_scan_flags_caller_controlled_max_hops():
+    """max_hops looks like a counter but arrives from an MCP tool's arguments.
+
+    Its only guarded logger call (storage/graph.py) is already wrapped, so the
+    module scan stays green whether or not the name is listed. This is the
+    sample that fails if the entry is dropped from EXTERNAL_NAMES.
+    """
+    bare = 'logger.debug("within %s hops", max_hops)\n'
+    wrapped = 'logger.debug("within %s hops", _sanitize_log_value(max_hops))\n'
+    assert _lazy_findings(bare)
+    assert not _lazy_findings(wrapped)
+
+
+@pytest.mark.unit
 def test_detectors_agree_on_a_known_bad_sample():
     """Guards the guard: both scans must flag an obviously unsafe call.
 
