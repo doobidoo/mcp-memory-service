@@ -150,6 +150,34 @@ async def test_evolve_memory_scores_even_if_reread_fails(memory_service):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_evolve_memory_reread_fallback_keeps_inherited_fields(memory_service):
+    """When the caller omits tags/type, storage inherits them from the old
+    memory; the re-read fallback must report those, not empty values."""
+    old_hash = await _store_original(memory_service)
+    real_get = memory_service.storage.get_by_hash
+    new_version_reads = []
+
+    async def get_by_hash(h):
+        if h == old_hash:
+            return await real_get(h)
+        new_version_reads.append(h)
+        return None
+
+    memory_service.storage.get_by_hash = get_by_hash
+    memory_service._run_post_store_steps = AsyncMock()
+
+    ok, _msg, new_hash = await memory_service.evolve_memory(
+        old_hash, "The backup job runs nightly at 08:00 against the NAS share."
+    )
+
+    assert ok and new_version_reads == [new_hash]
+    written = memory_service._run_post_store_steps.await_args.args[0]
+    assert "backup" in written.tags
+    assert written.memory_type == "observation"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_evolve_memory_failure_skips_post_store_steps(memory_service):
     memory_service._maybe_link_entities = AsyncMock()
     memory_service._plugin_registry.fire = AsyncMock()

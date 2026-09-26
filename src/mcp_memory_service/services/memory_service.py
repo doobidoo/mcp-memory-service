@@ -613,6 +613,11 @@ class MemoryService:
         """
         if not hasattr(self.storage, "update_memory_versioned"):
             return False, "Storage backend does not support versioned updates", None
+        # Storage inherits omitted tags/type from the old version; keep that
+        # version around so the re-read fallback below can do the same.
+        previous = None
+        if tags is None or memory_type is None:
+            previous = await self.storage.get_by_hash(existing_hash)
         ok, msg, new_hash = await self.storage.update_memory_versioned(
             existing_hash,
             content,
@@ -646,15 +651,24 @@ class MemoryService:
         memory = await self.storage.get_by_hash(new_hash)
         if memory is None:
             # Re-read failed; score the version as written instead of skipping it.
-            memory = Memory(
-                content=content,
-                content_hash=new_hash,
-                tags=list(tags or []),
-                memory_type=memory_type,
-                metadata=final_metadata,
-            )
+            memory = self._as_written(new_hash, content, tags, memory_type, final_metadata, previous)
         await self._run_post_store_steps(memory)
         return ok, msg, new_hash
+
+    @staticmethod
+    def _as_written(new_hash, content, tags, memory_type, metadata, previous) -> Memory:
+        """The evolved version as storage wrote it, for when it can't be re-read."""
+        if tags is None and previous is not None:
+            tags = previous.tags
+        if memory_type is None and previous is not None:
+            memory_type = previous.memory_type
+        return Memory(
+            content=content,
+            content_hash=new_hash,
+            tags=list(tags or []),
+            memory_type=memory_type,
+            metadata=metadata,
+        )
 
     async def _run_post_store_steps(self, memory: Memory) -> None:
         """Quality scoring, entity linking and on_store plugins for a new memory."""
