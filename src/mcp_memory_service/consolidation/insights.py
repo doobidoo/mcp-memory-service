@@ -199,7 +199,7 @@ class InsightGenerator:
         return automated_count / len(types) >= self.DOMINANT_TYPE_THRESHOLD
 
 
-async def store_insights(insights: List[InsightCard], storage) -> List[str]:
+async def store_insights(insights: List[InsightCard], storage, graph=None) -> List[str]:
     """Store InsightCards as memories and create derived_from edges.
 
     Acknowledgement flow: if an existing insight card has the 'acknowledged' tag,
@@ -208,7 +208,10 @@ async def store_insights(insights: List[InsightCard], storage) -> List[str]:
 
     Args:
         insights: List of InsightCard to persist.
-        storage: Storage backend with store() and store_association() methods.
+        storage: Storage backend with store() and get_by_hash().
+        graph: Graph storage (store_association()) for the derived_from edges.
+            Memory storage backends don't carry store_association themselves;
+            without a graph handle no edges are written.
 
     Returns:
         List of content hashes for stored insight memories.
@@ -230,6 +233,9 @@ async def store_insights(insights: List[InsightCard], storage) -> List[str]:
                         # Sentinel creation has its own error handling — kept separate
                         # so a sentinel failure does not swallow the dedup check result.
                         await _store_ack_sentinel(card, ack_hash, storage)
+                    # Cards stored before edges were written through the graph
+                    # handle have none; link them now (edge writes are idempotent).
+                    await _link_to_sources(card, content_hash, graph)
                     continue
             except Exception:
                 # Dedup check failed — proceed to store to avoid silent data loss.
@@ -254,22 +260,26 @@ async def store_insights(insights: List[InsightCard], storage) -> List[str]:
         if not success:
             continue
         stored_hashes.append(content_hash)
-
-        # Create derived_from edges (best-effort — graph edges are non-critical)
-        if hasattr(storage, "store_association"):
-            for src_hash in card.source_hashes:
-                try:
-                    await storage.store_association(
-                        source_hash=src_hash,
-                        target_hash=content_hash,
-                        similarity=card.confidence,
-                        connection_types=["derived_from"],
-                        relationship_type="derived_from",
-                    )
-                except Exception:
-                    pass  # graph edges are advisory; insight card is already stored
+        await _link_to_sources(card, content_hash, graph)
 
     return stored_hashes
+
+
+async def _link_to_sources(card: InsightCard, content_hash: str, graph) -> None:
+    """Write the card's derived_from edges (best-effort — graph edges are non-critical)."""
+    if graph is None:
+        return
+    for src_hash in card.source_hashes:
+        try:
+            await graph.store_association(
+                source_hash=src_hash,
+                target_hash=content_hash,
+                similarity=card.confidence,
+                connection_types=["derived_from"],
+                relationship_type="derived_from",
+            )
+        except Exception:
+            pass  # graph edges are advisory; insight card is already stored
 
 
 async def _store_ack_sentinel(card: InsightCard, ack_hash: str, storage) -> None:

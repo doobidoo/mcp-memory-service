@@ -619,7 +619,9 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
                     "types": {t: sum(1 for i in insights if i.insight_type == t) for t in ("pattern", "trend", "gap")},
                 }
             else:
-                stored = await store_insights(insights, storage)
+                from .graph import get_graph_storage
+                insight_graph = await get_graph_storage()
+                stored = await store_insights(insights, storage, graph=insight_graph)
                 report["steps"]["insights"] = {
                     "generated": len(insights),
                     "stored": len(stored),
