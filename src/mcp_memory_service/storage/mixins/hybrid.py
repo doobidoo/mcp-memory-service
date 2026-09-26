@@ -43,6 +43,15 @@ class HybridMixin:
                 logger.warning("Query is empty after sanitization")
                 return []
 
+            # Match any of the query's words, not the query as one phrase: a
+            # single quoted string is an FTS5 phrase query, which only matches
+            # the words adjacent and in order. Each word is quoted on its own
+            # so words like AND/OR/NOT/NEAR stay words instead of operators;
+            # bm25() still ranks rows matching more of them higher.
+            fts_query = " OR ".join(
+                '"{}"'.format(term.replace('"', '""')) for term in query_clean.split()
+            )
+
             def search_fts():
                 cursor = self.conn.execute('''
                     SELECT m.content_hash, bm25(memory_content_fts) as rank
@@ -51,7 +60,7 @@ class HybridMixin:
                     WHERE memory_content_fts MATCH ? AND m.deleted_at IS NULL
                     ORDER BY rank
                     LIMIT ?
-                ''', (f'"{query_clean}"', n_results))
+                ''', (fts_query, n_results))
                 return cursor.fetchall()
 
             results = await self._execute_with_retry(search_fts)
@@ -60,7 +69,7 @@ class HybridMixin:
             return results
 
         except Exception as e:
-            logger.error(f"BM25 search failed: {str(e)}")
+            logger.error("BM25 search failed: %s", _sanitize_log_value(e))
             logger.error(traceback.format_exc())
             return []
 
@@ -126,7 +135,7 @@ class HybridMixin:
                         if m:
                             fetched[m.content_hash] = m
             except Exception as e:
-                logger.warning(f"RRF batch fetch failed: {e}")
+                logger.warning("RRF batch fetch failed: %s", _sanitize_log_value(e))
 
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         results = []
@@ -145,9 +154,8 @@ class HybridMixin:
                     },
                 ))
 
-        logger.info(f"RRF hybrid: {len(results)} results "
-                    f"(BM25: {len(bm25_results)}, Vec: {len(vector_results)}, "
-                    f"Consensus: {len(consensus)})")
+        logger.info("RRF hybrid: %d results (BM25: %d, Vec: %d, Consensus: %d)",
+                    len(results), len(bm25_results), len(vector_results), len(consensus))
         return results
 
     async def retrieve_hybrid(
@@ -207,7 +215,8 @@ class HybridMixin:
                                 fetched_memories[memory.content_hash] = memory
                 except Exception as e:
                     logger.warning(
-                        f"Batch fetch for BM25-only hashes failed, some results may be missing: {e}"
+                        "Batch fetch for BM25-only hashes failed, some results may be missing: %s",
+                        _sanitize_log_value(e),
                     )
 
             merged_results = []
@@ -240,12 +249,12 @@ class HybridMixin:
             merged_results.sort(key=lambda r: r.relevance_score, reverse=True)
             results = merged_results[:n_results]
 
-            logger.info(f"Hybrid search found {len(results)} results "
-                       f"(BM25: {len(bm25_results)}, Vector: {len(vector_results)})")
+            logger.info("Hybrid search found %d results (BM25: %d, Vector: %d)",
+                        len(results), len(bm25_results), len(vector_results))
 
             return results
 
         except Exception as e:
-            logger.error(f"Hybrid search failed: {str(e)}")
+            logger.error("Hybrid search failed: %s", _sanitize_log_value(e))
             logger.error(traceback.format_exc())
             return []

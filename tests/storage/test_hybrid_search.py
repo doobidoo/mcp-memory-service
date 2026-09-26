@@ -374,6 +374,42 @@ async def test_hybrid_search_empty_query(sqlite_storage):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_bm25_matches_query_terms_that_are_not_adjacent(sqlite_storage):
+    """A multi-word query must not require the words as one contiguous phrase.
+
+    The whole query used to be wrapped in double quotes, which FTS5 treats as a
+    phrase: 'tmux byte tap' only matched text containing exactly that sequence,
+    so BM25 contributed almost nothing to hybrid search for natural queries.
+    """
+    storage = sqlite_storage
+    target = "To debug tmux scrollback, tap the raw byte stream before xterm renders it."
+    partial = "CSV exports can start with a byte order mark."
+    unrelated = "Advent sermon notes on waiting and hope."
+    for text in (target, partial, unrelated):
+        await storage.store(Memory(content=text, content_hash=generate_content_hash(text), tags=["test"]))
+
+    hits = [h for h, _ in await storage._search_bm25("tmux byte tap", n_results=5)]
+
+    assert generate_content_hash(target) in hits
+    assert hits[0] == generate_content_hash(target), "more matching terms should rank higher"
+    assert generate_content_hash(unrelated) not in hits
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_bm25_treats_operator_words_as_terms(sqlite_storage):
+    """Query words like AND/OR/NOT/NEAR are searched as words, not FTS5 operators."""
+    storage = sqlite_storage
+    text = "Do not restart the service; near the end of the deploy, check logs."
+    await storage.store(Memory(content=text, content_hash=generate_content_hash(text), tags=["test"]))
+
+    hits = [h for h, _ in await storage._search_bm25("NOT restart NEAR deploy", n_results=5)]
+
+    assert hits == [generate_content_hash(text)]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_hybrid_search_special_characters(sqlite_storage, unique_content):
     """Hybrid search should sanitize FTS5 operators from queries."""
     storage = sqlite_storage
