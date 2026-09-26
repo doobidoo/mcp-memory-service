@@ -9,6 +9,7 @@ import asyncio
 from pathlib import Path
 
 from ..migration_runner import MigrationRunner
+from ...compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -26,16 +27,16 @@ class MigrationsMixin:
             runner = MigrationRunner(migrations_dir)
             result = runner.run_pending(self.conn)
             if result["error"]:
-                logger.warning(f"Schema migration warning: {result['error']}")
+                logger.warning("Schema migration warning: %s", _sanitize_log_value(result['error']))
             else:
                 version = runner._get_current_version(self.conn)
                 applied_count = len(result["applied"])
                 if applied_count > 0:
-                    logger.info(f"Schema at v{version}, {applied_count} migrations applied")
+                    logger.info("Schema at v%s, %s migrations applied", version, applied_count)
                 else:
-                    logger.debug(f"Schema at v{version}, no pending migrations")
+                    logger.debug("Schema at v%s, no pending migrations", version)
         except Exception as e:
-            logger.warning(f"Failed to run schema migrations (non-fatal): {e}")
+            logger.warning("Failed to run schema migrations (non-fatal): %s", _sanitize_log_value(e))
 
     def _ensure_fts5_initialized(self):
         """Ensure FTS5 virtual table exists for BM25 keyword search (v10.8.0+)."""
@@ -90,7 +91,7 @@ class MigrationsMixin:
             self.conn.commit()
             logger.info("FTS5 initialization complete")
         except Exception as e:
-            logger.warning(f"FTS5 initialization failed (non-fatal): {e}")
+            logger.warning("FTS5 initialization failed (non-fatal): %s", _sanitize_log_value(e))
 
     async def initialize(self, strict_dimension_check: bool = True):
         """Initialize the SQLite database with vec0 extension.
@@ -144,7 +145,7 @@ class MigrationsMixin:
                         else:
                             logger.debug("Migration check: deleted_at column already exists")
                     except Exception as e:
-                        logger.warning(f"Migration check for deleted_at (non-fatal): {e}")
+                        logger.warning("Migration check for deleted_at (non-fatal): %s", _sanitize_log_value(e))
 
                     # Multi-store migration: add store partition key to vec0 and store column to memories
                     try:
@@ -305,7 +306,7 @@ class MigrationsMixin:
                                 self.conn.commit()
                             except Exception as e:
                                 self.conn.rollback()
-                                logger.error("Multi-store migration failed: %s", e)
+                                logger.error("Multi-store migration failed: %s", _sanitize_log_value(e))
                                 raise
                             return True
 
@@ -327,7 +328,7 @@ class MigrationsMixin:
 
                         await self._execute_with_retry(_add_store_column)
                     except Exception as e:
-                        logger.warning(f"Add store column (non-fatal): {e}")
+                        logger.warning("Add store column (non-fatal): %s", _sanitize_log_value(e))
 
                     await self._run_in_thread(self._run_schema_migrations)
                     await self._run_in_thread(self._ensure_fts5_initialized)
@@ -354,10 +355,10 @@ class MigrationsMixin:
                             raise RuntimeError(mismatch_msg)
                         logger.warning("%s (continuing: strict dimension check disabled)", mismatch_msg)
                     self._initialized = True
-                    logger.info(f"SQLite-vec storage initialized successfully (existing database) with embedding dimension: {self.embedding_dimension}")
+                    logger.info("SQLite-vec storage initialized successfully (existing database) with embedding dimension: %s", self.embedding_dimension)
                     return
             except sqlite3.Error as e:
-                logger.debug(f"Could not check existing tables (will attempt full initialization): {e}")
+                logger.debug("Could not check existing tables (will attempt full initialization): %s", _sanitize_log_value(e))
 
             default_pragmas = {
                 "journal_mode": "WAL",
@@ -374,7 +375,7 @@ class MigrationsMixin:
                     if "=" in pragma_pair:
                         pragma_name, pragma_value = pragma_pair.split("=", 1)
                         default_pragmas[pragma_name.strip()] = pragma_value.strip()
-                        logger.info(f"Custom pragma from env: {pragma_name}={pragma_value}")
+                        logger.info("Custom pragma from env: %s=%s", _sanitize_log_value(pragma_name), _sanitize_log_value(pragma_value))
 
             def _apply_pragmas_and_create_tables(dp=default_pragmas):
                 applied = []
@@ -383,7 +384,7 @@ class MigrationsMixin:
                         self.conn.execute(f"PRAGMA {pragma_name}={pragma_value}")
                         applied.append(f"{pragma_name}={pragma_value}")
                     except sqlite3.Error as e:
-                        logger.warning(f"Failed to set pragma {pragma_name}={pragma_value}: {e}")
+                        logger.warning("Failed to set pragma %s=%s: %s", _sanitize_log_value(pragma_name), _sanitize_log_value(pragma_value), _sanitize_log_value(e))
 
                 self.conn.execute('''
                     CREATE TABLE IF NOT EXISTS metadata (
@@ -410,7 +411,7 @@ class MigrationsMixin:
                 return applied
 
             applied_pragmas = await self._execute_with_retry(_apply_pragmas_and_create_tables)
-            logger.info(f"SQLite pragmas applied: {', '.join(applied_pragmas)}")
+            logger.info("SQLite pragmas applied: %s", _sanitize_log_value(', '.join(applied_pragmas)))
 
             try:
                 def _migrate_deleted_at_new():
@@ -425,7 +426,7 @@ class MigrationsMixin:
                 if await self._execute_with_retry(_migrate_deleted_at_new):
                     logger.info("Migration complete: deleted_at column added")
             except Exception as e:
-                logger.warning(f"Migration check for deleted_at (non-fatal): {e}")
+                logger.warning("Migration check for deleted_at (non-fatal): %s", _sanitize_log_value(e))
 
             await self._initialize_embedding_model()
 
@@ -459,7 +460,7 @@ class MigrationsMixin:
                         except sqlite3.OperationalError as drop_error:
                             if "database is locked" in str(drop_error):
                                 if attempt < max_retries - 1:
-                                    logger.warning(f"Database locked during migration (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay}s...")
+                                    logger.warning("Database locked during migration (attempt %s/%s), retrying in %ss...", attempt + 1, max_retries, retry_delay)
                                     await asyncio.sleep(retry_delay)
                                     retry_delay *= 2
                                 else:
@@ -478,7 +479,7 @@ class MigrationsMixin:
                 else:
                     logger.debug("Fresh database or cosine distance already configured, no migration needed")
             except Exception as e:
-                logger.warning(f"Migration check warning (non-fatal): {e}")
+                logger.warning("Migration check warning (non-fatal): %s", _sanitize_log_value(e))
 
             embedding_dim = self.embedding_dimension
 
@@ -510,10 +511,10 @@ class MigrationsMixin:
 
             self._initialized = True
 
-            logger.info(f"SQLite-vec storage initialized successfully with embedding dimension: {self.embedding_dimension}")
+            logger.info("SQLite-vec storage initialized successfully with embedding dimension: %s", self.embedding_dimension)
 
         except Exception as e:
             error_msg = f"Failed to initialize SQLite-vec storage: {str(e)}"
-            logger.error(error_msg)
+            logger.error("Failed to initialize SQLite-vec storage: %s", _sanitize_log_value(e))
             logger.error(traceback.format_exc())
             raise RuntimeError(error_msg)

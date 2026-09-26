@@ -51,6 +51,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/config/base.py",
     "mcp_memory_service/server/handlers/memory.py",
     "mcp_memory_service/storage/graph.py",
+    "mcp_memory_service/storage/mixins/migrations.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
