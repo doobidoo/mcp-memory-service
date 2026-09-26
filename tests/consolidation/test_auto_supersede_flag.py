@@ -15,7 +15,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+import mcp_memory_service.config as config_package
 import mcp_memory_service.config.graph as graph_config
+import mcp_memory_service.consolidation.consolidator as consolidator_module
 from mcp_memory_service.consolidation.base import ConsolidationConfig, MemoryAssociation
 from mcp_memory_service.consolidation.consolidator import DreamInspiredConsolidator
 from mcp_memory_service.models.memory import Memory
@@ -83,6 +85,62 @@ async def test_disabled_keeps_edge_and_both_memories(temp_db_path, unique_conten
         assert await _visible(storage, newer.content_hash)
         rel_types = await consolidator.graph_storage.get_relationship_types(older.content_hash)
         assert rel_types.get("contradicts", 0) >= 1
+    finally:
+        await consolidator.graph_storage.close()
+        await storage.close()
+
+
+@pytest.fixture
+def set_flag_from_environment(monkeypatch):
+    """Set MCP_CONSOLIDATION_AUTO_SUPERSEDE in the environment and re-import the
+    modules that read it, in import order: config.graph, the config package
+    (which re-exports it), then the consolidator (which imports it by value)."""
+
+    def _apply(value):
+        if value is None:
+            monkeypatch.delenv("MCP_CONSOLIDATION_AUTO_SUPERSEDE", raising=False)
+        else:
+            monkeypatch.setenv("MCP_CONSOLIDATION_AUTO_SUPERSEDE", value)
+        importlib.reload(graph_config)
+        importlib.reload(config_package)
+        importlib.reload(consolidator_module)
+
+    yield _apply
+    monkeypatch.delenv("MCP_CONSOLIDATION_AUTO_SUPERSEDE", raising=False)
+    importlib.reload(graph_config)
+    importlib.reload(config_package)
+    importlib.reload(consolidator_module)
+
+
+@pytest.mark.asyncio
+async def test_environment_false_reaches_consolidation(
+    temp_db_path, unique_content, monkeypatch, set_flag_from_environment
+):
+    """No patching of the constant: the environment variable alone must keep
+    both memories visible (the consolidator imports the setting by value)."""
+    monkeypatch.setenv("MCP_SEMANTIC_DEDUP_ENABLED", "false")
+    set_flag_from_environment("false")
+    storage, consolidator, older, newer, association = await _setup(temp_db_path, unique_content)
+    try:
+        await consolidator._store_associations_in_graph_table([association])
+        assert await _visible(storage, older.content_hash)
+        assert await _visible(storage, newer.content_hash)
+    finally:
+        await consolidator.graph_storage.close()
+        await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_environment_unset_still_supersedes(
+    temp_db_path, unique_content, monkeypatch, set_flag_from_environment
+):
+    monkeypatch.setenv("MCP_SEMANTIC_DEDUP_ENABLED", "false")
+    set_flag_from_environment(None)
+    storage, consolidator, older, newer, association = await _setup(temp_db_path, unique_content)
+    try:
+        await consolidator._store_associations_in_graph_table([association])
+        assert not await _visible(storage, older.content_hash)
+        assert await _visible(storage, newer.content_hash)
     finally:
         await consolidator.graph_storage.close()
         await storage.close()
