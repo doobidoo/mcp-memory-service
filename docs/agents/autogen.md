@@ -42,7 +42,7 @@ async def retrieve_context(query: str, tags: list[str] | None = None, limit: int
         else:
             response = await client.post(
                 f"{MEMORY_URL}/api/search",
-                json={"query": query, "n_results": min(limit, 100)},
+                json={"query": query, "n_results": max(1, min(limit, 100))},
             )
         # Without this, a 422 (n_results out of the 1-100 range, no tags supplied)
         # reads as an empty result list and the agent is told there is no memory.
@@ -140,7 +140,7 @@ async def search_memory(query: str, limit: int = 5, tags: list[str] | None = Non
         else:
             response = await client.post(
                 f"{MEMORY_URL}/api/search",
-                json={"query": query, "n_results": min(limit, 100)},  # 422 above 100
+                json={"query": query, "n_results": max(1, min(limit, 100))},  # 422 outside 1-100
             )
         response.raise_for_status()  # else an error body reads as "no memories"
         memories = [h["memory"] for h in response.json()["results"]][:limit]

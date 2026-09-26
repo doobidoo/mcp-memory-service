@@ -49,10 +49,13 @@ This table is the subset agents reach for. The authoritative, always-current lis
 > match ANY of them, not all. Ranking by query *and* scoping by tag means picking a
 > side: `by-tag` gives a complete scope in no particular order, while ranking first and
 > filtering afterwards gives query order but only sees the window you fetched — in a
-> shared store a match ranked below it simply vanishes. `n_results` must be 1-100; 101
-> is a 422, and reading that body with `.get("results", [])` turns a rejected request
-> into "no memories found". Both endpoints return their hits under `results`, not
-> `memories`.
+> shared store a match ranked below it simply vanishes. Completeness is not free
+> either: `by-tag` has no server-side limit, so a five-result lookup against a
+> long-lived tag still transfers and parses that tag's entire history. On a tag that
+> large, prefer the ranked window and accept that it is a window. `n_results` must be
+> 1-100; anything outside that is a 422, and reading that body with
+> `.get("results", [])` turns a rejected request into "no memories found". Both
+> endpoints return their hits under `results`, not `memories`.
 
 ## Authentication Patterns
 

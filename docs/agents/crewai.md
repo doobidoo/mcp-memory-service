@@ -53,7 +53,7 @@ class MemorySearchTool(BaseTool):
             else:
                 response = await client.post(
                     f"{MEMORY_URL}/api/search",
-                    json={"query": query, "n_results": min(limit, 100)},  # 422 above 100
+                    json={"query": query, "n_results": max(1, min(limit, 100))},  # 422 outside 1-100
                 )
             response.raise_for_status()  # else an error body reads as "no memories"
             memories = [h["memory"] for h in response.json()["results"]][:limit]
