@@ -67,6 +67,12 @@ EXTERNAL_NAMES = frozenset({
     "result", "response", "payload", "data",
     "content", "content_hash", "tag", "tags",
     "query", "params", "path", "message", "msg",
+    # Looks like a counter, but reaches find_connected() straight from an MCP
+    # tool's arguments dict (mcp_server.py, server/handlers/graph.py) with no
+    # int coercion or clamp on that path, so a caller can hand it text. Its one
+    # guarded logger call (storage/graph.py) is already wrapped; listing the
+    # name keeps a later unwrap from passing the ratchet green.
+    "max_hops",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
