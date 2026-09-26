@@ -109,6 +109,18 @@ class BaseMixin:
                 return operation(*args)
         return await asyncio.to_thread(_locked)
 
+    async def _execute_write(self, operation: Callable, max_retries: int = 5, initial_delay: float = 0.2):
+        """Execute a mutating database operation under the savepoint lock.
+
+        All writers share one SQLite connection. `store()` already guards its
+        savepoint + commit with `_savepoint_lock`; a mutation that commits
+        without the lock can land between another path's open SAVEPOINT and
+        its RELEASE, persisting the memories row without its embedding (#1225).
+        Every path that commits the connection must go through here.
+        """
+        async with self._savepoint_lock:
+            return await self._execute_with_retry(operation, max_retries, initial_delay)
+
     async def _execute_with_retry(self, operation: Callable, max_retries: int = 5, initial_delay: float = 0.2):
         """Execute a database operation with exponential backoff retry logic."""
         last_exception = None

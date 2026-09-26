@@ -32,7 +32,7 @@ class MetadataMixin:
             ''', (json.dumps(memory.metadata), memory.content_hash))
             self.conn.commit()
 
-        await self._execute_with_retry(update_metadata)
+        await self._execute_write(update_metadata)
 
     async def _persist_access_metadata_batch(self, memories: List[Memory]):
         """Batch-persist access metadata for multiple memories in one transaction."""
@@ -55,7 +55,7 @@ class MetadataMixin:
             )
             self.conn.commit()
 
-        await self._execute_with_retry(batch_update)
+        await self._execute_write(batch_update)
 
     async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
         """Update memory metadata without recreating the entire memory entry."""
@@ -74,7 +74,7 @@ class MetadataMixin:
                 )
                 return cursor.fetchone()
 
-            row = await self._execute_with_retry(_read_current)
+            row = await self._execute_write(_read_current)
             if not row:
                 return False, f"Memory with hash {content_hash} not found"
 
@@ -148,7 +148,7 @@ class MetadataMixin:
                 )
                 self.conn.commit()
 
-            await self._execute_with_retry(_do_update)
+            await self._execute_write(_do_update)
 
             updated_fields = []
             if "tags" in updates:
@@ -255,7 +255,7 @@ class MetadataMixin:
 
                 self.conn.commit()
 
-            await self._execute_with_retry(_batch_update)
+            await self._execute_write(_batch_update)
 
             success_count = sum(results)
             logger.info(f"Batch update completed: {success_count}/{len(memories)} memories updated successfully")
@@ -283,7 +283,7 @@ class MetadataMixin:
             return len(pairs)
 
         try:
-            return await self._execute_with_retry(_batch_mark)
+            return await self._execute_write(_batch_mark)
         except Exception as e:
             logger.error(f"mark_superseded_batch failed: {e}")
             if self.conn:
@@ -398,7 +398,7 @@ class MetadataMixin:
 
             self.conn.commit()
 
-        await self._execute_with_retry(_record_all_conflicts)
+        await self._execute_write(_record_all_conflicts)
         logger.info(f"Recorded {len(conflicts)} conflict(s) for {new_hash[:8]}")
 
     async def get_conflicts(self) -> list:
@@ -454,7 +454,7 @@ class MetadataMixin:
                         return label, h
                 return None
 
-            missing = await self._execute_with_retry(_check_both_exist)
+            missing = await self._execute_write(_check_both_exist)
             if missing:
                 label, h = missing
                 return False, f"{label} memory {h} not found or deleted"
@@ -486,7 +486,7 @@ class MetadataMixin:
 
                 self.conn.commit()
 
-            await self._execute_with_retry(_do_resolve)
+            await self._execute_write(_do_resolve)
             logger.info(f"Conflict resolved: {winner_hash[:8]} wins over {loser_hash[:8]}")
             return True, f"Conflict resolved: {winner_hash[:8]} supersedes {loser_hash[:8]}"
 
@@ -518,7 +518,7 @@ class MetadataMixin:
             )
             return cursor.fetchall()
 
-        meta = {row[0]: row[1:] for row in await self._execute_with_retry(_fetch_staleness_meta)}
+        meta = {row[0]: row[1:] for row in await self._execute_write(_fetch_staleness_meta)}
 
         now = time.time()
         enriched: List[MemoryQueryResult] = []
@@ -549,7 +549,7 @@ class MetadataMixin:
                 )
                 self.conn.commit()
             try:
-                await self._execute_with_retry(_touch)
+                await self._execute_write(_touch)
             except Exception as e:
                 logger.warning(f"Failed to update last_accessed (non-fatal): {e}")
 

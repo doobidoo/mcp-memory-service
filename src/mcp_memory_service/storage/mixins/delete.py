@@ -55,7 +55,7 @@ class DeleteMixin:
                 self.conn.commit()
                 return cursor.rowcount
 
-            rowcount = await self._execute_with_retry(_delete_memory)
+            rowcount = await self._execute_write(_delete_memory)
             if rowcount is None:
                 return False, f"Memory with hash {content_hash} not found"
             if rowcount > 0:
@@ -149,7 +149,7 @@ class DeleteMixin:
                 self.conn.commit()
                 return cursor.rowcount
 
-            count = await self._execute_with_retry(_purge)
+            count = await self._execute_write(_purge)
             if count > 0:
                 logger.info(f"Purged {count} tombstones older than {older_than_days} days")
             return count
@@ -199,7 +199,7 @@ class DeleteMixin:
                 self.conn.commit()
                 return cursor.rowcount
 
-            count = await self._execute_with_retry(_delete_by_tag)
+            count = await self._execute_write(_delete_by_tag)
             logger.info(f"Soft-deleted {count} memories with tag: {_sanitize_log_value(tag)}")
 
             if count > 0:
@@ -259,7 +259,7 @@ class DeleteMixin:
                 self.conn.commit()
                 return cursor.rowcount, hashes
 
-            count, deleted_hashes = await self._execute_with_retry(_delete_by_tags)
+            count, deleted_hashes = await self._execute_write(_delete_by_tags)
             logger.info(f"Soft-deleted {count} memories matching tags: {tags}")
 
             if count > 0:
@@ -378,7 +378,7 @@ class DeleteMixin:
                 self.conn.commit()
                 return cursor.rowcount
 
-            count = await self._execute_with_retry(_cleanup_dups)
+            count = await self._execute_write(_cleanup_dups)
             logger.info(f"Soft-deleted {count} duplicate memories")
 
             if count > 0:
