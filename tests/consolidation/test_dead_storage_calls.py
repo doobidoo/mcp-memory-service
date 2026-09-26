@@ -72,6 +72,32 @@ async def test_insight_cards_write_derived_from_edges(temp_db_path):
 
 
 @pytest.mark.asyncio
+async def test_existing_insight_card_gets_missing_edges(temp_db_path):
+    """A card stored before edges worked must get them on a later run: the
+    dedup path that skips re-storing an existing card still links it."""
+    storage = await _storage(temp_db_path)
+    sources = [await _store(storage, f"Backup note {i}: rotate the Storj key yearly.") for i in range(2)]
+    card = InsightCard(
+        title="Storj keys rotate yearly",
+        content="Several notes rotate the Storj key once a year.",
+        source_hashes=sources,
+        insight_type="pattern",
+        confidence=0.7,
+    )
+    first = await store_insights([card], storage)  # as before the fix: no graph, no edges
+    assert len(first) == 1
+
+    await store_insights([card], storage, graph=GraphStorage(storage.db_path))
+
+    with sqlite3.connect(storage.db_path) as conn:
+        edges = conn.execute(
+            "SELECT source_hash FROM memory_graph WHERE target_hash = ? AND relationship_type = 'derived_from'",
+            (first[0],),
+        ).fetchall()
+    assert sorted(e[0] for e in edges) == sorted(sources)
+
+
+@pytest.mark.asyncio
 async def test_cloudflare_storage_supports_consolidation_delete():
     """The consolidator applies forgetting through storage.delete_memory(), which
     CloudflareStorage did not have, so forgetting raised AttributeError there.
