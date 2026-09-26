@@ -59,9 +59,17 @@ export MCP_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
 ```
 
 > **Switching models requires re-embedding existing memories.** Cross-language cosine
-> similarity drops from roughly 0.95 to 0.10 otherwise. Stop the service, run
+> similarity drops from roughly 0.95 to 0.10 otherwise. Both models above are 384-dim,
+> so the switch is a straight re-embed: stop the service, run
 > `python scripts/maintenance/regenerate_embeddings.py` with the new model env var, then
 > restart.
+>
+> A model with a **different dimension** is not that. The script writes new vectors into
+> the existing vector table and cannot change its width, so storage initialization fails
+> with `Dimension mismatch for inserted vector` before anything is re-embedded. Moving to
+> a different dimension means rebuilding the store — see
+> [external embeddings](../deployment/external-embeddings.md) for the failure mode and
+> the migration path.
 
 ### Pinning a non-default model
 

@@ -40,16 +40,19 @@ class MemorySearchTool(BaseTool):
         return asyncio.run(self._arun(query, tags or [], limit))
 
     async def _arun(self, query: str, tags: list[str] = None, limit: int = 5) -> str:
-        payload = {"query": query, "limit": limit}
-        if tags:
-            payload["tags"] = tags
-
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{MEMORY_URL}/api/memories/search",
-                json=payload,
-            )
-            memories = response.json().get("memories", [])
+            if tags:
+                # Semantic search takes no tag filter — tag search is its own endpoint
+                response = await client.post(
+                    f"{MEMORY_URL}/api/search/by-tag",
+                    json={"tags": tags},
+                )
+            else:
+                response = await client.post(
+                    f"{MEMORY_URL}/api/search",
+                    json={"query": query, "n_results": limit},
+                )
+            memories = [h["memory"] for h in response.json().get("results", [])]
 
         if not memories:
             return "No relevant memories found."
@@ -164,13 +167,10 @@ analysis_crew.kickoff()
 # Crew 2: Reporting team retrieves across crew boundary
 async with httpx.AsyncClient() as client:
     response = await client.post(
-        f"{MEMORY_URL}/api/memories/search",
-        json={
-            "query": "API rate limiting",
-            "tags": ["crew:analysis-team"],  # Cross-crew retrieval
-        },
+        f"{MEMORY_URL}/api/search/by-tag",
+        json={"tags": ["crew:analysis-team"]},  # Cross-crew retrieval
     )
-    findings = response.json()["memories"]
+    findings = [h["memory"] for h in response.json()["results"]]
 ```
 
 ## Post-Task Knowledge Base Inspection

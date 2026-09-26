@@ -56,11 +56,13 @@ await client.post(f"{BASE_URL}/api/memories", json={
     "tags": ["api", "limits", "msg:cluster"],       # sentinel tag
 }, headers={"X-Agent-ID": "cluster-agent-3"})
 
-# Local agent polls for cluster messages
-results = await client.post(f"{BASE_URL}/api/memories/search", json={
-    "query": "messages from cluster",
+# Local agent polls for cluster messages.
+# Tag search, not semantic search: POST /api/search ignores a `tags` field instead
+# of rejecting it, so a filtered-looking query would come back unfiltered.
+response = await client.post(f"{BASE_URL}/api/search/by-tag", json={
     "tags": ["msg:cluster"],
 })
+messages = [hit["memory"] for hit in response.json()["results"]]
 ```
 
 ## Framework-Specific Guides

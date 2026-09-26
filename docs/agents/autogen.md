@@ -25,16 +25,19 @@ MEMORY_URL = "http://localhost:8000"
 
 async def retrieve_context(query: str, tags: list[str] | None = None) -> str:
     """Retrieve relevant memory context for injection into system message."""
-    payload = {"query": query, "limit": 5}
-    if tags:
-        payload["tags"] = tags
-
     async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{MEMORY_URL}/api/memories/search",
-            json=payload,
-        )
-        memories = response.json().get("memories", [])
+        if tags:
+            # Semantic search takes no tag filter — tag search is its own endpoint
+            response = await client.post(
+                f"{MEMORY_URL}/api/search/by-tag",
+                json={"tags": tags},
+            )
+        else:
+            response = await client.post(
+                f"{MEMORY_URL}/api/search",
+                json={"query": query, "n_results": 5},
+            )
+        memories = [h["memory"] for h in response.json().get("results", [])]
 
     if not memories:
         return ""
@@ -115,16 +118,19 @@ async def search_memory(query: str, limit: int = 5, tags: list[str] | None = Non
     Returns:
         Formatted string of matching memories, or empty string if none found.
     """
-    payload = {"query": query, "limit": limit}
-    if tags:
-        payload["tags"] = tags
-
     async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{MEMORY_URL}/api/memories/search",
-            json=payload,
-        )
-        memories = response.json().get("memories", [])
+        if tags:
+            # Semantic search takes no tag filter — tag search is its own endpoint
+            response = await client.post(
+                f"{MEMORY_URL}/api/search/by-tag",
+                json={"tags": tags},
+            )
+        else:
+            response = await client.post(
+                f"{MEMORY_URL}/api/search",
+                json={"query": query, "n_results": limit},
+            )
+        memories = [h["memory"] for h in response.json().get("results", [])]
 
     if not memories:
         return "No relevant memories found."

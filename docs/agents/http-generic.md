@@ -23,18 +23,28 @@ MCP_API_KEY=your-secret-key memory server --http
 | `POST` | `/api/memories` | Store a new memory |
 | `GET` | `/api/memories` | List memories (paginated) |
 | `GET` | `/api/memories/{hash}` | Get memory by hash |
-| `PATCH` | `/api/memories/{hash}` | Update memory tags/type/metadata |
+| `PUT` | `/api/memories/{hash}` | Update memory tags/type/metadata |
 | `DELETE` | `/api/memories/{hash}` | Delete a memory |
-| `POST` | `/api/memories/search` | Semantic + keyword search |
-| `GET` | `/api/memories/tags` | List all tags with counts |
-| `GET` | `/api/health` | Health check |
-| `GET` | `/api/stats` | Storage statistics |
-| `POST` | `/api/consolidation/run` | Trigger memory consolidation |
+| `POST` | `/api/search` | Semantic search (`query`, `n_results`) |
+| `POST` | `/api/search/by-tag` | Tag search (`tags`, `match_all`) |
+| `POST` | `/api/search/by-time` | Natural-language time search |
+| `GET` | `/api/search/similar/{hash}` | Memories similar to one you have |
+| `GET` | `/api/tags` | List all tags with counts |
+| `GET` | `/api/health` | Health check (liveness, unauthenticated) |
+| `GET` | `/api/health/detailed` | Storage statistics (authenticated) |
+| `GET` | `/api/memory-stats` | Memory counts |
+| `POST` | `/api/consolidation/trigger` | Trigger memory consolidation |
 | `GET` | `/api/consolidation/status` | Consolidation status |
-| `GET` | `/api/graph/associations/{hash}` | Get memory associations |
-| `POST` | `/api/graph/associations` | Store association between memories |
 | `GET` | `/api/analytics/relationship-types` | Graph relationship type stats |
-| `GET` | `/sse/events` | Server-Sent Events stream |
+| `GET` | `/api/events` | Server-Sent Events stream |
+
+This table is the subset agents reach for. The authoritative, always-current list is
+`/api/docs` on a running server, generated from the routes themselves.
+
+> **Semantic search does not filter by tags.** `POST /api/search` takes `query` and
+> `n_results`; any other field — `tags`, `limit` — is silently ignored rather than
+> rejected, so a request that looks filtered comes back unfiltered. To retrieve by tag,
+> use `POST /api/search/by-tag`. Both return their hits under `results`, not `memories`.
 
 ## Authentication Patterns
 
@@ -84,26 +94,30 @@ print(result["memory"]["content_hash"])
 ### Semantic search
 
 ```python
-async def search_memory(query: str, limit: int = 5, tags: list[str] | None = None) -> list[dict]:
-    payload = {"query": query, "limit": limit}
-    if tags:
-        payload["tags"] = tags
-
+async def search_memory(query: str, n_results: int = 5) -> list[dict]:
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{BASE_URL}/api/memories/search",
-            json=payload,
+            f"{BASE_URL}/api/search",
+            json={"query": query, "n_results": n_results},
         )
         response.raise_for_status()
-        return response.json()["memories"]
+        return response.json()["results"]
 
-# Usage — retrieve only memories from the researcher agent
-results = await search_memory(
-    query="API rate limits",
-    tags=["agent:researcher"],
-)
-for mem in results:
-    print(mem["content"], mem["tags"])
+
+async def search_by_tag(tags: list[str], match_all: bool = False) -> list[dict]:
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{BASE_URL}/api/search/by-tag",
+            json={"tags": tags, "match_all": match_all},
+        )
+        response.raise_for_status()
+        return response.json()["results"]
+
+# Usage — semantic hits, then the same scoped to one agent's memories
+hits = await search_memory("API rate limits")
+scoped = await search_by_tag(["agent:researcher"])
+for hit in scoped:
+    print(hit["memory"]["content"], hit["memory"]["tags"])
 ```
 
 ### Store with deduplication bypass (conversation_id)
@@ -158,14 +172,14 @@ curl -X POST http://localhost:8000/api/memories \
   -d '{"content": "Deadline is March 15", "tags": ["project", "deadline"]}'
 
 # Search
-curl -X POST http://localhost:8000/api/memories/search \
+curl -X POST http://localhost:8000/api/search \
   -H "Content-Type: application/json" \
-  -d '{"query": "project deadlines", "limit": 5}'
+  -d '{"query": "project deadlines", "n_results": 5}'
 
-# Search within agent scope
-curl -X POST http://localhost:8000/api/memories/search \
+# Search within agent scope — by tag, not semantic
+curl -X POST http://localhost:8000/api/search/by-tag \
   -H "Content-Type: application/json" \
-  -d '{"query": "API limits", "tags": ["agent:researcher"]}'
+  -d '{"tags": ["agent:researcher"]}'
 
 # Health check
 curl http://localhost:8000/api/health
