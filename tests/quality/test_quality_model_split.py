@@ -173,3 +173,40 @@ async def test_decay_relevance_ignores_human_downvote(storage):
     assert rel_after[b] == pytest.approx(rel_before[b]), (
         "a human down-vote must not lower decay relevance — it reads computed_quality"
     )
+
+
+@pytest.mark.asyncio
+async def test_association_boost_does_not_overwrite_human_downvote(storage):
+    """The consolidation association boost is a RETENTION signal, not a search score.
+
+    A well-connected memory that a human down-voted must keep its effective
+    quality_score at 0.25 after the boost runs — the boost must not resurrect the
+    machine score into the search-facing field (Henry, #1349 review, decay.py).
+    """
+    from mcp_memory_service.consolidation.decay import ExponentialDecayCalculator
+    from mcp_memory_service.consolidation.base import ConsolidationConfig
+    from mcp_memory_service.server.handlers.quality import handle_rate_memory
+
+    calc = ExponentialDecayCalculator(ConsolidationConfig())
+
+    # computed 0.8, human thumbs-down -> effective quality_score 0.25.
+    h = await _store(storage, "Well-connected but down-voted memory.", computed=0.8)
+
+    class _Srv:
+        async def _ensure_storage_initialized(self):
+            return storage
+    await handle_rate_memory(_Srv(), {"content_hash": h, "rating": -1})
+
+    m = await storage.get_by_hash(h)
+    assert m.metadata.get("quality_score") == 0.25  # precondition: down-voted
+
+    # Enough connections (>= MCP_CONSOLIDATION_MIN_CONNECTIONS_FOR_BOOST=5) to fire
+    # the association boost, then persist relevance metadata.
+    scores = await calc.process([m], connections={h: 5})
+    m = await calc.update_memory_relevance_metadata(m, scores[0])
+
+    # The boost may raise retention (relevance_score) but must NOT overwrite the
+    # human-effective search score.
+    assert m.metadata.get("quality_score") == 0.25, (
+        "association boost overwrote the human down-vote in quality_score"
+    )

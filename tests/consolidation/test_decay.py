@@ -447,8 +447,15 @@ class TestExponentialDecayCalculator:
         assert score.metadata['quality_score'] == 0.5
 
     @pytest.mark.asyncio
-    async def test_association_quality_boost_persists_to_memory(self, decay_calculator, monkeypatch):
-        """Test that quality boost updates are persisted to memory metadata."""
+    async def test_association_boost_is_retention_only_not_quality_score(self, decay_calculator, monkeypatch):
+        """The association boost raises retention (relevance), not the search score.
+
+        Pre-#1349 the boost was written back into quality_score (0.6 -> 0.78) plus
+        quality_boost_* audit fields. quality_score is now the effective,
+        search-facing score = effective_quality(computed, user_rating); a retention
+        boost must not overwrite it (Henry, #1349 review). The boost still fires
+        (association_boost_applied) and still lifts the relevance/total_score.
+        """
         from mcp_memory_service import config
 
         monkeypatch.setattr(config, 'MCP_CONSOLIDATION_QUALITY_BOOST_ENABLED', True)
@@ -461,29 +468,28 @@ class TestExponentialDecayCalculator:
             tags=["test"],
             embedding=[0.1] * 320,
             created_at=datetime.now().timestamp(),
-            metadata={"quality_score": 0.6}
+            metadata={"quality_score": 0.6, "computed_quality": 0.6}
         )
 
         scores = await decay_calculator.process(
             [memory],
             connections={"connected_mem": 8}
         )
-
         score = scores[0]
 
-        # Update memory with relevance metadata
+        # The boost fired and lifted retention (relevance uses the boosted quality).
+        assert score.metadata['association_boost_applied'] is True
+        assert score.metadata['quality_score'] == pytest.approx(0.78, rel=0.01)  # 0.6 * 1.3, retention only
+
         updated_memory = await decay_calculator.update_memory_relevance_metadata(memory, score)
 
-        # Check that quality score was updated
-        assert updated_memory.quality_score > 0.6  # Boosted
-        assert updated_memory.quality_score == pytest.approx(0.78, rel=0.01)  # 0.6 * 1.3
-
-        # Check metadata
-        assert updated_memory.metadata['quality_boost_applied'] is True
-        assert updated_memory.metadata['quality_boost_reason'] == 'association_connections'
-        assert updated_memory.metadata['quality_boost_connection_count'] == 8
-        assert updated_memory.metadata['original_quality_before_boost'] == 0.6
-        assert 'quality_boost_date' in updated_memory.metadata
+        # The search-facing quality_score is UNCHANGED — the boost is retention-only.
+        assert updated_memory.quality_score == pytest.approx(0.6, rel=0.01)
+        # And no stale quality_boost_* audit fields are written into the memory.
+        assert 'quality_boost_applied' not in updated_memory.metadata
+        assert 'original_quality_before_boost' not in updated_memory.metadata
+        # Relevance metadata is still persisted.
+        assert 'relevance_score' in updated_memory.metadata
 
 
     @pytest.mark.asyncio
