@@ -151,3 +151,24 @@ async def test_link_and_supersede_are_consistent(storage):
     assert new_cols["version"] == 2
     # Invariant: an old row is superseded iff its successor points back to it
     assert (old_cols["superseded_by"] is not None) == (new_cols["parent_id"] == old)
+
+
+@pytest.mark.asyncio
+async def test_second_update_of_already_superseded_old_is_refused(storage):
+    """A second versioned update of an already-superseded row must not fork history
+    (Greptile: concurrent updates fork history).
+
+    Supersession is conditional on the old row still being current
+    (superseded_by IS NULL). Once superseded, a further update against the SAME old
+    hash is refused instead of overwriting the forward link and stranding a successor.
+    """
+    old = await _store(storage, "Fork guard original content.")
+    ok1, _, h2 = await storage.update_memory_versioned(old, "Fork guard v2 content.")
+    assert ok1
+    assert _columns(storage, old)["superseded_by"] == h2
+
+    # Second update of the SAME (now superseded) old hash must fail...
+    ok2, msg, h3 = await storage.update_memory_versioned(old, "Fork guard v3 racing content.")
+    assert ok2 is False, "updating an already-superseded row must be refused, not forked"
+    # ...and the original forward link is untouched (still points to h2, not overwritten).
+    assert _columns(storage, old)["superseded_by"] == h2

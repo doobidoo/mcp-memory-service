@@ -15,6 +15,7 @@ except ImportError:
 
 from ...models.memory import Memory, MemoryQueryResult
 from ...utils.hashing import generate_content_hash
+from ...compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -600,12 +601,11 @@ class MetadataMixin:
             # so default retrieval (superseded_by IS NULL), get_memory_history
             # (parent_id/version) and mark_superseded_batch see a consistent chain (#1318).
             #
-            # Atomicity: the new-row link and the old-row supersede are a single
-            # transaction. A crash between them would otherwise leave the new version
-            # linked while the old one stays visible in default search — the exact
-            # inconsistency this fix removes. One commit, or rollback and report failure.
+            # Atomicity: the new-row link and the old-row supersede run in a single
+            # transaction. If it fails, we roll back AND remove the just-stored new
+            # row (store() already committed it separately), so a failed versioning
+            # never leaves an orphaned, unlinked new version behind.
             new_version = (old_version or 1) + 1
-            import json as _json
 
             def _link_and_supersede():
                 try:
@@ -615,30 +615,48 @@ class MetadataMixin:
                         (old_hash, new_version, new_hash),
                     )
                     # old row: superseded_by column (drops it from default search) +
-                    # metadata trace (evolution_reason) in the same transaction.
+                    # metadata trace, in the same transaction. Conditional on the old
+                    # row still being current (superseded_by IS NULL) so concurrent
+                    # versioned updates of the same memory don't fork history silently.
                     mcur = self.conn.execute(
-                        "SELECT metadata FROM memories WHERE content_hash = ?", (old_hash,)
+                        "SELECT metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                        (old_hash,),
                     )
                     mrow = mcur.fetchone()
-                    old_meta = _json.loads(mrow[0]) if mrow and mrow[0] else {}
+                    old_meta = self._safe_json_loads(mrow[0], "update_memory_versioned") if mrow and mrow[0] else {}
                     old_meta["superseded_by"] = new_hash
                     if reason:
                         old_meta["evolution_reason"] = reason
-                    self.conn.execute(
-                        "UPDATE memories SET superseded_by = ?, metadata = ? WHERE content_hash = ? AND deleted_at IS NULL",
-                        (new_hash, _json.dumps(old_meta), old_hash),
+                    cur = self.conn.execute(
+                        "UPDATE memories SET superseded_by = ?, metadata = ? "
+                        "WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL",
+                        (new_hash, json.dumps(old_meta), old_hash),
                     )
+                    if cur.rowcount == 0:
+                        # Another versioned update already superseded this row (or it
+                        # vanished). Abort rather than fork the chain.
+                        raise RuntimeError(
+                            f"old version {old_hash[:8]} is no longer current (concurrent update)"
+                        )
                     self.conn.commit()
                 except Exception:
                     self.conn.rollback()
                     raise
 
-            await self._execute_with_retry(_link_and_supersede)
+            try:
+                await self._execute_with_retry(_link_and_supersede)
+            except Exception as link_err:
+                # Compensate the already-committed store(): drop the orphan new row.
+                try:
+                    await self.delete(new_hash)
+                except Exception:
+                    logger.error("Failed to clean up orphan version %s after link failure",
+                                 _sanitize_log_value(new_hash[:8]))
+                logger.error("update_memory_versioned link failed: %s", _sanitize_log_value(str(link_err)))
+                return False, f"Failed to link version: {link_err}", None
 
-            logger.info(f"Memory evolved: {old_hash[:8]} → {new_hash[:8]} (v{new_version})")
-            return True, "Memory versioned successfully", new_hash
-
-            logger.info(f"Memory evolved: {old_hash[:8]} → {new_hash[:8]} (v{new_version})")
+            logger.info("Memory evolved: %s → %s (v%d)",
+                        _sanitize_log_value(old_hash[:8]), _sanitize_log_value(new_hash[:8]), new_version)
             return True, "Memory versioned successfully", new_hash
 
         except Exception as e:
