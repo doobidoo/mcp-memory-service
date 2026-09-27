@@ -125,6 +125,14 @@ test_breaking_change_needs_marker() {
     || { echo "   the old pattern remains and matches \"No breaking changes found\""; return 1; }
 }
 
+# --- Test: an acknowledged breaking change is reported without blocking (#1311) ---
+test_breaking_change_can_be_acknowledged() {
+  grep -q 'lib/breaking_change_ack.py' "$GATE" \
+    || { echo "   check 4 does not look for a Breaking-Change-Acknowledged line"; return 1; }
+  grep -qF 'Breaking change acknowledged ($ack_reason), not blocking' "$GATE" \
+    || { echo "   an acknowledged breaking change is not printed with its reason"; return 1; }
+}
+
 # --- Test: findings that set exit 1 are not labelled non-blocking ---
 test_blocking_findings_are_labelled_blocking() {
   grep -q 'echo "FINDINGS (blocking)"' "$GATE" \
@@ -161,6 +169,7 @@ run_test "skipped pyscn is not summarised as OK" test_pyscn_skip_not_reported_as
 run_test "findings are scoped to the functions the diff touched" test_findings_scoped_to_touched_functions
 run_test "touched_functions maps changed lines to their function" test_touched_functions_maps_lines_to_functions
 run_test "breaking-change check needs a marker" test_breaking_change_needs_marker
+run_test "breaking change can be acknowledged" test_breaking_change_can_be_acknowledged
 run_test "blocking findings are labelled blocking" test_blocking_findings_are_labelled_blocking
 
 echo ""

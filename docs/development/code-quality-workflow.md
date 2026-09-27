@@ -134,6 +134,14 @@ bash scripts/pr/quality_gate.sh <PR_NUMBER>
 3. Test coverage (code files vs test files)
 4. Breaking changes detection
 
+A breaking change that is deliberate, such as removing a field that a security advisory says leaks data, is acknowledged with a line in the PR body or a commit message:
+
+```
+Breaking-Change-Acknowledged: GHSA-xxxx-xxxx-xxxx, the statistics leaked to unauthenticated callers
+```
+
+Check 4 then prints the model's finding with that reason instead of blocking. The reason is required; a line without one does not count.
+
 **Duration:** ~10-30 seconds
 
 ### Comprehensive Checks (with pyscn)

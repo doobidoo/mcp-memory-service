@@ -275,9 +275,24 @@ Changes:
 $(echo "$api_changes" | head -200)")
 
     if echo "$breaking_result" | grep -q "^BREAKING_CHANGE_DETECTED:"; then
-        warnings+=("Potential breaking changes detected: $breaking_result")
-        if [ $exit_code -eq 0 ]; then
-            exit_code=1
+        # A deliberate breaking change, such as removing a field that an advisory says
+        # leaks data, is acknowledged with a "Breaking-Change-Acknowledged: <reason>"
+        # line in the PR body or a commit message (#1311). The finding is still
+        # printed, but it does not block. See lib/breaking_change_ack.py.
+        if [ "$MODE" = "staged" ]; then
+            ack_text=$(git log --format=%B origin/main..HEAD 2>/dev/null || echo "")
+        else
+            ack_text=$(gh pr view $PR_NUMBER --json body,commits \
+                --jq '.body, (.commits[] | .messageHeadline, .messageBody)' 2>/dev/null || echo "")
+        fi
+        if ack_reason=$(printf '%s' "$ack_text" | python3 "$SCRIPT_DIR/lib/breaking_change_ack.py"); then
+            echo "Breaking change acknowledged ($ack_reason), not blocking:"
+            echo "$breaking_result"
+        else
+            warnings+=("Potential breaking changes detected: $breaking_result")
+            if [ $exit_code -eq 0 ]; then
+                exit_code=1
+            fi
         fi
     fi
 else
