@@ -37,15 +37,21 @@ class TranscriptParser:
     # WITHOUT changing what is harvested. This makes the coverage gap measurable
     # ("N ToolResult blocks seen, 0 extracted") before any extractor changes, so a
     # later negative result is trustworthy. Lazily initialized to avoid an __init__.
-    def _record_coverage(self, kind, extracted: int) -> None:
+    #
+    # One call == one block seen, keyed by that block's kind. A harvestable message
+    # records one entry per content block (so a text block kept alongside a
+    # non-text block dropped both show up); a non-harvestable message (e.g. a Kiro
+    # ToolResult) records one entry keyed by its message kind. This keeps
+    # extracted <= seen per kind — the per-message len(results) counting broke that.
+    def _record_coverage(self, kind, was_extracted: bool) -> None:
         cov = getattr(self, "_coverage", None)
         if cov is None:
             cov = {}
             self._coverage = cov
         entry = cov.setdefault(str(kind), {"seen": 0, "extracted": 0, "dropped": 0})
         entry["seen"] += 1
-        if extracted > 0:
-            entry["extracted"] += extracted
+        if was_extracted:
+            entry["extracted"] += 1
         else:
             entry["dropped"] += 1
 
@@ -59,8 +65,11 @@ class TranscriptParser:
         design — a harvest run aggregates coverage over many sessions). Create a
         fresh parser to reset. Not thread-safe: the instrument assumes the
         sequential, single-parser use the harvest scheduler already has.
+
+        Returns a deep copy: mutating the result never affects the internal
+        counters or a later report.
         """
-        return dict(getattr(self, "_coverage", {}) or {})
+        return {kind: dict(counts) for kind, counts in (getattr(self, "_coverage", {}) or {}).items()}
 
 
     def find_sessions(self, project_dir: Path, count: int = 1) -> List[Path]:
@@ -168,8 +177,9 @@ class TranscriptParser:
         role = self.KIRO_KIND_MAP.get(kind)
         if not role:
             # Not a harvestable kind (e.g. ToolResult). Record it as seen+dropped
-            # so the coverage instrument shows what the pipeline structurally skips.
-            self._record_coverage(kind, 0)
+            # (keyed by message kind) so the coverage instrument shows what the
+            # pipeline structurally skips at the message level.
+            self._record_coverage(kind, was_extracted=False)
             return []
 
         data = obj.get("data", {})
@@ -177,22 +187,30 @@ class TranscriptParser:
         timestamp = obj.get("timestamp")
         uuid = obj.get("uuid")
 
-        # Handle plain string content
+        # Handle plain string content (no blocks). Key it by the message kind.
         if isinstance(data.get("content"), str):
             text = data["content"].strip()
             if text and not self._is_system_content(text):
-                self._record_coverage(kind, 1)
+                self._record_coverage(kind, was_extracted=True)
                 return [ParsedMessage(role=role, text=text, timestamp=timestamp, uuid=uuid)]
-            self._record_coverage(kind, 0)
+            self._record_coverage(kind, was_extracted=False)
             return []
 
         results = []
         for block in content:
-            if isinstance(block, dict) and block.get("kind") == "text":
+            if not isinstance(block, dict):
+                continue
+            block_kind = block.get("kind")
+            if block_kind == "text":
                 text = block.get("data", "").strip()
                 if text and not self._is_system_content(text):
                     results.append(ParsedMessage(role=role, text=text, timestamp=timestamp, uuid=uuid))
-        self._record_coverage(kind, len(results))
+                    self._record_coverage(block_kind, was_extracted=True)
+                else:
+                    self._record_coverage(block_kind, was_extracted=False)
+            else:
+                # Non-text block (e.g. tool_use) — dropped, but now visible per kind.
+                self._record_coverage(block_kind, was_extracted=False)
         return results
 
     def _parse_openclaw_line(self, obj: dict) -> List[ParsedMessage]:

@@ -45,8 +45,10 @@ def test_coverage_counts_dropped_toolresult(tmp_path):
     # Behaviour unchanged: only the AssistantMessage text is harvested.
     assert len(msgs) == 1
 
-    # Instrument: AssistantMessage seen+extracted, ToolResult seen but dropped.
-    assert report["AssistantMessage"]["extracted"] >= 1
+    # Instrument: the kept text block is counted under its block kind ("text");
+    # the two ToolResult messages are seen but dropped, keyed by message kind.
+    assert report["text"]["seen"] == 1
+    assert report["text"]["extracted"] == 1
     assert report["ToolResult"]["seen"] == 2
     assert report["ToolResult"]["extracted"] == 0
     assert report["ToolResult"]["dropped"] == 2
@@ -76,3 +78,77 @@ def test_coverage_accumulates_across_files(tmp_path):
     # Two dropped ToolResults across two files accumulate on the same instance.
     assert report["ToolResult"]["seen"] == 2
     assert report["ToolResult"]["dropped"] == 2
+
+
+def test_coverage_counts_per_block_not_per_message(tmp_path):
+    """Within a harvestable message, each block is its own seen/extracted/dropped
+    entry keyed by the block kind — not one entry per message (#1350 review).
+
+    A Kiro AssistantMessage carrying one text block (kept) and one non-text block
+    (e.g. a tool_use, dropped) must report the dropped block, and extracted must
+    never exceed seen for a given block kind.
+    """
+    parser = TranscriptParser()
+    lines = [
+        {"kind": "AssistantMessage", "data": {"content": [
+            {"kind": "text", "data": "kept design analysis"},
+            {"kind": "tool_use", "data": "some tool invocation"},
+        ]}},
+    ]
+    fp = _write(tmp_path, lines)
+
+    msgs = parser.parse_file(fp)
+    report = parser.coverage_report()
+
+    # Behaviour unchanged: only the text block is harvested.
+    assert len(msgs) == 1
+
+    # The kept text block is counted per block, keyed by the block kind.
+    assert report["text"]["seen"] == 1
+    assert report["text"]["extracted"] == 1
+    assert report["text"]["dropped"] == 0
+    # extracted must never exceed seen for any kind (per-message counting broke this).
+    for kind, entry in report.items():
+        assert entry["extracted"] <= entry["seen"], f"{kind}: extracted > seen"
+
+    # The dropped non-text block is now visible, keyed by its own kind.
+    assert report["tool_use"]["seen"] == 1
+    assert report["tool_use"]["extracted"] == 0
+    assert report["tool_use"]["dropped"] == 1
+
+
+def test_coverage_two_text_blocks_do_not_inflate_extracted(tmp_path):
+    """Two text blocks in one message record seen=2/extracted=2 for kind 'text',
+    not seen=1/extracted=2 (which the old per-message len(results) produced)."""
+    parser = TranscriptParser()
+    lines = [
+        {"kind": "AssistantMessage", "data": {"content": [
+            {"kind": "text", "data": "first paragraph kept"},
+            {"kind": "text", "data": "second paragraph kept"},
+        ]}},
+    ]
+    fp = _write(tmp_path, lines)
+
+    parser.parse_file(fp)
+    report = parser.coverage_report()
+
+    assert report["text"]["seen"] == 2
+    assert report["text"]["extracted"] == 2
+    assert report["text"]["dropped"] == 0
+
+
+def test_coverage_report_is_isolated_from_mutation(tmp_path):
+    """coverage_report() returns a deep copy: mutating the returned dict must not
+    change the parser's internal counters or later reports (#1350 review, l.63)."""
+    parser = TranscriptParser()
+    lines = [
+        {"kind": "ToolResult", "data": {"content": [{"kind": "text", "data": "out"}]}},
+    ]
+    fp = _write(tmp_path, lines)
+    parser.parse_file(fp)
+
+    r1 = parser.coverage_report()
+    r1["ToolResult"]["seen"] = 99  # mutate the returned nested dict
+
+    r2 = parser.coverage_report()
+    assert r2["ToolResult"]["seen"] == 1, "nested counts leaked through a shallow copy"
