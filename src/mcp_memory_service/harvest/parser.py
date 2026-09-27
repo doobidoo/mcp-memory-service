@@ -32,6 +32,37 @@ class TranscriptParser:
     KIRO_KIND_MAP = {"Prompt": "user", "Response": "assistant", "AssistantMessage": "assistant"}
     OPENCLAW_MESSAGE_TYPES = {"prompt.submitted", "model.completed"}
 
+    # --- Phase 0 coverage instrument (#1287) -------------------------------
+    # Counts, per block kind/type, how many were seen vs extracted vs dropped,
+    # WITHOUT changing what is harvested. This makes the coverage gap measurable
+    # ("N ToolResult blocks seen, 0 extracted") before any extractor changes, so a
+    # later negative result is trustworthy. Lazily initialized to avoid an __init__.
+    def _record_coverage(self, kind, extracted: int) -> None:
+        cov = getattr(self, "_coverage", None)
+        if cov is None:
+            cov = {}
+            self._coverage = cov
+        entry = cov.setdefault(str(kind), {"seen": 0, "extracted": 0, "dropped": 0})
+        entry["seen"] += 1
+        if extracted > 0:
+            entry["extracted"] += extracted
+        else:
+            entry["dropped"] += 1
+
+    def coverage_report(self) -> dict:
+        """Per-kind coverage since this parser instance was created.
+
+        Returns {kind: {"seen": n, "extracted": n, "dropped": n}}. Empty until
+        something is parsed. Read-only; does not affect harvesting.
+
+        Accumulates across multiple parse_file() calls on the same instance (by
+        design — a harvest run aggregates coverage over many sessions). Create a
+        fresh parser to reset. Not thread-safe: the instrument assumes the
+        sequential, single-parser use the harvest scheduler already has.
+        """
+        return dict(getattr(self, "_coverage", {}) or {})
+
+
     def find_sessions(self, project_dir: Path, count: int = 1) -> List[Path]:
         """Find the most recent JSONL session files in a project directory."""
         project_dir = Path(project_dir)
@@ -136,6 +167,9 @@ class TranscriptParser:
         kind = obj.get("kind")
         role = self.KIRO_KIND_MAP.get(kind)
         if not role:
+            # Not a harvestable kind (e.g. ToolResult). Record it as seen+dropped
+            # so the coverage instrument shows what the pipeline structurally skips.
+            self._record_coverage(kind, 0)
             return []
 
         data = obj.get("data", {})
@@ -147,7 +181,9 @@ class TranscriptParser:
         if isinstance(data.get("content"), str):
             text = data["content"].strip()
             if text and not self._is_system_content(text):
+                self._record_coverage(kind, 1)
                 return [ParsedMessage(role=role, text=text, timestamp=timestamp, uuid=uuid)]
+            self._record_coverage(kind, 0)
             return []
 
         results = []
@@ -156,6 +192,7 @@ class TranscriptParser:
                 text = block.get("data", "").strip()
                 if text and not self._is_system_content(text):
                     results.append(ParsedMessage(role=role, text=text, timestamp=timestamp, uuid=uuid))
+        self._record_coverage(kind, len(results))
         return results
 
     def _parse_openclaw_line(self, obj: dict) -> List[ParsedMessage]:
