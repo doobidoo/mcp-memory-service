@@ -427,7 +427,7 @@ async def test_hybrid_graph_methods_consistency_across_calls(hybrid_with_graph_d
 
 
 @pytest.mark.asyncio
-async def test_hybrid_graph_methods_error_handling(tmp_path):
+async def test_hybrid_graph_methods_error_handling(temp_db):
     """Test that errors from primary storage are propagated correctly.
 
     Validates:
@@ -445,8 +445,7 @@ async def test_hybrid_graph_methods_error_handling(tmp_path):
 
     mock_secondary = AsyncMock()
 
-    # A path it can create: '/fake' needs root (see the xfail tests above).
-    hybrid = HybridMemoryStorage(str(tmp_path / "test.db"))
+    hybrid = HybridMemoryStorage(temp_db)
     hybrid.primary = mock_primary
     hybrid.secondary = mock_secondary
 

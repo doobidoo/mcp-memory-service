@@ -782,6 +782,60 @@ async def test_http_api_search_by_tag_endpoint(temp_db, unique_content, monkeypa
 
 @pytest.mark.asyncio
 @pytest.mark.integration
+async def test_http_api_search_by_tag_limit(temp_db, unique_content, monkeypatch):
+    """
+    Test that POST /api/search/by-tag honours limit.
+
+    The newest matches are kept, and total_found still counts every match.
+    """
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    try:
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+
+        # Bypass authentication
+        app.dependency_overrides[get_current_user] = mock_get_current_user_for_integration
+        app.dependency_overrides[require_write_access] = mock_get_current_user_for_integration
+        app.dependency_overrides[require_read_access] = mock_get_current_user_for_integration
+
+        service = MemoryService(storage=storage)
+        stored = []
+        for label in ("first", "second", "third"):
+            result = await service.store_memory(
+                content=unique_content(f"Scoped memory {label}"),
+                tags=["scoped"],
+                memory_type="note"
+            )
+            assert result["success"]
+            stored.append(result["memory"]["content_hash"])
+
+        client = TestClient(app)
+
+        response = client.post("/api/search/by-tag", json={"tags": ["scoped"], "limit": 2})
+        assert response.status_code == 200
+        data = response.json()
+        assert [r["memory"]["content_hash"] for r in data["results"]] == [stored[2], stored[1]]
+        assert data["total_found"] == 3
+
+        response = client.post("/api/search/by-tag", json={"tags": ["scoped"]})
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["results"]) == 3
+        assert data["total_found"] == 3
+
+        for limit in (0, 101):
+            response = client.post("/api/search/by-tag", json={"tags": ["scoped"], "limit": limit})
+            assert response.status_code == 422
+
+    finally:
+        app.dependency_overrides.clear()
+        await storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
 async def test_http_api_get_memory_by_hash_endpoint(temp_db, unique_content, monkeypatch):
     """
     Test GET /api/memories/{hash} endpoint with real HTTP request.
