@@ -713,7 +713,6 @@ async def test_graph_visualization_meta_information(storage, graph_storage):
     assert meta["limit"] == 50
 
 
-@pytest.mark.xfail(reason="Pre-existing bug: Invalid memory_type 'observation' in test data - should be 'note'")
 @pytest.mark.asyncio
 async def test_graph_visualization_memory_type_preservation(storage, graph_storage):
     """Test that memory types are preserved for color coding.
