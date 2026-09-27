@@ -247,6 +247,7 @@ echo ""
 
 # Check 4: Breaking changes
 echo "=== Check 4: Breaking Changes ==="
+breaking_summary="none detected"
 api_paths=(src/mcp_memory_service/tools src/mcp_memory_service/web/api)
 
 if [ "$MODE" = "staged" ]; then
@@ -275,9 +276,31 @@ Changes:
 $(echo "$api_changes" | head -200)")
 
     if echo "$breaking_result" | grep -q "^BREAKING_CHANGE_DETECTED:"; then
-        warnings+=("Potential breaking changes detected: $breaking_result")
-        if [ $exit_code -eq 0 ]; then
-            exit_code=1
+        # A deliberate breaking change, such as removing a field that an advisory says
+        # leaks data, can be acknowledged (#1311). The finding is still printed, but it
+        # does not block. For a PR, a "Breaking-Change-Acknowledged: <reason>" line in
+        # the PR body or a commit message covers the diff checked here, which is the
+        # whole PR. A staged diff belongs to no commit yet, so an older commit's line
+        # could not say which change it meant: a staged run takes the reason from
+        # BREAKING_CHANGE_ACKNOWLEDGED instead. See lib/breaking_change_ack.py.
+        if [ "$MODE" = "staged" ]; then
+            ack_text=""
+            if [ -n "${BREAKING_CHANGE_ACKNOWLEDGED:-}" ]; then
+                ack_text="Breaking-Change-Acknowledged: $BREAKING_CHANGE_ACKNOWLEDGED"
+            fi
+        else
+            ack_text=$(gh pr view "$PR_NUMBER" --json body,commits \
+                --jq '.body, (.commits[] | .messageHeadline, .messageBody)' 2>/dev/null || echo "")
+        fi
+        if ack_reason=$(printf '%s' "$ack_text" | python3 "$SCRIPT_DIR/lib/breaking_change_ack.py"); then
+            echo "Breaking change acknowledged ($ack_reason), not blocking:"
+            echo "$breaking_result"
+            breaking_summary="acknowledged ($ack_reason)"
+        else
+            warnings+=("Potential breaking changes detected: $breaking_result")
+            if [ $exit_code -eq 0 ]; then
+                exit_code=1
+            fi
         fi
     fi
 else
@@ -326,7 +349,7 @@ if [ $exit_code -eq 0 ]; then
     echo "- Code complexity: OK"
     echo "- Security scan: OK"
     echo "- Test coverage: OK"
-    echo "- Breaking changes: none detected"
+    echo "- Breaking changes: $breaking_summary"
     # Only claim pyscn passed when it actually ran; --with-pyscn without the tool
     # installed used to print OK for an analysis that never happened.
     if [ "$pyscn_ran" = true ]; then
@@ -349,7 +372,7 @@ All automated checks completed successfully:
 - Code complexity: OK
 - Security scan: OK
 - Test coverage: OK
-- Breaking changes: none detected${pyscn_note}"
+- Breaking changes: ${breaking_summary}${pyscn_note}"
     fi
 
 elif [ $exit_code -eq 2 ]; then

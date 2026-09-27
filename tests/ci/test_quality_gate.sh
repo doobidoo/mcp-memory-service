@@ -125,6 +125,84 @@ test_breaking_change_needs_marker() {
     || { echo "   the old pattern remains and matches \"No breaking changes found\""; return 1; }
 }
 
+# --- Test: an acknowledged breaking change is reported without blocking (#1311) ---
+# Runs the gate on a throwaway repository with a staged API change, against a stub
+# model that reports every API change as breaking.
+test_breaking_change_can_be_acknowledged() {
+  local work stub_pid port out code ok=0
+  work=$(mktemp -d)
+  mkdir -p "$work/repo/scripts/pr/lib" "$work/repo/src/mcp_memory_service/web/api" "$work/repo/tests"
+  cp "$GATE" "$work/repo/scripts/pr/"
+  cp "$REPO_ROOT"/scripts/pr/lib/*.py "$work/repo/scripts/pr/lib/"
+  cat > "$work/stub.py" <<'PY'
+import json, sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def reply(self, payload):
+        body = json.dumps(payload).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        self.reply({"data": [{"id": "stub"}]})
+
+    def do_POST(self):
+        request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        prompt = " ".join(m.get("content", "") for m in request.get("messages", []))
+        if "Analyze for breaking changes" in prompt:
+            answer = "BREAKING_CHANGE_DETECTED: HIGH\nRemoved a field."
+        elif "Security audit" in prompt:
+            answer = "SECURITY_CLEAN"
+        else:
+            answer = "No functions above 7."
+        self.reply({"choices": [{"message": {"role": "assistant", "content": answer}}]})
+
+server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+print(server.server_address[1], flush=True)
+server.serve_forever()
+PY
+  python3 "$work/stub.py" > "$work/port" &
+  stub_pid=$!
+  for _ in $(seq 50); do [ -s "$work/port" ] && break; sleep 0.1; done
+  port=$(cat "$work/port")
+  (
+    cd "$work/repo" && git init -q && git config user.email t@t && git config user.name t
+    printf 'def health():\n    return {"status": "ok"}\n' > src/mcp_memory_service/web/api/health.py
+    printf 'def test_health():\n    pass\n' > tests/test_health.py
+    git add -A
+  )
+
+  out=$(cd "$work/repo" && MCP_QUALITY_LLM_URL="http://127.0.0.1:$port/v1" \
+    bash scripts/pr/quality_gate.sh --staged 2>&1)
+  code=$?
+  if [ "$code" -ne 1 ]; then
+    echo "   without an acknowledgement: expected exit 1, got $code"; ok=1
+  fi
+
+  out=$(cd "$work/repo" && MCP_QUALITY_LLM_URL="http://127.0.0.1:$port/v1" \
+    BREAKING_CHANGE_ACKNOWLEDGED="the field leaked data" \
+    bash scripts/pr/quality_gate.sh --staged 2>&1)
+  code=$?
+  if [ "$code" -ne 0 ]; then
+    echo "   with an acknowledgement: expected exit 0, got $code"; ok=1
+  fi
+  [[ "$out" == *"Breaking change acknowledged (the field leaked data), not blocking"* ]] \
+    || { echo "   the acknowledgement and its reason are not printed"; ok=1; }
+  [[ "$out" == *"- Breaking changes: acknowledged (the field leaked data)"* ]] \
+    || { echo "   the summary does not report the acknowledged breaking change"; ok=1; }
+
+  kill "$stub_pid" 2>/dev/null
+  rm -rf "$work"
+  return "$ok"
+}
+
 # --- Test: findings that set exit 1 are not labelled non-blocking ---
 test_blocking_findings_are_labelled_blocking() {
   grep -q 'echo "FINDINGS (blocking)"' "$GATE" \
@@ -161,6 +239,7 @@ run_test "skipped pyscn is not summarised as OK" test_pyscn_skip_not_reported_as
 run_test "findings are scoped to the functions the diff touched" test_findings_scoped_to_touched_functions
 run_test "touched_functions maps changed lines to their function" test_touched_functions_maps_lines_to_functions
 run_test "breaking-change check needs a marker" test_breaking_change_needs_marker
+run_test "breaking change can be acknowledged" test_breaking_change_can_be_acknowledged
 run_test "blocking findings are labelled blocking" test_blocking_findings_are_labelled_blocking
 
 echo ""

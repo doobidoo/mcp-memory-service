@@ -66,7 +66,7 @@ class DeleteMixin:
 
         except Exception as e:
             try:
-                self.conn.rollback()
+                await self._run_in_thread(self.conn.rollback)
             except sqlite3.OperationalError:
                 pass
             error_msg = f"Failed to delete memory: {str(e)}"
