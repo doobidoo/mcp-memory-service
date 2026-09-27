@@ -140,7 +140,13 @@ A breaking change that is deliberate, such as removing a field that a security a
 Breaking-Change-Acknowledged: GHSA-xxxx-xxxx-xxxx, the statistics leaked to unauthenticated callers
 ```
 
-Check 4 then prints the model's finding with that reason instead of blocking. The reason is required; a line without one does not count.
+Check 4 then prints the model's finding with that reason instead of blocking, and the summary reports the breaking change as acknowledged. The reason is required; a line without one does not count.
+
+A staged run (`quality_gate.sh --staged`) checks changes that are not committed yet, so it takes the reason from the environment instead:
+
+```bash
+BREAKING_CHANGE_ACKNOWLEDGED="GHSA-xxxx-xxxx-xxxx, the statistics leaked" bash scripts/pr/quality_gate.sh --staged
+```
 
 **Duration:** ~10-30 seconds
 
