@@ -426,9 +426,8 @@ async def test_hybrid_graph_methods_consistency_across_calls(hybrid_with_graph_d
     assert viz1["edges"] == viz2["edges"]
 
 
-@pytest.mark.xfail(reason="Pre-existing bug: NameError - 'HybridStorage' not defined (should be 'HybridMemoryStorage')")
 @pytest.mark.asyncio
-async def test_hybrid_graph_methods_error_handling():
+async def test_hybrid_graph_methods_error_handling(temp_db):
     """Test that errors from primary storage are propagated correctly.
 
     Validates:
@@ -446,7 +445,7 @@ async def test_hybrid_graph_methods_error_handling():
 
     mock_secondary = AsyncMock()
 
-    hybrid = HybridStorage("/fake/path")
+    hybrid = HybridMemoryStorage(temp_db)
     hybrid.primary = mock_primary
     hybrid.secondary = mock_secondary
 
