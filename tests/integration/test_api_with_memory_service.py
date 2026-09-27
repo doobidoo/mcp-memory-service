@@ -984,7 +984,6 @@ async def test_http_api_error_handling_invalid_json(temp_db, monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-@pytest.mark.xfail(reason="Pre-existing bug: module 'mcp_memory_service' has no attribute '__path__'")
 async def test_http_api_client_hostname_header(temp_db, unique_content, monkeypatch):
     """
     Test that X-Client-Hostname header is processed correctly.
@@ -992,10 +991,11 @@ async def test_http_api_client_hostname_header(temp_db, unique_content, monkeypa
     Verifies hostname tagging works through real HTTP request.
     NOTE: Requires MCP_MEMORY_INCLUDE_HOSTNAME=true for hostname tagging to be enabled.
     """
-    # Disable authentication for tests
-    monkeypatch.setenv('MCP_API_KEY', '')
-    monkeypatch.setenv('MCP_OAUTH_ENABLED', 'false')
-    monkeypatch.setenv('MCP_ALLOW_ANONYMOUS_ACCESS', 'true')
+    # Allow anonymous access. The middleware reads MCP_ALLOW_ANONYMOUS_ACCESS once at
+    # import time, and the app is already imported here, so setting the environment
+    # variable would come too late.
+    from mcp_memory_service.web.oauth import middleware
+    monkeypatch.setattr(middleware, 'ALLOW_ANONYMOUS_ACCESS', True)
 
     # Enable hostname tagging for this test
     monkeypatch.setenv('MCP_MEMORY_INCLUDE_HOSTNAME', 'true')
