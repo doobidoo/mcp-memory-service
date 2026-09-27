@@ -1,5 +1,12 @@
 # Codeberg CI: self-hosted Forgejo runner on Hetzner (tinyclaw)
 
+> **Historical, as of 2026-09-05.** Development moved back to GitHub and CI runs on
+> GitHub-hosted `ubuntu-latest` runners via [`.github/workflows/`](../../.github/workflows/).
+> Nothing below is applicable any more. It is kept because the runner is still a working
+> reference for anyone setting up Forgejo Actions elsewhere, and because the constraints
+> it documents (github.com unreachable from the box, hence the action mirror and the raw
+> `docker buildx` calls) explain why the ported workflows look the way they do.
+
 Sets up a Forgejo `act_runner` on the Hetzner box so Codeberg Actions can run the
 release pipeline at [`.forgejo/workflows/release.yml`](../../.forgejo/workflows/release.yml).
 No GitHub auth involved — does not touch the GitHub lockout.

@@ -103,7 +103,7 @@ async def search(
     storage = await get_storage_async()
 
     # Perform semantic search
-    query_results = await storage.retrieve(query, n_results=limit)
+    query_results = await storage.retrieve(query, n_results=limit, tags=tags)
 
     # Filter by tags if specified
     if tags:

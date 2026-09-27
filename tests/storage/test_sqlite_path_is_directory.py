@@ -25,7 +25,7 @@ import os
 
 import pytest
 
-from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
 
 @pytest.fixture

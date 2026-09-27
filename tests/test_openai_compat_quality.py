@@ -11,9 +11,10 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 import httpx
 
-from src.mcp_memory_service.quality.config import QualityConfig
-from src.mcp_memory_service.quality.ai_evaluator import QualityEvaluator
-from src.mcp_memory_service.models.memory import Memory
+from mcp_memory_service.quality.config import QualityConfig
+from mcp_memory_service.quality.ai_evaluator import QualityEvaluator
+from mcp_memory_service.quality.ai_evaluator import _parse_score_response
+from mcp_memory_service.models.memory import Memory
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +127,7 @@ class TestScoreWithOpenAICompatible:
         ev._onnx_models = {}
         ev._groq_bridge = None
         ev._initialized = True
-        from src.mcp_memory_service.quality.implicit_signals import ImplicitSignalsEvaluator
+        from mcp_memory_service.quality.implicit_signals import ImplicitSignalsEvaluator
         ev._implicit_evaluator = ImplicitSignalsEvaluator()
         return ev
 
@@ -146,6 +147,69 @@ class TestScoreWithOpenAICompatible:
         self._install_mock_post(ev, return_value=_mock_httpx_response("0.85"))
         score = await ev._score_with_openai_compatible("python", _make_memory())
         assert score == pytest.approx(0.85)
+
+    @pytest.mark.asyncio
+    async def test_score_parse_with_label(self):
+        ev = self._make_evaluator()
+
+        self._install_mock_post(
+            ev,
+            return_value=_mock_httpx_response("Score: 0.7"),
+        )
+
+        score = await ev._score_with_openai_compatible(
+            "python",
+            _make_memory(),
+        )
+
+        assert score == pytest.approx(0.7)
+
+    @pytest.mark.asyncio
+    async def test_score_parse_from_code_fence(self):
+        ev = self._make_evaluator()
+
+        self._install_mock_post(
+            ev,
+            return_value=_mock_httpx_response("```text\n0.7\n```"),
+        )
+
+        score = await ev._score_with_openai_compatible(
+            "python",
+            _make_memory(),
+        )
+
+        assert score == pytest.approx(0.7)
+
+    @pytest.mark.asyncio
+    async def test_wrapped_negative_score_is_not_misparsed_as_positive(self):
+        ev = self._make_evaluator()
+
+        self._install_mock_post(
+            ev,
+            return_value=_mock_httpx_response("Score: -0.3"),
+        )
+
+        with pytest.raises(RuntimeError, match="Could not parse score"):
+            await ev._score_with_openai_compatible(
+                "python",
+                _make_memory(),
+            )
+
+    @pytest.mark.asyncio
+    async def test_score_parse_with_trailing_period(self):
+        ev = self._make_evaluator()
+
+        self._install_mock_post(
+            ev,
+            return_value=_mock_httpx_response("0.7."),
+        )
+
+        score = await ev._score_with_openai_compatible(
+            "python",
+            _make_memory(),
+        )
+
+        assert score == pytest.approx(0.7)
 
     @pytest.mark.asyncio
     async def test_score_clamped_above_1(self):
@@ -235,8 +299,91 @@ class TestScoreWithOpenAICompatible:
         assert payload["max_completion_tokens"] == 800
 
     @pytest.mark.asyncio
+    async def test_score_label_preferred_over_other_numbers(self):
+        ev = self._make_evaluator()
+
+        self._install_mock_post(
+            ev,
+            return_value=_mock_httpx_response(
+                "I considered 1 criterion. Score: 0.7"
+            ),
+        )
+
+        score = await ev._score_with_openai_compatible(
+            "python",
+            _make_memory(),
+        )
+
+        assert score == pytest.approx(0.7)
+
+    @pytest.mark.asyncio
+    async def test_score_label_parses_scientific_notation(self):
+        ev = self._make_evaluator()
+
+        self._install_mock_post(
+            ev,
+            return_value=_mock_httpx_response("Score: 1e-1"),
+        )
+
+        score = await ev._score_with_openai_compatible(
+            "python",
+            _make_memory(),
+        )
+
+        assert score == pytest.approx(0.1)
+
+    @pytest.mark.asyncio
+    async def test_unrelated_number_in_prose_is_not_treated_as_score(self):
+        ev = self._make_evaluator()
+
+        self._install_mock_post(
+            ev,
+            return_value=_mock_httpx_response(
+                "I cannot score this; 1 criterion is missing"
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match="Could not parse score"):
+            await ev._score_with_openai_compatible(
+                "python",
+                _make_memory(),
+            )
+
+    @pytest.mark.asyncio
+    async def test_openai_compatible_prompt_uses_larger_bounded_content_window(self):
+        ev = self._make_evaluator()
+
+        included_marker = "INCLUDED_AFTER_500"
+        excluded_marker = "EXCLUDED_AFTER_2000"
+
+        memory = _make_memory()
+        memory.content = (
+            ("A" * 500)
+            + included_marker
+            + ("B" * 1500)
+            + excluded_marker
+        )
+
+        mock_resp = _mock_httpx_response("0.7")
+        captured_payloads = []
+
+        async def capture_post(url, json=None, **kwargs):
+            captured_payloads.append(json)
+            return mock_resp
+
+        self._install_mock_post(ev, side_effect=capture_post)
+
+        await ev._score_with_openai_compatible("", memory)
+
+        user_prompt = captured_payloads[0]["messages"][1]["content"]
+
+        assert included_marker in user_prompt
+        assert excluded_marker not in user_prompt
+
+
+    @pytest.mark.asyncio
     async def test_non_gpt5_keeps_max_tokens_and_temperature(self):
-        """Non-gpt-5 models retain the original max_tokens=50 / temperature=0.1 payload (#797)."""
+        """Non-gpt-5 models retain max_tokens=50 and the deterministic temperature=0 (#797, #1102)."""
         ev = self._make_evaluator(openai_compat_model="gpt-4.1-mini")
         mock_resp = _mock_httpx_response("0.5")
         captured_payloads = []
@@ -250,7 +397,7 @@ class TestScoreWithOpenAICompatible:
 
         payload = captured_payloads[0]
         assert payload["max_tokens"] == 50
-        assert payload["temperature"] == 0.1
+        assert payload["temperature"] == 0
         assert "max_completion_tokens" not in payload
 
     @pytest.mark.asyncio
@@ -288,7 +435,7 @@ class TestOpenAICompatFallback:
         ev._onnx_models = {}
         ev._groq_bridge = None
         ev._initialized = True
-        from src.mcp_memory_service.quality.implicit_signals import ImplicitSignalsEvaluator
+        from mcp_memory_service.quality.implicit_signals import ImplicitSignalsEvaluator
         ev._implicit_evaluator = ImplicitSignalsEvaluator()
 
         with patch.object(
@@ -311,7 +458,7 @@ class TestOpenAICompatFallback:
         ev._onnx_models = {}
         ev._groq_bridge = None
         ev._initialized = True
-        from src.mcp_memory_service.quality.implicit_signals import ImplicitSignalsEvaluator
+        from mcp_memory_service.quality.implicit_signals import ImplicitSignalsEvaluator
         ev._implicit_evaluator = ImplicitSignalsEvaluator()
 
         memory = _make_memory()
@@ -325,3 +472,65 @@ class TestOpenAICompatFallback:
 
         assert score == pytest.approx(0.75)
         assert memory.metadata.get("quality_provider") == "openai_compatible"
+
+
+# ---------------------------------------------------------------------------
+# Deterministic temperature + shared parse recovery (#1102)
+# ---------------------------------------------------------------------------
+
+
+class TestDeterministicTemperature:
+    @pytest.mark.asyncio
+    async def test_non_gpt5_payload_uses_temperature_zero(self):
+        helper = TestScoreWithOpenAICompatible()
+        ev = helper._make_evaluator()
+        client = helper._install_mock_post(
+            ev, return_value=_mock_httpx_response("0.8")
+        )
+
+        await ev._score_with_openai_compatible("python", _make_memory())
+
+        payload = client.post.call_args.kwargs["json"]
+        assert payload["temperature"] == 0
+
+
+class TestParseScoreResponse:
+    def test_bare_number(self):
+        assert _parse_score_response("0.85") == pytest.approx(0.85)
+
+    def test_labelled_score_at_end(self):
+        assert _parse_score_response("Sure. Score: 0.7.") == pytest.approx(0.7)
+
+    def test_code_fence(self):
+        assert _parse_score_response("```text\n0.7\n```") == pytest.approx(0.7)
+
+    def test_trailing_period(self):
+        assert _parse_score_response("0.7.") == pytest.approx(0.7)
+
+    def test_bare_number_is_clamped(self):
+        assert _parse_score_response("1.5") == pytest.approx(1.0)
+        assert _parse_score_response("-0.3") == pytest.approx(0.0)
+
+    def test_out_of_range_salvaged_score_raises(self):
+        with pytest.raises(RuntimeError, match="Could not parse score"):
+            _parse_score_response("Score: 1.4")
+
+    def test_unparseable_raises(self):
+        with pytest.raises(RuntimeError, match="Could not parse score"):
+            _parse_score_response("no numbers here")
+
+
+class TestGroqParseRecovery:
+    @pytest.mark.asyncio
+    async def test_labelled_groq_response_is_salvaged(self):
+        helper = TestScoreWithOpenAICompatible()
+        ev = helper._make_evaluator()
+        bridge = MagicMock()
+        bridge.call_model.return_value = {"status": "success", "response": "Score: 0.6"}
+        ev._groq_bridge = bridge
+
+        score = await ev._score_with_groq("python", _make_memory())
+
+        assert score == pytest.approx(0.6)
+        # determinism: the bridge was called with temperature 0
+        assert bridge.call_model.call_args.kwargs["temperature"] == 0

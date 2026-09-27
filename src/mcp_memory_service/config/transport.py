@@ -6,6 +6,19 @@ from .base import safe_get_bool_env, safe_get_int_env
 
 logger = logging.getLogger(__name__)
 
+
+def normalize_http_root_path(value: str) -> str:
+    """Normalize an optional reverse-proxy path prefix for ASGI and browser URLs."""
+    value = value.strip()
+    if not value or value == "/":
+        return ""
+    if any(ord(char) < 32 or char in "?#\\" for char in value):
+        raise ValueError("MCP_HTTP_ROOT_PATH must be a URL path without query, fragment, or backslash")
+    segments = value.strip("/").split("/")
+    if any(segment in {"", ".", ".."} for segment in segments):
+        raise ValueError("MCP_HTTP_ROOT_PATH must contain non-empty path segments")
+    return "/" + "/".join(segments)
+
 # =============================================================================
 # MCP SSE Transport Configuration
 # =============================================================================
@@ -16,6 +29,7 @@ MCP_SSE_PORT = safe_get_int_env('MCP_SSE_PORT', 8765, min_value=1024, max_value=
 HTTP_ENABLED = os.getenv('MCP_HTTP_ENABLED', 'false').lower() == 'true'
 HTTP_PORT = safe_get_int_env('MCP_HTTP_PORT', 8000, min_value=1024, max_value=65535)  # Non-privileged ports only
 HTTP_HOST = os.getenv('MCP_HTTP_HOST', '127.0.0.1')
+HTTP_ROOT_PATH = normalize_http_root_path(os.getenv('MCP_HTTP_ROOT_PATH', ''))
 CORS_ORIGINS = os.getenv('MCP_CORS_ORIGINS', 'http://localhost:8000,http://127.0.0.1:8000').split(',')
 SSE_HEARTBEAT_INTERVAL = safe_get_int_env('MCP_SSE_HEARTBEAT', 30, min_value=5, max_value=300)  # 5 seconds to 5 minutes
 # Bounded ring buffer of broadcast SSE events kept for Last-Event-ID replay

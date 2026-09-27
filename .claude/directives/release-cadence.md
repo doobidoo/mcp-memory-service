@@ -32,13 +32,13 @@ Examples that should have been batched this window: v10.42 (Milvus follow-up), v
 
 When a feature PR merges to `main`:
 
-1. **Default action:** Add a section under `[Unreleased]` in CHANGELOG. Do **not** invoke `codeberg-release-manager` yet.
+1. **Default action:** Add a section under `[Unreleased]` in CHANGELOG. Do **not** invoke `github-release-manager` yet.
 2. **Check pending count:** if `git log <last-tag>..HEAD --oneline` shows ≥3 user-facing commits OR the next batch window has arrived → release.
 3. **Always release on:** PATCH-immediate triggers (above), regardless of pending count.
 
 ## Release-PR title hints
 
-When the codeberg-release-manager agent fires, the agent already pulls every `[Unreleased]` entry into the version section — batching is mechanical, no agent change needed. The behavior change is **timing of agent invocation**, not the agent itself.
+When the github-release-manager agent fires, the agent already pulls every `[Unreleased]` entry into the version section — batching is mechanical, no agent change needed. The behavior change is **timing of agent invocation**, not the agent itself.
 
 ## What to do with sub-MINOR fixes
 

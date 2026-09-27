@@ -5,6 +5,7 @@ import re
 import logging
 from typing import Dict, List, Optional, Tuple
 
+from ..compat import _sanitize_log_value
 from .models import HarvestCandidate
 from .parser import ParsedMessage
 from .patterns import load_patterns
@@ -95,7 +96,7 @@ class PatternExtractor:
         self._patterns: Dict[str, List[Tuple[re.Pattern, float]]] = load_patterns(self._locale)
         if self._patterns:
             total = sum(len(v) for v in self._patterns.values())
-            logger.info(f"PatternExtractor loaded {total} patterns for locale(s): {self._locale}")
+            logger.info(f"PatternExtractor loaded {total} patterns for locale(s): {_sanitize_log_value(self._locale)}")
 
     def extract(
         self,

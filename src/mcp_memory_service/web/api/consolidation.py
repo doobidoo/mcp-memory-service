@@ -168,6 +168,54 @@ async def get_scheduler_status(user: AuthenticationResult = Depends(require_read
         raise HTTPException(status_code=500, detail="Failed to get status")
 
 
+# Maps the consolidator's internal recommendation values onto this endpoint's
+# public contract. The consolidator returns lowercase/snake_case values, and the
+# endpoint's CWE-209 allowlist only ever held uppercase ones, so every response
+# fell through to "UNKNOWN" regardless of actual state (#1125, filed on Codeberg
+# as #328). Anything unrecognised still falls back to "UNKNOWN".
+_RECOMMENDATION_MAP = {
+    "consolidation_beneficial": "CONSOLIDATION_BENEFICIAL",
+    "optional": "NO_CONSOLIDATION_NEEDED",
+    "no_action": "NO_CONSOLIDATION_NEEDED",
+    "error": "UNKNOWN",
+}
+
+
+def _safe_recommendation_payload(recommendations: Dict[str, Any]) -> Dict[str, Any]:
+    """Build the response body, sanitized against stack-trace exposure (CWE-209).
+
+    Every field is coerced to its declared type here rather than in the handler:
+    the consolidator's error path puts exception text into the dict, and none of
+    it may reach the client.
+    """
+    try:
+        safe_count = int(recommendations.get("memory_count", 0))
+    except (TypeError, ValueError):
+        safe_count = 0
+
+    try:
+        safe_duration = float(recommendations.get("estimated_duration_seconds", 0.0))
+    except (TypeError, ValueError):
+        safe_duration = 0.0
+
+    safe_reasons = []
+    for r in recommendations.get("reasons", []):
+        try:
+            # Truncate to prevent large payloads; use repr to avoid exposing exception details
+            safe_reasons.append(repr(r)[:256] if not isinstance(r, str) else r[:256])
+        except Exception:  # noqa: BLE001 - intentionally silent, malformed reason is skipped
+            pass  # Skip malformed reason entries silently
+
+    return {
+        "recommendation": _RECOMMENDATION_MAP.get(
+            recommendations.get("recommendation", "unknown"), "UNKNOWN"
+        ),
+        "memory_count": safe_count,
+        "reasons": safe_reasons,
+        "estimated_duration": safe_duration,
+    }
+
+
 @router.get("/recommendations/{time_horizon}", response_model=RecommendationsResponse)
 async def get_recommendations(time_horizon: str, user: AuthenticationResult = Depends(require_read_access)) -> Dict[str, Any]:
     """
@@ -222,35 +270,7 @@ async def get_recommendations(time_horizon: str, user: AuthenticationResult = De
         # Get recommendations
         recommendations = await consolidator.get_consolidation_recommendations(time_horizon)
 
-        # Sanitize all values before returning to prevent stack-trace exposure (CWE-209)
-        _SAFE_RECOMMENDATIONS = {"CONSOLIDATION_BENEFICIAL", "NO_CONSOLIDATION_NEEDED", "UNKNOWN"}
-        raw_rec = recommendations.get("recommendation", "UNKNOWN")
-        safe_rec = raw_rec if raw_rec in _SAFE_RECOMMENDATIONS else "UNKNOWN"
-
-        try:
-            safe_count = int(recommendations.get("memory_count", 0))
-        except (TypeError, ValueError):
-            safe_count = 0
-
-        try:
-            safe_duration = float(recommendations.get("estimated_duration_seconds", 0.0))
-        except (TypeError, ValueError):
-            safe_duration = 0.0
-
-        safe_reasons = []
-        for r in recommendations.get("reasons", []):
-            try:
-                # Truncate to prevent large payloads; use repr to avoid exposing exception details
-                safe_reasons.append(repr(r)[:256] if not isinstance(r, str) else r[:256])
-            except Exception:  # noqa: BLE001 - intentionally silent, malformed reason is skipped
-                pass  # Skip malformed reason entries silently
-
-        return {
-            "recommendation": safe_rec,
-            "memory_count": safe_count,
-            "reasons": safe_reasons,
-            "estimated_duration": safe_duration,
-        }
+        return _safe_recommendation_payload(recommendations)
 
     except HTTPException:
         raise

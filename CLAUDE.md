@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 Quick reference; each rule is expanded in the sections below. Violations cause real incidents.
 
-1. **Development happens on Codeberg. GitHub is a mirror.** `origin` is `codeberg.org:doobidoo/mcp-memory-service`; CI is Forgejo Actions (`.forgejo/workflows/`); issues, PRs, and releases are on Codeberg. The `github` remote is a synced mirror that holds **no repository secrets** — `gh` is fine for reading it and for administering the mirror, but nothing about CI, releases, or issue handling runs there. **Never push tags to the mirror**, and never push it anything but a fast-forward of `main` (see "Source Control & Hosting").
+1. **Development happens on GitHub.** `origin` is `github.com:doobidoo/mcp-memory-service`; CI is GitHub Actions (`.github/workflows/`); issues, PRs, releases and the tag push that starts a release all live there, and `gh` is the CLI for all of it. GitLab is a push mirror that receives fast-forwards of `main` and **never tags** (see "Source Control & Hosting").
 2. **Never manually bump versions.** Follow the documented release workflow for every version bump and release.
 3. **Run `bash scripts/pr/pre_pr_check.sh` before every PR.** It is the mandatory pre-PR gate and must pass.
 4. **Use the project venv.** Run `.venv/bin/python` and `.venv/bin/pytest` (Python 3.12) — the system interpreters are not the project environment.
@@ -23,6 +23,28 @@ Quick reference; each rule is expanded in the sections below. Violations cause r
 11. **Before any SSH/network task, verify `hostname` and connection direction** (source → target).
 12. **Report outcomes faithfully.** "Tests pass" means you ran them and saw them pass; if a step was skipped or failed, say so with the output.
 13. **Write in the maintainer's or contributor's own voice.** Commit messages, PR descriptions, CHANGELOG entries, issue/PR comments, and release notes read as authored by the maintainer or contributor.
+
+## Answering vs Acting
+
+- A question is a question, not a work order. Answer first; only act when asked.
+- Don't ask what you can determine yourself — read the code, run the command, check the API, then report.
+- Never omit or soften factual personal/professional details in CV/portfolio work unless explicitly told to; include everything verifiable.
+
+## Verification Standards
+
+- Never treat an HTTP 200 as proof of deployment. Verify by fetching the specific artifact/content and diffing against expected output (Cloudflare falls back to index.html on 404).
+- Before filing an issue or PR, search existing open/closed issues for duplicates and read-back the created item to confirm content.
+- After posting a comment, release note, or wiki edit, re-fetch it and quote the live text as evidence.
+
+## Memory Discipline
+
+At the end of any session that produces a decision, root cause, or reusable lesson, persist it to MCP Memory without being asked. MEMORY.md stays pointer-only — store the content in the memory service and reference it by sub-doc pointer.
+
+## Shell & Git Safety
+
+- Always run git operations with an explicit `-C <path>` or confirm `pwd` first; never assume the current tree is the intended worktree.
+- Quote all shell variables and prefer `bash -c` over zsh for loops; word-splitting has produced false PASS results in verification loops.
+- Bulk tag pushes are limited to 2 refs at a time by the repo ruleset — batch accordingly.
 
 ## Critical Directives
 
@@ -38,36 +60,36 @@ Quick reference; each rule is expanded in the sections below. Violations cause r
 
 ### Source Control & Hosting
 
-- **Codeberg is where the work happens.** CI runs as **Forgejo Actions** in `.forgejo/workflows/` (`ci.yml`, `release.yml`, `deploy-site.yml`, `cleanup-images.yml`). Issues and PRs are on Codeberg, and the tag push that starts a release goes to Codeberg.
-- **`.github/workflows/` holds exactly one workflow, `codeql.yml`, and that is deliberate.** Forgejo ignores that directory, so it runs only on the mirror. CodeQL is the one capability GitHub has that Codeberg has no equivalent for, and the Forgejo CI has no security-analysis job — so the mirror carries it and reports into the GitHub Security tab. Nothing else may be added there: no release, site-deploy, or image-cleanup workflow, because publishing belongs to exactly one forge.
-- **The GitHub mirror is read-only in practice.** It exists for discovery and as a fallback. Actions there are **enabled, not disabled** — that is what runs CodeQL, Pages and Dependabot — but restricted to selected actions with SHA-pinning required, and the repository holds **zero secrets**. That last part is what makes publishing impossible: every publish path in the old workflows authenticates with a stored secret (`secrets.PYPI_TOKEN` via twine, `secrets.DOCKER_USERNAME`/`DOCKER_PASSWORD` for Docker Hub), and none of them uses PyPI Trusted Publishing, so there is no OIDC route that works without one. Two hard rules: only ever fast-forward `main` onto it, and **never push tags**.
-- **Why the tag rule, precisely.** A tag-triggered workflow runs the workflow files of the tag's own commit, and tags up to roughly v10.59.2 carry four to seven publish workflows in `.github/workflows/` (from about v10.73.0 onward they carry none, and current tags carry only `codeql.yml`). Pushing such a tag would **not** double-publish to PyPI or Docker Hub — those steps fail at authentication with the secrets gone. What it would produce is a burst of failing runs, and potentially a GHCR image or a GitHub release object, because `secrets.GITHUB_TOKEN` is provided automatically and needs no stored secret. Noise and stray artifacts, not a duplicate release. The rule stands for that reason; it is not a claim that a second publish is possible.
-- Before pushing the mirror, prove the fast-forward rather than assuming it:
+- **GitHub is where the work happens.** CI runs as GitHub Actions in `.github/workflows/`: `ci.yml`, `release.yml`, `deploy-site.yml`, `cleanup-images.yml`, `codeql.yml`. Issues, PRs and releases are there, and so is the tag push that starts a release.
+- **Only GitHub-owned actions are allowed, and SHA pinning is enforced.** The repository is set to `allowed_actions: selected` with `github_owned_allowed: true`, an empty `patterns_allowed` list, and `sha_pinning_required: true`. A third-party action therefore does not fail at review, it fails at run time. That is why `release.yml` shells out to raw `docker buildx` instead of using the `docker/*` actions. Before adding any `uses:` that is not `actions/*` or `github/*`, the allowlist has to be widened deliberately.
+- **A ruleset caps a single push at two refs.** `Pushes can not update more than 2 branches or tags`. Bulk tag pushes have to be batched in pairs; this is why the historical tag import ran as 15 pushes rather than one.
+- **One publisher at a time.** `release.yml` owns PyPI and Docker Hub, and it is the only thing that may publish. Before wiring any second automation that could publish, disarm the first one. Codeberg lost its secrets on 2026-09-05 for exactly this reason.
+- **PyPI auth is still a classic token.** Trusted Publishing is not configured. The pre-Codeberg workflows declared `id-token: write` but authenticated with `secrets.PYPI_TOKEN` via twine, so switching to OIDC is new work and needs a publisher configured on the PyPI side.
+- **GitLab is a push mirror**, not a second publisher: fast-forwards of `main` only, no secrets, **never tags**. Prove the fast-forward instead of assuming it:
   ```bash
   git fetch origin main
-  git merge-base --is-ancestor "$(git ls-remote github main | cut -f1)" FETCH_HEAD
-  git push github FETCH_HEAD:refs/heads/main
+  git merge-base --is-ancestor "$(git ls-remote gitlab main | cut -f1)" FETCH_HEAD
+  git push gitlab FETCH_HEAD:refs/heads/main
   ```
-  If the ancestor check fails, stop and investigate. Do not force.
-- **Dependabot only exists on the mirror**, so it is the only automated dependency-alert source. Treat its findings as input and verify the resulting lock update through Forgejo CI, which is where the tests actually run.
+  If the ancestor check fails, stop and investigate. Do not force. Note that some shells mangle `merge-base --is-ancestor "$A" "$B"`; if it reports "Not a valid object name" on a ref that clearly exists, run it through Python's `subprocess` rather than debugging the ref.
+- **Codeberg is a frozen archive** at `codeberg.org/doobidoo/mcp-memory-service`. It holds no secrets, receives no pushes, and its CI is dead. It stays readable so old links resolve. Do not resume mirroring to it: Codeberg's ToU § 2 (1) 7 bars projects written mostly with generative AI tools, this account was warned under that clause on 2026-08-27, and a mirror is still sharing a project.
+- **Issue and PR numbers below #341 are Codeberg numbers.** GitHub will happily auto-link `#123` in old CHANGELOG and README entries to a GitHub issue of that number, which is a different thing entirely. When citing history, say "Codeberg #123" or link the full URL. [`docs/codeberg-issue-map.md`](docs/codeberg-issue-map.md) resolves every one of them. The issues that were still open on 2026-09-05 were re-created on GitHub and carry the label `migrated:codeberg`.
 - **GHSA identifiers** (e.g. `GHSA-2r68-g678-7qr3`) are just advisory IDs and remain valid references.
 - **Authorship voice.** Commit messages, PR descriptions, CHANGELOG entries, issue/PR comments, and release notes are written in the maintainer's or contributor's own voice.
 
 ### Release Workflow Checklist
 Before merging or releasing:
-1. **Verify CI is green on the target branch** (Forgejo Actions on Codeberg). Check via the `tea` CLI (Forgejo/Gitea) if configured, otherwise the Actions tab at `https://codeberg.org/doobidoo/mcp-memory-service`.
-2. **Update `site/index.html` version strings** whenever MAJOR.MINOR changes (i.e. every MINOR or MAJOR release — PATCH releases are exempt). The `version-drift-check` CI gate enforces this and will fail if skipped. Update ALL occurrences: `<title>`, `<meta og:title>`, hero badge, "What's New" section, release link `href`. Use `grep -n "v11\." site/index.html` to find them. This is MANDATORY — not optional for "incremental" releases. The site auto-deploys to Cloudflare Pages (mcpmemory.services) when the change lands on main (`.forgejo/workflows/deploy-site.yml`).
+1. **Verify CI is green on the target branch** (GitHub Actions). `gh run list --branch <branch>` or the Actions tab.
+2. **Update `site/index.html` version strings** whenever MAJOR.MINOR changes (i.e. every MINOR or MAJOR release — PATCH releases are exempt). The `version-drift-check` CI gate enforces this and will fail if skipped. Update ALL occurrences: `<title>`, `<meta og:title>`, hero badge, "What's New" section, release link `href`. Use `grep -n "v11\." site/index.html` to find them. This is MANDATORY — not optional for "incremental" releases. The site auto-deploys to Cloudflare Pages (mcpmemory.services) when the change lands on main (`.github/workflows/deploy-site.yml`).
 3. **Bump `claude-hooks/.claude-plugin/plugin.json` if the hooks changed.** The Claude Code plugin carries its own version, and the Marketplace cache is keyed on it, so a hook fix released without a manifest bump never reaches installed users. The `plugin-version-check` CI gate enforces this on release changes (`scripts/ci/check_plugin_version.sh`): it fails when `claude-hooks/` changed since the last commit that moved the manifest version. v11.6.0 shipped a hook fix this way (#170).
-4. Clean up merged branches after release (`git branch -d`, `git push origin --delete`).
-5. Follow the release workflow — never manually bump versions.
+4. **After the tag push, run `bash scripts/release/verify_artifacts.sh X.Y.Z`.** It checks both PyPI distributions by version and all four Docker tags plus `latest` by digest, so a half-published release (v11.11.0: PyPI green, Docker dead at login, `latest` stale) cannot pass for a finished one. Exit must be 0 before the release object is created.
+5. Clean up merged branches after release (`git branch -d`, `git push origin --delete`).
+6. Follow the release workflow — never manually bump versions.
 
 ## Overview
 
-**Current Version:** v11.10.0 - MINOR release. The reason it's MINOR and not PATCH: `MCP_CLUSTERING_ALGORITHM` defaults to `dbscan`, but scikit-learn — which the clustering engine imports `DBSCAN`/`AgglomerativeClustering` from — was declared in no extra, so the default silently ran a `simple` fallback behind one WARNING line. A new `[clustering]` extra fixes the install gap, the default becomes `auto`, and naming `dbscan`/`hierarchical` explicitly without scikit-learn installed now raises `ConsolidationError` instead of degrading silently — a deliberate fail-loud behavior change under an existing config (#329, closes #326). Alongside it, all five `memory_consolidate` time horizons now mean the window the tool description documents; four of five didn't before (#325, closes #324) — no horizon reaches past 365 days any more, tracked as a follow-up (#327). Three hook fixes round out the release: two from external contributor timkjr on hardcoded harvest timeouts and a settings-merge bug that could wipe a user's own hooks (#321, #323), and one from alivirgo porting a Stop-hook transcript-pairing fix from the GitHub mirror, which takes no PRs of its own (#330). The Claude Code plugin manifest moves to 1.0.4 so the hook fixes reach already-installed users. See [CHANGELOG.md](CHANGELOG.md) for details. (Issue/PR numbers refer to Codeberg.)
-
-> Note: v11.8.1 was tagged but never published — its tag was created through the forge API rather than pushed with git, so `release.yml` never fired. v11.8.2 supersedes it on PyPI and Docker Hub, and anyone installing from either goes 11.8.0 → 11.8.2. See the tag rule in [`.claude/directives/version-management.md`](.claude/directives/version-management.md).
-
-> **History (v10.0.0):** The v10 API consolidation unified 34 tools into 12. The deprecated tool-name alias layer (`compat.DEPRECATED_TOOLS`) was later **removed in v11** (Issue #53) — old tool names no longer resolve. The registry has since grown to ~28 tools (see `src/mcp_memory_service/tools/registry.py`).
+Current version and release history: [CHANGELOG.md](CHANGELOG.md). The forge-API tag trap that
+left v11.8.1 unpublished is documented in [`.claude/directives/version-management.md`](.claude/directives/version-management.md).
 
 ## Essential Commands
 
@@ -99,44 +121,11 @@ The commands below are written as bare `python`/`pytest` for brevity — run the
 
 ### Development Server
 
-**Recommended (lifecycle CLI):**
-```bash
-# Start HTTP server in background with PID tracking, logs, health check
-memory launch                              # Background (default)
-memory launch --foreground                 # Foreground (same as server --http)
-memory launch --storage-backend hybrid     # With specific backend
-memory launch --debug                      # With debug logging
-
-# Check if server is running
-memory info
-
-# Stop server
-memory stop
-
-# Restart (preserves --storage-backend and --debug from running server)
-memory restart
-
-# View logs
-memory logs
-memory logs -n 50
-```
-
-**Legacy entry points (still available, but the CLI is preferred):**
-```bash
-# MCP server (for Claude Desktop integration)
-python -m mcp_memory_service.server
-
-# HTTP API server (dashboard + REST API)
-python scripts/server/run_http_server.py
-
-# Quick update after git pull (installs deps, restarts server)
-./scripts/update_and_restart.sh
-```
-
-> **Note:** The `memory launch/stop/restart/info/logs` CLI commands are the
-> preferred way to manage the server going forward. The legacy scripts
-> (`scripts/server/run_http_server.py`, `scripts/update_and_restart.sh`) still
-> work but may be deprecated in a future release. For new deployments, use the CLI.
+The lifecycle CLI (`memory launch|stop|restart|info|logs`, see `memory --help`) is the
+preferred way to manage the server. The legacy entry points
+(`python -m mcp_memory_service.server`, `scripts/server/run_http_server.py`,
+`scripts/update_and_restart.sh`) still work but may be deprecated in a future release;
+`run_http_server.py` and `update_and_restart.sh` are not the path for new deployments.
 
 ### Testing
 
@@ -286,6 +275,13 @@ a weekly pyscn review with trend tracking. Health score below 50 blocks a releas
 50-69 means refactor within two weeks, 70 and up is fine. Complexity target is grade
 A-B, meaning 8 or lower.
 
+The PR gate's complexity check is scoped to the diff: a finding counts only when it
+names a function the change actually touched (`scripts/pr/lib/touched_functions.py`).
+An untouched function above the budget in the same file is the file's pre-existing
+state and does not block — it used to, which made the gate unpassable for anyone
+working in `storage/hybrid.py` or `storage/base.py`. Everything the gate does report
+blocks; there is no "warning" tier below it.
+
 ### Log injection guard (v10.68.0, from CodeQL GHSA-84hp-mqvj-3p8h)
 
 User-provided values in raw f-string log calls trigger CodeQL `py/log-injection`.
@@ -337,7 +333,7 @@ observations are nested dicts rather than newline-separated strings.
 - [`.claude/directives/troubleshooting.md`](.claude/directives/troubleshooting.md) - symptom-to-fix table
 
 Version bumps follow the documented release workflow, never by hand. It keeps
-`pyproject.toml`, `_version.py`, CHANGELOG and the Codeberg release in sync and writes
+`pyproject.toml`, `_version.py`, CHANGELOG and the GitHub release in sync and writes
 the release notes.
 
 ### Gotchas when changing things
@@ -346,9 +342,9 @@ the release notes.
   attach manual testing evidence or screenshots to the PR.
 - Removing a feature, port or command: run `grep -r "<term>" docs/ README.md` and clean
   up references in the same PR. `scripts/ci/check_dead_refs.sh` catches new dead refs
-  as check 6.8 of `pre_pr_check.sh` — **not** in CI, and it scans only `docs/` and
-  `README.md`, so `CONTRIBUTING.md` and `SECURITY.md` are outside its reach. Wiring it
-  into CI and widening the scan targets is issue #312.
+  as check 6.8 of `pre_pr_check.sh` and as a step in the `shell-tests` job of `ci.yml`,
+  but it scans only `docs/` and `README.md`, so `CONTRIBUTING.md` and `SECURITY.md` are
+  outside its reach. Widening the scan targets is still open.
 
 ### Extension points
 
@@ -372,9 +368,10 @@ Work is not "done" until the relevant checks below have been run and pass. Repor
 **Dashboard changes (`web/static/`):** verified in a browser (no automated JS coverage) — include a screenshot or a note of what was exercised.
 
 **Before a release / version bump:**
-- [ ] CI is green on the target branch (Forgejo Actions on Codeberg).
-- [ ] Version bumped via the release workflow (never by hand) — keeps `pyproject.toml`, `_version.py`, CHANGELOG, and the Codeberg release in sync.
+- [ ] CI is green on the target branch (GitHub Actions).
+- [ ] Version bumped via the release workflow (never by hand) — keeps `pyproject.toml`, `_version.py`, CHANGELOG, and the GitHub release in sync.
 - [ ] `site/index.html` version strings updated if MAJOR.MINOR changed (see the Release Workflow Checklist).
+- [ ] `bash scripts/release/verify_artifacts.sh X.Y.Z` exits 0 after the tag push, before the release object exists.
 
 **After finishing a task:** save key learnings/decisions to the MCP Memory Server, tagged `mcp-memory-service` first (per the Auto-Save rule).
 
@@ -396,13 +393,13 @@ pre-commit trap) plus the heredoc permission-corruption warning:
 ## Documentation
 
 The wiki is the comprehensive reference:
-https://codeberg.org/doobidoo/mcp-memory-service/wiki
+https://github.com/doobidoo/mcp-memory-service/wiki
 
 **When to update each:**
 - **CLAUDE.md** - Architecture changes, new patterns, development workflows
 - **README.md** - New features, installation changes, user-facing updates
 - **CHANGELOG.md** - Every version bump (via the release workflow)
-- **site/index.html** - Landing page: MINOR/MAJOR releases only (title, og:title, hero badge, "What's New" cards, test count, release link). No manual publish step: merging to main triggers `.forgejo/workflows/deploy-site.yml`, which deploys `site/` to Cloudflare Pages (mcpmemory.services). The here.now mirror is retired. **GitHub Pages is still enabled on the mirror and that is intentional**: it serves `docs/` from `main`, where `docs/index.html` is a 19-line stub that redirects to mcpmemory.services, so `doobidoo.github.io/mcp-memory-service/` keeps working for the GitHub-era links still pointing at it. Every mirror sync therefore fires a `pages build and deployment` run — expected, not a stray workflow. Never put version strings or content in `docs/index.html`; `site/index.html` is canonical.
+- **site/index.html** - Landing page: MINOR/MAJOR releases only (title, og:title, hero badge, "What's New" cards, test count, release link). No manual publish step: merging to main triggers `.github/workflows/deploy-site.yml`, which deploys `site/` to Cloudflare Pages (mcpmemory.services). **GitHub Pages stays enabled and that is intentional**: it serves `docs/` from `main`, where `docs/index.html` is a 19-line stub redirecting to mcpmemory.services, so `doobidoo.github.io/mcp-memory-service/` keeps working for the links still pointing at it. Every push to main therefore fires a `pages build and deployment` run — expected, not a stray workflow. Never put version strings or content in `docs/index.html`; `site/index.html` is canonical.
 - **Wiki** - Detailed guides, troubleshooting, tutorials
 
 ## Additional Resources
@@ -420,18 +417,24 @@ https://codeberg.org/doobidoo/mcp-memory-service/wiki
 When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
 
 Key routing rules:
-- Product ideas/brainstorming → invoke /office-hours
-- Strategy/scope → invoke /plan-ceo-review
-- Architecture → invoke /plan-eng-review
-- Design system/plan review → invoke /design-consultation or /plan-design-review
-- Full review pipeline → invoke /autoplan
-- Bugs/errors → invoke /investigate
-- QA/testing site behavior → invoke /qa or /qa-only
-- Code review/diff check → invoke /review
-- Visual polish → invoke /design-review
-- Ship/deploy/PR → invoke /ship or /land-and-deploy
-- Save progress → invoke /context-save
-- Resume context → invoke /context-restore
+- Codebase / architecture question → invoke /graphify (see the graphify section below)
+- Contributor issue, PR comment, feature proposal, off-platform message → invoke /contributor-triage
+- Reviewing an incoming PR diff → invoke /pr-review
+- Release or version bump → invoke /release, never bump by hand
+- Server won't start, MCP tools hang, sync or backend trouble → invoke /memory-service-doctor
+- Evaluating an external repo, tool, or MCP server for adoption → invoke /repo-adoption-eval
+- Architecture, workflow, sequence or state diagrams → invoke /archify
+- Drafting prose (posts, comments, emails, release notes) → invoke /human-writing; for LinkedIn specifically, /linkedin-draft
+- Bugs and unexpected behavior → invoke superpowers:systematic-debugging before proposing a fix
+- New feature or behavior change → invoke superpowers:brainstorming before writing code
+
+Skills named here must exist and be enabled. The older `(gstack)` routes
+(/office-hours, /plan-*, /autoplan, /investigate, /qa, /review, /ship,
+/land-and-deploy, /context-save, /context-restore and ~45 more) were **deleted** on
+2026-09-06 — the whole bundle was disabled and unused, and it is gone from
+`~/.claude/skills`. `/codeberg-pr-review` was replaced by `/pr-review` the same day.
+If a route here does not resolve, check `~/.claude/skills` and the `skillOverrides`
+block in `~/.claude/settings.json` before assuming the skill is missing.
 
 ## graphify
 

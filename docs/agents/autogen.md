@@ -23,18 +23,31 @@ from autogen_ext.models import OpenAIChatCompletionClient
 MEMORY_URL = "http://localhost:8000"
 
 
-async def retrieve_context(query: str, tags: list[str] | None = None) -> str:
-    """Retrieve relevant memory context for injection into system message."""
-    payload = {"query": query, "limit": 5}
-    if tags:
-        payload["tags"] = tags
+async def retrieve_context(query: str, tags: list[str] | None = None, limit: int = 5) -> str:
+    """Retrieve relevant memory context for injection into system message.
 
+    The two search endpoints each do half the job: /api/search ranks by the query but
+    cannot filter tags, /api/search/by-tag filters by tag but ignores the query and
+    caps nothing. When tags are given, scope wins: by-tag sees every matching memory,
+    where ranking first and filtering afterwards would only ever see the top of the
+    list and silently miss a match that ranks below it in a shared store. The cost is
+    that a scoped result is not query-ranked — cap it and let the model read it.
+    """
     async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{MEMORY_URL}/api/memories/search",
-            json=payload,
-        )
-        memories = response.json().get("memories", [])
+        if tags:
+            response = await client.post(
+                f"{MEMORY_URL}/api/search/by-tag",
+                json={"tags": tags, "match_all": True},  # default is ANY, not ALL
+            )
+        else:
+            response = await client.post(
+                f"{MEMORY_URL}/api/search",
+                json={"query": query, "n_results": max(1, min(limit, 100))},
+            )
+        # Without this, a 422 (n_results out of the 1-100 range, no tags supplied)
+        # reads as an empty result list and the agent is told there is no memory.
+        response.raise_for_status()
+        memories = [h["memory"] for h in response.json()["results"]][:limit]
 
     if not memories:
         return ""
@@ -115,16 +128,22 @@ async def search_memory(query: str, limit: int = 5, tags: list[str] | None = Non
     Returns:
         Formatted string of matching memories, or empty string if none found.
     """
-    payload = {"query": query, "limit": limit}
-    if tags:
-        payload["tags"] = tags
-
     async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{MEMORY_URL}/api/memories/search",
-            json=payload,
-        )
-        memories = response.json().get("memories", [])
+        if tags:
+            # Tag scope must be complete: by-tag sees every match, where ranking first
+            # and filtering afterwards misses whatever falls outside the window.
+            # It ignores the query and caps nothing, so cap here.
+            response = await client.post(
+                f"{MEMORY_URL}/api/search/by-tag",
+                json={"tags": tags, "match_all": True},  # default is ANY, not ALL
+            )
+        else:
+            response = await client.post(
+                f"{MEMORY_URL}/api/search",
+                json={"query": query, "n_results": max(1, min(limit, 100))},  # 422 outside 1-100
+            )
+        response.raise_for_status()  # else an error body reads as "no memories"
+        memories = [h["memory"] for h in response.json()["results"]][:limit]
 
     if not memories:
         return "No relevant memories found."

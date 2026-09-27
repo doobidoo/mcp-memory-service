@@ -19,10 +19,37 @@ Tests verify the new launch/stop/restart/info/health/logs commands
 are properly registered and functional.
 """
 
-import sys
+import json
 import os
-from unittest.mock import patch, MagicMock
+import socket
+import subprocess
+import sys
+import tempfile
+import textwrap
+import time
+from collections import deque
+from unittest.mock import MagicMock, call, patch
+
+from click import Command
 from click.testing import CliRunner
+
+from mcp_memory_service.cli import lifecycle
+from mcp_memory_service.cli.lifecycle import (
+    _check_already_running,
+    launch,
+    logs,
+)
+from mcp_memory_service.cli.main import (
+    LAZY_COMMANDS,
+    cli,
+    health_cmd,
+    info,
+    restart,
+    stop,
+)
+
+
+_REAL_KILL_PROCESS = lifecycle._kill_process
 
 # The _kill_process real-signal guard and MCP_HTTP_PORT/HOST pinning live
 # in conftest.py's autouse _lifecycle_process_safety_net fixture -- it
@@ -31,7 +58,6 @@ from click.testing import CliRunner
 
 def test_lifecycle_commands_registered():
     """Test that all lifecycle commands are registered with the CLI group."""
-    from mcp_memory_service.cli.main import cli, LAZY_COMMANDS
     
     # Get available commands
     ctx = cli.make_context('memory', [])
@@ -46,7 +72,6 @@ def test_lifecycle_commands_registered():
 
 def test_launch_command_structure():
     """Test that the launch command has expected options."""
-    from mcp_memory_service.cli.main import launch
     
     # Launch should be a Click command
     assert hasattr(launch, 'callback')
@@ -62,18 +87,401 @@ def test_launch_command_structure():
 
 def test_stop_command_structure():
     """Test that the stop command has expected options."""
-    from mcp_memory_service.cli.main import stop
     
     assert hasattr(stop, 'callback')
     param_names = [p.name for p in stop.params]
     assert 'http_host' in param_names
     assert 'http_port' in param_names
+    assert 'force' in param_names
+
+
+def _unused_local_port():
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        return listener.getsockname()[1]
+
+
+def _start_listener(command, env=None):
+    proc = subprocess.Popen(
+        command,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert proc.stdout.readline().strip() == "ready"
+    return proc
+
+
+def _foreign_listener(port):
+    code = textwrap.dedent(
+        """
+        import socket  # inline import
+        import time  # inline import
+
+        listener = socket.socket()
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", PORT))
+        listener.listen()
+        print("ready", flush=True)
+        time.sleep(60)
+        """
+    ).replace("PORT", str(port))
+    return _start_listener([sys.executable, "-c", code])
+
+
+def _memory_server_listener(tmp_path, port):
+    module_dir = tmp_path / "uvicorn"
+    module_dir.mkdir()
+    (module_dir / "__init__.py").write_text("")
+    (module_dir / "__main__.py").write_text(
+        textwrap.dedent(
+            """
+            import socket
+            import sys
+            import time
+
+            port = int(sys.argv[sys.argv.index("--port") + 1])
+            listener = socket.socket()
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", port))
+            listener.listen()
+            print("ready", flush=True)
+            time.sleep(60)
+            """
+        )
+    )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(tmp_path)
+    return _start_listener(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "mcp_memory_service.web.app:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        env=env,
+    )
+
+
+def test_memory_server_command_requires_launcher_app_position():
+    """An unrelated Uvicorn process must not match on a later argument."""
+    assert lifecycle._is_memory_server_command(
+        [sys.executable, "-m", "uvicorn", "mcp_memory_service.web.app:app"]
+    )
+    assert not lifecycle._is_memory_server_command(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "unrelated.web:app",
+            "--app-dir",
+            "mcp_memory_service.fake",
+        ]
+    )
+
+
+def test_stop_refuses_to_kill_foreign_listener_without_force(monkeypatch, tmp_path):
+    """A missing PID file must not make stop kill an unrelated service."""
+    port = _unused_local_port()
+    proc = _foreign_listener(port)
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: tmp_path / "server.pid")
+
+    try:
+        result = CliRunner().invoke(lifecycle.stop, ["--port", str(port)])
+
+        assert result.exit_code != 0
+        assert str(proc.pid) in result.output
+        assert sys.executable in result.output
+        assert "Refusing to stop" in result.output
+        assert "--force" in result.output
+        assert proc.poll() is None
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_stop_kills_untracked_memory_server_listener(monkeypatch, tmp_path):
+    """The lost-PID recovery path still stops a launcher-shaped process."""
+    port = _unused_local_port()
+    proc = _memory_server_listener(tmp_path, port)
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: tmp_path / "server.pid")
+    monkeypatch.setattr(lifecycle, "_kill_process", _REAL_KILL_PROCESS)
+
+    try:
+        result = CliRunner().invoke(lifecycle.stop, ["--port", str(port)])
+
+        assert result.exit_code == 0, result.output
+        proc.wait(timeout=5)
+        assert "Server stopped" in result.output
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            proc.wait(timeout=5)
+
+
+def test_stop_force_kills_foreign_listener(monkeypatch, tmp_path):
+    """The explicit force escape hatch can terminate a foreign listener."""
+    port = _unused_local_port()
+    proc = _foreign_listener(port)
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: tmp_path / "server.pid")
+    monkeypatch.setattr(lifecycle, "_kill_process", _REAL_KILL_PROCESS)
+
+    try:
+        result = CliRunner().invoke(
+            lifecycle.stop, ["--port", str(port), "--force"]
+        )
+
+        assert result.exit_code == 0, result.output
+        proc.wait(timeout=5)
+        assert "Server stopped" in result.output
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            proc.wait(timeout=5)
+
+
+def test_stop_does_not_kill_pid_file_process_on_different_port(monkeypatch, tmp_path):
+    """A PID file must not override the requested port ownership check."""
+    port = _unused_local_port()
+    kill_process = MagicMock(return_value=True)
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: tmp_path / "server.pid")
+    monkeypatch.setattr(lifecycle, "_read_pid", lambda: 4321)
+    monkeypatch.setattr(lifecycle, "_find_process_on_port", lambda value: 9876)
+    monkeypatch.setattr(
+        lifecycle,
+        "_process_command_line",
+        lambda pid: [sys.executable, "-c", "foreign listener"],
+    )
+    monkeypatch.setattr(lifecycle, "_kill_process", kill_process)
+    monkeypatch.setattr(
+        lifecycle, "_probe_health", lambda *args, **kwargs: (None, False)
+    )
+
+    result = CliRunner().invoke(lifecycle.stop, ["--port", str(port)])
+
+    assert result.exit_code != 0, result.output
+    assert "Refusing to stop PID 9876" in result.output
+    kill_process.assert_not_called()
+
+
+def test_stop_stops_pid_file_process_when_recorded_port_matches(monkeypatch, tmp_path):
+    """A matching recorded port permits the PID-file fallback."""
+    port = _unused_local_port()
+    kill_process = MagicMock(return_value=True)
+    pid_file = tmp_path / "server.pid"
+    pid_file.write_text(json.dumps({"pid": 4321, "scheme": "http", "port": port}))
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: pid_file)
+    monkeypatch.setattr(lifecycle, "_read_pid", lambda: 4321)
+    monkeypatch.setattr(lifecycle, "_find_process_on_port", lambda value: None)
+    monkeypatch.setattr(
+        lifecycle,
+        "_process_command_line",
+        lambda pid: [sys.executable, "-m", "uvicorn", "mcp_memory_service.web.app:app"],
+    )
+    monkeypatch.setattr(lifecycle, "_kill_process", kill_process)
+
+    result = CliRunner().invoke(lifecycle.stop, ["--port", str(port)])
+
+    assert result.exit_code == 0, result.output
+    assert "Server stopped" in result.output
+    kill_process.assert_called_once_with(4321)
+
+
+def test_stop_uses_recorded_port_when_no_cli_or_environment_port(monkeypatch, tmp_path):
+    """A fresh shell can stop a server launched on its recorded port."""
+    recorded_port = 8443
+    kill_process = MagicMock(return_value=True)
+    pid_file = tmp_path / "server.pid"
+    pid_file.write_text(
+        json.dumps({"pid": 4321, "scheme": "http", "port": recorded_port})
+    )
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: pid_file)
+    monkeypatch.setattr(lifecycle, "_read_pid", lambda: 4321)
+    monkeypatch.setattr(lifecycle, "_find_process_on_port", lambda value: None)
+    monkeypatch.setattr(
+        lifecycle,
+        "_process_command_line",
+        lambda pid: [sys.executable, "-m", "uvicorn", "mcp_memory_service.web.app:app"],
+    )
+    monkeypatch.setattr(lifecycle, "_kill_process", kill_process)
+    monkeypatch.delenv("MCP_HTTP_PORT", raising=False)
+
+    result = CliRunner().invoke(lifecycle.stop, [])
+
+    assert result.exit_code == 0, result.output
+    assert "Server stopped" in result.output
+    kill_process.assert_called_once_with(4321)
+
+
+def test_stop_refuses_pid_file_process_when_recorded_port_differs(monkeypatch, tmp_path):
+    """A PID file for another port must not terminate its recorded process."""
+    requested_port = 8765
+    recorded_port = 8000
+    kill_process = MagicMock(return_value=True)
+    pid_file = tmp_path / "server.pid"
+    pid_file.write_text(
+        json.dumps({"pid": 4321, "scheme": "http", "port": recorded_port})
+    )
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: pid_file)
+    monkeypatch.setattr(lifecycle, "_read_pid", lambda: 4321)
+    monkeypatch.setattr(lifecycle, "_find_process_on_port", lambda value: None)
+    monkeypatch.setattr(lifecycle, "_kill_process", kill_process)
+    probe_health = MagicMock(return_value=(None, False))
+    monkeypatch.setattr(lifecycle, "_probe_health", probe_health)
+
+    result = CliRunner().invoke(lifecycle.stop, ["--port", str(requested_port)])
+
+    assert result.exit_code == 0, result.output
+    assert (
+        f"PID file records port {recorded_port}, not requested port {requested_port}"
+        in result.output
+    )
+    assert "Server is not running" not in result.output
+    kill_process.assert_not_called()
+    probe_health.assert_not_called()
+
+
+def test_lifecycle_port_precedence(monkeypatch, tmp_path):
+    """Lifecycle ports prefer CLI, set environment, PID file, then default."""
+    pid_file = tmp_path / "server.pid"
+    pid_file.write_text(json.dumps({"pid": 4321, "port": 8443}))
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: pid_file)
+
+    monkeypatch.setenv("MCP_HTTP_PORT", "9443")
+    assert lifecycle._resolve_lifecycle_port(7443) == 7443
+    assert lifecycle._resolve_lifecycle_port(None) == 9443
+
+    monkeypatch.delenv("MCP_HTTP_PORT")
+    assert lifecycle._resolve_lifecycle_port(None) == 8443
+
+    pid_file.write_text(json.dumps({"pid": 4321}))
+    assert lifecycle._resolve_lifecycle_port(None) == 8000
+
+
+def test_restart_refuses_recorded_port_mismatch_before_health_probe(
+    monkeypatch, tmp_path
+):
+    """Restart must not probe or stop when its requested port mismatches the PID file."""
+    pid_file = tmp_path / "server.pid"
+    pid_file.write_text(json.dumps({"pid": 4321, "port": 8443}))
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: pid_file)
+    monkeypatch.setattr(lifecycle, "_read_pid", lambda: 4321)
+    probe_health = MagicMock(return_value=({"status": "healthy"}, False))
+    monkeypatch.setattr(lifecycle, "_probe_health", probe_health)
+    stop = MagicMock()
+    monkeypatch.setattr(lifecycle, "stop", stop)
+
+    result = CliRunner().invoke(lifecycle.restart, ["--port", "8000"])
+
+    assert result.exit_code == 0, result.output
+    assert "Refusing to stop PID 4321" in result.output
+    probe_health.assert_not_called()
+    stop.assert_not_called()
+
+
+def test_restart_uses_recorded_port_when_no_cli_or_environment_port(
+    monkeypatch, tmp_path
+):
+    """Restart carries the recorded port through both stop and launch."""
+    recorded_port = 8443
+    pid_file = tmp_path / "server.pid"
+    pid_file.write_text(
+        json.dumps({"pid": 4321, "scheme": "http", "port": recorded_port})
+    )
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: pid_file)
+    monkeypatch.setattr(
+        lifecycle, "_probe_health", lambda *args, **kwargs: (None, False)
+    )
+    monkeypatch.delenv("MCP_HTTP_PORT", raising=False)
+
+    calls = []
+
+    from click import command
+
+    @command("fake-stop")
+    def fake_stop(**kwargs):
+        calls.append(("stop", kwargs))
+        return True
+
+    @command("fake-launch")
+    def fake_launch(**kwargs):
+        calls.append(("launch", kwargs))
+        return True
+
+    monkeypatch.setattr(lifecycle, "stop", fake_stop)
+    monkeypatch.setattr(lifecycle, "launch", fake_launch)
+    result = CliRunner().invoke(lifecycle.restart, [])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0][1]["http_port"] == recorded_port
+    assert calls[1][1]["http_port"] == recorded_port
+
+
+def test_stop_legacy_pid_file_keeps_command_line_fallback(monkeypatch, tmp_path):
+    """PID files without a port retain the pre-port-recording behavior."""
+    port = _unused_local_port()
+    kill_process = MagicMock(return_value=True)
+    pid_file = tmp_path / "server.pid"
+    pid_file.write_text(json.dumps({"pid": 4321, "scheme": "http"}))
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: pid_file)
+    monkeypatch.setattr(lifecycle, "_read_pid", lambda: 4321)
+    monkeypatch.setattr(lifecycle, "_find_process_on_port", lambda value: None)
+    monkeypatch.setattr(
+        lifecycle,
+        "_process_command_line",
+        lambda pid: [sys.executable, "-m", "uvicorn", "mcp_memory_service.web.app:app"],
+    )
+    monkeypatch.setattr(lifecycle, "_kill_process", kill_process)
+
+    result = CliRunner().invoke(lifecycle.stop, ["--port", str(port)])
+
+    assert result.exit_code == 0, result.output
+    assert "Server stopped" in result.output
+    kill_process.assert_called_once_with(4321)
+
+
+def test_launch_refuses_to_kill_foreign_listener(monkeypatch):
+    """Launch must use the same command-line ownership check as stop."""
+    port = _unused_local_port()
+    kill_process = MagicMock(return_value=True)
+    monkeypatch.setattr(lifecycle, "_read_pid", lambda: None)
+    monkeypatch.setattr(lifecycle, "_find_process_on_port", lambda value: 4321)
+    monkeypatch.setattr(
+        lifecycle,
+        "_process_command_line",
+        lambda pid: [sys.executable, "-c", "foreign listener"],
+    )
+    monkeypatch.setattr(lifecycle, "_kill_process", kill_process)
+    monkeypatch.setattr(lifecycle, "_ensure_dirs", lambda: None)
+    monkeypatch.setattr(lifecycle, "_log_file", lambda: MagicMock())
+    monkeypatch.setattr("builtins.open", lambda *args, **kwargs: MagicMock())
+    monkeypatch.setattr(
+        lifecycle, "_write_pid", lambda pid, scheme="http", port=None: None
+    )
+    monkeypatch.setattr(
+        lifecycle.subprocess, "Popen", MagicMock(return_value=MagicMock(pid=1234))
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "_probe_health",
+        lambda *args, **kwargs: ({"status": "healthy"}, False),
+    )
+
+    result = CliRunner().invoke(lifecycle.launch, ["--port", str(port)])
+
+    assert result.exit_code != 0
+    assert "Refusing to stop" in result.output
+    kill_process.assert_not_called()
     
 
 
 def test_info_command_structure():
     """Test that the info command has expected options."""
-    from mcp_memory_service.cli.main import info
     
     assert hasattr(info, 'callback')
     param_names = [p.name for p in info.params]
@@ -84,7 +492,6 @@ def test_info_command_structure():
 
 def test_health_command_structure():
     """Test that the health command has expected options."""
-    from mcp_memory_service.cli.main import health_cmd
     
     assert hasattr(health_cmd, 'callback')
     param_names = [p.name for p in health_cmd.params]
@@ -95,7 +502,6 @@ def test_health_command_structure():
 
 def test_logs_command_structure():
     """Test that the logs command has expected options."""
-    from mcp_memory_service.cli.main import logs
     
     assert hasattr(logs, 'callback')
     param_names = [p.name for p in logs.params]
@@ -105,8 +511,6 @@ def test_logs_command_structure():
 
 def test_lifecycle_commands_use_lifecycle_module():
     """Test that lifecycle commands are properly defined in the CLI module."""
-    from mcp_memory_service.cli.main import launch, stop, restart, info, health_cmd, logs
-    from click import Command
     
     # All lifecycle commands should be Click Command objects
     assert isinstance(launch, Command), f"launch is {type(launch)}, not Command"
@@ -133,9 +537,6 @@ def test_launch_command_no_c_style_injection():
     With safe argument list:
         [sys.executable, "-m", "uvicorn", "app:app", "--host", host, "--port", str(port)]
     """
-    from mcp_memory_service.cli import lifecycle
-    from unittest.mock import patch, MagicMock
-    import subprocess
     
     # Mock subprocess.Popen to capture the command that would be executed
     with patch('subprocess.Popen') as mock_popen:
@@ -173,8 +574,6 @@ def test_launch_command_no_c_style_injection():
                     malicious_host = "127.0.0.1'; echo pwned #"
 
                     # We need to call through the click command entry point
-                    from click.testing import CliRunner
-                    from mcp_memory_service.cli.lifecycle import launch
 
                     runner = CliRunner()
                     result = runner.invoke(launch, ['--host', malicious_host, '--port', '8000', '--detach'])
@@ -203,9 +602,6 @@ def test_launch_command_sends_excluded_handles():
     The fix ensures parent closes stdout/stderr handles after Popen,
     preventing file handle leaks in detached mode.
     """
-    from mcp_memory_service.cli import lifecycle
-    from unittest.mock import patch, MagicMock, call
-    import subprocess
     
     with patch('subprocess.Popen') as mock_popen:
         with patch('builtins.open') as mock_open:
@@ -235,8 +631,6 @@ def test_launch_command_sends_excluded_handles():
                         # Mock _log_file to return a valid Path
                         patch.object(lifecycle, '_log_file', return_value=MagicMock()),
                     ):
-                        from click.testing import CliRunner
-                        from mcp_memory_service.cli.lifecycle import launch
 
                         runner = CliRunner()
                         result = runner.invoke(launch, ['--host', '127.0.0.1', '--port', '8000', '--detach'])
@@ -253,9 +647,6 @@ def test_logs_command_uses_streaming_tail():
     The fix replaces log_path.read_text().splitlines() with:
         list(deque(f, maxlen=lines))
     """
-    import tempfile
-    import os
-    from collections import deque
     
     # Create a test log file with multiple lines
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -278,9 +669,6 @@ def test_logs_command_uses_streaming_tail():
 
 def test_logs_command_handle_missing_log_file():
     """Test that logs command gracefully handles missing log file."""
-    from click.testing import CliRunner
-    from mcp_memory_service.cli.lifecycle import logs
-    from unittest.mock import patch
     
     runner = CliRunner()
     
@@ -297,8 +685,6 @@ def test_logs_command_handle_missing_log_file():
 
 def test_launch_help_text_security_warning():
     """Test that launch command help text contains security warning about host binding."""
-    from click.testing import CliRunner
-    from mcp_memory_service.cli.lifecycle import launch
     
     runner = CliRunner()
     result = runner.invoke(launch, ['--help'])
@@ -307,3 +693,61 @@ def test_launch_help_text_security_warning():
     assert '--host' in result.output, "Help should show --host option"
     # Check that the help text mentions security concerns
     # The fix adds a warning about binding to non-loopback hosts
+
+
+def test_check_already_running_returns_pid_on_healthy():
+    """Test that _check_already_running returns the existing PID when healthy.
+
+    This exercises the extracted helper introduced in the lifecycle refactoring.
+    Without the refactoring, this function does not exist.
+    """
+
+    with (
+        patch('mcp_memory_service.cli.lifecycle._read_pid', return_value=12345),
+        patch('mcp_memory_service.cli.lifecycle._probe_health') as mock_probe,
+    ):
+        mock_probe.return_value = ({"status": "healthy"}, False)
+        result = _check_already_running("http://127.0.0.1:8000", 8000)
+        assert result == 12345
+
+def test_read_pid_accepts_json_metadata_for_live_process(tmp_path, monkeypatch):
+    """A live managed child must survive JSON PID metadata validation."""
+
+
+    # Match the launcher's stable command-line prefix without importing the
+    # real uvicorn application: a tiny temporary module keeps the child alive.
+    (tmp_path / "uvicorn.py").write_text("import time\ntime.sleep(60)\n")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(tmp_path)
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "mcp_memory_service.web.app:app"],
+        cwd=tmp_path,
+        env=env,
+    )
+
+    pid_path = tmp_path / "server.pid"
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: pid_path)
+    monkeypatch.setattr(lifecycle, "_ensure_dirs", lambda: None)
+
+    try:
+        lifecycle._write_pid(proc.pid, port=8123)
+        metadata_text = pid_path.read_text()
+        metadata = json.loads(metadata_text)
+        assert metadata["pid"] == proc.pid
+        assert metadata["port"] == 8123
+        assert lifecycle._is_stale_pid(pid_path) is False
+        assert lifecycle._read_pid() == proc.pid
+
+        # The structured format must not regress support for pre-metadata PID files.
+        pid_path.write_text(str(proc.pid))
+        assert lifecycle._read_pid() == proc.pid
+        pid_path.write_text(metadata_text)
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+
+    assert lifecycle._is_stale_pid(pid_path) is True

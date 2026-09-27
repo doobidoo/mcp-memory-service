@@ -40,7 +40,125 @@ from ..server.environment import check_uv_environment, check_version_consistency
 import mcp.server.stdio
 from mcp.server import InitializationOptions, NotificationOptions
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
+
+
+def _is_loopback_host(host: str) -> bool:
+    """True when `host` can only be reached from the machine itself."""
+    import ipaddress  # inline import: only needed by this one helper, keeps module import cheap
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        # Not an IP literal. That covers a hostname we cannot resolve here, and
+        # also the empty string, which binds every interface rather than
+        # loopback. The safe answer to "is this only reachable locally" is no.
+        return False
+
+
+def _assert_bind_is_authenticated(host: str, port: int) -> None:
+    """Refuse to serve MCP to the network with no authentication configured.
+
+    The default bind is loopback, so this only fires when someone
+    deliberately widened it without setting up auth, which is exactly the
+    deployment GHSA-2hh8-qjxc-43x3 describes. Documenting "do not expose SSE"
+    is not a control. Refusing to start is.
+    """
+    from ..config import OAUTH_ENABLED, API_KEY
+    if _is_loopback_host(host) or OAUTH_ENABLED or API_KEY:
+        return
+    raise RuntimeError(
+        f"Refusing to start an MCP transport on {host}:{port} with no authentication "
+        "configured. Its endpoints expose the full MCP tool surface. Set MCP_API_KEY, "
+        "or enable OAuth with MCP_OAUTH_ENABLED=true, or bind to 127.0.0.1."
+    )
+
+
+async def _credentials_authenticate(scope) -> bool:
+    """True when the request carries a credential this server accepts.
+
+    Three ways in, tried in order: an OAuth bearer token, an X-API-Key
+    header, and a bearer token that is really the API key (which some MCP
+    clients send that way).
+    """
+    from ..config import OAUTH_ENABLED, API_KEY
+    from ..web.oauth.middleware import (
+        authenticate_bearer_token,
+        authenticate_api_key,
+    )
+
+    headers = dict(scope.get("headers", []))
+    auth_header = headers.get(b"authorization", b"").decode("latin-1")
+    api_key_header = headers.get(b"x-api-key", b"").decode("latin-1")
+
+    is_bearer = auth_header.lower().startswith("bearer ")
+    token = auth_header[7:] if is_bearer else ""
+
+    if is_bearer and OAUTH_ENABLED and (await authenticate_bearer_token(token)).authenticated:
+        return True
+    if api_key_header and API_KEY and authenticate_api_key(api_key_header).authenticated:
+        return True
+    if is_bearer and API_KEY and authenticate_api_key(token).authenticated:
+        return True
+    return False
+
+
+async def _send_unauthorized(scope, receive, send) -> None:
+    """Answer 401 with the WWW-Authenticate header OAuth clients expect."""
+    from starlette.responses import Response as StarletteResponse
+    from ..config import OAUTH_ENABLED, OAUTH_ISSUER
+
+    resource_metadata_url = f"{OAUTH_ISSUER.rstrip('/')}/.well-known/oauth-protected-resource"
+    www_auth = (
+        f'Bearer resource_metadata="{resource_metadata_url}"'
+        if OAUTH_ENABLED and OAUTH_ISSUER else "Bearer"
+    )
+    response = StarletteResponse(
+        '{"error":"unauthorized","error_description":"Valid Bearer token or API key required"}',
+        status_code=401,
+        headers={"WWW-Authenticate": www_auth, "Content-Type": "application/json"},
+    )
+    await response(scope, receive, send)
+
+
+async def _sse_request_is_allowed(path: str, scope, receive, send) -> bool:
+    """Gate the two SSE endpoints that carry the MCP surface.
+
+    `/sse` and `/messages/` both reach the full tool list, so both are
+    gated; `/health` and unknown paths are not, and are answered by the
+    caller. Until 2026-09-05 none of them was gated at all
+    (GHSA-2hh8-qjxc-43x3).
+
+    Returns False only when it has already answered the request with 401.
+    """
+    if path != "/sse" and not path.startswith("/messages/"):
+        return True
+    from ..config import OAUTH_ENABLED, API_KEY
+    if not (OAUTH_ENABLED or API_KEY):
+        # Nothing configured to check against. _assert_bind_is_authenticated()
+        # has already refused a non-loopback bind in this case, so what is left
+        # is a deliberate local-only server.
+        return True
+    return await check_transport_auth(scope, receive, send)
+
+
+async def check_transport_auth(scope, receive, send) -> bool:
+    """Validate auth on an ASGI request. Returns True if authorized, else
+    answers 401 itself and returns False.
+
+    Shared by the Streamable HTTP and SSE transports. It lived inside
+    run_streamable_http() until 2026-09-05, which is part of why SSE served
+    /sse and /messages/ with no auth at all (GHSA-2hh8-qjxc-43x3): the check
+    was not reachable from there. A second copy would have drifted, so it is
+    one function now.
+    """
+    if await _credentials_authenticate(scope):
+        return True
+    await _send_unauthorized(scope, receive, send)
+    return False
 
 
 class StartupCheckOrchestrator:
@@ -97,7 +215,7 @@ class InitializationRetryManager:
 
         while retry_count <= self.max_retries and not init_success:
             if retry_count > 0:
-                self.logger.warning(f"Retrying initialization (attempt {retry_count}/{self.max_retries})...")
+                self.logger.warning("Retrying initialization (attempt %s/%s)...", retry_count, self.max_retries)
 
             init_task = asyncio.create_task(server.initialize())
             try:
@@ -113,12 +231,12 @@ class InitializationRetryManager:
                 # Don't cancel the task, let it complete in the background
                 break
             except Exception as init_error:
-                self.logger.error(f"Initialization error: {str(init_error)}")
+                self.logger.error("Initialization error: %s", _sanitize_log_value(init_error))
                 self.logger.error(traceback.format_exc())
                 retry_count += 1
 
                 if retry_count <= self.max_retries:
-                    self.logger.info(f"Waiting {self.retry_delay} seconds before retry...")
+                    self.logger.info("Waiting %s seconds before retry...", self.retry_delay)
                     await asyncio.sleep(self.retry_delay)
 
         return init_success
@@ -218,7 +336,7 @@ class ServerRunManager:
         """Run server with SSE (Server-Sent Events) transport over HTTP."""
         from mcp.server.sse import SseServerTransport
         from starlette.responses import Response
-        import uvicorn
+        import uvicorn  # inline import: heavy, and only the HTTP transports need it
 
         init_options = InitializationOptions(
             server_name=SERVER_NAME,
@@ -237,6 +355,10 @@ class ServerRunManager:
             ),
         )
 
+        # Remote transport: filesystem tools are filtered out of tools/list and
+        # refused on tools/call. See MemoryServer.local_only_tools().
+        self.server.remote_transport = True
+
         sse = SseServerTransport("/messages/")
         server_instance = self.server.server
 
@@ -251,6 +373,9 @@ class ServerRunManager:
                         return
 
             path = scope.get("path", "")
+            if not await _sse_request_is_allowed(path, scope, receive, send):
+                return
+
             if path == "/sse":
                 async with sse.connect_sse(scope, receive, send) as streams:
                     await server_instance.run(
@@ -273,7 +398,10 @@ class ServerRunManager:
         from ..config import safe_get_int_env
         sse_host = os.environ.get('MCP_SSE_HOST', MCP_SSE_HOST)
         sse_port = safe_get_int_env('MCP_SSE_PORT', MCP_SSE_PORT, min_value=1024, max_value=65535)
-        self.logger.info(f"Starting SSE transport on {sse_host}:{sse_port}")
+
+        _assert_bind_is_authenticated(sse_host, sse_port)
+
+        self.logger.info("Starting SSE transport on %s:%s", _sanitize_log_value(sse_host), sse_port)
         config = uvicorn.Config(
             app,
             host=sse_host,
@@ -295,10 +423,14 @@ class ServerRunManager:
         OAuth 2.1 endpoints (discovery, DCR, authorization, token) alongside
         the MCP transport endpoint, and requires Bearer token auth on /mcp.
         """
-        import uvicorn
+        import uvicorn  # inline import: heavy, and only the HTTP transports need it
         from starlette.responses import Response as StarletteResponse
         from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
         from ..config import OAUTH_ENABLED, API_KEY
+
+        # Remote transport: filesystem tools are filtered out of tools/list and
+        # refused on tools/call. See MemoryServer.local_only_tools().
+        self.server.remote_transport = True
 
         server_instance = self.server.server
         session_manager = StreamableHTTPSessionManager(
@@ -407,58 +539,19 @@ class ServerRunManager:
 
         async def _check_auth_from_scope(scope, receive, send) -> bool:
             """Validate auth on /mcp requests. Returns True if authorized."""
-            from ..web.oauth.middleware import (
-                authenticate_bearer_token,
-                authenticate_api_key,
-            )
-
-            # Extract headers from ASGI scope
-            headers = dict(scope.get("headers", []))
-            auth_header = headers.get(b"authorization", b"").decode("latin-1")
-            api_key_header = headers.get(b"x-api-key", b"").decode("latin-1")
-
-            # Try Bearer token (OAuth)
-            is_bearer = auth_header.lower().startswith("bearer ")
-            token = auth_header[7:] if is_bearer else ""
-
-            # Try Bearer token (OAuth)
-            if is_bearer and OAUTH_ENABLED:
-                result = await authenticate_bearer_token(token)
-                if result.authenticated:
-                    return True
-
-            # Try API key via header
-            if api_key_header and API_KEY:
-                result = authenticate_api_key(api_key_header)
-                if result.authenticated:
-                    return True
-
-            # Try Bearer token as API key fallback
-            if is_bearer and API_KEY:
-                result = authenticate_api_key(token)
-                if result.authenticated:
-                    return True
-
-            # Auth failed - send 401
-            from ..config import OAUTH_ISSUER as _issuer
-            _resource_metadata_url = f"{_issuer.rstrip('/')}/.well-known/oauth-protected-resource"
-            _www_auth = f'Bearer resource_metadata="{_resource_metadata_url}"' if OAUTH_ENABLED and _issuer else "Bearer"
-            response = StarletteResponse(
-                '{"error":"unauthorized","error_description":"Valid Bearer token or API key required"}',
-                status_code=401,
-                headers={
-                    "WWW-Authenticate": _www_auth,
-                    "Content-Type": "application/json",
-                },
-            )
-            await response(scope, receive, send)
-            return False
+            return await check_transport_auth(scope, receive, send)
 
         # Re-read env at runtime; see run_sse() for rationale.
         from ..config import safe_get_int_env
         sse_host = os.environ.get('MCP_SSE_HOST', MCP_SSE_HOST)
         sse_port = safe_get_int_env('MCP_SSE_PORT', MCP_SSE_PORT, min_value=1024, max_value=65535)
-        self.logger.info(f"Starting Streamable HTTP transport on {sse_host}:{sse_port}")
+        # Same guard as SSE. /mcp gates on `OAUTH_ENABLED or API_KEY`, so with
+        # neither set it serves the full tool surface unauthenticated, exactly
+        # like SSE did. The advisory named SSE because that transport had no
+        # gate at all; the unauthenticated-bind case is common to both.
+        _assert_bind_is_authenticated(sse_host, sse_port)
+
+        self.logger.info("Starting Streamable HTTP transport on %s:%s", _sanitize_log_value(sse_host), sse_port)
         config = uvicorn.Config(
             app,
             host=sse_host,
@@ -478,13 +571,13 @@ class ServerRunManager:
             # Check if this contains the LM Studio cancelled notification error
             if 'notifications/cancelled' in error_str or 'ValidationError' in error_str:
                 self.logger.info("LM Studio sent a cancelled notification - this is expected behavior")
-                self.logger.debug(f"Full error for debugging: {error_str}")
+                self.logger.debug("Full error for debugging: %s", _sanitize_log_value(error_str))
                 # Don't re-raise - just continue gracefully
             else:
-                self.logger.error(f"ExceptionGroup in server.run: {str(e)}")
+                self.logger.error("ExceptionGroup in server.run: %s", _sanitize_log_value(e))
                 self.logger.error(traceback.format_exc())
                 raise
         else:
-            self.logger.error(f"Error in server.run: {str(e)}")
+            self.logger.error("Error in server.run: %s", _sanitize_log_value(e))
             self.logger.error(traceback.format_exc())
             raise

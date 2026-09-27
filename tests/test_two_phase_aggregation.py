@@ -1,4 +1,6 @@
 """Tests for two-phase aggregation logic (PR #78)."""
+import json
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -9,7 +11,7 @@ def mock_graph():
     g.common_neighbors = AsyncMock(return_value=[])
     g.get_entities_for_memory = AsyncMock(return_value=[])
     g.find_connected = AsyncMock(return_value=[])
-    g.get_entity_profile = AsyncMock(return_value={"count": 5, "memory_count": 5})
+    g.get_entity_profile = AsyncMock(return_value={"memory_count": 5})
     g.list_entities = AsyncMock(return_value=[
         {"entity_name": "python", "count": 10},
         {"entity_name": "testing", "count": 5},
@@ -95,13 +97,166 @@ class TestBuildKnowledgeMap:
         from mcp_memory_service.server.handlers.graph import _build_knowledge_map
         graph = AsyncMock()
         graph.find_memories_by_entity = AsyncMock(return_value=["hash1"])
-        graph.get_entity_profile = AsyncMock(return_value={"count": 10, "entity_types": ["language"]})
+        graph.get_entity_profile = AsyncMock(return_value={"memory_count": 10, "entity_types": ["language"]})
         entities = [{"entity_name": "python", "count": 10}]
         chunks = [{"hash": "hash1", "content": "about python", "relevance": 0.9}]
         result = await _build_knowledge_map(graph, entities, chunk_pool=chunks, chunks_per_entity=3)
         assert len(result) == 1
         assert result[0]["entity_id"] == "python"
         assert result[0]["name"] == "python"
+
+    @pytest.mark.asyncio
+    async def test_unmatched_entity_does_not_inherit_query_chunks(self):
+        from mcp_memory_service.server.handlers.graph import _build_knowledge_map
+
+        graph = AsyncMock()
+        graph.find_memories_by_entity = AsyncMock(return_value=["other-hash"])
+        graph.get_entity_profile = AsyncMock(return_value={"memory_count": 2})
+        entities = [{"entity_name": "unrelated"}]
+        chunks = [{"hash": "query-hash", "content": "query result", "relevance": 0.9}]
+
+        result = await _build_knowledge_map(graph, entities, chunks, chunks_per_entity=3)
+
+        assert result[0]["top_chunks"] == []
+        assert result[0]["summary"] == ""
+        assert result[0]["relation_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_selecting_chunk_survives_the_capped_entity_lookup(self):
+        """#1152: a hot entity's selecting chunk must not fall off the limit=20 window.
+
+        find_memories_by_entity is capped and ordered oldest first, so an entity
+        with more links than the cap comes back without its newest ones. If the
+        chunk that caused the entity to be selected is one of those, the entity
+        was returned with no chunks and a blank summary.
+        """
+        from mcp_memory_service.server.handlers.graph import _build_knowledge_map
+
+        graph = AsyncMock()
+        # The 20 oldest links, none of which is the retrieved chunk.
+        graph.find_memories_by_entity = AsyncMock(
+            return_value=[f"old-{i}" for i in range(20)]
+        )
+        graph.get_entity_profile = AsyncMock(return_value={"memory_count": 25})
+        entities = [{"entity_name": "hot-entity"}]
+        chunks = [{"hash": "query-hash", "content": "The matching memory.", "relevance": 0.9}]
+
+        result = await _build_knowledge_map(
+            graph,
+            entities,
+            chunks,
+            chunks_per_entity=3,
+            hashes_by_entity={"hot-entity": {"query-hash"}},
+        )
+
+        assert [c["hash"] for c in result[0]["top_chunks"]] == ["query-hash"]
+        assert result[0]["summary"] != ""
+
+    @pytest.mark.asyncio
+    async def test_unlinked_entity_still_gets_no_chunks_with_the_map(self):
+        """The union must not hand an entity a chunk it was never linked to."""
+        from mcp_memory_service.server.handlers.graph import _build_knowledge_map
+
+        graph = AsyncMock()
+        graph.find_memories_by_entity = AsyncMock(return_value=["other-hash"])
+        graph.get_entity_profile = AsyncMock(return_value={"memory_count": 2})
+
+        result = await _build_knowledge_map(
+            graph,
+            [{"entity_name": "unrelated"}],
+            [{"hash": "query-hash", "content": "query result", "relevance": 0.9}],
+            chunks_per_entity=3,
+            hashes_by_entity={"someone-else": {"query-hash"}},
+        )
+
+        assert result[0]["top_chunks"] == []
+        assert result[0]["summary"] == ""
+
+
+class TestSelectExploreEntities:
+    @pytest.mark.asyncio
+    async def test_uses_entities_linked_to_highest_relevance_chunks(self):
+        from mcp_memory_service.server.handlers.graph import _select_explore_entities
+
+        graph = AsyncMock()
+        graph.get_entities_for_memory = AsyncMock(
+            side_effect=lambda memory_hash: {
+                "high": ["Python", "Testing"],
+                "low": ["Testing", "python", "SQLite"],
+            }[memory_hash]
+        )
+        graph.list_entities = AsyncMock(return_value=[{"entity_name": "Global"}])
+        chunks = [
+            {"hash": "low", "relevance": 0.2},
+            {"hash": "high", "relevance": 0.9},
+        ]
+
+        result, hashes_by_entity = await _select_explore_entities(graph, chunks, max_entities=4)
+
+        assert result == [
+            {"entity_name": "Python"},
+            {"entity_name": "Testing"},
+            {"entity_name": "SQLite"},
+        ]
+        graph.list_entities.assert_not_awaited()
+        # The links walked on the way out are reported, so the builder can
+        # guarantee the selecting chunk is among each entity's chunks (#1152).
+        assert hashes_by_entity == {
+            "python": {"high", "low"},
+            "testing": {"high", "low"},
+            "sqlite": {"low"},
+        }
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_global_entities_when_chunks_have_no_links(self):
+        from mcp_memory_service.server.handlers.graph import _select_explore_entities
+
+        graph = AsyncMock()
+        graph.get_entities_for_memory = AsyncMock(return_value=[])
+        graph.list_entities = AsyncMock(return_value=[{"entity_name": "Global", "count": 3}])
+
+        result, hashes_by_entity = await _select_explore_entities(
+            graph, [{"hash": "query-hash", "relevance": 0.9}], max_entities=1
+        )
+
+        assert result == [{"entity_name": "Global", "count": 3}]
+        graph.list_entities.assert_awaited_once_with(limit=1)
+        # The fallback path has no retrieved-chunk link to report, so the
+        # builder still leaves those entities' chunks empty.
+        assert hashes_by_entity == {}
+
+
+class TestMemoryExploreEntitySelection:
+    @pytest.mark.asyncio
+    async def test_handler_uses_entities_linked_to_retrieved_chunks(self, monkeypatch):
+        from mcp_memory_service.server.handlers import graph as graph_handlers
+
+        candidate = MagicMock()
+        candidate.memory.content_hash = "query-hash"
+        candidate.memory.content = "A query-matching memory."
+        candidate.relevance_score = 0.9
+        server = MagicMock()
+        server.storage.retrieve = AsyncMock(return_value=[candidate])
+
+        graph = AsyncMock()
+        graph.get_entities_for_memory = AsyncMock(return_value=["Relevant"])
+        graph.list_entities = AsyncMock(return_value=[{"entity_name": "Global"}])
+        graph.find_memories_by_entity = AsyncMock(return_value=["query-hash"])
+        graph.get_entity_profile = AsyncMock(
+            return_value={"memory_count": 1, "entity_types": ["topic"]}
+        )
+        monkeypatch.setattr(
+            graph_handlers, "get_graph_storage", AsyncMock(return_value=graph)
+        )
+
+        response = await graph_handlers.handle_memory_explore(
+            server, {"query": "relevant query", "max_entities": 5}
+        )
+        payload = json.loads(response[0].text)
+
+        assert [entity["name"] for entity in payload["entities"]] == ["Relevant"]
+        assert payload["entities"][0]["top_chunks"][0]["hash"] == "query-hash"
+        graph.list_entities.assert_not_awaited()
 
 
 class TestHydrateChunks:

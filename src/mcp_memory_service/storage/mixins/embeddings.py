@@ -7,7 +7,7 @@ import os
 import struct
 import sys
 import traceback
-from typing import List, Optional
+from typing import List
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -233,7 +233,8 @@ class EmbeddingsMixin:
                         # logging plain success — otherwise the requested model is silently
                         # ignored and the user is unaware they are getting MiniLM-384 (#143).
                         requested_base = (self.embedding_model_name or '').split('/')[-1]
-                        if requested_base != 'all-MiniLM-L6-v2':
+                        served_default = getattr(onnx_model, '_is_default_model', True)
+                        if requested_base != 'all-MiniLM-L6-v2' and served_default:
                             logger.warning(
                                 "ONNX backend does not honor the requested embedding model '%s'; "
                                 "it only serves all-MiniLM-L6-v2 (%s-dim). The requested model is "
@@ -252,6 +253,8 @@ class EmbeddingsMixin:
                         logger.warning("ONNX model creation failed, falling back to SentenceTransformer")
                 except ImportError as e:
                     logger.warning(f"ONNX dependencies not available: {e}")
+                except ValueError as e:
+                    raise RuntimeError(f"Invalid ONNX embedding configuration: {e}") from e
                 except Exception as e:
                     logger.warning(f"Failed to initialize ONNX embeddings: {e}")
 
@@ -261,7 +264,7 @@ class EmbeddingsMixin:
             _st_flag = getattr(_st_mod, 'SENTENCE_TRANSFORMERS_AVAILABLE', False) if _st_mod else SENTENCE_TRANSFORMERS_AVAILABLE
             _st_available = _st_flag or SentenceTransformer is not None
             if not _st_available:
-                if not getattr(self, '_hash_fallback_warned', False):
+                if not (_HASH_FALLBACK_WARNED or getattr(self, '_hash_fallback_warned', False)):
                     logger.warning(
                         "No embedding backend available; using hash embeddings (reduced quality). "
                         "Install ML dependencies for semantic search: pip install mcp-memory-service[ml]. "
@@ -372,7 +375,7 @@ class EmbeddingsMixin:
         except Exception as e:
             logger.error(f"Failed to initialize embedding model: {str(e)}")
             logger.error(traceback.format_exc())
-            if not getattr(self, '_hash_fallback_warned', False):
+            if not (_HASH_FALLBACK_WARNED or getattr(self, '_hash_fallback_warned', False)):
                 logger.warning(
                     "No embedding backend available; using hash embeddings (reduced quality). "
                     "Install ML dependencies for semantic search: pip install mcp-memory-service[ml]. "

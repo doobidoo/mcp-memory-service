@@ -128,47 +128,6 @@ class TestBugConsolidation:
         assert len(result) == 2
 
 
-@pytest.mark.skipif(
-    not SENTENCE_TRANSFORMERS_AVAILABLE,
-    reason="Requires real embedding model for semantic dedup"
-)
-class TestDedupSemantic:
-    """Passo 4: dedup com memórias existentes no banco."""
-
-    def _get_harvester(self):
-        from mcp_memory_service.harvest.harvester import SessionHarvester
-        return SessionHarvester(Path("/tmp/fake"))
-
-    def test_is_duplicate_of_existing_method_exists(self):
-        """Método _is_duplicate_of_existing deve existir."""
-        h = self._get_harvester()
-        assert hasattr(h, "_is_duplicate_of_existing"), \
-            "SessionHarvester deve ter método _is_duplicate_of_existing"
-
-    @pytest.mark.asyncio
-    async def test_rejects_if_similar_exists_in_db(self):
-        """Candidato similar a memória existente → rejeitado."""
-        h = self._get_harvester()
-        # Mock storage que retorna memória similar
-        mock_storage = AsyncMock()
-        mock_storage.search.return_value = [
-            {"content": "Seguir padrão spec → tdd para desenvolvimento", "similarity": 0.92}
-        ]
-        h._memory_service = mock_storage
-        result = await h._is_duplicate_of_existing("convenção: Seguir spec → tdd para garantir clareza")
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_accepts_if_no_similar_in_db(self):
-        """Candidato sem similar no banco → aceito."""
-        h = self._get_harvester()
-        mock_storage = AsyncMock()
-        mock_storage.search.return_value = []
-        h._memory_service = mock_storage
-        result = await h._is_duplicate_of_existing("MIR nunca se comunica diretamente com Inji")
-        assert result is False
-
-
 class TestMultiProvider:
     """Passo 5: Multi-provider LLM com fallback."""
 

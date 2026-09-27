@@ -63,6 +63,55 @@ class TestHealthEndpointSecurity:
             pytest.fail("detailed_health_check function not found")
 
 
+class TestMcpHealthEndpointSecurity:
+    """GET /mcp/health must not hand storage statistics to anonymous callers.
+
+    The route stays unauthenticated so liveness probes keep working, so the
+    protection is the response shape: status only, exactly as /api/health was
+    reduced to by GHSA-73hc-m4hx-79pj. That fix never touched web/api/mcp.py,
+    which left this parallel route returning the full get_stats() payload
+    (GHSA-7w86-2vmv-fqwm).
+    """
+
+    @pytest.mark.asyncio
+    async def test_mcp_health_returns_only_status_and_protocol(self):
+        """The anonymous response carries no statistics, backend or tool count."""
+        from mcp_memory_service.web.api.mcp import mcp_health
+
+        assert await mcp_health() == {"status": "healthy", "protocol": "mcp"}
+
+    @pytest.mark.asyncio
+    async def test_mcp_health_does_not_touch_storage(self):
+        """No storage is initialised, so no statistics can reach the response.
+
+        Guards the regression directly: _get_memory_server() raises here, so a
+        handler that reaches for the server at all fails this test.
+        """
+        from unittest import mock
+
+        from mcp_memory_service.web.api import mcp as mcp_module
+
+        with mock.patch.object(
+            mcp_module, "_get_memory_server", side_effect=AssertionError(
+                "/mcp/health must not reach the memory server"
+            )
+        ):
+            assert await mcp_module.mcp_health() == {"status": "healthy", "protocol": "mcp"}
+
+    def test_mcp_health_is_the_only_unauthenticated_mcp_route(self):
+        """Every other MCP route keeps its auth dependency."""
+        from mcp_memory_service.web.api.mcp import router
+
+        unguarded = {
+            route.path for route in router.routes
+            if not [d for d in route.dependant.dependencies
+                    if d.call.__name__ in ("require_read_access", "require_write_access")]
+        }
+        assert unguarded == {"/mcp/health"}, (
+            f"unexpected unauthenticated MCP routes: {unguarded - {'/mcp/health'}}"
+        )
+
+
 class TestNoDatabasePathDisclosure:
     """Verify database_path is not exposed in any health response."""
 

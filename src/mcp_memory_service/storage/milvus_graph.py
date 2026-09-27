@@ -658,7 +658,7 @@ class MilvusGraphStorage:
                 filter=expr,
                 output_fields=[
                     "source_hash", "target_hash", "similarity",
-                    "connection_types", "metadata", "created_at",
+                    "connection_types", "relationship_type", "metadata", "created_at",
                 ],
                 limit=1,
             )
@@ -686,6 +686,7 @@ class MilvusGraphStorage:
                 "target_hash": row["target_hash"],
                 "similarity": row.get("similarity", 0.0),
                 "connection_types": ct,
+                "relationship_type": row.get("relationship_type", "related"),
                 "metadata": meta,
                 "created_at": row.get("created_at", 0.0),
             }
@@ -693,6 +694,43 @@ class MilvusGraphStorage:
         except Exception as exc:
             logger.error("Failed to retrieve association: %s", exc)
             return None
+    async def has_edge(
+        self,
+        source_hash: str,
+        target_hash: str,
+        relationship_type: str,
+    ) -> bool:
+        """Whether the exact directed, typed edge exists.
+
+        get_association() matches either direction and returns a single row
+        with no ordering, so it cannot tell whether the forward derived_from
+        link already exists when a reverse or differently-typed edge is also
+        present. This query is exact (direction + type), so callers that must
+        avoid rewriting an edge they already wrote use it.
+        """
+        if not self._ensure_ready() or not source_hash or not target_hash:
+            return False
+
+        try:
+            sh_esc = escape_expr_value(source_hash)
+            th_esc = escape_expr_value(target_hash)
+            rt_esc = escape_expr_value(relationship_type)
+            expr = (
+                f'(source_hash == "{sh_esc}" and target_hash == "{th_esc}") '
+                f'and relationship_type == "{rt_esc}"'
+            )
+            results = await self._call_client(
+                "query",
+                collection_name=self.collection_name,
+                filter=expr,
+                output_fields=["source_hash"],
+                limit=1,
+            )
+            return bool(results)
+        except Exception as exc:
+            logger.error("Failed to check association: %s", exc)
+            return False
+
 
     async def delete_association(
         self,

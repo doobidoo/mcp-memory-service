@@ -144,3 +144,34 @@ async def test_health_check_detects_orphaned_embeddings(storage):
     is_valid, message, stats = await SqliteHealthChecker().check_health(storage)
     assert stats.get("orphaned_embeddings", 0) >= 1, stats
     assert stats.get("status") == "degraded", stats
+
+
+# ---------------------------------------------------------------------------
+# 4. Health check surfaces missing embeddings (search blind spot)
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_health_check_detects_missing_embeddings(storage):
+    """A live memory with no embedding row must degrade status, not report 'healthy'.
+
+    Regression for the incident in #1225: the memory rows still satisfy tag/time
+    queries and count_all_memories, so counts look right while the rows are invisible
+    to semantic search. missing_embeddings was counted but only orphaned/collision
+    downgraded the status, so this blind spot silently stayed 'healthy'.
+    """
+    from mcp_memory_service.utils.health_check import SqliteHealthChecker
+
+    mem = _make_memory("healthy memory baseline")
+    await storage.store(mem)
+
+    # Drop the embedding row, leaving the (live) memories row behind.
+    rowid = storage.conn.execute(
+        "SELECT id FROM memories WHERE content_hash = ?", (mem.content_hash,)
+    ).fetchone()[0]
+    storage.conn.execute("DELETE FROM memory_embeddings WHERE rowid = ?", (rowid,))
+    storage.conn.commit()
+
+    is_valid, message, stats = await SqliteHealthChecker().check_health(storage)
+    assert stats.get("missing_embeddings", 0) >= 1, stats
+    assert stats.get("orphaned_embeddings", 0) == 0, stats
+    assert stats.get("status") == "degraded", stats

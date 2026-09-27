@@ -40,16 +40,23 @@ class MemorySearchTool(BaseTool):
         return asyncio.run(self._arun(query, tags or [], limit))
 
     async def _arun(self, query: str, tags: list[str] = None, limit: int = 5) -> str:
-        payload = {"query": query, "limit": limit}
-        if tags:
-            payload["tags"] = tags
-
+        # /api/search ranks by query but cannot filter tags; /api/search/by-tag filters
+        # tags but ignores the query and caps nothing. With tags, take the complete
+        # scope: ranking first and filtering afterwards only sees the top of the list
+        # and silently drops a match that ranks below it.
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{MEMORY_URL}/api/memories/search",
-                json=payload,
-            )
-            memories = response.json().get("memories", [])
+            if tags:
+                response = await client.post(
+                    f"{MEMORY_URL}/api/search/by-tag",
+                    json={"tags": tags, "match_all": True},  # default is ANY, not ALL
+                )
+            else:
+                response = await client.post(
+                    f"{MEMORY_URL}/api/search",
+                    json={"query": query, "n_results": max(1, min(limit, 100))},  # 422 outside 1-100
+                )
+            response.raise_for_status()  # else an error body reads as "no memories"
+            memories = [h["memory"] for h in response.json()["results"]][:limit]
 
         if not memories:
             return "No relevant memories found."
@@ -164,13 +171,11 @@ analysis_crew.kickoff()
 # Crew 2: Reporting team retrieves across crew boundary
 async with httpx.AsyncClient() as client:
     response = await client.post(
-        f"{MEMORY_URL}/api/memories/search",
-        json={
-            "query": "API rate limiting",
-            "tags": ["crew:analysis-team"],  # Cross-crew retrieval
-        },
+        f"{MEMORY_URL}/api/search/by-tag",
+        json={"tags": ["crew:analysis-team"]},  # Cross-crew retrieval
     )
-    findings = response.json()["memories"]
+    # No limit on by-tag — it returns the crew's entire history; cap it.
+    findings = [h["memory"] for h in response.json()["results"]][:10]
 ```
 
 ## Post-Task Knowledge Base Inspection

@@ -1,3 +1,7 @@
+# The only coverage configuration in this repository. pyproject.toml carried a second
+# [tool.coverage.*] block until #1269; coverage.py reads the first config file it finds
+# and .coveragerc comes first, so that block was never read and the two drifted apart
+# (#1260 found deleted modules still listed in both). Keep it that way: one list.
 [run]
 source = src/mcp_memory_service
 omit =
@@ -28,8 +32,6 @@ omit =
     */utils/cache_manager.py
     */utils/directory_ingestion.py
     */utils/health_check.py
-    */utils/http_server_manager.py
-    */utils/port_detection.py
     */utils/quality_analytics.py
     */utils/startup_orchestrator.py
     */utils/time_parser.py
@@ -37,8 +39,6 @@ omit =
     */utils/db_utils.py
     */utils/content_splitter.py
     */utils/debug.py
-    # HTTP client - minimal usage
-    */storage/http_client.py
     # Milvus backend - tested in dedicated test-milvus-docker CI job
     */storage/milvus.py
     */storage/milvus_graph.py

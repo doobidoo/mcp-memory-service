@@ -213,7 +213,7 @@
             
             addLogEntry('🔌 Connecting to SSE stream...', 'connection');
             
-            eventSource = new EventSource('/api/events');
+            eventSource = new EventSource('../api/events');
             
             eventSource.onopen = function(event) {
                 updateStatus(true);
@@ -336,7 +336,7 @@
                     metadata: { source: 'sse_test_page' }
                 };
                 
-                const storeResponse = await fetch('/api/memories', {
+                const storeResponse = await fetch('../api/memories', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(testMemory)
@@ -348,7 +348,7 @@
                     
                     // Wait a moment, then perform a search
                     setTimeout(async () => {
-                        const searchResponse = await fetch('/api/search', {
+                        const searchResponse = await fetch('../api/search', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ query: 'SSE test memory', n_results: 3 })
@@ -360,7 +360,7 @@
                             // Wait another moment, then delete the memory
                             setTimeout(async () => {
                                 if (result.content_hash) {
-                                    const deleteResponse = await fetch(`/api/memories/${result.content_hash}`, {
+                                    const deleteResponse = await fetch(`../api/memories/${result.content_hash}`, {
                                         method: 'DELETE'
                                     });
                                     

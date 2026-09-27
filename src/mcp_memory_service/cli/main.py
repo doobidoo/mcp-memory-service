@@ -497,7 +497,12 @@ def launch(http_host, http_port, detach, storage_backend, debug):
 @cli.command()
 @click.option("--host", "http_host", default=None, help="Host to check")
 @click.option("--port", "http_port", default=None, type=int, help="Port to check")
-def stop(http_host, http_port):
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Terminate a port owner even when it is not MCP Memory Service",
+)
+def stop(http_host, http_port, force):
     """Stop a background memory server."""
     from .lifecycle import stop as _stop
     args = []
@@ -505,6 +510,8 @@ def stop(http_host, http_port):
         args.extend(["--host", str(http_host)])
     if http_port is not None:
         args.extend(["--port", str(http_port)])
+    if force:
+        args.append("--force")
     _stop.main(args=args, prog_name="memory stop", standalone_mode=False)
 
 

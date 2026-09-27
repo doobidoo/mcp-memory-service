@@ -49,6 +49,17 @@ if raw_value:
 MEMORY_OVERHEAD_CHARS = 200
 
 
+def _estimate_memory_size(memory: Dict[str, Any]) -> int:
+    """Estimate formatted memory size, including variable-length tag text."""
+    content_size = len(memory.get("content") or "")
+    tags = memory.get("tags") or []
+    if isinstance(tags, list):
+        tags_size = sum(len(tag) for tag in tags) + max(0, len(tags) - 1) * 2
+    else:
+        tags_size = len(tags)
+    return content_size + tags_size + MEMORY_OVERHEAD_CHARS
+
+
 def truncate_memories(
     memories: List[Dict[str, Any]],
     max_chars: int = 0,
@@ -95,7 +106,7 @@ def truncate_memories(
         return [], empty_meta
 
     # Calculate estimated size for each memory, including overhead
-    memory_sizes = [(len(m.get("content") or "") + MEMORY_OVERHEAD_CHARS) for m in memories]
+    memory_sizes = [_estimate_memory_size(memory) for memory in memories]
     total_estimated_chars = sum(memory_sizes)
     total_results = len(memories)
 

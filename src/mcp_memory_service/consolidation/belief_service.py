@@ -15,11 +15,11 @@ from typing import List, Optional
 from .belief import (
     CONFIDENCE_FLOOR,
     LAMBDA,
-    PROVENANCE_FLOOR,
     derive_confidence,
     should_promote,
     should_supersede,
 )
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -90,11 +90,23 @@ def _hash_content(content: str) -> str:
 
 
 class BeliefService:
+    # Default belief-grouping similarity. Decoupled from the store() dedup
+    # threshold (MCP_SEMANTIC_DEDUP_THRESHOLD) so the two — which serve opposite
+    # intents: dedup *rejects* a write, grouping *needs* the write — can be tuned
+    # independently (issue #1216). Overridable via MCP_BELIEF_SIMILARITY_THRESHOLD.
     SIMILARITY_THRESHOLD = 0.85
     """Derives and manages beliefs from observations."""
 
     def __init__(self, storage):
         self.storage = storage
+        # Parsed with the repo's fallback pattern: an invalid value logs an
+        # error and keeps the default rather than raising out of __init__ and
+        # disabling belief derivation.
+        from ..config import safe_get_float_env
+        self.SIMILARITY_THRESHOLD = safe_get_float_env(
+            "MCP_BELIEF_SIMILARITY_THRESHOLD", self.SIMILARITY_THRESHOLD,
+            min_value=0.0, max_value=1.0,
+        )
 
     async def derive_beliefs(self) -> dict:
         """Run belief derivation cycle. Called by scheduler.
@@ -182,11 +194,11 @@ class BeliefService:
 
                 except Exception as e:
                     stats["errors"].append(str(e))
-                    logger.warning(f"[belief] Error deriving belief: {e}")
+                    logger.warning("[belief] Error deriving belief: %s", _sanitize_log_value(str(e)))
 
         except Exception as e:
             stats["errors"].append(str(e))
-            logger.error(f"[belief] Derivation cycle failed: {e}", exc_info=True)
+            logger.error("[belief] Derivation cycle failed: %s", _sanitize_log_value(str(e)), exc_info=True)
 
         logger.info(
             "[belief] Derivation complete: created=%d updated=%d promoted=%d superseded=%d",
@@ -272,7 +284,7 @@ class BeliefService:
                 for r in rows
             ]
         except Exception as e:
-            logger.error(f"[belief] get_beliefs failed: {e}")
+            logger.error("[belief] get_beliefs failed: %s", _sanitize_log_value(str(e)))
             return []
 
     # --- Internal helpers ---
@@ -385,7 +397,7 @@ class BeliefService:
             if not h:
                 continue
             try:
-                mem = await self.storage.get_memory_by_hash(h)
+                mem = await self.storage.get_by_hash(h)
                 if mem:
                     results.append(self._obs_to_dict(mem))
             except Exception:

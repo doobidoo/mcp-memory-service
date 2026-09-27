@@ -60,3 +60,26 @@ class TestPatternExtractor:
         msg = ParsedMessage(role="user", text="decided")
         candidates = extractor.extract(msg)
         assert len(candidates) == 0
+
+    def test_meta_discussion_without_convention_is_filtered(self, extractor):
+        """The meta-discussion filter's escape hatch is convention-only
+        (Codeberg PR #322):
+        a bug/decision/learning candidate about the harvest system itself
+        must still be discarded, even though it matches a real pattern."""
+        msg = ParsedMessage(
+            role="assistant",
+            text="The harvest pipeline's root cause was a race condition in the rewriter that blocked all extraction.",
+        )
+        candidates = extractor.extract(msg)
+        assert candidates == []
+
+    def test_meta_discussion_with_convention_survives(self, extractor):
+        """The narrower escape hatch still lets real conventions about the
+        system itself through, which is the one case it exists for."""
+        msg = ParsedMessage(
+            role="assistant",
+            text="Convention: always use WAL mode for the harvest pipeline's extractor cache.",
+        )
+        candidates = extractor.extract(msg)
+        types = [c.memory_type for c in candidates]
+        assert "convention" in types

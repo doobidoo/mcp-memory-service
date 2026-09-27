@@ -37,13 +37,13 @@ async def search_memory(query: str) -> str:
     """Search long-term memory for relevant context."""
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{MEMORY_URL}/api/memories/search",
-            json={"query": query, "limit": 5},
+            f"{MEMORY_URL}/api/search",
+            json={"query": query, "n_results": 5},
         )
-        memories = response.json()["memories"]
-        if not memories:
+        hits = response.json()["results"]
+        if not hits:
             return "No relevant memories found."
-        return "\n".join(f"- {m['content']}" for m in memories)
+        return "\n".join(f"- {h['memory']['content']}" for h in hits)
 
 @tool
 async def store_memory(content: str, tags: list[str] = None) -> str:
@@ -92,20 +92,18 @@ class AgentState(TypedDict):
 
 
 async def retrieve_memory_node(state: AgentState) -> dict:
-    """Retrieve relevant memory before calling the LLM."""
-    last_message = state["messages"][-1]
-    query = last_message.content if hasattr(last_message, "content") else str(last_message)
-
+    """Retrieve this agent's memory before calling the LLM."""
+    # Scope to this agent with by-tag, which returns every memory it wrote. Ranking
+    # with /api/search first and filtering by tag afterwards would only see the top
+    # of the list, so in a shared store a match below that window disappears.
+    # by-tag ignores the query and caps nothing, so cap here.
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{MEMORY_URL}/api/memories/search",
-            json={
-                "query": query,
-                "limit": 5,
-                "tags": [f"agent:{state['agent_id']}"],  # Scope to this agent
-            },
+            f"{MEMORY_URL}/api/search/by-tag",
+            json={"tags": [f"agent:{state['agent_id']}"]},
         )
-        memories = response.json().get("memories", [])
+        response.raise_for_status()
+        memories = [h["memory"] for h in response.json()["results"]][:5]
 
     if memories:
         context = "Relevant memory:\n" + "\n".join(f"- {m['content']}" for m in memories)
@@ -176,13 +174,12 @@ researcher_result = await researcher_agent.ainvoke({
 # Writer graph — retrieves memories from researcher
 async with httpx.AsyncClient() as client:
     response = await client.post(
-        f"{MEMORY_URL}/api/memories/search",
-        json={
-            "query": "API rate limits",
-            "tags": ["agent:researcher"],  # Read from researcher's memory
-        },
+        f"{MEMORY_URL}/api/search/by-tag",
+        json={"tags": ["agent:researcher"]},  # Read from researcher's memory
     )
-    shared_context = response.json()["memories"]
+    # by-tag takes no limit: it returns every memory the researcher wrote, so cap
+    # it before this reaches a context window.
+    shared_context = [h["memory"] for h in response.json()["results"]][:10]
 
 writer_result = await writer_agent.ainvoke({
     "messages": [HumanMessage(content="Write a summary of API limits")],

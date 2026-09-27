@@ -42,12 +42,37 @@ curl -X POST http://localhost:8000/api/memories \
 # Stored with tags: ["api", "agent:researcher"]
 ```
 
+### Tags as inter-agent signals
+
+The same mechanism doubles as a message bus between agents, with no extra protocol and
+no extra infrastructure. One agent writes a memory carrying a sentinel tag; another
+filters on that tag to pick it up. A five-agent cluster runs its cross-agent
+communication this way.
+
+```python
+# Cluster agent stores a learning and flags it for the local agent
+await client.post(f"{BASE_URL}/api/memories", json={
+    "content": "Rate limit on provider X is 50 RPM — switch to provider Y after 40",
+    "tags": ["api", "limits", "msg:cluster"],       # sentinel tag
+}, headers={"X-Agent-ID": "cluster-agent-3"})
+
+# Local agent polls for cluster messages.
+# Tag search, not semantic search: POST /api/search ignores a `tags` field instead
+# of rejecting it, so a filtered-looking query would come back unfiltered.
+response = await client.post(f"{BASE_URL}/api/search/by-tag", json={
+    "tags": ["msg:cluster"],
+})
+# by-tag takes no limit and returns every match, so cap it on the client. With
+# several tags also pass match_all: True — the default matches ANY of them.
+messages = [hit["memory"] for hit in response.json()["results"]][:20]
+```
+
 ## Framework-Specific Guides
 
 - [LangGraph](langgraph.md) — Memory nodes in StateGraph, cross-graph sharing
 - [CrewAI](crewai.md) — Custom tools, agent-scoped and crew-scoped memory
 - [AutoGen](autogen.md) — Context injection, function tool schema, conversation dedup
-- [HTTP Generic](http-generic.md) — All 15 REST endpoints, auth patterns, async examples
+- [HTTP Generic](http-generic.md) — REST endpoints, auth patterns, async examples. The live list is at `/api/docs` on a running server.
 
 ## Key Differentiators vs Alternatives
 
@@ -61,4 +86,4 @@ curl -X POST http://localhost:8000/api/memories \
 | Privacy | Cloud | Cloud | Partial | **100% local** |
 | Hybrid search | No | Yes | Manual | **Yes (BM25 + vector)** |
 | MCP protocol | No | No | No | **Yes** |
-| REST API | Yes | Yes | Manual | **Yes (15 endpoints)** |
+| REST API | Yes | Yes | Manual | **Yes (any HTTP client)** |

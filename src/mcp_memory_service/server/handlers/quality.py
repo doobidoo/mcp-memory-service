@@ -619,7 +619,9 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
                     "types": {t: sum(1 for i in insights if i.insight_type == t) for t in ("pattern", "trend", "gap")},
                 }
             else:
-                stored = await store_insights(insights, storage)
+                from .graph import get_graph_storage
+                insight_graph = await get_graph_storage()
+                stored = await store_insights(insights, storage, graph=insight_graph)
                 report["steps"]["insights"] = {
                     "generated": len(insights),
                     "stored": len(stored),
@@ -635,7 +637,11 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
     from mcp_memory_service.consolidation.contradictions import detect_contradictions, CONTRADICTION_ENABLED
     if CONTRADICTION_ENABLED:
         try:
-            contradiction_result = await detect_contradictions(storage, dry_run=dry_run)
+            from .graph import get_graph_storage
+            contradiction_graph = await get_graph_storage() if not dry_run else None
+            contradiction_result = await detect_contradictions(
+                storage, dry_run=dry_run, graph=contradiction_graph
+            )
             report["steps"]["contradictions"] = contradiction_result
         except Exception as e:
             report["steps"]["contradictions"] = {"error": str(e)}

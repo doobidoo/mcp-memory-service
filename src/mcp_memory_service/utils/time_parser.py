@@ -20,8 +20,10 @@ for retrieving memories based on when they were stored.
 """
 import re
 import logging
-from datetime import datetime, timedelta, date, time
+from datetime import datetime, timedelta, date, time, timezone
 from typing import Tuple, Optional, Dict
+
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +155,7 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
                 end_dt = datetime.combine(specific_date, time.max)
                 return start_dt.timestamp(), end_dt.timestamp()
             except ValueError as e:
-                logger.warning(f"Invalid date: {e}")
+                logger.warning("Invalid date: %s", _sanitize_log_value(e))
                 return None, None
             
         # Check for specific dates (MM/DD/YYYY)
@@ -174,7 +176,7 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
                 end_dt = datetime.combine(specific_date, time.max)
                 return start_dt.timestamp(), end_dt.timestamp()
             except ValueError as e:
-                logger.warning(f"Invalid date: {e}")
+                logger.warning("Invalid date: %s", _sanitize_log_value(e))
                 return None, None
         
         # Relative days: "X days ago", "yesterday", "today"
@@ -329,7 +331,7 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
         return None, None
         
     except Exception as e:
-        logger.error(f"Error parsing time expression: {e}")
+        logger.error("Error parsing time expression: %s", _sanitize_log_value(e))
         return None, None
 
 def get_time_of_day_range(target_date: date, time_period: str) -> Tuple[float, float]:
@@ -401,36 +403,17 @@ def get_last_period_range(period: str) -> Tuple[float, float]:
         start_dt = datetime(last_year, 1, 1, 0, 0, 0)
         end_dt = datetime(last_year, 12, 31, 23, 59, 59)
     elif period in ["summer", "spring", "winter", "fall", "autumn"]:
-        # Last season
+        # Select the most recent occurrence that has fully ended. Starting from
+        # this year's occurrence also handles winter's year boundary without
+        # treating the current or upcoming season as "last".
         season_info = NAMED_PERIODS[period]
-        current_year = today.year
-        
-        # Determine if we're currently in this season
-        current_month = today.month
-        current_day = today.day
-        is_current_season = False
-        
-        # Check if today falls within the season's date range
-        if period in ["winter"]:  # Winter spans year boundary
-            if (current_month >= season_info["start_month"] or 
-                (current_month <= season_info["end_month"] and 
-                 current_day <= season_info["end_day"])):
-                is_current_season = True
-        else:
-            if (current_month >= season_info["start_month"] and current_month <= season_info["end_month"] and
-                current_day >= season_info["start_day"] if current_month == season_info["start_month"] else True and
-                current_day <= season_info["end_day"] if current_month == season_info["end_month"] else True):
-                is_current_season = True
-        
-        # If we're currently in the season, get last year's season
-        if is_current_season:
-            year = current_year - 1
-        else:
-            year = current_year
-            
-        # Calculate season date range (handles winter's year boundary)
-        context_month = current_month if is_current_season else None
-        start_dt, end_dt = _calculate_season_date_range(period, season_info, year, context_month)
+        year = today.year
+        start_dt, end_dt = _calculate_season_date_range(period, season_info, year)
+        while end_dt.date() >= today:
+            year -= 1
+            start_dt, end_dt = _calculate_season_date_range(
+                period, season_info, year
+            )
     else:
         # Fallback - last 24 hours
         end_dt = now
@@ -577,24 +560,24 @@ def get_named_period_range(period_name: str) -> Tuple[Optional[float], Optional[
             month = info["month"]
             day = info["day"]
             window = info.get("window", 1)  # Default 1-day window
-            
-            # Special case for Thanksgiving (fourth Thursday in November)
-            if day == -1 and month == 11:  # Thanksgiving
-                # Find the fourth Thursday in November
-                first_day = date(current_year, 11, 1)
-                # Find first Thursday
-                first_thursday = first_day + timedelta(days=((3 - first_day.weekday()) % 7))
-                # Fourth Thursday is 3 weeks later
-                thanksgiving = first_thursday + timedelta(weeks=3)
-                day = thanksgiving.day
-            
-            # Check if the holiday has passed this year
-            is_past = (current_month > month or 
-                        (current_month == month and current_day > day + window))
-                        
-            year = current_year if not is_past else current_year - 1
-            target_date = date(year, month, day)
-            
+
+            def _holiday_date(year: int) -> date:
+                if day == -1 and month == 11:  # Thanksgiving
+                    # Fourth Thursday in November
+                    first_day = date(year, 11, 1)
+                    first_thursday = first_day + timedelta(days=((3 - first_day.weekday()) % 7))
+                    return first_thursday + timedelta(weeks=3)
+                return date(year, month, day)
+
+            # Use the most recent occurrence whose window has started. One that
+            # is still ahead holds no memories yet. Next year's is checked
+            # first because New Year's window opens in late December.
+            today = date(current_year, current_month, current_day)
+            for year in (current_year + 1, current_year, current_year - 1):
+                target_date = _holiday_date(year)
+                if target_date - timedelta(days=window) <= today:
+                    break
+
             # Create date range with window
             start_date = target_date - timedelta(days=window)
             end_date = target_date + timedelta(days=window)
@@ -721,3 +704,18 @@ def extract_time_expression(query: str) -> Tuple[str, Tuple[Optional[float], Opt
     cleaned_query = re.sub(r'\s+', ' ', cleaned_query).strip()
     
     return cleaned_query, (start_ts, end_ts)
+
+def parse_boundary(value: str) -> float:
+    """Epoch for an ``after=``/``before=`` filter string.
+
+    A bare ``YYYY-MM-DD`` is a calendar day and resolves against the host's local
+    day, matching what "today"/"yesterday" and the date-based deletion paths use.
+    A datetime with a time component is an instant, and is read as UTC unless it
+    carries its own offset.
+    """
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is not None:
+        return dt.timestamp()
+    if len(value.strip()) == 10:  # date only: host-local calendar day
+        return dt.timestamp()
+    return dt.replace(tzinfo=timezone.utc).timestamp()

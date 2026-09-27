@@ -3,11 +3,9 @@
 import sqlite3
 import logging
 import time
-import traceback
-from datetime import datetime, date, timezone
+from datetime import datetime, date
 from typing import List, Tuple, Optional
 
-from ...models.memory import Memory
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +66,7 @@ class DeleteMixin:
 
         except Exception as e:
             try:
-                self.conn.rollback()
+                await self._run_in_thread(self.conn.rollback)
             except sqlite3.OperationalError:
                 pass
             error_msg = f"Failed to delete memory: {str(e)}"
@@ -171,7 +169,7 @@ class DeleteMixin:
 
             def _delete_by_tag():
                 cursor = self.conn.execute(
-                    "SELECT id, content_hash FROM memories WHERE (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\' AND deleted_at IS NULL",
+                    "SELECT id, content_hash FROM memories WHERE (',' || tags || ',') LIKE ? ESCAPE '\\' AND deleted_at IS NULL",
                     (exact_match_pattern,)
                 )
                 rows = cursor.fetchall()
@@ -195,7 +193,7 @@ class DeleteMixin:
                     )
 
                 cursor = self.conn.execute(
-                    "UPDATE memories SET deleted_at = ? WHERE (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\' AND deleted_at IS NULL",
+                    "UPDATE memories SET deleted_at = ? WHERE (',' || tags || ',') LIKE ? ESCAPE '\\' AND deleted_at IS NULL",
                     (time.time(), exact_match_pattern)
                 )
                 self.conn.commit()
@@ -224,7 +222,7 @@ class DeleteMixin:
                 return 0, "No tags provided", []
 
             stripped_tags = [tag.strip() for tag in tags]
-            conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
+            conditions = " OR ".join(["(',' || tags || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
             params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             select_query = f'SELECT id, content_hash FROM memories WHERE ({conditions}) AND deleted_at IS NULL'
@@ -280,8 +278,8 @@ class DeleteMixin:
             if not self.conn:
                 return 0, "Database not initialized"
 
-            start_ts = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc).timestamp()
-            end_ts = datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc).timestamp()
+            start_ts = datetime.combine(start_date, datetime.min.time()).timestamp()
+            end_ts = datetime.combine(end_date, datetime.max.time()).timestamp()
 
             def _select_timeframe():
                 if tag:
@@ -290,7 +288,7 @@ class DeleteMixin:
                         """
                         SELECT content_hash FROM memories
                         WHERE created_at >= ? AND created_at <= ?
-                        AND (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'
+                        AND (',' || tags || ',') LIKE ? ESCAPE '\\'
                         AND deleted_at IS NULL
                     """,
                         (start_ts, end_ts, f"%,{_escape_like(stripped_tag)},%"),
@@ -323,7 +321,7 @@ class DeleteMixin:
             if not self.conn:
                 return 0, "Database not initialized"
 
-            before_ts = datetime.combine(before_date, datetime.min.time(), tzinfo=timezone.utc).timestamp()
+            before_ts = datetime.combine(before_date, datetime.min.time()).timestamp()
 
             def _select_before_date():
                 if tag:
@@ -332,7 +330,7 @@ class DeleteMixin:
                         """
                         SELECT content_hash FROM memories
                         WHERE created_at < ?
-                        AND (',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'
+                        AND (',' || tags || ',') LIKE ? ESCAPE '\\'
                         AND deleted_at IS NULL
                     """,
                         (before_ts, f"%,{_escape_like(stripped_tag)},%"),

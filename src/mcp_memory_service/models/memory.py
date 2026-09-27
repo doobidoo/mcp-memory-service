@@ -254,6 +254,21 @@ class Memory:
         """Get timestamp of last access (Unix timestamp)."""
         return self.metadata.get('last_accessed_at')
 
+    # RFC #1100 - Author identity (multi-agent). Lives in metadata: no schema
+    # change, backward compatible (None = unknown authoring agent).
+    @property
+    def agent_id(self) -> Optional[str]:
+        """Get the authoring agent id (None = unknown)."""
+        return self.metadata.get('agent_id')
+
+    @agent_id.setter
+    def agent_id(self, value: Optional[str]):
+        """Set the authoring agent id; setting None removes it (stays unknown)."""
+        if value:
+            self.metadata['agent_id'] = value
+        else:
+            self.metadata.pop('agent_id', None)
+
     # SHODH Unified API Spec - Source & Trust fields
     @property
     def source_type(self) -> str:

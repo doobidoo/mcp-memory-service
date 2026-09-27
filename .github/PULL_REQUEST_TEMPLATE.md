@@ -1,22 +1,66 @@
-> **This repository is a mirror and does not accept pull requests.**
->
-> Development happens on Codeberg: https://codeberg.org/doobidoo/mcp-memory-service
->
-> Please open your pull request there. Same branch, same diff - it just needs a
-> Codeberg account. Pull requests opened here are not reviewed, not merged, and not
-> covered by CI; only fast-forward pushes of `main` land on this mirror, so there is
-> nothing a PR here can be merged into. A maintainer will close it with a pointer to
-> Codeberg.
->
-> Contribution guide: [CONTRIBUTING.md](../CONTRIBUTING.md)
->
-> **Security vulnerabilities are the one exception and do belong on GitHub** - report
-> them privately through
-> [Security Advisories](https://github.com/doobidoo/mcp-memory-service/security/advisories/new),
-> never in a public pull request or issue. See [SECURITY.md](../SECURITY.md).
+<!--
+  Thanks for sending a patch. A few things that make review fast, none of them
+  mandatory. Delete whatever does not apply.
+-->
+
+## What this changes
+
+<!-- One or two sentences. What behaviour is different after this lands? -->
+
+## Why
+
+<!-- The problem, not the patch. If there is an issue, link it: Fixes #123 -->
+
+## How it was verified
 
 <!--
-  Nothing below this line will be reviewed on GitHub. If you are reading this in the
-  editor: close this tab, open the PR on Codeberg, and the full PR guidelines from
-  CONTRIBUTING.md apply there. Your work is welcome - just on the other forge.
+  What you actually ran, and what it printed. "Should work" is not a result.
+  If you skipped something, say so; that is useful information, not a failing.
 -->
+
+A change under `src/` needs a test, and CI checks that the test is red without
+the change (`tests-prove-fix`). Paste both runs:
+
+```
+# on main (or with your src/ change stashed): must fail
+.venv/bin/pytest tests/<your test file> -q
+
+# on this branch: must pass
+.venv/bin/pytest tests/<your test file> -q
+```
+
+Drive the real code path: the sqlite-vec storage through the `temp_db_path`
+fixture, the real registry, the real handler. A mock of the function under test
+proves nothing about it, and a mock that mirrors the bug passes on both sides.
+Mock only network and external services. See CONTRIBUTING.md, "Testing
+Requirements".
+
+<!--
+  The pre-PR gate is: bash scripts/pr/pre_pr_check.sh
+  It is not required from outside contributors, and a red gate on code you did
+  not touch is not your problem. Say what you saw and we will sort it out.
+-->
+
+## Changelog fragment
+
+A change under `src/` needs `changelog.d/<number>.<category>.md` where `<category>`
+is one of `added`, `fixed`, `removed`, `internal` — using any other category causes
+CI to fail. Usually: bugfix → `fixed`,
+performance/refactor with no user-visible effect → `internal`. See
+`changelog.d/README.md` for the format and an example.
+
+## Notes for the reviewer
+
+<!--
+  Anything that would take a reviewer a while to work out on their own. A design
+  choice you were unsure about, a case you deliberately did not handle, a
+  follow-up you would rather do separately.
+-->
+
+---
+
+Security vulnerabilities do not belong in a pull request. Report them privately
+through [Security Advisories](https://github.com/doobidoo/mcp-memory-service/security/advisories/new).
+See [SECURITY.md](../SECURITY.md).
+
+Contribution guide: [CONTRIBUTING.md](../CONTRIBUTING.md)

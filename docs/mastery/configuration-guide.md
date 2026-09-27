@@ -25,6 +25,8 @@ SQLite-vec options:
 - `MCP_MEMORY_SQLITE_PATH` or `MCP_MEMORY_SQLITEVEC_PATH`: Path to `.db` file. Default `${BASE_DIR}/sqlite_vec.db`.
 - `MCP_MEMORY_SQLITE_PRAGMAS`: CSV list of custom pragmas e.g. `journal_mode=WAL,busy_timeout=15000,cache_size=20000` (recommended for concurrent access).
 
+> **Note:** The service will warn about unrecognized `MCP_MEMORY_*` environment variables that contain `PATH`, `DB`, or `DIR` in their names when falling back to the default database path. This helps catch common typos like `MCP_MEMORY_DB_PATH` instead of `MCP_MEMORY_SQLITE_PATH`.
+
 Cloudflare options (required unless otherwise noted):
 
 - `CLOUDFLARE_API_TOKEN` (required)
@@ -42,19 +44,86 @@ Cloudflare options (required unless otherwise noted):
 - `MCP_EMBEDDING_MODEL`: Model name (default `all-MiniLM-L6-v2`).
 - `MCP_MEMORY_USE_ONNX`: `true|false` toggle for ONNX path.
 
+### Choosing a model
+
+The default works well for English-only content. For memories in other languages, switch
+to a multilingual model:
+
+| Model | Languages | Dimensions | Use case |
+|-------|-----------|-----------|----------|
+| `all-MiniLM-L6-v2` (default) | English only | 384 | Fastest, English-only deployments |
+| `paraphrase-multilingual-MiniLM-L12-v2` | 50+ languages | 384 | Mixed-language or non-English content |
+
+```bash
+export MCP_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
+```
+
+> **Switching models requires re-embedding existing memories.** Cross-language cosine
+> similarity drops from roughly 0.95 to 0.10 otherwise. Both models above are 384-dim,
+> so the switch is a straight re-embed: stop the service, run
+> `python scripts/maintenance/regenerate_embeddings.py` with the new model env var, then
+> restart.
+>
+> A model with a **different dimension** is not that. The script writes new vectors into
+> the existing vector table and cannot change its width, so storage initialization fails
+> with `Dimension mismatch for inserted vector` before anything is re-embedded. Moving to
+> a different dimension means rebuilding the store — see
+> [external embeddings](../deployment/external-embeddings.md) for the failure mode and
+> the migration path.
+
+### Pinning a non-default model
+
+If a custom embedding model fails to load, the service can fall back to the default
+MiniLM (384-dim) — and then every subsequent write fails with a dimension mismatch
+against the existing store. When you pin a non-default model, pin the model path as well
+and set the Hugging Face offline flags, so a load failure surfaces loudly instead of
+degrading into a silent fallback.
+
 ## HTTP/HTTPS Interface
 
 - `MCP_HTTP_ENABLED`: `true|false` to enable HTTP interface.
-- `MCP_HTTP_HOST`: Bind address (default `0.0.0.0`).
+- `MCP_HTTP_HOST`: Bind address (default `127.0.0.1`, localhost only).
 - `MCP_HTTP_PORT`: Port (default `8000`).
+- `MCP_HTTP_ROOT_PATH`: External path prefix when a reverse proxy strips the
+  prefix before forwarding (for example, `/memory`). Defaults to empty.
 - `MCP_CORS_ORIGINS`: Comma-separated origins (default `*`).
 - `MCP_SSE_HEARTBEAT`: SSE heartbeat interval seconds (default 30).
 - `MCP_API_KEY`: Optional API key for HTTP.
+
+> **Binding to `0.0.0.0` exposes the API to your network.** The default is localhost
+> only. Do this in trusted environments only, with authentication and firewall rules in
+> place. On untrusted networks, terminate TLS in front of the service (reverse proxy with
+> HTTPS) or put it behind a VPN overlay.
+
+For a proxy that exposes the service at `https://host.example/memory/` and
+forwards the request without `/memory`, set:
+
+```bash
+MCP_HTTP_ROOT_PATH=/memory
+```
+
+The dashboard, static assets, REST/SSE requests, API documentation, and
+auto-detected OAuth endpoint URLs then use the same prefix. If OAuth uses a
+public hostname, continue to set `MCP_OAUTH_ISSUER` to the complete external
+issuer URL, including the prefix.
 
 TLS:
 
 - `MCP_HTTPS_ENABLED`: `true|false`.
 - `MCP_SSL_CERT_FILE`, `MCP_SSL_KEY_FILE`: Certificate and key paths.
+
+## Quality Scoring
+
+- `MCP_QUALITY_SYSTEM_ENABLED`: `true|false` (default `true`).
+- `MCP_QUALITY_AI_PROVIDER`: `local` (ONNX, default), `openai-compatible`, `groq`, `gemini`, `auto`, `none`.
+- `MCP_QUALITY_LOCAL_MODEL` (default `ms-marco-MiniLM-L-6-v2`), `MCP_QUALITY_LOCAL_DEVICE` (`auto|cpu|cuda|mps|directml`).
+- `openai-compatible` requires `MCP_QUALITY_AI_BASE_URL` and `MCP_QUALITY_AI_MODEL`; `MCP_QUALITY_AI_API_KEY` is optional.
+- Cloud providers read `GROQ_API_KEY` and `GEMINI_API_KEY`.
+- Search and storage weighting: `MCP_QUALITY_BOOST_ENABLED`, `MCP_QUALITY_BOOST_WEIGHT`, `MCP_QUALITY_IMPLICIT_BLEND_ENABLED`, `MCP_QUALITY_IMPLICIT_WEIGHT`.
+- Retention by tier: `MCP_QUALITY_RETENTION_HIGH`, `MCP_QUALITY_RETENTION_MEDIUM`, `MCP_QUALITY_RETENTION_LOW_MIN`, `MCP_QUALITY_RETENTION_LOW_MAX`.
+
+Scoring tiers, the homelab setup against your own LLM, and what each score component
+measures: [Memory Quality Guide](../guides/memory-quality-guide.md).
 
 ## mDNS Service Discovery
 
@@ -71,15 +140,59 @@ TLS:
 - Config knobs:
   - Decay: `MCP_DECAY_ENABLED`, retention by type: `MCP_RETENTION_CRITICAL`, `MCP_RETENTION_REFERENCE`, `MCP_RETENTION_STANDARD`, `MCP_RETENTION_TEMPORARY`.
   - Associations: `MCP_ASSOCIATIONS_ENABLED`, `MCP_ASSOCIATION_MIN_SIMILARITY`, `MCP_ASSOCIATION_MAX_SIMILARITY`, `MCP_ASSOCIATION_MAX_PAIRS`.
+    - `MCP_CONSOLIDATION_AUTO_SUPERSEDE` (default `true`): when relationship inference labels an association `contradicts` with confidence ≥ 0.75, the older memory is marked superseded and drops out of default retrieval. Set to `false` to keep the `contradicts` edges in the graph and leave both memories visible. The setting only prevents future supersession: memories that are already superseded stay hidden until their `superseded_by` is cleared, which is a separate step.
   - Clustering: `MCP_CLUSTERING_ENABLED`, `MCP_CLUSTERING_MIN_SIZE`, `MCP_CLUSTERING_ALGORITHM`.
   - Compression: `MCP_COMPRESSION_ENABLED`, `MCP_COMPRESSION_MAX_LENGTH`, `MCP_COMPRESSION_PRESERVE_ORIGINALS`.
   - Forgetting: `MCP_FORGETTING_ENABLED`, `MCP_FORGETTING_RELEVANCE_THRESHOLD`, `MCP_FORGETTING_ACCESS_THRESHOLD`.
 - Scheduling (APScheduler-ready):
   - `MCP_SCHEDULE_DAILY` (default `02:00`), `MCP_SCHEDULE_WEEKLY` (default `SUN 03:00`), `MCP_SCHEDULE_MONTHLY` (default `01 04:00`), `MCP_SCHEDULE_QUARTERLY` (default `disabled`), `MCP_SCHEDULE_YEARLY` (default `disabled`).
 
+## Scheduled Session Harvest (Optional)
+
+Autonomously harvests learnings from session transcripts on a timer, in-process (via the consolidation scheduler). Backfills sessions that ended abruptly or were never harvested — the `memory_harvest` tool is local-only (not exposed over remote transports), so the scheduler is the safe place for autonomous harvest.
+
+- `MCP_HARVEST_SCHEDULE`: interval like `6h`, `30m`, `90s`, or a bare number of hours (`6`). Unset/`disabled` → no job (default; opt-in).
+- `MCP_HARVEST_SESSION_DIR`: transcripts directory (default `~/.kiro/sessions/cli`; shared with `memory_harvest`).
+- `MCP_HARVEST_SCHEDULE_SESSIONS`: max sessions per run (default `50`; delta only — already-harvested sessions are skipped via the harvest tracker).
+- `MCP_HARVEST_SCHEDULE_USE_LLM`: `true|false` (default `true`) — use the LLM classifier during scheduled harvest.
+
+Stored candidates carry the `session-harvest` tag and feed consolidation/beliefs on the next cycle.
+
+Both the store path and the evolve path (`_try_evolve`, when a candidate is similar enough to an
+existing memory to update it instead of duplicating) stamp `harvest:method:{llm|heuristic}`, so an
+evolved memory keeps the same provenance trace as a freshly stored one.
+
+- **Safe pre-deletion**: `SessionHarvester.verify_session_coverage(session_id, threshold=0.9)`
+  re-harvests a session in-memory and checks each insight against stored memories, returning
+  `{coverage, missing_insights, low_quality_matches, safe_to_delete}`. Use it before deleting
+  a source transcript — a session is only `safe_to_delete` when every insight already has a
+  strong stored match, so freeing disk never silently loses knowledge.
+
+## Contradiction Detection / NLI (Optional)
+
+Flags contradictions between a newly stored memory and semantically similar existing ones.
+
+- `MCP_NLI_ENABLED`: `true|false` (default `false`). Master switch; nothing runs unless truthy.
+- `MCP_NLI_ON_STORE`: `true|false` (default `false`). Also run the pass inline on every store, not just on demand. Only takes effect when `MCP_NLI_ENABLED` is on.
+- `MCP_NLI_CONFIDENCE_THRESHOLD`: float (default `0.4`). Minimum NLI confidence for a pair to be registered as a contradiction.
+- `MCP_NLI_BACKEND`: `heuristic|cascade|llm` (default `heuristic`). `heuristic` is keyword/pattern-based with no ML deps. `cascade` (alias `llm`) uses the harvest provider chain (`HARVEST_LLM_PROVIDERS`) and degrades gracefully to the heuristic on any error. When unset it resolves to `heuristic`, so no LLM is ever called by accident.
+- `MCP_NLI_LLM_TIMEOUT`: seconds (default `30`). Applied once **per provider attempt** inside the harvest chain, so the worst case for a single pair is roughly `timeout × number of providers` before it falls back to the heuristic.
+
+## Harvest LLM Classifier — Pacing & Backoff (Optional)
+
+Rate-limit handling for the harvest classifier (validates candidate memories via the `HARVEST_LLM_PROVIDERS` chain). All optional; unset = prior behavior (switch provider on 429, no pacing).
+
+- `MCP_HARVEST_LLM_MAX_RETRIES`: int (default `0`). Retries against the **same** provider on a 429 before moving to the next. Default `0` preserves the prior behavior (switch provider immediately); set `>0` to opt into exponential backoff.
+- `MCP_HARVEST_LLM_BACKOFF_BASE`: seconds (default `1.0`). Exponential backoff base — waits `base × 2**attempt` between retries (1s, 2s, 4s, …).
+- `MCP_HARVEST_LLM_REQUEST_DELAY`: seconds (default `0.0` = disabled). Inter-request delay applied before each classifier call, to pace throughput regardless of provider.
+
 ## Machine Identification
 
 - `MCP_MEMORY_INCLUDE_HOSTNAME`: `true|false` to tag memories with `source:<hostname>` and include `hostname` metadata.
+
+## Agent Identity (Optional)
+
+- `MCP_AGENT_ID`: default authoring agent id for memories created via `memory_store`. When set, each stored memory records `agent_id` in its metadata unless an explicit `agent_id` argument is passed (the explicit argument wins). When unset and no argument is given, no `agent_id` is written (`null` = unknown), so behavior is unchanged. Useful in a shared multi-agent database to attribute who wrote each memory.
 
 ## Logging and Performance
 
@@ -95,4 +208,3 @@ TLS:
   - Ensure required variables are set or the process exits with a clear error and checklist.
 - Hybrid (recommended for production):
   - Uses SQLite-vec for 5 ms local reads with background Cloudflare sync. Requires all `CLOUDFLARE_*` variables. Set `MCP_HYBRID_SYNC_OWNER=http` when running alongside an MCP server so only the HTTP server syncs.
-

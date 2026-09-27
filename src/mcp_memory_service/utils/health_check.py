@@ -72,12 +72,26 @@ def _apply_embedding_integrity(conn: Any, stats: Dict[str, Any]) -> None:
     if not integrity:
         return
     stats.update(integrity)
+
+    hints = []
     if integrity.get("orphaned_embeddings") or integrity.get("rowid_collision_risk"):
-        stats["status"] = "degraded"
-        stats["integrity_hint"] = (
+        hints.append(
             "Orphaned embeddings / rowid collision detected — writes may fail with "
             "UNIQUE constraint failed. Run scripts/maintenance to repair."
         )
+    # missing_embeddings is a silent failure: the memories rows still satisfy tag
+    # and time queries and count_all_memories, so counts look right while the rows
+    # are invisible to semantic search. Only orphaned/collision downgraded the
+    # status before, so this blind spot stayed "healthy". Since store() is atomic
+    # (memory + embedding commit together), a non-zero count is never transient.
+    if integrity.get("missing_embeddings"):
+        hints.append(
+            "Live memories have no embedding row and are invisible to semantic search. "
+            "Backfill with scripts/maintenance/repair_missing_embeddings_onnx.py."
+        )
+    if hints:
+        stats["status"] = "degraded"
+        stats["integrity_hint"] = " ".join(hints)
 
 
 class HealthCheckStrategy(ABC):

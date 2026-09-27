@@ -9,10 +9,10 @@ Filters discussions by:
 Outputs Markdown for posting to a triage issue (--issue) or stdout (default).
 
 RUN THIS BY HAND. It has no scheduler: the GitHub Action that used to invoke it was
-removed with the other 21 workflows in the Codeberg migration, and nothing replaced it.
-`gh` and the GitHub GraphQL API are the right target here and not an oversight —
-Discussions exist only on GitHub, and they deliberately stay there, because Codeberg
-has no equivalent feature. Development, issues and PRs are on Codeberg.
+removed with the other 21 workflows during the Codeberg era, and nothing replaced it.
+Re-wiring it is a decision, not a restoration, so it stays manual until someone makes
+that decision. `gh` and the GitHub GraphQL API are the right target: Discussions live
+on GitHub, and so does everything else again since 2026-09-05.
 
 Be careful reading its output as current state. The digest it writes is a snapshot: a
 thread answered an hour later still shows as stale, and the ages are measured from the

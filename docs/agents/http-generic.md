@@ -23,18 +23,37 @@ MCP_API_KEY=your-secret-key memory server --http
 | `POST` | `/api/memories` | Store a new memory |
 | `GET` | `/api/memories` | List memories (paginated) |
 | `GET` | `/api/memories/{hash}` | Get memory by hash |
-| `PATCH` | `/api/memories/{hash}` | Update memory tags/type/metadata |
+| `PUT` | `/api/memories/{hash}` | Update memory tags/type/metadata |
 | `DELETE` | `/api/memories/{hash}` | Delete a memory |
-| `POST` | `/api/memories/search` | Semantic + keyword search |
-| `GET` | `/api/memories/tags` | List all tags with counts |
-| `GET` | `/api/health` | Health check |
-| `GET` | `/api/stats` | Storage statistics |
-| `POST` | `/api/consolidation/run` | Trigger memory consolidation |
+| `POST` | `/api/search` | Semantic search (`query`, `n_results`) |
+| `POST` | `/api/search/by-tag` | Tag search (`tags`, `match_all`, `limit`) |
+| `POST` | `/api/search/by-time` | Natural-language time search |
+| `GET` | `/api/search/similar/{hash}` | Memories similar to one you have |
+| `GET` | `/api/tags` | List all tags with counts |
+| `GET` | `/api/health` | Health check (liveness, unauthenticated) |
+| `GET` | `/api/health/detailed` | Storage statistics (authenticated) |
+| `GET` | `/api/memory-stats` | Memory counts |
+| `POST` | `/api/consolidation/trigger` | Trigger memory consolidation |
 | `GET` | `/api/consolidation/status` | Consolidation status |
-| `GET` | `/api/graph/associations/{hash}` | Get memory associations |
-| `POST` | `/api/graph/associations` | Store association between memories |
 | `GET` | `/api/analytics/relationship-types` | Graph relationship type stats |
-| `GET` | `/sse/events` | Server-Sent Events stream |
+| `GET` | `/api/events` | Server-Sent Events stream |
+
+This table is the subset agents reach for. The authoritative, always-current list is
+`/api/docs` on a running server, generated from the routes themselves.
+
+> **The two search endpoints each do half the job.** `POST /api/search` takes `query`
+> and `n_results`; any other field — `tags`, `limit` — is silently ignored rather than
+> rejected, so a request that looks filtered comes back unfiltered.
+> `POST /api/search/by-tag` filters by tag but ignores any query. It returns matches
+> newest first, every one of them unless you pass `limit` (1-100), in which case you get
+> the newest `limit` matches while `total_found` still counts all of them. `match_all`
+> defaults to `false`, so several tags match ANY of them, not all. Ranking by query
+> *and* scoping by tag means picking a side: `by-tag` gives a complete scope in date
+> order, while ranking first and filtering afterwards gives query order but only sees
+> the window you fetched — in a shared store a match ranked below it simply vanishes.
+> `n_results` and `limit` must be 1-100; anything outside that is a 422, and reading
+> that body with `.get("results", [])` turns a rejected request into "no memories
+> found". Both endpoints return their hits under `results`, not `memories`.
 
 ## Authentication Patterns
 
@@ -84,26 +103,59 @@ print(result["memory"]["content_hash"])
 ### Semantic search
 
 ```python
-async def search_memory(query: str, limit: int = 5, tags: list[str] | None = None) -> list[dict]:
-    payload = {"query": query, "limit": limit}
-    if tags:
-        payload["tags"] = tags
+async def search_memory(query: str, n_results: int = 5) -> list[dict]:
+    """n_results must be 1-100; the server answers 422 outside that range.
 
+    raise_for_status() matters here: read the error body with .get("results", []) and a
+    rejected request looks exactly like a store with no matching memories.
+    """
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{BASE_URL}/api/memories/search",
-            json=payload,
+            f"{BASE_URL}/api/search",
+            json={"query": query, "n_results": min(n_results, 100)},
         )
         response.raise_for_status()
-        return response.json()["memories"]
+        return response.json()["results"]
 
-# Usage — retrieve only memories from the researcher agent
-results = await search_memory(
-    query="API rate limits",
-    tags=["agent:researcher"],
-)
-for mem in results:
-    print(mem["content"], mem["tags"])
+
+async def search_by_tag(tags: list[str], match_all: bool = True, limit: int = 50) -> list[dict]:
+    """Every memory carrying the tags. The endpoint has no limit of its own, so cap here.
+
+    match_all=True means a memory must carry ALL the tags; the endpoint's own default
+    is ANY, which quietly widens a two-tag scope into a union.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{BASE_URL}/api/search/by-tag",
+            json={"tags": tags, "match_all": match_all},
+        )
+        response.raise_for_status()
+        return response.json()["results"][:limit]
+
+
+async def search_scoped(query: str, tags: list[str], limit: int = 5,
+                        window: int = 50) -> list[dict]:
+    """Query relevance AND tag scope — no single endpoint does both. Read the tradeoff.
+
+    This ranks by the query and then keeps the hits carrying every tag, which means it
+    only ever sees the top `window` results: in a shared store, a matching memory that
+    ranks below the window is invisible here and the caller sees "nothing found". When
+    the scope must be complete, use search_by_tag() — it returns every match, just not
+    in query order.
+
+    `window` is clamped to 100, the server's maximum n_results; asking for more is a
+    422, and reading that response as an empty list is how this turns into a silent
+    "no memories".
+    """
+    hits = await search_memory(query, n_results=min(max(window, limit), 100))
+    wanted = set(tags)
+    return [h for h in hits if wanted.issubset(set(h["memory"]["tags"]))][:limit]
+
+# Usage — semantic hits, then the same scoped to one agent's memories
+hits = await search_memory("API rate limits")
+scoped = await search_by_tag(["agent:researcher"])
+for hit in scoped:
+    print(hit["memory"]["content"], hit["memory"]["tags"])
 ```
 
 ### Store with deduplication bypass (conversation_id)
@@ -158,14 +210,14 @@ curl -X POST http://localhost:8000/api/memories \
   -d '{"content": "Deadline is March 15", "tags": ["project", "deadline"]}'
 
 # Search
-curl -X POST http://localhost:8000/api/memories/search \
+curl -X POST http://localhost:8000/api/search \
   -H "Content-Type: application/json" \
-  -d '{"query": "project deadlines", "limit": 5}'
+  -d '{"query": "project deadlines", "n_results": 5}'
 
-# Search within agent scope
-curl -X POST http://localhost:8000/api/memories/search \
+# Search within agent scope — by tag, not semantic
+curl -X POST http://localhost:8000/api/search/by-tag \
   -H "Content-Type: application/json" \
-  -d '{"query": "API limits", "tags": ["agent:researcher"]}'
+  -d '{"tags": ["agent:researcher"]}'
 
 # Health check
 curl http://localhost:8000/api/health

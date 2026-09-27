@@ -322,7 +322,7 @@ def _build_authorize_page(query_string: str, error: Optional[str] = None) -> str
   <h1>MCP Memory Service</h1>
   <p>Enter your API key to authorize this connection.</p>
   {error_html}
-  <form method="POST" action="/oauth/authorize?{query_string}">
+  <form method="POST" action="authorize?{query_string}">
     <label for="api_key">API Key</label>
     <input type="password" id="api_key" name="api_key" required autofocus autocomplete="current-password">
     <button type="submit">Authorize</button>
@@ -817,6 +817,30 @@ async def _handle_client_credentials_grant(
     final_client_id: str, final_client_secret: str
 ) -> TokenResponse:
     """Handle OAuth client_credentials grant type."""
+    # Registration gates the grant, not just at registration time. Refusing
+    # only in /oauth/register would leave every client that registered while
+    # DCR was open still holding the grant, and those are exactly the
+    # self-service registrations GHSA-6mvm-q4j3-27qg describes. If this
+    # deployment cannot say who registered a client, it cannot honour a
+    # machine-to-machine grant from one.
+    from ...config import DCR_REGISTRATION_KEY
+    if not DCR_REGISTRATION_KEY:
+        logger.warning(
+            "Refused client_credentials: registration is open, so a registered "
+            "client is not evidence of owner consent"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "unauthorized_client",
+                "error_description": (
+                    "The client_credentials grant is disabled while Dynamic Client "
+                    "Registration is open. Set MCP_DCR_REGISTRATION_KEY, or use "
+                    "authorization_code with PKCE."
+                ),
+            },
+        )
+
     if not final_client_id or not final_client_secret:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

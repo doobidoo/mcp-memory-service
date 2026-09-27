@@ -10,8 +10,75 @@ from .base import (
     safe_get_optional_int_env,
     safe_get_bool_env,
 )
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
+
+
+def warn_unrecognized_path_var(environ: dict) -> str | None:
+    """Check for unrecognized MCP_MEMORY_* environment variables that look like path settings.
+    
+    Args:
+        environ: Environment dictionary (typically os.environ)
+        
+    Returns:
+        Warning message string if unrecognized path-like vars found and no correct path vars set,
+        None otherwise.
+        
+    The function warns when:
+    1. An unrecognized MCP_MEMORY_* variable exists that contains PATH/DB/DIR (case-insensitive)
+    2. AND neither MCP_MEMORY_SQLITE_PATH nor MCP_MEMORY_SQLITEVEC_PATH is set
+    
+    This helps users catch common typos like MCP_MEMORY_DB_PATH instead of MCP_MEMORY_SQLITE_PATH.
+    """
+    # Set of recognized MCP_MEMORY_* environment variables (16 total from spec)
+    recognized_vars = {
+        'MCP_MEMORY_ALLOW_HASH_EMBEDDINGS',
+        'MCP_MEMORY_ALLOW_SELF_SIGNED_CERTS',
+        'MCP_MEMORY_ARCHIVE_PATH',
+        'MCP_MEMORY_BACKUPS_PATH',
+        'MCP_MEMORY_BASE_DIR',
+        'MCP_MEMORY_INCLUDE_HOSTNAME',
+        'MCP_MEMORY_INTEGRITY_CHECK_ENABLED',
+        'MCP_MEMORY_INTEGRITY_CHECK_INTERVAL',
+        'MCP_MEMORY_OFFLINE',
+        'MCP_MEMORY_ONNX_ALLOW_DOWNLOAD',
+        'MCP_MEMORY_ONNX_PROVIDERS',
+        'MCP_MEMORY_SQLITE_PATH',
+        'MCP_MEMORY_SQLITE_PRAGMAS',
+        'MCP_MEMORY_SQLITEVEC_PATH',
+        'MCP_MEMORY_STORAGE_BACKEND',
+        'MCP_MEMORY_USE_ONNX'
+    }
+    
+    # Known correct path variables
+    correct_path_vars = {'MCP_MEMORY_SQLITE_PATH', 'MCP_MEMORY_SQLITEVEC_PATH'}
+    
+    # Check if any correct path var is already set
+    if any(environ.get(var) for var in correct_path_vars):
+        return None
+    
+    # Find unrecognized MCP_MEMORY_* vars that look like path settings
+    path_like_keywords = {'path', 'db', 'dir'}
+    unrecognized_path_vars = []
+    
+    for key in environ:
+        if key.startswith('MCP_MEMORY_') and key not in recognized_vars:
+            # Check if variable name contains path-like keywords (case-insensitive)
+            key_lower = key.lower()
+            if any(keyword in key_lower for keyword in path_like_keywords):
+                unrecognized_path_vars.append(key)
+    
+    if unrecognized_path_vars:
+        # Return warning for the first unrecognized path-like var found.
+        # Sanitize the raw env-var name (user-controlled) at the source to prevent
+        # log injection via newline/escape characters reaching the logger.
+        var_name = _sanitize_log_value(unrecognized_path_vars[0])
+        return (f"Unrecognized env var '{var_name}' looks like a database path setting "
+                f"but is not read by the service. Did you mean MCP_MEMORY_SQLITE_PATH? "
+                f"Falling back to default.")
+    
+    return None
 
 # =============================================================================
 # Content Length Limits Configuration (v7.5.0+)
@@ -58,9 +125,7 @@ CONTENT_SPLIT_OVERLAP = safe_get_int_env(
 )
 CONTENT_PRESERVE_BOUNDARIES = safe_get_bool_env('MCP_CONTENT_PRESERVE_BOUNDARIES', default=True)
 
-logger.info(f"Content length limits - Cloudflare: {CLOUDFLARE_MAX_CONTENT_LENGTH}, "
-           f"SQLite-vec: {'unlimited' if SQLITEVEC_MAX_CONTENT_LENGTH is None else SQLITEVEC_MAX_CONTENT_LENGTH}, "
-           f"Auto-split: {ENABLE_AUTO_SPLIT}")
+logger.info("Content length limits - Cloudflare: %s, SQLite-vec: %s, Auto-split: %s", CLOUDFLARE_MAX_CONTENT_LENGTH, 'unlimited' if SQLITEVEC_MAX_CONTENT_LENGTH is None else SQLITEVEC_MAX_CONTENT_LENGTH, ENABLE_AUTO_SPLIT)
 
 # =============================================================================
 # End Content Length Limits Configuration
@@ -73,13 +138,17 @@ if STORAGE_BACKEND == 'sqlite_vec' or STORAGE_BACKEND == 'hybrid':
     for env_var in ['MCP_MEMORY_SQLITE_PATH', 'MCP_MEMORY_SQLITEVEC_PATH']:
         if path := os.getenv(env_var):
             sqlite_vec_path = path
-            logger.info(f"Using {env_var}={path} for SQLite-vec database path")
+            logger.info("Using %s=%s for SQLite-vec database path", _sanitize_log_value(env_var), _sanitize_log_value(path))
             break
     
     # If no environment variable is set, use the default path
     if not sqlite_vec_path:
         sqlite_vec_path = os.path.join(BASE_DIR, 'sqlite_vec.db')
-        logger.info(f"No SQLite-vec path environment variable found, using default: {sqlite_vec_path}")
+        logger.info("No SQLite-vec path environment variable found, using default: %s", _sanitize_log_value(sqlite_vec_path))
+        
+        # Check for unrecognized path-like environment variables
+        if warning_msg := warn_unrecognized_path_var(os.environ):
+            logger.warning(warning_msg)
     
     # Ensure directory exists for SQLite database
     sqlite_dir = os.path.dirname(sqlite_vec_path)
@@ -87,7 +156,7 @@ if STORAGE_BACKEND == 'sqlite_vec' or STORAGE_BACKEND == 'hybrid':
         os.makedirs(sqlite_dir, exist_ok=True)
     
     SQLITE_VEC_PATH = sqlite_vec_path
-    logger.info(f"Using SQLite-vec database path: {SQLITE_VEC_PATH}")
+    logger.info("Using SQLite-vec database path: %s", _sanitize_log_value(SQLITE_VEC_PATH))
 else:
     SQLITE_VEC_PATH = None
 
@@ -118,16 +187,16 @@ if STORAGE_BACKEND == 'cloudflare' or STORAGE_BACKEND == 'hybrid':
         missing_vars.append('CLOUDFLARE_D1_DATABASE_ID')
     
     if missing_vars:
-        logger.error(f"Missing required environment variables for Cloudflare backend: {', '.join(missing_vars)}")
+        logger.error("Missing required environment variables for Cloudflare backend: %s", _sanitize_log_value(', '.join(missing_vars)))
         logger.error("Please set the required variables or switch to a different backend")
         sys.exit(1)
     
-    logger.info(f"Using Cloudflare backend with:")
-    logger.info(f"  Vectorize Index: {CLOUDFLARE_VECTORIZE_INDEX}")
-    logger.info(f"  D1 Database: {CLOUDFLARE_D1_DATABASE_ID}")
-    logger.info(f"  R2 Bucket: {CLOUDFLARE_R2_BUCKET or 'Not configured'}")
-    logger.info(f"  Embedding Model: {CLOUDFLARE_EMBEDDING_MODEL}")
-    logger.info(f"  Large Content Threshold: {CLOUDFLARE_LARGE_CONTENT_THRESHOLD} bytes")
+    logger.info("Using Cloudflare backend with:")
+    logger.info("  Vectorize Index: %s", _sanitize_log_value(CLOUDFLARE_VECTORIZE_INDEX))
+    logger.info("  D1 Database: %s", _sanitize_log_value(CLOUDFLARE_D1_DATABASE_ID))
+    logger.info("  R2 Bucket: %s", _sanitize_log_value(CLOUDFLARE_R2_BUCKET or 'Not configured'))
+    logger.info("  Embedding Model: %s", _sanitize_log_value(CLOUDFLARE_EMBEDDING_MODEL))
+    logger.info("  Large Content Threshold: %s bytes", CLOUDFLARE_LARGE_CONTENT_THRESHOLD)
 else:
     # Set Cloudflare variables to None when not using Cloudflare backend
     CLOUDFLARE_API_TOKEN = None
@@ -176,7 +245,7 @@ if STORAGE_BACKEND == 'hybrid':
     HYBRID_FALLBACK_TO_PRIMARY = safe_get_bool_env('MCP_HYBRID_FALLBACK_TO_PRIMARY', True)
     HYBRID_WARN_ON_SECONDARY_FAILURE = safe_get_bool_env('MCP_HYBRID_WARN_ON_SECONDARY_FAILURE', True)
 
-    logger.info(f"Hybrid storage configuration: sync_interval={HYBRID_SYNC_INTERVAL}s, batch_size={HYBRID_BATCH_SIZE}")
+    logger.info("Hybrid storage configuration: sync_interval=%ss, batch_size=%s", HYBRID_SYNC_INTERVAL, HYBRID_BATCH_SIZE)
 
     # Cloudflare Service Limits (for validation and monitoring)
     CLOUDFLARE_D1_MAX_SIZE_GB = 10  # D1 database hard limit
@@ -251,10 +320,7 @@ if STORAGE_BACKEND == 'milvus':
         if parent:
             os.makedirs(parent, exist_ok=True)
 
-    logger.info(
-        f"Using Milvus backend (uri={MILVUS_URI}, collection={MILVUS_COLLECTION_NAME}, "
-        f"auth={'yes' if MILVUS_TOKEN else 'no'})"
-    )
+    logger.info("Using Milvus backend (uri=%s, collection=%s, auth=%s)", _sanitize_log_value(MILVUS_URI), _sanitize_log_value(MILVUS_COLLECTION_NAME), 'yes' if MILVUS_TOKEN else 'no')
 else:
     MILVUS_URI = None
     MILVUS_TOKEN = None

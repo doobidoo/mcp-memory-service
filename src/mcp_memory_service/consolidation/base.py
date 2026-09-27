@@ -18,11 +18,39 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import json
 import logging
 
 from ..models.memory import Memory
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
+
+
+def is_protected_memory(memory: Memory) -> bool:
+    """Check if a memory is protected from consolidation operations.
+
+    Protected memories include:
+    - Memories with critical/important/reference/permanent tags
+    - Mistake notes with failure_count >= 3 (proven error patterns)
+    """
+    protected_tags = {'critical', 'important', 'reference', 'permanent'}
+    if set(memory.tags or []).intersection(protected_tags):
+        return True
+    # Protect high-value mistake notes (recurring patterns)
+    return memory.memory_type == 'mistake' and _is_proven_mistake(memory.metadata)
+
+
+def _is_proven_mistake(metadata) -> bool:
+    """A mistake note that has recurred at least three times."""
+    metadata = metadata or {}
+    if isinstance(metadata, str) and metadata.strip():
+        try:
+            metadata = json.loads(metadata)
+        except (json.JSONDecodeError, TypeError):
+            metadata = {}
+    return isinstance(metadata, dict) and metadata.get('failure_count', 0) >= 3
+
 
 @dataclass
 class ConsolidationConfig:
@@ -66,6 +94,7 @@ class ConsolidationConfig:
     relevance_threshold: float = 0.1
     access_threshold_days: int = 90
     archive_location: Optional[str] = None
+    forgetting_min_age_days: int = 365  # Floor for forgetting candidate age; stale tail reachable past horizon window
 
     # Incremental consolidation settings
     batch_size: int = 500  # Memories to process per consolidation run
@@ -126,7 +155,7 @@ class ConsolidationBase(ABC):
         
         for memory in memories:
             if not hasattr(memory, 'content_hash') or not memory.content_hash:
-                self.logger.error(f"Memory missing content_hash: {memory}")
+                self.logger.error("Memory missing content_hash: %s", _sanitize_log_value(f"{memory}"))
                 return False
         
         return True
@@ -153,7 +182,7 @@ class ConsolidationBase(ABC):
                 ts = ts.replace(tzinfo=timezone.utc)
             return (ref_time - ts).days
         else:
-            self.logger.warning(f"Memory {memory.content_hash} has no timestamp")
+            self.logger.warning("Memory %s has no timestamp", _sanitize_log_value(f"{memory.content_hash}"))
             return 0
     
     def _extract_memory_type(self, memory: Memory) -> str:
@@ -161,30 +190,8 @@ class ConsolidationBase(ABC):
         return memory.memory_type or 'standard'
     
     def _is_protected_memory(self, memory: Memory) -> bool:
-        """Check if a memory is protected from consolidation operations.
-
-        Protected memories include:
-        - Memories with critical/important/reference/permanent tags
-        - Mistake notes with failure_count >= 3 (proven error patterns)
-        """
-        protected_tags = {'critical', 'important', 'reference', 'permanent'}
-        if set(memory.tags).intersection(protected_tags):
-            return True
-
-        # Protect high-value mistake notes (recurring patterns)
-        if memory.memory_type == 'mistake':
-            metadata = memory.metadata or {}
-            if isinstance(metadata, str) and metadata.strip():
-                import json
-                try:
-                    metadata = json.loads(metadata)
-                except (json.JSONDecodeError, TypeError):
-                    metadata = {}
-
-            if isinstance(metadata, dict) and metadata.get('failure_count', 0) >= 3:
-                return True
-
-        return False
+        """Check if a memory is protected from consolidation operations."""
+        return is_protected_memory(memory)
 
 class ConsolidationError(Exception):
     """Base exception for consolidation operations."""

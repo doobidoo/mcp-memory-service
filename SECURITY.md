@@ -19,24 +19,20 @@ We take the security of MCP Memory Service seriously. If you discover a security
 ### How to Report
 
 Development of this project happens on
-[Codeberg](https://codeberg.org/doobidoo/mcp-memory-service), and the GitHub
-repository is a mirror. Security reporting is the one deliberate exception: Forgejo,
-which Codeberg runs, has no confidential-issue or security-advisory feature, so every
-Codeberg issue is public. Private vulnerability reporting on the GitHub mirror is
-therefore the project's only confidential channel, and that is where sensitive
-reports go.
+[GitHub](https://github.com/doobidoo/mcp-memory-service). Issues there are public from
+the moment they are opened, which is fine for everything except an unfixed
+vulnerability. GitHub Security Advisories are the confidential channel for those: the
+report stays private until a fix ships, and that is where sensitive reports go.
 
 **For sensitive security issues** - anything exploitable, or anything you would not
 want public before a fix ships:
 
 - Open a private report through [GitHub Security Advisories](https://github.com/doobidoo/mcp-memory-service/security/advisories/new)
 - Provide detailed information about the vulnerability (see below)
-- If you cannot use GitHub, open a Codeberg issue titled `[SECURITY] request for a
-  private channel` with no technical detail in it, and we will arrange one
 
 **For non-sensitive security concerns** - hardening suggestions, dependency
 questions, defaults you find too permissive - open a regular
-[Codeberg issue](https://codeberg.org/doobidoo/mcp-memory-service/issues).
+[GitHub issue](https://github.com/doobidoo/mcp-memory-service/issues).
 
 ### What to Include
 
@@ -190,7 +186,7 @@ for the full list.
 ## Contact
 
 For security concerns that don't fit the above categories:
-- **General Security Questions**: [Codeberg issue](https://codeberg.org/doobidoo/mcp-memory-service/issues)
+- **General Security Questions**: [GitHub issue](https://github.com/doobidoo/mcp-memory-service/issues)
 - **Project Security**: See reporting instructions above
 
 ---

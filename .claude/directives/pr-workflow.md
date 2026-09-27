@@ -20,7 +20,7 @@ bash scripts/pr/pre_pr_check.sh
 ```
 
 Open the PR through the forge web UI or its REST API. `pre_pr_check.sh` prints a
-ready-made `tea pr create` line at the end if the Forgejo/Gitea CLI is configured.
+ready-made `gh pr create` line at the end if the GitHub CLI is configured.
 
 ### Two traps in pre_pr_check.sh that cost real time
 

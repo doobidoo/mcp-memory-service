@@ -13,6 +13,7 @@ scripts/
 ├── linux/           # Linux service management shortcuts (v7.5.1+)
 ├── maintenance/     # Database cleanup and repair operations
 ├── migration/       # Data migration and schema updates
+├── release/         # Post-tag release artifact verification
 ├── server/          # Server runtime and operational scripts
 ├── service/         # Service management and deployment
 ├── sync/            # Backend synchronization utilities
@@ -172,8 +173,6 @@ Data protection and recovery operations.
 
 | Script | Purpose | Quick Usage |
 |--------|---------|-------------|
-| `backup_memories.py` | Create memory backups | `python backup/backup_memories.py` |
-| `restore_memories.py` | Restore from backups | `python backup/restore_memories.py backup.json` |
 | `backup_sqlite_vec.sh` | SQLite-vec database backup | `./backup/backup_sqlite_vec.sh` |
 | `export_distributable_memories.sh` | Create distributable exports | `./backup/export_distributable_memories.sh` |
 
@@ -188,6 +187,18 @@ Handle database migrations and data transformations.
 | `migrate_timestamps.py` | Fix timestamp issues | `python migration/migrate_timestamps.py` |
 | `cleanup_mcp_timestamps.py` | Clean timestamp proliferation | `python migration/cleanup_mcp_timestamps.py` |
 | `verify_mcp_timestamps.py` | Verify timestamp consistency | `python migration/verify_mcp_timestamps.py` |
+
+### 📦 **release/** - Release Artifact Verification
+Prove a release is installable after the tag push, before the release object exists.
+
+| Script | Purpose | Quick Usage |
+|--------|---------|-------------|
+| `verify_artifacts.sh` | Verify PyPI (main + lite) by version and all four Docker tags plus `latest` by digest | `bash release/verify_artifacts.sh 11.11.0` |
+
+Read-only and idempotent; polls until `--timeout` (default 600s) to absorb PyPI's cache
+lag and Docker Hub's anonymous rate limit. Exit 0 means published, exit 1 prints each
+unmet check with what was observed. Never treats an HTTP status code as proof. See
+[`.claude/directives/version-management.md`](../.claude/directives/version-management.md).
 
 ### 🏠 **installation/** - Setup & Installation
 Platform-specific installation and setup scripts.
@@ -308,7 +319,7 @@ python maintenance/cleanup_corrupted_encoding.py --execute
 ### Migration & Upgrades
 ```bash
 # Before migration - backup
-python backup/backup_memories.py
+./backup/backup_sqlite_vec.sh
 
 # Migrate to new backend
 python migration/migrate_to_cloudflare.py
@@ -320,7 +331,7 @@ python validation/validate_memories.py
 ## 🚨 Safety Guidelines
 
 ### Before Running Maintenance Scripts
-1. **Always backup first**: `python backup/backup_memories.py`
+1. **Always backup first**: `./backup/backup_sqlite_vec.sh`
 2. **Use dry-run mode**: Most scripts support `--dry-run` or similar
 3. **Test with small datasets** when possible
 4. **Check database health**: `python database/simple_timestamp_check.py`

@@ -38,7 +38,7 @@ specifically to catch insecure or harmful code:
 - **Log-injection / ANSI-injection guard** - user-provided values are sanitized
   via `_sanitize_log_value()` before logging; path inputs are validated and
   confined to expected base directories.
-- **Continuous integration** - Forgejo Actions (`.forgejo/workflows/`) run the
+- **Continuous integration** - GitHub Actions (`.github/workflows/`) run the
   test suite and checks on every pull request.
 - **Test coverage** - approximately 2,400 automated tests across the codebase.
 - **Supply-chain hygiene** - CI actions are referenced by fully qualified URL

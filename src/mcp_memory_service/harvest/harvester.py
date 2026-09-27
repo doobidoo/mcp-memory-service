@@ -13,8 +13,13 @@ from .models import HarvestCandidate, HarvestConfig, HarvestResult
 from .parser import TranscriptParser
 from .extractor import PatternExtractor
 from .patterns import load_filters
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
+
+# Provenance: starts at 3 to align with RFC-harvest-provenance phases (provenance tagging, 
+# re-harvest safety, session digest). Increment when the harvest pipeline changes materially.
+HARVEST_PIPELINE_VERSION = 3
 
 
 class SessionHarvester:
@@ -110,20 +115,6 @@ class SessionHarvester:
 
         return kept
 
-    async def _is_duplicate_of_existing(self, content: str) -> bool:
-        """Check if content is semantically similar to existing memories."""
-        if not self._memory_service:
-            return False
-        try:
-            results = await self._memory_service.search(query=content, limit=1)
-            if results and len(results) > 0:
-                top = results[0]
-                similarity = top.get("similarity", top.get("score", 0))
-                return similarity > 0.85
-        except Exception:
-            pass
-        return False
-
     def harvest(self, config: HarvestConfig) -> List[HarvestResult]:
         """Parse sessions and extract candidates (synchronous, no storage)."""
         session_files = self._resolve_sessions(config)
@@ -157,32 +148,53 @@ class SessionHarvester:
                 stored = 0
                 for candidate in result.candidates:
                     try:
-                        evolved = await self._try_evolve(candidate, config)
+                        tags, metadata = self._provenance(candidate, result.session_id)
+                        evolved = await self._try_evolve(candidate, config, metadata)
                         if evolved:
                             stored += 1
                         else:
-                            tags = ["session-harvest"] + candidate.tags
                             resp = await self.memory_service.store_memory(
                                 content=candidate.content,
                                 tags=tags,
                                 memory_type=candidate.memory_type,
-                                metadata={
-                                    "confidence": candidate.confidence,
-                                    "source": "harvest",
-                                },
+                                metadata=metadata,
                             )
                             if isinstance(resp, dict) and resp.get("success"):
                                 stored += 1
                             elif hasattr(resp, "success") and resp.success:
                                 stored += 1
                     except Exception as e:
-                        logger.warning(f"Failed to store harvest candidate: {e}")
+                        logger.warning("Failed to store harvest candidate: %s", _sanitize_log_value(str(e)))
                 result.stored = stored
 
             results.append(result)
         return results
 
-    async def _try_evolve(self, candidate, config: "HarvestConfig") -> bool:
+    @staticmethod
+    def _provenance(candidate, session_id=None):
+        """Tags and metadata recording how a candidate was harvested.
+
+        Provenance (RFC-harvest-provenance Phase 1). Derive method from the
+        model signal: only the LLM path sets harvest_model, so its presence is
+        the source of truth — a missing/defaulted harvest_method must not
+        mislabel an LLM candidate.
+        """
+        model = getattr(candidate, "harvest_model", None)
+        method = getattr(candidate, "harvest_method", None)
+        if not method:
+            method = "llm" if model else "heuristic"
+        tags = ["session-harvest", f"harvest:method:{method}"] + candidate.tags
+        metadata = {
+            "confidence": candidate.confidence,
+            "source": "harvest",
+            "harvest_method": method,
+            "harvest_model": model,
+            "harvest_pipeline_version": HARVEST_PIPELINE_VERSION,
+            "harvest_session_id": session_id,
+        }
+        return tags, metadata
+
+    async def _try_evolve(self, candidate, config: "HarvestConfig", metadata=None) -> bool:
         """Check for similar active memory; if found, evolve it.
 
         Returns True if an existing memory was evolved, False if caller
@@ -198,7 +210,7 @@ class SessionHarvester:
                 min_confidence=config.min_confidence_to_evolve,
             )
         except Exception as e:
-            logger.debug(f"Similarity check failed, falling back to store: {e}")
+            logger.debug("Similarity check failed, falling back to store: %s", _sanitize_log_value(str(e)))
             return False
 
         if not similar or similar[0].relevance_score <= config.similarity_threshold:
@@ -206,22 +218,131 @@ class SessionHarvester:
 
         existing_hash = similar[0].memory.content_hash
         try:
-            ok, msg, new_hash = await self.memory_service.storage.update_memory_versioned(
+            # Same provenance as the store path. Evolve through the service,
+            # not storage.update_memory_versioned(), so the new version gets
+            # quality scoring, entity linking and on_store plugins too.
+            tags, default_metadata = self._provenance(candidate)
+            ok, msg, new_hash = await self.memory_service.evolve_memory(
                 existing_hash,
                 candidate.content,
-                new_tags=["session-harvest"] + candidate.tags,
-                new_memory_type=candidate.memory_type,
+                tags=tags,
+                memory_type=candidate.memory_type,
+                metadata=metadata if metadata is not None else default_metadata,
                 reason=f"Session harvest: {datetime.now(timezone.utc).isoformat()}",
             )
             if ok:
-                logger.info(f"Evolved memory {existing_hash[:8]}→{new_hash[:8] if new_hash else '?'}")
+                logger.info("Evolved memory %s→%s", existing_hash[:8], new_hash[:8] if new_hash else "?")
                 return True
             else:
-                logger.debug(f"Evolution failed ({msg}), falling back to store")
+                logger.debug("Evolution failed (%s), falling back to store", _sanitize_log_value(str(msg)))
                 return False
         except Exception as e:
-            logger.debug(f"Evolution error, falling back to store: {e}")
+            logger.debug("Evolution error, falling back to store: %s", _sanitize_log_value(str(e)))
             return False
+
+    async def verify_session_coverage(self, session_id: str, threshold: float = 0.9,
+                                      use_llm: bool = True) -> dict:
+        """Check how well a session's insights are already in memory (R11/R12).
+
+        Re-harvests the session in-memory (nothing is stored) and, for each
+        candidate insight, looks for a semantically similar stored memory. Used
+        to decide whether the source session is safe to delete: if some insight
+        has no strong match, deleting the transcript would lose it for good.
+
+        Returns:
+            {
+              "session_id": str,
+              "coverage": float,            # fraction of insights with a strong match
+              "total_insights": int,
+              "missing_insights": [str],    # insights with no match >= threshold
+              "low_quality_matches": [str], # insights whose best match is weak
+              "session_found": bool,        # session file was located and processed
+              "safe_to_delete": bool,       # session processed, coverage complete, no gaps
+            }
+
+        Raises:
+            ValueError: if ``threshold`` is not a positive score in (0.0, 1.0].
+        """
+        from .models import HarvestConfig
+
+        # Guard the public threshold: an absent match is scored 0.0, so a
+        # threshold <= 0 would let every missing insight count as "covered"
+        # and wrongly mark a session safe to delete.
+        if not (0.0 < threshold <= 1.0):
+            raise ValueError(
+                f"threshold must be a score in (0.0, 1.0], got {threshold!r}"
+            )
+
+        # The session_id is caller-controlled and is turned into a filesystem
+        # path. Resolve it and confirm it stays under project_dir, rejecting
+        # traversal (e.g. "../other/transcript") before any I/O — otherwise both
+        # the existence check and _resolve_sessions would read a JSONL outside
+        # the configured session directory (repo directive: validate user paths).
+        base_dir = Path(self.project_dir).resolve()
+        session_path = (base_dir / f"{session_id}.jsonl").resolve()
+        contained = session_path.is_relative_to(base_dir)
+        session_found = contained and session_path.exists()
+
+        if not contained:
+            logger.warning(
+                "Rejected out-of-directory session id %s",
+                _sanitize_log_value(session_id),
+            )
+            return {
+                "session_id": session_id, "coverage": 0.0, "total_insights": 0,
+                "missing_insights": [], "low_quality_matches": [],
+                "session_found": False, "safe_to_delete": False,
+            }
+
+        cfg = HarvestConfig(sessions=1, session_ids=[session_id],
+                            dry_run=True, use_llm=use_llm)
+        # Offload synchronous harvesting (blocking file + LLM I/O) off the event
+        # loop so this async check does not stall unrelated coroutines.
+        results = await asyncio.to_thread(self.harvest, cfg)
+        candidates = [c for r in results for c in r.candidates]
+
+        if not session_found:
+            # The transcript was never inspected — deleting it could lose data.
+            return {
+                "session_id": session_id, "coverage": 0.0, "total_insights": 0,
+                "missing_insights": [], "low_quality_matches": [],
+                "session_found": False, "safe_to_delete": False,
+            }
+
+        if not candidates:
+            # Session was found and processed but yields nothing worth keeping →
+            # deleting the transcript loses nothing.
+            return {
+                "session_id": session_id, "coverage": 1.0, "total_insights": 0,
+                "missing_insights": [], "low_quality_matches": [],
+                "session_found": True, "safe_to_delete": True,
+            }
+
+        missing, weak, covered = [], [], 0
+        for cand in candidates:
+            try:
+                matches = await self.memory_service.storage.retrieve(cand.content, n_results=1)
+            except Exception as e:
+                logger.debug("coverage retrieve failed: %s", _sanitize_log_value(str(e)))
+                matches = []
+            best = matches[0].relevance_score if matches else 0.0
+            if best >= threshold:
+                covered += 1
+            elif best > 0.0:
+                weak.append(cand.content)
+            else:
+                missing.append(cand.content)
+
+        coverage = covered / len(candidates)
+        return {
+            "session_id": session_id,
+            "coverage": coverage,
+            "total_insights": len(candidates),
+            "missing_insights": missing,
+            "low_quality_matches": weak,
+            "session_found": True,
+            "safe_to_delete": coverage >= 1.0 and not missing and not weak,
+        }
 
     def _resolve_sessions(self, config: HarvestConfig) -> List[Path]:
         """Find session files based on config."""
@@ -258,23 +379,29 @@ class SessionHarvester:
         if config.use_llm and filtered:
             rewriter = self._get_rewriter()
             if rewriter:
+                # Use batch API when available — one LLM call instead of N
+                batch_items = [
+                    {"content": c.content, "memory_type": c.memory_type}
+                    for c in filtered
+                ]
+                batch_results = rewriter.rewrite_batch_sync(batch_items)
                 rewritten = []
-                accepted_so_far = []  # Passo 2: contexto acumulado
-                for candidate in filtered:
-                    result = rewriter.rewrite_sync(
-                        candidate.content,
-                        suggested_type=candidate.memory_type,
-                        already_extracted=accepted_so_far if accepted_so_far else None,
-                    )
+                for candidate, result in zip(filtered, batch_results):
                     if result:
+                        _model = (
+                            f"{result.provider}/{result.model}"
+                            if getattr(result, "provider", None) and getattr(result, "model", None)
+                            else None
+                        )
                         rewritten.append(HarvestCandidate(
                             content=result.content,
                             memory_type=result.memory_type,
                             tags=candidate.tags,
                             confidence=min(candidate.confidence + 0.1, 1.0),
                             source_line=candidate.source_line,
+                            harvest_method="llm",
+                            harvest_model=_model,
                         ))
-                        accepted_so_far.append(result.content[:80])
                 logger.info(
                     f"LLM rewrite: {len(filtered)} → {len(rewritten)} candidates "
                     f"({len(filtered) - len(rewritten)} skipped)"

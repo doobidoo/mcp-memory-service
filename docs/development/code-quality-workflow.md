@@ -134,6 +134,20 @@ bash scripts/pr/quality_gate.sh <PR_NUMBER>
 3. Test coverage (code files vs test files)
 4. Breaking changes detection
 
+A breaking change that is deliberate, such as removing a field that a security advisory says leaks data, is acknowledged with a line in the PR body or a commit message:
+
+```
+Breaking-Change-Acknowledged: GHSA-xxxx-xxxx-xxxx, the statistics leaked to unauthenticated callers
+```
+
+Check 4 then prints the model's finding with that reason instead of blocking, and the summary reports the breaking change as acknowledged. The reason is required; a line without one does not count.
+
+A staged run (`quality_gate.sh --staged`) checks changes that are not committed yet, so it takes the reason from the environment instead:
+
+```bash
+BREAKING_CHANGE_ACKNOWLEDGED="GHSA-xxxx-xxxx-xxxx, the statistics leaked" bash scripts/pr/quality_gate.sh --staged
+```
+
 **Duration:** ~10-30 seconds
 
 ### Comprehensive Checks (with pyscn)
@@ -149,7 +163,7 @@ bash scripts/pr/quality_gate.sh <PR_NUMBER> --with-pyscn
 - Dead code detection
 - Code duplication analysis
 - Coupling metrics (CBO)
-- Architecture violations
+- Architecture score
 
 **Duration:** ~30-60 seconds
 
@@ -239,7 +253,7 @@ bash scripts/quality/track_pyscn_metrics.sh
 
 **Output:**
 - CSV file: `.pyscn/history/metrics.csv`
-- HTML report: `.pyscn/reports/analyze_*.html`
+- JSON report: `.pyscn/reports/analyze_*.json`
 
 **Example Output:**
 ```
@@ -366,15 +380,15 @@ pip install pyscn
 pyscn analyze .
 ```
 
-**View Report:**
+**Generate and view the machine-readable report:**
 ```bash
-open .pyscn/reports/analyze_*.html
+pyscn analyze --json --no-open .
+python3 -m json.tool "$(ls -t .pyscn/reports/analyze_*.json | head -1)" | less
 ```
 
-**JSON Output:**
-```bash
-pyscn analyze . --format json > /tmp/metrics.json
-```
+The PR and trend scripts read metrics from the JSON `summary` contract through
+`scripts/quality/read_pyscn_summary.py`. They deliberately reject missing or
+non-numeric metrics instead of recording a misleading zero score.
 
 ### Report Interpretation
 
@@ -525,6 +539,7 @@ pyscn analyze --exclude "tests/*,scripts/*"
 | `scripts/pr/quality_gate.sh` | PR quality gates | `bash scripts/pr/quality_gate.sh <PR>` |
 | `scripts/pr/run_pyscn_analysis.sh` | pyscn PR analysis | `bash scripts/pr/run_pyscn_analysis.sh --pr <PR>` |
 | `scripts/quality/track_pyscn_metrics.sh` | Metrics tracking | `bash scripts/quality/track_pyscn_metrics.sh` |
+| `scripts/quality/read_pyscn_summary.py` | Validate and extract pyscn JSON metrics | Called by both pyscn scripts |
 | `scripts/quality/weekly_quality_review.sh` | Weekly review | `bash scripts/quality/weekly_quality_review.sh` |
 
 ### Configuration Files
@@ -533,7 +548,7 @@ pyscn analyze --exclude "tests/*,scripts/*"
 |------|---------|
 | `.pyscn/.gitignore` | Ignore pyscn reports and history |
 | `.pyscn/history/metrics.csv` | Historical quality metrics |
-| `.pyscn/reports/*.html` | pyscn HTML reports |
+| `.pyscn/reports/*.json` | pyscn machine-readable reports |
 | `.claude/agents/code-quality-guard.md` | Code quality agent specification |
 
 ### Related Documentation

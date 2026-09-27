@@ -1,3 +1,5 @@
+import json as _json
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from pathlib import Path
@@ -120,7 +122,7 @@ class TestHarvestEvolution:
         mock_query_result.memory.content_hash = "existing-hash-123"
         mock_service.storage = AsyncMock()
         mock_service.storage.retrieve = AsyncMock(return_value=[mock_query_result])
-        mock_service.storage.update_memory_versioned = AsyncMock(
+        mock_service.evolve_memory = AsyncMock(
             return_value=(True, "Updated", "new-hash-456")
         )
 
@@ -133,9 +135,19 @@ class TestHarvestEvolution:
         assert result.found > 0, "Fixture must produce candidates"
 
         mock_service.storage.retrieve.assert_called()
-        mock_service.storage.update_memory_versioned.assert_called()
+        # Evolution goes through the service, not straight to storage, so the
+        # new version gets the post-store steps store_memory() would run.
+        mock_service.evolve_memory.assert_called()
+        mock_service.storage.update_memory_versioned.assert_not_called()
         mock_service.store_memory.assert_not_called()
         assert result.stored == result.found
+
+        # The evolved version carries the same provenance as a stored one.
+        kwargs = mock_service.evolve_memory.await_args.kwargs
+        assert kwargs["metadata"]["source"] == "harvest"
+        assert kwargs["metadata"]["harvest_method"] in ("llm", "heuristic")
+        assert kwargs["metadata"]["harvest_session_id"] == result.session_id
+        assert "session-harvest" in kwargs["tags"]
 
     @pytest.mark.asyncio
     async def test_store_novel_content(self, sample_project_dir):
@@ -156,7 +168,7 @@ class TestHarvestEvolution:
         assert result.found > 0, "Fixture must produce candidates"
 
         mock_service.store_memory.assert_called()
-        mock_service.storage.update_memory_versioned.assert_not_called()
+        mock_service.evolve_memory.assert_not_called()
         assert result.stored == result.found
 
     @pytest.mark.asyncio
@@ -209,7 +221,7 @@ class TestHarvestEvolution:
         assert result.found > 0, "Fixture must produce candidates"
 
         mock_service.store_memory.assert_called()
-        mock_service.storage.update_memory_versioned.assert_not_called()
+        mock_service.evolve_memory.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_superseded_memory_not_evolved(self, sample_project_dir):
@@ -236,7 +248,7 @@ class TestHarvestEvolution:
         assert result.found > 0, "Fixture must produce candidates"
 
         mock_service.store_memory.assert_called()
-        mock_service.storage.update_memory_versioned.assert_not_called()
+        mock_service.evolve_memory.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_fallback_when_no_storage(self, sample_project_dir):
@@ -257,4 +269,111 @@ class TestHarvestEvolution:
         assert result.found > 0, "Fixture must produce candidates"
 
         mock_service.store_memory.assert_called()
+
+
+class TestHarvestBatchRewrite:
+    """Tests for batch LLM rewrite path (issue #1108)."""
+
+    @pytest.mark.asyncio
+    async def test_batch_rewrite_used_instead_of_per_candidate(self, sample_project_dir):
+        """When LLM rewrite is enabled, rewrite_batch_sync should be called
+        once with all candidates, not rewrite_sync per candidate.
+
+        This exercises the batch API introduced in issue #1108.
+        Without the change, rewrite_sync would be called per candidate.
+        """
+        from mcp_memory_service.harvest.rewriter import RewriteResult
+
+        mock_service = AsyncMock()
+        mock_service.storage = AsyncMock()
+        mock_service.storage.retrieve = AsyncMock(return_value=[])
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_service.store_memory.return_value = mock_result
+
+        # Create a mock rewriter
+        mock_rewriter = MagicMock()
+        mock_rewriter.is_configured = True
+        # Return a RewriteResult for each item
+        def fake_batch(items):
+            return [
+                RewriteResult(content=f"rewritten: {item['content'][:20]}", memory_type=item['memory_type'])
+                for item in items
+            ]
+        mock_rewriter.rewrite_batch_sync.side_effect = fake_batch
+
+        config = HarvestConfig(sessions=1, dry_run=False, use_llm=True)
+        harvester = SessionHarvester(
+            project_dir=sample_project_dir, memory_service=mock_service
+        )
+        # Patch _get_rewriter to return our mock
+        harvester._get_rewriter = lambda: mock_rewriter
+
+        results = await harvester.harvest_and_store(config)
+        result = results[0]
+
+        if result.found > 0:
+            # rewrite_batch_sync should be called (not rewrite_sync)
+            assert mock_rewriter.rewrite_batch_sync.call_count >= 1
+            mock_rewriter.rewrite_sync.assert_not_called()
         assert result.stored == result.found
+
+
+class TestForceReharvestE2E:
+    """E2E: force_reharvest against a real session file (RFC R8)."""
+
+    def test_force_reharvest_reprocesses_a_tracked_session(self, sample_project_dir):
+        """A real session that is already in the tracker is skipped normally but
+        re-resolved when force_reharvest bypasses the filter."""
+        from mcp_memory_service.harvest.models import (
+            HarvestConfig, should_filter_tracker,
+        )
+
+        harvester = SessionHarvester(project_dir=sample_project_dir)
+        # resolve the real session ids in the sample project
+        all_sessions = harvester._resolve_sessions(HarvestConfig(sessions=9999, dry_run=True))
+        assert all_sessions, "sample project should have at least one session"
+        already = {s.stem for s in all_sessions}  # pretend all are tracked
+
+        # Without force: every session is filtered out (nothing to do).
+        assert should_filter_tracker(already, None, force_reharvest=False) is True
+
+        # With force: the filter is bypassed, so the tracked sessions are
+        # resolved again and re-harvested.
+        assert should_filter_tracker(already, None, force_reharvest=True) is False
+        reresolved = harvester._resolve_sessions(HarvestConfig(sessions=len(all_sessions), dry_run=True))
+        assert {s.stem for s in reresolved} == already
+
+    @pytest.mark.asyncio
+    async def test_handler_forwards_force_reharvest_and_reprocesses(self, sample_project_dir, tmp_path, monkeypatch):
+        """Exercise the real handler: with a populated tracker, force_reharvest=True
+        must re-harvest already-tracked sessions (vs skipping them when off)."""
+        monkeypatch.setenv("MCP_MEMORY_SQLITE_PATH", str(tmp_path / "fr.db"))
+        monkeypatch.setenv("MCP_MEMORY_ONNX_ALLOW_DOWNLOAD", "0")
+        # import from .server (not server_impl) to avoid the circular import
+        from mcp_memory_service.server import MemoryServer
+        srv = MemoryServer()
+        await srv._ensure_storage_initialized()
+
+        # pre-populate the tracker with every session in the sample project
+        from mcp_memory_service.harvest.harvester import SessionHarvester as _SH
+        from mcp_memory_service.harvest.models import HarvestConfig as _HC
+        sids = {s.stem for s in _SH(project_dir=sample_project_dir)._resolve_sessions(_HC(sessions=9999, dry_run=True))}
+        await srv.memory_service.store_memory(
+            content="harvested_sessions:" + ",".join(sorted(sids)),
+            tags=["harvest-tracker"], memory_type="observation",
+        )
+        monkeypatch.setattr(srv, "_resolve_session_dir", lambda *a, **k: str(sample_project_dir), raising=False)
+
+        # Without force: all sessions already tracked -> nothing harvested.
+        off = await srv.handle_memory_harvest({"sessions": 9999, "dry_run": False,
+                                               "project_path": str(sample_project_dir)})
+        off_txt = off[0].text
+        assert "already harvested" in off_txt or _json.loads(off_txt).get("results") == []
+
+        # With force: the tracker filter is bypassed -> sessions are reprocessed.
+        on = await srv.handle_memory_harvest({"sessions": 9999, "dry_run": False,
+                                              "force_reharvest": True,
+                                              "project_path": str(sample_project_dir)})
+        on_txt = on[0].text
+        assert "already harvested" not in on_txt

@@ -7,6 +7,7 @@ import asyncio
 import logging
 from typing import List, Optional
 import httpx
+import re
 from .config import QualityConfig
 from .onnx_ranker import get_onnx_ranker_model, ONNXRankerModel
 from .implicit_signals import ImplicitSignalsEvaluator
@@ -14,6 +15,64 @@ from ..compat import _sanitize_log_value
 from ..models.memory import Memory
 
 logger = logging.getLogger(__name__)
+
+# Roughly approximates the local ranker's 512-token input window without
+# depending on a provider-specific tokenizer.
+OPENAI_COMPAT_CONTENT_PREVIEW_CHARS = 2000
+
+_SCORE_NUMBER_PATTERN = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+
+
+def _parse_score_response(response_text: str) -> float:
+    """
+    Parse a quality score from an endpoint response.
+
+    Accepts a bare number, an explicitly labelled score at the end of the
+    response, a number wrapped in a text code fence, or a bare number with
+    trailing punctuation. Raises RuntimeError when no number is found or the
+    salvaged value is outside [0, 1]. Shared by every endpoint scorer so the
+    recovery behavior stays identical across tiers (#1102).
+    """
+    try:
+        return max(0.0, min(1.0, float(response_text)))
+    except ValueError:
+        pass
+
+    # Accept an explicitly labelled score at the end of a response.
+    # Preceding explanatory text is allowed, but the complete numeric
+    # token must be consumed.
+    match = re.search(
+        rf"\bscore\s*:\s*({_SCORE_NUMBER_PATTERN})\s*[.!]?\s*$",
+        response_text,
+        re.IGNORECASE,
+    )
+
+    # Accept a numeric response wrapped in a text code fence.
+    if match is None:
+        match = re.fullmatch(
+            rf"\s*```(?:text)?\s*({_SCORE_NUMBER_PATTERN})\s*```\s*",
+            response_text,
+            re.IGNORECASE,
+        )
+
+    # Accept a bare numeric response with a trailing period.
+    if match is None:
+        match = re.fullmatch(
+            rf"\s*({_SCORE_NUMBER_PATTERN})\s*\.\s*",
+            response_text,
+        )
+
+    if match is None:
+        raise RuntimeError(
+            f"Could not parse score from endpoint response: {response_text!r}"
+        )
+
+    score = float(match.group(1))
+    if not 0.0 <= score <= 1.0:
+        raise RuntimeError(
+            f"Could not parse score from endpoint response: {response_text!r}"
+        )
+    return score
 
 
 class QualityEvaluator:
@@ -39,6 +98,7 @@ class QualityEvaluator:
         self._groq_bridge = None
         self._httpx_client: Optional[httpx.AsyncClient] = None
         self._initialized = False
+        self._init_lock = asyncio.Lock()
 
     def _load_fallback_rankers(self):
         """Load the comma-separated model list used by fallback scoring."""
@@ -143,6 +203,25 @@ class QualityEvaluator:
 
         self._initialized = True
 
+    async def _ensure_initialized_async(self):
+        """Run _ensure_initialized off the event loop.
+
+        On first use with a local provider, _ensure_initialized performs a real
+        torch.onnx.export of DeBERTa — synchronous and minutes long. Called
+        directly from an async method it blocks the whole loop: nothing else on
+        it runs, and AsyncQualityScorer.stop()'s own ``wait_for`` timeout cannot
+        fire because a blocked loop cannot schedule it. Running the load in a
+        worker thread keeps the loop free. The lock stops two concurrent callers
+        from each starting an export; the flag is re-checked inside it so only
+        the first pays the cost.
+        """
+        if self._initialized:
+            return
+        async with self._init_lock:
+            if self._initialized:
+                return
+            await asyncio.to_thread(self._ensure_initialized)
+
     async def evaluate_quality(self, query: str, memory: Memory) -> float:
         """
         Evaluate memory quality using multi-tier approach.
@@ -159,7 +238,7 @@ class QualityEvaluator:
             # initialization, not after — see _ensure_initialized.
             return 0.5
 
-        self._ensure_initialized()
+        await self._ensure_initialized_async()
 
         # Try tiers in order based on configuration
         provider_used = None
@@ -260,7 +339,7 @@ class QualityEvaluator:
         if not self.config.enabled:
             return [0.5] * len(memories)
 
-        self._ensure_initialized()
+        await self._ensure_initialized_async()
 
         # Tier 1: Local ONNX batched scoring
         if self.config.ai_provider in ['local', 'auto']:
@@ -374,7 +453,11 @@ class QualityEvaluator:
         model = self.config.openai_compat_model
         api_key = self.config.openai_compat_api_key or "none"
 
-        prompt = self._create_scoring_prompt(query, memory.content)
+        prompt = self._create_scoring_prompt(
+            query,
+            memory.content,
+            content_preview_chars=OPENAI_COMPAT_CONTENT_PREVIEW_CHARS,
+        )
 
         headers = {
             "Content-Type": "application/json",
@@ -397,7 +480,7 @@ class QualityEvaluator:
             payload["max_completion_tokens"] = 800
         else:
             payload["max_tokens"] = 50
-            payload["temperature"] = 0.1
+            payload["temperature"] = 0
 
         client = self._get_httpx_client()
         try:
@@ -421,14 +504,9 @@ class QualityEvaluator:
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(f"Unexpected response shape from endpoint: {data}") from exc
 
-        # Parse float and clamp to [0, 1]
-        try:
-            score = float(response_text)
-            return max(0.0, min(1.0, score))
-        except ValueError:
-            raise RuntimeError(
-                f"Could not parse score from openai-compatible response: {response_text!r}"
-            )
+        # Parse float and clamp to [0, 1]; shared recovery handles labels,
+        # code fences, and trailing punctuation (#1102)
+        return _parse_score_response(response_text)
 
     async def _score_with_groq(self, query: str, memory: Memory) -> float:
         """
@@ -458,7 +536,7 @@ class QualityEvaluator:
                 prompt=prompt,
                 model=model,
                 max_tokens=50,
-                temperature=0.1,
+                temperature=0,
                 system_message="You are a quality scorer. Respond only with a number between 0.0 and 1.0."
             )
 
@@ -470,12 +548,12 @@ class QualityEvaluator:
                     continue
                 raise RuntimeError(f"Groq API error: {error_msg}")
 
-            # Parse score from response
+            # Parse score from response with the same recovery the
+            # openai-compatible tier uses (#1102)
             response_text = result["response"].strip()
             try:
-                score = float(response_text)
-                return max(0.0, min(1.0, score))
-            except ValueError:
+                return _parse_score_response(response_text)
+            except RuntimeError:
                 logger.warning("Could not parse Groq score from %s: %s", _sanitize_log_value(str(model)), _sanitize_log_value(str(response_text)))
                 last_error = f"Invalid score format from {model}: {response_text}"
                 continue
@@ -599,7 +677,12 @@ class QualityEvaluator:
             'decision': 'both_low'
         }
 
-    def _create_scoring_prompt(self, query: str, memory_content: str) -> str:
+    def _create_scoring_prompt(
+        self,
+        query: str,
+        memory_content: str,
+        content_preview_chars: int = 500,
+    ) -> str:
         """
         Create a prompt for AI-based quality scoring.
 
@@ -610,11 +693,13 @@ class QualityEvaluator:
         Args:
             query: Search query (may be empty for store operations)
             memory_content: Memory content to score
+            content_preview_chars: Maximum number of memory-content characters
+                included in the prompt.
 
         Returns:
             Formatted prompt for AI model
         """
-        content_preview = memory_content[:500]
+        content_preview = memory_content[:content_preview_chars]
 
         if not query or not query.strip():
             return f"""Rate the absolute quality of this memory content.

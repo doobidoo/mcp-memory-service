@@ -33,10 +33,11 @@ from typing import List, Optional, Dict, Tuple
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.mcp_memory_service.harvest.parser import TranscriptParser, ParsedMessage
-from src.mcp_memory_service.harvest.extractor import PatternExtractor
-from src.mcp_memory_service.harvest.patterns import PATTERNS_DIR
-from src.mcp_memory_service.harvest.models import HARVEST_TYPES
+from mcp_memory_service.harvest.parser import TranscriptParser, ParsedMessage
+from mcp_memory_service.harvest.extractor import PatternExtractor
+from mcp_memory_service.harvest.patterns import PATTERNS_DIR
+from mcp_memory_service.compat import _sanitize_log_value
+from mcp_memory_service.harvest.models import HARVEST_TYPES
 logger = logging.getLogger(__name__)
 LOW_YIELD_MAX_MATCHES = 3
 LOW_YIELD_MIN_MESSAGES = 50
@@ -259,11 +260,11 @@ class _GroqClient:
                     )
                     return resp.choices[0].message.content
                 except Exception as e:
-                    logger.debug(f"Groq model {model} failed: {e}")
+                    logger.debug("Groq model %s failed: %s", _sanitize_log_value(f"{model}"), _sanitize_log_value(f"{e}"))
                     continue
             return None
         except Exception as e:
-            logger.error(f"Groq call failed: {e}")
+            logger.error("Groq call failed: %s", _sanitize_log_value(f"{e}"))
             return None
 
 
@@ -286,7 +287,7 @@ class _OpenAIClient:
             )
             return resp.choices[0].message.content
         except Exception as e:
-            logger.error(f"OpenAI call failed: {e}")
+            logger.error("OpenAI call failed: %s", _sanitize_log_value(f"{e}"))
             return None
 
 
@@ -303,7 +304,7 @@ def parse_llm_response(text: str) -> Dict[str, List[ProposedPattern]]:
     try:
         data = json.loads(text[first_brace:last_brace + 1])
     except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse LLM JSON: {e}")
+        logger.warning("Failed to parse LLM JSON: %s", _sanitize_log_value(f"{e}"))
         return {t: [] for t in HARVEST_TYPES}
 
     RE_HAS_REGEX = re.compile(r'[\[(){}|?*+^$.\\]|\\[bBAzZ]|\\[wWsSdD]')
@@ -317,12 +318,12 @@ def parse_llm_response(text: str) -> Dict[str, List[ProposedPattern]]:
                 continue
             pattern = entry["pattern"]
             if not RE_HAS_REGEX.search(pattern):
-                logger.warning(f"Rejected plain-text pattern (not a regex): {pattern[:60]}")
+                logger.warning("Rejected plain-text pattern (not a regex): %s", _sanitize_log_value(f"{pattern[:60]}"))
                 continue
             try:
                 re.compile(pattern, re.IGNORECASE)
             except re.error as e:
-                logger.warning(f"Invalid regex from LLM: {pattern}: {e}")
+                logger.warning("Invalid regex from LLM: %s: %s", _sanitize_log_value(f"{pattern}"), _sanitize_log_value(f"{e}"))
                 continue
             result[mem_type].append(ProposedPattern(
                 pattern=entry["pattern"],
@@ -375,7 +376,7 @@ def run_discovery(
         unmatched_text="\n---\n".join(unmatched_texts[:50]),
     )
 
-    logger.info(f"Sending {min(len(unmatched_texts), 50)} unmatched messages to LLM...")
+    logger.info("Sending %s unmatched messages to LLM...", _sanitize_log_value(f"{min(len(unmatched_texts), 50)}"))
     response = llm_client.generate(
         prompt=prompt,
         system=(
@@ -394,7 +395,7 @@ def run_discovery(
     result.llm_used = type(llm_client).__name__.lstrip("_").replace("Client", "").lower()
 
     total = sum(len(v) for v in result.patterns.values())
-    logger.info(f"LLM proposed {total} patterns across {sum(1 for v in result.patterns.values() if v)} memory types")
+    logger.info("LLM proposed %s patterns across %s memory types", _sanitize_log_value(f"{total}"), _sanitize_log_value(f"{sum(1 for v in result.patterns.values() if v)}"))
 
     return result
 
@@ -407,7 +408,7 @@ def write_output(result: DiscoveryResult, output_path: Path, dry_run: bool) -> N
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(result.to_yaml(), encoding="utf-8")
-    logger.info(f"Patterns written to {output_path}")
+    logger.info("Patterns written to %s", _sanitize_log_value(f"{output_path}"))
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -416,10 +417,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     session_path = Path(args.session_file)
     if not session_path.exists():
-        logger.error(f"Session file not found: {session_path}")
+        logger.error("Session file not found: %s", _sanitize_log_value(f"{session_path}"))
         return 1
 
-    logger.info(f"Parsing session: {session_path}")
+    logger.info("Parsing session: %s", _sanitize_log_value(f"{session_path}"))
     transcript_parser = TranscriptParser()
     messages = transcript_parser.parse_file(session_path)
 
@@ -427,10 +428,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         logger.error("No messages parsed from session file")
         return 1
 
-    logger.info(f"Parsed {len(messages)} messages")
+    logger.info("Parsed %s messages", _sanitize_log_value(f"{len(messages)}"))
 
     locale = args.locale or detect_locale(messages)
-    logger.info(f"Using locale: {locale}")
+    logger.info("Using locale: %s", _sanitize_log_value(f"{locale}"))
 
     logger.info("Running pattern extraction...")
     extractor = PatternExtractor(locale=locale)

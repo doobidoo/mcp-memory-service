@@ -170,6 +170,12 @@ class TestHandleRetrieveMemory:
             "metadata": {"tags": ["retrieval-test"], "type": "note"}
         })
 
+        # Retrieval by meaning needs a real embedding model. The lean CI job has
+        # downloads disabled and runs on hash embeddings, where the ranking is
+        # arbitrary; same rule as tests/test_semantic_search.py.
+        if type(getattr(server.storage, 'embedding_model', None)).__name__ == "_HashEmbeddingModel":
+            pytest.skip("Semantic retrieval requires real embeddings (install mcp-memory-service[ml])")
+
         # Now retrieve it
         result = await server.handle_retrieve_memory({
             "query": "searchable test memory",

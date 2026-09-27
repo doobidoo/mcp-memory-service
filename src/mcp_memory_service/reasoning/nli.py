@@ -17,10 +17,19 @@ from typing import List, Tuple
 
 from .nli_patterns import load_nli_patterns
 from ..config.locale import get_active_locales
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
-HEURISTIC_MAX_CONFIDENCE = 0.6
+# Highest non-neutral confidence the heuristic backend can ever emit (see
+# _heuristic_classify). Read via NLIClassifier.max_achievable_confidence() to
+# detect a quarantine gate no heuristic contradiction could meet (issue #1216),
+# and kept honest by test_heuristic_ceiling_matches_constant. Was 0.6 and never
+# read anywhere; corrected to the value the code actually returns.
+HEURISTIC_MAX_CONFIDENCE = 0.55
+
+# Flat confidence the LLM/cascade backend assigns to any non-neutral label.
+LLM_NONNEUTRAL_CONFIDENCE = 0.9
 
 # Load patterns from YAML locale files (replaces hardcoded _NEGATION_PAIRS / _VERSION_RE)
 _PATTERNS = load_nli_patterns(tuple(get_active_locales()))
@@ -32,6 +41,49 @@ class NLIResult:
     confidence: float  # 0.0-1.0
 
 
+_NLI_LABELS = ("entailment", "contradiction", "neutral")
+
+
+def _parse_nli_label(response: str):
+    """Parse an LLM NLI answer into one of the three labels, or None.
+
+    Rules (see review on PR #1215):
+    - Anchor on the FIRST token (word-boundary matching over the whole answer
+      would misread "there is no contradiction" / "not a contradiction" as
+      ``contradiction``; the first-token anchor sends those to the heuristic).
+    - Strip an optional leading ``classification:`` prefix, so a prefixed
+      answer like "Classification: contradiction" still parses.
+    - Reject the whole answer (return None) if a SECOND distinct label appears
+      anywhere in it — a hedged answer like "contradiction, but really neutral"
+      is unparseable and must fall back to the heuristic, not be acted on at
+      0.9 confidence.
+    - Any unknown/garbled first token also returns None.
+
+    Returns the label string, or None when the caller should fall back to the
+    heuristic classifier.
+    """
+    if not response or not response.strip():
+        return None
+
+    text = response.strip().lower()
+
+    # Reject if more than one distinct label is mentioned anywhere (hedging).
+    mentioned = {lbl for lbl in _NLI_LABELS if re.search(rf"\b{lbl}\b", text)}
+    if len(mentioned) > 1:
+        return None
+
+    # Strip an optional leading "classification:" prefix before anchoring.
+    text = re.sub(r"^\s*classification\s*:\s*", "", text)
+
+    tokens = text.split()
+    if not tokens:
+        return None
+    first = re.sub(r"[^a-z]", "", tokens[0])
+    if first not in _NLI_LABELS:
+        return None
+    return first
+
+
 class NLIClassifier:
     """NLI-based contradiction detection with multiple backends."""
 
@@ -40,23 +92,121 @@ class NLIClassifier:
             backend = os.environ.get("MCP_NLI_BACKEND", "heuristic")
         self.backend = backend
         self._warned_unimplemented = False
+        # Phase 2 state (R10, R12)
+        self._rewriter = None
+        self._llm_available = None
+        self._warned_degraded = False
 
     async def classify(self, premise: str, hypothesis: str) -> NLIResult:
         """Classify relationship between two texts."""
         if self.backend == "heuristic":
             return self._heuristic_classify(premise, hypothesis)
+        if self.backend in ("cascade", "llm"):
+            return await self._llm_classify(premise, hypothesis)
         if not self._warned_unimplemented:
             logger.warning(
                 "NLI backend '%s' is not implemented; returning neutral. "
-                "Only 'heuristic' is currently supported.",
+                "Only 'heuristic' and 'cascade' are supported.",
                 self.backend,
             )
             self._warned_unimplemented = True
         return NLIResult(label="neutral", confidence=0.0)
 
+    def max_achievable_confidence(self) -> float:
+        """Highest non-neutral confidence this backend can ever return.
+
+        Lets callers detect a contradiction gate that no result could meet
+        (issue #1216): the default ``heuristic`` backend tops out at
+        ``HEURISTIC_MAX_CONFIDENCE``, below the default 0.7 quarantine gate, so
+        quarantine-on-store is inert unless the gate is lowered or the
+        ``cascade`` backend is configured. An unimplemented backend returns
+        neutral 0.0, so its ceiling is 0.0.
+        """
+        if self.backend == "heuristic":
+            return HEURISTIC_MAX_CONFIDENCE
+        if self.backend in ("cascade", "llm"):
+            return LLM_NONNEUTRAL_CONFIDENCE
+        return 0.0
+
+    async def _llm_classify(self, premise: str, hypothesis: str) -> NLIResult:
+        """LLM-based NLI via the harvest provider chain (cascade fallback).
+
+        Reuses HarvestRewriter._call_llm, which resolves the configured
+        provider chain (HARVEST_LLM_PROVIDERS) with fallback. Any failure
+        degrades gracefully to the heuristic classifier.
+        """
+        # R10: Resolve provider config once per run
+        try:
+            rewriter = self._get_rewriter()
+            
+            # Check if LLM is configured once per run (cache result)
+            if self._llm_available is None:
+                try:
+                    self._llm_available = rewriter.is_configured
+                except Exception:
+                    # R11: Exception during is_configured check -> not available
+                    self._llm_available = False
+            
+            # R11: If no provider configured, use heuristic directly
+            if not self._llm_available:
+                return self._heuristic_classify(premise, hypothesis)
+            
+            prompt = (
+                "Classify the relationship between Statement A and Statement B.\n"
+                "Answer with EXACTLY one word: entailment, contradiction, or neutral.\n\n"
+                f"Statement A: {premise[:500]}\n"
+                f"Statement B: {hypothesis[:500]}\n\n"
+                "Classification:"
+            )
+            timeout = float(os.environ.get("MCP_NLI_LLM_TIMEOUT", "30"))
+            # _call_llm returns (response, provider_name, model) so provenance
+            # travels with the call; we only need the response text here.
+            response, _provider, _model = await rewriter._call_llm(prompt, timeout)
+            label = _parse_nli_label(response)
+            if label is None:
+                # R12: Empty/unparseable response triggers bounded warning
+                if not self._warned_degraded:
+                    self._warned_degraded = True
+                    sanitized_reason = _sanitize_log_value("unparseable or empty response from LLM")
+                    self._warn_once(sanitized_reason)
+                # R14: Preserve exact heuristic values
+                return self._heuristic_classify(premise, hypothesis)
+            return NLIResult(
+                label=label,
+                confidence=LLM_NONNEUTRAL_CONFIDENCE if label != "neutral" else 0.3,
+            )
+        except Exception as e:
+            # R12, R13: Exception triggers bounded warning with sanitization
+            if not self._warned_degraded:
+                self._warned_degraded = True
+                sanitized_reason = _sanitize_log_value(f"LLM call failed: {e}")
+                self._warn_once(sanitized_reason)
+            # R14: Preserve exact heuristic values
+            return self._heuristic_classify(premise, hypothesis)
+
     async def classify_batch(self, pairs: List[Tuple[str, str]]) -> List[NLIResult]:
         """Batch classification."""
         return [await self.classify(p, h) for p, h in pairs]
+
+    def _get_rewriter(self):
+        """R10: Lazy initialization of HarvestRewriter to resolve config once per run."""
+        if self._rewriter is None:
+            from ..harvest.rewriter import HarvestRewriter
+            self._rewriter = HarvestRewriter()
+        return self._rewriter
+
+    def _warn_once(self, sanitized_reason: str):
+        """R12: Emit one degradation warning per run (reason already sanitized).
+
+        Only the warning is suppressed after the first; later pairs still attempt
+        the provider and fall back per-pair, so the message describes this pair,
+        not the whole remaining run.
+        """
+        logger.warning(
+            "NLI LLM degradation: %s; falling back to heuristic for this pair "
+            "(further degradations this run are not repeated)",
+            sanitized_reason
+        )
 
     def _heuristic_classify(self, premise: str, hypothesis: str) -> NLIResult:
         """Keyword/pattern-based fallback classification."""
@@ -68,7 +218,7 @@ class NLIClassifier:
                 for p_name, p_ver in pv:
                     for h_name, h_ver in hv:
                         if p_name.lower() == h_name.lower() and p_ver != h_ver:
-                            return NLIResult(label="contradiction", confidence=0.55)
+                            return NLIResult(label="contradiction", confidence=HEURISTIC_MAX_CONFIDENCE)
 
         # Check antonym/negation pairs from loaded patterns
         for pat_a, pat_b in _PATTERNS['negation_pairs']:
@@ -81,9 +231,28 @@ class NLIClassifier:
             else:
                 if (pat_a.search(premise) and pat_b.search(hypothesis)) or \
                    (pat_b.search(premise) and pat_a.search(hypothesis)):
-                    return NLIResult(label="contradiction", confidence=0.55)
+                    return NLIResult(label="contradiction", confidence=HEURISTIC_MAX_CONFIDENCE)
 
         return NLIResult(label="neutral", confidence=0.3)
+
+
+async def _classify_band(
+    classifier, source_content, band_hashes, band_memories, confidence_threshold, result
+):
+    """Stage 3 helper: run NLI over the similarity band and collect contradictions.
+
+    Extracted from detect_contradictions_nli to keep that function under the
+    complexity gate (see review on PR #1215). Mutates ``result['nli_calls']``
+    and returns the list of (hash, mem_b_data, nli_result) contradictions.
+    """
+    contradictions = []
+    for h in band_hashes:
+        mem_b_data = band_memories[h]
+        nli_result = await classifier.classify(source_content, mem_b_data["content"])
+        result["nli_calls"] += 1
+        if nli_result.label == "contradiction" and nli_result.confidence >= confidence_threshold:
+            contradictions.append((h, mem_b_data, nli_result))
+    return contradictions
 
 
 async def detect_contradictions_nli(
@@ -166,18 +335,11 @@ async def detect_contradictions_nli(
         return result
 
     # Stage 3: NLI classification
-    classifier = NLIClassifier(backend="heuristic")
+    classifier = NLIClassifier(backend="auto")
     confidence_threshold = float(os.environ.get("MCP_NLI_CONFIDENCE_THRESHOLD", "0.4"))
-
-    contradictions = []
-    for h in band_hashes:
-        mem_b_data = band_memories[h]
-        nli_result = await classifier.classify(mem_a.content, mem_b_data["content"])
-        result["nli_calls"] += 1
-
-        if nli_result.label == "contradiction" and nli_result.confidence >= confidence_threshold:
-            contradictions.append((h, mem_b_data, nli_result))
-
+    contradictions = await _classify_band(
+        classifier, mem_a.content, band_hashes, band_memories, confidence_threshold, result
+    )
     result["pairs_detected"] = len(contradictions)
 
     # Stage 4: Register conflicts (unless dry_run)

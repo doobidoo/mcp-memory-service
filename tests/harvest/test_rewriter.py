@@ -24,7 +24,7 @@ class TestRewriterOutput:
             "bloqueava o event loop. A solução foi usar asyncio.create_task."
         )
         with patch.object(rewriter, '_call_llm', new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = "bug: asyncio.to_thread inside an async handler still blocks the event loop. Fix: use asyncio.create_task for background work."
+            mock_llm.return_value = ("bug: asyncio.to_thread inside an async handler still blocks the event loop. Fix: use asyncio.create_task for background work.", "groq", "openai/gpt-oss-120b")
             result = await rewriter.rewrite(input_text, suggested_type="bug")
 
         assert result is not None
@@ -38,7 +38,7 @@ class TestRewriterOutput:
         """LLM rewriter returns None when content has no clear insight."""
         input_text = "sim, pode fazer. Vamos em frente com isso."
         with patch.object(rewriter, '_call_llm', new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = "SKIP"
+            mock_llm.return_value = ("SKIP", "groq", "openai/gpt-oss-120b")
             result = await rewriter.rewrite(input_text, suggested_type="context")
 
         assert result is None
@@ -48,7 +48,7 @@ class TestRewriterOutput:
         """Rewriter uses the type from LLM response, falling back to suggested_type."""
         input_text = "decidimos usar RRF em vez de weighted average porque tem melhor recall."
         with patch.object(rewriter, '_call_llm', new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = "decision: Use RRF instead of weighted average for hybrid search — better recall in practice."
+            mock_llm.return_value = ("decision: Use RRF instead of weighted average for hybrid search — better recall in practice.", "groq", "openai/gpt-oss-120b")
             result = await rewriter.rewrite(input_text, suggested_type="decision")
 
         assert result is not None
@@ -69,7 +69,7 @@ class TestRewriterOutput:
         """Rewriter output should not contain markdown formatting or conversational filler."""
         input_text = "## Debug\n\n**Resultado:** O bug era no parser de JSON que não tratava arrays vazios."
         with patch.object(rewriter, '_call_llm', new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = "bug: JSON parser crashes on empty arrays — needs null check before iteration."
+            mock_llm.return_value = ("bug: JSON parser crashes on empty arrays — needs null check before iteration.", "groq", "openai/gpt-oss-120b")
             result = await rewriter.rewrite(input_text, suggested_type="bug")
 
         assert result is not None
@@ -85,7 +85,7 @@ class TestRewriterPrompt:
         """The LLM prompt should include the input text."""
         input_text = "We decided to use PostgreSQL over MySQL."
         with patch.object(rewriter, '_call_llm', new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = "decision: Use PostgreSQL over MySQL."
+            mock_llm.return_value = ("decision: Use PostgreSQL over MySQL.", "groq", "openai/gpt-oss-120b")
             await rewriter.rewrite(input_text, suggested_type="decision")
 
         call_args = mock_llm.call_args[0][0]  # First positional arg = prompt
@@ -96,7 +96,7 @@ class TestRewriterPrompt:
         """The LLM prompt should include the suggested type as context."""
         input_text = "The fix was adding a retry with exponential backoff."
         with patch.object(rewriter, '_call_llm', new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = "bug: Fix connection failures with retry + exponential backoff."
+            mock_llm.return_value = ("bug: Fix connection failures with retry + exponential backoff.", "groq", "openai/gpt-oss-120b")
             await rewriter.rewrite(input_text, suggested_type="bug")
 
         call_args = mock_llm.call_args[0][0]

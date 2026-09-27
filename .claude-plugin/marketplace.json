@@ -1,6 +1,6 @@
 {
   "name": "mcp-memory-service",
-  "owner": { "name": "doobidoo", "url": "https://codeberg.org/doobidoo" },
+  "owner": { "name": "doobidoo", "url": "https://github.com/doobidoo" },
   "plugins": [
     {
       "name": "mcp-memory-service",

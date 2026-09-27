@@ -32,6 +32,32 @@ except ImportError:
 
 from .consolidator import DreamInspiredConsolidator
 from .belief_service import BeliefService
+from ..compat import _sanitize_log_value
+
+
+def sessions_to_track(results) -> set:
+    """Session ids that should be marked harvested (RFC-provenance R7).
+
+    Only sessions that stored at least one memory are tracked. A session that
+    stored nothing stays pending so a later run re-harvests it — this covers the
+    retryable failure we care about (the LLM chain was down and every candidate
+    was dropped) without risking data loss.
+
+    Known trade-off: a deterministically empty session (nothing harvestable) also
+    stays pending and is reselected each tick. `found` cannot tell the two apart
+    here — a transient LLM-rewrite failure also collapses to ``found==0`` (the
+    rewriter drops candidates it can't rewrite), so keying off ``found`` would
+    silently discard recoverable candidates. Distinguishing the two needs the
+    harvester to surface pre-rewrite extraction / rewrite-failure state on
+    HarvestResult; tracked as a separate follow-up. Re-processing an empty
+    session is cheaper than losing data, so this stays conservative.
+    """
+    return {
+        r.session_id
+        for r in results
+        if getattr(r, "session_id", None) and (getattr(r, "stored", 0) or 0) > 0
+    }
+
 
 class ConsolidationScheduler:
     """
@@ -82,6 +108,11 @@ class ConsolidationScheduler:
                 self.logger.warning("APScheduler not available - consolidation scheduling disabled")
             elif not enabled:
                 self.logger.info("Consolidation scheduling disabled by configuration")
+
+        # Wire scheduler reference into the health monitor (if present)
+        health_monitor = getattr(self.consolidator, 'health_monitor', None)
+        if health_monitor is not None and hasattr(health_monitor, 'attach_scheduler'):
+            health_monitor.attach_scheduler(self)
     
     async def start(self) -> bool:
         """Start the consolidation scheduler."""
@@ -91,7 +122,10 @@ class ConsolidationScheduler:
         try:
             # Add consolidation jobs based on configuration
             self._schedule_consolidation_jobs()
-            
+
+            # Add scheduled session-harvest job (opt-in via MCP_HARVEST_SCHEDULE)
+            self._schedule_harvest_job()
+
             # Start the scheduler
             self.scheduler.start()
             self.logger.info("Consolidation scheduler started successfully")
@@ -99,12 +133,12 @@ class ConsolidationScheduler:
             # Log scheduled jobs
             jobs = self.scheduler.get_jobs()
             for job in jobs:
-                self.logger.info(f"Scheduled job: {job.id} - next run: {job.next_run_time}")
+                self.logger.info("Scheduled job: %s - next run: %s", _sanitize_log_value(job.id), _sanitize_log_value(job.next_run_time))
             
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to start consolidation scheduler: {e}")
+            self.logger.error("Failed to start consolidation scheduler: %s", _sanitize_log_value(e))
             return False
     
     async def stop(self) -> bool:
@@ -117,7 +151,7 @@ class ConsolidationScheduler:
             self.logger.info("Consolidation scheduler stopped")
             return True
         except Exception as e:
-            self.logger.error(f"Error stopping consolidation scheduler: {e}")
+            self.logger.error("Error stopping consolidation scheduler: %s", _sanitize_log_value(e))
             return False
     
     def _schedule_consolidation_jobs(self):
@@ -128,7 +162,7 @@ class ConsolidationScheduler:
             schedule_spec = self.schedule_config.get(horizon, 'disabled')
             
             if schedule_spec == 'disabled':
-                self.logger.debug(f"Consolidation for {horizon} horizon is disabled")
+                self.logger.debug("Consolidation for %s horizon is disabled", _sanitize_log_value(horizon))
                 continue
             
             try:
@@ -143,11 +177,168 @@ class ConsolidationScheduler:
                         name=f"Consolidation - {horizon.title()}",
                         replace_existing=True
                     )
-                    self.logger.info(f"Scheduled {horizon} consolidation: {schedule_spec}")
+                    self.logger.info("Scheduled %s consolidation: %s", _sanitize_log_value(horizon), _sanitize_log_value(schedule_spec))
                 
             except Exception as e:
-                self.logger.error(f"Error scheduling {horizon} consolidation: {e}")
+                self.logger.error("Error scheduling %s consolidation: %s", _sanitize_log_value(horizon), _sanitize_log_value(e))
     
+
+    def _schedule_harvest_job(self):
+        """Schedule autonomous session harvest (opt-in via MCP_HARVEST_SCHEDULE).
+
+        The harvest handler (memory_harvest) is local-only and never exposed over
+        remote transports (confused-deputy protection). The scheduler runs
+        in-process on the server host, which already has the filesystem access
+        the harvester needs — so autonomous harvest belongs here, next to the
+        consolidation cadence it piggybacks on, rather than as an external cron
+        calling a blocked tool.
+
+        MCP_HARVEST_SCHEDULE accepts an interval like "6h", "30m", "90s", or a
+        plain number of hours ("6"). Unset/blank/"disabled" → no job (default).
+        """
+        schedule_spec = os.getenv("MCP_HARVEST_SCHEDULE", "").strip()
+        if not schedule_spec or schedule_spec.lower() == "disabled":
+            self.logger.debug("Scheduled session harvest disabled (MCP_HARVEST_SCHEDULE unset)")
+            return
+
+        seconds = self._parse_interval_seconds(schedule_spec)
+        if not seconds or seconds <= 0:
+            self.logger.error(
+                "Invalid MCP_HARVEST_SCHEDULE=%r — expected e.g. '6h', '30m', '90s' or hours; skipping",
+                schedule_spec,
+            )
+            return
+
+        try:
+            self.scheduler.add_job(
+                func=self._run_scheduled_harvest,
+                trigger=IntervalTrigger(seconds=seconds),
+                id="session_harvest",
+                name="Scheduled Session Harvest",
+                replace_existing=True,
+            )
+            self.logger.info("Scheduled session harvest every %ss (MCP_HARVEST_SCHEDULE=%s)", seconds, schedule_spec)
+        except Exception as e:
+            self.logger.error(f"Error scheduling session harvest: {e}")
+
+    @staticmethod
+    def _parse_interval_seconds(spec: str) -> Optional[int]:
+        """Parse an interval spec into seconds. Accepts '6h', '30m', '90s', or bare hours."""
+        spec = spec.strip().lower()
+        try:
+            if spec.endswith("h"):
+                return int(float(spec[:-1]) * 3600)
+            if spec.endswith("m"):
+                return int(float(spec[:-1]) * 60)
+            if spec.endswith("s"):
+                return int(float(spec[:-1]))
+            return int(float(spec) * 3600)  # bare number = hours
+        except (ValueError, TypeError):
+            return None
+
+    async def _run_scheduled_harvest(self):
+        """Execute an autonomous session harvest, in-process, and store results.
+
+        Mirrors the memory_harvest handler but runs on the server's own cadence:
+        reads MCP_HARVEST_SESSION_DIR, harvests the delta (the harvest tracker in
+        harvest_and_store skips already-processed sessions), and bridges results
+        into the observation/belief pipeline via auto_commit.
+        """
+        storage = getattr(self.consolidator, "storage", None)
+        if storage is None:
+            self.logger.warning("Scheduled harvest skipped: consolidator has no storage")
+            return
+
+        try:
+            from ..harvest.harvester import SessionHarvester
+            from ..harvest.models import harvest_config_from_env
+            from ..services.memory_service import MemoryService
+        except Exception as e:
+            self.logger.warning(f"Scheduled harvest skipped: harvest module unavailable ({e})")
+            return
+
+        session_dir = os.path.expanduser(os.getenv("MCP_HARVEST_SESSION_DIR", "~/.kiro/sessions/cli"))
+        job_start = datetime.now()
+        self.logger.info("Starting scheduled session harvest from %s", session_dir)
+        try:
+            from ..harvest.models import HarvestConfig
+            page_size = int(os.getenv("MCP_HARVEST_SCHEDULE_SESSIONS", "50"))
+            use_llm = os.getenv("MCP_HARVEST_SCHEDULE_USE_LLM", "true").lower() in ("true", "1", "yes")
+            # harvest_and_store stores via MemoryService.store_memory — pass the
+            # service wrapper, not the raw storage backend.
+            memory_service = MemoryService(storage)
+            harvester = SessionHarvester(project_dir=session_dir, memory_service=memory_service)
+
+            # Idempotency: read the harvest-tracker and skip already-harvested
+            # sessions, mirroring the memory_harvest handler so scheduled runs
+            # don't re-process (and duplicate) sessions every cycle.
+            already = await self._read_harvest_tracker(memory_service)
+            all_config = HarvestConfig(sessions=9999, project_path=session_dir)
+            all_sessions = harvester._resolve_sessions(all_config)
+            pending = [s for s in all_sessions if s.stem not in already]
+            if not pending:
+                self.logger.info("Scheduled harvest: all %d sessions already harvested", len(all_sessions))
+                return
+
+            config = harvest_config_from_env(
+                sessions=page_size,
+                dry_run=False,
+                use_llm=use_llm,
+                project_path=session_dir,
+                session_ids=[s.stem for s in pending[:page_size]],
+            )
+            results = await harvester.harvest_and_store(config)
+            stored = sum(getattr(r, "stored", 0) or 0 for r in results)
+            found = sum(getattr(r, "found", 0) or 0 for r in results)
+
+            # Update tracker only with sessions that actually stored something
+            # (RFC-provenance R7): a session harvested with stored==0 stays
+            # pending so a later run re-harvests it instead of skipping forever.
+            new_ids = sessions_to_track(results)
+            if new_ids:
+                await self._update_harvest_tracker(memory_service, already | new_ids)
+
+            self.execution_stats['successful_jobs'] += 1
+            self.last_execution_times['harvest'] = job_start
+            duration = (datetime.now() - job_start).total_seconds()
+            self.logger.info(
+                "Completed scheduled harvest in %.2fs: %d sessions, %d found, %d stored (%d pending remain)",
+                duration, len(results), found, stored, max(0, len(pending) - page_size),
+            )
+        except Exception as e:
+            # Never re-raise: a failing harvest must not tear down the scheduler
+            # or the consolidation jobs sharing it.
+            self.execution_stats['failed_jobs'] += 1
+            self.logger.error("Scheduled session harvest failed: %s", e)
+
+    async def _read_harvest_tracker(self, memory_service) -> set:
+        """Read the set of already-harvested session ids from the tracker memory."""
+        try:
+            tracker = await memory_service.list_memories(page=1, page_size=1, tags=["harvest-tracker"])
+            for mem in tracker.get("memories", []):
+                content = mem.get("content", "")
+                if content.startswith("harvested_sessions:"):
+                    ids_str = content.split(":", 1)[1]
+                    return {s for s in ids_str.split(",") if s}
+        except Exception:
+            pass  # first run or tracker missing — treat as empty
+        return set()
+
+    async def _update_harvest_tracker(self, memory_service, all_ids: set):
+        """Upsert the harvest-tracker memory (delete old + store merged set)."""
+        try:
+            old = await memory_service.list_memories(page=1, page_size=1, tags=["harvest-tracker"])
+            for mem in old.get("memories", []):
+                await memory_service.storage.delete(mem["content_hash"])
+            await memory_service.store_memory(
+                content=f"harvested_sessions:{','.join(sorted(all_ids))}",
+                tags=["harvest-tracker"],
+                memory_type="observation",
+                metadata={"count": len(all_ids)},
+            )
+        except Exception as e:
+            self.logger.warning("Failed to update harvest tracker: %s", e)
+
     def _create_trigger(self, horizon: str, schedule_spec: str):
         """Create APScheduler trigger from schedule specification."""
         try:
@@ -218,17 +409,17 @@ class ConsolidationScheduler:
                 return CronTrigger(month=month, day=day, hour=hour, minute=minute)
             
             else:
-                self.logger.error(f"Unknown time horizon: {horizon}")
+                self.logger.error("Unknown time horizon: %s", _sanitize_log_value(horizon))
                 return None
                 
         except Exception as e:
-            self.logger.error(f"Error creating trigger for {horizon} with spec '{schedule_spec}': {e}")
+            self.logger.error("Error creating trigger for %s with spec '%s': %s", _sanitize_log_value(horizon), _sanitize_log_value(schedule_spec), _sanitize_log_value(e))
             return None
     
     async def _run_consolidation_job(self, time_horizon: str):
         """Execute a consolidation job for the specified time horizon."""
         job_start_time = datetime.now()
-        self.logger.info(f"Starting scheduled {time_horizon} consolidation")
+        self.logger.info("Starting scheduled %s consolidation", _sanitize_log_value(time_horizon))
         
         try:
             # Run the consolidation
@@ -242,7 +433,7 @@ class ConsolidationScheduler:
                     belief_svc = BeliefService(self.consolidator.storage)
                     belief_stats = await belief_svc.derive_beliefs()
                 except Exception as be:
-                    self.logger.warning(f"Belief derivation error (non-fatal): {be}")
+                    self.logger.warning("Belief derivation error (non-fatal): %s", _sanitize_log_value(be))
 
             
             # Record successful execution
@@ -260,6 +451,7 @@ class ConsolidationScheduler:
                 'clusters_created': report.clusters_created,
                 'memories_compressed': report.memories_compressed,
                 'memories_archived': report.memories_archived,
+                'beliefs': belief_stats,
                 'errors': report.errors
             }
             
@@ -296,7 +488,7 @@ class ConsolidationScheduler:
             
             self._add_job_to_history(job_record)
             
-            self.logger.error(f"Failed {time_horizon} consolidation: {e}")
+            self.logger.error("Failed %s consolidation: %s", _sanitize_log_value(time_horizon), _sanitize_log_value(e))
             raise
     
     def _add_job_to_history(self, job_record: Dict[str, Any]):
@@ -310,11 +502,11 @@ class ConsolidationScheduler:
     def _job_executed_listener(self, event):
         """Handle job execution events."""
         self.execution_stats['total_jobs'] += 1
-        self.logger.debug(f"Job executed: {event.job_id}")
+        self.logger.debug("Job executed: %s", _sanitize_log_value(event.job_id))
     
     def _job_error_listener(self, event):
         """Handle job error events."""
-        self.logger.error(f"Job error: {event.job_id} - {event.exception}")
+        self.logger.error("Job error: %s - %s", _sanitize_log_value(event.job_id), _sanitize_log_value(event.exception))
     
     async def trigger_consolidation(self, time_horizon: str, immediate: bool = True) -> bool:
         """Manually trigger a consolidation job."""
@@ -341,11 +533,11 @@ class ConsolidationScheduler:
                     max_instances=1
                 )
                 
-                self.logger.info(f"Scheduled manual {time_horizon} consolidation")
+                self.logger.info("Scheduled manual %s consolidation", _sanitize_log_value(time_horizon))
                 return True
                 
         except Exception as e:
-            self.logger.error(f"Error triggering {time_horizon} consolidation: {e}")
+            self.logger.error("Error triggering %s consolidation: %s", _sanitize_log_value(time_horizon), _sanitize_log_value(e))
             return False
     
     async def get_scheduler_status(self) -> Dict[str, Any]:
@@ -401,7 +593,7 @@ class ConsolidationScheduler:
             return True
             
         except Exception as e:
-            self.logger.error(f"Error updating consolidation schedule: {e}")
+            self.logger.error("Error updating consolidation schedule: %s", _sanitize_log_value(e))
             return False
     
     async def pause_consolidation(self, time_horizon: Optional[str] = None) -> bool:
@@ -415,9 +607,9 @@ class ConsolidationScheduler:
                 job = self.scheduler.get_job(job_id)
                 if job:
                     self.scheduler.pause_job(job_id)
-                    self.logger.info(f"Paused {time_horizon} consolidation")
+                    self.logger.info("Paused %s consolidation", _sanitize_log_value(time_horizon))
                 else:
-                    self.logger.warning(f"No job found for {time_horizon} consolidation")
+                    self.logger.warning("No job found for %s consolidation", _sanitize_log_value(time_horizon))
             else:
                 # Pause all consolidation jobs
                 jobs = self.scheduler.get_jobs()
@@ -430,7 +622,7 @@ class ConsolidationScheduler:
             return True
             
         except Exception as e:
-            self.logger.error(f"Error pausing consolidation: {e}")
+            self.logger.error("Error pausing consolidation: %s", _sanitize_log_value(e))
             return False
     
     async def resume_consolidation(self, time_horizon: Optional[str] = None) -> bool:
@@ -444,9 +636,9 @@ class ConsolidationScheduler:
                 job = self.scheduler.get_job(job_id)
                 if job:
                     self.scheduler.resume_job(job_id)
-                    self.logger.info(f"Resumed {time_horizon} consolidation")
+                    self.logger.info("Resumed %s consolidation", _sanitize_log_value(time_horizon))
                 else:
-                    self.logger.warning(f"No job found for {time_horizon} consolidation")
+                    self.logger.warning("No job found for %s consolidation", _sanitize_log_value(time_horizon))
             else:
                 # Resume all consolidation jobs
                 jobs = self.scheduler.get_jobs()
@@ -459,5 +651,5 @@ class ConsolidationScheduler:
             return True
             
         except Exception as e:
-            self.logger.error(f"Error resuming consolidation: {e}")
+            self.logger.error("Error resuming consolidation: %s", _sanitize_log_value(e))
             return False

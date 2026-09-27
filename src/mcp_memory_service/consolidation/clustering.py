@@ -24,6 +24,7 @@ import re
 try:
     from sklearn.cluster import DBSCAN
     from sklearn.cluster import AgglomerativeClustering
+    from sklearn.neighbors import NearestNeighbors
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
@@ -112,7 +113,7 @@ class SemanticClusteringEngine(ConsolidationBase):
         memories_with_embeddings = [m for m in memories if m.embedding]
         
         if len(memories_with_embeddings) < self.min_cluster_size:
-            self.logger.warning(f"Only {len(memories_with_embeddings)} memories have embeddings, need at least {self.min_cluster_size}")
+            self.logger.warning("Only %s memories have embeddings, need at least %s", len(memories_with_embeddings), self.min_cluster_size)
             return []
         
         # Extract embeddings matrix
@@ -132,25 +133,73 @@ class SemanticClusteringEngine(ConsolidationBase):
         # Filter by minimum cluster size
         valid_clusters = [c for c in clusters if len(c.memory_hashes) >= self.min_cluster_size]
         
-        self.logger.info(f"Created {len(valid_clusters)} valid clusters from {len(memories_with_embeddings)} memories")
+        self.logger.info("Created %s valid clusters from %s memories", len(valid_clusters), len(memories_with_embeddings))
         return valid_clusters
     
     async def _dbscan_clustering(self, embeddings: np.ndarray) -> np.ndarray:
         """Perform DBSCAN clustering on embeddings."""
         _require_sklearn('dbscan')
 
-        # Adaptive epsilon based on data size and dimensionality
-        n_samples, n_features = embeddings.shape
-        eps = 0.5 - (n_samples / 10000) * 0.1  # Decrease eps for larger datasets
-        eps = max(0.2, min(0.7, eps))  # Clamp between 0.2 and 0.7
-        
         min_samples = max(2, self.min_cluster_size // 2)
-        
+        eps = self._estimate_eps(embeddings, min_samples)
+
         clustering = DBSCAN(eps=eps, min_samples=min_samples, metric='cosine')
         labels = clustering.fit_predict(embeddings)
-        
-        self.logger.debug(f"DBSCAN: eps={eps}, min_samples={min_samples}, found {len(set(labels))} clusters")
+
+        self.logger.debug("DBSCAN: eps=%.4f, min_samples=%s, found %s clusters", eps, min_samples, len(set(labels)))
         return labels
+
+    @staticmethod
+    def _estimate_eps(embeddings: np.ndarray, min_samples: int) -> float:
+        """Pick DBSCAN's eps from the data's own k-distance curve.
+
+        The previous formula derived eps purely from dataset size
+        (`0.5 - n/10000, clamped to [0.2, 0.7]`), which bakes in an assumption
+        about how similar this embedding model's vectors are to unrelated
+        content. Some sentence-embedding models (e.g. the all-MiniLM-L6-v2
+        default) produce a narrow, elevated baseline cosine similarity across
+        semantically unrelated text, so a size-only eps that looked
+        reasonable chained memories into one giant cluster via
+        density-reachability rather than finding several coherent ones
+        (observed: 989/1104 memories collapsed into a single cluster with
+        coherence 0.461).
+
+        This is the standard k-distance heuristic for choosing DBSCAN's eps
+        (Ester et al., 1996): compute each point's distance to its
+        `min_samples`-th nearest neighbor, sort ascending, and pick eps at
+        the "knee" -- the point of maximum deviation from a straight line
+        between the curve's endpoints. Below the knee, points sit in dense
+        neighborhoods (candidate clusters); above it, distances jump sharply
+        (noise/outliers). This adapts to whatever embedding model produced
+        the vectors instead of assuming a fixed similarity scale, since the
+        knee reflects this dataset's actual density, not a guess.
+        """
+        n_samples = embeddings.shape[0]
+        if n_samples <= min_samples:
+            return 0.3  # Too few points to estimate a k-distance curve.
+
+        # Use NearestNeighbors rather than a full n x n distance matrix: the
+        # matrix approach is O(n^2) in both memory and time, which is fine at
+        # a few thousand memories but becomes expensive as a store grows.
+        # NearestNeighbors handles the metric's normalization itself, so no
+        # separate L2-normalization step is needed here either.
+        neighbors = NearestNeighbors(n_neighbors=min_samples + 1, metric='cosine')
+        neighbors.fit(embeddings)
+        distances, _ = neighbors.kneighbors(embeddings)
+
+        # Column 0 is always distance-to-self (0.0); the k-th neighbor
+        # distance for each point is the last column.
+        k_distances = np.sort(distances[:, -1])
+        sorted_k_distances = np.sort(k_distances)
+
+        # Knee = point of maximum distance from the line connecting the
+        # curve's first and last (normalized) points.
+        x = np.linspace(0.0, 1.0, num=len(sorted_k_distances))
+        y_range = sorted_k_distances[-1] - sorted_k_distances[0]
+        y = (sorted_k_distances - sorted_k_distances[0]) / y_range if y_range > 1e-12 else x
+        knee_index = int(np.argmax(y - x))
+
+        return max(float(sorted_k_distances[knee_index]), 0.05)
     
     async def _hierarchical_clustering(self, embeddings: np.ndarray) -> np.ndarray:
         """Perform hierarchical clustering on embeddings."""
@@ -167,7 +216,7 @@ class SemanticClusteringEngine(ConsolidationBase):
         )
         labels = clustering.fit_predict(embeddings)
         
-        self.logger.debug(f"Hierarchical: n_clusters={n_clusters}, found {len(set(labels))} clusters")
+        self.logger.debug("Hierarchical: n_clusters=%s, found %s clusters", n_clusters, len(set(labels)))
         return labels
     
     async def _simple_clustering(self, embeddings: np.ndarray) -> np.ndarray:
@@ -208,7 +257,7 @@ class SemanticClusteringEngine(ConsolidationBase):
                 for member in cluster_members:
                     labels[member] = -1
         
-        self.logger.debug(f"Simple clustering: threshold={similarity_threshold}, found {current_cluster} clusters")
+        self.logger.debug("Simple clustering: threshold=%s, found %s clusters", similarity_threshold, current_cluster)
         return labels
     
     async def _create_clusters(
@@ -391,7 +440,7 @@ class SemanticClusteringEngine(ConsolidationBase):
                 )
                 result_clusters.append(merged_cluster)
         
-        self.logger.info(f"Merged {len(clusters)} clusters into {len(result_clusters)}")
+        self.logger.info("Merged %s clusters into %s", len(clusters), len(result_clusters))
         return result_clusters
     
     async def _merge_cluster_group(self, clusters: List[MemoryCluster]) -> MemoryCluster:

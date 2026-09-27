@@ -19,9 +19,9 @@ pymilvus = pytest.importorskip("pymilvus")
 milvus_lite = pytest.importorskip("milvus_lite")
 pytest.importorskip("sentence_transformers")
 
-from src.mcp_memory_service.models.memory import Memory  # noqa: E402
-from src.mcp_memory_service.storage.milvus import MilvusMemoryStorage  # noqa: E402
-from src.mcp_memory_service.utils.hashing import generate_content_hash  # noqa: E402
+from mcp_memory_service.models.memory import Memory  # noqa: E402
+from mcp_memory_service.storage.milvus import MilvusMemoryStorage  # noqa: E402
+from mcp_memory_service.utils.hashing import generate_content_hash  # noqa: E402
 
 # Local cached model — small, offline-friendly.
 _E2E_MODEL = "all-MiniLM-L6-v2"

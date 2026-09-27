@@ -14,6 +14,7 @@
 #   bash scripts/pr/run_pyscn_analysis.sh --threshold 70     # Require health score ≥70
 
 set -e
+set -o pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -65,34 +66,31 @@ mkdir -p .pyscn/reports
 echo "Running pyscn analysis (this may take 30-60 seconds)..."
 echo ""
 
-# Generate timestamp for report
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-REPORT_FILE=".pyscn/reports/analyze_${TIMESTAMP}.html"
-JSON_FILE=".pyscn/reports/analyze_${TIMESTAMP}.json"
+# Mark the start so stale reports from previous runs cannot be selected.
+RUN_MARKER=$(mktemp)
 
-# Run analysis (HTML report)
-if pyscn analyze . --output "$REPORT_FILE" 2>&1 | tee /tmp/pyscn_output.log; then
+# Run analysis using pyscn's stable machine-readable format.
+if pyscn analyze --json --no-open . 2>&1 | tee /tmp/pyscn_output.log; then
     echo -e "${GREEN}✓${NC} Analysis complete"
 else
+    rm -f "$RUN_MARKER"
     echo -e "${RED}❌ Analysis failed${NC}"
     cat /tmp/pyscn_output.log
     exit 1
 fi
 
-# Extract metrics from HTML report using grep/sed
-# Note: This is a simple parser - adjust patterns if pyscn output format changes
-HEALTH_SCORE=$(grep -o 'Health Score: [0-9]*' "$REPORT_FILE" | head -1 | grep -o '[0-9]*' || echo "0")
-COMPLEXITY_SCORE=$(grep -o '<span class="score-value">[0-9]*</span>' "$REPORT_FILE" | head -1 | sed 's/<[^>]*>//g' || echo "0")
-DEAD_CODE_SCORE=$(grep -o '<span class="score-value">[0-9]*</span>' "$REPORT_FILE" | sed -n '2p' | sed 's/<[^>]*>//g' || echo "0")
-DUPLICATION_SCORE=$(grep -o '<span class="score-value">[0-9]*</span>' "$REPORT_FILE" | sed -n '3p' | sed 's/<[^>]*>//g' || echo "0")
+JSON_FILE=$(find .pyscn/reports -type f -name 'analyze_*.json' -newer "$RUN_MARKER" -print | sort | tail -1)
+rm -f "$RUN_MARKER"
+if [ -z "$JSON_FILE" ]; then
+    echo -e "${RED}❌ Analysis produced no new JSON report${NC}"
+    exit 1
+fi
 
-# Extract detailed metrics
-TOTAL_FUNCTIONS=$(grep -o '<div class="metric-value">[0-9]*</div>' "$REPORT_FILE" | head -1 | sed 's/<[^>]*>//g' || echo "0")
-AVG_COMPLEXITY=$(grep -o '<div class="metric-value">[0-9.]*</div>' "$REPORT_FILE" | sed -n '3p' | sed 's/<[^>]*>//g' || echo "0")
-MAX_COMPLEXITY=$(grep -o '<div class="metric-value">[0-9]*</div>' "$REPORT_FILE" | sed -n '3p' | sed 's/<[^>]*>//g' || echo "0")
-DUPLICATION_PCT=$(grep -o '<div class="metric-value">[0-9.]*%</div>' "$REPORT_FILE" | head -1 | sed 's/<[^>]*>//g' || echo "0%")
-DEAD_CODE_ISSUES=$(grep -o '<div class="metric-value">[0-9]*</div>' "$REPORT_FILE" | sed -n '4p' | sed 's/<[^>]*>//g' || echo "0")
-ARCHITECTURE_VIOLATIONS=$(grep -o '<div class="metric-value">[0-9]*</div>' "$REPORT_FILE" | tail -2 | head -1 | sed 's/<[^>]*>//g' || echo "0")
+METRICS=$(python3 "$(dirname "$0")/../quality/read_pyscn_summary.py" "$JSON_FILE") || exit 1
+IFS=$'\t' read -r HEALTH_SCORE COMPLEXITY_SCORE DEAD_CODE_SCORE DUPLICATION_SCORE \
+    _COUPLING_SCORE _DEPENDENCIES_SCORE ARCHITECTURE_SCORE AVG_COMPLEXITY \
+    MAX_COMPLEXITY DUPLICATION_NUM DEAD_CODE_ISSUES <<< "$METRICS"
+DUPLICATION_PCT="${DUPLICATION_NUM}%"
 
 echo ""
 echo -e "${BLUE}=== Analysis Results ===${NC}"
@@ -104,7 +102,7 @@ echo "  - Complexity: $COMPLEXITY_SCORE/100 (Avg: $AVG_COMPLEXITY, Max: $MAX_COM
 echo "  - Dead Code: $DEAD_CODE_SCORE/100 ($DEAD_CODE_ISSUES issues)"
 echo "  - Duplication: $DUPLICATION_SCORE/100 ($DUPLICATION_PCT duplication)"
 echo ""
-echo "📄 Report: $REPORT_FILE"
+echo "📄 Report: $JSON_FILE"
 echo ""
 
 # Determine status
@@ -152,7 +150,6 @@ if [ "$MAX_COMPLEXITY" -gt 10 ]; then
 fi
 
 CRITICAL_DUPLICATION=""
-DUPLICATION_NUM=$(echo "$DUPLICATION_PCT" | sed 's/%//')
 if (( $(echo "$DUPLICATION_NUM > 5.0" | bc -l) )); then
     CRITICAL_DUPLICATION="- ⚠️  Code duplication above 5% threshold ($DUPLICATION_PCT)
 "
@@ -176,7 +173,7 @@ if [ -n "$PR_NUMBER" ]; then
 | 🔢 Complexity | $COMPLEXITY_SCORE/100 | Avg: $AVG_COMPLEXITY, Max: $MAX_COMPLEXITY |
 | 💀 Dead Code | $DEAD_CODE_SCORE/100 | $DEAD_CODE_ISSUES issues |
 | 📋 Duplication | $DUPLICATION_SCORE/100 | $DUPLICATION_PCT code duplication |
-| 🏗️  Architecture | N/A | $ARCHITECTURE_VIOLATIONS violations |
+| 🏗️  Architecture | $ARCHITECTURE_SCORE/100 | pyscn architecture score |
 
 ### Status
 
@@ -186,7 +183,7 @@ ${CRITICAL_COMPLEXITY}${CRITICAL_DUPLICATION}${RECOMMENDATIONS}
 
 ### Full Report
 
-View detailed analysis: [HTML Report](.pyscn/reports/analyze_${TIMESTAMP}.html)
+View detailed analysis: [JSON Report]($JSON_FILE)
 
 ---
 
@@ -224,7 +221,7 @@ else
     echo "Health score ($HEALTH_SCORE) below threshold ($THRESHOLD)"
     echo ""
     echo "Action required before merging:"
-    echo "  1. Review full report: open $REPORT_FILE"
+    echo "  1. Review full report: $JSON_FILE"
     echo "  2. Address high-complexity functions (complexity >10)"
     echo "  3. Remove dead code ($DEAD_CODE_ISSUES issues)"
     echo "  4. Reduce duplication where feasible"

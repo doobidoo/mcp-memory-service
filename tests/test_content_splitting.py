@@ -24,7 +24,7 @@ Tests cover:
 """
 
 import pytest
-from src.mcp_memory_service.utils.content_splitter import (
+from mcp_memory_service.utils.content_splitter import (
     split_content,
     estimate_chunks_needed,
     validate_chunk_lengths,
@@ -188,16 +188,16 @@ class TestBackendLimits:
 
     def test_cloudflare_limit(self):
         """Test that Cloudflare backend uses config constant."""
-        from src.mcp_memory_service.storage.cloudflare import CloudflareStorage
-        from src.mcp_memory_service.config import CLOUDFLARE_MAX_CONTENT_LENGTH
+        from mcp_memory_service.storage.cloudflare import CloudflareStorage
+        from mcp_memory_service.config import CLOUDFLARE_MAX_CONTENT_LENGTH
 
         # Verify the class constant matches config
         assert CloudflareStorage._MAX_CONTENT_LENGTH == CLOUDFLARE_MAX_CONTENT_LENGTH
 
     def test_sqlitevec_unlimited(self):
         """Test that SQLite-vec backend uses config constant."""
-        from src.mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-        from src.mcp_memory_service.config import SQLITEVEC_MAX_CONTENT_LENGTH
+        from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+        from mcp_memory_service.config import SQLITEVEC_MAX_CONTENT_LENGTH
 
         # Create a mock instance to check property
         import tempfile
@@ -213,8 +213,8 @@ class TestBackendLimits:
 
     def test_hybrid_follows_config(self):
         """Test that Hybrid backend uses config constant."""
-        from src.mcp_memory_service.storage.hybrid import HybridMemoryStorage
-        from src.mcp_memory_service.config import HYBRID_MAX_CONTENT_LENGTH
+        from mcp_memory_service.storage.hybrid import HybridMemoryStorage
+        from mcp_memory_service.config import HYBRID_MAX_CONTENT_LENGTH
         import tempfile
         import os
 
@@ -235,7 +235,7 @@ class TestConfigurationConstants:
 
     def test_config_constants_exist(self):
         """Test that all content limit constants are defined."""
-        from src.mcp_memory_service.config import (
+        from mcp_memory_service.config import (
             CLOUDFLARE_MAX_CONTENT_LENGTH,
             SQLITEVEC_MAX_CONTENT_LENGTH,
             HYBRID_MAX_CONTENT_LENGTH,
@@ -255,7 +255,7 @@ class TestConfigurationConstants:
 
     def test_config_validation(self):
         """Test that config values are sensible."""
-        from src.mcp_memory_service.config import (
+        from mcp_memory_service.config import (
             CLOUDFLARE_MAX_CONTENT_LENGTH,
             CONTENT_SPLIT_OVERLAP
         )

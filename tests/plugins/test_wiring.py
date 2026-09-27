@@ -1,8 +1,10 @@
 """Tests that plugin hooks are fired from MemoryService methods."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from mcp_memory_service.server.handlers.memory import handle_memory_search
 from mcp_memory_service.services.memory_service import MemoryService
 
 
@@ -84,11 +86,84 @@ class TestDeleteHookFired:
 class TestRetrieveHookFired:
     @pytest.mark.asyncio
     async def test_on_retrieve_fired(self, service):
-        result = await service.retrieve_memories("test query")
+        await service.retrieve_memories("test query")
         calls = [c for c in service._plugin_registry.fire.call_args_list if c[0][0] == "on_retrieve"]
         assert len(calls) == 1
         assert calls[0][0][1] == "test query"  # query passed
         assert isinstance(calls[0][0][2], list)  # results passed
+
+
+class TestUnifiedSearchRetrieveHook:
+    @pytest.mark.asyncio
+    async def test_on_retrieve_reranks_final_fallback_results(
+        self, service, mock_storage
+    ):
+        """The primary search tool exposes its complete result set to plugins."""
+        mock_storage.search_memories = AsyncMock(
+            side_effect=[
+                {
+                    "memories": [
+                        {
+                            "content": "semantic result",
+                            "content_hash": "semantic",
+                            "similarity_score": 0.2,
+                            "tags": [],
+                            "created_at_iso": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                    "total": 1,
+                    "query": "plugin query",
+                    "mode": "semantic",
+                },
+                {
+                    "memories": [
+                        {
+                            "content": "exact result",
+                            "content_hash": "exact",
+                            "tags": [],
+                            "created_at_iso": "2026-01-02T00:00:00Z",
+                        }
+                    ],
+                    "total": 1,
+                    "mode": "exact",
+                },
+                {
+                    "memories": [
+                        {
+                            "content": "tag result",
+                            "content_hash": "tag",
+                            "tags": ["plugin"],
+                            "created_at_iso": "2026-01-03T00:00:00Z",
+                        }
+                    ],
+                    "total": 1,
+                    "mode": "semantic",
+                },
+            ]
+        )
+        service._plugin_registry.fire = AsyncMock(
+            side_effect=lambda hook, query, results: list(reversed(results))
+        )
+        server = MagicMock()
+        server.memory_service = service
+        server._ensure_storage_initialized = AsyncMock(return_value=mock_storage)
+
+        response = await handle_memory_search(
+            server, {"query": "plugin query", "fallback": True}
+        )
+
+        service._plugin_registry.fire.assert_awaited_once()
+        hook, query, results = service._plugin_registry.fire.await_args.args
+        assert hook == "on_retrieve"
+        assert query == "plugin query"
+        assert [item["content_hash"] for item in results] == [
+            "semantic",
+            "exact",
+            "tag",
+        ]
+        assert response[0].text.index("tag result") < response[0].text.index(
+            "semantic result"
+        )
 
 
 class TestConsolidateHookFired:

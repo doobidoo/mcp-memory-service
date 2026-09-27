@@ -67,11 +67,11 @@ Your sponsorship directly funds:
 
 ## 🤝 How to Sponsor
 
-### Primary: Codeberg (active development)
-The project migrated to Codeberg while the GitHub account is locked. All development, releases, and discussions happen here:
+### Primary: GitHub (active development)
+All development, releases, and discussions happen here:
 
-<a href="https://codeberg.org/doobidoo/mcp-memory-service">
-  <img src="https://img.shields.io/badge/Codeberg-2185D0?style=for-the-badge&logo=codeberg&logoColor=white" />
+<a href="https://github.com/doobidoo/mcp-memory-service">
+  <img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white" />
 </a>
 
 ### One-time Donations
@@ -130,7 +130,7 @@ The project migrated to Codeberg while the GitHub account is locked. All develop
 For custom sponsorship packages or enterprise inquiries:
 - Email: [henry.krupp@gmail.com]
 - Discord: [Join our community](https://discord.gg/mcp-memory)
-- Codeberg Issues: [Open a ticket](https://codeberg.org/doobidoo/mcp-memory-service/issues)
+- GitHub Issues: [Open a ticket](https://github.com/doobidoo/mcp-memory-service/issues)
 <!-- - GitHub Discussions: [Start a conversation](https://github.com/doobidoo/mcp-memory-service/discussions) -->
 
 ## 🙏 Thank You
@@ -142,7 +142,7 @@ Together, we're building the future of AI memory management!
 ---
 
 <p align="center">
-  <a href="https://codeberg.org/doobidoo/mcp-memory-service">
-    <img src="https://img.shields.io/badge/Codeberg-Repository-2185D0?style=social&logo=codeberg" />
+  <a href="https://github.com/doobidoo/mcp-memory-service">
+    <img src="https://img.shields.io/badge/GitHub-Repository-181717?style=social&logo=github" />
   </a>
 </p>

@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v11.10.0</title>
+<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v11.14.0</title>
 <meta name="description" content="Memory layer for AI agents. REST API + MCP + OAuth + CLI + dashboard — one self-hosted service, every transport. 14+ client integrations, knowledge graph, automatic consolidation. LongMemEval R@5 86%, session ingestion, zero cloud cost.">
-<meta property="og:title" content="MCP Memory Service v11.10.0">
-<meta property="og:description" content="Consolidation clustering now fails loudly instead of silently degrading, plus a time-horizon fix. Self-hosted AI memory — REST, MCP, OAuth 2.1, CLI. LongMemEval R@5 86%.">
+<meta property="og:title" content="MCP Memory Service v11.14.0">
+<meta property="og:description" content="Self-hosted AI memory — REST, MCP, OAuth 2.1, CLI, dashboard. Semantic search, knowledge graph, automatic consolidation. LongMemEval R@5 86%, zero cloud cost.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://mcpmemory.services/">
 <meta property="twitter:card" content="summary_large_image">
@@ -95,6 +95,14 @@ section{position:relative;z-index:1;padding:6rem 2rem}
 .stat-number{font-size:clamp(2rem,5vw,3rem);font-weight:800;background:linear-gradient(135deg,var(--cyan),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .stat-label{color:var(--muted);font-size:.9rem;margin-top:.3rem}
 
+/* Comparison tables */
+.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.cmp-table{width:100%;border-collapse:collapse;font-size:.9rem;min-width:520px}
+.cmp-table th,.cmp-table td{padding:.7rem .9rem;text-align:left;border-bottom:1px solid #1e293b}
+.cmp-table th{color:var(--muted);font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em}
+.cmp-table td:last-child,.cmp-table th:last-child{color:var(--cyan);font-weight:600}
+.cmp-note{color:var(--muted);font-size:.85rem;line-height:1.7;margin-top:1rem}
+
 /* Install */
 .install-section{text-align:center}
 .install-box{background:var(--card);border:1px solid #1e293b;border-radius:12px;padding:1.5rem 2rem;display:inline-block;margin:1.5rem 0 2.5rem;font-family:'SF Mono',Consolas,'Liberation Mono',monospace;font-size:1.1rem;color:var(--cyan);position:relative;cursor:pointer;transition:all .3s}
@@ -125,16 +133,16 @@ footer a{color:var(--cyan)}
 <!-- Hero -->
 <header class="hero">
   <img src="brain-icon.png" alt="Memory for AI Agents" class="hero-logo">
-  <span class="hero-badge">mcp-memory-service v11.10 &mdash; Now Available</span>
+  <span class="hero-badge">mcp-memory-service v11.14 &mdash; Now Available</span>
   <h1>Memory for AI Agents</h1>
   <p>Persistent memory for AI agents &mdash; REST API, MCP, OAuth, CLI, dashboard. Semantic search, knowledge graph, automatic consolidation. One self-hosted service, every transport.</p>
   <div class="hero-buttons">
     <a href="/demo/" class="btn btn-primary">
       Try the Live Demo
     </a>
-    <a href="https://codeberg.org/doobidoo/mcp-memory-service" class="btn btn-secondary" target="_blank">
+    <a href="https://github.com/doobidoo/mcp-memory-service" class="btn btn-secondary" target="_blank">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M11.999.747A11.974 11.974 0 0 0 0 12.75c0 2.254.635 4.465 1.833 6.376L11.837 6.19c.072-.092.251-.092.323 0l4.178 5.402h-2.992l.065.239h3.113l.882 1.138h-3.674l.103.374h3.86l.777 1.003h-4.358l.135.483h4.593l.695.894h-5.038l.165.589h5.326l.609.785h-5.717l.182.65h6.038l.562.727h-6.397l.183.65h6.717A12.003 12.003 0 0 0 24 12.75 11.977 11.977 0 0 0 11.999.747zm3.654 19.104.182.65h5.326c.173-.204.353-.433.513-.65zm.385 1.377.18.65h3.563c.233-.198.485-.428.712-.65zm.383 1.377.182.648h1.203c.356-.204.685-.412 1.042-.648zz"/></svg>
-      Codeberg
+      GitHub
     </a>
     <a href="https://pypi.org/project/mcp-memory-service/" class="btn btn-secondary" target="_blank">
       PyPI Package
@@ -165,23 +173,23 @@ footer a{color:var(--cyan)}
 <!-- Features -->
 <section id="features">
   <div class="container">
-    <h2 class="section-title">What's New in v11.10</h2>
-    <p class="section-subtitle">MINOR release: consolidation clustering now fails loudly instead of silently degrading when scikit-learn is missing, every time horizon means the window it documents, and three hook fixes land — two from external contributor timkjr, one ported from the GitHub mirror. ~3,007 tests.</p>
+    <h2 class="section-title">What's New in v11.14</h2>
+    <p class="section-subtitle">MINOR release: 21 merged pull requests, most of them from outside the maintainer. Memories can now record which agent wrote them, an unauthenticated endpoint stopped handing out storage statistics, and consolidation reads the timestamps it was always meant to read. 3,438 tests.</p>
     <div class="features-grid">
       <div class="feature-card" data-delay="0">
-        <div class="feature-icon privacy">&#128274;</div>
-        <h3>Clustering Fails Loud Instead of Silently Degrading</h3>
-        <p>MCP_CLUSTERING_ALGORITHM defaulted to dbscan, but scikit-learn was declared in no extra, so clustering silently ran a simple fallback behind one WARNING line. New [clustering] extra, default now auto; naming dbscan/hierarchical explicitly without scikit-learn installed now raises a clear error. (#329)</p>
+        <div class="feature-icon consolidation">&#128269;</div>
+        <h3>Memories Can Name the Agent That Wrote Them</h3>
+        <p>A memory can now carry the id of the agent that stored it: pass agent_id or set MCP_AGENT_ID, and it lands in metadata with no schema change. Phase 2 makes it readable — memory_search and memory_list gain an agent_id filter that matches attribution written by either transport, and the /mcp endpoint reads an X-Agent-ID header so several agents sharing one server are attributed per request. The filter is opt-in: omit it and you see every agent's memories, because a per-agent bubble is the wrong default. (#1278, #1297)</p>
       </div>
       <div class="feature-card" data-delay="150">
-        <div class="feature-icon consolidation">&#128295;</div>
-        <h3>Every Consolidation Horizon Means Its Documented Window</h3>
-        <p>Four of the five memory_consolidate time horizons didn't match what the tool description promised — daily reached 2 days, weekly and monthly applied no age filter at all, quarterly and yearly kept memories OLDER than their window. All five now filter to the window they document. (#325)</p>
+        <div class="feature-icon privacy">&#129520;</div>
+        <h3>A Health Endpoint That Answered Too Much</h3>
+        <p>GET /mcp/health returned the full storage statistics to any caller with no credentials — memory count, database size, embedding model, backend class. An earlier advisory had already established that this data needs an identity and moved it behind authentication on the REST side, but that fix only touched one file and left the parallel MCP route open. The route stays unauthenticated so liveness probes keep working; the statistics are gone. (GHSA-7w86-2vmv-fqwm, #1305)</p>
       </div>
       <div class="feature-card" data-delay="300">
-        <div class="feature-icon http">&#128240;</div>
-        <h3>Three Hook Fixes, Two From the Community</h3>
-        <p>External contributor timkjr fixed hardcoded harvest wrapper timeouts and a settings-merge bug that could wipe a user's own hooks; alivirgo ported a Stop-hook transcript-pairing fix from the GitHub mirror. Plugin manifest bumped so installed users actually get them. (#321, #323, #330)</p>
+        <div class="feature-icon http">&#127760;</div>
+        <h3>Consolidation Reads the Right Clock</h3>
+        <p>The decay system measured relevance with edit timestamps instead of access timestamps, so a memory read constantly but never edited slowly lost its protection; get_access_patterns now queries last_accessed, and without the LIMIT 100 that quietly truncated the statistics. It also stopped loading the access time of every memory ever accessed on every run. Separately, belief quarantine is reachable again: a value-swap phrased naturally is filed as a contradiction rather than dropped as a near-duplicate. (#1288, #1291, #1216)</p>
       </div>
     </div>
   </div>
@@ -236,11 +244,11 @@ footer a{color:var(--cyan)}
     <p class="section-subtitle">Battle-tested with comprehensive testing and optimized for performance.</p>
     <div class="stats-grid">
       <div class="stat-card" data-delay="0">
-        <div class="stat-number" data-target="3007">0</div>
+        <div class="stat-number" data-target="3484">0</div>
         <div class="stat-label">Tests</div>
       </div>
       <div class="stat-card" data-delay="100">
-        <div class="stat-number" data-target="20" data-suffix="+">0</div>
+        <div class="stat-number" data-target="25" data-suffix="+">0</div>
         <div class="stat-label">AI Apps Supported</div>
       </div>
       <div class="stat-card" data-delay="200">
@@ -248,10 +256,98 @@ footer a{color:var(--cyan)}
         <div class="stat-label">Read Latency</div>
       </div>
       <div class="stat-card" data-delay="300">
+        <div class="stat-number" data-target="86" data-suffix="%">0</div>
+        <div class="stat-label">LongMemEval R@5</div>
+      </div>
+      <div class="stat-card" data-delay="400">
         <div class="stat-number" data-target="534628" data-suffix="x">0</div>
         <div class="stat-label">Cache Speedup</div>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- Real-world deployments -->
+<section id="case-studies">
+  <div class="container">
+    <h2 class="section-title">In the Wild</h2>
+    <p class="section-subtitle">Three deployments people built and run themselves.</p>
+    <div class="features-grid">
+      <div class="feature-card" data-delay="0">
+        <div class="feature-icon http">&#129302;</div>
+        <h3>A Cluster That Uses Memory as a Message Bus</h3>
+        <p><em>"After I work with one of the cluster agents on something I want my local agent to know about, the cluster agent adds a special tag to the memory entry that my local agent recognizes as a message from a cluster agent. So they end up using it as a comms bridge &mdash; and it's pretty delightful."</em> &mdash; <a href="https://github.com/jeremykoerber" target="_blank" rel="noopener" style="color:var(--cyan)">@jeremykoerber</a></p>
+        <p>A five-agent cluster uses one memory service as shared state and as an inter-agent channel, with no custom protocol: cluster agents write a sentinel tag, the local agent filters on it. <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/agents/README.md" target="_blank" rel="noopener" style="color:var(--cyan)">The pattern &rarr;</a></p>
+      </div>
+      <div class="feature-card" data-delay="150">
+        <div class="feature-icon oauth">&#128272;</div>
+        <h3>Self-Hosted Behind a Cloudflare Tunnel</h3>
+        <p><em>"The quality of life that session-independent memory adds to AI workflows is immense. File-based memory demands constant discipline. Semantic recall from a live database doesn't. Storing data on my own hardware while making it remotely accessible across platforms turned out to be a feature I didn't know I needed."</em> &mdash; <a href="https://github.com/PL-Peter" target="_blank" rel="noopener" style="color:var(--cyan)">@PL-Peter</a></p>
+        <p>Two Docker containers on one SQLite backend, a Cloudflare tunnel for name-based routing and subnet access control, and an auth gateway in front. <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/deployment/production-guide.md" target="_blank" rel="noopener" style="color:var(--cyan)">The checklist &rarr;</a></p>
+      </div>
+      <div class="feature-card" data-delay="300">
+        <div class="feature-icon privacy">&#128245;</div>
+        <h3>Four Agents, One Local Database, No Cloud</h3>
+        <p><em>"mcp-memory-service has been the shared memory layer for all my coding agents since February &mdash; Claude Code, Claude Desktop, Codex CLI and OpenCode all talk to the same sqlite-vec DB over stdio on my Mac. ~5,900 memories and counting. Every session starts by pulling a bootstrap profile from memory and ends by committing a session summary, so any agent can pick up where another left off. It's the closest thing to persistent identity my agents have."</em> &mdash; Mingjian Shao, AI PM and consultant <span style="color:var(--muted)">(September 2026)</span></p>
+        <p>One local sqlite-vec database as the shared brain for four agents over stdio &mdash; no server, no cloud, embeddings fully offline on MPS, daily backups and scheduled consolidation.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Comparison -->
+<section id="compare">
+  <div class="container">
+    <h2 class="section-title">How It Compares</h2>
+    <p class="section-subtitle">Against the commercial memory APIs and the MCP-native alternatives.</p>
+
+    <h3 style="margin-bottom:1rem">Commercial memory APIs</h3>
+    <div class="table-wrap">
+      <table class="cmp-table">
+        <thead><tr><th></th><th>Mem0</th><th>Zep</th><th>DIY Redis+Pinecone</th><th>mcp-memory-service</th></tr></thead>
+        <tbody>
+          <tr><td>License</td><td>Proprietary</td><td>Enterprise</td><td>&mdash;</td><td>Apache 2.0</td></tr>
+          <tr><td>Cost</td><td>Per-call API</td><td>Enterprise</td><td>Infra costs</td><td>$0</td></tr>
+          <tr><td>claude.ai browser</td><td>Desktop only</td><td>Desktop only</td><td>No</td><td>Remote MCP</td></tr>
+          <tr><td>OAuth 2.0 + DCR</td><td>Unknown</td><td>Unknown</td><td>No</td><td>Yes</td></tr>
+          <tr><td>Streamable HTTP</td><td>No</td><td>No</td><td>No</td><td>Yes (SSE too)</td></tr>
+          <tr><td>Framework integration</td><td>SDK</td><td>SDK</td><td>Manual</td><td>REST, any HTTP client</td></tr>
+          <tr><td>Knowledge graph</td><td>No</td><td>Limited</td><td>No</td><td>Yes, typed edges</td></tr>
+          <tr><td>Auto consolidation</td><td>No</td><td>No</td><td>No</td><td>Yes, decay + compression</td></tr>
+          <tr><td>On-premise embeddings</td><td>No</td><td>No</td><td>Manual</td><td>Yes, ONNX local</td></tr>
+          <tr><td>Privacy</td><td>Cloud</td><td>Cloud</td><td>Partial</td><td>100% local</td></tr>
+          <tr><td>Hybrid search</td><td>No</td><td>Yes</td><td>Manual</td><td>Yes, BM25 + vector</td></tr>
+          <tr><td>MCP protocol</td><td>No</td><td>No</td><td>No</td><td>Yes</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin:2.5rem 0 1rem">MCP-native: MemPalace</h3>
+    <div class="table-wrap">
+      <table class="cmp-table">
+        <thead><tr><th></th><th>MemPalace</th><th>mcp-memory-service</th></tr></thead>
+        <tbody>
+          <tr><td>LongMemEval R@5 (raw ChromaDB, zero LLM)</td><td>96.6%<sup>1</sup></td><td>86.0% session / 80.4% turn</td></tr>
+          <tr><td>LongMemEval R@5 (with reranking)</td><td>100%<sup>2</sup></td><td>&mdash;</td></tr>
+          <tr><td>Storage granularity</td><td>Session-level</td><td>Turn-level and session-level</td></tr>
+          <tr><td>Team / multi-device sync</td><td>Local only</td><td>Cloudflare sync</td></tr>
+          <tr><td>REST API / web dashboard</td><td>No</td><td>Yes</td></tr>
+          <tr><td>OAuth 2.1 + multi-user</td><td>No</td><td>Yes</td></tr>
+          <tr><td>Knowledge graph</td><td>No</td><td>Yes, typed edges</td></tr>
+          <tr><td>Auto consolidation</td><td>No</td><td>Yes, decay + compression</td></tr>
+          <tr><td>License</td><td>MIT</td><td>Apache 2.0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="cmp-note">
+      <strong>Why the benchmark gap?</strong> MemPalace stores whole sessions as single units, and LongMemEval asks which session contains the answer &mdash; that granularity answers the question structurally. This service defaults to turn-level storage for finer retrieval; session-mode ingestion brings it to 86.0% R@5.<br>
+      <sup>1</sup> Measured in MemPalace "raw mode": plain text in ChromaDB with default embeddings. Per <a href="https://github.com/MemPalace/mempalace/issues/27" target="_blank" rel="noopener" style="color:var(--cyan)">Issue #27</a>, the Palace structural features are bypassed in that configuration, and the maintainers acknowledged most of the review's points.<br>
+      <sup>2</sup> Uses optional LLM reranking (~500 API calls) on a partially tuned test set. Clean held-out score as reported by the maintainers: 98.4% R@5.<br>
+      Full numbers and the run commands: <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/BENCHMARKS.md" target="_blank" rel="noopener" style="color:var(--cyan)">docs/BENCHMARKS.md &rarr;</a>
+    </p>
+
+    <h3 style="margin:2.5rem 0 1rem">SHODH ecosystem</h3>
+    <p class="cmp-note">Fully compatible with the <a href="https://github.com/varun29ankuS/shodh-memory/blob/main/specs/openapi.yaml" target="_blank" rel="noopener" style="color:var(--cyan)">SHODH Unified Memory API Specification</a>: every SHODH implementation shares the same memory schema &mdash; emotional metadata, episodic memory, source tracking, quality scoring &mdash; so memories export and import across implementations with full fidelity. The reference implementation is <a href="https://github.com/varun29ankuS/shodh-memory" target="_blank" rel="noopener" style="color:var(--cyan)">shodh-memory</a> (RocksDB); shodh-cloudflare runs on Workers + Vectorize; this service runs SQLite-vec or Hybrid.</p>
   </div>
 </section>
 
@@ -266,12 +362,18 @@ footer a{color:var(--cyan)}
         <h3>Agents Overdrawn at the Memory Bank</h3>
         <p>Heavybit's <em>Humans in the Loop</em> deep dive talks to maintainer Heinrich Krupp about agent amnesia and why persistent memory is the missing infrastructure layer for agentic systems.</p>
       </a>
-      <a class="feature-card" data-delay="150" href="https://zurich.aitinkerers.org/talks/rsvp_DuHc2MBp1uo" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit">
+      <div class="feature-card" data-delay="150">
         <div class="feature-icon oauth">&#127908;</div>
-        <h3>AI Tinkerers Zürich Talk</h3>
+        <h3><a href="https://zurich.aitinkerers.org/talks/rsvp_DuHc2MBp1uo" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">AI Tinkerers Zürich Talk</a></h3>
         <p>Maintainer Heinrich Krupp presents mcp-memory-service at the AI Tinkerers Zürich meetup — persistent memory architecture, semantic search, and multi-agent memory sharing. <a href="https://drive.google.com/file/d/1NJDLetJ5CE7Jiek9OtyXCrt-zm768YB6/view" target="_blank" rel="noopener" style="color:var(--cyan)">Watch the full video &rarr;</a></p>
+      </div>
+      <a class="feature-card" data-delay="300" href="https://www.linkedin.com/feed/update/urn:li:activity:7508652464548802560/" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit">
+        <div class="feature-icon privacy">&#128172;</div>
+        <h3>Solving Session Amnesia</h3>
+        <p>Dr. Álvaro Cintas on how mcp-memory-service gives Claude Code, Cursor and OpenCode a shared memory over MCP, with on-device ONNX embeddings and no external API calls.</p>
       </a>
     </div>
+    <p class="cmp-note" style="text-align:center;margin-top:2rem"><em>"Your project has inspired me in many ways. In my view, it's the best implementation of MCP memory I've found so far."</em> &mdash; Micha&#322; Zubkowicz</p>
   </div>
 </section>
 
@@ -285,11 +387,11 @@ footer a{color:var(--cyan)}
       pip install mcp-memory-service
     </div>
     <div class="cta-buttons">
-      <a href="https://codeberg.org/doobidoo/mcp-memory-service" class="btn btn-primary" target="_blank">
+      <a href="https://github.com/doobidoo/mcp-memory-service" class="btn btn-primary" target="_blank">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M11.999.747A11.974 11.974 0 0 0 0 12.75c0 2.254.635 4.465 1.833 6.376L11.837 6.19c.072-.092.251-.092.323 0l4.178 5.402h-2.992l.065.239h3.113l.882 1.138h-3.674l.103.374h3.86l.777 1.003h-4.358l.135.483h4.593l.695.894h-5.038l.165.589h5.326l.609.785h-5.717l.182.65h6.038l.562.727h-6.397l.183.65h6.717A12.003 12.003 0 0 0 24 12.75 11.977 11.977 0 0 0 11.999.747zm3.654 19.104.182.65h5.326c.173-.204.353-.433.513-.65zm.385 1.377.18.65h3.563c.233-.198.485-.428.712-.65zm.383 1.377.182.648h1.203c.356-.204.685-.412 1.042-.648zz"/></svg>
-        View on Codeberg
+        View on GitHub
       </a>
-      <a href="https://codeberg.org/doobidoo/mcp-memory-service/wiki" class="btn btn-secondary" target="_blank">
+      <a href="https://github.com/doobidoo/mcp-memory-service/wiki" class="btn btn-secondary" target="_blank">
         Documentation
       </a>
       <a href="/demo/" class="btn btn-secondary">
@@ -298,7 +400,7 @@ footer a{color:var(--cyan)}
       <a href="blog/remote-mcp-tutorial.html" class="btn btn-secondary">
         Blog: 5-Min claude.ai Setup
       </a>
-      <a href="https://codeberg.org/doobidoo/mcp-memory-service/releases/tag/v11.10.0" class="btn btn-secondary" target="_blank">
+      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v11.14.0" class="btn btn-secondary" target="_blank">
         Release Notes
       </a>
     </div>
@@ -315,7 +417,7 @@ footer a{color:var(--cyan)}
 </section>
 
 <footer>
-  <p>MCP Memory Service &mdash; Open Source under Apache 2.0 &mdash; <a href="https://codeberg.org/doobidoo/mcp-memory-service">codeberg.org/doobidoo/mcp-memory-service</a></p>
+  <p>MCP Memory Service &mdash; Open Source under Apache 2.0 &mdash; <a href="https://github.com/doobidoo/mcp-memory-service">github.com/doobidoo/mcp-memory-service</a></p>
 </footer>
 
 <script>

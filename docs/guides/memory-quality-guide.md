@@ -406,16 +406,35 @@ export GROQ_API_KEY="your-groq-api-key"
 export MCP_QUALITY_AI_PROVIDER=groq  # or "auto" to try all tiers
 
 # Enable Gemini API (Google)
-export GOOGLE_API_KEY="your-gemini-api-key"
+export GEMINI_API_KEY="your-gemini-api-key"
 export MCP_QUALITY_AI_PROVIDER=gemini
 ```
 
-### 3. Configuration Options
+### 3. Homelab: score with your own LLM
+
+`MCP_QUALITY_AI_PROVIDER=openai-compatible` points scoring at any OpenAI-compatible
+`/v1` endpoint — Ollama, vLLM, or a LiteLLM proxy — instead of ONNX or a cloud API. No
+API key leaves the machine, no per-call cost.
+
+```bash
+export MCP_QUALITY_AI_PROVIDER=openai-compatible
+export MCP_QUALITY_AI_BASE_URL=http://localhost:11434/v1   # Ollama
+export MCP_QUALITY_AI_MODEL=qwen2.5:7b-instruct
+# export MCP_QUALITY_AI_API_KEY=ollama                     # optional
+```
+
+Both `MCP_QUALITY_AI_BASE_URL` and `MCP_QUALITY_AI_MODEL` are required with this
+provider; the service refuses to start without them. Recommended models:
+`qwen2.5:7b-instruct` (Ollama), `mlx-community/Qwen2.5-7B-Instruct-4bit` (MLX), or any
+instruct model behind a LiteLLM proxy. If the endpoint fails, scoring falls back to
+implicit signals automatically.
+
+### 4. Configuration Options
 
 ```bash
 # Quality System Core
 export MCP_QUALITY_SYSTEM_ENABLED=true         # Default: true
-export MCP_QUALITY_AI_PROVIDER=local           # local|groq|gemini|auto|none
+export MCP_QUALITY_AI_PROVIDER=local           # local|openai-compatible|groq|gemini|auto|none
 
 # Local SLM Configuration (Tier 1)
 export MCP_QUALITY_LOCAL_MODEL=ms-marco-MiniLM-L-6-v2  # Model name

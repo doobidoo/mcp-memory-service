@@ -69,7 +69,7 @@ class TestRewriterStricter:
         """Generic statements without concrete action should be SKIP."""
         input_text = "A arquitetura utilizada é incompatível, sendo a causa raiz do problema fundamental."
         with patch.object(rewriter, '_call_llm', new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = "SKIP"
+            mock_llm.return_value = ("SKIP", "groq", "openai/gpt-oss-120b")
             result = await rewriter.rewrite(input_text, suggested_type="bug")
         assert result is None
 
@@ -78,7 +78,7 @@ class TestRewriterStricter:
         """Specific, actionable insights with concrete tools/commands are kept."""
         input_text = "O banco SQLite com WAL ativo não pode ficar no diretório do Insync. Mover para ~/local-data/."
         with patch.object(rewriter, '_call_llm', new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = "bug: SQLite com WAL ativo corrompe quando sincronizado via Insync. Mover banco para ~/local-data/ (fora do sync)."
+            mock_llm.return_value = ("bug: SQLite com WAL ativo corrompe quando sincronizado via Insync. Mover banco para ~/local-data/ (fora do sync).", "groq", "openai/gpt-oss-120b")
             result = await rewriter.rewrite(input_text, suggested_type="bug")
         assert result is not None
         assert "local-data" in result.content

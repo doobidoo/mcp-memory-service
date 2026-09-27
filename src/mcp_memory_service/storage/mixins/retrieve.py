@@ -9,7 +9,7 @@ import traceback
 import asyncio
 from collections import Counter
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional, Sequence, Set
 
 try:
     from sqlite_vec import serialize_float32
@@ -19,6 +19,10 @@ except ImportError:
 from ...models.memory import Memory, MemoryQueryResult
 
 logger = logging.getLogger(__name__)
+
+# SQLite caps host parameters per statement (SQLITE_MAX_VARIABLE_NUMBER, historically 999).
+# The other IN-clause call sites in this package chunk at the same width.
+_IN_CLAUSE_CHUNK = 999
 
 # Module-level constants
 _SQLITE_VEC_MAX_KNN_K = 4096
@@ -92,7 +96,7 @@ class RetrieveMixin:
                             continue
                         stripped = tag.strip()
                         tag_clauses.append(
-                            "(',' || REPLACE(m.tags, ' ', '') || ',') LIKE ? ESCAPE '\\'"
+                            "(',' || m.tags || ',') LIKE ? ESCAPE '\\'"
                         )
                         params.append(f"%,{_escape_like(stripped)},%")
 
@@ -121,8 +125,11 @@ class RetrieveMixin:
                         SELECT rowid, distance
                         FROM memory_embeddings
                         WHERE content_embedding MATCH ? AND k = ?{store_condition}
+                          AND rowid IN (
+                              SELECT m.id FROM memories m
+                              WHERE m.deleted_at IS NULL{superseded_filter}{tag_conditions}{time_conditions}
+                          )
                     ) e ON m.id = e.rowid
-                    WHERE m.deleted_at IS NULL{superseded_filter}{tag_conditions}{time_conditions}
                     ORDER BY e.distance
                     LIMIT ?
                 '''
@@ -215,7 +222,7 @@ class RetrieveMixin:
                 return []
 
             stripped_tags = [tag.strip() for tag in tags]
-            tag_conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
+            tag_conditions = " OR ".join(["(',' || tags || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
             tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             where_clause = f"WHERE ({tag_conditions}) AND deleted_at IS NULL"
@@ -293,7 +300,7 @@ class RetrieveMixin:
 
             stripped_tags = [tag.strip() for tag in tags]
             comparator = " AND " if normalized_operation == "AND" else " OR "
-            tag_conditions = comparator.join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
+            tag_conditions = comparator.join(["(',' || tags || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
             tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             where_conditions = [f"({tag_conditions})"] if tag_conditions else []
@@ -364,7 +371,7 @@ class RetrieveMixin:
                 return []
 
             stripped_tags = [tag.strip() for tag in tags]
-            tag_conditions = " OR ".join(["(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
+            tag_conditions = " OR ".join(["(',' || tags || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
             tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             query = f"""
@@ -496,10 +503,10 @@ class RetrieveMixin:
                     SELECT content, tags, memory_type, metadata, content_hash,
                            created_at, created_at_iso, updated_at, updated_at_iso
                     FROM memories
-                    WHERE content LIKE '%' || ? || '%' COLLATE NOCASE
+                    WHERE content LIKE '%' || ? || '%' ESCAPE '\\' COLLATE NOCASE
                     AND deleted_at IS NULL
                     ORDER BY created_at DESC
-                ''', (content,))
+                ''', (_escape_like(content),))
                 return cursor.fetchall()
 
             memories = []
@@ -539,6 +546,7 @@ class RetrieveMixin:
         stale_days: Optional[int] = None,
         include_embeddings: bool = False,
         store: Optional[str] = "default",
+        agent_id: Optional[str] = None,
     ) -> List[Memory]:
         """Get all memories in storage ordered by creation time (newest first)."""
         try:
@@ -570,17 +578,23 @@ class RetrieveMixin:
                 joiner = " AND " if tag_match == "all" else " OR "
                 tag_conditions = joiner.join(
                     [
-                        "(',' || REPLACE(m.tags, ' ', '') || ',') LIKE ? ESCAPE '\\'"
+                        "(',' || m.tags || ',') LIKE ? ESCAPE '\\'"
                         for _ in stripped_tags
                     ]
                 )
                 where_conditions.append(f"({tag_conditions})")
                 params.extend([f"%,{_escape_like(tag)},%" for tag in stripped_tags])
 
+            if agent_id is not None:
+                where_conditions.append(
+                    "(json_extract(m.metadata,'$.agent_id') = ? OR (',' || m.tags || ',') LIKE ? ESCAPE '\\')"
+                )
+                params.extend([agent_id, f"%,agent:{_escape_like(agent_id.strip())},%"])
+
             self._apply_stale_days_filter(where_conditions, params, stale_days, table_alias="m")
 
             query += ' WHERE ' + ' AND '.join(where_conditions)
-            query += ' ORDER BY m.created_at DESC'
+            query += ' ORDER BY m.created_at DESC, m.content_hash DESC'
 
             if limit is not None:
                 query += ' LIMIT ?'
@@ -689,7 +703,7 @@ class RetrieveMixin:
             logger.error("Error getting memory timestamps: %s", _sanitize_log_value(e))
             return []
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default") -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None) -> int:
         """Get total count of memories in storage."""
         try:
             await self.initialize()
@@ -710,12 +724,18 @@ class RetrieveMixin:
                 joiner = " AND " if tag_match == "all" else " OR "
                 tag_conditions = joiner.join(
                     [
-                        "(',' || REPLACE(tags, ' ', '') || ',') LIKE ? ESCAPE '\\'"
+                        "(',' || tags || ',') LIKE ? ESCAPE '\\'"
                         for _ in stripped_tags
                     ]
                 )
                 conditions.append(f"({tag_conditions})")
                 params.extend([f"%,{_escape_like(tag)},%" for tag in stripped_tags])
+
+            if agent_id is not None:
+                conditions.append(
+                    "(json_extract(metadata,'$.agent_id') = ? OR (',' || tags || ',') LIKE ? ESCAPE '\\')"
+                )
+                params.extend([agent_id, f"%,agent:{_escape_like(agent_id.strip())},%"])
 
             self._apply_stale_days_filter(conditions, params, stale_days)
 
@@ -1016,7 +1036,12 @@ class RetrieveMixin:
                 try:
                     query_embedding = self._generate_embedding(query)
 
-                    base_query = '''
+                    # Filter eligible rows inside KNN so excluded neighbors do not consume k.
+                    memory_filter = "deleted_at IS NULL"
+                    if time_where:
+                        memory_filter += f" AND {time_where}"
+
+                    base_query = f'''
                         SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
                                m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
                                e.distance
@@ -1025,13 +1050,9 @@ class RetrieveMixin:
                             SELECT rowid, distance
                             FROM memory_embeddings
                             WHERE content_embedding MATCH ? AND k = ?
+                              AND rowid IN (SELECT id FROM memories WHERE {memory_filter})
                         ) e ON m.id = e.rowid
                     '''
-
-                    if time_where:
-                        base_query += f" WHERE m.deleted_at IS NULL AND {time_where}"
-                    else:
-                        base_query += " WHERE m.deleted_at IS NULL"
 
                     base_query += " ORDER BY e.distance"
 
@@ -1223,28 +1244,67 @@ class RetrieveMixin:
             logger.error("Error getting memory connections: %s", _sanitize_log_value(e))
             return {}
 
-    async def get_access_patterns(self) -> Dict[str, datetime]:
-        """Get memory access pattern statistics."""
+    async def get_access_patterns(
+        self, content_hashes: Optional[Sequence[str]] = None
+    ) -> Dict[str, datetime]:
+        """Get memory access pattern statistics.
+
+        Args:
+            content_hashes: Optional candidate window. When given, only these hashes are
+                queried, so a consolidation run loads access times for the current batch
+                instead of every ever-accessed memory in the store. An empty sequence
+                means "no candidates" and returns ``{}`` without touching the database.
+                ``None`` keeps the previous unbounded behaviour.
+        """
         try:
+            if content_hashes is not None:
+                hashes = list(dict.fromkeys(content_hashes))
+                if not hashes:
+                    return {}
+            else:
+                hashes = None
+
             await self.initialize()
 
-            def _get_access_patterns():
+            def _get_access_patterns_all():
                 cursor = self.conn.execute("""
-                    SELECT content_hash, updated_at_iso
+                    SELECT content_hash, last_accessed
                     FROM memories
-                    WHERE updated_at_iso IS NOT NULL AND deleted_at IS NULL
-                    ORDER BY updated_at DESC
-                    LIMIT 100
+                    WHERE last_accessed IS NOT NULL AND deleted_at IS NULL
+                    ORDER BY last_accessed DESC
                 """)
                 return cursor.fetchall()
 
+            rows = []
+            if hashes is None:
+                rows = await self._execute_with_retry(_get_access_patterns_all)
+            else:
+                # SQLite caps host parameters per statement; chunk like the other
+                # IN-clause call sites in this package do.
+                for i in range(0, len(hashes), _IN_CLAUSE_CHUNK):
+                    chunk = hashes[i:i + _IN_CLAUSE_CHUNK]
+                    placeholders = ",".join("?" for _ in chunk)
+
+                    def _get_access_patterns_scoped(ph=placeholders, c=chunk):
+                        cursor = self.conn.execute(
+                            f"SELECT content_hash, last_accessed "
+                            f"FROM memories "
+                            f"WHERE content_hash IN ({ph}) "
+                            f"AND last_accessed IS NOT NULL AND deleted_at IS NULL "
+                            f"ORDER BY last_accessed DESC",
+                            c,
+                        )
+                        return cursor.fetchall()
+
+                    rows.extend(await self._execute_with_retry(_get_access_patterns_scoped))
+
             patterns = {}
-            for row in await self._execute_with_retry(_get_access_patterns):
-                content_hash, updated_at_iso = row
+            for row in rows:
+                content_hash, last_accessed = row
                 try:
-                    patterns[content_hash] = datetime.fromisoformat(updated_at_iso.replace('Z', '+00:00'))
+                    patterns[content_hash] = datetime.fromtimestamp(last_accessed, tz=timezone.utc)
                 except Exception:
-                    patterns[content_hash] = datetime.now()
+                    patterns[content_hash] = datetime.now(tz=timezone.utc)
 
             return patterns
 

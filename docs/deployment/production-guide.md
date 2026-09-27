@@ -23,6 +23,17 @@ These apply regardless of topology:
 - [ ] **Backups configured** — for SQLite-Vec and Hybrid, snapshot the SQLite file regularly. For Cloudflare-only, exports go via the dashboard.
 - [ ] **Hybrid sync owner pinned** (Hybrid only) — set `MCP_HYBRID_SYNC_OWNER=http` so only the HTTP server syncs to Cloudflare. The MCP server then runs SQLite-Vec only and needs no Cloudflare credentials.
 
+### Exposing the service through Cloudflare Tunnel
+
+From a production deployment that puts the Docker containers behind a Cloudflare tunnel
+with an auth gateway in front:
+
+- [ ] **Cloudflare ZeroTrust with subnet-based access control** — allow only the addresses that need in: your own IPs plus the published ranges of every client you connect. Anthropic's for claude.ai, OpenAI's as well if you connect a ChatGPT connector; an allowlist built for one blocks the other.
+- [ ] **Client IP Address Filtering on every Cloudflare API token** (Dashboard → My Profile → API Tokens → Edit → Client IP Address Filtering). It limits the damage if a token leaks.
+- [ ] **IPv6 in the allowlist** — include your IPv6 /64 network. Python prefers IPv6 by default, so an IPv4-only allowlist silently blocks it.
+- [ ] **`offline_access` scope for long-running browser sessions** — request it during authorization to get a rotating `refresh_token` (lifetime via `MCP_OAUTH_REFRESH_TOKEN_EXPIRE_DAYS`, default 30 days). Without it the access token is the only credential; extend `MCP_OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES` up to `1440` (24h) if you need longer single-shot sessions.
+- [ ] **An auth proxy in front** — [AuthMCP Gateway](https://github.com/loglux/authmcp-gateway) or [mcp-auth-proxy](https://github.com/sigbit/mcp-auth-proxy) for session management, locally managed users and per-user server access control.
+
 ## After Deploy
 
 - Verify health: `curl -fsS https://<your-host>/api/health`

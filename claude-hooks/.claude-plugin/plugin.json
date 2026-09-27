@@ -1,11 +1,11 @@
 {
   "name": "mcp-memory-service",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Automatic memory capture and injection for Claude Code via MCP Memory Service",
   "author": {
     "name": "doobidoo"
   },
-  "homepage": "https://codeberg.org/doobidoo/mcp-memory-service",
+  "homepage": "https://github.com/doobidoo/mcp-memory-service",
   "mcpServers": "./.mcp.json",
   "hooks": "./.claude-plugin/hooks.json"
 }

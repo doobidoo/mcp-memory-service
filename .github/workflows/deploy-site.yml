@@ -1,0 +1,51 @@
+# Deploy pipeline for the mcpmemory.services landing page.
+#
+# Why wrangler and not the Cloudflare git integration: the integration was never
+# wired up for this repo, and direct upload works the same from any forge. Keeping
+# wrangler means the deploy path does not change when the forge does.
+#
+# Trigger: any push to main that touches site/** (e.g. the release PR bumping
+# version strings in site/index.html), or manual workflow_dispatch.
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   CLOUDFLARE_API_TOKEN   API token with "Cloudflare Pages: Edit" permission
+#                          (Account-level; NOT the D1/Vectorize token from .env)
+#   CLOUDFLARE_ACCOUNT_ID  Cloudflare account id
+#
+# Both must be recreated on GitHub; secret values cannot be exported from Codeberg.
+
+name: Deploy Site (Cloudflare Pages)
+
+on:
+  push:
+    branches: [main]
+    paths: ['site/**']
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: wrangler pages deploy
+    timeout-minutes: 15
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Deploy site/ to Cloudflare Pages
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      run: |
+        node --version
+        npx --yes wrangler@4 pages deploy site \
+          --project-name mcpmemory-services \
+          --branch main \
+          --commit-dirty=true
+
+    - name: Verify deployed version
+      run: |
+        sleep 10
+        expected=$(grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' site/index.html | head -1)
+        live=$(node -e "fetch('https://mcpmemory-services.pages.dev').then(r=>r.text()).then(t=>console.log((t.match(/<title>[^<]*(v[0-9]+\.[0-9]+\.[0-9]+)/)||[,'unknown'])[1]))")
+        echo "expected=$expected live=$live"
+        [ "$expected" = "$live" ] || { echo "::warning::live version ($live) != expected ($expected) — CDN cache may lag"; }

@@ -51,7 +51,7 @@ NODE_BIN="${MCS_NODE_BIN:-node}"
 
 if ! command -v "$NODE_BIN" >/dev/null 2>&1; then
   echo "FAIL: '$NODE_BIN' not found - the hooks suite needs node"
-  echo "The Forgejo 'docker' runner image ships node (deploy-site.yml calls it"
+  echo "The ubuntu-latest runner image ships node (deploy-site.yml calls it"
   echo "directly), so a failure here means the image changed."
   exit 1
 fi

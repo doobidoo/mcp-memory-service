@@ -192,6 +192,7 @@ docker run -d -p 8000:8000 \
 | `MCP_MEMORY_STORAGE_BACKEND` | `sqlite_vec` | Storage backend (`sqlite_vec`, `cloudflare`, `hybrid`) |
 | `MCP_HTTP_HOST` | `0.0.0.0` | HTTP server bind address |
 | `MCP_HTTP_PORT` | `8000` | HTTP server port |
+| `MCP_HTTP_ROOT_PATH` | empty | External path prefix removed by a reverse proxy, such as `/memory` |
 | `MCP_STANDALONE_MODE` | `false` | Enable standalone HTTP mode |
 | `MCP_API_KEY` | `none` | API key for authentication |
 
@@ -353,17 +354,6 @@ docker run --rm \
   -v mcp_memory_data:/data \
   -v $(pwd)/backup:/backup \
   alpine tar czf /backup/mcp_memory_$(date +%Y%m%d).tar.gz /data
-```
-
-### Database Migration
-
-```bash
-# Export data from running container
-docker exec memory-service python scripts/backup_memories.py
-
-# Import data to new container
-docker cp ./backup.json new-memory-service:/app/
-docker exec new-memory-service python scripts/restore_memories.py /app/backup.json
 ```
 
 ### Maintenance and Migration Scripts

@@ -114,6 +114,21 @@ https://random-name.trycloudflare.com
 
 > **Note:** Temporary Cloudflare Tunnels change URL on restart. For persistent access, create a [named tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/).
 
+### 6. Connect in ChatGPT (Developer Mode)
+
+ChatGPT speaks MCP too, so the same endpoint serves it — nothing extra to run on the
+server side.
+
+1. Enable **Developer Mode** in ChatGPT settings
+2. Add a connector pointing at the same `https://<your-host>/mcp` URL
+3. Complete the OAuth flow
+
+The server-side requirements are the same as for claude.ai: a public HTTPS endpoint
+(self-signed certificates are rejected) and OAuth enabled. The one difference is the
+firewall — a ChatGPT connector arrives from OpenAI's addresses, not Anthropic's, so an
+allowlist built for claude.ai alone will block it. See
+[Firewall & IP Allowlisting](#firewall--ip-allowlisting).
+
 ---
 
 ## Production Setup
@@ -268,9 +283,12 @@ mcp-memory-service supports token expiry and refresh out of the box. claude.ai w
 
 ## Firewall & IP Allowlisting
 
-If your server is behind a firewall, you must allowlist Claude's IP addresses for inbound connections.
+If your server is behind a firewall, you must allowlist the inbound addresses of every
+client you connect. For claude.ai that is Anthropic's published ranges; a ChatGPT
+connector comes from OpenAI's, so an allowlist built for Claude alone blocks it.
 
-**Reference:** https://docs.claude.com/en/api/ip-addresses
+**Reference:** https://docs.claude.com/en/api/ip-addresses (Anthropic). For ChatGPT, use
+OpenAI's published egress ranges for connectors.
 
 > **Important:** IP allowlisting alone is NOT recommended as a security measure. Always use OAuth 2.0 for authentication.
 

@@ -164,13 +164,15 @@ def get_storage() -> MemoryStorage:
         # Check if we're already in an async context
         try:
             asyncio.get_running_loop()
-            # We're in an async context, but we can't use run_until_complete
-            # This shouldn't happen in normal usage, but handle it gracefully
-            logger.error("get_storage() called from async context - use get_storage_async() instead")
-            raise RuntimeError("get_storage() cannot be called from async context")
         except RuntimeError:
             # No running loop, we can proceed with synchronous initialization
             pass
+        else:
+            # We're in an async context, where run_until_complete cannot be used.
+            logger.error(
+                "get_storage() called from async context - use get_storage_async() instead"
+            )
+            raise RuntimeError("get_storage() cannot be called from async context")
 
         # Get or create event loop
         try:

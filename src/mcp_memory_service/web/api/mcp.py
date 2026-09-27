@@ -10,7 +10,7 @@ shared core — adding a tool requires no changes here.
 import logging
 from typing import Any, Dict, Optional, Union
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Response, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
@@ -120,7 +120,7 @@ def _get_memory_server():
         # `MemoryServer`. Without this, the lazy import here may fire while
         # `server` is mid-load and raise "cannot import name 'main' from
         # partially initialized module".
-        import mcp_memory_service.server  # noqa: F401
+        import mcp_memory_service.server  # noqa: F401  # inline import: breaks the server_impl circular dependency described above
         from ...server_impl import MemoryServer
         from ..dependencies import get_storage
 
@@ -165,6 +165,7 @@ def _wrap_tool_result(text_contents) -> Dict[str, Any]:
 @router.post("")
 async def mcp_endpoint(
     request: MCPRequest,
+    http_request: Request,
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """Main MCP protocol endpoint. Delegates to the shared MemoryServer."""
@@ -254,6 +255,12 @@ async def mcp_endpoint(
                     status_code=403,
                 )
 
+            # Inject X-Agent-ID header if agent_id argument not explicitly provided
+            if not arguments.get("agent_id"):
+                header_agent_id = http_request.headers.get("X-Agent-ID")
+                if header_agent_id:
+                    arguments["agent_id"] = header_agent_id.strip()
+
             text_contents = await server.call_tool(tool_name, arguments)
             response = MCPResponse(
                 id=request.id,
@@ -297,17 +304,18 @@ async def list_mcp_tools(
 
 @router.get("/health")
 async def mcp_health():
-    """MCP-specific health check."""
-    server = _get_memory_server()
-    await server._ensure_storage_initialized()
-    stats = await server.storage.get_stats() if server.storage else {}
-    tools = await server.list_tools()
-    return {
-        "status": "healthy",
-        "protocol": "mcp",
-        "tools_available": len(tools),
-        "storage_backend": (
-            server.storage.__class__.__name__ if server.storage else "uninitialized"
-        ),
-        "statistics": stats,
-    }
+    """MCP transport liveness check.
+
+    Deliberately unauthenticated and deliberately contentless. It used to
+    return storage statistics, the backend class name and the tool count to
+    any anonymous caller (GHSA-7w86-2vmv-fqwm). GHSA-73hc-m4hx-79pj had
+    already established that this class of data requires a proven identity —
+    it stripped /api/health down to a status field and moved the statistics
+    behind Depends(require_read_access) on /api/health/detailed — but that
+    change only touched health.py, so this parallel route stayed open.
+
+    The route stays open so that liveness probes keep working without
+    credentials; the statistics are simply gone. Authenticated callers get
+    them from /api/health/detailed, which is where they already live.
+    """
+    return {"status": "healthy", "protocol": "mcp"}

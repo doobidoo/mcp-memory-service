@@ -1,7 +1,7 @@
 """Unit tests for the exponential decay calculator."""
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from mcp_memory_service.consolidation.decay import ExponentialDecayCalculator, RelevanceScore
 from mcp_memory_service.models.memory import Memory
@@ -484,3 +484,45 @@ class TestExponentialDecayCalculator:
         assert updated_memory.metadata['quality_boost_connection_count'] == 8
         assert updated_memory.metadata['original_quality_before_boost'] == 0.6
         assert 'quality_boost_date' in updated_memory.metadata
+
+
+    @pytest.mark.asyncio
+    async def test_default_reference_time_is_utc_aware(self, decay_calculator, local_timezone):
+        """The default reference_time must be timezone-aware UTC, not naive local time.
+
+        Memory timestamps are stored as UTC (see Memory._sync_timestamps). When
+        process() is called without an explicit reference_time, it must default to
+        datetime.now(timezone.utc); a naive datetime.now() would be interpreted as
+        UTC downstream (base._get_memory_age_days) while actually carrying the host's
+        local offset, skewing age_days -- and thus decay_factor and forgetting
+        decisions -- on any non-UTC deployment.
+        """
+        # Run under a non-UTC process timezone. On a UTC CI runner the pre-fix
+        # naive datetime.now() is numerically identical to UTC, so without this the
+        # regression stays green against the base source and tests-prove-fix rejects it.
+        local_timezone("Asia/Tokyo")
+        # Place the memory a few hours inside a day boundary so the +09:00 local
+        # offset actually flips the floored whole-day age: true age is 10d-3h
+        # (floors to 9), a naive-local reference sees 10d+6h (floors to 10). An
+        # exact-N-days-old memory would floor to 10 either way and stay green.
+        created_utc = datetime.now(timezone.utc) - timedelta(days=10) + timedelta(hours=3)
+        memory = Memory(
+            content="utc default probe",
+            content_hash="utc_default_probe",
+            tags=["test"],
+            embedding=[0.1] * 320,
+            created_at=created_utc.timestamp(),
+            created_at_iso=created_utc.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
+            updated_at=created_utc.timestamp(),
+            updated_at_iso=created_utc.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
+        )
+
+        # Explicit UTC reference is the known-correct baseline.
+        explicit_utc = await decay_calculator.process(
+            [memory], reference_time=datetime.now(timezone.utc)
+        )
+        # Default path (no reference_time) must agree with it regardless of host TZ.
+        default_ref = await decay_calculator.process([memory])
+
+        assert default_ref[0].metadata['age_days'] == explicit_utc[0].metadata['age_days']
+        assert default_ref[0].decay_factor == pytest.approx(explicit_utc[0].decay_factor)

@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Daily maintainer triage digest, posted as a comment on a Codeberg issue.
+"""RETIRED 2026-09-05. Daily maintainer triage digest against the Codeberg API.
 
-Successor to the GitHub-era triage_execute.py, which talked only to GitHub and was
-removed once development moved to Codeberg. This one speaks the Forgejo REST API
-(https://codeberg.org/api/v1) and posts nowhere else.
+Development moved back to GitHub on 2026-09-05 and Codeberg is now a frozen archive,
+so this script reports on a repository that no longer changes. It is kept rather than
+deleted because the digest shape is worth reusing: whoever wants a GitHub triage digest
+should port the query and formatting here onto `gh` and the GitHub API, and delete this
+file in the same change. Do not schedule it.
+
+It speaks the Forgejo REST API (https://codeberg.org/api/v1) and posts nowhere else.
 
 Reads the API token from the environment. Several names are accepted because the
 cloud routine that runs this may hold it under the Codeberg token label rather

@@ -64,7 +64,7 @@ Symptoms:
 
 Status/Fixes:
 
-- The server auto-detects: `http_client` (connect), `http_server` (start), else `direct` (WAL). If the coordination port is in use by another service, expect direct fallback; adjust port or stop the conflicting service.
+- There is no auto-detected coordination mode any more. Each stdio MCP server opens the SQLite database directly with WAL mode; for several clients, run one HTTP server (`memory launch`) and point the clients at it (see [integration/multi-client.md](../integration/multi-client.md)). If you still see `http_client`/`http_server` in a log, the process is running a build older than v11.12.
 
 ## File Permission or Path Errors
 

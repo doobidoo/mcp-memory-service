@@ -29,8 +29,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.mcp_memory_service.storage.cloudflare import CloudflareStorage
-from src.mcp_memory_service.storage.hybrid import BackgroundSyncService
+from mcp_memory_service.storage.cloudflare import CloudflareStorage
+from mcp_memory_service.storage.hybrid import BackgroundSyncService
 
 
 def _response(payload):

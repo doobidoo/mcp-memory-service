@@ -79,6 +79,11 @@ class TestStoreAssociation:
 
         assoc_ba = await graph.get_association("hash_b", "hash_a")
         assert assoc_ba is not None
+        # get_association must return the exact relationship_type so callers
+        # that match direction and type (e.g. insight-card links) work on
+        # this backend too.
+        assert assoc_ab["relationship_type"] == "related"
+        assert assoc_ba["relationship_type"] == "related"
 
     @pytest.mark.asyncio
     async def test_asymmetric_creates_forward_only(self, graph):
@@ -92,6 +97,8 @@ class TestStoreAssociation:
         # Forward direction exists
         assoc = await graph.get_association("hash_a", "hash_b")
         assert assoc is not None
+        # the returned edge must carry its exact relationship_type
+        assert assoc["relationship_type"] == "causes"
 
         # get_association checks both directions, so it will find the forward edge
         # But the raw count from source_hash should only show 1 record for hash_a
@@ -99,6 +106,36 @@ class TestStoreAssociation:
         count_b = await graph.get_association_count("hash_b")
         assert count_a == 1
         assert count_b == 0  # No reverse edge stored
+
+    @pytest.mark.asyncio
+    async def test_has_edge_is_exact_for_direction_and_type(self, graph):
+        """has_edge must match the exact directed, typed edge, not either
+        direction or any edge between the pair. This is the Milvus counterpart
+        to the sqlite behavior the insight-card link relies on."""
+        await graph.store_association(
+            "hash_a", "hash_b", 0.7, ["causal"], relationship_type="causes",
+        )
+        assert await graph.has_edge("hash_a", "hash_b", "causes") is True
+        # wrong direction
+        assert await graph.has_edge("hash_b", "hash_a", "causes") is False
+        # wrong type on the same directed pair
+        assert await graph.has_edge("hash_a", "hash_b", "derived_from") is False
+        # neither direction exists
+        assert await graph.has_edge("hash_b", "hash_a", "causes") is False
+
+    @pytest.mark.asyncio
+    async def test_has_edge_reverse_edge_does_not_shadow_forward(self, graph):
+        """A reverse asymmetric edge (hash_b -> hash_a, some type) must not make
+        has_edge(hash_a, hash_b, derived_from) report True, which would let a
+        maintenance relink skip an existing forward link it should preserve."""
+        await graph.store_association(
+            "hash_a", "hash_b", 0.9, ["semantic"], relationship_type="derived_from",
+        )
+        await graph.store_association(
+            "hash_b", "hash_a", 0.4, ["supports"], relationship_type="supports",
+        )
+        assert await graph.has_edge("hash_a", "hash_b", "derived_from") is True
+        assert await graph.has_edge("hash_b", "hash_a", "derived_from") is False
 
     @pytest.mark.asyncio
     async def test_self_loop_rejected(self, graph):

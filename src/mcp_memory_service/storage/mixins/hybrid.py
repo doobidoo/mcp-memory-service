@@ -6,13 +6,10 @@ import traceback
 import asyncio
 from typing import List, Optional, Tuple
 
+from ...compat import _sanitize_log_value
 from ...models.memory import MemoryQueryResult
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_log_value(value: object) -> str:
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
 
 
 class HybridMixin:
@@ -26,7 +23,8 @@ class HybridMixin:
         self,
         query: str,
         n_results: int = 5,
-        sanitize_query: bool = True
+        sanitize_query: bool = True,
+        include_superseded: bool = False
     ) -> List[Tuple[str, float]]:
         """Perform BM25 keyword search using FTS5."""
         try:
@@ -43,24 +41,48 @@ class HybridMixin:
                 logger.warning("Query is empty after sanitization")
                 return []
 
+            # Match any of the query's words, not the query as one phrase: a
+            # single quoted string is an FTS5 phrase query, which only matches
+            # the words adjacent and in order. Each word is quoted on its own
+            # so words like AND/OR/NOT/NEAR stay words instead of operators;
+            # bm25() still ranks rows matching more of them higher.
+            #
+            # The FTS5 trigram tokenizer cannot index terms shorter than three
+            # characters, so a query made entirely of short words (e.g. "go up")
+            # would match nothing as an OR of quoted terms. Fall back to the
+            # whole-query phrase in that case, which still searches something.
+            terms = [t for t in query_clean.split() if len(t) >= 3]
+            if terms:
+                fts_query = " OR ".join(
+                    '"{}"'.format(term.replace('"', '""')) for term in terms
+                )
+            else:
+                fts_query = '"{}"'.format(query_clean.replace('"', '""'))
+
+            superseded_filter = (
+                "" if include_superseded
+                else " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
+            )
+
             def search_fts():
-                cursor = self.conn.execute('''
+                cursor = self.conn.execute(f'''
                     SELECT m.content_hash, bm25(memory_content_fts) as rank
                     FROM memory_content_fts f
                     JOIN memories m ON f.rowid = m.id
-                    WHERE memory_content_fts MATCH ? AND m.deleted_at IS NULL
+                    WHERE memory_content_fts MATCH ? AND m.deleted_at IS NULL{superseded_filter}
                     ORDER BY rank
                     LIMIT ?
-                ''', (f'"{query_clean}"', n_results))
+                ''', (fts_query, n_results))
                 return cursor.fetchall()
 
             results = await self._execute_with_retry(search_fts)
 
-            logger.debug(f"BM25 search found {len(results)} results for query: {_sanitize_log_value(query_clean)}")
+            logger.debug("BM25 search found %d results for query: %s",
+                        len(results), _sanitize_log_value(query_clean))
             return results
 
         except Exception as e:
-            logger.error(f"BM25 search failed: {str(e)}")
+            logger.error("BM25 search failed: %s", _sanitize_log_value(e))
             logger.error(traceback.format_exc())
             return []
 
@@ -126,7 +148,7 @@ class HybridMixin:
                         if m:
                             fetched[m.content_hash] = m
             except Exception as e:
-                logger.warning(f"RRF batch fetch failed: {e}")
+                logger.warning("RRF batch fetch failed: %s", _sanitize_log_value(e))
 
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         results = []
@@ -145,9 +167,8 @@ class HybridMixin:
                     },
                 ))
 
-        logger.info(f"RRF hybrid: {len(results)} results "
-                    f"(BM25: {len(bm25_results)}, Vec: {len(vector_results)}, "
-                    f"Consensus: {len(consensus)})")
+        logger.info("RRF hybrid: %d results (BM25: %d, Vec: %d, Consensus: %d)",
+                    len(results), len(bm25_results), len(vector_results), len(consensus))
         return results
 
     async def retrieve_hybrid(
@@ -160,7 +181,7 @@ class HybridMixin:
     ) -> List[MemoryQueryResult]:
         """Hybrid search combining BM25 keyword matching and vector similarity."""
         try:
-            bm25_task = asyncio.create_task(self._search_bm25(query, n_results * 2))
+            bm25_task = asyncio.create_task(self._search_bm25(query, n_results * 2, include_superseded=include_superseded))
             vector_task = asyncio.create_task(self.retrieve(query, n_results * 2, include_superseded=include_superseded))
 
             bm25_results, vector_results = await asyncio.gather(bm25_task, vector_task)
@@ -207,7 +228,8 @@ class HybridMixin:
                                 fetched_memories[memory.content_hash] = memory
                 except Exception as e:
                     logger.warning(
-                        f"Batch fetch for BM25-only hashes failed, some results may be missing: {e}"
+                        "Batch fetch for BM25-only hashes failed, some results may be missing: %s",
+                        _sanitize_log_value(e),
                     )
 
             merged_results = []
@@ -240,12 +262,12 @@ class HybridMixin:
             merged_results.sort(key=lambda r: r.relevance_score, reverse=True)
             results = merged_results[:n_results]
 
-            logger.info(f"Hybrid search found {len(results)} results "
-                       f"(BM25: {len(bm25_results)}, Vector: {len(vector_results)})")
+            logger.info("Hybrid search found %d results (BM25: %d, Vector: %d)",
+                        len(results), len(bm25_results), len(vector_results))
 
             return results
 
         except Exception as e:
-            logger.error(f"Hybrid search failed: {str(e)}")
+            logger.error("Hybrid search failed: %s", _sanitize_log_value(e))
             logger.error(traceback.format_exc())
             return []

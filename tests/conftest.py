@@ -10,6 +10,12 @@ from typing import Callable, Optional, List
 # Add src directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
 
+# src/ has no __init__.py, so importing the package through the `src.` prefix used
+# to resolve as a namespace package and load a second copy of every module;
+# mock.patch targets on that path silently patched nothing (#1120). Make it an
+# ImportError instead.
+sys.modules['src'] = None
+
 # Disable semantic deduplication during tests to avoid interference with test expectations
 # Tests often use similar content patterns (e.g., "Test memory 1", "Test memory 2")
 # which would be caught by semantic dedup and cause unexpected failures

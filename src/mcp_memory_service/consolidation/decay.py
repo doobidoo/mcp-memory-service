@@ -53,7 +53,7 @@ class ExponentialDecayCalculator(ConsolidationBase):
         if not self._validate_memories(memories):
             return []
         
-        reference_time = kwargs.get('reference_time', datetime.now())
+        reference_time = kwargs.get('reference_time', datetime.now(timezone.utc))
         memory_connections = kwargs.get('connections', {})  # hash -> connection_count mapping
         access_patterns = kwargs.get('access_patterns', {})  # hash -> last_accessed mapping
         

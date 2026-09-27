@@ -6,14 +6,17 @@ This project provides semantic memory and persistent storage for AI assistants t
 
 ## Where development happens
 
-All development happens on **Codeberg**: https://codeberg.org/doobidoo/mcp-memory-service
+All development happens on **GitHub**: https://github.com/doobidoo/mcp-memory-service
 
 That is where issues, pull requests, CI, and releases live. Open your issue or PR there.
 
-The GitHub repository at https://github.com/doobidoo/mcp-memory-service is a synced
-mirror. It exists for discoverability and as a fallback; issues and pull requests
-opened there are not reviewed or merged, and will be redirected here. The one
-exception is security reports - see [Handling a security vulnerability](#handling-a-security-vulnerability).
+From June to September 2026 the project was hosted on Codeberg. That repository at
+https://codeberg.org/doobidoo/mcp-memory-service stays readable so older links, issue
+numbers, and pull request references still resolve, but it is an archive: it receives
+no further pushes and runs no CI.
+
+Vulnerabilities are the one thing that does not belong in a public issue - see
+[Handling a security vulnerability](#handling-a-security-vulnerability).
 
 ## Table of Contents
 
@@ -142,6 +145,28 @@ Use descriptive branch names:
 - Add/update tests as needed
 - Update documentation if applicable
 - Keep commits focused and atomic
+- Add a changelog fragment if you changed anything under `src/`
+
+#### Changelog fragments
+
+A change under `src/` needs a one-line entry in a file of its own:
+
+```
+changelog.d/<number>.<category>.md
+```
+
+`<number>` is your PR or issue number, `<category>` is `added`, `fixed`, `removed` or
+`internal` — pick the exact word from the list, common abbreviations such as `fix`
+or `feat` are rejected by CI. As a rule of thumb: bugs → `fixed`, new behaviour →
+`added`, deletions → `removed`, everything without user-visible effect (CI,
+tooling, docs, dependency bumps, performance/refactor) → `internal`. The file holds
+a single markdown list item describing the change — the symptom and what it does
+now, not the patch. `changelog.d/README.md` has the format and an example, and the
+`Changelog fragment for src/ changes` CI job checks it.
+
+It is a separate file per pull request on purpose: entries used to go straight into
+`CHANGELOG.md`, where every open branch edited the same lines and conflicted. Yours will
+never conflict with anyone else's. They are merged into `CHANGELOG.md` at release time.
 
 ### 3. Test Your Changes
 
@@ -245,32 +270,57 @@ except StorageError as e:
 
 ### Writing Tests
 
-- Place tests in `tests/` directory
-- Name test files with `test_` prefix
-- Use descriptive test names
-- Include both positive and negative test cases
-- Mock external dependencies
+- Place tests in `tests/` directory (it mirrors `src/`), name the file `test_*.py`
+- A change under `src/` comes with a test that is **red without the change**. CI
+  checks this (`tests-prove-fix` runs your added or changed tests against the base
+  branch's `src/` and fails if they pass there). Run both sides yourself and paste
+  them into the PR:
+  ```bash
+  git stash -- src/ && .venv/bin/pytest tests/<your file> -q; git stash pop   # must fail
+  .venv/bin/pytest tests/<your file> -q                                        # must pass
+  ```
+- Drive the real code path. Use the sqlite-vec storage through the `temp_db_path`
+  fixture, the real tool registry, the real handler. Mock only network and
+  external services (Cloudflare, Groq, Gemini). A mock of the function under test
+  proves nothing about it, and a mock that mirrors the bug is green on both sides.
+- Pure removals need no test; the check recognises a deletion-only diff.
+- Include both positive and negative cases, and the error path
 
-Example test:
+Example test, run against the real storage (the fixtures come from `tests/conftest.py`):
 ```python
 import pytest
-from mcp_memory_service.storage import SqliteVecStorage
+
+from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+from mcp_memory_service.utils.hashing import generate_content_hash
+
 
 @pytest.mark.asyncio
-async def test_store_memory_success():
-    """Test successful memory storage."""
-    storage = SqliteVecStorage(":memory:")
-    result = await storage.store("test content", tags=["test"])
-    assert result is not None
-    assert "hash" in result
+async def test_store_then_retrieve(temp_db_path, unique_content):
+    storage = SqliteVecMemoryStorage(f"{temp_db_path}/test.db")
+    await storage.initialize()
+    try:
+        content = unique_content("memory about authentication")
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["auth"],
+        )
+        success, message = await storage.store(memory)
+        assert success, message
+
+        results = await storage.retrieve("authentication", n_results=1)
+        assert results[0].memory.content == content
+    finally:
+        await storage.close()
 ```
 
 ### Test Coverage
 
-- Aim for >80% code coverage
-- Focus on critical paths and edge cases
+- Focus on the behavior the change adds or fixes, then its edge cases
 - Test error handling scenarios
-- Include integration tests where appropriate
+- `tests/integration` starts the HTTP app; `tests/consolidation` runs the
+  maintenance pipeline. Both run in CI, so a test there is not optional coverage
 
 ## Documentation
 
@@ -291,7 +341,7 @@ When adding features or making significant changes:
 4. Update AGENTS.md or CLAUDE.md if development workflow changes
 
 **Advanced Workflow Automation**:
-- See [Context Provider Workflow Automation](https://codeberg.org/doobidoo/mcp-memory-service/wiki/Context-Provider-Workflow-Automation) for automating development workflows with intelligent patterns
+- See [Context Provider Workflow Automation](https://github.com/doobidoo/mcp-memory-service/wiki/Context-Provider-Workflow-Automation) for automating development workflows with intelligent patterns
 
 ### API Documentation
 
@@ -332,7 +382,7 @@ When adding features or making significant changes:
    - [ ] Tests pass locally (`bash scripts/pr/pre_pr_check.sh`)
    - [ ] Code follows style guidelines
    - [ ] Documentation updated
-   - [ ] CHANGELOG.md updated
+   - [ ] Changelog fragment added under `changelog.d/` if `src/` changed
    - [ ] No sensitive data exposed
    - [ ] **If adding/modifying MCP tools**: tool is added to `valid_actions` in `server/handlers/graph.py` (if applicable) and write-scope enforcement is correct (see [Security-Sensitive Changes](#security-sensitive-changes))
    - [ ] **I am a human contributor**, or I have disclosed that this PR was generated by an automated agent (see [Autonomous Agents & AI-Generated PRs](#autonomous-agents--ai-generated-prs))
@@ -366,12 +416,12 @@ The following areas require extra care. PRs touching them receive additional scr
 
 ### Handling a security vulnerability
 
-Do **not** open a public issue. Report it through GitHub's private [Security Advisories](https://github.com/doobidoo/mcp-memory-service/security/advisories/new) on the mirror.
+Do **not** open a public issue. Report it through GitHub's private [Security Advisories](https://github.com/doobidoo/mcp-memory-service/security/advisories/new).
 
-That is deliberately the one thing that does not happen on Codeberg: Forgejo has no
-confidential-issue or security-advisory feature, so a Codeberg issue is always public.
-Private vulnerability reporting on the GitHub mirror is the project's only
-confidential channel. See [SECURITY.md](SECURITY.md) for what to include.
+Issues and pull requests are public from the moment you open them, which is fine for
+everything except an unfixed vulnerability. Security Advisories are the confidential
+channel for that: the report stays private until a fix ships, and you are credited in
+the advisory. See [SECURITY.md](SECURITY.md) for what to include.
 
 ## Autonomous Agents & AI-Generated PRs
 
@@ -449,15 +499,15 @@ For feature requests, describe:
 
 ### Getting Help
 
-- **Documentation**: Check the [Wiki](https://codeberg.org/doobidoo/mcp-memory-service/wiki) first
-- **Issues**: Search existing [issues](https://codeberg.org/doobidoo/mcp-memory-service/issues?state=all) before creating new ones
-- **Questions**: Open an [issue on Codeberg](https://codeberg.org/doobidoo/mcp-memory-service/issues) - there is no separate discussions forum
+- **Documentation**: Check the [Wiki](https://github.com/doobidoo/mcp-memory-service/wiki) first
+- **Issues**: Search existing [issues](https://github.com/doobidoo/mcp-memory-service/issues?q=is%3Aissue) before creating new ones
+- **Questions**: [Discussions](https://github.com/doobidoo/mcp-memory-service/discussions) for open-ended questions, [issues](https://github.com/doobidoo/mcp-memory-service/issues) for anything with a reproduction
 - **Response Time**: Maintainers typically respond within 2-3 days
 
 ### Communication Channels
 
-- **Codeberg Issues**: Bug reports, feature requests, and general questions
-- **Codeberg Pull Requests**: Code contributions and reviews
+- **GitHub Issues**: Bug reports, feature requests, and general questions
+- **GitHub Pull Requests**: Code contributions and reviews
 - **GitHub Security Advisories**: Confidential vulnerability reports only
 
 ### For AI Agents
@@ -465,7 +515,7 @@ For feature requests, describe:
 If you're an AI coding assistant, also check:
 - [AGENTS.md](AGENTS.md) - Generic AI agent instructions
 - [CLAUDE.md](CLAUDE.md) - Claude-specific guidelines
-- [Context Provider Workflow Automation](https://codeberg.org/doobidoo/mcp-memory-service/wiki/Context-Provider-Workflow-Automation) - Automate development workflows with intelligent patterns
+- [Context Provider Workflow Automation](https://github.com/doobidoo/mcp-memory-service/wiki/Context-Provider-Workflow-Automation) - Automate development workflows with intelligent patterns
 
 ## Recognition
 
@@ -489,4 +539,4 @@ We value all contributions! Contributors are:
 
 Thank you for contributing to MCP Memory Service! Your efforts help make AI assistants more capable and useful for everyone. 🚀
 
-If you have questions not covered here, please open an [issue on Codeberg](https://codeberg.org/doobidoo/mcp-memory-service/issues) or check our [Wiki](https://codeberg.org/doobidoo/mcp-memory-service/wiki).
+If you have questions not covered here, please open an [issue on GitHub](https://github.com/doobidoo/mcp-memory-service/issues) or check our [Wiki](https://github.com/doobidoo/mcp-memory-service/wiki).

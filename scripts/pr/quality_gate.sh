@@ -67,15 +67,19 @@ if [ "$LLM_BACKEND" = "gemini" ]; then
         echo "   Skipped, NOT passed: complexity and security were not evaluated."
         exit $EXIT_SKIPPED
     fi
-elif ! echo "reply with READY" | python3 "$LLM_HELPER" > /dev/null 2>&1; then
-    echo "WARNING: no local analysis model reachable - skipping AI-based quality checks."
+elif ! RESOLVED_MODEL=$(python3 "$LLM_HELPER" --resolve-model); then
+    echo "WARNING: no usable local analysis model - skipping AI-based quality checks."
     echo "   Tried ${MCP_QUALITY_LLM_URL:-http://127.0.0.1:11437/v1} via $LLM_HELPER."
     echo "   Skipped, NOT passed: complexity and security were not evaluated."
-    echo "   Start the local endpoint, point MCP_QUALITY_LLM_URL at another one,"
-    echo "   or set MCP_QUALITY_LLM=gemini to use the Gemini CLI."
+    echo "   Check the endpoint/model error above, choose a working MCP_QUALITY_LLM_MODEL,"
+    echo "   or point MCP_QUALITY_LLM_URL at a usable endpoint."
+    echo "   Set MCP_QUALITY_LLM=gemini to use the Gemini CLI instead."
     # Exit 3 = skipped, distinct from 0 (passed) and 1 (failed). Callers only see
     # the status code, and pre_pr_check.sh used to report this as a green check.
     exit $EXIT_SKIPPED
+else
+    export MCP_QUALITY_LLM_MODEL="$RESOLVED_MODEL"
+    LLM_BACKEND="local ($RESOLVED_MODEL)"
 fi
 
 # analyze <prompt> - one model call, empty output on failure so callers stay simple.
@@ -101,10 +105,12 @@ critical_issues=()
 
 # Get changed files
 echo "Fetching changed files..."
+pr_head_branch=""
 if [ "$MODE" = "staged" ]; then
     all_changed=$(git diff --cached --name-only --diff-filter=ACMR)
 else
     all_changed=$(gh pr diff $PR_NUMBER --name-only)
+    pr_head_branch=$(gh pr view $PR_NUMBER --json headRefName --jq '.headRefName')
 fi
 changed_files=$(echo "$all_changed" | grep '\.py$' || echo "")
 
@@ -132,18 +138,33 @@ while IFS= read -r file; do
         continue
     fi
 
+    # Which functions does this change actually touch? The model scores the whole
+    # file, so without this every change to a file that already holds a complex
+    # function failed the gate -- proximity, not the change (#1118).
+    if [ "$MODE" = "staged" ]; then
+        touched=$(python3 "$SCRIPT_DIR/lib/touched_functions.py" --staged "$file")
+    else
+        touched=$(python3 "$SCRIPT_DIR/lib/touched_functions.py" --range "origin/main...origin/$pr_head_branch" "$file")
+    fi
+
+    if [ -z "$touched" ]; then
+        echo "Skipping $file (no function bodies touched)"
+        continue
+    fi
+
     echo "Analyzing: $file"
     result=$(analyze "Analyze code complexity. Rate each function 1-10 (1=simple, 10=very complex). Report ONLY functions with score >7 in format 'FunctionName: Score X - Reason'. File content:
 
 $(cat "$file")")
 
     # The documented budget is grade A-B, complexity <= 8, so 8 is acceptable and
-    # only 9 and 10 are findings. The old pattern also matched 8 and would have
-    # flagged code that meets the standard.
-    if echo "$result" | grep -qi "score 9\|score 10"; then
-        warnings+=("High complexity in $file: $result")
+    # only 9 and 10 are findings. Findings on functions this diff did not touch
+    # are dropped: they are the file's pre-existing state, and the author of an
+    # unrelated change is not the person to refactor them.
+    scoped=$(printf '%s' "$result" | python3 "$SCRIPT_DIR/lib/scope_findings.py" $touched) && {
+        warnings+=("High complexity in $file: $scoped")
         exit_code=1
-    fi
+    }
 done < <(echo "$changed_files")
 echo ""
 
@@ -188,7 +209,27 @@ test_files=$(echo "$all_changed" | grep -Ec '^tests/.*\.(py|sh)$' || true)
 # Count code files directly from changed_files
 code_files=$(echo "$changed_files" | grep -c '\.py$' || true)
 
-if [ $code_files -gt 0 ] && [ $test_files -eq 0 ]; then
+# Dead-code removal has no new behavior to cover, so demanding a test file for it
+# made the gate unpassable for exactly the cleanup it keeps asking for. Anything
+# that adds real behavior still needs a test -- see lib/is_cleanup_only.py.
+if [ "$MODE" = "staged" ]; then
+    py_diff=$(git diff --cached -- '*.py')
+    full_diff=$(git diff --cached)
+else
+    py_diff=$(gh pr diff $PR_NUMBER)
+    full_diff=$(gh pr diff "$PR_NUMBER")
+fi
+cleanup_only=false
+if [ -n "$py_diff" ] && printf '%s' "$py_diff" | python3 "$SCRIPT_DIR/lib/is_cleanup_only.py"; then
+    cleanup_only=true
+fi
+
+release_bump=false
+if [ -n "$py_diff" ] && printf '%s' "$full_diff" | python3 "$SCRIPT_DIR/lib/is_release_bump.py"; then
+    release_bump=true
+fi
+
+if [ $code_files -gt 0 ] && [ $test_files -eq 0 ] && [ "$cleanup_only" = false ] && [ "$release_bump" = false ]; then
     warnings+=("No test files added/modified despite $code_files code file(s) changed")
     if [ $exit_code -eq 0 ]; then
         exit_code=1
@@ -196,31 +237,70 @@ if [ $code_files -gt 0 ] && [ $test_files -eq 0 ]; then
 fi
 echo "Code files changed: $code_files"
 echo "Test files changed: $test_files"
+if [ $code_files -gt 0 ] && [ "$cleanup_only" = true ]; then
+    echo "Cleanup-only change (no added behavior) - test requirement not applied"
+fi
+if [ $code_files -gt 0 ] && [ "$release_bump" = true ]; then
+    echo "Release version bump - test requirement not applied"
+fi
 echo ""
 
 # Check 4: Breaking changes
 echo "=== Check 4: Breaking Changes ==="
+breaking_summary="none detected"
 api_paths=(src/mcp_memory_service/tools src/mcp_memory_service/web/api)
 
 if [ "$MODE" = "staged" ]; then
     api_changes=$(git diff --cached -- "${api_paths[@]}" 2>/dev/null || echo "")
 else
-    head_branch=$(gh pr view $PR_NUMBER --json headRefName --jq '.headRefName')
-    api_changes=$(git diff origin/main...origin/$head_branch -- "${api_paths[@]}" 2>/dev/null || echo "")
+    api_changes=$(git diff "origin/main...origin/$pr_head_branch" -- "${api_paths[@]}" 2>/dev/null || echo "")
 fi
 
 if [ ! -z "$api_changes" ]; then
     echo "Analyzing API changes..."
     # Truncate to 200 lines to bound the prompt. Large diffs still lose context,
     # which is an accepted trade-off here.
-    breaking_result=$(analyze "Analyze for breaking changes. Breaking changes include: removed functions/endpoints, changed signatures (parameters removed/reordered), changed return types, renamed public APIs, changed HTTP paths/methods. Report ONLY if breaking changes found with severity (CRITICAL/HIGH/MEDIUM). Changes:
+    # The marker is required for the same reason the security check has one: the
+    # old pattern grepped for the word "breaking", which matches the model's own
+    # "No breaking changes found." Every API change reported a finding whose text
+    # said there was none.
+    breaking_result=$(analyze "Analyze for breaking changes. Breaking changes include: removed functions/endpoints, changed signatures (parameters removed/reordered), changed return types, renamed public APIs, changed HTTP paths/methods.
+
+IMPORTANT: Output format:
+- If ANY breaking change is found, start the response with: BREAKING_CHANGE_DETECTED: [severity CRITICAL/HIGH/MEDIUM]
+- If there are none, start the response with: NO_BREAKING_CHANGES
+- Then provide details
+
+Changes:
 
 $(echo "$api_changes" | head -200)")
 
-    if echo "$breaking_result" | grep -qi "breaking\|CRITICAL\|HIGH"; then
-        warnings+=("Potential breaking changes detected: $breaking_result")
-        if [ $exit_code -eq 0 ]; then
-            exit_code=1
+    if echo "$breaking_result" | grep -q "^BREAKING_CHANGE_DETECTED:"; then
+        # A deliberate breaking change, such as removing a field that an advisory says
+        # leaks data, can be acknowledged (#1311). The finding is still printed, but it
+        # does not block. For a PR, a "Breaking-Change-Acknowledged: <reason>" line in
+        # the PR body or a commit message covers the diff checked here, which is the
+        # whole PR. A staged diff belongs to no commit yet, so an older commit's line
+        # could not say which change it meant: a staged run takes the reason from
+        # BREAKING_CHANGE_ACKNOWLEDGED instead. See lib/breaking_change_ack.py.
+        if [ "$MODE" = "staged" ]; then
+            ack_text=""
+            if [ -n "${BREAKING_CHANGE_ACKNOWLEDGED:-}" ]; then
+                ack_text="Breaking-Change-Acknowledged: $BREAKING_CHANGE_ACKNOWLEDGED"
+            fi
+        else
+            ack_text=$(gh pr view "$PR_NUMBER" --json body,commits \
+                --jq '.body, (.commits[] | .messageHeadline, .messageBody)' 2>/dev/null || echo "")
+        fi
+        if ack_reason=$(printf '%s' "$ack_text" | python3 "$SCRIPT_DIR/lib/breaking_change_ack.py"); then
+            echo "Breaking change acknowledged ($ack_reason), not blocking:"
+            echo "$breaking_result"
+            breaking_summary="acknowledged ($ack_reason)"
+        else
+            warnings+=("Potential breaking changes detected: $breaking_result")
+            if [ $exit_code -eq 0 ]; then
+                exit_code=1
+            fi
         fi
     fi
 else
@@ -269,7 +349,7 @@ if [ $exit_code -eq 0 ]; then
     echo "- Code complexity: OK"
     echo "- Security scan: OK"
     echo "- Test coverage: OK"
-    echo "- Breaking changes: none detected"
+    echo "- Breaking changes: $breaking_summary"
     # Only claim pyscn passed when it actually ran; --with-pyscn without the tool
     # installed used to print OK for an analysis that never happened.
     if [ "$pyscn_ran" = true ]; then
@@ -292,7 +372,7 @@ All automated checks completed successfully:
 - Code complexity: OK
 - Security scan: OK
 - Test coverage: OK
-- Breaking changes: none detected${pyscn_note}"
+- Breaking changes: ${breaking_summary}${pyscn_note}"
     fi
 
 elif [ $exit_code -eq 2 ]; then
@@ -317,7 +397,10 @@ Run \`bash scripts/security/scan_vulnerabilities.sh\` locally and fix all securi
     fi
 
 else
-    echo "WARNINGS (non-blocking)"
+    # These block: exit 1 is what pre_pr_check.sh reads to fail check 2. The
+    # heading used to say "non-blocking", so the gate contradicted itself in the
+    # same breath (#1118).
+    echo "FINDINGS (blocking)"
     echo ""
     for warning in "${warnings[@]}"; do
         echo "- $warning"
@@ -327,14 +410,13 @@ else
     if [ "$MODE" = "pr" ]; then
         warnings_md=$(printf '%s\n' "${warnings[@]}" | sed 's/^/- /')
 
-        gh pr comment $PR_NUMBER --body "**Quality Gate WARNINGS**
+        gh pr comment $PR_NUMBER --body "**Quality Gate FAILED**
 
-Some checks require attention (non-blocking):
+These findings block the gate:
 
 $warnings_md
 
-**Recommendation:**
-Consider addressing these issues before requesting review to improve code quality."
+Each names a function this change touched. Findings on untouched functions in the same file are not reported."
     fi
 
 fi

@@ -264,7 +264,7 @@ curl -X POST http://localhost:8000/api/memories \
   }'
 
 # Search memories
-curl -X POST http://localhost:8000/api/memories/search \
+curl -X POST http://localhost:8000/api/search \
   -H "Content-Type: application/json" \
   -d '{
     "query": "test memory",
@@ -272,7 +272,7 @@ curl -X POST http://localhost:8000/api/memories/search \
   }'
 
 # Get statistics
-curl http://localhost:8000/api/stats
+curl http://localhost:8000/api/memory-stats
 ```
 
 **Option C: Automated Resource Setup**
@@ -427,8 +427,8 @@ python -m src.mcp_memory_service.server --debug
 # Check backend health
 curl http://localhost:8000/api/health
 
-# Get detailed statistics
-curl http://localhost:8000/api/stats
+# Get detailed statistics (authenticated)
+curl http://localhost:8000/api/health/detailed
 ```
 
 ## Limitations

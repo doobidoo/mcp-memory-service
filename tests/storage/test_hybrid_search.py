@@ -374,6 +374,42 @@ async def test_hybrid_search_empty_query(sqlite_storage):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_bm25_matches_query_terms_that_are_not_adjacent(sqlite_storage):
+    """A multi-word query must not require the words as one contiguous phrase.
+
+    The whole query used to be wrapped in double quotes, which FTS5 treats as a
+    phrase: 'tmux byte tap' only matched text containing exactly that sequence,
+    so BM25 contributed almost nothing to hybrid search for natural queries.
+    """
+    storage = sqlite_storage
+    target = "To debug tmux scrollback, tap the raw byte stream before xterm renders it."
+    partial = "CSV exports can start with a byte order mark."
+    unrelated = "Advent sermon notes on waiting and hope."
+    for text in (target, partial, unrelated):
+        await storage.store(Memory(content=text, content_hash=generate_content_hash(text), tags=["test"]))
+
+    hits = [h for h, _ in await storage._search_bm25("tmux byte tap", n_results=5)]
+
+    assert generate_content_hash(target) in hits
+    assert hits[0] == generate_content_hash(target), "more matching terms should rank higher"
+    assert generate_content_hash(unrelated) not in hits
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_bm25_treats_operator_words_as_terms(sqlite_storage):
+    """Query words like AND/OR/NOT/NEAR are searched as words, not FTS5 operators."""
+    storage = sqlite_storage
+    text = "Do not restart the service; near the end of the deploy, check logs."
+    await storage.store(Memory(content=text, content_hash=generate_content_hash(text), tags=["test"]))
+
+    hits = [h for h, _ in await storage._search_bm25("NOT restart NEAR deploy", n_results=5)]
+
+    assert hits == [generate_content_hash(text)]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_hybrid_search_special_characters(sqlite_storage, unique_content):
     """Hybrid search should sanitize FTS5 operators from queries."""
     storage = sqlite_storage
@@ -391,3 +427,62 @@ async def test_hybrid_search_special_characters(sqlite_storage, unique_content):
 
     # Should not error, should sanitize and search
     assert isinstance(results, list)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_bm25_short_word_query_falls_back_to_phrase(sqlite_storage):
+    """All-short-word queries (< 3 chars) must still match via the phrase fallback.
+
+    The trigram FTS5 tokenizer cannot index terms shorter than three characters,
+    so an OR of quoted short words would match nothing. The fallback searches
+    the whole query as one phrase, which still finds the text.
+    """
+    storage = sqlite_storage
+    target = "go up the stairs to the loft"
+    other = "A completely unrelated memory about the weather."
+    for text in (target, other):
+        await storage.store(Memory(content=text, content_hash=generate_content_hash(text), tags=["test"]))
+
+    # "go up" has no tokenizable word; must fall back to the phrase and still hit.
+    hits = [h for h, _ in await storage._search_bm25("go up", n_results=5)]
+    assert generate_content_hash(target) in hits
+    assert generate_content_hash(other) not in hits
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_bm25_mixed_short_and_long_words_matches_on_long_word(sqlite_storage):
+    """A query with some short words still matches on its tokenizable words.
+
+    'as Bob is' contains 'Bob' (>= 3 chars); the short words are dropped by the
+    tokenizer but the OR query must still match on 'Bob' rather than falling back.
+    """
+    storage = sqlite_storage
+    target = "Bob finished the report before lunch."
+    await storage.store(Memory(content=target, content_hash=generate_content_hash(target), tags=["test"]))
+
+    hits = [h for h, _ in await storage._search_bm25("as Bob is", n_results=5)]
+    assert generate_content_hash(target) in hits
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_bm25_excludes_superseded_by_default(sqlite_storage):
+    """BM25 must not return superseded memories unless include_superseded=True."""
+    storage = sqlite_storage
+    target = "tmux scrollback buffer overflow during capture"
+    await storage.store(Memory(content=target, content_hash=generate_content_hash(target), tags=["test"]))
+
+    # Mark the memory superseded directly, as the service layer would.
+    storage.conn.execute(
+        "UPDATE memories SET superseded_by = ? WHERE content_hash = ?",
+        ("superseded-by-test", generate_content_hash(target)),
+    )
+    storage.conn.commit()
+
+    excluded = [h for h, _ in await storage._search_bm25("tmux scrollback", n_results=5)]
+    assert generate_content_hash(target) not in excluded
+
+    included = [h for h, _ in await storage._search_bm25("tmux scrollback", n_results=5, include_superseded=True)]
+    assert generate_content_hash(target) in included

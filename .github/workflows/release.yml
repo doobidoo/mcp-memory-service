@@ -1,0 +1,149 @@
+# Release pipeline: PyPI (main + lite) and Docker Hub.
+#
+# Ported back from .forgejo/workflows/release.yml, which was itself adapted from the
+# pre-Codeberg publish-dual.yml + docker-publish.yml. Two things carried over from the
+# Forgejo version on purpose:
+#   - The Docker job uses RAW `docker buildx` instead of the docker/* actions. Fewer
+#     third-party actions means a smaller allowlist and less SHA-pin maintenance, and
+#     buildx is preinstalled on ubuntu-latest.
+#   - The lite package's version is forced from _version.py rather than trusting the
+#     static version in pyproject-lite.toml. That drift once left the lite package stuck
+#     at 10.39.1 for several releases, silently, because `--skip-existing` skips instead
+#     of failing.
+#
+# PyPI auth is still a classic API token. The old GitHub workflows declared
+# `id-token: write` but never actually used OIDC, so Trusted Publishing is new work, not
+# a restore: configure a Trusted Publisher on PyPI for this repo and workflow, then drop
+# PYPI_TOKEN. Until that is done, one publisher at a time is enforced by only one forge
+# holding secrets at all.
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   PYPI_TOKEN        classic PyPI API token (project-scoped, value starts with "pypi-")
+#   DOCKER_USERNAME   Docker Hub username (doobidoo)
+#   DOCKER_PASSWORD   Docker Hub access token (NOT account password)
+#
+# Secret values cannot be exported from Codeberg; all three must be recreated here.
+# Trigger: push a tag v*.*.* (or run manually via workflow_dispatch).
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install package + test deps
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e ".[sqlite]" pytest pytest-asyncio
+      - name: Run unit tests
+        run: python3 -m pytest -m unit -q
+
+  publish-pypi:
+    name: Publish to PyPI (main + lite)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install build tooling
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install build hatchling twine
+
+      # --- Main package (with PyTorch) ---
+      - name: Build main package
+        run: python3 -m build
+      - name: Publish main to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: python3 -m twine upload dist/* --skip-existing
+
+      # --- Lite package (ONNX only) ---
+      - name: Prepare lite package
+        run: |
+          cp pyproject.toml pyproject-main.toml
+          cp pyproject-lite.toml pyproject.toml
+          # Single source of truth: force the lite version to match the main package
+          # (_version.py). Without this, pyproject-lite.toml's static version drifts and
+          # `twine upload --skip-existing` silently skips an already-published version —
+          # the lite package was stuck at 10.39.1 for many releases this way.
+          VERSION=$(grep -E '^__version__' src/mcp_memory_service/_version.py | sed -E 's/.*"([^"]+)".*/\1/')
+          sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+          echo "Lite version synced to $VERSION"
+          rm -rf dist/ build/ ./*.egg-info
+      - name: Build lite package
+        run: python3 -m build
+      - name: Publish lite to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: python3 -m twine upload dist/* --skip-existing
+      - name: Restore pyproject.toml
+        if: always()
+        run: mv pyproject-main.toml pyproject.toml
+
+  publish-docker:
+    name: Publish Docker images
+    runs-on: ubuntu-latest
+    needs: test
+    # Only on a real version tag. The image tags are derived from github.ref_name, so a
+    # manual workflow_dispatch (ref_name = "main") would push junk "main" tags and clobber
+    # "latest". Manual dispatch is for PyPI catch-up only.
+    if: startsWith(github.ref, 'refs/tags/v')
+    env:
+      IMAGE: docker.io/doobidoo/mcp-memory-service
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Derive version tags from the git tag
+        id: ver
+        # REF comes in through env, not string interpolation: a ref name reaching the
+        # shell via ${{ }} is the standard Actions injection sink. Only the maintainer
+        # can push tags here, so this is defence in depth rather than an open hole.
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          case "$REF" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "Refusing to build image tags from unexpected ref: $REF" >&2; exit 1 ;;
+          esac
+          V="${REF#v}"
+          echo "v=$V"          >> "$GITHUB_OUTPUT"
+          echo "minor=${V%.*}" >> "$GITHUB_OUTPUT"
+          echo "major=${V%%.*}" >> "$GITHUB_OUTPUT"
+          echo "Building tags for version: $V"
+
+      - name: Docker Hub login
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login docker.io -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Create buildx builder
+        run: docker buildx create --use --name cb-builder 2>/dev/null || docker buildx use cb-builder
+
+      # Standard (full, torch) image: amd64-only by design. ARM users who need the full
+      # image build it locally on native ARM hardware (no emulation). See runbook.
+      - name: Build + push Standard (amd64)
+        run: |
+          docker buildx build --platform linux/amd64 --push \
+            -f tools/docker/Dockerfile --build-arg SKIP_MODEL_DOWNLOAD=true \
+            -t "$IMAGE:${{ steps.ver.outputs.v }}" \
+            -t "$IMAGE:${{ steps.ver.outputs.minor }}" \
+            -t "$IMAGE:${{ steps.ver.outputs.major }}" \
+            -t "$IMAGE:latest" .
+
+      # Slim (ONNX) image — light enough for multi-arch under emulation.
+      - name: Build + push Slim (amd64 + arm64)
+        run: |
+          docker buildx build --platform linux/amd64,linux/arm64 --push \
+            -f tools/docker/Dockerfile.slim --build-arg SKIP_MODEL_DOWNLOAD=true \
+            -t "$IMAGE:${{ steps.ver.outputs.v }}-slim" \
+            -t "$IMAGE:${{ steps.ver.outputs.minor }}-slim" \
+            -t "$IMAGE:${{ steps.ver.outputs.major }}-slim" \
+            -t "$IMAGE:slim" .

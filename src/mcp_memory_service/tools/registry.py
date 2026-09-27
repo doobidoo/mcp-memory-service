@@ -71,6 +71,10 @@ TOOL_REGISTRY: list[ToolDef] = [
                     "type": "string",
                     "description": "Optional conversation identifier. When provided, semantic deduplication is skipped, allowing multiple incremental memories from the same conversation to be stored even if their content is topically similar. Exact duplicate hashes are still rejected.",
                 },
+                "agent_id": {
+                    "type": "string",
+                    "description": "Optional authoring agent id (defaults to the MCP_AGENT_ID env var, else unset). Stored in metadata for multi-agent attribution; null means unknown.",
+                },
                 "metadata": {
                     "type": "object",
                     "description": "Optional metadata about the memory, including tags and type.",
@@ -299,6 +303,10 @@ Examples:
                     "default": False,
                     "description": "Enable cascading fallback when semantic results are sparse. When true and fewer than 3 results are found with scores below 0.4, automatically attempts BM25 keyword match and tag intersection. Each result includes match_method field. Default: false.",
                 },
+                "agent_id": {
+                    "type": "string",
+                    "description": "Filter to memories authored by this agent (matches metadata.agent_id or the agent:<id> tag). Opt-in; omit to search all agents.",
+                },
                 "include_beliefs": {
                     "type": "boolean",
                     "default": False,
@@ -383,6 +391,10 @@ Examples:
                 "store": {
                     "type": "string",
                     "description": "Target store partition (default: 'default'). Use 'docs' for documents, 'all' for cross-store search.",
+                },
+                "agent_id": {
+                    "type": "string",
+                    "description": "Filter to memories authored by this agent (matches metadata.agent_id or the agent:<id> tag). Opt-in; omit to search all agents.",
                 },
             },
         },
@@ -809,6 +821,11 @@ Examples:
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Specific session IDs to harvest",
+                },
+                "force_reharvest": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Re-harvest sessions already recorded in the harvest tracker (bypasses the tracker filter). Use to re-process sessions whose prior run stored nothing.",
                 },
                 "types": {
                     "type": "array",
@@ -1263,9 +1280,6 @@ every query. Check with memory_graph {"action": "list_entities"}; populate with
 memory_quality {"action": "maintain", "dry_run": false} (dry_run defaults to true and
 stores nothing). Unavailable on the Cloudflare backend.
 Guide: docs/guides/token-efficient-retrieval.md
-
-KNOWN LIMITATION: entity selection is not query-scoped — the first max_entities entities in
-the graph are used, and your query only decides which chunks hang off them (#220).
 
 USE THIS WHEN:
 - User wants a high-level overview ("what do I know about X", "map out", "explore")

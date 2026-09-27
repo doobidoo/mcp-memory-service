@@ -118,6 +118,39 @@ def _validate_registration_key(raw_request: Request) -> None:
         )
 
 
+def _refuse_client_credentials_while_open(grant_types) -> None:
+    """Reject a self-service registration that asks for client_credentials.
+
+    With MCP_DCR_REGISTRATION_KEY unset this endpoint is open by design, for
+    RFC 7591 and Claude.ai Remote MCP. That is defensible for
+    authorization_code, which puts a human in the loop before any token
+    exists. client_credentials has no such step: a caller could register
+    itself as confidential, exchange its own client_id and client_secret, and
+    hold a read-write token without the owner ever being consulted
+    (GHSA-6mvm-q4j3-27qg). The grant is machine-to-machine, so the
+    registration behind it has to be gated too.
+
+    The token endpoint refuses the same combination independently. That is
+    not redundant: this check only covers registrations made from now on,
+    while the advisory is about clients that already registered.
+    """
+    if not grant_types or "client_credentials" not in grant_types:
+        return
+    if DCR_REGISTRATION_KEY:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "error": "invalid_client_metadata",
+            "error_description": (
+                "The client_credentials grant requires gated registration. "
+                "Set MCP_DCR_REGISTRATION_KEY and register with it, or use "
+                "authorization_code with PKCE."
+            ),
+        },
+    )
+
+
 @router.post(
     "/register",
     response_model=ClientRegistrationResponse,
@@ -149,6 +182,8 @@ async def register_client(
 
         if request.response_types:
             validate_response_types(request.response_types)
+
+        _refuse_client_credentials_while_open(request.grant_types)
 
         # Prepare default values
         grant_types = request.grant_types or ["authorization_code"]

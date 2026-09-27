@@ -4,11 +4,240 @@
 
 All notable changes to the MCP Memory Service project will be documented in this file.
 
+> **A note on issue and PR numbers.** This project was hosted on Codeberg from June to
+> September 2026. Entries from that period cite Codeberg numbers, and GitHub will
+> auto-link a bare `#123` to its own issue of that number, which is a different thing.
+> Roughly: numbers under #341 in v10.71.0 through v11.10.0 entries are Codeberg. The
+> originals stay readable at https://codeberg.org/doobidoo/mcp-memory-service. Older
+> entries predate the move and their numbers are GitHub numbers again.
+
 **Versions v10.36.3 and earlier** – See [docs/archive/CHANGELOG-HISTORIC.md](./docs/archive/CHANGELOG-HISTORIC.md).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [11.14.0] - 2026-09-25
+
+### Added
+
+- **Optional `agent_id` author identity on `memory_store` (#1100 Phase 1).** A memory can now carry the id of the agent that wrote it: pass `agent_id` explicitly or set the `MCP_AGENT_ID` env var; it is stored in metadata (no schema change). Absent both, nothing is written (`null` = unknown), so existing behavior is unchanged. `Memory.agent_id` is a metadata-backed property. Groundwork for cross-agent attribution and conflict handling in a shared multi-agent database (Phases 2-3: search filter, NLI cross-agent awareness).
+- **`force_reharvest` on `memory_harvest` bypasses the tracker filter (R8).** A harvest can now re-process sessions already recorded in the harvest tracker — e.g. to re-run sessions whose earlier run stored nothing. Off by default (tracker-respecting, unchanged). The tracker-filter decision is a pure `should_filter_tracker(already_harvested, session_ids, force_reharvest)` helper so the truth table is testable directly.
+- **`agent_id` filter on `memory_search`/`memory_list` + `X-Agent-ID` header on `/mcp` (#1100 Phase 2).**
+  Follow-up to the Phase 1 author-identity work. `memory_search` and `memory_list` gain an optional `agent_id` filter that matches either `metadata.agent_id` (MCP-authored) or the `agent:<id>` tag (Web-API-authored), so attribution written by either transport is filterable through one parameter. The filter is **opt-in**: omitting `agent_id` returns memories from all agents (no per-agent bubble), and `MCP_AGENT_ID` is never inherited into the read path — it only stamps authorship on write. The `/mcp` endpoint now reads an `X-Agent-ID` request header and injects it when a tool call omits an explicit `agent_id`, so multiple agents sharing one server are attributed per-request (explicit arg wins over header). Filtering is implemented for the sqlite-vec backend (used by hybrid); cloudflare/milvus accept the parameter for interface parity, with native filtering left as a follow-up.
+
+### Fixed
+
+- **Log injection guard protection added to `config/base.py`.** Converted f-string logging to `%`-style lazy formatting with `_sanitize_log_value` and added `config/base.py` to `GUARDED_MODULES` in `test_log_injection_guard.py` to prevent log injection vulnerabilities.
+- **Belief quarantine is reachable again: a naturally-phrased value-swap is filed as a contradiction instead of being silently dropped as a duplicate (#1216, massimiliano1991).**
+  Semantic dedup and belief grouping no longer share one threshold — belief grouping reads
+  `MCP_BELIEF_SIMILARITY_THRESHOLD` (default unchanged). When on-store NLI is enabled
+  (`MCP_NLI_ON_STORE=true`), a write rejected as a near-duplicate is re-examined: if it
+  contradicts the memory it collided with, it is stored (bypassing dedup) and quarantined
+  rather than dropped. The quarantine confidence gate is now configurable via
+  `MCP_QUARANTINE_NLI_THRESHOLD` (default 0.7), and a startup warning fires when the gate
+  exceeds the active NLI backend's achievable ceiling — the heuristic tops out at 0.55, so the
+  default config needs `MCP_NLI_BACKEND=cascade` or a lowered gate to quarantine on store.
+  `HEURISTIC_MAX_CONFIDENCE` is corrected to the value the heuristic actually returns and is
+  now read. Both new knobs fall back to their defaults (with an error log) on an invalid
+  value instead of disabling the feature; a rescued value-swap is recorded as contradicting a
+  *memory* (`contradicted_memory`), distinct from belief contradictions; and if the quarantine
+  step fails the store response says so (`contradiction_filing_failed`) instead of reporting
+  the memory filed. Default behaviour is unchanged.
+- **Cloudflare tag-filtered retrieval no longer hides that it hit the Vectorize recall ceiling (#1236, massimiliano1991).**
+  `retrieve()` over-fetches and filters tags client-side, but Vectorize caps the query at 50 neighbours, so a tagged memory beyond the 50th nearest was silently unreachable and a clipped result looked like complete recall. Every result now carries a `debug_info["retrieval"]` block (ceiling, candidates wanted / requested / returned, dropped by the tag filter, truncated to `n_results`, and a `recall_may_be_incomplete` flag), and a WARNING is logged when the page came back full at the ceiling — including the zero-result case, which has no result to carry it.
+- **The scheduled harvest tracker only marks sessions that stored something (R7).** A session harvested with `stored==0` (e.g. the LLM chain was down and every candidate was dropped) was recorded as harvested and skipped forever. `sessions_to_track()` now returns only session ids with `stored>0`, so an empty run leaves the session pending for a later re-harvest.
+- **`get_access_patterns()` now reads `last_accessed` instead of `updated_at_iso`.** Previously, the consolidation decay system used edit timestamps instead of access timestamps to calculate memory access patterns, causing frequently-read but old memories to lose relevance protection. The function now queries `last_accessed` (Unix timestamps) without the artificial LIMIT 100, ensuring all accessed memories contribute to access pattern statistics.
+- **`GET /mcp/health` no longer discloses storage statistics to unauthenticated callers (#1305, GHSA-7w86-2vmv-fqwm, manus-pi).**
+  The MCP transport's health route returned the full `get_stats()` payload — total memory
+  count, unique tag count, recent activity, database size, embedding model and dimension,
+  storage backend class name and tool count — to any anonymous caller, in every
+  authentication mode. `MCP_ALLOW_ANONYMOUS_ACCESS` never applied, because it is evaluated
+  inside the authentication dependency the handler did not declare. GHSA-73hc-m4hx-79pj had
+  already moved this class of data behind `require_read_access` on the REST side, but that
+  fix only touched `health.py` and left the parallel MCP route open. The route stays
+  unauthenticated so liveness probes keep working without credentials; the response is now
+  `{"status": "healthy", "protocol": "mcp"}` and nothing else. Authenticated callers read the
+  statistics from `/api/health/detailed`, unchanged.
+
+### Internal
+
+- **The release-bump exemption knows about changelog fragments now.** `scripts/pr/lib/is_release_bump.py` exempts a release version bump from the quality gate's test-coverage requirement, but it matched against a fixed file list that predates the `changelog.d/` workflow below. Since then every release deletes one fragment per PR merged in the range — 14 of them for this one — and those deletions read as paths outside the release set, so the exemption never applied and the gate reported `No test files added/modified despite 1 code file(s) changed`. A `changelog.d/*.md` path is now part of the release set. The allowance is deliberately narrow: a nested path such as `changelog.d/nested/x.md` is still rejected, as is any other deleted file.
+- **Changelog entries are collected from `changelog.d/` fragments now (#1273).** A `src/` change has to leave `changelog.d/<number>.<category>.md`, checked by a CI job; `scripts/release/collect_changelog.py` merges the fragments into `[Unreleased]` at release time and deletes them. Entries used to go straight into `CHANGELOG.md`, where every open branch edited the same lines — which is why almost nobody added one: 1 of the 19 pull requests between v11.12.0 and v11.13.0 left an entry, and the other 18 were reconstructed from commit messages days later. Release version bumps and Dependabot are exempt, and the `skip-changelog` label covers the rest.
+- **The tombstone review rule no longer exempts whole functions (#1277).** `greptile.json` said the exception covered the tombstone operations "and their callers", which takes a mixed-purpose function out of scope entirely: `HybridMemoryStorage._sync_memories_from_cloudflare()` calls `is_deleted()` to skip a locally deleted memory and, in the same loop, `get_by_hash()`, which must keep filtering. The exception is now the individual call.
+- **Home Assistant setup is documented (#1282, closes #1281).**
+  Generic MCP clients such as Home Assistant only offer an OAuth prompt, so users patched the
+  authentication out of the source to connect. `docs/integration/home-assistant.md` now covers
+  `MCP_ALLOW_ANONYMOUS_ACCESS=true` with OAuth and the API key unset, the stale `Authorization`
+  header that still returns 401, and the LAN-only warning, and the README links to it.
+- **Consolidation loaded the access time of every memory ever accessed, on every run (#1291, massimiliano1991; closes #1289).**
+  `get_access_patterns()` returned the whole ever-accessed population although the decay and
+  forgetting phases only look up hashes in the current batch. It now takes an optional
+  `content_hashes` window on sqlite-vec, milvus and hybrid (`None` keeps the previous behaviour,
+  an empty window returns nothing), and the consolidator passes its candidate window down,
+  calling backends that predate the parameter with no arguments.
+- **Log-injection hygiene in `storage/milvus.py` (#1298, massimiliano1991).** The 53 `%`-style logger calls the lazy scan flagged now wrap outside data in `_sanitize_log_value`, and the module joins `GUARDED_MODULES` so the three scans enforce it. Message text unchanged.
+
+## [11.13.0] - 2026-09-19
+
+Nineteen merged pull requests in the five days after v11.12.0, most of them from outside the maintainer. Thanks to filhocf, massimiliano1991, VijaySreekar, tomatotomata and ZGN827.
+
+### Added
+
+- **Harvest provenance tagging (#1243, filhocf).** Stored insights now carry how they were produced: a `harvest:method:llm` or `harvest:method:heuristic` tag plus `harvest_method`, `harvest_model`, `harvest_pipeline_version` and `harvest_session_id` in metadata. Additive — existing tags and metadata are preserved. RFC-harvest-provenance phase 1.
+- **`verify_session_coverage` — a pre-deletion safety check for transcripts (#1252, filhocf).** Before deleting a source transcript, it re-harvests the file in memory and compares each insight against what is stored, returning `coverage`, `missing_insights`, `low_quality_matches` and `safe_to_delete`. A method on the harvester, deliberately not an MCP tool. The same change restores provenance stamping on the evolve path, which the #1243 trim had dropped.
+- **The NLI cascade reuses the harvest provider chain and says when it falls back (#1265, filhocf, follow-up to #1215).** `_llm_classify` resolves provider configuration once per run instead of per call, skips the LLM request entirely when no provider is configured, and emits one bounded, sanitized warning per run covering both the exception and the empty-response path. The heuristic label and confidence survive the fallback, so a degraded run is now visible rather than silent. Memory contents are never logged.
+
+### Fixed
+
+#### Storage and retrieval
+
+- **`get_by_hash` hid nothing on Milvus (#1262, massimiliano1991, closes #1261).** Soft-deleted rows came back from the lookup, so a re-store saw a tombstone as a live duplicate. sqlite-vec already filtered and Cloudflare was fixed in #1255; Milvus is the third backend, and it needed the lookup split rather than filtered in place, because `is_deleted()` depends on the unfiltered one.
+- **Vectorize rejected tag-filtered retrieval above 16 results (#1259, massimiliano1991).** Every Cloudflare query sets `returnMetadata="all"`, for which Vectorize caps `topK` at 50, but `retrieve()` passed `min(n_results * 3, 4096)` — 4096 being the sqlite-vec KNN ceiling, not a Vectorize one. Any `n_results >= 17` produced a 4xx and raised instead of returning results; `recall()` failed the same way above 50. Both are clamped to 50 now, and the borrowed constant is gone.
+- **Hybrid pull sync compared counts instead of diffing hashes (#1255, massimiliano1991).** Equal totals on both sides were read as "in sync", so divergent sets of equal size were read as "in sync". The pull now diffs content hashes and fetches the known-missing ones directly, instead of a paginated scan that could abandon an old cloud-only memory behind `HYBRID_MAX_EMPTY_BATCHES` of shared ones and still report success. The same change stops `CloudflareStorage.get_by_hash` resurfacing soft-deleted rows; the guard that was supposed to catch that in hybrid could never fire, because `Memory` carries no `deleted_at` field.
+
+#### Configuration and quality
+
+- **OpenAI-compatible quality scoring now uses a larger bounded input window and tolerates common wrapped score responses (#1267, VijaySreekar, closes #1102).** The endpoint scorer receives roughly 2,000 characters instead of 500, closer to the local ranker's 512-token input window, while other prompt users retain the existing 500-character default. Responses such as `Score: 0.7`, fenced numeric output, and a trailing period are parsed without discarding the AI score.
+- **An intuitive but wrong env-var name no longer lands the database somewhere unexpected (#1253, filhocf).** Only `MCP_MEMORY_SQLITE_PATH` and `MCP_MEMORY_SQLITEVEC_PATH` are read; something like `MCP_MEMORY_DB_PATH` was ignored without a word and the service fell back to the default path. When falling back, it now warns once — naming the variable it saw and the one it wanted — but only if no recognized path variable is set. The variable name is sanitized before it reaches the log.
+
+#### CI and release gates
+
+- **Release version bumps no longer block on the test gates (#1250, filhocf, closes #1247).** A bump touches `_version.py` and `pyproject.toml` and adds no test, which is exactly what check 3 and the prove-fix gate are built to reject. Both now detect a version-bump diff and exempt it, so a release PR stops needing a manual override.
+
+### Internal
+
+- **The five Greptile findings the v11.12.0 merges went over (#1249).** Including a stale `og:description` on the landing page and the dropped empty `## [Unreleased]` heading. The review comments had been there; the merge read the check buckets instead.
+- **Greptile now reviews against this repository's rules (#1271).** `greptile.json` carries six of them, each tied to a mistake that actually happened: reading a file mode out of a diff header, `metadata.get('tags')` on a `Memory` instance, unwrapped user values in logger f-strings, reads that ignore the `deleted_at` tombstone, issue numbers below #341 that belong to Codeberg, and complexity findings on functions a diff never touched. Four of the six ask for more findings, not fewer.
+- **Coverage omit lists no longer name deleted modules (#1263, tomatotomata, closes #1260).** `utils/http_server_manager.py` and `utils/port_detection.py` went out with #1161 and #1228; their exclusions stayed. What surfaced underneath is tracked in #1269: coverage.py reads `.coveragerc` and stops, so the `[tool.coverage.run]` list in `pyproject.toml` is never read at all, which is how the two drifted apart.
+- **Dependency bumps.** Seven uv-group updates including mcp 1.30.0, transformers 5.17.0 and huggingface-hub 1.31.0 (#1257); `codeql-action` init and analyze to 4.38.0 in one commit, as they have to move together (#1256); and anyio 4.14.2 (#1268).
+- **Documentation.** The `skip-prove-fix` label needs a new event rather than a re-run — a re-run replays the original payload, so the label the PR carried when the event fired is the one the job sees, measured on #1262 (#1266); Greptile auto-approves maintainer pull requests only (#1251); the ProtectMain description corrected, including the strict status-check rule the directive had described backwards (#1248); and `check_dead_refs.sh` documented as what it is since #1162, a CI step, rather than a gate wired nowhere (#1270, ZGN827).
+
+## [11.12.0] - 2026-09-14
+
+The first release since development moved back to GitHub: 73 merged pull requests, 43 of them from outside the maintainer. Thanks to filhocf, massimiliano1991, be-student (eunwoo song), zsxh1990, DivyamTalwar, VijaySreekar, dchaudhari7177, breken-ai, LouisDeconinck, chiranjeevi7777, TonMtt, mikemikimike, danielle060821, ikorfale, L4XB, 2160039878-cyber, 7487, FBISiri and timkjr. The last two carried over from pull requests opened on Codeberg before the move.
+
+### Added
+
+- **An opt-in LLM backend for natural-language inference (#1215, filhocf).** `MCP_NLI_BACKEND=cascade` routes entailment, contradiction and neutral decisions through the existing harvest provider chain and falls back to the heuristic classifier on any failure. `heuristic` remains the default, so nothing changes unless the variable is set. A step toward #1098.
+- **Autonomous session harvest can run on the consolidation scheduler (#1241, filhocf).** `harvest_and_store` was reachable only through the local-only `memory_harvest` MCP tool, so a running server never harvested on its own. `MCP_HARVEST_SCHEDULE` now registers a scheduler job; unset means no job, and the harvest tracker keeps repeated runs idempotent.
+- **Backoff and pacing for the harvest LLM classifier (#1234, filhocf, closes #1111).** A 429 previously switched provider immediately, with no retry and no pacing. `MCP_HARVEST_LLM_MAX_RETRIES` (default 0) retries on the same provider with exponential backoff and `MCP_HARVEST_LLM_REQUEST_DELAY` (default 0.0) paces calls. Both default to the old behaviour.
+- **The ONNX backend honors `MCP_EMBEDDING_MODEL` (#1242, filhocf, closes #1230).** It was hardcoded to `all-MiniLM-L6-v2` and kept the configured name as a label only, so under `MCP_MEMORY_USE_ONNX=1` any other model was ignored. A non-default name is now fetched from `onnx-community/<model>-ONNX`, or from `MCP_ONNX_MODEL_REPO` for a repository with a different name or layout, which puts multilingual embeddings within reach without torch. The default model keeps its bundled archive, and the existing dimension guard still refuses a model whose width does not match the database.
+
+- **`MCP_MEMORY_ONNX_PROVIDERS` (#1206, 2160039878-cyber, closes #1105).** Lets you name the ONNX execution providers explicitly. An invalid name raises at startup rather than degrading silently, even where hash fallback is allowed.
+
+### Removed
+
+- **HTTPClientStorage and the HTTP coordination mode (#1161, closes #1078, #1155).** `storage/http_client.py`, `utils/http_server_manager.py` and the `ServerCoordinator` auto-detection are gone, about 915 lines. The mode had not been able to start since v7.5.0: the class lacked four abstract methods, and the detection probe asked `/health` while the server answers under `/api/health`, so every process fell back to direct SQLite anyway. It also carried no authentication and no TLS, so it could not have reached an `MCP_API_KEY`-gated server even if it had run. Multi-client access is WAL mode for several local clients and one shared HTTP server for everything else; the docs that still described the auto-detection now say so, and `docs/architecture.md` no longer claims Bearer-token support for a backend that had none.
+- **The dead ChromaDB backup scripts (#1217, chiranjeevi7777, closes #1207).** `scripts/backup/backup_memories.py` and `restore_memories.py` imported `storage.chroma.ChromaMemoryStorage`, removed in v7.x, and died with `ModuleNotFoundError` on every invocation. The docs that pointed at them now point at `backup_sqlite_vec.sh`.
+- **`utils/port_detection.py` (#1228, L4XB, closes #1227).** Left without a single consumer once #1161 removed the coordination mode. Its coverage `omit` entry went with it.
+- **The unreachable cross-session dedup gate in the harvester (#1160, massimiliano1991, closes #1148).** `SessionHarvester._is_duplicate_of_existing` called a `MemoryService.search` that does not exist and carried a hardcoded 0.85 threshold. The live `_try_evolve()` on the store path already does configurable cross-session dedup, and evolves a memory rather than rejecting it.
+
+### Fixed
+
+#### Consolidation
+
+- **Deduplication deleted every copy instead of the extras (#1180, massimiliano1991).** `_appears_to_be_duplicate()` is symmetric and was evaluated once per memory against the whole list, so both members of a near-duplicate pair came back with `can_be_deleted=True` — and `potential_duplicate` bypasses the time-horizon guard. A pairwise `_is_near_duplicate_of()` plus a keep-rank now protects the best-ranked member of each pair. Thresholds are unchanged.
+- **Forgetting could never reach the stale tail (#1167, zsxh1990, closes #1124).** Since every horizon became a bounded window, yearly meaning the last 365 days, the memories old enough to forget were exactly the ones outside the phase's candidate list. Forgetting now selects its own candidates past the horizon cutoff instead of reusing the phase's.
+- **The consolidation health monitor reported on hardcoded strings (#1166, zsxh1990, closes #1125).** Six `_check_*_engine_health` methods returned fixed values — "active", "functional", "configured" — so the monitor said HEALTHY with every `MCP_SCHEDULE_*` disabled and `jobs_executed: 0`. They inspect runtime state now.
+- **Belief statistics were computed and thrown away, and a failed counter reset said nothing (#1169, closes #1149, #1150).** `derive_beliefs()`'s `belief_stats` now land in the job record, and `_reset_session_counter`'s bare `except Exception: pass` — which left the counter high and the fresh-start trigger firing on every call — logs a sanitized warning.
+- **`recommendation` values now match the API's public contract (#1087, timkjr).** `/api/consolidation/recommendations/{time_horizon}` sanitized its output against an allowlist of uppercase values, but `DreamInspiredConsolidator.get_consolidation_recommendations()` has always returned lowercase snake_case ones (`consolidation_beneficial`, `optional`, `no_action`, `error`). Nothing ever matched, so every call returned `"recommendation": "UNKNOWN"` regardless of the consolidator's actual assessment. The values are now mapped explicitly, with the CWE-209 fallback kept for anything unrecognised. Traces back to Codeberg #328, ported here from Codeberg PR #339.
+- **DBSCAN's eps comes from the data's own k-distance curve (#1088, timkjr).** `eps` was computed from dataset size alone (`0.5 - n/10000`, clamped), which bakes in an assumption about how far apart an embedding model puts unrelated text. all-MiniLM-L6-v2 keeps unrelated content at a narrow, elevated baseline similarity, so density-reachability chained memories into one giant cluster — observed at 989 of 1,104 memories in a single cluster with coherence 0.461. `eps` now comes from the knee of the sorted k-distance curve (Ester et al., 1996), computed with `NearestNeighbors` rather than a full n×n distance matrix. Ported from Codeberg PR #340.
+
+#### Storage and retrieval
+
+- **Eligibility filters now run before the nearest-neighbour limit (#1128, be-student, closes #1077).** `recall()` and `retrieve()` asked sqlite-vec for the k nearest embeddings first and filtered afterwards, so soft-deleted rows, rows outside the requested time window, and rows excluded by tag or supersession consumed the candidate budget before a valid match could be seen. With enough excluded neighbours the result set came back short or empty even though matching memories existed. Both queries now restrict the KNN scan to eligible rowids, so k counts only memories that can actually be returned. The tests run against real sqlite-vec with 4,100 excluded neighbours crowding five valid ones, which is what distinguishes a fix here from a fix that merely reorders the same failure.
+- **Cloudflare tag-filtered retrieval over-fetches before filtering (#1218, LouisDeconinck, closes #1209).** The backend requested exactly `n_results` nearest matches and applied the tag filter afterwards, so closer untagged memories could hide valid tagged ones. Tagged searches now fetch three times the candidates, capped at Vectorize's 4096 topK, and still return at most `n_results`.
+- **`stale_days` did nothing on D1, and stale pagination could skip rows (#1214, breken-ai).** The D1 path accepted the parameter and built no `WHERE` clause. Both sqlite-vec and D1 paged on `created_at DESC` alone, which is not a total order, so rows could fall through a page boundary; `id` and `content_hash` are now tie-breakers. Milvus sliced in iterator order and gets an explicit sort. Split out of #1205 at review.
+- **Tag search honors `match_all=True` (#1197, be-student, closes #1196).** `MemoryService.search_by_tag` never asked storage for AND matching, so results labelled ALL were OR results. Default ANY matching, its creation-time ordering, tag normalization and empty queries are unchanged.
+- **Compact search applies tags before the limit (#1189, DivyamTalwar).** `search(query, limit=N, tags=[...])` fetched unfiltered neighbours and filtered afterwards, returning nothing when the nearest memory lacked the tag. Tags now reach `storage.retrieve` first.
+- **Response limiting counts tag text (#1190, DivyamTalwar).** `truncate_memories()` budgeted content plus a fixed metadata allowance and ignored rendered tags — up to 100 tags at 100 characters each — so a bounded response could exceed `max_response_chars`. Tag length is part of the fit estimate now.
+- **Storing a memory whose hash matches a tombstone works again on Cloudflare (#1136, be-student, closes #1079).** The D1 insert failed on a uniqueness error against the soft-deleted row. It now removes that one tombstone first, letting the foreign-key cascade drop its tag links, and aborts if the cleanup fails. Active rows and unrelated tombstones are untouched.
+- **`last_accessed` is written to its column, not only to metadata JSON (#1240, filhocf, closes #1239).** The column stayed NULL, so `COALESCE(last_accessed, created_at)` measured age rather than disuse and retention policy read the wrong signal. The batch update writes the column, and `scripts/backfill_last_accessed_column.py` repairs existing rows idempotently.
+- **Time ranges and date-bounded deletes agree on the host-local day (#1157, refs #1122).** A bare calendar date meant host-local in the parser and UTC in the filter and delete paths, so recall and delete for "yesterday" hit different rows inside one process — in Asia/Tokyo, 1788447600 against 1788480000. The UTC pins are now host-local; naive datetimes stay UTC. Supersedes #1141, which resolved the same split the other way.
+- **Health reports degraded when memories are missing embeddings (#1237, massimiliano1991, addresses #1225).** `_apply_embedding_integrity` downgraded only on orphaned embeddings and rowid collisions, so a store with `missing_embeddings > 0` still reported healthy. It now downgrades on that count and points at the repair script.
+- **ONNX embeddings recover from a CoreML inference failure (#1206, 2160039878-cyber, closes #1105).** Listing a CPU provider after CoreML does not rescue a CoreML node that fails at inference time. The model is now rebuilt on `CPUExecutionProvider`, the batch retried once, and the CPU session kept for the rest of the process.
+- **The hash-fallback warning fires once per process, as its comment promised (#1163, dchaudhari7177, closes #1156).** Both guards read the per-instance flag while the module-level `_HASH_FALLBACK_WARNED` was written and never read. No behaviour change today, with one storage instance per process.
+
+#### CLI and lifecycle
+
+- **`memory stop` no longer kills a process that merely holds the port (#1219, VijaySreekar, closes #1211).** With no PID file it terminated whatever was listening. It now matches the listener's command line against the uvicorn launcher, and otherwise reports the PID and command and exits non-zero. `--force` overrides deliberately.
+- **`memory stop --port` refuses a PID-file process serving a different port (#1224, mikemikimike).** The PID file records the port it was launched with, so a stop request for one port cannot terminate a server answering on another; legacy PID files without the port fall back to the command-line check.
+- **`launch` applies the same ownership check as `stop` (#1244).** The port-clearing branch in `_check_already_running()` called `_kill_process()` directly, which the launch refactor (#1184) reintroduced while extracting the helper. Both paths route through `_stop_process_on_port()` now, and `_run_background()` records the port it launched with, which its tests had asserted since #1224 without the call site passing it.
+- **`memory launch` matches the supervised HTTP launcher (#1199, be-student, closes #1116).** HTTPS launches without explicit certificate paths reuse the packaged self-signed certificate generator, including configured additional IP and hostname SANs, and a generation failure stops both launch paths instead of letting the legacy script downgrade an HTTPS configuration to HTTP. `scripts/server/run_http_server.py` is now a shim, and the documented launchd template runs `memory launch --foreground`; the service guide explains that a `KeepAlive` agent must be unloaded before `memory stop` can remain stopped.
+- **JSON PID metadata is parsed before the legacy integer fallback (#1213, TonMtt, closes #1210).** `_read_pid()` evaluated `int(content)` eagerly on the structured file `_write_pid()` writes, so a live managed process read as `None` and a second `memory launch` replaced it as stale. Legacy integer PID files still work.
+- **`launch()` is back inside the complexity budget (#1184, zsxh1990, closes #1115).** Cyclomatic complexity 26 against a budget of 20, split into `_check_already_running`, `_run_foreground`, `_spawn_child`, `_poll_until_ready` and `_report_launch_failure`.
+
+#### Web, API and MCP tools
+
+- **The dashboard and API support a stripped reverse-proxy path prefix (#1198, be-student, closes #1176).** `MCP_HTTP_ROOT_PATH` now configures the ASGI root path, OpenAPI server URL, auto-detected OAuth issuer, mounted static files and the browser-side REST and SSE links, and rejects values with a query, fragment, backslash, control character, empty segment or traversal. A deployment exposed at `/memory/` serves the dashboard, docs, static assets, OAuth form and API through the same prefix while the proxy forwards stripped paths internally.
+- **REST searches run the retrieval plugins (#1177, ikorfale, closes #1151).** All four REST search endpoints bypassed `on_retrieve`, so plugin reranking and augmentation applied to MCP retrieval but not to the dashboard or the HTTP API. They now pass through `MemoryService.apply_retrieve_plugins`, with the REST response shape preserved.
+- **`memory_search` fires the retrieval hook (#1142, be-student, closes #1109).** It called storage directly, so plugins could not touch unified-search results. Legacy retrieval and unified search both route through a shared `MemoryService.apply_retrieve_plugins` boundary, after fallback and entity filtering.
+- **`memory_explore` entities are scoped to the query (#1144, be-student, closes #1104).** Global fallback entities were attached regardless of what was asked; entities now come from the highest-relevance retrieved chunks, and the fallback stays empty unless it genuinely matches a query chunk.
+- **The chunk that selected an entity stays in that entity's chunks (#1164, dchaudhari7177, closes #1152).** `_build_knowledge_map` re-queried `find_memories_by_entity` with a limit of 20, oldest first, so an entity picked because of a recent chunk could come back with an empty `top_chunks` and summary. The per-chunk entity map is reused and unioned in; the capped query still serves lower-ranked links.
+- **The sync storage guard escapes its own `except` (#1187, DivyamTalwar).** `get_storage()` raised `RuntimeError` for "there is a running loop" inside the `try` whose `except RuntimeError` means "there is no running loop", so the guard was swallowed and async callers got "This event loop is already running" plus an un-awaited-coroutine warning instead of the documented "use get_storage_async()".
+- **Fullscreen 3D graph legend is readable (#1192, zsxh1990, closes #1110).** Opacity 0.72 with no explicit text colour over a dark scene; now 0.92 with white text, more padding and blur, and `l` toggles the legend.
+
+#### Quality, harvest and search parsing
+
+- **Quality evaluator initialization runs off the event loop (#1178, massimiliano1991, closes #1123).** Both async entry points called the synchronous `_ensure_initialized()`, so a minutes-long `torch.onnx.export` blocked request handling and made `AsyncQualityScorer.stop()`'s five-second `wait_for` unschedulable. A lock-guarded, double-checked `_ensure_initialized_async()` uses `asyncio.to_thread`.
+- **The legacy ONNX exporter is pinned where torch supports dynamo (#1202, massimiliano1991, closes #1101).** torch 2.9 flipped `dynamo` to `True` by default and the DeBERTa export failed. `dynamo=False` is passed only when `inspect.signature` shows the parameter, since the `ml` extra still allows torch 2.0.
+- **The quality gate falls back to a usable model (#1186, DivyamTalwar, closes #1170).** One HTTP 507 from the first advertised model made the gate skip complexity and security even with another model ready. A `--resolve-model` probe pins the first model that completes a readiness request and reuses it. An explicitly set `MCP_QUALITY_LLM_MODEL` stays strict: skip, never substitute.
+- **Harvest classification uses the batch API it already had (#1185, zsxh1990, closes #1108).** The harvester called `rewrite_sync()` once per candidate, N sequential LLM calls per session, while `rewrite_batch_sync()` existed. The classifier's hardcoded 10-second timeout became a named 20-second constant.
+- **"last spring" no longer points at a future range (#1188, DivyamTalwar).** The current-season condition mixed chained booleans with conditional expressions and, depending on the month, treated a finished season as current or picked an upcoming one. It now selects the most recent fully-ended season, in fewer lines than before.
+
+#### Scripts and maintenance
+
+- **Maintenance and Cloudflare scripts no longer write on a `--help` smoke test (#1232, VijaySreekar, closes #1226).** The Cloudflare integration test and the ONNX embedding repair now parse arguments before loading storage code, print the backend and database target, and require confirmation unless `--yes` is passed. The SQLite-only repair refuses Cloudflare and other non-local backends; Cloudflare resource setup has the same target and confirmation guard, plus a bootstrap helper for deliberate setup runs.
+- **Scripts import the installed package, not the `src.` shadow copy (#1238, closes #1172).** Twelve scripts imported through `src.`, which loads a second copy of every module and, since `conftest.py` sets `sys.modules['src'] = None`, fails outright under pytest. They use `sys.path` plus `mcp_memory_service` now. `scripts/maintenance/repair_missing_embeddings_onnx.py` regained the prefix when #1232 merged on an older base; it is corrected here, and `tests/test_script_imports.py` guards both forms.
+
+### Internal
+
+No user-visible effect; recorded because they change how the repository is maintained.
+
+- **CI runs the whole suite, and a src/ change has to come with a test that is red without it (#1175, closes #1145).** `tests/consolidation` and `tests/integration` were skipped in both test jobs as "heavy"; they take 1.4s and 50s, and 489 tests never ran on a pull request. Two consolidation PRs arrived with no test at all and a green board. Both directories are in now (only `test_cli_interfaces.py` stays out, it shells to `uv run`), and a new `tests-prove-fix` job runs a PR's added or changed tests against the base branch's `src/` and fails when they pass there too, which is what a mock that mirrors the bug looks like. `scripts/ci/check_tests_prove_fix.sh` reuses the cleanup-only rule from #1147 so a pure removal still needs no test; maintainers exempt a PR with the `skip-prove-fix` label. Two tests needed fixing to run on CI at all: `test_all_api_routes_registered` read FastAPI internals that starlette 1.x changed, and the DBSCAN eps tests import scikit-learn, which only the ml-extras job has. CONTRIBUTING.md and the PR template now say to drive the real storage rather than "mock external dependencies".
+- **The shell gates that were documented but wired into no workflow now run (#1162, closes #1121, #1153).** A `shell-tests` job runs every `tests/ci/*.sh` plus `check_dead_refs.sh`. The one case that was red: `worktree_guard.sh` stamped to the second, so two `prepare` calls within the same second collided; the suffix increments until both branch and path are free.
+- **The quality gate scores the diff, not the file (#1135, closes #1118).** Complexity was scored per file, so `storage/hybrid.py` with four over-budget functions and `storage/base.py` with two were unpassable for any change. Check 4 grepped its own model output for "breaking" and matched "No breaking changes found." And the findings that set `exit 1` were printed under "WARNINGS (non-blocking)". Findings are scoped to diff-touched functions by AST resolution, and kept when a function name cannot be parsed.
+- **The gate stopped demanding tests for dead-code removal (#1147).** Check 3 flagged any Python change touching no test file, which made every CodeQL cleanup unpassable. An added line counts as cleanup when it is an import or a trimmed form of a line removed in the same hunk, and the FAIL headline names the failing checks instead of guessing.
+- **pyscn metrics are read from JSON (#1140, be-student, closes #1127).** Both pyscn workflows scraped the HTML report with grep and sed, and reported false zero scores against current releases. They use `--json --no-open` and one validated `summary` contract, and a malformed metric or a failed analyzer now fails loudly.
+- **Release artifacts are verified by content (#1137).** The verification lived as prose whose own snippet used `curl -w '%{http_code}'`, the status-code check these rules forbid. `scripts/release/verify_artifacts.sh` runs nine checks: both PyPI distributions by `.info.version`, and four Docker tags with `X.Y`, `X.Y-slim` and `latest` compared by digest against the exact version tag — the v11.11.0 failure mode.
+- **The log-injection backlog is clear in the three modules it had blocked (#1143, closes #1119).** Gate check 6.5 scans whole files, so 163 pre-existing unsanitized f-string logger calls in `storage/cloudflare.py`, `storage/hybrid.py` and `config/storage.py` made them unpatchable for anyone. 121 arguments are wrapped in `_sanitize_log_value`, the rest converted to lazy `%` formatting, and cloudflare.py's byte-identical private copy of the helper now imports from `compat`. Message text is unchanged.
+- **`web/app.py` joined the guarded modules (#1195, zsxh1990, refs #1146).** 29 f-string logger calls converted to lazy formatting with user-facing values sanitized, and the module added to `GUARDED_MODULES` as a ratchet.
+- **The safe CodeQL note backlog is cleared (#1158, #1159, #1223).** 18 unused imports and locals across 13 modules, the unreachable six-statement block left after an unconditional `return` in `handle_mistake_note_delete`, the `timezone` import #1157 left behind, and the redundant `sqlite_vec` try/except in `mixins/migrations.py` — the availability contract lives in `mixins/base.py`. The re-export facades and optional-dependency guards are deliberately untouched, and alert 500 stays open as a false positive.
+- **Test imports no longer create a second copy of the package (#1165, zsxh1990, closes #1120).** 100 `from src.mcp_memory_service` imports across 19 test files; `conftest.py` already puts `src/` on `sys.path` and now blocks the `src` alias outright.
+- **Milvus tests follow the shared embedding cache (#1220, danielle060821, closes #1208) and pin backslash tags (#1179, 7487, closes #1107).** Two cache tests still referenced symbols on `storage.milvus` after the cache moved to `storage.shared`; and a tag ending in a backslash now round-trips through real Milvus Lite `search_by_tag`, where only string-level unit tests existed.
+- **A harvest regression test that was missing (#1089, timkjr).** The meta-discussion filter's escape hatch is convention-only, and nothing pinned that. Two tests now do. Behaviour is unchanged: the widening originally proposed in Codeberg PR #322 was reverted before the merge.
+- **Dependabot no longer widens load-bearing version bounds (#1130).** A grouped bump rewrites the constraint in `pyproject.toml` rather than respecting it, and #1086 used that to lift `mcp` to `<3.0.0` and `pymilvus` to `<4.0.0`. mcp 2.x removes `mcp.shared.session`, which broke test collection outright; pymilvus 3.x has no CI coverage here at all (#1112), so it would have gone in silent. Major updates for both are now ignored. The `github-actions` ecosystem gained a group as well, because `codeql-action`'s `init` and `analyze` steps must move in the same commit — split across #1080 and #1081 they deadlocked, with analyze refusing to run against a config written by a different version. Both are now on v4.37.9 (#1129).
+- **CI skips the suite for NOTICE and workflow-directory markdown (#1222).** `paths-ignore` covered LICENSE but not NOTICE, and `*.md` matches only the repository root, so the one-line NOTICE change in #1221 ran the full suite plus ML extras.
+- **NOTICE credits PyMilvus instead of ChromaDB (#1221).** ChromaDB stopped being a backend in v7.x and is in neither `pyproject.toml` nor `uv.lock`; PyMilvus (Apache 2.0) is a real optional dependency through the `milvus` extra. Attribution only.
+- **Dependency bumps.** js-yaml 4.3.1 to 4.3.2 in both test directories (#1212); pypdf, sse-starlette, ruff and tokenizers in the uv group (#1200); fifteen more uv-group updates (#1132); and actions/checkout 6.0.2 to 7.0.1 (#1131).
+- **Documentation.** The Codeberg issue and PR map resolving all 109 issues and 231 PRs against the archive (#1126); the deployment diagram redrawn for the GitHub topology, where every claim had been inverted on 2026-09-05 (#1133); skill routing in CLAUDE.md rewritten against the skills that actually exist, plus the `verify_artifacts.sh` step #1137 left out of the release checklist (#1138); the partial-release failure mode from v11.11.0 recorded in the version-management directive (#1092); the D1 foreign-key comment in the tombstone purge corrected, since it contradicted the cleanup #1136 had just added (#1139); and roadmap links pointed back at GitHub (#1073, FBISiri). #1134 also extracted `_safe_recommendation_payload()` from `get_recommendations`, dropping inherited complexity 10 to 5 so `web/api/consolidation.py` stopped blocking the quality gate.
+
+## [11.11.0] - 2026-09-05
+
+MINOR release. Closes three critical advisories reported by alivirgo, and moves development back to GitHub.
+
+The three advisories share a shape worth naming: in each case the guard existed and was simply not reachable from where it was needed. `local_only_tools()` was applied by one transport out of three. The SSE auth check was a closure inside another transport's function. The `client_credentials` hardening from GHSA-5p27-64mv-pr73 checked how a client authenticates but not how it came to exist. Each fix moves the guard to where every caller passes, rather than adding a second copy.
+
+### Security
+
+- **`memory_harvest` and `memory_ingest` were reachable over remote transports** (GHSA-7crr-2r7w-cpfm). Both take a caller-controlled filesystem path. The `local_only_tools()` filter ran only in the FastAPI JSON-RPC shim, so Streamable HTTP and SSE served them to remote callers. The filter now lives in `MemoryServer.list_tools()` and `call_tool()`, which every transport goes through. `call_tool()` refuses before the handler resolves, since hiding a tool from `tools/list` does nothing about a caller that names it directly.
+- **The SSE transport had no authentication at all** (GHSA-2hh8-qjxc-43x3). `/sse` and `/messages/` both reach the full MCP tool surface and neither was gated. The check now lives at module level and both transports call it.
+- **Open Dynamic Client Registration handed out read-write tokens** (GHSA-6mvm-q4j3-27qg). With `MCP_DCR_REGISTRATION_KEY` unset, a caller could register itself as a confidential client, exchange its own credentials, and hold a `read write` token the owner never granted.
+
+### Behaviour changes
+
+Both are deliberate, and both fail loudly rather than degrading quietly.
+
+- **`client_credentials` is refused while Dynamic Client Registration is open.** If you use that grant, set `MCP_DCR_REGISTRATION_KEY` and register with it. `authorization_code` with PKCE is unaffected, which is the flow Claude.ai Remote MCP uses.
+- **An MCP transport refuses to start on a non-loopback bind with no authentication configured.** Set `MCP_API_KEY`, enable OAuth with `MCP_OAUTH_ENABLED=true`, or bind to `127.0.0.1`. This covers Streamable HTTP as well as SSE: its `/mcp` gate is conditional on `OAUTH_ENABLED or API_KEY`, so with neither set it was equally open.
+
+### Infrastructure
+
+- **Development moved back to GitHub.** Issues, pull requests, CI, releases and the wiki are at github.com/doobidoo/mcp-memory-service. The four Forgejo workflows were ported to GitHub Actions and `.forgejo/` removed. Codeberg remains readable as an archive so existing links resolve.
+- Issue and PR numbers below #341 in entries from June to September 2026 are Codeberg numbers. See the note at the top of this file.
+- `claude-hooks` plugin manifest bumped to 1.0.5: its marketplace homepage pointed at the old forge.
+
 
 ## [11.10.0] - 2026-08-28
 
@@ -1304,4 +1533,3 @@ First release published from Codeberg (Forgejo). It bundles the post-migration b
 ### Fixed
 
 - **[#687] `Get-McpApiKey` returned first character of API key instead of full key**: A Gemini-suggested refactor in v10.36.3 replaced a working implementation with `($matches[1], $matches[2], $matches[3] | Where-Object { $_ -ne $null })[0]`. Unmatched regex capture groups are absent from `$matches` (not `$null`), so when only one group matched the comma expression produced a single-element string, which PowerShell enumerated to its `Char` array — making `[0]` return `'b'` instead of `bxvWZwrI...`. This broke `manage_service.ps1 status` for all Windows users: Version and Backend showed `(unavailable - set MCP_API_KEY in .env for details)` even when the key was correctly configured. Fixed by replacing the comma expression with an explicit `if/elseif` chain using `$matches.ContainsKey(N)` and `[string]` casts. Verified live: returns full 43-character key string, `manage_service.ps1 status` correctly displays Version and Backend.
-

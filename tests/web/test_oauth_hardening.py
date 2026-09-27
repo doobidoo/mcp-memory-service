@@ -458,6 +458,23 @@ async def test_body_limit_no_double_start_when_response_already_started():
 REG_PATCH = "mcp_memory_service.web.oauth.registration.get_oauth_storage"
 
 
+@pytest.fixture
+def gated_dcr(monkeypatch):
+    """Precondition for the client_credentials grant since GHSA-6mvm-q4j3-27qg.
+
+    The grant is refused outright while Dynamic Client Registration is open,
+    because a self-registered client is not evidence of owner consent. These
+    tests are about what happens *after* that policy gate, so they have to
+    pass it first. Both spellings are patched: registration.py binds the
+    constant at import, authorization.py reads it per call.
+    """
+    import mcp_memory_service.config as config  # inline import: patched per test
+    from mcp_memory_service.web.oauth import registration as registration_mod
+
+    monkeypatch.setattr(config, "DCR_REGISTRATION_KEY", "test-registration-key")
+    monkeypatch.setattr(registration_mod, "DCR_REGISTRATION_KEY", "test-registration-key")
+
+
 async def _register(storage, **kwargs):
     from mcp_memory_service.web.oauth.models import ClientRegistrationRequest
     from mcp_memory_service.web.oauth.registration import register_client
@@ -485,7 +502,7 @@ async def test_registration_issues_no_secret_to_public_client():
 
 
 @pytest.mark.asyncio
-async def test_registration_still_issues_secret_to_confidential_client():
+async def test_registration_still_issues_secret_to_confidential_client(gated_dcr):
     storage = MemoryOAuthStorage()
     resp = await _register(
         storage,
@@ -523,7 +540,7 @@ async def test_client_credentials_rejects_unregistered_grant():
 
 
 @pytest.mark.asyncio
-async def test_client_credentials_rejects_public_client_with_secret():
+async def test_client_credentials_rejects_public_client_with_secret(gated_dcr):
     """Auth method is read off the stored client, not inferred from the request."""
     storage = MemoryOAuthStorage()
     secret = "leaked-from-registration"
@@ -548,7 +565,7 @@ async def test_client_credentials_rejects_public_client_with_secret():
 
 
 @pytest.mark.asyncio
-async def test_client_credentials_allows_properly_registered_client():
+async def test_client_credentials_allows_properly_registered_client(gated_dcr):
     storage = MemoryOAuthStorage()
     secret = "s3cret-value"
     await storage.store_client(
@@ -569,7 +586,7 @@ async def test_client_credentials_allows_properly_registered_client():
 
 
 @pytest.mark.asyncio
-async def test_full_reported_chain_is_broken_end_to_end():
+async def test_full_reported_chain_is_broken_end_to_end(gated_dcr):
     """The reported chain, start to finish, must not yield a token."""
     storage = MemoryOAuthStorage()
     reg = await _register(

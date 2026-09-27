@@ -261,6 +261,14 @@ class MemoryServer:
         self.server = Server(SERVER_NAME)
         self.system_info = get_system_info()
 
+        # Whether this instance is reachable by a caller who does not already
+        # have filesystem access on the host. Defaults to False, which is the
+        # stdio case: the caller is a local process that could read those files
+        # anyway. Every remote transport must set this to True before serving,
+        # which is what makes `local_only_tools()` take effect. See
+        # `_reject_local_only()`.
+        self.remote_transport = False
+
         # Initialize query time tracking
         self.query_times = deque(maxlen=50)  # Keep last 50 query times for averaging
 
@@ -432,45 +440,13 @@ class MemoryServer:
                 logger.info("   EMBEDDING_MODEL: %s", CLOUDFLARE_EMBEDDING_MODEL)
             
             if STORAGE_BACKEND == 'sqlite_vec':
-                # Check for multi-client coordination mode
-                from .utils.port_detection import ServerCoordinator
-                coordinator = ServerCoordinator()
-                coordination_mode = await coordinator.detect_mode()
-                
-                logger.info("🔧 EAGER INIT: SQLite-vec - detected coordination mode: %s", _sanitize_log_value(coordination_mode))
-                
-                if coordination_mode == "http_client":
-                    # Use HTTP client to connect to existing server
-                    from .storage.http_client import HTTPClientStorage
-                    self.storage = HTTPClientStorage()
-                    logger.info("✅ EAGER INIT: Using HTTP client storage")
-                elif coordination_mode == "http_server":
-                    # Try to auto-start HTTP server for coordination
-                    from .utils.http_server_manager import auto_start_http_server_if_needed
-                    server_started = await auto_start_http_server_if_needed()
-                    
-                    if server_started:
-                        # Wait a moment for the server to be ready, then use HTTP client
-                        await asyncio.sleep(2)
-                        from .storage.http_client import HTTPClientStorage
-                        self.storage = HTTPClientStorage()
-                        logger.info("✅ EAGER INIT: Started HTTP server and using HTTP client storage")
-                    else:
-                        # Fall back to direct SQLite-vec storage
-                        from . import storage
-                        import importlib
-                        storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
-                        SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
-                        self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
-                        logger.info("✅ EAGER INIT: HTTP server auto-start failed, using direct SQLite-vec storage")
-                else:
-                    # Import sqlite-vec storage module (supports dynamic class replacement)
-                    from . import storage
-                    import importlib
-                    storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
-                    SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
-                    self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
-                    logger.info("✅ EAGER INIT: Using direct SQLite-vec storage at %s", SQLITE_VEC_PATH)
+                # Import sqlite-vec storage module (supports dynamic class replacement)
+                from . import storage
+                import importlib
+                storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
+                SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
+                self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
+                logger.info("✅ EAGER INIT: Using direct SQLite-vec storage at %s", SQLITE_VEC_PATH)
             elif STORAGE_BACKEND == 'cloudflare':
                 # Initialize Cloudflare storage
                 logger.info("☁️  EAGER INIT: Importing CloudflareStorage...")
@@ -627,43 +603,12 @@ class MemoryServer:
                     logger.info("   EMBEDDING_MODEL: %s", CLOUDFLARE_EMBEDDING_MODEL)
                 
                 if STORAGE_BACKEND == 'sqlite_vec':
-                    # Check for multi-client coordination mode
-                    from .utils.port_detection import ServerCoordinator
-                    coordinator = ServerCoordinator()
-                    coordination_mode = await coordinator.detect_mode()
-                    
-                    logger.info("🔧 LAZY INIT: SQLite-vec - detected coordination mode: %s", _sanitize_log_value(coordination_mode))
-                    
-                    if coordination_mode == "http_client":
-                        # Use HTTP client to connect to existing server
-                        from .storage.http_client import HTTPClientStorage
-                        self.storage = HTTPClientStorage()
-                        logger.info("✅ LAZY INIT: Using HTTP client storage")
-                    elif coordination_mode == "http_server":
-                        # Try to auto-start HTTP server for coordination
-                        from .utils.http_server_manager import auto_start_http_server_if_needed
-                        server_started = await auto_start_http_server_if_needed()
-                        
-                        if server_started:
-                            # Wait a moment for the server to be ready, then use HTTP client
-                            await asyncio.sleep(2)
-                            from .storage.http_client import HTTPClientStorage
-                            self.storage = HTTPClientStorage()
-                            logger.info("✅ LAZY INIT: Started HTTP server and using HTTP client storage")
-                        else:
-                            # Fall back to direct SQLite-vec storage
-                            import importlib
-                            storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
-                            SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
-                            self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
-                            logger.info("✅ LAZY INIT: HTTP server auto-start failed, using direct SQLite-vec storage at: %s", SQLITE_VEC_PATH)
-                    else:
-                        # Use direct SQLite-vec storage (with WAL mode for concurrent access)
-                        import importlib
-                        storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
-                        SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
-                        self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
-                        logger.info("✅ LAZY INIT: Created SQLite-vec storage at: %s", SQLITE_VEC_PATH)
+                    # Use direct SQLite-vec storage (with WAL mode for concurrent access)
+                    import importlib
+                    storage_module = importlib.import_module('mcp_memory_service.storage.sqlite_vec')
+                    SqliteVecMemoryStorage = storage_module.SqliteVecMemoryStorage
+                    self.storage = SqliteVecMemoryStorage(SQLITE_VEC_PATH, embedding_model=EMBEDDING_MODEL_NAME)
+                    logger.info("✅ LAZY INIT: Created SQLite-vec storage at: %s", SQLITE_VEC_PATH)
                 elif STORAGE_BACKEND == 'cloudflare':
                     # Cloudflare backend using Vectorize, D1, and R2
                     logger.info("☁️  LAZY INIT: Importing CloudflareStorage...")
@@ -1521,12 +1466,22 @@ class MemoryServer:
         into a confused-deputy primitive that can read any file the
         server process can read.
 
-        The HTTP MCP shim filters these out of `tools/list` and rejects
-        `tools/call` for them (including their deprecated aliases). Stdio
-        keeps them since the caller already has the filesystem access the
-        handler would otherwise grant.
+        Enforced here, in `list_tools()` and `call_tool()`, so that every
+        transport inherits the filter rather than each one having to
+        remember it. Until 2026-09-05 only the HTTP MCP shim in
+        `web/api/mcp.py` applied it, which left the Streamable HTTP and SSE
+        transports serving these tools to remote callers
+        (GHSA-7crr-2r7w-cpfm). The shim keeps its own checks: it answers
+        JSON-RPC directly and also has to cover the deprecated aliases.
+
+        Stdio keeps these tools, since the caller already has the
+        filesystem access the handler would otherwise grant.
         """
         return frozenset({"memory_harvest", "memory_ingest"})
+
+    def _reject_local_only(self, name: str) -> bool:
+        """True when `name` must not be served to the current caller."""
+        return self.remote_transport and name in self.local_only_tools()
 
     async def list_tools(self) -> List[types.Tool]:
         """Return the canonical MCP tool list from declarative registry."""
@@ -1536,6 +1491,8 @@ class MemoryServer:
 
             tools = []
             for tool_def in TOOL_REGISTRY:
+                if self._reject_local_only(tool_def.name):
+                    continue
                 annotations = None
                 if tool_def.annotations:
                     annotations = types.ToolAnnotations(**tool_def.annotations)
@@ -1559,6 +1516,17 @@ class MemoryServer:
         logger.info("=== HANDLING TOOL CALL: %s ===", _sanitize_log_value(name))
         if arguments is None:
             arguments = {}
+
+        # Refuse before the handler resolves, so a remote caller cannot reach a
+        # filesystem tool by naming it directly even though tools/list hid it.
+        if self._reject_local_only(name):
+            logger.warning(
+                "Refused local-only tool over a remote transport: %s",
+                _sanitize_log_value(name),
+            )
+            return [types.TextContent(type="text", text=json.dumps(
+                {"error": f"Tool not available over this transport: {name}"}
+            ))]
 
         # Resolve handler from routing table
         from mcp_memory_service.tools.routing import resolve_handler
@@ -1809,6 +1777,7 @@ class MemoryServer:
             dry_run=arguments.get("dry_run", True),
             project_path=str(project_path),
             use_llm=arguments.get("use_llm", False),
+            force_reharvest=arguments.get("force_reharvest", False),
         )
 
         memory_service = None
@@ -1841,8 +1810,13 @@ class MemoryServer:
         if config.dry_run:
             results = harvester.harvest(config)
         else:
-            # Pagination: resolve ALL sessions, filter by tracker, take config.sessions
-            if already_harvested and not config.session_ids:
+            # Pagination: resolve ALL sessions, filter by tracker, take config.sessions.
+            # R8: force_reharvest bypasses the tracker filter entirely. It still
+            # respects config.sessions — harvest_and_store resolves at most
+            # config.sessions (page size) newest sessions, it does not reprocess
+            # the whole history at once.
+            from .harvest.models import should_filter_tracker
+            if should_filter_tracker(already_harvested, config.session_ids, config.force_reharvest):
                 from .harvest.models import HarvestConfig as _HC
                 all_config = _HC(sessions=9999, project_path=config.project_path)
                 all_sessions = harvester._resolve_sessions(all_config)
@@ -2171,12 +2145,6 @@ class MemoryServer:
         from .server.handlers import mistake_notes as mistake_handlers
         return await mistake_handlers.handle_mistake_note_delete(self, arguments)
 
-        """Delete a mistake note by content hash."""
-        await self._ensure_storage_initialized()
-        result = await self.memory_service.mistake_note_delete(
-            content_hash=arguments.get("content_hash", ""),
-        )
-        return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
     # ─── Session Legacy & Bootstrap Profile Handlers ──────────────
 
     async def handle_commit_session_legacy(self, arguments: dict) -> List[types.TextContent]:
@@ -2446,8 +2414,11 @@ class MemoryServer:
                             preserve_timestamps=False,
                         )
                         return
-        except Exception:
-            pass
+        except Exception as e:
+            # A swallowed failure here left the counter unreset, so the fresh-start
+            # trigger fired on every call with nothing in the log to say why.
+            logger.warning("Session counter reset for %s failed: %s",
+                           _sanitize_log_value(agent_id), _sanitize_log_value(e))
 
     async def handle_get_bootstrap_profile(self, arguments: dict) -> List[types.TextContent]:
         """Generate a behavioral bootstrap profile for ephemeral agents."""

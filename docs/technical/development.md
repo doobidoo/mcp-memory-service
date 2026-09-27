@@ -55,22 +55,6 @@
 
 If you encounter MCP server failures or "ModuleNotFoundError" issues:
 
-#### Missing http_server_manager Module
-**Symptoms:**
-- Server fails with "No module named 'mcp_memory_service.utils.http_server_manager'"
-- MCP server shows as "failed" in Claude Code
-
-**Diagnosis:**
-1. Test server directly: `python -m src.mcp_memory_service.server --debug`
-2. Check if the error occurs during eager storage initialization
-3. Look for HTTP server coordination mode detection
-
-**Solution:**
-The `http_server_manager.py` module handles multi-client coordination. If missing, create it with:
-- `auto_start_http_server_if_needed()` function
-- Port detection and server startup logic
-- Integration with existing `port_detection.py` utilities
-
 #### Storage Backend Issues
 **Symptoms:**
 - "vec0 constructor error: Unknown table option" (older sqlite-vec versions)

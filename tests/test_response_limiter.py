@@ -144,6 +144,23 @@ class TestTruncateMemories:
         for i, memory in enumerate(result):
             assert memory["content_hash"] == large_memories[i]["content_hash"]
 
+    def test_counts_tag_text_when_deciding_which_memories_fit(self):
+        """Large tags should not let later memories overflow the response limit."""
+        memories = [
+            {"content": "small", "content_hash": "first", "tags": ["short"]},
+            {
+                "content": "small",
+                "content_hash": "second",
+                "tags": [f"tag-{i}-" + "x" * 70 for i in range(8)],
+            },
+        ]
+
+        result, meta = truncate_memories(memories, max_chars=500)
+
+        assert result == memories[:1]
+        assert meta["shown_results"] == 1
+        assert meta["omitted_count"] == 1
+
 
 # ============================================
 # format_truncated_response() Tests
