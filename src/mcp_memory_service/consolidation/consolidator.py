@@ -46,9 +46,11 @@ logger = logging.getLogger(__name__)
 
 # Protocol for storage backend interface
 class StorageProtocol(Protocol):
-    async def get_all_memories(self) -> List[Memory]: pass
+    async def get_all_memories(
+        self, memory_type: Optional[str] = None
+    ) -> List[Memory]: pass
     async def get_memories_by_time_range(
-        self, start_time: float, end_time: float
+        self, start_time: float, end_time: float, include_embeddings: bool = False
     ) -> List[Memory]:
         pass
 
@@ -71,7 +73,9 @@ class StorageProtocol(Protocol):
     ) -> List[Memory]:
         pass
 
-    async def store(self, memory: Memory) -> Tuple[bool, str]:
+    async def store(
+        self, memory: Memory, skip_semantic_dedup: bool = False
+    ) -> Tuple[bool, str]:
         pass
 
     async def store_batch(self, memories: List[Memory]) -> List[Tuple[bool, str]]:
@@ -131,6 +135,9 @@ class StorageProtocol(Protocol):
         pass
 
     async def delete_memory(self, content_hash: str) -> bool:
+        pass
+
+    async def delete(self, content_hash: str) -> Tuple[bool, str]:
         pass
 
     async def get_memory_connections(self) -> Dict[str, int]:
