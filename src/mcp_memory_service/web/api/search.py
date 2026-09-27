@@ -64,6 +64,12 @@ class TagSearchRequest(BaseModel):
     tags: List[str] = Field(..., description="List of tags to search for (ANY match)")
     match_all: bool = Field(default=False, description="If true, memory must have ALL tags; if false, ANY tag")
     time_filter: Optional[str] = Field(None, description="Optional natural language time filter (e.g., 'last week', 'yesterday')")
+    limit: Optional[int] = Field(
+        None,
+        ge=1,
+        le=100,
+        description="Maximum number of results to return, newest first. total_found still counts every match. Default: no limit",
+    )
 
 
 class TimeSearchRequest(BaseModel):
@@ -303,6 +309,18 @@ async def tag_search(
         search_results = await _apply_retrieve_plugins(
             memory_service, query_string, search_results
         )
+        # total_found counts every row the plugins kept, so a client can tell when it
+        # got a page. With a limit, the newest rows are kept: the plugins see every
+        # match, so one that drops rows cannot leave the page short, and the rows are
+        # put back in date order, so one that re-sorts by score cannot swap an older
+        # memory in.
+        total_found = len(search_results)
+        if request.limit is not None:
+            search_results = sorted(
+                search_results,
+                key=lambda result: result.memory.created_at or 0,
+                reverse=True,
+            )[:request.limit]
         processing_time = (time.time() - start_time) * 1000
 
         # Broadcast SSE event for search completion
@@ -319,7 +337,7 @@ async def tag_search(
 
         return SearchResponse(
             results=search_results,
-            total_found=len(search_results),
+            total_found=total_found,
             query=query_string,
             search_type="tag",
             processing_time_ms=processing_time
