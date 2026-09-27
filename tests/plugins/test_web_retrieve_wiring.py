@@ -101,6 +101,28 @@ def test_rest_search_fires_plugin_once_and_returns_injected_row(
 
 
 @pytest.mark.asyncio
+async def test_tag_search_limit_orders_plugin_results_by_newest(web_plugin_context):
+    client, target, _, injected_content = web_plugin_context
+
+    async def reverse_rows(query, results):
+        return list(reversed(results))
+
+    service = client.app.dependency_overrides[get_memory_service]()
+    service._plugin_registry.ctx.on("on_retrieve", reverse_rows)
+
+    response = client.post(
+        "/api/search/by-tag",
+        json={"tags": ["plugin-test"], "limit": 1},
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["total_found"] == 2
+    assert data["results"][0]["memory"]["content"] == target.content
+    assert data["results"][0]["memory"]["content"] != injected_content
+
+
+@pytest.mark.asyncio
 async def test_no_plugin_preserves_http_result_rows():
     from mcp_memory_service.plugins.context import PluginContext
     from mcp_memory_service.plugins.registry import PluginRegistry

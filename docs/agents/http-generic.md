@@ -26,7 +26,7 @@ MCP_API_KEY=your-secret-key memory server --http
 | `PUT` | `/api/memories/{hash}` | Update memory tags/type/metadata |
 | `DELETE` | `/api/memories/{hash}` | Delete a memory |
 | `POST` | `/api/search` | Semantic search (`query`, `n_results`) |
-| `POST` | `/api/search/by-tag` | Tag search (`tags`, `match_all`) |
+| `POST` | `/api/search/by-tag` | Tag search (`tags`, `match_all`, `limit`) |
 | `POST` | `/api/search/by-time` | Natural-language time search |
 | `GET` | `/api/search/similar/{hash}` | Memories similar to one you have |
 | `GET` | `/api/tags` | List all tags with counts |
@@ -44,16 +44,15 @@ This table is the subset agents reach for. The authoritative, always-current lis
 > **The two search endpoints each do half the job.** `POST /api/search` takes `query`
 > and `n_results`; any other field — `tags`, `limit` — is silently ignored rather than
 > rejected, so a request that looks filtered comes back unfiltered.
-> `POST /api/search/by-tag` filters by tag but ignores any query and takes no limit: it
-> returns every matching memory, and `match_all` defaults to `false`, so several tags
-> match ANY of them, not all. Ranking by query *and* scoping by tag means picking a
-> side: `by-tag` gives a complete scope in no particular order, while ranking first and
-> filtering afterwards gives query order but only sees the window you fetched — in a
-> shared store a match ranked below it simply vanishes. Completeness is not free
-> either: `by-tag` has no server-side limit, so a five-result lookup against a
-> long-lived tag still transfers and parses that tag's entire history. On a tag that
-> large, prefer the ranked window and accept that it is a window. `n_results` must be
-> 1-100; anything outside that is a 422, and reading that body with
+> `POST /api/search/by-tag` filters by tag but ignores any query. Its optional `limit`
+> is bounded to 1-100; without it, the endpoint returns every matching memory.
+> `total_found` reports the count after retrieval plugins, before the response limit
+> is applied. Results are newest first when `limit` is supplied. `match_all` defaults to `false`, so
+> several tags match ANY of them, not all. Ranking by query *and* scoping by tag
+> means picking a side: `by-tag` without `limit` gives a complete scope, while
+> ranking first and filtering afterwards gives query order but only sees the window
+> you fetched — in a shared store a match ranked below it simply vanishes. Both
+> `limit` and `n_results` must be 1-100; anything outside that is a 422, and reading that body with
 > `.get("results", [])` turns a rejected request into "no memories found". Both
 > endpoints return their hits under `results`, not `memories`.
 
@@ -121,18 +120,20 @@ async def search_memory(query: str, n_results: int = 5) -> list[dict]:
 
 
 async def search_by_tag(tags: list[str], match_all: bool = True, limit: int = 50) -> list[dict]:
-    """Every memory carrying the tags. The endpoint has no limit of its own, so cap here.
+    """Return up to `limit` memories carrying the requested tags.
 
     match_all=True means a memory must carry ALL the tags; the endpoint's own default
-    is ANY, which quietly widens a two-tag scope into a union.
+    is ANY, which quietly widens a two-tag scope into a union. The response's
+    `total_found` field reports how many rows remained after retrieval plugins before
+    the limit was applied.
     """
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"{BASE_URL}/api/search/by-tag",
-            json={"tags": tags, "match_all": match_all},
+            json={"tags": tags, "match_all": match_all, "limit": limit},
         )
         response.raise_for_status()
-        return response.json()["results"][:limit]
+        return response.json()["results"]
 
 
 async def search_scoped(query: str, tags: list[str], limit: int = 5,

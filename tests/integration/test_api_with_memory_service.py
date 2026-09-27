@@ -782,6 +782,79 @@ async def test_http_api_search_by_tag_endpoint(temp_db, unique_content, monkeypa
 
 @pytest.mark.asyncio
 @pytest.mark.integration
+async def test_http_api_search_by_tag_limit(temp_db, unique_content):
+    """Limit tag-search results while retaining the full match count."""
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    try:
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+        app.dependency_overrides[get_current_user] = mock_get_current_user_for_integration
+        app.dependency_overrides[require_write_access] = mock_get_current_user_for_integration
+        app.dependency_overrides[require_read_access] = mock_get_current_user_for_integration
+
+        service = MemoryService(storage=storage)
+        contents = [unique_content(label) for label in ("oldest", "middle", "newest")]
+        for content in contents:
+            await service.store_memory(
+                content=content,
+                tags=["scoped"],
+                memory_type="note",
+            )
+
+        response = TestClient(app).post(
+            "/api/search/by-tag",
+            json={"tags": ["scoped"], "limit": 2},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["results"]) == 2
+        assert data["total_found"] == 3
+        assert [result["memory"]["content"] for result in data["results"]] == (
+            contents[:0:-1]
+        )
+
+        unbounded = TestClient(app).post(
+            "/api/search/by-tag",
+            json={"tags": ["scoped"]},
+        )
+        assert unbounded.status_code == 200
+        assert len(unbounded.json()["results"]) == 3
+    finally:
+        app.dependency_overrides.clear()
+        await storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+@pytest.mark.parametrize("limit", [0, 101])
+async def test_http_api_search_by_tag_rejects_invalid_limit(temp_db, limit):
+    """Reject tag-search limits outside the documented 1-100 range."""
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    try:
+        from mcp_memory_service.web.app import app
+        set_storage(storage)
+        app.dependency_overrides[get_current_user] = mock_get_current_user_for_integration
+        app.dependency_overrides[require_write_access] = mock_get_current_user_for_integration
+        app.dependency_overrides[require_read_access] = mock_get_current_user_for_integration
+
+        response = TestClient(app).post(
+            "/api/search/by-tag",
+            json={"tags": ["scoped"], "limit": limit},
+        )
+
+        assert response.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+        await storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
 async def test_http_api_get_memory_by_hash_endpoint(temp_db, unique_content, monkeypatch):
     """
     Test GET /api/memories/{hash} endpoint with real HTTP request.
