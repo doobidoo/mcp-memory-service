@@ -570,7 +570,7 @@ class MetadataMixin:
 
             def _check_exists():
                 cursor = self.conn.execute(
-                    "SELECT content_hash, tags, memory_type FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                    "SELECT content_hash, tags, memory_type, version FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
                     (content_hash,),
                 )
                 return cursor.fetchone()
@@ -579,7 +579,7 @@ class MetadataMixin:
             if not row:
                 return False, f"Memory {content_hash} not found", None
 
-            old_hash, old_tags_str, old_type = row
+            old_hash, old_tags_str, old_type, old_version = row
             resolved_tags = new_tags if new_tags is not None else (
                 [t for t in old_tags_str.split(",") if t] if old_tags_str else []
             )
@@ -596,12 +596,49 @@ class MetadataMixin:
             if not store_ok:
                 return False, f"Failed to store new version: {store_msg}", None
 
-            meta_updates: Dict[str, Any] = {"metadata": {"superseded_by": new_hash}}
-            if reason:
-                meta_updates["metadata"]["evolution_reason"] = reason
-            await self.update_memory_metadata(content_hash, meta_updates, preserve_timestamps=True)
+            # Link the lineage via the migration-011 COLUMNS (not only metadata JSON),
+            # so default retrieval (superseded_by IS NULL), get_memory_history
+            # (parent_id/version) and mark_superseded_batch see a consistent chain (#1318).
+            #
+            # Atomicity: the new-row link and the old-row supersede are a single
+            # transaction. A crash between them would otherwise leave the new version
+            # linked while the old one stays visible in default search — the exact
+            # inconsistency this fix removes. One commit, or rollback and report failure.
+            new_version = (old_version or 1) + 1
+            import json as _json
 
-            logger.info(f"Memory evolved: {old_hash[:8]} → {new_hash[:8]}")
+            def _link_and_supersede():
+                try:
+                    # new row: parent + version
+                    self.conn.execute(
+                        "UPDATE memories SET parent_id = ?, version = ? WHERE content_hash = ?",
+                        (old_hash, new_version, new_hash),
+                    )
+                    # old row: superseded_by column (drops it from default search) +
+                    # metadata trace (evolution_reason) in the same transaction.
+                    mcur = self.conn.execute(
+                        "SELECT metadata FROM memories WHERE content_hash = ?", (old_hash,)
+                    )
+                    mrow = mcur.fetchone()
+                    old_meta = _json.loads(mrow[0]) if mrow and mrow[0] else {}
+                    old_meta["superseded_by"] = new_hash
+                    if reason:
+                        old_meta["evolution_reason"] = reason
+                    self.conn.execute(
+                        "UPDATE memories SET superseded_by = ?, metadata = ? WHERE content_hash = ? AND deleted_at IS NULL",
+                        (new_hash, _json.dumps(old_meta), old_hash),
+                    )
+                    self.conn.commit()
+                except Exception:
+                    self.conn.rollback()
+                    raise
+
+            await self._execute_with_retry(_link_and_supersede)
+
+            logger.info(f"Memory evolved: {old_hash[:8]} → {new_hash[:8]} (v{new_version})")
+            return True, "Memory versioned successfully", new_hash
+
+            logger.info(f"Memory evolved: {old_hash[:8]} → {new_hash[:8]} (v{new_version})")
             return True, "Memory versioned successfully", new_hash
 
         except Exception as e:

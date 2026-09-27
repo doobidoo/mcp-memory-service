@@ -327,22 +327,30 @@ class TestGetMemoryHistory:
 
     @pytest.mark.asyncio
     async def test_two_version_lineage(self, storage):
-        """Two versions: each is independent in column-based history, chain is in metadata."""
+        """Two versions link into a chain via the migration-011 columns (#1318).
+
+        Updated for #1318: versioned updates now write parent_id/version/superseded_by
+        into the columns, so get_memory_history walks the full lineage instead of
+        returning each version as standalone. The metadata trace is kept too.
+        """
         h1 = await _store(storage, "History test v1 original content")
         ok, _, h2 = await storage.update_memory_versioned(h1, "History test v2 updated content")
         assert ok
 
-        # Column-based history sees each as standalone (no parent_id set)
+        # Column-based history now links both versions (was len==1 before #1318)
         history = await storage.get_memory_history(h1)
-        assert len(history) == 1
+        assert len(history) == 2
+        assert history[0]["content_hash"] == h1
+        assert history[-1]["content_hash"] == h2
 
-        # But metadata chain exists
+        # superseded_by is now in the COLUMN (source of truth); metadata trace kept
         import json
         cursor = storage.conn.execute(
-            "SELECT metadata FROM memories WHERE content_hash = ?", (h1,)
+            "SELECT superseded_by, metadata FROM memories WHERE content_hash = ?", (h1,)
         )
-        meta = json.loads(cursor.fetchone()[0] or "{}")
-        assert meta.get("superseded_by") == h2
+        col_superseded, meta_json = cursor.fetchone()
+        assert col_superseded == h2
+        assert json.loads(meta_json or "{}").get("superseded_by") == h2
 
     @pytest.mark.asyncio
     async def test_history_from_middle_version(self, storage):
