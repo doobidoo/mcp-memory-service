@@ -40,6 +40,9 @@ def temp_storage_dir():
 async def storage(temp_storage_dir):
     assert "mcp-test-" in temp_storage_dir
     db_path = os.path.join(temp_storage_dir, "test.db")
+    _saved = {k: os.environ.get(k) for k in (
+        "MCP_MEMORY_SQLITE_PATH", "MCP_MEMORY_STORAGE_BACKEND", "MCP_SEMANTIC_DEDUP_ENABLED"
+    )}
     os.environ["MCP_MEMORY_SQLITE_PATH"] = db_path
     os.environ["MCP_MEMORY_STORAGE_BACKEND"] = "sqlite_vec"
     os.environ["MCP_SEMANTIC_DEDUP_ENABLED"] = "false"
@@ -47,6 +50,13 @@ async def storage(temp_storage_dir):
     await s.initialize()
     yield s
     await s.close()
+    # Restore the process env so a later test does not inherit a path to a
+    # now-deleted temp database.
+    for k, v in _saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
 
 
 # --- Pure composition function (the heart of the split) ---
@@ -125,3 +135,41 @@ async def test_forgetting_reads_computed_not_effective(storage):
     meta = _meta(storage, h)
     assert meta.get("quality_score") == 0.25   # search-facing
     assert meta.get("computed_quality") == 0.9  # retention-facing
+
+
+@pytest.mark.asyncio
+async def test_decay_relevance_ignores_human_downvote(storage):
+    """Run the real decay/relevance engine: a down-vote must not lower relevance,
+    because decay reads computed_quality, not the effective score (Greptile P1).
+
+    This exercises the engine (not just stored metadata), so if the read ever
+    reverts to memory.quality_score the down-vote would drop relevance and this
+    test would fail.
+    """
+    from mcp_memory_service.consolidation.decay import ExponentialDecayCalculator
+    from mcp_memory_service.consolidation.base import ConsolidationConfig
+    from mcp_memory_service.server.handlers.quality import handle_rate_memory
+
+    calc = ExponentialDecayCalculator(ConsolidationConfig())
+
+    # Two identical high-computed memories; one will be down-voted.
+    a = await _store(storage, "Relevance anchor memory alpha.", computed=0.9)
+    b = await _store(storage, "Relevance anchor memory beta.", computed=0.9)
+
+    ma = await storage.get_by_hash(a)
+    mb = await storage.get_by_hash(b)
+    rel_before = {r.memory_hash: r.total_score for r in await calc.process([ma, mb], connections={})}
+
+    class _Srv:
+        async def _ensure_storage_initialized(self):
+            return storage
+    await handle_rate_memory(_Srv(), {"content_hash": b, "rating": -1})
+
+    ma2 = await storage.get_by_hash(a)
+    mb2 = await storage.get_by_hash(b)
+    rel_after = {r.memory_hash: r.total_score for r in await calc.process([ma2, mb2], connections={})}
+
+    # The down-voted memory's relevance is unchanged (decay used computed_quality 0.9).
+    assert rel_after[b] == pytest.approx(rel_before[b]), (
+        "a human down-vote must not lower decay relevance — it reads computed_quality"
+    )

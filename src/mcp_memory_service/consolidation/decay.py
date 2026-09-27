@@ -106,8 +106,14 @@ class ExponentialDecayCalculator(ConsolidationBase):
         # Calculate access boost
         access_boost = self._calculate_access_boost(memory, access_patterns, current_time)
 
-        # Get initial quality score
-        quality_score = memory.quality_score
+        # Get initial quality score.
+        # Use computed_quality (machine score), NOT the effective quality_score:
+        # relevance/decay is a retention concern, and a human rating is a search
+        # signal, not a keep/forget verdict (#1312). This keeps decay consistent
+        # with forgetting.py, which also reads computed_quality. Fallback to the
+        # effective score for memories stored before the split.
+        quality_score = memory.metadata.get('computed_quality', memory.quality_score)
+        original_quality = quality_score
 
         # Association-based quality boost (v8.47.0+)
         association_boost_applied = False
@@ -163,7 +169,7 @@ class ExponentialDecayCalculator(ConsolidationBase):
                 'quality_multiplier': quality_multiplier,
                 'association_boost_applied': association_boost_applied,
                 'quality_boost_factor': quality_boost_factor,
-                'original_quality_score': memory.quality_score
+                'original_quality_score': original_quality
             }
         )
     

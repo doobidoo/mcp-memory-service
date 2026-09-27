@@ -172,10 +172,13 @@ class AsyncQualityScorer:
                         zip(memories, ai_scores, storages)
                     ):
                         try:
-                            quality_score = await self.scorer.calculate_quality_score(
+                            await self.scorer.calculate_quality_score(
                                 memory, query, ai_score
                             )
-                            memory.metadata['quality_score'] = quality_score
+                            # calculate_quality_score already wrote computed_quality
+                            # and the materialized effective quality_score into
+                            # memory.metadata (#1312). Persist those, not a raw score.
+                            quality_score = memory.metadata.get('quality_score', 0.5)
                             quality_provider = memory.metadata.get('quality_provider', 'unknown')
 
                             if storage:
@@ -184,6 +187,7 @@ class AsyncQualityScorer:
                                         content_hash=memory.content_hash,
                                         updates={
                                             'quality_score': quality_score,
+                                            'computed_quality': memory.metadata.get('computed_quality', quality_score),
                                             'quality_provider': quality_provider,
                                             'ai_scores': memory.metadata.get('ai_scores', []),
                                             'quality_components': memory.metadata.get('quality_components', {})

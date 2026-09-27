@@ -215,8 +215,10 @@ async def evaluate_memory_quality(
         scorer = QualityScorer()
         old_score = memory.metadata.get('quality_score', 0.5)
 
-        # Calculate quality score (this updates memory.metadata internally)
-        quality_score = await scorer.calculate_quality_score(memory, query)
+        # Calculate quality score (this updates memory.metadata internally:
+        # writes computed_quality + materialized effective quality_score, #1312)
+        await scorer.calculate_quality_score(memory, query)
+        quality_score = memory.metadata.get('quality_score', 0.5)
 
         # Extract component scores from metadata
         ai_score = None
@@ -230,6 +232,7 @@ async def evaluate_memory_quality(
         # Prepare updates with only the quality-related fields
         updates = {
             'quality_score': quality_score,
+            'computed_quality': memory.metadata.get('computed_quality', quality_score),
             'quality_provider': quality_provider,
         }
         if ai_scores:
