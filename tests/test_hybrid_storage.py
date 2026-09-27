@@ -11,7 +11,10 @@ Tests cover:
 """
 
 import asyncio
+import datetime
+import shutil
 import time
+from datetime import timedelta
 import pytest
 import pytest_asyncio
 import tempfile
@@ -902,7 +905,6 @@ class TestHybridTimeBasedDeletion:
             await storage.close()
 
         # Cleanup
-        import shutil
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
 
@@ -912,9 +914,6 @@ class TestHybridTimeBasedDeletion:
         hybrid = test_hybrid_storage
 
         # Store test memories
-        import datetime
-        from datetime import timedelta
-
         today = datetime.date.today()
         yesterday = today - timedelta(days=1)
 
@@ -924,7 +923,9 @@ class TestHybridTimeBasedDeletion:
             content_hash=generate_content_hash(content1),
             tags=["test"],
             memory_type="test",
-            created_at=(yesterday.toordinal() - datetime.date(1970, 1, 1).toordinal()) * 86400.0
+            # Local noon: delete_by_timeframe uses local-day bounds, and UTC
+            # midnight falls on the previous local day west of UTC.
+            created_at=datetime.datetime.combine(yesterday, datetime.time(12)).timestamp()
         )
         await hybrid.store(memory1)
 
@@ -946,9 +947,6 @@ class TestHybridTimeBasedDeletion:
         hybrid = test_hybrid_storage
 
         # Store test memory first so deletion has something to delete
-        import datetime
-        from datetime import timedelta
-
         today = datetime.date.today()
         yesterday = today - timedelta(days=1)
 
@@ -958,7 +956,9 @@ class TestHybridTimeBasedDeletion:
             content_hash=generate_content_hash(content1),
             tags=["test"],
             memory_type="test",
-            created_at=(yesterday.toordinal() - datetime.date(1970, 1, 1).toordinal()) * 86400.0
+            # Local noon: delete_by_timeframe uses local-day bounds, and UTC
+            # midnight falls on the previous local day west of UTC.
+            created_at=datetime.datetime.combine(yesterday, datetime.time(12)).timestamp()
         )
         await hybrid.store(memory1)
 
@@ -988,9 +988,6 @@ class TestHybridTimeBasedDeletion:
         hybrid = test_hybrid_storage
 
         # Store test memory in primary so delete_by_timeframe has something to delete
-        import datetime
-        from datetime import timedelta
-
         today = datetime.date.today()
         yesterday = today - timedelta(days=1)
 
@@ -1000,7 +997,9 @@ class TestHybridTimeBasedDeletion:
             content_hash=generate_content_hash(content1),
             tags=["test"],
             memory_type="test",
-            created_at=(yesterday.toordinal() - datetime.date(1970, 1, 1).toordinal()) * 86400.0
+            # Local noon: delete_by_timeframe uses local-day bounds, and UTC
+            # midnight falls on the previous local day west of UTC.
+            created_at=datetime.datetime.combine(yesterday, datetime.time(12)).timestamp()
         )
         await hybrid.store(memory1)
 
@@ -1038,9 +1037,6 @@ class TestHybridTimeBasedDeletion:
         hybrid = test_hybrid_storage
 
         # Store old test memory
-        import datetime
-        from datetime import timedelta
-
         today = datetime.date.today()
         old_date = today - timedelta(days=30)
 
@@ -1072,9 +1068,6 @@ class TestHybridTimeBasedDeletion:
         hybrid = test_hybrid_storage
 
         # Store old test memory first so deletion has something to delete
-        import datetime
-        from datetime import timedelta
-
         today = datetime.date.today()
         old_date = today - timedelta(days=30)
 
