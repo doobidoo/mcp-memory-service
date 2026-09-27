@@ -29,7 +29,7 @@ from .clustering import SemanticClusteringEngine
 from .compression import SemanticCompressionEngine
 from .forgetting import ControlledForgettingEngine
 from .health import ConsolidationHealthMonitor
-from ..models.memory import Memory
+from ..models.memory import Memory, MemoryQueryResult
 from ..storage.graph import GraphStorage
 from ..config import (
     GRAPH_STORAGE_MODE,
@@ -46,10 +46,26 @@ logger = logging.getLogger(__name__)
 
 # Protocol for storage backend interface
 class StorageProtocol(Protocol):
-    async def get_all_memories(self) -> List[Memory]: pass
+    async def get_all_memories(
+        self, memory_type: Optional[str] = None
+    ) -> List[Memory]: pass
     async def get_memories_by_time_range(
-        self, start_time: float, end_time: float
+        self, start_time: float, end_time: float, include_embeddings: bool = False
     ) -> List[Memory]:
+        pass
+
+    async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
+        pass
+
+    async def count_all_memories(
+        self,
+        memory_type: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        tag_match: str = "any",
+        stale_days: Optional[int] = None,
+        store: Optional[str] = "default",
+        agent_id: Optional[str] = None,
+    ) -> int:
         pass
 
     async def search_by_tag(
@@ -57,13 +73,71 @@ class StorageProtocol(Protocol):
     ) -> List[Memory]:
         pass
 
-    async def store(self, memory: Memory) -> Tuple[bool, str]:
+    async def store(
+        self, memory: Memory, skip_semantic_dedup: bool = False
+    ) -> Tuple[bool, str]:
+        pass
+
+    async def store_batch(self, memories: List[Memory]) -> List[Tuple[bool, str]]:
+        pass
+
+    async def retrieve(
+        self,
+        query: str,
+        n_results: int = 5,
+        tags: Optional[List[str]] = None,
+        min_confidence: float = 0.0,
+        include_superseded: bool = False,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+    ) -> List[MemoryQueryResult]:
+        pass
+
+    async def search_memories(
+        self,
+        query: Optional[str] = None,
+        mode: str = "semantic",
+        time_expr: Optional[str] = None,
+        after: Optional[str] = None,
+        before: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        tag_match: str = "any",
+        quality_boost: float = 0.0,
+        limit: int = 10,
+        include_debug: bool = False,
+        include_superseded: bool = False,
+        ranking_weights: Optional[Dict[str, float]] = None,
+        store: Optional[str] = "default",
+        agent_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         pass
 
     async def update_memory(self, memory: Memory) -> bool:
         pass
 
+    async def update_memories_batch(
+        self, memories: List[Memory], preserve_timestamps: bool = False
+    ) -> List[bool]:
+        pass
+
+    async def update_memory_metadata(
+        self,
+        content_hash: str,
+        updates: Dict[str, Any],
+        preserve_timestamps: bool = True,
+    ) -> Tuple[bool, str]:
+        pass
+
+    async def mark_superseded_batch(self, pairs: List[Tuple[str, str]]) -> int:
+        pass
+
+    async def get_stats(self) -> Dict[str, Any]:
+        pass
+
     async def delete_memory(self, content_hash: str) -> bool:
+        pass
+
+    async def delete(self, content_hash: str) -> Tuple[bool, str]:
         pass
 
     async def get_memory_connections(self) -> Dict[str, int]:
