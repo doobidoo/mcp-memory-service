@@ -264,7 +264,7 @@ class MetadataMixin:
 
         except Exception as e:
             if self.conn:
-                self.conn.rollback()
+                await self._run_in_thread(self.conn.rollback)
             logger.error(f"Batch update failed: {e}")
             logger.error(traceback.format_exc())
             return [False] * len(memories)
@@ -287,7 +287,7 @@ class MetadataMixin:
         except Exception as e:
             logger.error(f"mark_superseded_batch failed: {e}")
             if self.conn:
-                self.conn.rollback()
+                await self._run_in_thread(self.conn.rollback)
             return 0
 
     @staticmethod
