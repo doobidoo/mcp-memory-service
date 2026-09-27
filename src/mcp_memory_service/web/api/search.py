@@ -292,6 +292,15 @@ async def tag_search(
                 if tag_set.issubset(set(memory.tags))
             ]
 
+        # Storage returns the newest memories first. The limit is applied before the
+        # retrieval plugins run, so it keeps the newest matches even when a plugin
+        # re-sorts the rows it gets, and again after them, since a plugin may add rows.
+        # total_found then keeps counting every match, which tells a client that it
+        # got a page.
+        total_matches = len(memories)
+        if request.limit is not None:
+            memories = memories[:request.limit]
+
         # Convert to search results
         match_type = "ALL" if request.match_all else "ANY"
         search_results = [
@@ -309,12 +318,9 @@ async def tag_search(
         search_results = await _apply_retrieve_plugins(
             memory_service, query_string, search_results
         )
-
-        # Storage returns the newest memories first, so the limit keeps the newest ones.
-        # total_found keeps counting every match, which tells a client that it got a page.
-        total_found = len(search_results)
         if request.limit is not None:
             search_results = search_results[:request.limit]
+        total_found = total_matches if request.limit is not None else len(search_results)
         processing_time = (time.time() - start_time) * 1000
 
         # Broadcast SSE event for search completion
