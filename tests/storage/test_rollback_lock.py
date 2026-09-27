@@ -1,7 +1,9 @@
 """Regression tests for rollback handlers in shared SQLite storage (#1328)."""
 
+import asyncio
 import sqlite3
 import os
+import threading
 
 import pytest
 import pytest_asyncio
@@ -44,3 +46,33 @@ async def test_error_rollback_uses_locked_executor(storage, monkeypatch, operati
         assert await storage.mark_superseded_batch([("winner", "loser")]) == 0
 
     assert calls, f"{operation} rolled back without the locked executor"
+
+
+@pytest.mark.asyncio
+async def test_error_rollback_waits_for_connection_lock(storage, monkeypatch):
+    """Rollback must wait for an in-flight connection operation to release the lock."""
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+
+    def hold_connection_lock():
+        with storage._conn_lock:
+            lock_held.set()
+            assert release_lock.wait(timeout=2)
+
+    holder = threading.Thread(target=hold_connection_lock)
+    holder.start()
+    assert await asyncio.to_thread(lock_held.wait, 1)
+
+    async def fail_operation(_operation):
+        raise sqlite3.OperationalError("synthetic failure")
+
+    monkeypatch.setattr(storage, "_execute_with_retry", fail_operation)
+    rollback_task = asyncio.create_task(storage.delete("missing-hash"))
+    await asyncio.sleep(0.05)
+    assert not rollback_task.done(), "rollback bypassed the connection lock"
+
+    release_lock.set()
+    result = await asyncio.wait_for(rollback_task, timeout=2)
+    holder.join(timeout=2)
+    assert not holder.is_alive()
+    assert result[0] is False
