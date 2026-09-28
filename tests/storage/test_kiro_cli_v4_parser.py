@@ -404,3 +404,27 @@ class TestKiroCliV4Parser:
         texts = [m.text for m in result]
         assert "SELECT count(*) -> 42 rows" in texts
         assert not any("system-reminder" in t for t in texts)
+    def test_long_tool_result_is_kept_not_dropped(self, tmp_path):
+        """Greptile P1 (round 2): a tool_result over 10k chars is rich data (query
+        dump / report), not injected context — it must be harvested (truncated if
+        huge), NOT dropped by the length cutoff that applies to user/assistant."""
+        big = "row data " * 2000  # ~18k chars, well over the 10k user/assistant cutoff
+        messages = [
+            {"id": "big1", "timestamp": "2026-01-01T10:00:00Z",
+             "payload": {"type": "tool_result", "content": big}},
+            {"id": "inj1", "timestamp": "2026-01-01T10:00:01Z",
+             "payload": {"type": "tool_result",
+                         "content": "<system-reminder>injected</system-reminder>"}},
+        ]
+        jsonl_file = tmp_path / "long_toolresult.jsonl"
+        with open(jsonl_file, "w") as f:
+            for msg in messages:
+                f.write(json.dumps(msg) + "\n")
+
+        parser = TranscriptParser()
+        result = parser.parse_file(jsonl_file)
+        # The big tool result is kept (harvested), the injected one is dropped.
+        assert len(result) == 1
+        assert result[0].text.startswith("row data ")
+        # Truncated to the cap, not the full 18k, and never dropped.
+        assert len(result[0].text) <= TranscriptParser.TOOL_RESULT_MAX_CHARS + 20
