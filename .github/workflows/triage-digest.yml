@@ -1,0 +1,47 @@
+# Daily maintainer triage digest.
+#
+# Runs scripts/maintenance/github_triage_digest.py, which is standard library only,
+# so there is no install step and nothing beyond actions/checkout.
+#
+# The digest always lands in the run summary. It is also commented on the issue
+# named by the repository variable TRIAGE_DIGEST_ISSUE (Settings -> Secrets and
+# variables -> Actions -> Variables). While that variable is unset, or when a manual
+# run asks for a dry run, nothing is posted.
+
+name: Triage Digest
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # 06:00 CEST
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print the digest to the run summary without commenting'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Build and post the digest
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        DIGEST_ISSUE: ${{ vars.TRIAGE_DIGEST_ISSUE }}
+        DRY_RUN: ${{ inputs.dry_run }}
+      run: |
+        args=()
+        if [ -n "$DIGEST_ISSUE" ]; then
+          args+=(--issue "$DIGEST_ISSUE")
+          if [ "$DRY_RUN" != "true" ]; then
+            args+=(--post)
+          fi
+        fi
+        python3 scripts/maintenance/github_triage_digest.py "${args[@]}" >> "$GITHUB_STEP_SUMMARY"
