@@ -93,8 +93,15 @@ class QualityScorer:
             ai_score: AI-based score (if available)
             implicit_score: Implicit signals score
         """
-        # Store composite score
-        memory.metadata['quality_score'] = composite_score
+        # Quality model split (#1312): this is the machine origin — write
+        # computed_quality, then materialize the effective quality_score so an
+        # existing human rating still wins and is not erased by re-scoring.
+        from .config import effective_quality
+        memory.metadata['computed_quality'] = composite_score
+        memory.metadata['quality_score'] = effective_quality(
+            computed=composite_score,
+            user_rating=memory.metadata.get('user_rating'),
+        )
 
         # Track historical AI scores
         if ai_score is not None:

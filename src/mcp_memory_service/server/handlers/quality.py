@@ -158,16 +158,21 @@ async def handle_rate_memory(server, arguments: dict) -> List[types.TextContent]
         memory.metadata['user_feedback'] = feedback
         memory.metadata['user_rating_timestamp'] = time.time()
 
-        # Recalculate quality score with user rating weighted higher
-        # User rating: 0.6 weight, AI/implicit: 0.4 weight
-        user_score = (rating + 1) / 2.0  # Convert -1,0,1 to 0.0,0.5,1.0
+        # Quality model split (#1312): keep computed_quality (machine) separate from
+        # user_rating (human). Preserve any existing computed_quality (seed it from the
+        # current quality_score the first time, so a pre-split memory keeps its machine
+        # value), then materialize the effective quality_score from both origins.
+        from ...quality.config import effective_quality
+        computed = memory.metadata.get('computed_quality')
+        if computed is None:
+            computed = memory.metadata.get('quality_score', 0.5)
+            memory.metadata['computed_quality'] = computed
         existing_score = memory.metadata.get('quality_score', 0.5)
-
-        # Combine scores
-        new_quality_score = 0.6 * user_score + 0.4 * existing_score
+        new_quality_score = effective_quality(computed=computed, user_rating=rating)
         memory.metadata['quality_score'] = new_quality_score
 
-        # Track historical ratings
+        # Track historical ratings (capped; rating_history is not codec-compressed
+        # and can push metadata past the 9.5KB Cloudflare sync limit — #1312).
         rating_history = memory.metadata.get('rating_history', [])
         rating_history.append({
             'rating': rating,
@@ -182,6 +187,7 @@ async def handle_rate_memory(server, arguments: dict) -> List[types.TextContent]
         try:
             quality_updates = {
                 'quality_score': memory.metadata['quality_score'],
+                'computed_quality': memory.metadata['computed_quality'],
                 'user_rating': memory.metadata['user_rating'],
                 'user_feedback': memory.metadata['user_feedback'],
                 'user_rating_timestamp': memory.metadata['user_rating_timestamp'],
