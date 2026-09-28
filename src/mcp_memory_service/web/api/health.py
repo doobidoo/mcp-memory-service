@@ -16,10 +16,13 @@
 Health check endpoints for the HTTP interface.
 """
 
+import logging
 import time
 import psutil
 from datetime import datetime, timezone
 from typing import Dict, Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -172,8 +175,9 @@ async def detailed_health_check(
             from ...utils.health_check import _check_embedding_integrity
             integrity = _check_embedding_integrity(conn)
             missing_embeddings = integrity.get("missing_embeddings", 0)
-        except Exception:
-            pass
+        except Exception as e:
+            # Non-fatal: log warning and continue without failing the health check request
+            logger.warning("Embedding integrity check failed: %s", e)
     elif "missing_embeddings" in storage_info:
         missing_embeddings = storage_info["missing_embeddings"]
     elif "primary_stats" in storage_info and "missing_embeddings" in (storage_info.get("primary_stats") or {}):

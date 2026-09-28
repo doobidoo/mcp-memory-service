@@ -28,6 +28,9 @@ from .base import ConsolidationError
 from ..compat import _sanitize_log_value
 
 
+logger = logging.getLogger(__name__)
+
+
 class HealthStatus(Enum):
     """Health status levels."""
     HEALTHY = "healthy"
@@ -98,7 +101,7 @@ class ConsolidationHealthMonitor:
     def __init__(self, config=None, consolidator=None):
         self.config = config
         self.consolidator = consolidator
-        self.logger = logging.getLogger(__name__)
+        self.logger = logger
         self._scheduler_ref = None
 
         # Health metrics storage
@@ -574,7 +577,7 @@ class ConsolidationHealthMonitor:
                             integrity = _check_embedding_integrity(conn)
                             missing = integrity.get('missing_embeddings', 0)
                         except Exception as e:
-                            self.logger.warning("Embedding integrity check failed: %s", e)
+                            logger.warning("Embedding integrity check failed: %s", e)
                     if missing is None:
                         missing = stats.get('missing_embeddings', 0)
                     if isinstance(missing, int) and missing > 0:
