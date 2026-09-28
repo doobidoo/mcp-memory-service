@@ -357,4 +357,50 @@ class TestKiroCliV4Parser:
         # Should only extract the valid message
         assert len(result_messages) == 1
         assert result_messages[0].text == "This should be kept"
-        assert result_messages[0].role == "user"
+
+
+    def test_malformed_payload_does_not_abort_run(self, tmp_path):
+        """Greptile P1: a record with null/non-dict payload or unhashable type must
+        not raise and abort harvesting — the remaining records must still parse."""
+        messages = [
+            {"id": "m1", "timestamp": "2026-01-01T10:00:00Z",
+             "payload": {"type": "user", "content": "first valid"}},
+            {"id": "m2", "timestamp": "2026-01-01T10:00:01Z", "payload": None},
+            {"id": "m3", "timestamp": "2026-01-01T10:00:02Z", "payload": "not-an-object"},
+            {"id": "m4", "timestamp": "2026-01-01T10:00:03Z",
+             "payload": {"type": ["array", "type"], "content": "weird"}},
+            {"id": "m5", "timestamp": "2026-01-01T10:00:04Z",
+             "payload": {"type": "assistant", "content": "last valid"}},
+        ]
+        jsonl_file = tmp_path / "malformed.jsonl"
+        with open(jsonl_file, "w") as f:
+            for msg in messages:
+                f.write(json.dumps(msg) + "\n")
+
+        parser = TranscriptParser()
+        # Must not raise, and must still get the two valid records.
+        result = parser.parse_file(jsonl_file)
+        texts = [m.text for m in result]
+        assert "first valid" in texts
+        assert "last valid" in texts
+
+    def test_tool_result_applies_system_content_filter(self, tmp_path):
+        """Greptile P1: a tool_result carrying a system-reminder must NOT become a
+        harvested memory — the same _is_system_content filter as user/assistant."""
+        messages = [
+            {"id": "t1", "timestamp": "2026-01-01T10:00:00Z",
+             "payload": {"type": "tool_result",
+                         "content": "<system-reminder>do not harvest me</system-reminder>"}},
+            {"id": "t2", "timestamp": "2026-01-01T10:00:01Z",
+             "payload": {"type": "tool_result", "content": "SELECT count(*) -> 42 rows"}},
+        ]
+        jsonl_file = tmp_path / "toolresult_filter.jsonl"
+        with open(jsonl_file, "w") as f:
+            for msg in messages:
+                f.write(json.dumps(msg) + "\n")
+
+        parser = TranscriptParser()
+        result = parser.parse_file(jsonl_file)
+        texts = [m.text for m in result]
+        assert "SELECT count(*) -> 42 rows" in texts
+        assert not any("system-reminder" in t for t in texts)

@@ -224,8 +224,17 @@ class TranscriptParser:
         
         Format: {"id": "...", "timestamp": "...", "payload": {"type": "...", "content": "...", ...}}
         """
-        pl = obj.get("payload", {})
+        pl = obj.get("payload")
+        # Guard against malformed records: a valid JSON line whose payload is null
+        # or not an object, or whose type is unhashable (list/dict), must not abort
+        # the whole run — record it as an unparseable block and move on.
+        if not isinstance(pl, dict):
+            self._record_coverage("kiro-cli-v4:invalid-payload", was_extracted=False)
+            return []
         ptype = pl.get("type")
+        if not isinstance(ptype, (str, type(None))):
+            self._record_coverage("kiro-cli-v4:invalid-type", was_extracted=False)
+            return []
         ts = obj.get("timestamp")
         uid = obj.get("id")
         
@@ -240,11 +249,17 @@ class TranscriptParser:
                 self._record_coverage(ptype, was_extracted=False)
                 return []
         
-        # Handle tool_result as assistant message with rich content
+        # Handle tool_result as assistant message with rich content.
+        # Apply the same system-content filter as user/assistant so an injected
+        # <system-reminder> or command marker inside a tool result cannot become
+        # a harvested memory.
         elif ptype == "tool_result":
             content = pl.get("content")
-            if isinstance(content, str) and content.strip():
+            if isinstance(content, str) and content.strip() and not self._is_system_content(content):
                 self._record_coverage("tool_result", was_extracted=True)
+                # Keep tool-result content verbatim (no strip): it is rich analytical
+                # data where surrounding whitespace can be meaningful. The filter above
+                # only rejects empty/system content.
                 return [ParsedMessage(role="assistant", text=content, timestamp=ts, uuid=uid)]
             else:
                 self._record_coverage("tool_result", was_extracted=False)
