@@ -151,6 +151,12 @@ class StoreMixin:
                         serialize_float32(embedding),
                         store
                     ))
+                    if not self.conn.execute(
+                        'SELECT 1 FROM memory_embeddings WHERE rowid = ?', (memory_rowid,)
+                    ).fetchone():
+                        raise sqlite3.OperationalError(
+                            f"Invariant violation: embedding row missing for memory rowid {memory_rowid}"
+                        )
                     self.conn.execute(f'RELEASE SAVEPOINT {_sp_name}')
                 except Exception:
                     self.conn.execute(f'ROLLBACK TO SAVEPOINT {_sp_name}')
@@ -249,6 +255,13 @@ class StoreMixin:
                         INSERT INTO memory_embeddings (rowid, content_embedding, store)
                         VALUES (?, ?, ?)
                     ''', (rowid, serialize_float32(embedding_list), store))
+
+                    if not self.conn.execute(
+                        'SELECT 1 FROM memory_embeddings WHERE rowid = ?', (rowid,)
+                    ).fetchone():
+                        raise sqlite3.OperationalError(
+                            f"Invariant violation: embedding row missing for memory rowid {rowid}"
+                        )
 
                     self.conn.execute(f'RELEASE SAVEPOINT {sp}')
                     local_results[j] = (True, "Memory stored successfully")

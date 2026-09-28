@@ -961,9 +961,14 @@ class RetrieveMixin:
                     'SELECT COUNT(*) FROM memories WHERE created_at >= ? AND deleted_at IS NULL',
                     (week_ago,)
                 ).fetchone()[0]
-                return total, tag_rows, this_week
+                missing_embeddings = self.conn.execute('''
+                    SELECT COUNT(*) FROM memories m
+                    WHERE m.deleted_at IS NULL
+                      AND NOT EXISTS (SELECT 1 FROM memory_embeddings e WHERE e.rowid = m.id)
+                ''').fetchone()[0]
+                return total, tag_rows, this_week, missing_embeddings
 
-            total_memories, tag_rows, memories_this_week = await self._execute_with_retry(_get_stats)
+            total_memories, tag_rows, memories_this_week, missing_embeddings = await self._execute_with_retry(_get_stats)
 
             unique_tags = len(set(
                 tag.strip()
@@ -978,6 +983,7 @@ class RetrieveMixin:
             return {
                 "backend": "sqlite-vec",
                 "total_memories": total_memories,
+                "missing_embeddings": missing_embeddings,
                 "unique_tags": unique_tags,
                 "memories_this_week": memories_this_week,
                 "database_size_bytes": file_size,

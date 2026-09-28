@@ -5,6 +5,7 @@ Comprehensive Database Health Check for MCP Memory Service SQLite-vec Backend
 
 import asyncio
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -79,9 +80,8 @@ class HealthChecker:
                     print(f"      Missing table: {table}")
                     return False
             
-            storage.close()
-            os.remove(db_path)
-            os.rmdir(temp_dir)
+            await storage.close()
+            shutil.rmtree(temp_dir, ignore_errors=True)
             return True
             
         except Exception as e:
@@ -133,9 +133,8 @@ class HealthChecker:
                 print(f"      Delete failed: {message}")
                 return False
             
-            storage.close()
-            os.remove(db_path)
-            os.rmdir(temp_dir)
+            await storage.close()
+            shutil.rmtree(temp_dir, ignore_errors=True)
             return True
             
         except Exception as e:
@@ -183,15 +182,52 @@ class HealthChecker:
                     print(f"      Invalid relevance score: {result.relevance_score}")
                     return False
             
-            storage.close()
-            os.remove(db_path)
-            os.rmdir(temp_dir)
+            await storage.close()
+            shutil.rmtree(temp_dir, ignore_errors=True)
             return True
             
         except Exception as e:
             print(f"      Vector search error: {e}")
             return False
     
+    async def test_embedding_invariants(self):
+        """Test invariant: all active memories have a corresponding embedding row."""
+        temp_dir = tempfile.mkdtemp()
+        db_path = os.path.join(temp_dir, "embedding_invariants_test.db")
+        try:
+            from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+            from mcp_memory_service.models.memory import Memory
+            from mcp_memory_service.utils.hashing import generate_content_hash
+
+            storage = SqliteVecMemoryStorage(db_path)
+            await storage.initialize()
+
+            content = "Embedding invariant verification memory"
+            memory = Memory(
+                content=content,
+                content_hash=generate_content_hash(content),
+                tags=["invariant", "test"],
+                memory_type="test"
+            )
+            await storage.store(memory)
+
+            cursor = storage.conn.execute("""
+                SELECT COUNT(*) FROM memories m
+                WHERE m.deleted_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM memory_embeddings e WHERE e.rowid = m.id)
+            """)
+            missing = cursor.fetchone()[0]
+            if missing != 0:
+                print(f"      Embedding invariant violated: {missing} active memories without embeddings")
+                return False
+
+            await storage.close()
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return True
+        except Exception as e:
+            print(f"      Embedding invariants error: {e}")
+            return False
+
     def test_environment(self):
         """Test environment configuration."""
         required_vars = {
@@ -264,6 +300,7 @@ async def main():
     await checker.test("Database Creation", checker.test_database_creation)
     await checker.test("Memory Operations", checker.test_memory_operations)
     await checker.test("Vector Search", checker.test_vector_search)
+    await checker.test("Embedding Invariants", checker.test_embedding_invariants)
     
     # Summary
     print("\n" + "=" * 60)

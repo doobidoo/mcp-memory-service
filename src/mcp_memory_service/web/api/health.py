@@ -167,14 +167,19 @@ async def detailed_health_check(
     # Extract statistics for separate field if available
     statistics = {
         "total_memories": storage_info.get("total_memories", 0),
+        "missing_embeddings": storage_info.get("missing_embeddings", 0),
         "unique_tags": storage_info.get("unique_tags", 0),
         "memories_this_week": storage_info.get("memories_this_week", 0),
         "database_size_mb": storage_info.get("database_size_mb", 0),
         "backend": storage_info.get("backend", "sqlite-vec")
     }
+
+    health_status = "healthy"
+    if storage_info.get("missing_embeddings", 0) > 0:
+        health_status = "degraded"
     
     return DetailedHealthResponse(
-        status="healthy",
+        status=health_status,
         version=__version__,
         timestamp=datetime.now(timezone.utc).isoformat(),
         uptime_seconds=time.time() - _startup_time,

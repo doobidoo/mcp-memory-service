@@ -566,6 +566,10 @@ class ConsolidationHealthMonitor:
                     checks['read_operations'] = 'functional'
                     checks['memory_count'] = stats.get(
                         'total_memories', 'unknown')
+                    missing = stats.get('missing_embeddings', 0)
+                    if isinstance(missing, int) and missing > 0:
+                        checks['missing_embeddings'] = missing
+                        status = HealthStatus.DEGRADED
             elif hasattr(storage, 'count_all_memories'):
                 count = await storage.count_all_memories()
                 checks['storage_connection'] = 'connected'
