@@ -164,10 +164,23 @@ async def detailed_health_check(
         "uptime_formatted": format_uptime(time.time() - _startup_time)
     }
     
-    # Extract statistics for separate field if available
-    missing_embeddings = storage_info.get("missing_embeddings")
-    if not missing_embeddings:
-        missing_embeddings = (storage_info.get("primary_stats") or {}).get("missing_embeddings", 0)
+    # Check embedding integrity directly using existing helper
+    conn = getattr(storage, 'conn', None) or getattr(getattr(storage, 'primary', None), 'conn', None)
+    missing_embeddings = 0
+    if conn:
+        try:
+            from ...utils.health_check import _check_embedding_integrity
+            integrity = _check_embedding_integrity(conn)
+            missing_embeddings = integrity.get("missing_embeddings", 0)
+        except Exception:
+            pass
+    elif "missing_embeddings" in storage_info:
+        missing_embeddings = storage_info["missing_embeddings"]
+    elif "primary_stats" in storage_info and "missing_embeddings" in (storage_info.get("primary_stats") or {}):
+        missing_embeddings = storage_info["primary_stats"]["missing_embeddings"]
+
+    if missing_embeddings > 0:
+        storage_info["missing_embeddings"] = missing_embeddings
 
     statistics = {
         "total_memories": storage_info.get("total_memories", 0),

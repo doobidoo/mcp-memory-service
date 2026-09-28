@@ -261,12 +261,26 @@ class HealthChecker:
                 return True
 
             conn = sqlite3.connect(db_path)
+            try:
+                import sqlite_vec
+                conn.enable_load_extension(True)
+                sqlite_vec.load(conn)
+                conn.enable_load_extension(False)
+            except Exception as e:
+                print(f"      Failed to load sqlite-vec extension on {db_path}: {e}")
+                return False
+
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('memories', 'memory_embeddings')")
             tables = {row[0] for row in cursor.fetchall()}
-            if 'memories' not in tables or 'memory_embeddings' not in tables:
-                print(f"      Required tables not present in {db_path}, skipping check")
+
+            if 'memories' not in tables:
+                print(f"      'memories' table not present in {db_path} (uninitialized), skipping check")
                 return True
+
+            if 'memory_embeddings' not in tables:
+                print(f"      Embedding invariant violated: 'memories' table exists but 'memory_embeddings' is missing in {db_path}")
+                return False
 
             cursor.execute("""
                 SELECT COUNT(*) FROM memories m
