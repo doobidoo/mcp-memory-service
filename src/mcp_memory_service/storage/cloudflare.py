@@ -877,7 +877,10 @@ class CloudflareStorage(MemoryStorage):
             # as both the Vectorize id and this column, so the lookup needs
             # nothing from the match metadata (queries run with
             # returnMetadata="none", which keeps the topK ceiling at 100).
-            sql = "SELECT * FROM memories WHERE vector_id = ?"
+            # Exclude soft-deleted rows: _delete_vectorize_vector only warns
+            # on failure, so delete() can tombstone D1 while the vector
+            # survives, and a match on it must not resurface the memory.
+            sql = "SELECT * FROM memories WHERE vector_id = ? AND deleted_at IS NULL"
             payload = {"sql": sql, "params": [vector_id]}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()

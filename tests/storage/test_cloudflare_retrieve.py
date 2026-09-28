@@ -307,7 +307,9 @@ async def test_load_memory_from_match_loads_by_vector_id_without_match_metadata(
     # Queries run with returnMetadata="none", so a match carries only an id
     # and a score. The loader must reach D1 through the indexed vector_id
     # column (store() writes memory.content_hash there and as the Vectorize
-    # id) instead of the match metadata's content_hash.
+    # id) instead of the match metadata's content_hash. The lookup also
+    # excludes soft-deleted rows: every other read path does, and a
+    # survived Vectorize deletion must not resurface a deleted memory.
     storage = CloudflareStorage(
         api_token="token",
         account_id="account",
@@ -345,5 +347,33 @@ async def test_load_memory_from_match_loads_by_vector_id_without_match_metadata(
     assert memory.content == "body"
     assert memory.tags == ["wanted"]
     d1_payload = storage._retry_request.call_args.kwargs["json"]
-    assert d1_payload["sql"] == "SELECT * FROM memories WHERE vector_id = ?"
+    assert (
+        d1_payload["sql"]
+        == "SELECT * FROM memories WHERE vector_id = ? AND deleted_at IS NULL"
+    )
     assert d1_payload["params"] == ["hash-1"]
+
+
+async def test_load_memory_from_match_sql_excludes_soft_deleted_rows():
+    # _delete_vectorize_vector only logs a warning on failure, so delete()
+    # tombstones the D1 row while the Vectorize vector survives. A later
+    # match on that vector must hit the deleted_at guard and return None,
+    # not reconstruct the deleted memory.
+    storage = CloudflareStorage(
+        api_token="token",
+        account_id="account",
+        vectorize_index="index",
+        d1_database_id="database",
+    )
+    storage._retry_request = AsyncMock(
+        return_value=httpx.Response(
+            200,
+            json={"success": True, "result": [{"results": []}]},
+        )
+    )
+
+    memory = await storage._load_memory_from_match({"id": "hash-1", "score": 0.9})
+
+    assert memory is None
+    sql = storage._retry_request.call_args.kwargs["json"]["sql"]
+    assert "deleted_at IS NULL" in sql
