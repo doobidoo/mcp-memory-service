@@ -153,5 +153,23 @@ def test_line_cap_keeps_the_footer_and_the_cap_warning(digest):
     lines = digest.render(data, 14, NOW).splitlines()
     assert len(lines) == digest.MAX_LINES
     assert "counts and sections are partial" in lines[2]
-    assert lines[-2] == "_(truncated to keep the digest short)_"
     assert lines[-1].endswith("No action was taken automatically._")
+
+
+def test_no_section_header_is_left_without_items(digest):
+    # Every section full, plus the cap warning and the stale-cap note, at every
+    # size of the unlabelled list: no header may end up with zero items under it.
+    for extra in range(0, 12):
+        new = [issue(n, days_old=0.1, author="a", labels=["x"]) for n in range(1, 8)]
+        old = [issue(n) for n in range(100, 100 + digest.STALE_LOOKUP_CAP + 3 + extra)]
+        pulls = [issue(n, days_old=0.1, pr=True) for n in range(900, 906)]
+        data = digest.collect(fake_get(new + old, pulls), 14, NOW)
+        data["truncated"] = True
+        lines = digest.render(data, 14, NOW).splitlines()
+        assert len(lines) <= digest.MAX_LINES
+        assert lines[-1].endswith("No action was taken automatically._")
+        for n, line in enumerate(lines):
+            if line.startswith("**"):
+                assert lines[n + 1].startswith("- "), (extra, line)
+        shown = [l for l in lines if l.startswith("**")]
+        assert len(shown) == 4 or "No room in" in lines[-2], extra

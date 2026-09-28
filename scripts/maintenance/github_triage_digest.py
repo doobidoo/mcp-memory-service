@@ -185,19 +185,36 @@ def render(data: dict[str, Any], stale_days: int, now: dt.datetime) -> str:
     lines = [f"### Triage digest — {now:%Y-%m-%d %H:%M} UTC", ""]
     if data.get("truncated"):
         # Same rule as the stale cap: a silent limit reads as "that was everything".
-        # Placed first so the MAX_LINES cut can never drop it.
         lines += [f"_Listing capped at {PER_PAGE * MAX_PAGES} items per endpoint; "
                   "counts and sections are partial._", ""]
 
-    def section(title: str, items: list[dict], cap: int, fmt) -> None:
+    # Sections are laid out inside the line budget instead of cut afterwards: a
+    # cut after the fact can strand a header without its items or drop the footer.
+    # Two lines stay reserved, one for the "no room" note and one for the footer.
+    budget = MAX_LINES - 2
+    dropped: list[str] = []
+
+    def section(name: str, items: list[dict], cap: int, fmt) -> None:
         if not items:
             return
-        lines.append(f"**{title}** ({len(items)})")
-        for item in items[:cap]:
-            lines.append(fmt(item))
-        if len(items) > cap:
-            lines.append(f"- ... and {len(items) - cap} more not listed")
+        room = budget - len(lines) - 2          # minus header and trailing blank
+        shown = min(cap, len(items), room)
+        if shown < len(items):
+            shown = min(shown, room - 1)        # keep a line for "... and N more"
+        if shown < 1:
+            dropped.append(name)
+            return
+        lines.append(f"**{name}** ({len(items)})")
+        lines.extend(fmt(item) for item in items[:shown])
+        if shown < len(items):
+            lines.append(f"- ... and {len(items) - shown} more not listed")
         lines.append("")
+
+    def note(name: str, text: str) -> None:
+        if budget - len(lines) < 2:
+            dropped.append(name)
+            return
+        lines.extend([text, ""])
 
     section("New in the last 24h", data["new_issues"] + data["new_pulls"], 6,
             lambda i: f"- {ref(i)} {title(i, 72)} — `{i['user']['login']}`")
@@ -205,25 +222,21 @@ def render(data: dict[str, Any], stale_days: int, now: dt.datetime) -> str:
             lambda i: f"- {ref(i)} {title(i, 72)}")
     if data["stale_unchecked"]:
         # Say what was skipped. A silent cap reads as "nothing else was stale".
-        lines.append(
-            f"_{data['stale_unchecked']} further aged item(s) not checked this run "
-            f"(lookup cap {STALE_LOOKUP_CAP})._"
-        )
-        lines.append("")
+        note("stale lookup cap",
+             f"_{data['stale_unchecked']} further aged item(s) not checked this run "
+             f"(lookup cap {STALE_LOOKUP_CAP})._")
     section("Open PRs", data["open_pulls"], 5,
             lambda p: f"- {ref(p)} {title(p, 72)} — `{p['user']['login']}`")
     section("Unlabelled", data["unlabelled"], 4,
             lambda i: f"- {ref(i)} {title(i, 64)}")
 
-    footer = (
+    if dropped:
+        lines.append(f"_No room in {MAX_LINES} lines for: {', '.join(dropped)}._")
+    lines.append(
         f"_{len(data['open_issues'])} open issues, {len(data['open_pulls'])} open PRs. "
         "No action was taken automatically._"
     )
-    # The cut takes lines from the sections, never the footer: the counts are the
-    # one line that tells the reader how much the listing left out.
-    if len(lines) + 1 > MAX_LINES:
-        lines = lines[:MAX_LINES - 2] + ["_(truncated to keep the digest short)_"]
-    return "\n".join(lines + [footer])
+    return "\n".join(lines)
 
 
 def main() -> int:
