@@ -106,8 +106,14 @@ class ExponentialDecayCalculator(ConsolidationBase):
         # Calculate access boost
         access_boost = self._calculate_access_boost(memory, access_patterns, current_time)
 
-        # Get initial quality score
-        quality_score = memory.quality_score
+        # Get initial quality score.
+        # Use computed_quality (machine score), NOT the effective quality_score:
+        # relevance/decay is a retention concern, and a human rating is a search
+        # signal, not a keep/forget verdict (#1312). This keeps decay consistent
+        # with forgetting.py, which also reads computed_quality. Fallback to the
+        # effective score for memories stored before the split.
+        quality_score = memory.metadata.get('computed_quality', memory.quality_score)
+        original_quality = quality_score
 
         # Association-based quality boost (v8.47.0+)
         association_boost_applied = False
@@ -163,7 +169,7 @@ class ExponentialDecayCalculator(ConsolidationBase):
                 'quality_multiplier': quality_multiplier,
                 'association_boost_applied': association_boost_applied,
                 'quality_boost_factor': quality_boost_factor,
-                'original_quality_score': memory.quality_score
+                'original_quality_score': original_quality
             }
         )
     
@@ -273,24 +279,20 @@ class ExponentialDecayCalculator(ConsolidationBase):
             'access_boost': score.access_boost
         })
 
-        # Update quality score if association boost was applied (v8.47.0+)
+        # Association boost is a RETENTION signal only (#1349). It already raised
+        # this memory's relevance_score above (via the quality_multiplier computed
+        # on computed_quality), so retention is preserved here. It must NOT be
+        # written back into quality_score: that field is the effective, search-
+        # facing score = effective_quality(computed, user_rating), and overwriting
+        # it would resurrect a machine score over a human down-vote (Henry review).
         if score.metadata.get('association_boost_applied', False):
             boosted_quality = score.metadata.get('quality_score')
             original_quality = score.metadata.get('original_quality_score')
-
-            if boosted_quality and boosted_quality > original_quality:
-                # Update quality_score via metadata (no setter available)
-                memory.metadata.update({
-                    'quality_score': boosted_quality,
-                    'quality_boost_applied': True,
-                    'quality_boost_date': datetime.now().isoformat(),
-                    'quality_boost_reason': 'association_connections',
-                    'quality_boost_connection_count': score.metadata.get('connection_count', 0),
-                    'original_quality_before_boost': original_quality
-                })
-                self.logger.info(
-                    f"Persisting association quality boost for {memory.content_hash[:12]}: "
-                    f"{original_quality:.3f} → {boosted_quality:.3f}"
+            if boosted_quality and original_quality is not None and boosted_quality > original_quality:
+                self.logger.debug(
+                    f"Association retention boost for {memory.content_hash[:12]}: "
+                    f"computed {original_quality:.3f} → {boosted_quality:.3f} "
+                    f"(relevance only; quality_score/search score unchanged)"
                 )
 
         # NOTE: Do NOT call memory.touch() here — relevance scoring is a read path.
