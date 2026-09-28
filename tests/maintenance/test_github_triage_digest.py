@@ -141,3 +141,17 @@ def test_pagination_cap_is_reported_and_survives_the_line_cap(digest):
     # Right under the header, so the MAX_LINES cut at the bottom cannot drop it.
     assert "counts and sections are partial" in text.splitlines()[2]
     assert digest.collect(fake_get([issue(1)], []), 14, NOW)["truncated"] is False
+
+
+def test_line_cap_keeps_the_footer_and_the_cap_warning(digest):
+    # Enough of every section to overflow MAX_LINES, plus a full page to trip the cap.
+    new = [issue(n, days_old=0.1, author="a") for n in range(1, 8)]
+    old = [issue(n) for n in range(100, 100 + digest.PER_PAGE - 7)]
+    pulls = [issue(n, days_old=0.1, pr=True) for n in range(900, 906)]
+    data = digest.collect(fake_get(new + old, pulls), 14, NOW)
+    data["truncated"] = True
+    lines = digest.render(data, 14, NOW).splitlines()
+    assert len(lines) == digest.MAX_LINES
+    assert "counts and sections are partial" in lines[2]
+    assert lines[-2] == "_(truncated to keep the digest short)_"
+    assert lines[-1].endswith("No action was taken automatically._")

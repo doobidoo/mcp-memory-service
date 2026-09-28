@@ -215,14 +215,15 @@ def render(data: dict[str, Any], stale_days: int, now: dt.datetime) -> str:
     section("Unlabelled", data["unlabelled"], 4,
             lambda i: f"- {ref(i)} {title(i, 64)}")
 
-    lines.append(
+    footer = (
         f"_{len(data['open_issues'])} open issues, {len(data['open_pulls'])} open PRs. "
         "No action was taken automatically._"
     )
-
-    if len(lines) > MAX_LINES:
-        lines = lines[:MAX_LINES - 1] + ["_(truncated to keep the digest short)_"]
-    return "\n".join(lines)
+    # The cut takes lines from the sections, never the footer: the counts are the
+    # one line that tells the reader how much the listing left out.
+    if len(lines) + 1 > MAX_LINES:
+        lines = lines[:MAX_LINES - 2] + ["_(truncated to keep the digest short)_"]
+    return "\n".join(lines + [footer])
 
 
 def main() -> int:
