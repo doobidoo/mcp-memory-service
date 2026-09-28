@@ -16,10 +16,13 @@
 Health check endpoints for the HTTP interface.
 """
 
+import logging
 import time
 import psutil
 from datetime import datetime, timezone
 from typing import Dict, Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -61,6 +64,38 @@ class DetailedHealthResponse(BaseModel):
 _startup_time = time.time()
 
 
+async def _count_missing_embeddings(storage, storage_info: Dict[str, Any]):
+    """Count live memories with no embedding row.
+
+    Returns (missing, unverified). `missing` is None when no count could be
+    obtained, and `unverified` is True when the check ran but could not answer —
+    an unreadable embedding table must not be reported as zero missing.
+    """
+    primary = getattr(storage, 'primary', None)
+    sqlite_storage = primary if primary is not None else storage
+    conn = getattr(sqlite_storage, 'conn', None)
+
+    if conn:
+        try:
+            from ...utils.health_check import _check_embedding_integrity
+            integrity = await sqlite_storage._run_in_thread(
+                _check_embedding_integrity, conn)
+        except Exception as e:
+            # Non-fatal: the health request still answers, but not with a count.
+            logger.warning("Embedding integrity check failed: %s", e)
+            return None, True
+        if not integrity:
+            return None, True
+        return integrity.get("missing_embeddings", 0), False
+
+    primary_stats = storage_info.get("primary_stats") or {}
+    if "missing_embeddings" in storage_info:
+        return storage_info["missing_embeddings"], False
+    if "missing_embeddings" in primary_stats:
+        return primary_stats["missing_embeddings"], False
+    return None, False
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
     """Basic health check endpoint.
@@ -70,6 +105,82 @@ async def health_check():
     (GHSA-73hc-m4hx-79pj).
     """
     return HealthResponse(status="healthy")
+
+
+def _backend_type(backend_name: str) -> str:
+    """Map a backend class or stats name onto the public backend label."""
+    lowered = backend_name.lower()
+    for marker, label in (("sqlite", "sqlite-vec"),
+                          ("cloudflare", "cloudflare"),
+                          ("hybrid", "hybrid")):
+        if marker in lowered:
+            return label
+    return backend_name
+
+
+async def _sync_status(storage) -> Dict[str, Any]:
+    """Summarize hybrid sync state, reporting the error rather than raising."""
+    try:
+        status = await storage.get_sync_status()
+    except Exception as sync_err:
+        return {"error": str(sync_err)}
+    last_sync = status.get('last_sync_time', 0)
+    return {
+        "is_running": status.get('is_running', False),
+        "last_sync_time": last_sync,
+        "pending_operations": status.get('pending_operations', 0),
+        "operations_processed": status.get('operations_processed', 0),
+        "operations_failed": status.get('operations_failed', 0),
+        "time_since_last_sync": time.time() - last_sync if last_sync > 0 else 0
+    }
+
+
+async def _collect_storage_info(storage) -> Dict[str, Any]:
+    """Describe the active storage backend for the detailed health response."""
+    try:
+        # Get statistics from storage using universal get_stats() method
+        if hasattr(storage, 'get_stats') and callable(getattr(storage, 'get_stats')):
+            # All storage backends now have async get_stats()
+            stats = await storage.get_stats()
+        else:
+            stats = {"error": "Storage backend doesn't support statistics"}
+
+        if "error" in stats:
+            return {
+                "backend": storage.__class__.__name__,
+                "status": "error",
+                "accessible": False,
+                "error": stats["error"]
+            }
+
+        backend_type = _backend_type(
+            stats.get("storage_backend", storage.__class__.__name__))
+        storage_info = {
+            "backend": backend_type,
+            "status": "connected",
+            "accessible": True
+        }
+
+        # Add backend-specific information if available
+        # NOTE: database_path intentionally omitted — leaks filesystem
+        # structure and username (GHSA-73hc-m4hx-79pj)
+        if hasattr(storage, 'embedding_model_name'):
+            storage_info["embedding_model"] = storage.embedding_model_name
+
+        if backend_type == "hybrid" and hasattr(storage, 'get_sync_status'):
+            storage_info["sync_status"] = await _sync_status(storage)
+
+        # Merge all stats
+        storage_info.update(stats)
+
+    except Exception as e:
+        storage_info = {
+            "backend": storage.__class__.__name__ if hasattr(storage, '__class__') else "unknown",
+            "status": "error",
+            "error": str(e)
+        }
+    
+    return storage_info
 
 
 @router.get("/health/detailed", response_model=DetailedHealthResponse)
@@ -93,78 +204,20 @@ async def detailed_health_check(
         "disk_percent": round((disk_info.used / disk_info.total) * 100, 2)
     }
     
-    # Get storage information (support all storage backends)
-    try:
-        # Get statistics from storage using universal get_stats() method
-        if hasattr(storage, 'get_stats') and callable(getattr(storage, 'get_stats')):
-            # All storage backends now have async get_stats()
-            stats = await storage.get_stats()
-        else:
-            stats = {"error": "Storage backend doesn't support statistics"}
+    storage_info = await _collect_storage_info(storage)
 
-        if "error" not in stats:
-            # Detect backend type from storage class or stats
-            backend_name = stats.get("storage_backend", storage.__class__.__name__)
-            if "sqlite" in backend_name.lower():
-                backend_type = "sqlite-vec"
-            elif "cloudflare" in backend_name.lower():
-                backend_type = "cloudflare"
-            elif "hybrid" in backend_name.lower():
-                backend_type = "hybrid"
-            else:
-                backend_type = backend_name
-
-            storage_info = {
-                "backend": backend_type,
-                "status": "connected",
-                "accessible": True
-            }
-
-            # Add backend-specific information if available
-            # NOTE: database_path intentionally omitted — leaks filesystem
-            # structure and username (GHSA-73hc-m4hx-79pj)
-            if hasattr(storage, 'embedding_model_name'):
-                storage_info["embedding_model"] = storage.embedding_model_name
-
-            # Add sync status for hybrid backend
-            if backend_type == "hybrid" and hasattr(storage, 'get_sync_status'):
-                try:
-                    sync_status = await storage.get_sync_status()
-                    storage_info["sync_status"] = {
-                        "is_running": sync_status.get('is_running', False),
-                        "last_sync_time": sync_status.get('last_sync_time', 0),
-                        "pending_operations": sync_status.get('pending_operations', 0),
-                        "operations_processed": sync_status.get('operations_processed', 0),
-                        "operations_failed": sync_status.get('operations_failed', 0),
-                        "time_since_last_sync": time.time() - sync_status.get('last_sync_time', 0) if sync_status.get('last_sync_time', 0) > 0 else 0
-                    }
-                except Exception as sync_err:
-                    storage_info["sync_status"] = {"error": str(sync_err)}
-
-            # Merge all stats
-            storage_info.update(stats)
-        else:
-            storage_info = {
-                "backend": storage.__class__.__name__,
-                "status": "error",
-                "accessible": False,
-                "error": stats["error"]
-            }
-
-    except Exception as e:
-        storage_info = {
-            "backend": storage.__class__.__name__ if hasattr(storage, '__class__') else "unknown",
-            "status": "error",
-            "error": str(e)
-        }
-    
     # Performance metrics (basic for now)
     performance_info = {
         "uptime_seconds": time.time() - _startup_time,
         "uptime_formatted": format_uptime(time.time() - _startup_time)
     }
     
-    # Extract statistics for separate field if available
+    missing_embeddings, integrity_failed = await _count_missing_embeddings(
+        storage, storage_info)
+
+    if missing_embeddings is not None and missing_embeddings > 0:
+        storage_info["missing_embeddings"] = missing_embeddings
+
     statistics = {
         "total_memories": storage_info.get("total_memories", 0),
         "unique_tags": storage_info.get("unique_tags", 0),
@@ -172,9 +225,15 @@ async def detailed_health_check(
         "database_size_mb": storage_info.get("database_size_mb", 0),
         "backend": storage_info.get("backend", "sqlite-vec")
     }
+    if missing_embeddings is not None:
+        statistics["missing_embeddings"] = missing_embeddings
+
+    health_status = "healthy"
+    if integrity_failed or (missing_embeddings is not None and missing_embeddings > 0):
+        health_status = "degraded"
     
     return DetailedHealthResponse(
-        status="healthy",
+        status=health_status,
         version=__version__,
         timestamp=datetime.now(timezone.utc).isoformat(),
         uptime_seconds=time.time() - _startup_time,
