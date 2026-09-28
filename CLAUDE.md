@@ -60,7 +60,7 @@ At the end of any session that produces a decision, root cause, or reusable less
 
 ### Source Control & Hosting
 
-- **GitHub is where the work happens.** CI runs as GitHub Actions in `.github/workflows/`: `ci.yml`, `release.yml`, `deploy-site.yml`, `cleanup-images.yml`, `codeql.yml`. Issues, PRs and releases are there, and so is the tag push that starts a release.
+- **GitHub is where the work happens.** CI runs as GitHub Actions in `.github/workflows/`: `ci.yml`, `release.yml`, `deploy-site.yml`, `cleanup-images.yml`, `codeql.yml`, and `triage-digest.yml` (daily maintainer digest, see `scripts/maintenance/github_triage_digest.py`). Issues, PRs and releases are there, and so is the tag push that starts a release.
 - **Only GitHub-owned actions are allowed, and SHA pinning is enforced.** The repository is set to `allowed_actions: selected` with `github_owned_allowed: true`, an empty `patterns_allowed` list, and `sha_pinning_required: true`. A third-party action therefore does not fail at review, it fails at run time. That is why `release.yml` shells out to raw `docker buildx` instead of using the `docker/*` actions. Before adding any `uses:` that is not `actions/*` or `github/*`, the allowlist has to be widened deliberately.
 - **A ruleset caps a single push at two refs.** `Pushes can not update more than 2 branches or tags`. Bulk tag pushes have to be batched in pairs; this is why the historical tag import ran as 15 pushes rather than one.
 - **One publisher at a time.** `release.yml` owns PyPI and Docker Hub, and it is the only thing that may publish. Before wiring any second automation that could publish, disarm the first one. Codeberg lost its secrets on 2026-09-05 for exactly this reason.
