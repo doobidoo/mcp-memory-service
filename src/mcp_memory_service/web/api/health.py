@@ -164,17 +164,39 @@ async def detailed_health_check(
         "uptime_formatted": format_uptime(time.time() - _startup_time)
     }
     
-    # Extract statistics for separate field if available
+    # Check embedding integrity directly using existing helper
+    conn = getattr(storage, 'conn', None) or getattr(getattr(storage, 'primary', None), 'conn', None)
+    missing_embeddings = 0
+    if conn:
+        try:
+            from ...utils.health_check import _check_embedding_integrity
+            integrity = _check_embedding_integrity(conn)
+            missing_embeddings = integrity.get("missing_embeddings", 0)
+        except Exception:
+            pass
+    elif "missing_embeddings" in storage_info:
+        missing_embeddings = storage_info["missing_embeddings"]
+    elif "primary_stats" in storage_info and "missing_embeddings" in (storage_info.get("primary_stats") or {}):
+        missing_embeddings = storage_info["primary_stats"]["missing_embeddings"]
+
+    if missing_embeddings > 0:
+        storage_info["missing_embeddings"] = missing_embeddings
+
     statistics = {
         "total_memories": storage_info.get("total_memories", 0),
+        "missing_embeddings": missing_embeddings,
         "unique_tags": storage_info.get("unique_tags", 0),
         "memories_this_week": storage_info.get("memories_this_week", 0),
         "database_size_mb": storage_info.get("database_size_mb", 0),
         "backend": storage_info.get("backend", "sqlite-vec")
     }
+
+    health_status = "healthy"
+    if missing_embeddings > 0:
+        health_status = "degraded"
     
     return DetailedHealthResponse(
-        status="healthy",
+        status=health_status,
         version=__version__,
         timestamp=datetime.now(timezone.utc).isoformat(),
         uptime_seconds=time.time() - _startup_time,
