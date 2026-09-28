@@ -33,9 +33,6 @@ class TranscriptParser:
     KIRO_KIND_MAP = {"Prompt": "user", "Response": "assistant", "AssistantMessage": "assistant"}
     OPENCLAW_MESSAGE_TYPES = {"prompt.submitted", "model.completed"}
     PAYLOAD_ROLE_MAP = {"user": "user", "assistant": "assistant"}
-    # Tool results can be legitimately large (query dumps, reports). Keep them, but
-    # cap the harvested text so one huge result cannot blow the extractor budget.
-    TOOL_RESULT_MAX_CHARS = 50000
 
     # --- Phase 0 coverage instrument (#1287) -------------------------------
     # Counts, per block kind/type, how many were seen vs extracted vs dropped,
@@ -257,16 +254,15 @@ class TranscriptParser:
         # payload inside a tool result cannot become a harvested memory — but do NOT
         # apply the >10k length cutoff that _is_system_content uses: a long tool
         # result is exactly the rich analytical data #1346 wants (query dumps,
-        # diagnostic reports). Oversized content is truncated, not dropped.
+        # diagnostic reports). The content is passed verbatim, like every other
+        # parser; the extractor caps each candidate (MAX_CANDIDATE_CONTENT_LENGTH)
+        # and scans the whole text, so nothing after an arbitrary parser-side cutoff
+        # is silently lost.
         elif ptype == "tool_result":
             content = pl.get("content")
             if isinstance(content, str) and content.strip() and not self._is_injected_content(content):
                 self._record_coverage("tool_result", was_extracted=True)
-                # Keep verbatim (no strip); truncate only if it would blow the budget.
-                text = content
-                if len(text) > self.TOOL_RESULT_MAX_CHARS:
-                    text = text[:self.TOOL_RESULT_MAX_CHARS] + "\n...[truncated]"
-                return [ParsedMessage(role="assistant", text=text, timestamp=ts, uuid=uid)]
+                return [ParsedMessage(role="assistant", text=content, timestamp=ts, uuid=uid)]
             else:
                 self._record_coverage("tool_result", was_extracted=False)
                 return []

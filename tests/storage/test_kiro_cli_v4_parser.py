@@ -423,8 +423,8 @@ class TestKiroCliV4Parser:
 
         parser = TranscriptParser()
         result = parser.parse_file(jsonl_file)
-        # The big tool result is kept (harvested), the injected one is dropped.
+        # The big tool result is kept (harvested) verbatim, the injected one dropped.
+        # No parser-side truncation: the extractor caps each candidate downstream, so
+        # nothing after an arbitrary cutoff is silently lost (Greptile P1 r3).
         assert len(result) == 1
-        assert result[0].text.startswith("row data ")
-        # Truncated to the cap, not the full 18k, and never dropped.
-        assert len(result[0].text) <= TranscriptParser.TOOL_RESULT_MAX_CHARS + 20
+        assert result[0].text == big
