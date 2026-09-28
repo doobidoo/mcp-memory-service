@@ -243,7 +243,7 @@ class EmbeddingsMixin:
                                 "being ignored. Set MCP_MEMORY_USE_ONNX=0 to load it via "
                                 "SentenceTransformers, or configure an external embedding API "
                                 "(MCP_EXTERNAL_EMBEDDING_URL).",
-                                self.embedding_model_name, onnx_model.embedding_dimension,
+                                _sanitize_log_value(self.embedding_model_name), onnx_model.embedding_dimension,
                             )
                         self.embedding_model = onnx_model
                         self.embedding_dimension = onnx_model.embedding_dimension
