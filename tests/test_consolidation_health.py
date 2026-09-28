@@ -55,6 +55,11 @@ def _make_storage(count_method="count_all_memories"):
     count_method selects which ping method is available.
     """
     storage = MagicMock()
+    # A bare MagicMock answers every attribute, which makes the storage look like
+    # a hybrid backend with a live connection. Drop both so the embedding-integrity
+    # check sees no connection and skips, as it does on a backend without one.
+    del storage.primary
+    del storage.conn
     if count_method == "count_all_memories":
         storage.count_all_memories = AsyncMock(return_value=42)
         # No get_stats attribute
