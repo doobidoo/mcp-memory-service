@@ -24,13 +24,15 @@ class TranscriptParser:
     Format is detected from the first message in the file:
     - If "traceSchema" is "openclaw-trajectory" → OpenClaw gateway format
     - If "type" key exists → Claude Code format
-    - If "kind" key exists → Kiro CLI format
+    - If "kind" key exists → Kiro CLI format (legacy)
+    - If "payload" with "type" exists → Kiro CLI v4 format (payload-wrapped)
     - Unknown → warning logged, returns empty
     """
 
     RELEVANT_TYPES = {"user", "assistant"}
     KIRO_KIND_MAP = {"Prompt": "user", "Response": "assistant", "AssistantMessage": "assistant"}
     OPENCLAW_MESSAGE_TYPES = {"prompt.submitted", "model.completed"}
+    PAYLOAD_ROLE_MAP = {"user": "user", "assistant": "assistant"}
 
     # --- Phase 0 coverage instrument (#1287) -------------------------------
     # Counts, per block kind/type, how many were seen vs extracted vs dropped,
@@ -134,6 +136,8 @@ class TranscriptParser:
                         format_detected = "claude"
                     elif "kind" in obj:
                         format_detected = "kiro"
+                    elif isinstance(obj.get("payload"), dict) and "type" in obj["payload"]:
+                        format_detected = "kiro-cli-v4"
                     else:
                         logger.warning(f"Unknown session format in {filepath.name}, skipping")
                         return messages
@@ -142,6 +146,8 @@ class TranscriptParser:
                     msgs = self._parse_claude_line(obj)
                 elif format_detected == "kiro":
                     msgs = self._parse_kiro_line(obj)
+                elif format_detected == "kiro-cli-v4":
+                    msgs = self._parse_kiro_v4_line(obj)
                 elif format_detected == "openclaw":
                     msgs = self._parse_openclaw_line(obj)
                 else:
@@ -212,6 +218,42 @@ class TranscriptParser:
                 # Non-text block (e.g. tool_use) — dropped, but now visible per kind.
                 self._record_coverage(block_kind, was_extracted=False)
         return results
+
+    def _parse_kiro_v4_line(self, obj: dict) -> List[ParsedMessage]:
+        """Parse a single Kiro CLI v4 (payload-wrapped) JSONL line.
+        
+        Format: {"id": "...", "timestamp": "...", "payload": {"type": "...", "content": "...", ...}}
+        """
+        pl = obj.get("payload", {})
+        ptype = pl.get("type")
+        ts = obj.get("timestamp")
+        uid = obj.get("id")
+        
+        # Handle user/assistant messages
+        if ptype in self.PAYLOAD_ROLE_MAP:
+            role = self.PAYLOAD_ROLE_MAP[ptype]
+            content = pl.get("content")
+            if isinstance(content, str) and content.strip() and not self._is_system_content(content):
+                self._record_coverage(ptype, was_extracted=True)
+                return [ParsedMessage(role=role, text=content.strip(), timestamp=ts, uuid=uid)]
+            else:
+                self._record_coverage(ptype, was_extracted=False)
+                return []
+        
+        # Handle tool_result as assistant message with rich content
+        elif ptype == "tool_result":
+            content = pl.get("content")
+            if isinstance(content, str) and content.strip():
+                self._record_coverage("tool_result", was_extracted=True)
+                return [ParsedMessage(role="assistant", text=content, timestamp=ts, uuid=uid)]
+            else:
+                self._record_coverage("tool_result", was_extracted=False)
+                return []
+        
+        # Handle tool_call and metadata - not extracted but counted in coverage
+        else:
+            self._record_coverage(ptype, was_extracted=False)
+            return []
 
     def _parse_openclaw_line(self, obj: dict) -> List[ParsedMessage]:
         """Parse a single OpenClaw gateway trajectory JSONL line.
