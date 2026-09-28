@@ -108,8 +108,9 @@ def _collect_sqlite_stats(conn: Any, storage: Any) -> Dict[str, Any]:
         if not cursor.fetchone():
             raise LookupError("SQLite database is missing required 'memories' table")
 
-        # Count memories
-        cursor = conn.execute('SELECT COUNT(*) FROM memories')
+        # Count live memories (repo rule: exclude soft-deleted tombstones so the
+        # health count matches the live memory count, not the physical row count).
+        cursor = conn.execute('SELECT COUNT(*) FROM memories WHERE deleted_at IS NULL')
         memory_count = cursor.fetchone()[0]
 
         # Check if embedding tables exist
@@ -152,8 +153,9 @@ def _collect_hybrid_sqlite_stats(conn: Any) -> Dict[str, Any]:
         if not cursor.fetchone():
             raise LookupError("SQLite database is missing required 'memories' table")
 
-        # Count memories
-        cursor = conn.execute('SELECT COUNT(*) FROM memories')
+        # Count live memories (repo rule: exclude soft-deleted tombstones so the
+        # health count matches the live memory count, not the physical row count).
+        cursor = conn.execute('SELECT COUNT(*) FROM memories WHERE deleted_at IS NULL')
         memory_count = cursor.fetchone()[0]
 
         # Check if embedding tables exist
