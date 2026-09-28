@@ -119,11 +119,15 @@ def collect(get: Get, stale_days: int, now: dt.datetime,
     day_ago = now - dt.timedelta(days=1)
 
     # The issues endpoint returns pull requests too; they carry a `pull_request` key.
+    raw_issues = get_all(get, "/issues?state=open")
+    pulls = get_all(get, "/pulls?state=open")
+    # get_all stops at MAX_PAGES; a full last page means there may be more.
+    capped = PER_PAGE * MAX_PAGES
+    truncated = len(raw_issues) >= capped or len(pulls) >= capped
     issues = [
-        i for i in get_all(get, "/issues?state=open")
+        i for i in raw_issues
         if "pull_request" not in i and i["number"] != digest_issue
     ]
-    pulls = get_all(get, "/pulls?state=open")
 
     def is_new(item: dict) -> bool:
         return parse(item["created_at"]) >= day_ago
@@ -150,6 +154,7 @@ def collect(get: Get, stale_days: int, now: dt.datetime,
         "unlabelled": [i for i in issues if not i.get("labels")],
         "open_pulls": pulls,
         "open_issues": issues,
+        "truncated": truncated,
     }
 
 
@@ -166,14 +171,23 @@ def ref(item: dict) -> str:
 def title(item: dict, width: int) -> str:
     """Issue title with mentions and references defused.
 
-    Titles quote other issues and people ("closes #1146", "reported by @x"). A
-    zero-width space after '@' and '#' keeps the text readable and unlinked.
+    Titles quote other issues and people ("closes #1146", "reported by @x", or a
+    full issue URL). A zero-width space after '@', '#' and ':' keeps the text
+    readable and stops GitHub from linking or cross-referencing it.
     """
-    return item["title"][:width].replace("@", "@\u200b").replace("#", "#\u200b")
+    text = item["title"][:width]
+    for token in ("@", "#", ":"):
+        text = text.replace(token, token + "\u200b")
+    return text
 
 
 def render(data: dict[str, Any], stale_days: int, now: dt.datetime) -> str:
     lines = [f"### Triage digest — {now:%Y-%m-%d %H:%M} UTC", ""]
+    if data.get("truncated"):
+        # Same rule as the stale cap: a silent limit reads as "that was everything".
+        # Placed first so the MAX_LINES cut can never drop it.
+        lines += [f"_Listing capped at {PER_PAGE * MAX_PAGES} items per endpoint; "
+                  "counts and sections are partial._", ""]
 
     def section(title: str, items: list[dict], cap: int, fmt) -> None:
         if not items:

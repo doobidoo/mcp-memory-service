@@ -116,3 +116,28 @@ def test_titles_cannot_ping_or_cross_reference(digest):
     text = digest.render(digest.collect(fake_get([item], []), 14, NOW), 14, NOW)
     assert "#1146" not in text and "@someone" not in text
     assert "follow-up to #\u200b1146, reported by @\u200bsomeone" in text
+
+
+def test_issue_urls_in_titles_are_not_linked(digest):
+    item = issue(9, days_old=0.1)
+    item["title"] = "see https://github.com/doobidoo/mcp-memory-service/issues/1146"
+    text = digest.render(digest.collect(fake_get([item], []), 14, NOW), 14, NOW)
+    assert "https://" not in text
+
+
+def test_pagination_cap_is_reported_and_survives_the_line_cap(digest):
+    full = [issue(n) for n in range(1, digest.PER_PAGE + 1)]
+
+    def get(path):
+        if path.startswith("/issues?"):
+            return full
+        if path.startswith("/pulls?"):
+            return []
+        return [{"user": {"login": "doobidoo"}}]
+
+    data = digest.collect(get, 14, NOW)
+    assert data["truncated"] is True
+    text = digest.render(data, 14, NOW)
+    # Right under the header, so the MAX_LINES cut at the bottom cannot drop it.
+    assert "counts and sections are partial" in text.splitlines()[2]
+    assert digest.collect(fake_get([issue(1)], []), 14, NOW)["truncated"] is False
