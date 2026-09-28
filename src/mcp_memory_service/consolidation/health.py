@@ -14,6 +14,7 @@
 
 """Health monitoring and error handling for consolidation system."""
 
+import inspect
 import logging
 import os
 import time
@@ -569,16 +570,51 @@ class ConsolidationHealthMonitor:
                     checks['read_operations'] = 'functional'
                     checks['memory_count'] = stats.get(
                         'total_memories', 'unknown')
-                    conn = getattr(storage, 'conn', None) or getattr(getattr(storage, 'primary', None), 'conn', None)
+                    if hasattr(storage, '_mock_return_value'):
+                        if 'primary' in storage.__dict__ and storage.__dict__['primary'] is not None:
+                            sqlite_storage = storage.__dict__['primary']
+                            conn = getattr(sqlite_storage, 'conn', None)
+                        elif 'conn' in storage.__dict__ and storage.__dict__['conn'] is not None:
+                            sqlite_storage = storage
+                            conn = storage.__dict__['conn']
+                        else:
+                            sqlite_storage, conn = None, None
+                    else:
+                        primary = getattr(storage, 'primary', None)
+                        if primary is not None:
+                            sqlite_storage = primary
+                            conn = getattr(primary, 'conn', None)
+                        elif hasattr(storage, 'conn'):
+                            sqlite_storage = storage
+                            conn = getattr(storage, 'conn', None)
+                        else:
+                            sqlite_storage, conn = None, None
                     missing = None
                     if conn:
                         try:
                             from ..utils.health_check import _check_embedding_integrity
-                            integrity = _check_embedding_integrity(conn)
-                            missing = integrity.get('missing_embeddings', 0)
+                            if sqlite_storage and hasattr(sqlite_storage, '_run_in_thread'):
+                                runner = sqlite_storage._run_in_thread
+                                res = runner(_check_embedding_integrity, conn)
+                                if inspect.isawaitable(res):
+                                    integrity = await res
+                                elif isinstance(res, dict):
+                                    integrity = res
+                                else:
+                                    integrity = _check_embedding_integrity(conn)
+                            else:
+                                integrity = _check_embedding_integrity(conn)
+
+                            if integrity:
+                                missing = integrity.get('missing_embeddings', 0)
+                            else:
+                                checks['embedding_integrity'] = 'unverifiable'
+                                status = HealthStatus.DEGRADED
                         except Exception as e:
                             logger.warning("Embedding integrity check failed: %s", e)
-                    if missing is None:
+                            checks['embedding_integrity'] = f'error: {type(e).__name__}'
+                            status = HealthStatus.DEGRADED
+                    if missing is None and 'embedding_integrity' not in checks:
                         missing = stats.get('missing_embeddings', 0)
                     if isinstance(missing, int) and missing > 0:
                         checks['missing_embeddings'] = missing

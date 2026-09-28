@@ -16,6 +16,7 @@
 Health check endpoints for the HTTP interface.
 """
 
+import inspect
 import logging
 import time
 import psutil
@@ -168,35 +169,72 @@ async def detailed_health_check(
     }
     
     # Check embedding integrity directly using existing helper
-    conn = getattr(storage, 'conn', None) or getattr(getattr(storage, 'primary', None), 'conn', None)
-    missing_embeddings = 0
+    if hasattr(storage, '_mock_return_value'):
+        if 'primary' in storage.__dict__ and storage.__dict__['primary'] is not None:
+            sqlite_storage = storage.__dict__['primary']
+            conn = getattr(sqlite_storage, 'conn', None)
+        elif 'conn' in storage.__dict__ and storage.__dict__['conn'] is not None:
+            sqlite_storage = storage
+            conn = storage.__dict__['conn']
+        else:
+            sqlite_storage, conn = None, None
+    else:
+        primary = getattr(storage, 'primary', None)
+        if primary is not None:
+            sqlite_storage = primary
+            conn = getattr(primary, 'conn', None)
+        elif hasattr(storage, 'conn'):
+            sqlite_storage = storage
+            conn = getattr(storage, 'conn', None)
+        else:
+            sqlite_storage, conn = None, None
+
+    missing_embeddings = None
+    integrity_failed = False
+
     if conn:
         try:
             from ...utils.health_check import _check_embedding_integrity
-            integrity = _check_embedding_integrity(conn)
-            missing_embeddings = integrity.get("missing_embeddings", 0)
+            if sqlite_storage and hasattr(sqlite_storage, '_run_in_thread'):
+                runner = sqlite_storage._run_in_thread
+                res = runner(_check_embedding_integrity, conn)
+                if inspect.isawaitable(res):
+                    integrity = await res
+                elif isinstance(res, dict):
+                    integrity = res
+                else:
+                    integrity = _check_embedding_integrity(conn)
+            else:
+                integrity = _check_embedding_integrity(conn)
+
+            if integrity:
+                missing_embeddings = integrity.get("missing_embeddings", 0)
+            else:
+                integrity_failed = True
         except Exception as e:
             # Non-fatal: log warning and continue without failing the health check request
             logger.warning("Embedding integrity check failed: %s", e)
+            integrity_failed = True
     elif "missing_embeddings" in storage_info:
         missing_embeddings = storage_info["missing_embeddings"]
     elif "primary_stats" in storage_info and "missing_embeddings" in (storage_info.get("primary_stats") or {}):
         missing_embeddings = storage_info["primary_stats"]["missing_embeddings"]
 
-    if missing_embeddings > 0:
+    if missing_embeddings is not None and missing_embeddings > 0:
         storage_info["missing_embeddings"] = missing_embeddings
 
     statistics = {
         "total_memories": storage_info.get("total_memories", 0),
-        "missing_embeddings": missing_embeddings,
         "unique_tags": storage_info.get("unique_tags", 0),
         "memories_this_week": storage_info.get("memories_this_week", 0),
         "database_size_mb": storage_info.get("database_size_mb", 0),
         "backend": storage_info.get("backend", "sqlite-vec")
     }
+    if missing_embeddings is not None:
+        statistics["missing_embeddings"] = missing_embeddings
 
     health_status = "healthy"
-    if missing_embeddings > 0:
+    if integrity_failed or (missing_embeddings is not None and missing_embeddings > 0):
         health_status = "degraded"
     
     return DetailedHealthResponse(

@@ -225,7 +225,10 @@ class HealthChecker:
                 tags=["invariant", "test"],
                 memory_type="test"
             )
-            await storage.store(memory)
+            success, message = await storage.store(memory)
+            if not success:
+                print(f"      Store failed during embedding invariant test: {message}")
+                return False
 
             cursor = storage.conn.execute("""
                 SELECT COUNT(*) FROM memories m

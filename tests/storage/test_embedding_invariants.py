@@ -3,7 +3,7 @@
 import os
 import shutil
 import tempfile
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -186,3 +186,74 @@ async def test_detailed_health_flags_hybrid_primary_missing_embeddings(temp_db):
     assert res.storage["missing_embeddings"] == 1
 
     await primary_storage.close()
+
+
+@pytest.mark.asyncio
+async def test_detailed_health_unverified_integrity_degrades_status(temp_db):
+    """Test that /api/health/detailed treats an empty/failed integrity check as degraded and leaves field out."""
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    mock_user = MagicMock()
+    with patch("mcp_memory_service.utils.health_check._check_embedding_integrity", return_value={}):
+        res = await detailed_health_check(storage=storage, user=mock_user)
+
+    assert res.status == "degraded"
+    assert "missing_embeddings" not in res.statistics
+
+    await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_consolidation_health_unverified_integrity_degrades_status(temp_db):
+    """Test that ConsolidationHealthMonitor degrades health status when embedding integrity is unverifiable."""
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    monitor = ConsolidationHealthMonitor(consolidator=MagicMock(storage=storage))
+    with patch("mcp_memory_service.utils.health_check._check_embedding_integrity", return_value={}):
+        health = await monitor._check_storage_backend_health()
+
+    assert health["status"] == HealthStatus.DEGRADED.value
+    assert health["checks"]["embedding_integrity"] == "unverifiable"
+    assert "missing_embeddings" not in health["checks"]
+
+    await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_health_endpoints_use_run_in_thread(temp_db):
+    """Test that health checks offload _check_embedding_integrity via storage._run_in_thread under lock."""
+    storage = SqliteVecMemoryStorage(temp_db)
+    await storage.initialize()
+
+    with patch.object(storage, "_run_in_thread", wraps=storage._run_in_thread) as spy_run_in_thread:
+        mock_user = MagicMock()
+        res = await detailed_health_check(storage=storage, user=mock_user)
+        assert res.status == "healthy"
+        spy_run_in_thread.assert_any_call(_check_embedding_integrity, storage.conn)
+
+    with patch.object(storage, "_run_in_thread", wraps=storage._run_in_thread) as spy_run_in_thread:
+        monitor = ConsolidationHealthMonitor(consolidator=MagicMock(storage=storage))
+        health = await monitor._check_storage_backend_health()
+        assert health["status"] == HealthStatus.HEALTHY.value
+        spy_run_in_thread.assert_any_call(_check_embedding_integrity, storage.conn)
+
+    await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_db_health_check_fails_on_store_error():
+    """Test that db_health_check.HealthChecker fails when storage.store fails."""
+    import sys
+    from pathlib import Path
+    scripts_path = str(Path(__file__).parent.parent.parent / "scripts" / "database")
+    if scripts_path not in sys.path:
+        sys.path.insert(0, scripts_path)
+    from db_health_check import HealthChecker
+
+    checker = HealthChecker()
+    with patch("mcp_memory_service.storage.sqlite_vec.SqliteVecMemoryStorage.store", new_callable=AsyncMock) as mock_store:
+        mock_store.return_value = (False, "Simulated store failure")
+        result = await checker.test_embedding_invariants()
+        assert result is False
