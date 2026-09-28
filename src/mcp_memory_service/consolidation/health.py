@@ -566,7 +566,10 @@ class ConsolidationHealthMonitor:
                     checks['read_operations'] = 'functional'
                     checks['memory_count'] = stats.get(
                         'total_memories', 'unknown')
-                    missing = stats.get('missing_embeddings', 0)
+                    missing = stats.get('missing_embeddings')
+                    if not missing:
+                        primary_stats = stats.get('primary_stats') or {}
+                        missing = primary_stats.get('missing_embeddings', 0)
                     if isinstance(missing, int) and missing > 0:
                         checks['missing_embeddings'] = missing
                         status = HealthStatus.DEGRADED

@@ -165,9 +165,13 @@ async def detailed_health_check(
     }
     
     # Extract statistics for separate field if available
+    missing_embeddings = storage_info.get("missing_embeddings")
+    if not missing_embeddings:
+        missing_embeddings = (storage_info.get("primary_stats") or {}).get("missing_embeddings", 0)
+
     statistics = {
         "total_memories": storage_info.get("total_memories", 0),
-        "missing_embeddings": storage_info.get("missing_embeddings", 0),
+        "missing_embeddings": missing_embeddings,
         "unique_tags": storage_info.get("unique_tags", 0),
         "memories_this_week": storage_info.get("memories_this_week", 0),
         "database_size_mb": storage_info.get("database_size_mb", 0),
@@ -175,7 +179,7 @@ async def detailed_health_check(
     }
 
     health_status = "healthy"
-    if storage_info.get("missing_embeddings", 0) > 0:
+    if missing_embeddings > 0:
         health_status = "degraded"
     
     return DetailedHealthResponse(

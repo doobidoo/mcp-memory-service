@@ -64,7 +64,7 @@ class HealthChecker:
         """Test database creation and initialization."""
         temp_dir = tempfile.mkdtemp()
         db_path = os.path.join(temp_dir, "health_check.db")
-        
+        storage = None
         try:
             from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
             storage = SqliteVecMemoryStorage(db_path)
@@ -80,19 +80,24 @@ class HealthChecker:
                     print(f"      Missing table: {table}")
                     return False
             
-            await storage.close()
-            shutil.rmtree(temp_dir, ignore_errors=True)
             return True
             
         except Exception as e:
             print(f"      Database creation error: {e}")
             return False
+        finally:
+            if storage:
+                try:
+                    await storage.close()
+                except Exception:
+                    pass
+            shutil.rmtree(temp_dir, ignore_errors=True)
     
     async def test_memory_operations(self):
         """Test core memory operations."""
         temp_dir = tempfile.mkdtemp()
         db_path = os.path.join(temp_dir, "operations_test.db")
-        
+        storage = None
         try:
             from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
             from mcp_memory_service.models.memory import Memory
@@ -133,19 +138,24 @@ class HealthChecker:
                 print(f"      Delete failed: {message}")
                 return False
             
-            await storage.close()
-            shutil.rmtree(temp_dir, ignore_errors=True)
             return True
             
         except Exception as e:
             print(f"      Memory operations error: {e}")
             return False
+        finally:
+            if storage:
+                try:
+                    await storage.close()
+                except Exception:
+                    pass
+            shutil.rmtree(temp_dir, ignore_errors=True)
     
     async def test_vector_search(self):
         """Test vector similarity search functionality."""
         temp_dir = tempfile.mkdtemp()
         db_path = os.path.join(temp_dir, "vector_test.db")
-        
+        storage = None
         try:
             from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
             from mcp_memory_service.models.memory import Memory
@@ -182,18 +192,24 @@ class HealthChecker:
                     print(f"      Invalid relevance score: {result.relevance_score}")
                     return False
             
-            await storage.close()
-            shutil.rmtree(temp_dir, ignore_errors=True)
             return True
             
         except Exception as e:
             print(f"      Vector search error: {e}")
             return False
+        finally:
+            if storage:
+                try:
+                    await storage.close()
+                except Exception:
+                    pass
+            shutil.rmtree(temp_dir, ignore_errors=True)
     
     async def test_embedding_invariants(self):
         """Test invariant: all active memories have a corresponding embedding row."""
         temp_dir = tempfile.mkdtemp()
         db_path = os.path.join(temp_dir, "embedding_invariants_test.db")
+        storage = None
         try:
             from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
             from mcp_memory_service.models.memory import Memory
@@ -221,12 +237,58 @@ class HealthChecker:
                 print(f"      Embedding invariant violated: {missing} active memories without embeddings")
                 return False
 
-            await storage.close()
-            shutil.rmtree(temp_dir, ignore_errors=True)
             return True
         except Exception as e:
             print(f"      Embedding invariants error: {e}")
             return False
+        finally:
+            if storage:
+                try:
+                    await storage.close()
+                except Exception:
+                    pass
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def test_configured_database_invariants(self):
+        """Test invariant on existing configured database: active memories have embeddings."""
+        import sqlite3
+        conn = None
+        try:
+            from mcp_memory_service.config.storage import SQLITE_VEC_PATH
+            db_path = SQLITE_VEC_PATH
+            if not db_path or not os.path.exists(db_path):
+                print(f"      Configured database not found ({db_path}), skipping check")
+                return True
+
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('memories', 'memory_embeddings')")
+            tables = {row[0] for row in cursor.fetchall()}
+            if 'memories' not in tables or 'memory_embeddings' not in tables:
+                print(f"      Required tables not present in {db_path}, skipping check")
+                return True
+
+            cursor.execute("""
+                SELECT COUNT(*) FROM memories m
+                WHERE m.deleted_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM memory_embeddings e WHERE e.rowid = m.id)
+            """)
+            missing = cursor.fetchone()[0]
+            if missing > 0:
+                print(f"      Configured database invariant violated: {missing} active memories without embeddings in {db_path}")
+                return False
+
+            print(f"      Configured database verified: 0 missing embeddings in {db_path}")
+            return True
+        except Exception as e:
+            print(f"      Configured database invariant error: {e}")
+            return False
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def test_environment(self):
         """Test environment configuration."""
@@ -300,7 +362,8 @@ async def main():
     await checker.test("Database Creation", checker.test_database_creation)
     await checker.test("Memory Operations", checker.test_memory_operations)
     await checker.test("Vector Search", checker.test_vector_search)
-    await checker.test("Embedding Invariants", checker.test_embedding_invariants)
+    await checker.test("Embedding Invariants (Write Test)", checker.test_embedding_invariants)
+    await checker.test("Configured Database Invariants", checker.test_configured_database_invariants)
     
     # Summary
     print("\n" + "=" * 60)
