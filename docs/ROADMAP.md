@@ -5,7 +5,7 @@
 📖 **[View Development Roadmap on Wiki](https://github.com/doobidoo/mcp-memory-service/wiki/13-Development-Roadmap)**
 
 The Wiki version includes:
-- ✅ Completed milestones (v8.0–v11.14)
+- ✅ Completed milestones (v8.0–v10.47; v11.x is summarized below)
 - 🎯 Current focus areas
 - 🚀 Future enhancements
 - 🌟 Long-term aspirations (2027+)
