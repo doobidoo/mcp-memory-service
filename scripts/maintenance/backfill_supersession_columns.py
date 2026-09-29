@@ -36,11 +36,28 @@ _HASH_MIN_LEN = 16  # generate_content_hash is a 64-char sha256; guard against j
 
 
 def resolve_db_path(explicit: str | None) -> Path:
+    """Resolve the SQLite-vec DB the way the service does.
+
+    Prefer the service's own resolved ``config.storage.SQLITE_VEC_PATH`` (which honors
+    MCP_MEMORY_SQLITE_PATH, MCP_MEMORY_SQLITEVEC_PATH, MCP_MEMORY_BASE_DIR and the
+    per-OS default), so the script never backfills a different store than the one the
+    service uses. ``--db`` overrides everything for ad-hoc runs.
+    """
     if explicit:
         return Path(explicit).expanduser().resolve()
-    env = os.getenv("MCP_MEMORY_SQLITE_PATH")
-    if env:
-        return Path(env).expanduser().resolve()
+    try:
+        from mcp_memory_service.config.storage import SQLITE_VEC_PATH  # type: ignore
+        if SQLITE_VEC_PATH:
+            return Path(SQLITE_VEC_PATH).expanduser().resolve()
+    except Exception as exc:  # config import shouldn't hard-fail the script
+        log.debug("Could not import service config (%s); falling back to env vars.", exc)
+    for env_var in ("MCP_MEMORY_SQLITE_PATH", "MCP_MEMORY_SQLITEVEC_PATH"):
+        value = os.getenv(env_var)
+        if value:
+            return Path(value).expanduser().resolve()
+    base = os.getenv("MCP_MEMORY_BASE_DIR")
+    if base:
+        return (Path(base).expanduser() / "sqlite_vec.db").resolve()
     return Path("~/.local/share/mcp-memory/sqlite_vec.db").expanduser().resolve()
 
 
@@ -60,67 +77,75 @@ def backfill(conn: sqlite3.Connection, apply: bool) -> dict[str, int]:
              "parent_filled": 0, "version_filled": 0}
 
     rows = conn.execute(
-        "SELECT content_hash, metadata, superseded_by, parent_id, version "
+        "SELECT content_hash, metadata, superseded_by, version "
         "FROM memories WHERE deleted_at IS NULL AND metadata LIKE '%superseded_by%'"
     ).fetchall()
 
-    updates: list[tuple] = []
+    # content_hash -> new superseded_by value to set on the OLD (loser) row.
+    old_updates: list[tuple[str, str]] = []
+    # winner_hash -> (parent_hash, new_version) to reconnect the NEW row's history.
+    # The legacy trace only lives on the old row (old.metadata.superseded_by = winner);
+    # parent_id/version were never written anywhere. We derive the inverse link:
+    # if OLD is superseded by NEW, then NEW.parent_id = OLD and NEW.version = OLD.version + 1,
+    # so get_memory_history (which walks parent_id) can reconnect the chain (Greptile P1.2).
+    new_links: dict[str, tuple[str, int]] = {}
     orphans: list[str] = []
 
-    for content_hash, metadata, col_superseded, col_parent, col_version in rows:
+    for content_hash, metadata, col_superseded, col_version in rows:
         stats["scanned"] += 1
         try:
             meta = json.loads(metadata) if metadata else {}
         except (json.JSONDecodeError, TypeError):
             continue
 
-        new_superseded = None
         winner = meta.get("superseded_by")
-        if _valid_hash(winner) and not col_superseded:
-            exists = conn.execute(
-                "SELECT 1 FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
-                (winner,),
-            ).fetchone()
-            if exists:
-                new_superseded = winner
-                stats["superseded_filled"] += 1
-            else:
-                # #1352: pointing the column at a deleted winner would hide this row
-                # with no way back. Leave it visible; report for operator review.
-                stats["winner_gone"] += 1
-                orphans.append(content_hash)
+        if not (_valid_hash(winner) and not col_superseded):
+            continue
 
-        new_parent = None
-        meta_parent = meta.get("parent_id")
-        if _valid_hash(meta_parent) and not col_parent:
-            new_parent = meta_parent
-            stats["parent_filled"] += 1
+        winner_row = conn.execute(
+            "SELECT parent_id, version FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+            (winner,),
+        ).fetchone()
+        if winner_row is None:
+            # #1352: pointing the column at a deleted winner would hide this row
+            # with no way back. Leave it visible; report for operator review.
+            stats["winner_gone"] += 1
+            orphans.append(content_hash)
+            continue
 
-        new_version = None
-        meta_version = meta.get("version")
-        if isinstance(meta_version, int) and meta_version > 1 and (col_version or 1) <= 1:
-            new_version = meta_version
-            stats["version_filled"] += 1
+        # OLD row: set the real superseded_by column so default retrieval drops it.
+        old_updates.append((winner, content_hash))
+        stats["superseded_filled"] += 1
 
-        if new_superseded is not None or new_parent is not None or new_version is not None:
-            updates.append((new_superseded, new_parent, new_version, content_hash))
+        # NEW row: reconnect history only if it isn't already linked. Longest chain wins
+        # so multi-step chains (v1->v2->v3) get monotonic versions.
+        w_parent, w_version = winner_row
+        if not w_parent:
+            old_version = col_version or 1
+            candidate_version = old_version + 1
+            existing = new_links.get(winner)
+            if existing is None or candidate_version > existing[1]:
+                new_links[winner] = (content_hash, candidate_version)
 
     if orphans:
         log.warning("%d row(s) point at a deleted/missing winner in metadata; left "
                     "visible (see #1352). Example hashes: %s",
                     len(orphans), ", ".join(h[:8] for h in orphans[:5]))
 
-    if apply and updates:
-        for new_superseded, new_parent, new_version, content_hash in updates:
-            sets, params = [], []
-            if new_superseded is not None:
-                sets.append("superseded_by = ?"); params.append(new_superseded)
-            if new_parent is not None:
-                sets.append("parent_id = ?"); params.append(new_parent)
-            if new_version is not None:
-                sets.append("version = ?"); params.append(new_version)
-            params.append(content_hash)
-            conn.execute(f"UPDATE memories SET {', '.join(sets)} WHERE content_hash = ?", params)
+    stats["parent_filled"] = len(new_links)
+    stats["version_filled"] = len(new_links)
+
+    if apply:
+        for winner, old_hash in old_updates:
+            conn.execute(
+                "UPDATE memories SET superseded_by = ? WHERE content_hash = ?",
+                (winner, old_hash),
+            )
+        for winner, (parent_hash, new_version) in new_links.items():
+            conn.execute(
+                "UPDATE memories SET parent_id = ?, version = ? WHERE content_hash = ?",
+                (parent_hash, new_version, winner),
+            )
         conn.commit()
 
     return stats
