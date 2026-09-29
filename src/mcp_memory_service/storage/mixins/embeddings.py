@@ -511,8 +511,11 @@ class EmbeddingsMixin:
                     # For ONNX: namespace is "onnx_model" - use it if model matches  
                     elif cached_namespace.startswith('onnx_') and cached_namespace == f"onnx_{self.embedding_model_name}":
                         namespace = cached_namespace
-                    # For hash fallback: namespace is "hash_dimension" - use it
-                    elif cached_namespace.startswith('hash_'):
+                    # For hash fallback: namespace is "__hash_fallback__::dimension"
+                    # (reserved prefix that includes the DB vector dimension, so two
+                    # fallback stores with the same model name but different dimensions
+                    # do not share a cache entry — Greptile #1367).
+                    elif cached_namespace.startswith('__hash_fallback__::'):
                         namespace = cached_namespace
                     # For regular models: namespace should be model name - only use if it matches
                     elif cached_namespace == self.embedding_model_name:

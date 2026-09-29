@@ -269,3 +269,32 @@ class TestEmbeddingCacheSqliteVec:
             f"{self.encode_call_count}) — a text-only key would collide."
         )
         assert vector_a != vector_b, "Different models must not share cached vectors"
+
+    @pytest.mark.asyncio
+    async def test_hash_fallback_dimension_isolation_fails_with_model_name_key(self):
+        """Hash fallback stores with same model name but different dims must not share cache.
+
+        The fallback namespace is `__hash_fallback__::{dimension}`, so two fallback
+        stores on the same model name but different DB vector dimensions get distinct
+        cache keys. If the code fell back to keying by model name (ignoring the
+        fallback namespace), the second store would get the first's wrong-size vector.
+        """
+        text = "fallback dimension test"
+
+        # Fallback store A — dimension 384
+        self.storage.embedding_model_name = "shared-fallback-model"
+        self.storage.embedding_dimension = 384
+        self.storage._embedding_cache_namespace = "__hash_fallback__::384"
+        vector_a = self.storage._generate_embedding(text)
+
+        # Fallback store B — same model name, different dimension
+        self.storage.embedding_model_name = "shared-fallback-model"
+        self.storage.embedding_dimension = 384  # mock returns 384-d; namespace differs by dim label
+        self.storage._embedding_cache_namespace = "__hash_fallback__::512"
+        vector_b = self.storage._generate_embedding(text)
+
+        assert self.encode_call_count == 2, (
+            f"Different fallback dimensions must not share a cache entry (got "
+            f"{self.encode_call_count} encodes)."
+        )
+        assert vector_a != vector_b, "Different fallback dimensions must not share cached vectors"
