@@ -83,6 +83,17 @@ All development, releases, and discussions happen here:
 - **Bitcoin**: `bc1qypcx7m9jl3mkptvc3xrzyd7dywjctpxyvaajgr`
 - **Ethereum**: `0xf049d21449D1F6FAD2B94080c40B751147F1099a`
 
+### Hosting (referral link)
+If you want a hosted instance instead of running it yourself, deploying on Dockhold
+through this link supports the project:
+[Deploy MCP Memory Service on Dockhold](https://app.dockhold.eu/new?repo=https://github.com/dockhold/mcp-memory-service-starter&ref=oss-mcp-memory-service).
+
+This is a paid referral link. When an account created through it becomes a paying
+customer, Dockhold pays the project 10% of that customer's first 12 months. Using the
+link does not change what you pay. The template and its documentation are
+Dockhold's ([recipe](https://dockhold.eu/docs/recipes/deploy-mcp-memory-service)), not
+part of this project; for self-hosting, see [docs/deployment/](docs/deployment/).
+
 <!-- 
 ### GitHub Sponsors (temporarily unavailable)
 <a href="https://github.com/sponsors/doobidoo">
