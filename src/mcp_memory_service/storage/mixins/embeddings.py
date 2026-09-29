@@ -483,8 +483,11 @@ class EmbeddingsMixin:
             )
             self.embedding_dimension = existing_dim
         self.embedding_model = _HashEmbeddingModel(self.embedding_dimension)
-        # Set embedding cache namespace for hash fallback
-        self._embedding_cache_namespace = f"hash_{self.embedding_dimension}"
+        # Set embedding cache namespace for hash fallback.
+        # Reserved prefix (with '::' separator, which no configured model/provider
+        # namespace uses) so a real model literally named "hash_384" cannot collide
+        # with the fallback's pseudo-vectors in the shared cache (Greptile #1367).
+        self._embedding_cache_namespace = f"__hash_fallback__::{self.embedding_dimension}"
         self.embedding_backend_degraded = True
 
     def _generate_embedding(self, text: str) -> List[float]:

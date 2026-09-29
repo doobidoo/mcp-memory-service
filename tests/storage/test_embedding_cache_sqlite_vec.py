@@ -239,3 +239,33 @@ class TestEmbeddingCacheSqliteVec:
         result.tolist.return_value = [float('nan')] * 384
         with pytest.raises((ValueError, RuntimeError)):
             self.storage._generate_embedding("nan test")
+
+    @pytest.mark.asyncio
+    async def test_model_name_segregation_explicit_fails_with_text_only_key(self):
+        """Same text under two DIFFERENT model names must encode twice.
+
+        Without the fix the key is hash(text) — model-agnostic — so the second
+        model reads the first model's cached vector (one encode call, colliding
+        vectors). With the fix the key includes the model namespace, so each
+        model encodes independently. This guards specifically against a
+        regression to a text-only cache key (Greptile #1367).
+        """
+        text = "same text different models"
+
+        # Model A
+        self.storage.embedding_model_name = "model-a"
+        self.storage._embedding_cache_namespace = "model-a"
+        vector_a = self.storage._generate_embedding(text)
+
+        # Model B — same text, different model
+        self.storage.embedding_model_name = "model-b"
+        self.storage._embedding_cache_namespace = "model-b"
+        vector_b = self.storage._generate_embedding(text)
+
+        # Without fix: hash(text) collides -> 1 encode, vector_b == vector_a.
+        # With fix: model in key -> 2 encodes, distinct vectors.
+        assert self.encode_call_count == 2, (
+            f"Same text under two model names must encode twice (got "
+            f"{self.encode_call_count}) — a text-only key would collide."
+        )
+        assert vector_a != vector_b, "Different models must not share cached vectors"
