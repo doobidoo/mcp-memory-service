@@ -4,6 +4,7 @@ import copy
 import json
 import logging
 import re
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -210,6 +211,108 @@ class TranscriptParser:
                     messages.extend(msgs)
 
         return messages
+
+    def parse_sqlite(self, db_path: Path) -> List[ParsedMessage]:
+        """Parse Kiro CLI v3 conversations from a SQLite database (read-only).
+
+        The CLI v3 source of truth is `data.sqlite3`, table `conversations_v2`,
+        where each row's `value` is a JSON blob with a structured `history[]`.
+        The .jsonl mirror does not always cover these, so this reads the db
+        directly (RFC harvest-kiro-sessions v2.0, RB.1-RB.3).
+
+        Opened strictly read-only (`file:...?mode=ro`) — NEVER open the live
+        Kiro db in write mode (RB.2). Feeds the same Phase 0 coverage instrument
+        (with language) as the jsonl parsers, so SQLite content enters the
+        coverage matrix. Missing table or malformed rows are skipped, not fatal.
+        """
+        db_path = Path(db_path)
+        messages: List[ParsedMessage] = []
+        if not db_path.exists():
+            return messages
+
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        except sqlite3.Error as e:
+            logger.warning("parse_sqlite: cannot open %s read-only: %s", db_path.name, e)
+            return messages
+
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute("SELECT value FROM conversations_v2")
+            except sqlite3.Error:
+                # No conversations_v2 table (or unreadable) — nothing to harvest.
+                return messages
+            # Iterate the cursor rather than fetchall(): each value can be ~2MB
+            # and there are hundreds of rows, so streaming avoids loading the
+            # whole table into memory at once.
+            for (value,) in cur:
+                if not isinstance(value, str):
+                    continue
+                try:
+                    obj = json.loads(value)
+                except (json.JSONDecodeError, TypeError):
+                    logger.debug("parse_sqlite: skipping malformed conversation value")
+                    continue
+                history = obj.get("history")
+                if isinstance(history, list):
+                    messages.extend(self._extract_history_turns(history))
+        finally:
+            conn.close()
+
+        return messages
+
+    def _extract_history_turns(self, history: list) -> List[ParsedMessage]:
+        """Extract user/assistant text from a conversations_v2 `history[]`.
+
+        Each turn is {"user": {...}, "assistant": {...}}:
+        - user text lives at content.Prompt.prompt (a ToolUseResults user turn
+          carries no conversational text and is recorded as dropped);
+        - assistant text lives at the `.content` of either a Response or a
+          ToolUse variant (both carry a text preface).
+        """
+        results: List[ParsedMessage] = []
+        for turn in history:
+            if not isinstance(turn, dict):
+                continue
+
+            # --- user side ---
+            user = turn.get("user")
+            if isinstance(user, dict):
+                content = user.get("content")
+                if isinstance(content, dict):
+                    prompt = content.get("Prompt")
+                    if isinstance(prompt, dict):
+                        text = (prompt.get("prompt") or "").strip()
+                        if text and not self._is_system_content(text):
+                            results.append(ParsedMessage(role="user", text=text))
+                            self._record_coverage("sqlite:Prompt", was_extracted=True, text=text)
+                        else:
+                            self._record_coverage("sqlite:Prompt", was_extracted=False, text=text or None)
+                    else:
+                        # e.g. ToolUseResults — no conversational text.
+                        self._record_coverage("sqlite:user-nontext", was_extracted=False)
+
+            # --- assistant side ---
+            assistant = turn.get("assistant")
+            if isinstance(assistant, dict):
+                # Text lives under a known variant's .content. Look for Response
+                # or ToolUse explicitly rather than the first dict key — key order
+                # is not a contract, and an unknown variant should not be mined
+                # for arbitrary .content (avoids capturing non-conversational junk).
+                for variant_key in ("Response", "ToolUse"):
+                    variant = assistant.get(variant_key)
+                    if not isinstance(variant, dict):
+                        continue
+                    text = (variant.get("content") or "").strip()
+                    kind = f"sqlite:{variant_key}"
+                    if text and not self._is_system_content(text):
+                        results.append(ParsedMessage(role="assistant", text=text))
+                        self._record_coverage(kind, was_extracted=True, text=text)
+                    else:
+                        self._record_coverage(kind, was_extracted=False, text=text or None)
+                    break
+        return results
 
     def _parse_claude_line(self, obj: dict) -> List[ParsedMessage]:
         """Parse a single Claude Code JSONL line."""
