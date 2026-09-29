@@ -1,7 +1,9 @@
 """JSONL transcript parser for Claude Code and Kiro CLI session files."""
 
+import copy
 import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -45,7 +47,7 @@ class TranscriptParser:
     # non-text block dropped both show up); a non-harvestable message (e.g. a Kiro
     # ToolResult) records one entry keyed by its message kind. This keeps
     # extracted <= seen per kind — the per-message len(results) counting broke that.
-    def _record_coverage(self, kind, was_extracted: bool) -> None:
+    def _record_coverage(self, kind, was_extracted: bool, text: Optional[str] = None) -> None:
         cov = getattr(self, "_coverage", None)
         if cov is None:
             cov = {}
@@ -56,11 +58,62 @@ class TranscriptParser:
             entry["extracted"] += 1
         else:
             entry["dropped"] += 1
+        # --- I0-lang: language dimension (R0.4) ----------------------------
+        # Record the detected language ONLY for text-bearing blocks. A block
+        # without text (tool_use, invalid-payload) passes text=None and gets no
+        # language tally — language applies to natural-language content, and the
+        # gap we want to measure (dropped design prose / tool-result text) is
+        # text. This is MEASUREMENT, not inference: a cheap pt/en heuristic
+        # isolated in _detect_language, upgradable to langid/fastText later
+        # without touching the rest of the instrument.
+        if text is not None:
+            langs = entry.setdefault("languages", {})
+            lang = self._detect_language(text)
+            langs[lang] = langs.get(lang, 0) + 1
+
+    # Cheap, zero-dependency pt-BR vs. English detector for the Phase 0 language
+    # dimension. Deliberately NOT a full langid model: the goal is to quantify
+    # how much of the coverage gap is pt-BR, accurately enough to decide whether
+    # the design extractor (I2/R3.1) must be multilingual — not to classify with
+    # production precision. Marker words are frequent and near-exclusive to each
+    # language; ties or no-signal return "unknown" rather than guessing. Kept in
+    # one method so a later langid/fastText upgrade is a single-point change.
+    _PT_MARKERS = frozenset({
+        "não", "que", "para", "com", "está", "são", "foi", "uma", "por", "mais",
+        "como", "mas", "isso", "ção", "então", "porque", "também", "já", "ser",
+        "das", "dos", "análise", "decisão", "correto",
+    })
+    _EN_MARKERS = frozenset({
+        "the", "and", "with", "this", "that", "was", "for", "not", "are", "were",
+        "which", "because", "should", "would", "correct", "analysis", "decision",
+        "keep", "before", "changing",
+    })
+
+    def _detect_language(self, text: Optional[str]) -> str:
+        """Return "pt", "en", or "unknown" for a text block (cheap heuristic)."""
+        if not text:
+            return "unknown"
+        tokens = re.findall(r"[a-zA-Zà-ÿÀ-ŸçÇãõáéíóúâêôàü]+", text.lower())
+        if len(tokens) < 3:
+            return "unknown"
+        token_set = set(tokens)
+        pt_hits = len(token_set & self._PT_MARKERS)
+        en_hits = len(token_set & self._EN_MARKERS)
+        # Portuguese-specific diacritics/cedilla are a strong pt signal on their own.
+        if re.search(r"[ãõçâêô]|ção", text.lower()):
+            pt_hits += 1
+        if pt_hits == 0 and en_hits == 0:
+            return "unknown"
+        if pt_hits == en_hits:
+            return "unknown"
+        return "pt" if pt_hits > en_hits else "en"
 
     def coverage_report(self) -> dict:
         """Per-kind coverage since this parser instance was created.
 
-        Returns {kind: {"seen": n, "extracted": n, "dropped": n}}. Empty until
+        Returns {kind: {"seen": n, "extracted": n, "dropped": n, "languages": {...}}}.
+        The "languages" sub-tally (I0-lang, R0.4) counts detected language per
+        text-bearing block; it is absent for non-text kinds. Empty until
         something is parsed. Read-only; does not affect harvesting.
 
         Accumulates across multiple parse_file() calls on the same instance (by
@@ -68,10 +121,10 @@ class TranscriptParser:
         fresh parser to reset. Not thread-safe: the instrument assumes the
         sequential, single-parser use the harvest scheduler already has.
 
-        Returns a deep copy: mutating the result never affects the internal
-        counters or a later report.
+        Returns a deep copy: mutating the result (including the nested
+        "languages" dict) never affects the internal counters or a later report.
         """
-        return {kind: dict(counts) for kind, counts in (getattr(self, "_coverage", {}) or {}).items()}
+        return copy.deepcopy(getattr(self, "_coverage", {}) or {})
 
 
     def find_sessions(self, project_dir: Path, count: int = 1) -> List[Path]:
@@ -197,9 +250,9 @@ class TranscriptParser:
         if isinstance(data.get("content"), str):
             text = data["content"].strip()
             if text and not self._is_system_content(text):
-                self._record_coverage(kind, was_extracted=True)
+                self._record_coverage(kind, was_extracted=True, text=text)
                 return [ParsedMessage(role=role, text=text, timestamp=timestamp, uuid=uuid)]
-            self._record_coverage(kind, was_extracted=False)
+            self._record_coverage(kind, was_extracted=False, text=text or None)
             return []
 
         results = []
@@ -211,9 +264,9 @@ class TranscriptParser:
                 text = block.get("data", "").strip()
                 if text and not self._is_system_content(text):
                     results.append(ParsedMessage(role=role, text=text, timestamp=timestamp, uuid=uuid))
-                    self._record_coverage(block_kind, was_extracted=True)
+                    self._record_coverage(block_kind, was_extracted=True, text=text)
                 else:
-                    self._record_coverage(block_kind, was_extracted=False)
+                    self._record_coverage(block_kind, was_extracted=False, text=text or None)
             else:
                 # Non-text block (e.g. tool_use) — dropped, but now visible per kind.
                 self._record_coverage(block_kind, was_extracted=False)
@@ -243,10 +296,11 @@ class TranscriptParser:
             role = self.PAYLOAD_ROLE_MAP[ptype]
             content = pl.get("content")
             if isinstance(content, str) and content.strip() and not self._is_system_content(content):
-                self._record_coverage(ptype, was_extracted=True)
+                self._record_coverage(ptype, was_extracted=True, text=content.strip())
                 return [ParsedMessage(role=role, text=content.strip(), timestamp=ts, uuid=uid)]
             else:
-                self._record_coverage(ptype, was_extracted=False)
+                self._record_coverage(ptype, was_extracted=False,
+                                      text=content.strip() if isinstance(content, str) and content.strip() else None)
                 return []
         
         # Handle tool_result as assistant message with rich content.
@@ -261,10 +315,11 @@ class TranscriptParser:
         elif ptype == "tool_result":
             content = pl.get("content")
             if isinstance(content, str) and content.strip() and not self._is_injected_content(content):
-                self._record_coverage("tool_result", was_extracted=True)
+                self._record_coverage("tool_result", was_extracted=True, text=content)
                 return [ParsedMessage(role="assistant", text=content, timestamp=ts, uuid=uid)]
             else:
-                self._record_coverage("tool_result", was_extracted=False)
+                self._record_coverage("tool_result", was_extracted=False,
+                                      text=content if isinstance(content, str) and content.strip() else None)
                 return []
         
         # Handle tool_call and metadata - not extracted but counted in coverage
