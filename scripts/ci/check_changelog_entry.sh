@@ -15,7 +15,7 @@
 #
 # Exemptions:
 #   - a release version bump (scripts/pr/lib/is_release_bump.py)
-#   - the `skip-changelog` label, applied by the job's `if:` in ci.yml, not here.
+#   - the `skip-changelog` label, applied by the job's `if:` in changelog.yml, not here.
 #     A label needs a NEW event to take effect; re-running replays the old payload
 #     (#1266), so push a commit or update the branch after labelling.
 #
