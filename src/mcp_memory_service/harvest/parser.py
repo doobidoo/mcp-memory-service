@@ -75,10 +75,24 @@ class TranscriptParser:
 
 
     def find_sessions(self, project_dir: Path, count: int = 1) -> List[Path]:
-        """Find the most recent JSONL session files in a project directory."""
+        """Find the most recent session files under a directory.
+
+        Discovers two layouts (RFC harvest-kiro-sessions v2.0, RA.1):
+        - flat *.jsonl / *.trajectory.jsonl at the root (CLI mirror, Claude, OpenClaw);
+        - nested {workspace_hash}/{session_uuid}/messages.jsonl (Kiro v4
+          payload-wrapped workspace sessions, including migrated IDE sessions).
+        The nested content is parsed by the existing v4 parser (#1366); only
+        discovery was missing. Pointing directly at cli/ stays backward-compatible.
+        """
         project_dir = Path(project_dir)
         # Support both .jsonl (Claude/Kiro) and .trajectory.jsonl (OpenClaw)
         all_jsonl = list(project_dir.glob("*.jsonl")) + list(project_dir.glob("*.trajectory.jsonl"))
+        # The flat CLI mirror when the root is ~/.kiro/sessions (not .../cli):
+        # scope to cli/ specifically rather than a wildcard */*.jsonl, so an
+        # unrelated .jsonl in some other subdir is not pulled in.
+        all_jsonl += list(project_dir.glob("cli/*.jsonl"))
+        # Nested Kiro workspace sessions: {hash}/{uuid}/messages.jsonl
+        all_jsonl += list(project_dir.glob("*/*/messages.jsonl"))
         # Deduplicate (*.jsonl already matches *.trajectory.jsonl)
         seen = set()
         unique = []
