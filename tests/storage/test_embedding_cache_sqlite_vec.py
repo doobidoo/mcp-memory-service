@@ -61,7 +61,7 @@ class TestEmbeddingCacheSqliteVec:
             unique_value = 0.001 * (model_hash + namespace_hash + text_hash + self.encode_call_count)
             
             result = MagicMock()
-            result.tolist.return_value = [unique_value] * 384
+            result.tolist.return_value = [unique_value] * self.storage.embedding_dimension
             
             # Store call info for debugging
             call_info = {
@@ -287,9 +287,9 @@ class TestEmbeddingCacheSqliteVec:
         self.storage._embedding_cache_namespace = "__hash_fallback__::384"
         vector_a = self.storage._generate_embedding(text)
 
-        # Fallback store B — same model name, different dimension
+        # Fallback store B — same model name, genuinely different dimension (512)
         self.storage.embedding_model_name = "shared-fallback-model"
-        self.storage.embedding_dimension = 384  # mock returns 384-d; namespace differs by dim label
+        self.storage.embedding_dimension = 512
         self.storage._embedding_cache_namespace = "__hash_fallback__::512"
         vector_b = self.storage._generate_embedding(text)
 
@@ -298,3 +298,7 @@ class TestEmbeddingCacheSqliteVec:
             f"{self.encode_call_count} encodes)."
         )
         assert vector_a != vector_b, "Different fallback dimensions must not share cached vectors"
+        # A model-name-only key would return the 384-d vector for the 512-d store,
+        # bypassing the dimension check. Assert the actual sizes are preserved.
+        assert len(vector_a) == 384, f"Store A vector must be 384-d, got {len(vector_a)}"
+        assert len(vector_b) == 512, f"Store B vector must be 512-d, got {len(vector_b)}"
