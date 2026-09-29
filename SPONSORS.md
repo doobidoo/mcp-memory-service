@@ -77,7 +77,7 @@ All development, releases, and discussions happen here:
 ### One-time Donations
 - **Ko-fi**: [ko-fi.com/doobidoo](https://ko-fi.com/doobidoo)
 - **Buy Me a Coffee**: [buymeacoffee.com/doobidoo](https://coff.ee/doobidoo)
-- **PayPal**: [paypal.me/doobidoo](https://paypal.me/heinrichkrupp1)
+- **PayPal**: [paypal.me/heinrichkrupp1](https://paypal.me/heinrichkrupp1)
 
 ### Cryptocurrency
 - **Bitcoin**: `bc1qypcx7m9jl3mkptvc3xrzyd7dywjctpxyvaajgr`
