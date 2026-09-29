@@ -26,9 +26,9 @@ if SQLITE_VEC_AVAILABLE:
     from mcp_memory_service.storage.sqlite_vec import (
         SqliteVecMemoryStorage,
         _MODEL_CACHE,
-        _DIMENSION_CACHE,
-        _EMBEDDING_CACHE
+        _DIMENSION_CACHE
     )
+    from mcp_memory_service.storage.shared import _embedding_cache_clear
 
 pytestmark = pytest.mark.skipif(not SQLITE_VEC_AVAILABLE, reason="sqlite-vec not available")
 
@@ -49,11 +49,11 @@ class TestEmbeddingDimensionCache:
         """Clear global caches before each test."""
         _MODEL_CACHE.clear()
         _DIMENSION_CACHE.clear()
-        _EMBEDDING_CACHE.clear()
+        _embedding_cache_clear()
         yield
         _MODEL_CACHE.clear()
         _DIMENSION_CACHE.clear()
-        _EMBEDDING_CACHE.clear()
+        _embedding_cache_clear()
 
     @pytest.mark.asyncio
     async def test_external_embedding_dimension_restored_from_cache(self, temp_db_path):

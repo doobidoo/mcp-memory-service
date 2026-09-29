@@ -47,6 +47,14 @@ def _embedding_cache_size() -> int:
         return len(_EMBEDDING_CACHE)
 
 
+def _embedding_cache_clear() -> int:
+    """Clear all entries from the shared embedding cache, returning count cleared."""
+    with _EMBEDDING_CACHE_LOCK:
+        cleared_count = len(_EMBEDDING_CACHE)
+        _EMBEDDING_CACHE.clear()
+        return cleared_count
+
+
 # ---------------------------------------------------------------------------
 # String / sanitisation helpers
 # ---------------------------------------------------------------------------
