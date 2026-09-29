@@ -42,10 +42,48 @@ LEGACY_RETENTION = {
     'temporary': 7,
 }
 
+# CONSOLIDATION_CONFIG reads the environment at import time, so tests that
+# assert defaults or a single override must reload it with the other
+# retention variables cleared (a developer's shell export must not flip
+# these assertions).
+RETENTION_ENV_VARS = [
+    'MCP_RETENTION_DECISION',
+    'MCP_RETENTION_LEARNING',
+    'MCP_RETENTION_PATTERN',
+    'MCP_RETENTION_ERROR',
+    'MCP_RETENTION_OBSERVATION',
+    'MCP_RETENTION_CRITICAL',
+    'MCP_RETENTION_REFERENCE',
+    'MCP_RETENTION_STANDARD',
+    'MCP_RETENTION_TEMPORARY',
+]
 
-def _runtime_config():
-    """The config the running server actually gets."""
-    return ConsolidationConfig(**config_mod.CONSOLIDATION_CONFIG)
+
+def _retention_with_env(monkeypatch, **setenv):
+    """Retention periods read under a controlled environment.
+
+    CONSOLIDATION_CONFIG reads the environment at import time (same reload
+    pattern as test_clustering_algorithm_selection.py), so tests reload it
+    with every MCP_RETENTION_* variable cleared first: a developer's shell
+    export must not flip these assertions.
+    """
+    for var in RETENTION_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    for var, value in setenv.items():
+        monkeypatch.setenv(var, value)
+    try:
+        reloaded = importlib.reload(config_mod)
+        return dict(reloaded.CONSOLIDATION_CONFIG['retention_periods'])
+    finally:
+        monkeypatch.undo()
+        importlib.reload(config_mod)
+
+
+def _clean_config(monkeypatch, **setenv):
+    """A ConsolidationConfig whose retention periods came from a clean env."""
+    return ConsolidationConfig(
+        retention_periods=_retention_with_env(monkeypatch, **setenv)
+    )
 
 
 def _memory(memory_type, age_days, now):
@@ -64,43 +102,30 @@ def _memory(memory_type, age_days, now):
 
 
 class TestRuntimeRetentionKeys:
-    def test_ontology_types_get_their_documented_retention(self):
+    def test_ontology_types_get_their_documented_retention(self, monkeypatch):
         """Every real memory_type value must hit a retention key, not the fallback."""
-        periods = _runtime_config().retention_periods
+        periods = _retention_with_env(monkeypatch)
         for memory_type, days in ONTOLOGY_RETENTION.items():
             assert periods.get(memory_type) == days, memory_type
 
-    def test_legacy_keys_still_honored(self):
+    def test_legacy_keys_still_honored(self, monkeypatch):
         """Memories typed with the legacy names keep their periods."""
-        periods = _runtime_config().retention_periods
+        periods = _retention_with_env(monkeypatch)
         for memory_type, days in LEGACY_RETENTION.items():
             assert periods.get(memory_type) == days, memory_type
 
     def test_ontology_types_have_env_overrides(self, monkeypatch):
-        """MCP_RETENTION_<TYPE> must override the ontology periods.
-
-        Reloaded deliberately: CONSOLIDATION_CONFIG reads the environment
-        while being imported (same pattern as
-        test_clustering_algorithm_selection.py).
-        """
-        monkeypatch.setenv('MCP_RETENTION_DECISION', '540')
-        reloaded = importlib.reload(config_mod)
-        try:
-            assert reloaded.CONSOLIDATION_CONFIG['retention_periods']['decision'] == 540
-        finally:
-            monkeypatch.undo()
-            importlib.reload(config_mod)
+        """MCP_RETENTION_<TYPE> must override the ontology periods alone."""
+        periods = _retention_with_env(monkeypatch, MCP_RETENTION_DECISION='540')
+        assert periods['decision'] == 540
+        assert periods['learning'] == 180  # only the override moved
 
 
 class TestRelevanceUsesOntologyRetention:
     @pytest.mark.asyncio
-    async def test_decision_memory_decays_on_365_days_not_the_30_fallback(self):
-        """A 100-day-old decision must decay per its 365-day period.
-
-        On the broken config the lookup missed and decayed it with the
-        30-day fallback (exp(-100/30) ~ 0.036 instead of exp(-100/365) ~ 0.76).
-        """
-        calc = ExponentialDecayCalculator(_runtime_config())
+    async def test_decision_memory_decays_on_365_days_not_the_30_fallback(self, monkeypatch):
+        """A 100-day-old decision must decay per its 365-day period (#1355)."""
+        calc = ExponentialDecayCalculator(_clean_config(monkeypatch))
         now = datetime.now()
 
         score = await calc._calculate_memory_relevance(
@@ -114,9 +139,9 @@ class TestRelevanceUsesOntologyRetention:
         )
 
     @pytest.mark.asyncio
-    async def test_learning_outlives_error_at_the_same_age(self):
+    async def test_learning_outlives_error_at_the_same_age(self, monkeypatch):
         """Types must get different periods through the runtime config."""
-        calc = ExponentialDecayCalculator(_runtime_config())
+        calc = ExponentialDecayCalculator(_clean_config(monkeypatch))
         now = datetime.now()
 
         scores = {}
@@ -129,3 +154,49 @@ class TestRelevanceUsesOntologyRetention:
         assert scores['learning'].metadata['retention_period'] == 180
         assert scores['error'].metadata['retention_period'] == 30
         assert scores['learning'].decay_factor > scores['error'].decay_factor
+
+
+class TestSubtypeMemoriesInheritBaseRetention:
+    @pytest.mark.asyncio
+    async def test_subtypes_decay_on_their_base_type_period(self, monkeypatch):
+        """Stored subtypes resolve to the base period, not the 30-day fallback.
+
+        Taxonomy subtypes like 'insight' (learning) and 'architecture'
+        (decision) are real stored memory_type values; without parent
+        resolution they missed every retention key (#1355).
+        """
+        calc = ExponentialDecayCalculator(_clean_config(monkeypatch))
+        now = datetime.now()
+
+        for subtype, base_days in (('insight', 180), ('architecture', 365)):
+            score = await calc._calculate_memory_relevance(
+                _memory(subtype, age_days=100, now=now), now, {}, {}
+            )
+            assert score.metadata['retention_period'] == base_days, subtype
+
+    @pytest.mark.asyncio
+    async def test_env_override_reaches_subtype_memories(self, monkeypatch):
+        """MCP_RETENTION_LEARNING must govern 'insight' memories too."""
+        calc = ExponentialDecayCalculator(
+            _clean_config(monkeypatch, MCP_RETENTION_LEARNING='540')
+        )
+        now = datetime.now()
+
+        score = await calc._calculate_memory_relevance(
+            _memory('insight', age_days=100, now=now), now, {}, {}
+        )
+
+        assert score.metadata['retention_period'] == 540
+
+
+class TestConfigApiListsRetentionVars:
+    def test_retention_vars_in_descriptions_and_category(self):
+        """The five new overrides must be visible in the configuration API."""
+        from mcp_memory_service.web.api import configuration as config_api
+
+        for var in RETENTION_ENV_VARS:
+            assert var in config_api.PARAM_DESCRIPTIONS, var
+
+        listed = {param[0] for param in config_api.ENV_CATEGORIES['consolidation']['params']}
+        for var in RETENTION_ENV_VARS:
+            assert var in listed, var
