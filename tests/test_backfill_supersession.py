@@ -1,11 +1,14 @@
 """Tests for backfill_supersession_columns.py script.
 
-Tests all 5 cases from spec-greptile-1373.md:
+Tests all cases from spec-greptile-1373.md (v2 with exact version assertions):
 1. Old row with metadata superseded_by + empty column, winner EXISTS
 2. Winner does NOT exist in table (deleted/missing)
-3. Multi-step chain (v1->v2->v3) with monotonic versions
+3. Multi-step chain (v1->v2->v3) with EXACT monotonic versions (fixes P1.4 collision bug)
+3b. Four-step chain (v1->v2->v3->v4) with exact versions 2,3,4
 4. Dry-run mode (apply=False) leaves database unchanged
 5. Old row that ALREADY has superseded_by column filled
+6. Idempotency: winner already has parent_id (from #1348) is NOT overwritten
+Plus edge cases: invalid hash, malformed JSON, deleted rows, path resolution.
 """
 
 import json
@@ -145,15 +148,16 @@ def test_backfill_winner_missing_skips_and_reports(temp_db, backfill_module):
     assert old_row[0] == ""  # Column still empty
 
 
-def test_backfill_multi_step_chain_monotonic_versions(temp_db, backfill_module):
-    """Case 3: Multi-step chain (v1->v2->v3) gets monotonic versions.
+def test_backfill_multi_step_chain_exact_versions(temp_db, backfill_module):
+    """Case 3: Multi-step chain (v1->v2->v3) gets EXACT monotonic versions.
     
-    Expected: v2.parent=v1, v2.version=2; v3.parent=v2, v3.version=monotonic.
-    Note: The actual version assigned depends on processing order and longest-chain-wins logic.
+    CRITICAL: This test MUST use EXACT equality to catch the bug where v2 and v3 
+    both got version=2 (collision). The old test used >= which MASKED the bug.
+    Expected: v1.version=1, v2.version=2, v3.version=3 (EXACT).
     """
     conn, _ = temp_db
     
-    # Setup: v1 -> v2 -> v3 chain
+    # Setup: v1 -> v2 -> v3 chain (all start with version=1 as legacy rows)
     v1_hash = "e" * 64
     v2_hash = "f" * 64
     v3_hash = "1" * 64
@@ -161,11 +165,90 @@ def test_backfill_multi_step_chain_monotonic_versions(temp_db, backfill_module):
     v1_metadata = json.dumps({"superseded_by": v2_hash})
     v2_metadata = json.dumps({"superseded_by": v3_hash})
     
-    # Insert in reverse order to test longest-chain-wins logic
+    # All rows start with version=1 (legacy state before #1348)
     conn.execute(
         "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
         "VALUES (?, '', '', '', 1, NULL)",
-        (v3_hash,)
+        (v3_hash,)  # Final winner, no metadata
+    )
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, ?, '', '', 1, NULL)",
+        (v2_hash, v2_metadata)  # Middle node
+    )
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, ?, '', '', 1, NULL)",
+        (v1_hash, v1_metadata)  # Root node
+    )
+    conn.commit()
+    
+    # Execute backfill
+    stats = backfill_module.backfill(conn, apply=True)
+    
+    # Should process 2 supersessions (v1->v2, v2->v3)
+    assert stats["superseded_filled"] == 2
+    assert stats["parent_filled"] == 2
+    assert stats["scanned"] == 2  # Only v1 and v2 have metadata superseded_by
+    
+    # CRITICAL: Verify EXACT versions (not >=) to catch collision bug
+    v2_row = conn.execute(
+        "SELECT parent_id, version FROM memories WHERE content_hash = ?", (v2_hash,)
+    ).fetchone()
+    assert v2_row[0] == v1_hash
+    assert v2_row[1] == 2  # EXACT, not >= 2
+    
+    v3_row = conn.execute(
+        "SELECT parent_id, version FROM memories WHERE content_hash = ?", (v3_hash,)
+    ).fetchone()
+    assert v3_row[0] == v2_hash
+    assert v3_row[1] == 3  # EXACT, not >= 2 (this would have failed with old logic)
+    
+    # v1 should remain version=1 (not updated, only winners get new versions)
+    v1_row = conn.execute(
+        "SELECT version FROM memories WHERE content_hash = ?", (v1_hash,)
+    ).fetchone()
+    assert v1_row[0] == 1
+    
+    # Verify superseded_by columns set
+    v1_superseded = conn.execute(
+        "SELECT superseded_by FROM memories WHERE content_hash = ?", (v1_hash,)
+    ).fetchone()[0]
+    assert v1_superseded == v2_hash
+    
+    v2_superseded = conn.execute(
+        "SELECT superseded_by FROM memories WHERE content_hash = ?", (v2_hash,)
+    ).fetchone()[0]
+    assert v2_superseded == v3_hash
+
+
+def test_backfill_four_step_chain_exact_versions(temp_db, backfill_module):
+    """Case 3b: Four-step chain (v1->v2->v3->v4) gets exact monotonic versions.
+    
+    Expected: v1.version=1, v2.version=2, v3.version=3, v4.version=4 (EXACT).
+    """
+    conn, _ = temp_db
+    
+    # Setup: v1 -> v2 -> v3 -> v4 chain
+    v1_hash = "a1" + "0" * 62
+    v2_hash = "a2" + "0" * 62  
+    v3_hash = "a3" + "0" * 62
+    v4_hash = "a4" + "0" * 62
+    
+    v1_metadata = json.dumps({"superseded_by": v2_hash})
+    v2_metadata = json.dumps({"superseded_by": v3_hash})
+    v3_metadata = json.dumps({"superseded_by": v4_hash})
+    
+    # All start with version=1
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, '', '', '', 1, NULL)",
+        (v4_hash,)  # Final winner
+    )
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, ?, '', '', 1, NULL)",
+        (v3_hash, v3_metadata)
     )
     conn.execute(
         "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
@@ -182,35 +265,76 @@ def test_backfill_multi_step_chain_monotonic_versions(temp_db, backfill_module):
     # Execute backfill
     stats = backfill_module.backfill(conn, apply=True)
     
-    # Should process 2 supersessions (v1->v2, v2->v3)
-    assert stats["superseded_filled"] == 2
-    assert stats["parent_filled"] == 2
-    assert stats["scanned"] == 2  # Only v1 and v2 have metadata superseded_by
+    # Should process 3 supersessions (v1->v2, v2->v3, v3->v4)
+    assert stats["superseded_filled"] == 3
+    assert stats["parent_filled"] == 3
+    assert stats["scanned"] == 3
     
-    # Verify chain links
-    v2_row = conn.execute(
-        "SELECT parent_id, version FROM memories WHERE content_hash = ?", (v2_hash,)
-    ).fetchone()
+    # Verify EXACT versions for entire chain
+    v2_row = conn.execute("SELECT parent_id, version FROM memories WHERE content_hash = ?", (v2_hash,)).fetchone()
     assert v2_row[0] == v1_hash
     assert v2_row[1] == 2
     
-    v3_row = conn.execute(
-        "SELECT parent_id, version FROM memories WHERE content_hash = ?", (v3_hash,)
-    ).fetchone()
+    v3_row = conn.execute("SELECT parent_id, version FROM memories WHERE content_hash = ?", (v3_hash,)).fetchone()
     assert v3_row[0] == v2_hash
-    # The version should be at least 2 (monotonic), actual value depends on processing order
-    assert v3_row[1] >= 2
+    assert v3_row[1] == 3
     
-    # Verify superseded_by columns set
-    v1_superseded = conn.execute(
-        "SELECT superseded_by FROM memories WHERE content_hash = ?", (v1_hash,)
-    ).fetchone()[0]
-    assert v1_superseded == v2_hash
+    v4_row = conn.execute("SELECT parent_id, version FROM memories WHERE content_hash = ?", (v4_hash,)).fetchone()
+    assert v4_row[0] == v3_hash
+    assert v4_row[1] == 4
     
-    v2_superseded = conn.execute(
-        "SELECT superseded_by FROM memories WHERE content_hash = ?", (v2_hash,)
-    ).fetchone()[0]
-    assert v2_superseded == v3_hash
+    # v1 should remain version=1
+    v1_row = conn.execute("SELECT version FROM memories WHERE content_hash = ?", (v1_hash,)).fetchone()
+    assert v1_row[0] == 1
+
+
+def test_backfill_idempotent_with_existing_parent_id(temp_db, backfill_module):
+    """Case 6: Winner that already has parent_id set (from #1348) is NOT overwritten.
+    
+    Simulates a row already versioned by the new system - backfill should be idempotent.
+    """
+    conn, _ = temp_db
+    
+    # Setup: old row points to winner that ALREADY has parent_id (from #1348)
+    old_hash = "b1" + "0" * 62
+    winner_hash = "b2" + "0" * 62
+    existing_parent = "b0" + "0" * 62  # Some other parent already set
+    
+    old_metadata = json.dumps({"superseded_by": winner_hash})
+    
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, ?, '', '', 1, NULL)",
+        (old_hash, old_metadata)
+    )
+    # Winner already has parent_id and version from #1348
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, '', '', ?, 5, NULL)",
+        (winner_hash, existing_parent)  # Already linked to different parent
+    )
+    conn.commit()
+    
+    # Execute backfill
+    stats = backfill_module.backfill(conn, apply=True)
+    
+    # Should set superseded_by but NOT overwrite existing parent/version
+    assert stats["superseded_filled"] == 1  # Old row gets superseded_by column
+    assert stats["parent_filled"] == 0      # Winner already has parent_id, don't overwrite
+    assert stats["version_filled"] == 0     # Winner already has version, don't overwrite
+    
+    # Verify old row gets superseded_by column
+    old_row = conn.execute(
+        "SELECT superseded_by FROM memories WHERE content_hash = ?", (old_hash,)
+    ).fetchone()
+    assert old_row[0] == winner_hash
+    
+    # Verify winner's existing parent/version are preserved (idempotent)
+    winner_row = conn.execute(
+        "SELECT parent_id, version FROM memories WHERE content_hash = ?", (winner_hash,)
+    ).fetchone()
+    assert winner_row[0] == existing_parent  # NOT overwritten with old_hash
+    assert winner_row[1] == 5                # NOT overwritten with 2
 
 
 def test_backfill_dry_run_leaves_database_unchanged(temp_db, backfill_module):

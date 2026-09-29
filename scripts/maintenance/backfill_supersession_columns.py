@@ -83,15 +83,28 @@ def backfill(conn: sqlite3.Connection, apply: bool) -> dict[str, int]:
 
     # content_hash -> new superseded_by value to set on the OLD (loser) row.
     old_updates: list[tuple[str, str]] = []
-    # winner_hash -> (parent_hash, new_version) to reconnect the NEW row's history.
-    # The legacy trace only lives on the old row (old.metadata.superseded_by = winner);
-    # parent_id/version were never written anywhere. We derive the inverse link:
-    # if OLD is superseded by NEW, then NEW.parent_id = OLD and NEW.version = OLD.version + 1,
-    # so get_memory_history (which walks parent_id) can reconnect the chain (Greptile P1.2).
-    new_links: dict[str, tuple[str, int]] = {}
+    # Edges of the legacy supersession forest: old_hash -> winner_hash (winner is the
+    # newer version). The legacy trace only lives on the old row
+    # (old.metadata.superseded_by = winner); parent_id/version were never written.
+    # We reconnect history by deriving the inverse link (NEW.parent_id = OLD) and, for
+    # the version, by numbering each chain from its root so multi-step chains
+    # v1->v2->v3 get 1,2,3 instead of colliding at 2 (Greptile P1.2 + P1.4).
+    edges: dict[str, str] = {}  # old_hash -> winner_hash
+    # cache of which content_hashes exist (live) and their already-set parent_id
+    live_parent: dict[str, object] = {}
+
+    def _live_parent(h: str):
+        if h not in live_parent:
+            r = conn.execute(
+                "SELECT parent_id FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                (h,),
+            ).fetchone()
+            live_parent[h] = (r[0] if r else "__missing__")
+        return live_parent[h]
+
     orphans: list[str] = []
 
-    for content_hash, metadata, col_superseded, col_version in rows:
+    for content_hash, metadata, col_superseded, _col_version in rows:
         stats["scanned"] += 1
         try:
             meta = json.loads(metadata) if metadata else {}
@@ -102,11 +115,7 @@ def backfill(conn: sqlite3.Connection, apply: bool) -> dict[str, int]:
         if not (_valid_hash(winner) and not col_superseded):
             continue
 
-        winner_row = conn.execute(
-            "SELECT parent_id, version FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
-            (winner,),
-        ).fetchone()
-        if winner_row is None:
+        if _live_parent(winner) == "__missing__":
             # #1352: pointing the column at a deleted winner would hide this row
             # with no way back. Leave it visible; report for operator review.
             stats["winner_gone"] += 1
@@ -116,16 +125,27 @@ def backfill(conn: sqlite3.Connection, apply: bool) -> dict[str, int]:
         # OLD row: set the real superseded_by column so default retrieval drops it.
         old_updates.append((winner, content_hash))
         stats["superseded_filled"] += 1
+        edges[content_hash] = winner
 
-        # NEW row: reconnect history only if it isn't already linked. Longest chain wins
-        # so multi-step chains (v1->v2->v3) get monotonic versions.
-        w_parent, w_version = winner_row
-        if not w_parent:
-            old_version = col_version or 1
-            candidate_version = old_version + 1
-            existing = new_links.get(winner)
-            if existing is None or candidate_version > existing[1]:
-                new_links[winner] = (content_hash, candidate_version)
+    # Walk each chain from its root and assign monotonic versions. Root = an old_hash
+    # that is not itself the winner of another edge. version(root)=1, each successor +1.
+    # Only fill parent_id/version where the row isn't already linked, so re-runs and
+    # rows already versioned by #1348 are left untouched (idempotent).
+    winners = set(edges.values())
+    roots = [old for old in edges if old not in winners]
+    new_links: dict[str, tuple[str, int]] = {}  # winner -> (parent, version)
+    seen: set[str] = set()
+    for root in roots:
+        node, version, parent = root, 1, None
+        while node in edges:
+            nxt = edges[node]
+            if nxt in seen:  # defensive: cycle / diamond, stop
+                break
+            version += 1
+            if not _live_parent(nxt):  # winner not already linked
+                new_links[nxt] = (node, version)
+            seen.add(nxt)
+            node = nxt
 
     if orphans:
         log.warning("%d row(s) point at a deleted/missing winner in metadata; left "
@@ -149,6 +169,7 @@ def backfill(conn: sqlite3.Connection, apply: bool) -> dict[str, int]:
         conn.commit()
 
     return stats
+
 
 
 def main(argv: list[str] | None = None) -> int:
