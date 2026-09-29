@@ -114,8 +114,8 @@ class MemoryImporter:
         logger.info("  Duplicates skipped: %s", import_stats['duplicates_skipped'])
         logger.info("  Errors: %s", _sanitize_log_value(import_stats['errors']))
         
-        for source, stats in import_stats["sources"].items():
-            logger.info("  %s: %s/%s imported", _sanitize_log_value(source), stats['imported'], stats['total'])
+        for source_machine, stats in import_stats["sources"].items():
+            logger.info("  %s: %s/%s imported", _sanitize_log_value(source_machine), stats['imported'], stats['total'])
         
         return import_stats
     
