@@ -102,11 +102,13 @@ def maintainer_spoke_last(item: dict, get: Get) -> bool:
 
     The issue's `user` is the author, not the last commenter, so it answers a
     different question. GitHub returns comments oldest first, so read the last
-    page. An issue with no comments counts as not-spoken-to.
+    page. An issue with no comments has only its author's words on it, so the
+    author counts as the last speaker: a maintainer's own tracker is not
+    waiting on the maintainer.
     """
     count = item.get("comments", 0)
     if not count:
-        return False
+        return (item.get("user") or {}).get("login") in MAINTAINERS
     last_page = (count + PER_PAGE - 1) // PER_PAGE
     comments = get(f"/issues/{item['number']}/comments?per_page={PER_PAGE}&page={last_page}") or []
     if not comments:

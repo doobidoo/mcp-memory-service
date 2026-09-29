@@ -90,6 +90,15 @@ def test_stale_uses_the_last_commenter_not_the_author(digest):
     assert "/issues/4/comments?per_page=100&page=2" in get.calls
 
 
+def test_uncommented_issue_counts_the_author_as_last_speaker(digest):
+    # A maintainer's own tracker with no comments is not waiting on the maintainer.
+    tracker = issue(5, author="doobidoo")
+    # A report nobody has answered still is.
+    report = issue(6)
+    data = digest.collect(fake_get([tracker, report], []), 14, NOW)
+    assert [i["number"] for i in data["stale"]] == [6]
+
+
 def test_lookup_cap_is_reported_not_silent(digest):
     aged = [issue(n) for n in range(1, digest.STALE_LOOKUP_CAP + 4)]
     data = digest.collect(fake_get(aged, []), 14, NOW)
