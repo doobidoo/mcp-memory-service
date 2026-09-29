@@ -54,6 +54,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/mixins/migrations.py",
     "mcp_memory_service/storage/mixins/embeddings.py",
     "mcp_memory_service/discovery/mdns_service.py",
+    "mcp_memory_service/sync/importer.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -81,6 +82,13 @@ EXTERNAL_NAMES = frozenset({
     # object name is listed rather than `name`/`url`, which are ordinary internal
     # identifiers elsewhere in the guarded modules.
     "service_details",
+    # What the importer (sync/importer.py) is handed from outside: the path of
+    # each export file passed on the command line, and the machine name the
+    # export itself declares in its metadata. The per-source summary loop is
+    # named `source_machine` for this reason; a bare `source` stays unlisted,
+    # it is an ordinary internal identifier elsewhere.
+    "json_file",
+    "source_machine",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -258,6 +266,27 @@ def test_lazy_scan_flags_mdns_service_details():
     assert _lazy_findings(bare)
     assert not _lazy_findings(wrapped)
     assert not _lazy_findings('logger.info("Discovered: %s", name)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_importer_inputs():
+    """json_file and source_machine reach sync/importer.py from outside.
+
+    The path is whatever the command line passed in; the machine name is
+    read out of the export's own metadata. Every guarded logger call in the
+    importer already wraps both, so the module scan stays green whether or
+    not they are listed. These are the samples that fail if either entry is
+    dropped from EXTERNAL_NAMES; a bare `source` stays unlisted on purpose.
+    """
+    for bare, wrapped in (
+        ('logger.info("Processing %s", json_file)\n',
+         'logger.info("Processing %s", _sanitize_log_value(json_file))\n'),
+        ('logger.info("  %s: done", source_machine)\n',
+         'logger.info("  %s: done", _sanitize_log_value(source_machine))\n'),
+    ):
+        assert _lazy_findings(bare)
+        assert not _lazy_findings(wrapped)
+    assert not _lazy_findings('logger.info("  %s: done", source)\n')
 
 
 @pytest.mark.unit

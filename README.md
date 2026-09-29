@@ -263,3 +263,11 @@ cd mcp-memory-service
 pip install -e .  # Editable install
 pytest tests/      # Run test suite
 ```
+
+---
+
+## Supporting the Project
+
+MCP Memory Service is maintained by one person. If it saves you or your company time,
+you can support its development via Ko-fi, Buy Me a Coffee or PayPal:
+[SPONSORS.md](https://github.com/doobidoo/mcp-memory-service/blob/main/SPONSORS.md).

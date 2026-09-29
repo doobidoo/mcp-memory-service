@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Set
 
+from ..compat import _sanitize_log_value
 from ..models.memory import Memory
 from ..storage.base import MemoryStorage
 
@@ -64,7 +65,7 @@ class MemoryImporter:
         Returns:
             Import statistics and results
         """
-        logger.info(f"Starting import from {len(json_files)} JSON files")
+        logger.info("Starting import from %s JSON files", len(json_files))
         
         # Get existing content hashes for deduplication
         existing_hashes = await self._get_existing_hashes() if deduplicate else set()
@@ -94,24 +95,27 @@ class MemoryImporter:
                 import_stats["duplicates_skipped"] += file_stats["duplicates"]
                 import_stats["sources"].update(file_stats["sources"])
                 
-                logger.info(f"Processed {json_file}: {file_stats['imported']}/{file_stats['processed']} imported")
+                logger.info(
+                    "Processed %s: %s/%s imported",
+                    _sanitize_log_value(json_file), file_stats['imported'], file_stats['processed'],
+                )
                 
             except Exception as e:
-                logger.error(f"Error processing {json_file}: {str(e)}")
+                logger.error("Error processing %s: %s", _sanitize_log_value(json_file), _sanitize_log_value(e))
                 import_stats["errors"] += 1
         
         import_stats["end_time"] = datetime.now().isoformat()
         
         # Log final summary
         logger.info("Import completed:")
-        logger.info(f"  Files processed: {import_stats['files_processed']}")
-        logger.info(f"  Total memories processed: {import_stats['total_processed']}")
-        logger.info(f"  Successfully imported: {import_stats['imported']}")
-        logger.info(f"  Duplicates skipped: {import_stats['duplicates_skipped']}")
-        logger.info(f"  Errors: {import_stats['errors']}")
+        logger.info("  Files processed: %s", import_stats['files_processed'])
+        logger.info("  Total memories processed: %s", import_stats['total_processed'])
+        logger.info("  Successfully imported: %s", import_stats['imported'])
+        logger.info("  Duplicates skipped: %s", import_stats['duplicates_skipped'])
+        logger.info("  Errors: %s", _sanitize_log_value(import_stats['errors']))
         
-        for source, stats in import_stats["sources"].items():
-            logger.info(f"  {source}: {stats['imported']}/{stats['total']} imported")
+        for source_machine, stats in import_stats["sources"].items():
+            logger.info("  %s: %s/%s imported", _sanitize_log_value(source_machine), stats['imported'], stats['total'])
         
         return import_stats
     
@@ -123,7 +127,7 @@ class MemoryImporter:
         dry_run: bool
     ) -> Dict[str, Any]:
         """Import memories from a single JSON file."""
-        logger.info(f"Processing {json_file}")
+        logger.info("Processing %s", _sanitize_log_value(json_file))
         
         # Load and validate JSON
         with open(json_file, 'r', encoding='utf-8') as f:
@@ -155,7 +159,7 @@ class MemoryImporter:
             content_hash = memory_data.get("content_hash")
             
             if not content_hash:
-                logger.warning(f"Memory missing content_hash, skipping")
+                logger.warning("Memory missing content_hash, skipping")
                 continue
             
             # Check for duplicates
@@ -180,7 +184,7 @@ class MemoryImporter:
                 file_stats["sources"][source_machine]["imported"] += 1
                 
             except Exception as e:
-                logger.error(f"Error creating memory from data: {str(e)}")
+                logger.error("Error creating memory from data: %s", _sanitize_log_value(e))
                 continue
         
         return file_stats
@@ -227,7 +231,7 @@ class MemoryImporter:
             all_memories = await self.storage.get_all_memories()
             return {memory.content_hash for memory in all_memories}
         except Exception as e:
-            logger.warning(f"Could not load existing memories for deduplication: {str(e)}")
+            logger.warning("Could not load existing memories for deduplication: %s", _sanitize_log_value(e))
             return set()
     
     async def analyze_import(self, json_files: List[Path]) -> Dict[str, Any]:
@@ -240,7 +244,7 @@ class MemoryImporter:
         Returns:
             Analysis results including potential duplicates and statistics
         """
-        logger.info(f"Analyzing potential import from {len(json_files)} files")
+        logger.info("Analyzing potential import from %s files", len(json_files))
         
         existing_hashes = await self._get_existing_hashes()
         
@@ -314,7 +318,7 @@ class MemoryImporter:
                 analysis["files"].append(file_analysis)
                 
             except Exception as e:
-                logger.error(f"Error analyzing {json_file}: {str(e)}")
+                logger.error("Error analyzing %s: %s", _sanitize_log_value(json_file), _sanitize_log_value(e))
                 analysis["files"].append({
                     "file": str(json_file),
                     "error": str(e)
