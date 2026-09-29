@@ -166,6 +166,8 @@ class EmbeddingsMixin:
                         # name only on a cold start would leave health reporting
                         # wrong almost everywhere.
                         self.embedding_model_name = external_model_name
+                        # Set embedding cache namespace to distinguish different external endpoints
+                        self._embedding_cache_namespace = cache_key
                         if cache_key in _DIMENSION_CACHE:
                             self.embedding_dimension = _DIMENSION_CACHE[cache_key]
                         elif hasattr(self.embedding_model, 'embedding_dimension'):
@@ -180,6 +182,8 @@ class EmbeddingsMixin:
                     # default, and every health surface that reads it reports a
                     # model that is not the one producing the vectors (#254).
                     self.embedding_model_name = external_model_name
+                    # Set embedding cache namespace to distinguish different external endpoints
+                    self._embedding_cache_namespace = cache_key
                     self.embedding_dimension = ext_model.embedding_dimension
                     _MODEL_CACHE[cache_key] = ext_model
                     _DIMENSION_CACHE[cache_key] = self.embedding_dimension
@@ -220,6 +224,8 @@ class EmbeddingsMixin:
                     cache_key = f"onnx_{self.embedding_model_name}"
                     if _onnx_ok and cache_key in _MODEL_CACHE:
                         self.embedding_model = _MODEL_CACHE[cache_key]
+                        # Set embedding cache namespace for ONNX models
+                        self._embedding_cache_namespace = cache_key
                         if cache_key in _DIMENSION_CACHE:
                             self.embedding_dimension = _DIMENSION_CACHE[cache_key]
                         elif hasattr(self.embedding_model, 'embedding_dimension'):
@@ -245,6 +251,8 @@ class EmbeddingsMixin:
                                 _sanitize_log_value(self.embedding_model_name), onnx_model.embedding_dimension,
                             )
                         self.embedding_model = onnx_model
+                        # Set embedding cache namespace for ONNX models
+                        self._embedding_cache_namespace = cache_key
                         self.embedding_dimension = onnx_model.embedding_dimension
                         _MODEL_CACHE[cache_key] = onnx_model
                         _DIMENSION_CACHE[cache_key] = self.embedding_dimension
@@ -280,6 +288,8 @@ class EmbeddingsMixin:
             cache_key = self.embedding_model_name
             if cache_key in _MODEL_CACHE:
                 self.embedding_model = _MODEL_CACHE[cache_key]
+                # Set embedding cache namespace for SentenceTransformer models
+                self._embedding_cache_namespace = cache_key
                 if cache_key in _DIMENSION_CACHE:
                     self.embedding_dimension = _DIMENSION_CACHE[cache_key]
                 elif hasattr(self.embedding_model, 'get_sentence_embedding_dimension'):
@@ -366,6 +376,9 @@ class EmbeddingsMixin:
             test_embedding = self.embedding_model.encode(["test"], convert_to_numpy=True)
             self.embedding_dimension = test_embedding.shape[1]
 
+            # Set embedding cache namespace for SentenceTransformer models  
+            self._embedding_cache_namespace = cache_key
+            
             _MODEL_CACHE[cache_key] = self.embedding_model
             _DIMENSION_CACHE[cache_key] = self.embedding_dimension
 
@@ -470,6 +483,8 @@ class EmbeddingsMixin:
             )
             self.embedding_dimension = existing_dim
         self.embedding_model = _HashEmbeddingModel(self.embedding_dimension)
+        # Set embedding cache namespace for hash fallback
+        self._embedding_cache_namespace = f"hash_{self.embedding_dimension}"
         self.embedding_backend_degraded = True
 
     def _generate_embedding(self, text: str) -> List[float]:
@@ -479,7 +494,29 @@ class EmbeddingsMixin:
 
         try:
             if self.enable_cache:
-                cache_key = f"{self.embedding_model_name}::{text}"
+                # Use namespace to distinguish different providers/endpoints with same model name
+                # Only use the cached namespace if it's for the same model name (for external APIs)
+                # or if it's a compound namespace that inherently includes model identity
+                namespace = self.embedding_model_name  # Default to current model name
+                
+                if hasattr(self, '_embedding_cache_namespace') and self._embedding_cache_namespace:
+                    cached_namespace = self._embedding_cache_namespace
+                    
+                    # For external APIs: namespace is "external_url_model_key" - use it if model matches
+                    if cached_namespace.startswith('external_') and self.embedding_model_name in cached_namespace:
+                        namespace = cached_namespace
+                    # For ONNX: namespace is "onnx_model" - use it if model matches  
+                    elif cached_namespace.startswith('onnx_') and cached_namespace == f"onnx_{self.embedding_model_name}":
+                        namespace = cached_namespace
+                    # For hash fallback: namespace is "hash_dimension" - use it
+                    elif cached_namespace.startswith('hash_'):
+                        namespace = cached_namespace
+                    # For regular models: namespace should be model name - only use if it matches
+                    elif cached_namespace == self.embedding_model_name:
+                        namespace = cached_namespace
+                    # Otherwise: use current model name (handles model name changes in tests)
+                
+                cache_key = f"{namespace}::{text}"
                 cached = _embedding_cache_get(cache_key)
                 if cached is not None:
                     return cached
