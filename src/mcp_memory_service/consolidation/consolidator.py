@@ -404,8 +404,15 @@ class DreamInspiredConsolidator:
 
     async def _run_relevance_phase(
         self, memories: List[Memory], time_horizon: str
-    ) -> Dict[str, float]:
-        """Phase 1/6: score memories by relevance, returning {hash: score}."""
+    ) -> List:
+        """Phase 1/6: score memories by relevance and persist the scores.
+
+        Skipped when decay is disabled (#1354). The flag is checked here rather
+        than in :meth:`_run_phase_schedule` to keep that method's complexity down.
+        """
+        if not self.config.decay_enabled:
+            self.logger.info("Decay disabled, skipping Phase 1/6 (relevance scoring)")
+            return []
         self.logger.info(
             "📊 Phase 1/6: Calculating relevance scores for %s memories...",
             len(memories),
@@ -692,8 +699,9 @@ class DreamInspiredConsolidator:
             self.logger.info("No stale-tail candidates for forgetting")
             return []
 
+        # Forgetting needs scores even with decay off; it just must not persist them (#1354).
         forgetting_scores = await self._update_relevance_scores(
-            forgetting_candidates, time_horizon
+            forgetting_candidates, time_horizon, persist=self.config.decay_enabled
         )
         access_patterns = await self._get_access_patterns(
             [m.content_hash for m in forgetting_candidates]
@@ -743,9 +751,9 @@ class DreamInspiredConsolidator:
         return memories
 
     async def _update_relevance_scores(
-        self, memories: List[Memory], time_horizon: str
+        self, memories: List[Memory], time_horizon: str, persist: bool = True
     ) -> List:
-        """Calculate and update relevance scores for memories."""
+        """Calculate relevance scores; write them to memory metadata when *persist*."""
         # Get connection and access data
         connections = await self._get_memory_connections()
         access_patterns = await self._get_access_patterns(
@@ -759,6 +767,8 @@ class DreamInspiredConsolidator:
             access_patterns=access_patterns,
             reference_time=datetime.now(timezone.utc),
         )
+        if not persist:
+            return relevance_scores
 
         # Update memory metadata with relevance scores (v8.47.1 - batch optimization)
         # Collect all memories to update, then use single batch operation for 50-100x speedup

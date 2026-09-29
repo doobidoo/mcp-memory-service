@@ -30,6 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
 from ..oauth.middleware import require_read_access, require_admin_access
+from ...compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ PARAM_DESCRIPTIONS = {
     # Consolidation
     "MCP_CONSOLIDATION_ENABLED": "Enable dream-inspired memory consolidation",
     "MCP_CONSOLIDATION_ARCHIVE_PATH": "Path for consolidation archive",
-    "MCP_DECAY_ENABLED": "Enable quality decay over time",
+    "MCP_DECAY_ENABLED": "Enable relevance/decay scoring during consolidation",
     "MCP_RETENTION_DECISION": "Retention for decision memories (days)",
     "MCP_RETENTION_LEARNING": "Retention for learning memories (days)",
     "MCP_RETENTION_PATTERN": "Retention for pattern memories (days)",
@@ -473,7 +474,7 @@ async def get_env_configuration(user = Depends(require_read_access)):
             # Get file modification time
             last_modified = env_path.stat().st_mtime
         except Exception as e:
-            logger.error(f"Error reading .env file: {e}")
+            logger.error("Error reading .env file: %s", _sanitize_log_value(e))
 
     # Build categories
     categories = []
@@ -595,7 +596,7 @@ def _read_env_file_dict(env_path: Path) -> dict:
                         v = v[1:-1]
                     result[key.strip()] = v
     except Exception as e:
-        logger.error(f"Error reading .env file: {e}")
+        logger.error("Error reading .env file: %s", _sanitize_log_value(e))
     return result
 
 
@@ -759,7 +760,7 @@ async def save_credentials(
         }.items():
             _write_credential_to_env(env_path, key, value)
     except Exception as e:
-        logger.error(f"Failed to write credentials to .env: {e}")
+        logger.error("Failed to write credentials to .env: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to write .env: {e}")
 
     logger.warning(
